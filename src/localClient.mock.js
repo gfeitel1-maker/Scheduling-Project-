@@ -1440,6 +1440,17 @@ export const mockShoresh = {
     return { ok: true, dismissed: 0 }
   },
 
+  // The mock has no import/commitPlan pipeline (docs/adr/2026-08-28-
+  // persisted-reconciliation-decisions.md) — a real empty result, same
+  // posture as listMigrationReviews above. Persistence is only verifiable
+  // under electron:dev.
+  async listOpenReconciliationDecisions() {
+    return []
+  },
+  async dismissOpenReconciliationDecisions() {
+    return { ok: true, dismissed: 0 }
+  },
+
   // Duplicate a week in mock state, mirroring duplicateWeek.js's contract:
   // a new schedule_weeks row, new schedule_templates rows, copies of slots/
   // overlays/exclusions with fresh ids, appended last. Operates on

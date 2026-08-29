@@ -23,6 +23,7 @@ import { listDeleted, getEntityHistory } from './ops/trash.js'
 import { RESTORABLE_ENTITIES, restoreEntity, lastKnownFieldSources } from './ops/restore.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from './ops/deleteRecord.js'
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
+import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
 import { commitIngest, ingestUndo, listImportEvidence } from './ops/ingest.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { recordDeclinedSplit, listDeclinedSplitNames } from './ops/declinedSplits.js'
@@ -1226,6 +1227,39 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return dismissMigrationReviews(db, ids)
   }
 
+  // docs/adr/2026-08-28-persisted-reconciliation-decisions.md §4b. HOST
+  // ONLY, same reasoning as confirmAliasHandler above: open_reconciliation_
+  // decisions is a host-local table, only ever written by commitPlan on the
+  // Host device (import is host-only) — a Client's own copy of this table
+  // is always empty by construction, so routing this through IPC to the
+  // Host rather than reading the calling device's own (always-empty) db
+  // would be the honest behavior; until that's needed, this reads the
+  // calling device's own db directly and is gated host-only so a Client
+  // never mistakes an always-empty read for "nothing to review".
+  function listOpenReconciliationDecisionsHandler({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'open_reconciliation_decisions.read' })
+    if (mode === 'client') {
+      throw new Error('Reconciliation decisions can only be read on the main computer.')
+    }
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return []
+    return listOpenReconciliationDecisions(db, camp.id)
+  }
+
+  // Dismiss = a plain DELETE ... WHERE id = ? (§4b) — a LOCAL WRITE, never
+  // an op, never routed to the Host or broadcast, same posture as
+  // dismissMigrationReviewsHandler. HOST ONLY for the same reason as the
+  // list handler above.
+  function dismissOpenReconciliationDecisionsHandler({ token, ids } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'open_reconciliation_decisions.dismiss' })
+    if (mode === 'client') {
+      throw new Error('Reconciliation decisions can only be dismissed on the main computer.')
+    }
+    return dismissOpenReconciliationDecisions(db, ids)
+  }
+
   function duplicateWeekHandler({ token, sourceWeekId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'schedule_weeks.write' })
@@ -1390,6 +1424,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     mergeLocation: mergeLocationHandler,
     listMigrationReviews: listMigrationReviewsHandler,
     dismissMigrationReviews: dismissMigrationReviewsHandler,
+    listOpenReconciliationDecisions: listOpenReconciliationDecisionsHandler,
+    dismissOpenReconciliationDecisions: dismissOpenReconciliationDecisionsHandler,
     duplicateWeek: duplicateWeekHandler,
     deleteWeek: deleteWeekHandler,
     deleteElectiveSet: deleteElectiveSetHandler,
@@ -1586,6 +1622,8 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:merge-location', (_event, args) => handlers.mergeLocation(args))
     ipcMain.handle('shoresh:list-migration-reviews', (_event, args) => handlers.listMigrationReviews(args && args.token))
     ipcMain.handle('shoresh:dismiss-migration-reviews', (_event, args) => handlers.dismissMigrationReviews(args))
+    ipcMain.handle('shoresh:list-open-reconciliation-decisions', (_event, args) => handlers.listOpenReconciliationDecisions(args))
+    ipcMain.handle('shoresh:dismiss-open-reconciliation-decisions', (_event, args) => handlers.dismissOpenReconciliationDecisions(args))
     ipcMain.handle('shoresh:get-device-pairing-status', () => handlers.getDevicePairingStatus())
     ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
     ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))

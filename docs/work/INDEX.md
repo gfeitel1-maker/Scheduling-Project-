@@ -147,6 +147,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Roots hub — Bento layout for the census/domain map (augment, not replace)](../../docs/adr/2026-08-27-roots-hub-bento-layout.md) | accepted | planned | — |
 | [Roots hub — census tiles are the interface (Bento demoted to the Understood tile's view)](../../docs/adr/2026-08-27-roots-hub-tiles-are-interface.md) | accepted | implemented | [2026-08-28-lifecycle-ia-program](../../docs/work/specs/2026-08-28-lifecycle-ia-program.md) |
 | [Fixed vs Recurring events: un-conflating anchor_activities (WS2 of the lifecycle-IA program)](../../docs/adr/2026-08-28-fixed-vs-recurring-events.md) | proposed | not started | — |
+| [Persisted open reconciliation decisions — host-local journal feeding Roots home's attention list](../../docs/adr/2026-08-28-persisted-reconciliation-decisions.md) | accepted | not_started | — |
 | [Roots home is a distinct screen — census tiles stay import-only, structure and attention are live reads](../../docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md) | proposed | not_started | — |
 | [ADR: Stage-Aware Navigation + Landing Routing/State-Machine (WS1)](../../docs/adr/2026-08-28-stage-aware-nav-landing.md) | proposed | proposed | — |
 

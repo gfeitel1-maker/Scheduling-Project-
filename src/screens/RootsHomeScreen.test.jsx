@@ -7,6 +7,8 @@ vi.mock('../localClient', () => ({
     list: vi.fn(),
     getCamp: vi.fn(),
     latestOpSeq: vi.fn(),
+    listOpenReconciliationDecisions: vi.fn(() => Promise.resolve([])),
+    dismissOpenReconciliationDecisions: vi.fn(() => Promise.resolve({ ok: true, dismissed: 0 })),
   },
 }))
 

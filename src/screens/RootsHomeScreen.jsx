@@ -3,7 +3,7 @@ import { localClient } from '../localClient'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import { useCurrentStructureCounts } from '../hooks/useCurrentStructureCounts.js'
-import { buildRootMapModel } from '../ingest/rootMapModel.js'
+import { useOpenReconciliationDecisions } from '../hooks/useOpenReconciliationDecisions.js'
 import { buildAttentionList, buildStructureIssues } from '../ingest/attentionList.js'
 import { INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { downloadWorkbook } from '../utils/exportWorkbook.js'
@@ -128,6 +128,13 @@ function attentionRowHover(e, on) {
 export default function RootsHomeScreen({ campId, onNavigate }) {
   const { activeCohort } = useCohorts(campId)
   const { collections, loading } = useCurrentStructureCounts(campId)
+  // Persisted unresolved import decisions (host-local) — the reconciliation
+  // half of the attention list (docs/adr/2026-08-28-persisted-reconciliation-
+  // decisions.md §5). buildRootMapModel(...,{mode:'inspect'}) yields only
+  // 'understood' rows, so the reconciliation half was structurally empty until
+  // this store existed; the hook's { model, decisionsById } carries the real
+  // attention/changed rows.
+  const { model: openModel, decisionsById: openDecisionsById } = useOpenReconciliationDecisions()
   const [preparingWorksheet, setPreparingWorksheet] = useState(false)
   const enterStyle = useEnterTransition('liftFade')
   const emptyStateEnterStyle = useEnterTransition('liftFade')
@@ -136,7 +143,8 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
 
   const attentionRows = collections
     ? buildAttentionList({
-        model: buildRootMapModel(null, { snapshot: collections, mode: 'inspect' }),
+        model: openModel,
+        decisionsById: openDecisionsById,
         structureIssues: buildStructureIssues(collections),
       })
     : []
