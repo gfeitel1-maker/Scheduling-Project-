@@ -1370,12 +1370,20 @@ describe('T18: one concept has one name on both routes', () => {
     // leaked into the interface; Article V says the director's words win. The
     // defect was that the SAME finding was called one thing on the manual route
     // and another on the generated one, so a director learned it twice.
-    mockList({ template_slots: [slotRow()] })
+    mockList({
+      // Both target badges only render once the camp has configured the
+      // target they measure — see "stats bar target badges" below.
+      activities: [activity({ min_per_week: 1, prefer_before_day: 1, prefer_before_day_min: 1 })],
+      template_slots: [slotRow()],
+    })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Still needed')).toBeTruthy())
 
-    expect(screen.getByText('Still needed')).toBeTruthy()
-    expect(screen.getByText('Spread across the week')).toBeTruthy()
+    // Both badges have findings here, so the clickable "↗" suffix is appended
+    // to the label as a separate text node — match loosely, as elsewhere in
+    // this file (see the CELL_SELECTOR / "Unfillable" comment above).
+    expect(screen.getByText(/Spread across the week/)).toBeTruthy()
     expect(screen.getByText('Placed')).toBeTruthy()
     expect(screen.queryByText('Underserved')).toBeNull()
     expect(screen.queryByText('Distribution')).toBeNull()
@@ -1544,5 +1552,57 @@ describe('T37: onOpApplied skips loadAll for local-device ops', () => {
     opAppliedListeners.forEach(cb => cb({ device_id: 'device-peer', entity: 'template_slots' }))
 
     await waitFor(() => expect(localClient.list.mock.calls.length).toBeGreaterThan(listCallsBefore))
+  })
+})
+
+// The stats bar's "Still needed" and "Spread across the week" badges measure
+// per-activity targets (min_per_week, prefer_before_day/_min). When no
+// activity in the camp has the relevant target configured, the count is
+// STRUCTURALLY always 0 — not a real "checked and clean" zero — so the badge
+// must not render at all rather than show a fake 0. Placed/Unfillable are
+// unrelated counts and must be unaffected either way.
+describe('stats bar target badges hide when no activity has the target configured', () => {
+  it('hides "Still needed" when no activity has min_per_week set', async () => {
+    mockList({ activities: [activity({ min_per_week: null })] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Placed')).toBeTruthy())
+    expect(screen.queryByText(/Still needed/)).toBeNull()
+  })
+
+  it('shows "Still needed" as a real 0 when an activity has min_per_week set and nothing is underserved', async () => {
+    mockList({
+      activities: [activity({ id: 'act-1', name: 'Swim', min_per_week: 1 })],
+      template_slots: [slotRow({ activity_id: 'act-1' })], // 1 placement satisfies min_per_week: 1
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText(/Still needed/)).toBeTruthy())
+    expect(screen.getByText(/Still needed/).parentElement.textContent).toContain('0')
+  })
+
+  it('hides "Spread across the week" when no activity has prefer_before_day/_min set', async () => {
+    mockList({ activities: [activity({ prefer_before_day: null, prefer_before_day_min: null })] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Placed')).toBeTruthy())
+    expect(screen.queryByText(/Spread across the week/)).toBeNull()
+  })
+
+  it('shows "Spread across the week" as a real 0 when an activity has prefer_before_day/_min set and nothing is off-spread', async () => {
+    mockList({
+      days_of_operation: [day({ id: 'd1', day_of_week: 1, sort_order: 1, label: 'Monday' }), day({ id: 'd2', day_of_week: 2, sort_order: 2, label: 'Tuesday' })],
+      activities: [activity({ id: 'act-1', name: 'Swim', prefer_before_day: 2, prefer_before_day_min: 1 })],
+      // Placed on day 1, before the target day 2 — satisfies the goal.
+      template_slots: [slotRow({ activity_id: 'act-1', day_id: 'd1' })],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText(/Spread across the week/)).toBeTruthy())
+    expect(screen.getByText(/Spread across the week/).parentElement.textContent).toContain('0')
+  })
+
+  it('leaves Placed and Unfillable badges unaffected when no target is configured', async () => {
+    mockList({ activities: [activity({ min_per_week: null, prefer_before_day: null, prefer_before_day_min: null })] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Placed')).toBeTruthy())
+    expect(screen.getByText('Placed').parentElement.textContent).toContain('1 of 1')
+    expect(screen.getByText('Unfillable')).toBeTruthy()
   })
 })
