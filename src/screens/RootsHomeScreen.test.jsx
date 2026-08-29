@@ -184,6 +184,74 @@ describe('RootsHomeScreen', () => {
     expect(domainChip.getAttribute('style')).not.toContain('var(--secondary)')
   })
 
+  it('weights the Schedule bar as the forward door, distinct from the bento cards (WS4b)', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Schedule →' })).not.toBeNull())
+
+    const scheduleBar = screen.getByRole('button', { name: 'Schedule →' })
+    const style = scheduleBar.getAttribute('style')
+    expect(style).toContain('color-mix(in srgb, var(--primary)')
+    expect(style).not.toBe(null)
+
+    const card = screen.getByText('Activities').closest('div').parentElement
+    // The bento card keeps the plain WS4a surface fill — no primary tint —
+    // so the door reads as visually distinct from a sixth bento card.
+    expect(card.getAttribute('style')).not.toContain('color-mix(in srgb, var(--primary)')
+  })
+
+  it('renders a colored arrow glyph on the Schedule door at the larger door-affordance size', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Schedule →' })).not.toBeNull())
+
+    const arrow = screen.getByText('→')
+    expect(arrow.style.color).toBe('var(--primary)')
+    expect(arrow.style.fontSize).toBe('17px')
+  })
+
+  it('steps the count typography to 18px tabular-nums on chip-bearing cards, keeps small cards at 14.5px', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Activities')).not.toBeNull())
+
+    const activitiesCount = screen.getByText('Activities').closest('div').parentElement.querySelector('span:last-child')
+    expect(activitiesCount.style.fontSize).toBe('18px')
+    expect(activitiesCount.style.fontVariantNumeric).toBe('tabular-nums')
+
+    const tiersCount = screen.getByText('Age Divisions').closest('div').parentElement.querySelector('span:last-child')
+    expect(tiersCount.style.fontSize).toBe('')
+  })
+
+  it('shows a check icon and gentle mount motion in the empty "needs your attention" state', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Nothing needs you right now.')).not.toBeNull())
+
+    expect(screen.getByTestId('attention-empty-check')).not.toBeNull()
+  })
+
+  it('spaces the dense grid apart from the attention section using --space-6, keeps --space-5 above the grid', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Activities')).not.toBeNull())
+
+    const gridSection = screen.getByText('What has taken root').closest('section')
+    const attentionSection = screen.getByText('Needs your attention').closest('section')
+    expect(gridSection.style.marginTop).toBe('var(--space-5)')
+    expect(attentionSection.style.marginTop).toBe('var(--space-6)')
+  })
+
   it('places every bento card at a deterministic, explicit grid position (no auto-placement gap)', async () => {
     const collections = collectionsFor()
     localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
