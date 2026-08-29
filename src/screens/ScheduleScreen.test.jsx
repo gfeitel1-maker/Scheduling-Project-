@@ -46,12 +46,11 @@ function scheduleCell(name) {
   return screen.getAllByText(name).find((el) => el.closest(CELL_SELECTOR))
 }
 
-// WS5 S2a: Weather Mode, Versions, Export to Excel, and Rebuild moved off the
-// always-visible toolbar into a "⋯" overflow menu. Any test that reaches one
-// of those controls must open the menu first.
-function openMoreMenu() {
-  fireEvent.click(screen.getByTitle('More'))
-}
+// WS5 S2a moved Weather Mode, Versions, Export to Excel, and Rebuild behind a
+// "⋯" overflow popup. The owner disliked that dropdown container specifically
+// (not the controls being visually secondary) — S3 removed the popup and
+// renders them as an always-visible, quiet cluster instead — reachable
+// directly, with no menu to open first.
 
 function group(overrides = {}) { return { id: 'g1', camp_id: CAMP_ID, name: 'Group A', tier_id: 't1', ...overrides } }
 function day(overrides = {}) { return { id: 'd1', camp_id: CAMP_ID, day_of_week: 1, sort_order: 1, label: 'Monday', ...overrides } }
@@ -124,10 +123,12 @@ beforeEach(() => {
 
 // WS5 S2a: the Field Trips entry point is removed from the toolbar, the
 // route-label block is removed (route legibility now lives in the sidebar —
-// WS5 S1), and Weather Mode / Versions / Export / Rebuild move behind a "⋯"
-// overflow menu. Week switcher, View toggle, and Undo/Redo stay directly on
-// the toolbar. The overlay/stamp subsystem itself is untouched (S2b).
-describe('WS5 S2a — toolbar slims: Field Trips removed, route label removed, controls move behind overflow', () => {
+// WS5 S1). WS5 S3 removed the "⋯" overflow popup the owner disliked: Weather
+// Mode / Versions / Export / Rebuild now render as an always-visible, quiet
+// secondary cluster instead of hiding behind a menu. Week switcher, View
+// toggle, and Undo/Redo stay directly on the toolbar, visually primary. The
+// overlay/stamp subsystem itself is untouched (S2b).
+describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed, secondary controls form a quiet visible cluster', () => {
   it('renders no "Field Trips" control on the toolbar', async () => {
     mockList()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
@@ -158,92 +159,51 @@ describe('WS5 S2a — toolbar slims: Field Trips removed, route label removed, c
     expect(screen.getByTitle(/Nothing to redo|^Redo:/)).toBeTruthy()
   })
 
-  it('does not show Weather Mode, Versions, Export to Excel, or Rebuild until the "⋯" overflow menu is opened', async () => {
+  it('renders Weather Mode, Versions, Export to Excel, and Rebuild directly on the toolbar, with no "⋯"/"More" control anywhere', async () => {
     mockList()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
-
-    expect(screen.queryByText(/Weather Mode/)).toBeNull()
-    expect(screen.queryByText('📋 Versions ▾')).toBeNull()
-    expect(screen.queryByText('Export to Excel')).toBeNull()
-    expect(screen.queryByText('Rebuild this schedule')).toBeNull()
-
-    openMoreMenu()
 
     expect(screen.getByText(/Weather Mode/)).toBeTruthy()
     expect(screen.getByText('📋 Versions ▾')).toBeTruthy()
     expect(screen.getByText('Export to Excel')).toBeTruthy()
     expect(screen.getByText('Rebuild this schedule')).toBeTruthy()
+
+    // The S2a overflow popup is gone entirely — no trigger, no menu role.
+    expect(screen.queryByTitle('More')).toBeNull()
+    expect(screen.queryByText('⋯')).toBeNull()
+    expect(screen.queryByRole('menu', { name: 'More' })).toBeNull()
   })
 
-  it('Rebuild stays hidden on the manual route even inside the overflow menu', async () => {
+  it('Rebuild stays hidden on the manual route', async () => {
     mockList({
       schedule_templates: [{ id: 'schedule-template:camp-1', camp_id: CAMP_ID, name: 'Manual', kind: 'manual', week_id: CAMP_ID }],
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="manual" />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    openMoreMenu()
-
     expect(screen.getByText('Export to Excel')).toBeTruthy()
     expect(screen.queryByText('Rebuild this schedule')).toBeNull()
   })
 
-  it('Rebuild is disabled with "Admin only" for a non-admin, inside the overflow menu', async () => {
+  it('Rebuild is disabled with "Admin only" for a non-admin', async () => {
     mockList()
     render(<ScheduleScreen campId={CAMP_ID} role="staff" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
-
-    openMoreMenu()
 
     const rebuildBtn = screen.getByText('Rebuild this schedule')
     expect(rebuildBtn.disabled).toBe(true)
     expect(rebuildBtn.getAttribute('title')).toBe('Admin only')
   })
 
-  // Code-review round 2: the "⋯" menu's own dismissal was only implicitly
-  // covered (via the fact that other tests happened to leave it open). These
-  // guard the Escape/outside-click handlers directly so a later edit that
-  // drops them fails a test instead of silently regressing.
-  it('Escape closes the "⋯" overflow menu and returns focus to the "More" trigger', async () => {
+  // VersionsDropdown owns its own dropdown — that's a legitimate menu of
+  // saved versions, not the popup container the owner objected to — and it
+  // still carries its own independent outside-click-closes behavior.
+  it('clicking a sibling control (Weather Mode) while Versions is open closes the Versions panel and toggles weather', async () => {
     mockList()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    openMoreMenu()
-    expect(screen.getByText('Export to Excel')).toBeTruthy()
-
-    fireEvent.keyDown(screen.getByRole('menu', { name: 'More' }), { key: 'Escape' })
-
-    expect(screen.queryByText('Export to Excel')).toBeNull()
-    expect(document.activeElement).toBe(screen.getByTitle('More'))
-  })
-
-  it('an outside mousedown closes the "⋯" overflow menu', async () => {
-    mockList()
-    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
-
-    openMoreMenu()
-    expect(screen.getByText('Export to Excel')).toBeTruthy()
-
-    fireEvent.mouseDown(document.body)
-
-    expect(screen.queryByText('Export to Excel')).toBeNull()
-  })
-
-  // Code-review round 2: VersionsDropdown and the "⋯" menu each carry their
-  // own independent outside-click handler. Clicking a sibling control while
-  // Versions is open is "outside" VersionsDropdown but "inside" the overflow
-  // menu, so it closes just the Versions panel — the overflow menu itself
-  // stays open and coherent. See the comment above VersionsDropdown's render
-  // in ScheduleScreen.jsx.
-  it('clicking a sibling control (Weather Mode) while Versions is open closes the Versions panel, toggles weather, and leaves the overflow menu open', async () => {
-    mockList()
-    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
-
-    openMoreMenu()
     fireEvent.click(screen.getByText('📋 Versions ▾'))
     await waitFor(() => expect(screen.getByText('Version History')).toBeTruthy())
 
@@ -253,8 +213,6 @@ describe('WS5 S2a — toolbar slims: Field Trips removed, route label removed, c
 
     expect(screen.queryByText('Version History')).toBeNull()
     expect(screen.getByText('⛅ Weather Mode ON')).toBeTruthy()
-    // The overflow menu itself is still open — its other controls are
-    // still reachable.
     expect(screen.getByText('Export to Excel')).toBeTruthy()
   })
 })
@@ -517,7 +475,6 @@ describe('snapshot CRUD ported to localClient', () => {
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    openMoreMenu()
     fireEvent.click(screen.getByText('📋 Versions ▾'))
     const nameInput = screen.getByPlaceholderText('Name current version…')
     fireEvent.change(nameInput, { target: { value: 'My Version' } })
@@ -548,7 +505,6 @@ describe('snapshot CRUD ported to localClient', () => {
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    openMoreMenu()
     fireEvent.click(screen.getByText('📋 Versions ▾'))
     await waitFor(() => expect(screen.getByText('rename')).toBeTruthy())
     fireEvent.click(screen.getByText('rename'))
@@ -579,7 +535,6 @@ describe('snapshot CRUD ported to localClient', () => {
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
-    openMoreMenu()
     await waitFor(() => expect(screen.getByText('📋 Versions ▾')).toBeTruthy())
     fireEvent.click(screen.getByText('📋 Versions ▾'))
     await waitFor(() => expect(screen.getByText('Restore')).toBeTruthy())
@@ -608,7 +563,6 @@ describe('snapshot CRUD ported to localClient', () => {
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
-    openMoreMenu()
     await waitFor(() => expect(screen.getByText('📋 Versions ▾')).toBeTruthy())
     fireEvent.click(screen.getByText('📋 Versions ▾'))
     await waitFor(() => expect(screen.getByText('Restore')).toBeTruthy())
@@ -631,7 +585,6 @@ describe('snapshot CRUD ported to localClient', () => {
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    openMoreMenu()
     fireEvent.click(screen.getByText('📋 Versions ▾'))
     await waitFor(() => expect(screen.getByText('rename')).toBeTruthy())
     fireEvent.click(screen.getByText('rename'))
@@ -689,7 +642,6 @@ describe('generate() aborts the destructive wipe when the pre-emptive snapshot f
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    openMoreMenu()
     fireEvent.click(screen.getByText('Rebuild this schedule'))
     await waitFor(() => expect(screen.getByText('Rebuild it')).toBeTruthy())
     fireEvent.click(screen.getByText('Rebuild it'))
@@ -1000,8 +952,6 @@ describe('separate manual and generated routes', () => {
   it('writes Generate only to the generated schedule, leaving the manual one alone', async () => {
     bothRoutes()
     render(routeScreen('generated'))
-    await waitFor(() => expect(screen.getByTitle('More')).toBeTruthy())
-    openMoreMenu()
     await waitFor(() => expect(screen.getByText('Rebuild this schedule')).toBeTruthy())
 
     fireEvent.click(screen.getByText('Rebuild this schedule'))
@@ -1122,8 +1072,6 @@ describe('ScheduleScreen — camp whose generated template has a random UUID id'
   it('C3: generate() writes to the UUID id and mints no schedule_templates row', async () => {
     uuidCamp()
     render(routeScreen('generated'))
-    await waitFor(() => expect(screen.getByTitle('More')).toBeTruthy())
-    openMoreMenu()
     await waitFor(() => expect(screen.getByText('Rebuild this schedule')).toBeTruthy())
 
     fireEvent.click(screen.getByText('Rebuild this schedule'))

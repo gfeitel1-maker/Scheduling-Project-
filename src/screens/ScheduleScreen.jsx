@@ -247,27 +247,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [deletingWeek, setDeletingWeek] = useState(null)
   const [showVersions, setShowVersions] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [showMoreMenu, setShowMoreMenu] = useState(false)
-  const moreMenuBtnRef = useRef(null)
-  const moreMenuRef = useRef(null)
-
-  // "More" toolbar overflow (WS5 S2a) — same WAI-ARIA menu-button pattern as
-  // the Settings gear in src/components/layout/Sidebar.jsx: close on outside
-  // mousedown, return focus to the trigger on close.
-  useEffect(() => {
-    if (!showMoreMenu) return
-    function handlePointerDown(e) {
-      if (moreMenuRef.current?.contains(e.target) || moreMenuBtnRef.current?.contains(e.target)) return
-      setShowMoreMenu(false)
-    }
-    document.addEventListener('mousedown', handlePointerDown)
-    return () => document.removeEventListener('mousedown', handlePointerDown)
-  }, [showMoreMenu])
-
-  function closeMoreMenu() {
-    setShowMoreMenu(false)
-    moreMenuBtnRef.current?.focus()
-  }
 
   // 5px, not 8: Windows uses 4, Unity 5, dnd-kit defaults to 5 (spec §5.6).
   // The keyboard sensor is the stated reason @dnd-kit is retained at all — the
@@ -1025,72 +1004,69 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             <div style={{ flex: 1 }} />
 
             {/* Weather Mode, Versions, Export, and Rebuild are used
-                occasionally, not mid-build — WS5 S2a moved them off the
-                always-visible toolbar into this overflow menu, mirroring the
-                Settings-gear pattern in src/components/layout/Sidebar.jsx. */}
-            <div style={{ position: 'relative' }}>
+                occasionally, not mid-build. WS5 S2a hid them behind a "⋯"
+                overflow popup for density; the owner disliked that popup
+                container specifically, not the controls being secondary. S3
+                keeps them always on screen but visually quiet — set off by a
+                divider, smaller/lighter than the primary front-row controls
+                (Week/View/Undo-Redo) so the grid still dominates. */}
+            <div
+              aria-label="Secondary schedule actions"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                paddingLeft: 12, marginLeft: 4,
+                borderLeft: '1px solid var(--border)',
+              }}
+            >
               <button
-                ref={moreMenuBtnRef}
-                type="button"
-                aria-haspopup="menu"
-                aria-expanded={showMoreMenu}
-                title="More"
-                onClick={() => setShowMoreMenu(v => !v)}
-                style={{ padding: '6px 12px', border: `1px solid ${showMoreMenu ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, background: showMoreMenu ? 'color-mix(in srgb, var(--accent) 8%, var(--surface))' : 'var(--surface)', color: showMoreMenu ? 'color-mix(in srgb, var(--accent) 60%, var(--text))' : 'var(--text)', fontWeight: 700, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
+                onClick={() => setWeatherMode(w => !w)}
+                style={{ padding: '5px 10px', border: `1px solid ${weatherMode ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, background: weatherMode ? 'color-mix(in srgb, var(--accent) 9%, var(--surface))' : 'var(--surface)', color: weatherMode ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
               >
-                ⋯
+                ⛅ Weather Mode {weatherMode ? 'ON' : 'OFF'}
               </button>
 
-              {showMoreMenu && (
-                <div
-                  ref={moreMenuRef}
-                  role="menu"
-                  aria-label="More"
-                  onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); closeMoreMenu() } }}
-                  style={{
-                    position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100,
-                    background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 8,
-                    display: 'flex', flexDirection: 'column', gap: 6, minWidth: 200,
-                  }}
-                >
-                  <button
-                    onClick={() => setWeatherMode(w => !w)}
-                    style={{ padding: '6px 14px', border: `1px solid ${weatherMode ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, background: weatherMode ? 'color-mix(in srgb, var(--accent) 9%, var(--surface))' : 'var(--surface)', color: weatherMode ? 'var(--accent)' : 'var(--text)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}
-                  >
-                    ⛅ Weather Mode {weatherMode ? 'ON' : 'OFF'}
-                  </button>
+              <VersionsDropdown
+                snapshots={versionRows}
+                isOpen={showVersions}
+                role={role}
+                onToggle={() => setShowVersions(v => !v)}
+                onRestore={restoreSnapshot}
+                onSaveNamed={name => { saveSnapshot(name, false).catch(() => {}) }}
+                onRenameAutoSave={renameSnapshot}
+                onDelete={deleteSnapshot}
+              />
 
-                  {/* VersionsDropdown owns its own outside-mousedown-closes
-                      listener, independent of this menu's. Clicking a sibling
-                      control below (Weather/Export/Rebuild) while Versions is
-                      open is "outside" VersionsDropdown but still "inside"
-                      this overflow menu, so it closes the Versions panel
-                      without closing the overflow menu itself — intentional. */}
-                  <VersionsDropdown
-                    snapshots={versionRows}
-                    isOpen={showVersions}
-                    role={role}
-                    onToggle={() => setShowVersions(v => !v)}
-                    onRestore={restoreSnapshot}
-                    onSaveNamed={name => { saveSnapshot(name, false).catch(() => {}) }}
-                    onRenameAutoSave={renameSnapshot}
-                    onDelete={deleteSnapshot}
-                  />
-
-                  {/* Export must act on exactly ONE schedule, and the app does
-                      not get to pick. With both routes started it asks, every
-                      time, and never remembers the answer. */}
-                  <button className="press-97" onClick={handleExportClick} style={S.btnSecondary}>Export to Excel</button>
-                  {!isManual && (
-                    <button
-                      onClick={() => setConfirmRegen(true)}
-                      disabled={role !== 'admin'}
-                      title={role !== 'admin' ? 'Admin only' : undefined}
-                      style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-                    >Rebuild this schedule</button>
-                  )}
-                </div>
+              {/* Export must act on exactly ONE schedule, and the app does
+                  not get to pick. With both routes started it asks, every
+                  time, and never remembers the answer. */}
+              <button
+                className="press-97"
+                onClick={handleExportClick}
+                style={{ ...S.btnSecondary, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)' }}
+              >Export to Excel</button>
+              {!isManual && (
+                // Quiet at rest like the rest of the secondary cluster; the
+                // destructive amber only surfaces on hover, where the intent to
+                // rebuild actually matters. Non-admins get the muted disabled
+                // form with no hover reveal.
+                <button
+                  onClick={() => setConfirmRegen(true)}
+                  disabled={role !== 'admin'}
+                  title={role !== 'admin' ? 'Admin only' : undefined}
+                  style={role !== 'admin'
+                    ? { ...S.btnSecondary, ...S.buttonDisabled, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)' }
+                    : { ...S.btnSecondary, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)', transition: 'color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)' }}
+                  onMouseEnter={role === 'admin' ? (e) => {
+                    e.currentTarget.style.color = 'var(--warning)'
+                    e.currentTarget.style.borderColor = 'var(--warning)'
+                    e.currentTarget.style.background = 'color-mix(in srgb, var(--warning) 8%, var(--surface))'
+                  } : undefined}
+                  onMouseLeave={role === 'admin' ? (e) => {
+                    e.currentTarget.style.color = 'var(--text-secondary)'
+                    e.currentTarget.style.borderColor = 'var(--border)'
+                    e.currentTarget.style.background = 'var(--surface)'
+                  } : undefined}
+                >Rebuild this schedule</button>
               )}
             </div>
           </>
