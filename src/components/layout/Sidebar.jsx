@@ -193,8 +193,10 @@ export default function Sidebar({
 
         {NAV_SECTIONS.map((section, sIdx) => {
           const items = section.items
-          const open = sidebar.sections[section.key] !== false
-          const rollup = sectionRollup({
+          // A pinned section (Plants) never folds — its rows are always shown,
+          // regardless of any stale persisted fold state (WS5 S1).
+          const open = section.pinned ? true : sidebar.sections[section.key] !== false
+          const rollup = section.pinned ? null : sectionRollup({
             section: section.key, open, gaps, startedRoutes,
           })
 
@@ -206,30 +208,46 @@ export default function Sidebar({
                 marginTop: sIdx === 0 ? 0 : 8,
                 borderTop: sIdx === 0 ? 'none' : '1px solid var(--border)',
               }}>
-                {/* The whole header row is the hit target — 200px is an easy
-                    click, a 12px glyph is not. The chevron stays visible
-                    rather than appearing on hover: a director who does not
-                    know sections collapse will never hover to find out. */}
-                <button
-                  onClick={() => toggleSection(section.key)}
-                  aria-expanded={open}
-                  title={open ? `Collapse ${section.title}` : `Expand ${section.title}`}
-                  style={{
-                    flex: 1, display: 'flex', alignItems: 'center', gap: 6,
-                    background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                {section.pinned ? (
+                  // Pinned header: a plain label, no toggle, no chevron —
+                  // there is nothing to collapse, so a click target would lie.
+                  // Left-padded to align its text with a collapsible section's
+                  // title (whose 10px chevron + 6px gap precede the text).
+                  <div style={{
+                    flex: 1, display: 'flex', alignItems: 'center',
+                    paddingLeft: 16,
                     fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
                     letterSpacing: '0.12em', textTransform: 'uppercase',
                     color: 'var(--text-secondary)', textAlign: 'left',
-                  }}
-                >
-                  <span style={{
-                    display: 'inline-block', width: 10, flexShrink: 0,
-                    opacity: 0.75, fontSize: 9,
-                    transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
-                    transition: 'transform var(--motion-base, 0.15s) var(--ease-out, ease)',
-                  }}>▶</span>
-                  {section.title}
-                </button>
+                  }}>
+                    {section.title}
+                  </div>
+                ) : (
+                  // The whole header row is the hit target — 200px is an easy
+                  // click, a 12px glyph is not. The chevron stays visible
+                  // rather than appearing on hover: a director who does not
+                  // know sections collapse will never hover to find out.
+                  <button
+                    onClick={() => toggleSection(section.key)}
+                    aria-expanded={open}
+                    title={open ? `Collapse ${section.title}` : `Expand ${section.title}`}
+                    style={{
+                      flex: 1, display: 'flex', alignItems: 'center', gap: 6,
+                      background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                      fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                      letterSpacing: '0.12em', textTransform: 'uppercase',
+                      color: 'var(--text-secondary)', textAlign: 'left',
+                    }}
+                  >
+                    <span style={{
+                      display: 'inline-block', width: 10, flexShrink: 0,
+                      opacity: 0.75, fontSize: 9,
+                      transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+                      transition: 'transform var(--motion-base, 0.15s) var(--ease-out, ease)',
+                    }}>▶</span>
+                    {section.title}
+                  </button>
+                )}
 
                 {/* A collapsed header must say what its rows would have said,
                     or tidying the sidebar becomes a way to lose alerts. */}
