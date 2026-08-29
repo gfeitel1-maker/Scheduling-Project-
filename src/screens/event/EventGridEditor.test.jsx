@@ -81,7 +81,9 @@ describe('EventGridEditor — placement path isolation (Red Hat-relevant)', () =
     render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
     await waitFor(() => expect(screen.getAllByText('Open').length).toBeGreaterThan(0))
 
-    fireEvent.click(screen.getAllByText('Open')[0])
+    // Double-click to open the inline editor (WS5 Excel-style double-click-to-
+    // edit — EmptyCell/SlotCell are shared, so this grid follows the same rule).
+    fireEvent.doubleClick(screen.getAllByText('Open')[0])
     const box = await screen.findByPlaceholderText('Type an activity…')
     fireEvent.change(box, { target: { value: 'Capture the Flag' } })
     fireEvent.keyDown(box, { key: 'Enter' })

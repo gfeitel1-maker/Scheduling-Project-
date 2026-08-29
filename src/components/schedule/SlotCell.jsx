@@ -267,11 +267,33 @@ export default function SlotCell({
   const isWeatherHighlight = weatherMode && showOutdoorIcon
   const color = activity ? activityColor(actColorIdx) : null
 
+  // WS5 follow-up "double-click to edit" (owner directive 2026-08-29): a
+  // single plain click no longer opens the inline editor — Excel-style, that
+  // click is reserved for selection (onSelect) and the stamp-mode affordance
+  // (onCellClick); it never falls through to setEditing any more, so the
+  // merge-down button and swap-by-drag are never pre-empted by an editor
+  // stealing the click. handleDoubleClick below is the only path that opens
+  // the editor by click.
   function handleClick(e) {
     triggerPress()
     if (isLocked) { onRelease?.(slot); return }
     if (onSelect) { onSelect(slot, e); return }
     if (onCellClick) { onCellClick(slot); return }
+  }
+
+  // Opens the editor regardless of a prior select-on-click — double-click
+  // wins over plain selection, the same precedence Excel gives a double-click
+  // on a selected cell. But it honors the SAME stamp > paste > edit order
+  // EmptyCell.activate() uses, so the two cell components stay unified:
+  //  - stamp mode (onCellClick) wins — a director stamping does not want a
+  //    stray double-click to open inline write;
+  //  - paste mode (pasteMode + onSelect) wins over the editor — double-clicking
+  //    a filled cell mid-paste must behave as a paste target, not pop the
+  //    editor and interrupt the selection gesture.
+  function handleDoubleClick(e) {
+    if (isLocked) return
+    if (onCellClick) { onCellClick(slot); return }
+    if (pasteMode && onSelect) { onSelect(slot, e); return }
     setEditing(true)
   }
 
@@ -338,6 +360,7 @@ export default function SlotCell({
       style={{ ...shellProps.style, cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : undefined }}
       data-paste-target={isPasteTarget ? '' : undefined}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       // No `tabIndex` here any more. It used to be 0 on a flag-highlighted cell
       // only, as the keyboard path to the reason callout that a mouse gets on

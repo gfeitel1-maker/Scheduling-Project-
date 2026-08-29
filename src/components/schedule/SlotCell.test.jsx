@@ -224,7 +224,10 @@ describe('shared cell components render placed gridcells (T56)', () => {
     expect(cell.getAttribute('aria-roledescription')).toBe('draggable')
   })
 
-  it('clicking an unlocked, unselected activity cell activates inline write instead of opening a modal', () => {
+  // WS5 follow-up "double-click to edit" (owner directive 2026-08-29):
+  // Excel-style — a single plain click no longer opens the inline editor, so
+  // that click is free for the cell's selection/merge/swap affordances.
+  it('a single plain click on an unlocked, unselected activity cell does NOT activate inline write', () => {
     render(
       <DndContext>
         <SlotCell
@@ -239,6 +242,65 @@ describe('shared cell components render placed gridcells (T56)', () => {
       </DndContext>
     )
     fireEvent.click(screen.getByRole('gridcell'))
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('double-clicking an unlocked, unselected activity cell activates inline write instead of opening a modal', () => {
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isDndEnabled
+          eligibleActivities={[{ id: 'a1', name: 'Soccer' }]}
+          onPlace={vi.fn()}
+          onCreateNew={vi.fn()}
+        />
+      </DndContext>
+    )
+    fireEvent.doubleClick(screen.getByRole('gridcell'))
+    expect(screen.getByRole('textbox')).toBeTruthy()
+  })
+
+  it('a single plain click still fires onSelect when supplied (selection is not eaten by the double-click change)', () => {
+    const onSelect = vi.fn()
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isDndEnabled
+          onSelect={onSelect}
+          eligibleActivities={[{ id: 'a1', name: 'Soccer' }]}
+          onPlace={vi.fn()}
+          onCreateNew={vi.fn()}
+        />
+      </DndContext>
+    )
+    fireEvent.click(screen.getByRole('gridcell'))
+    expect(onSelect).toHaveBeenCalledWith(slot, expect.anything())
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('double-click still activates inline write even when onSelect is supplied (selection never blocks the editor)', () => {
+    const onSelect = vi.fn()
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isDndEnabled
+          onSelect={onSelect}
+          eligibleActivities={[{ id: 'a1', name: 'Soccer' }]}
+          onPlace={vi.fn()}
+          onCreateNew={vi.fn()}
+        />
+      </DndContext>
+    )
+    fireEvent.doubleClick(screen.getByRole('gridcell'))
     expect(screen.getByRole('textbox')).toBeTruthy()
   })
 
@@ -272,6 +334,80 @@ describe('shared cell components render placed gridcells (T56)', () => {
     fireEvent.click(screen.getByRole('gridcell'))
     expect(onCellClick).toHaveBeenCalledWith(slot)
     expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('a double-click also calls onCellClick (stamp mode) instead of activating inline write when onCellClick is supplied', () => {
+    const onCellClick = vi.fn()
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isDndEnabled
+          onCellClick={onCellClick}
+          eligibleActivities={[{ id: 'a1', name: 'Soccer' }]}
+          onPlace={vi.fn()}
+          onCreateNew={vi.fn()}
+        />
+      </DndContext>
+    )
+    fireEvent.doubleClick(screen.getByRole('gridcell'))
+    expect(onCellClick).toHaveBeenCalledWith(slot)
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('in paste mode, a double-click on a filled cell pastes (onSelect) and does NOT open the editor', () => {
+    // stamp > paste > edit precedence, matching EmptyCell.activate(): a
+    // double-click mid-paste must behave as a paste target, not pop the editor.
+    const onSelect = vi.fn()
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isDndEnabled
+          pasteMode
+          onSelect={onSelect}
+          eligibleActivities={[{ id: 'a1', name: 'Soccer' }]}
+          onPlace={vi.fn()}
+          onCreateNew={vi.fn()}
+        />
+      </DndContext>
+    )
+    fireEvent.doubleClick(screen.getByRole('gridcell'))
+    expect(onSelect).toHaveBeenCalledWith(slot, expect.anything())
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('a real double-click sequence (click, click, dblclick) in paste mode never opens the editor', () => {
+    // jsdom fireEvent.doubleClick only dispatches `dblclick`; a real browser
+    // fires the two constituent `click`s first. Simulate the full sequence to
+    // prove the prefix clicks (handleClick → onSelect paste) don't leave the
+    // editor open and the dblclick honors paste mode rather than editing.
+    const onSelect = vi.fn()
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isDndEnabled
+          pasteMode
+          onSelect={onSelect}
+          eligibleActivities={[{ id: 'a1', name: 'Soccer' }]}
+          onPlace={vi.fn()}
+          onCreateNew={vi.fn()}
+        />
+      </DndContext>
+    )
+    const cell = screen.getByRole('gridcell')
+    fireEvent.click(cell)
+    fireEvent.click(cell)
+    fireEvent.doubleClick(cell)
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(onSelect).toHaveBeenCalled()
   })
 
   it('Enter on a focused, unlocked activity cell activates inline write', () => {

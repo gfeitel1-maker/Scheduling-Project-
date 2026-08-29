@@ -194,11 +194,18 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
     }
   })
 
-  it('T112 — click on an empty cell opens the inline editor', () => {
+  it('T112 — a single plain click on an empty cell does NOT open the inline editor (WS5 double-click-to-edit)', () => {
+    const container = renderView()
+    const empty = cellAt(container, 'g1|d1|b3')
+    fireEvent.click(empty)
+    expect(empty.querySelector('.cell-inline-editor-input')).toBeNull()
+  })
+
+  it('T112 — double-click on an empty cell opens the inline editor', () => {
     const container = renderView()
     const empty = cellAt(container, 'g1|d1|b3')
     expect(empty.querySelector('.cell-inline-editor-input')).toBeNull()
-    fireEvent.click(empty)
+    fireEvent.doubleClick(empty)
     expect(empty.querySelector('.cell-inline-editor-input')).not.toBeNull()
   })
 
@@ -226,6 +233,13 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
     fireEvent.click(cellAt(container, 'g1|d1|b1'))
     expect(selected.length).toBe(1)
     expect(container.querySelector('.cell-inline-editor-input')).toBeNull()
+  })
+
+  it('T112 — filled-cell double-click opens the inline editor even though onCellSelect is wired (WS5 double-click-to-edit)', () => {
+    const selected = []
+    const container = renderView({ onCellSelect: (slot) => selected.push(slot) })
+    fireEvent.doubleClick(cellAt(container, 'g1|d1|b1'))
+    expect(container.querySelector('.cell-inline-editor-input')).not.toBeNull()
   })
 
   it('T112 — an open empty-cell editor unmounts when a drop lands on the same cell (race case, design §4)', () => {
@@ -260,7 +274,7 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
       </DndContext>
     )
     const empty = cellAt(container, 'g1|d1|b3')
-    fireEvent.click(empty)
+    fireEvent.doubleClick(empty)
     expect(cellAt(container, 'g1|d1|b3').querySelector('.cell-inline-editor-input')).not.toBeNull()
 
     // A drop lands on that same cell: the geometry now reports a filled slot,
