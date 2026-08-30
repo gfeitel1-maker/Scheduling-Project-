@@ -422,7 +422,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
       </div>
 
       <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
-        <button className="press-97" onClick={onBack} style={S.backBar}>{LABELS.backLink}</button>
+        <button className="press-97" onClick={onBack} style={S.btnSecondary}>{LABELS.backLink}</button>
       </div>
     </div>
   )
