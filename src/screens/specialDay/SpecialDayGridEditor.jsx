@@ -420,10 +420,6 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
             plain read-only div (design spec §2 "Print"). */}
         <div ref={notesPrintRef} className="notes-print-view" style={{ display: 'none' }} />
       </div>
-
-      <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
-        <button className="press-97" onClick={onBack} style={S.btnSecondary}>{LABELS.backLink}</button>
-      </div>
     </div>
   )
 }

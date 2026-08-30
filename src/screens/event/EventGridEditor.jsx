@@ -594,8 +594,7 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
         </div>
       )}
 
-      <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button className="press-97" onClick={onBack} style={S.btnSecondary}>{LABELS.backLink}</button>
+      <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
         <button className="press-97" onClick={doPrint} style={S.btnSecondary}>{LABELS.printAction}</button>
       </div>
     </div>
