@@ -29,7 +29,6 @@ export const ENTITIES = [
   'schedule_templates',
   'schedule_weeks',
   'template_slots',
-  'template_overlays',
   'schedule_snapshots',
   'week_activity_exclusions',
   'week_group_exclusions',

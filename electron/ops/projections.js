@@ -692,7 +692,7 @@ export const PROJECTIONS = {
     key: 'id',
     // day_overrides_json (v38, T108, design §5.2): the whole week's
     // day_overrides rows captured at save time, restored on undo.
-    fields: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays', 'day_overrides_json'],
+    fields: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'day_overrides_json'],
     ensureExists: (db, id, field, value) => {
       if (field !== 'template_id') return
       // created_at is NOT NULL with no default (schema.sql) — placeholder
@@ -702,28 +702,6 @@ export const PROJECTIONS = {
       getStmt(db,
         "INSERT OR IGNORE INTO schedule_snapshots (id, template_id, created_at) VALUES (?, ?, '')"
       ).run(id, value)
-    },
-  },
-  // Registered for the same reason schedule_snapshots and template_slots were:
-  // an unregistered entity's ops are appended to the log and then silently
-  // discarded by applyProjection. Until now template_overlays was only ever
-  // written through bulkReplace (BULK_REPLACE_ENTITIES), which bypasses this
-  // registry — so a field-level or DELETE_FIELD op naming it did nothing a
-  // all. Deleting a day has to remove that day's overlays as recorded,
-  // replayable ops (docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md),
-  // and a silent no-op there would leave the day's delete blocked by its own FK
-  // on every device with no error anywhere.
-  //
-  // Parent-scoped with no camp_id column, like template_slots below; field lis
-  // is BULK_REPLACE_ENTITIES.template_overlays' column set minus `id`, so the
-  // two paths write the same columns.
-  template_overlays: {
-    table: 'template_overlays',
-    key: 'id',
-    fields: ['template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
-    ensureExists: (db, id, field, value) => {
-      if (field !== 'template_id') return
-      getStmt(db, 'INSERT OR IGNORE INTO template_overlays (id, template_id) VALUES (?, ?)').run(id, value)
     },
   },
   // Same never-registered bug class as schedule_snapshots above, and the
@@ -830,7 +808,7 @@ export const MUTUALLY_EXCLUSIVE_FIELDS = {
 // keeps the first non-null field (group order = precedence) and nulls every
 // other member of the group that is also non-null, deterministically and
 // identically on every device sanitizing the same row data. No-op for any
-// entity not registered above (e.g. template_overlays). Used by
+// entity not registered above (e.g. schedule_snapshots). Used by
 // operations.js's bulkReplace write and replay paths, which never go through
 // applyProjection/the per-field eviction step below.
 export function sanitizeMutuallyExclusiveRow(entity, row) {

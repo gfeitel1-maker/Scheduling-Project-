@@ -934,7 +934,6 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     schedule_templates: 'name',
     schedule_weeks: 'name',
     template_slots: 'activity_id',
-    template_overlays: 'label',
     schedule_snapshots: 'name',
     // Exclusion rows have no name-shaped field; 'week_id' is the field their
     // projection's ensureExists keys on (electron/ops/projections.js:205-226).
@@ -1423,32 +1422,7 @@ describe('list: generic entity-read IPC', () => {
     expect(rows[0].camp_id).toBe(myCampId)
   })
 
-  it('parent-scoped table (template_overlays): scoped via JOIN through schedule_templates, not a literal camp_id column', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    const campId = randomUUID()
-    const otherCampId = randomUUID()
-    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp A', 'a'.repeat(64))
-    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(otherCampId, 'Camp B', 'b'.repeat(64))
-    const myCampId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
-    const foreignCampId = myCampId === campId ? otherCampId : campId
-
-    const myTemplateId = randomUUID()
-    const otherTemplateId = randomUUID()
-    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(myTemplateId, myCampId, 'Mine Template')
-    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(otherTemplateId, foreignCampId, 'Other Camp Template')
-
-    db.prepare('INSERT INTO template_overlays (id, template_id, label) VALUES (?, ?, ?)').run(randomUUID(), myTemplateId, 'Mine Overlay')
-    db.prepare('INSERT INTO template_overlays (id, template_id, label) VALUES (?, ?, ?)').run(randomUUID(), otherTemplateId, 'Other Overlay')
-    await createUser(db, { camp_id: myCampId, name: 'Lister2', pin: '1234', role: 'staff' }, localTestWrite())
-    const { token } = await handlers.login({ name: 'Lister2', pin: '1234' })
-
-    const rows = handlers.list(token, 'template_overlays')
-    expect(rows).toHaveLength(1)
-    expect(rows[0].label).toBe('Mine Overlay')
-    expect(rows[0].template_id).toBe(myTemplateId)
-  })
-
-  it('template_slots has no camp_id column in schema.sql (only template_id) — it is scoped via JOIN through schedule_templates, same as the other 3 parent-scoped tables, not treated as a direct camp_id table', async () => {
+  it('template_slots has no camp_id column in schema.sql (only template_id) — it is scoped via JOIN through schedule_templates, same as the other parent-scoped tables, not treated as a direct camp_id table', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     const campId = randomUUID()
     const otherCampId = randomUUID()

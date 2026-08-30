@@ -74,7 +74,6 @@ const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 // expose those children as scope-listable. Both checks are required.
 const SCOPED_LIST_ENTITIES = new Set([
   'template_slots',
-  'template_overlays',
   'schedule_snapshots',
   'week_activity_exclusions',
   'week_group_exclusions',

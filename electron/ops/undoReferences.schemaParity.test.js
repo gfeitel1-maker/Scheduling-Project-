@@ -104,7 +104,6 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'conflicts', column: 'existing_op_id', reason: 'points at operations, not a U2-deletable entity' },
   { table: 'locks', column: 'holder_device_id', reason: 'points at devices, not a U2-deletable entity' },
   { table: 'template_slots', column: 'template_id', reason: 'points at schedule_templates, not a U2-deletable entity' },
-  { table: 'template_overlays', column: 'template_id', reason: 'points at schedule_templates, not a U2-deletable entity' },
   { table: 'locations', column: 'map_id', reason: 'points at camp_maps (a map image, restore-refused / not a U2-deletable entity); a dangling map_id resolves to the primary map (v50 pair, ADR 2026-08-26)' },
   { table: 'schedule_snapshots', column: 'template_id', reason: 'points at schedule_templates, not a U2-deletable entity' },
   { table: 'schedule_templates', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },

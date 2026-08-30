@@ -8,9 +8,9 @@ import { routeSetter } from './useRouteState'
 // This hook orchestrates route-scoped state but does NOT own it (that lives in
 // T31's useRouteState): the injected `routeState` supplies every route value and
 // setter it touches — existingTemplates, templateIdFor/templateId, the route
-// data (slotsByRoute/overlaysByRoute), the route-explicit setSnapshotsByRoute
+// data (slotsByRoute), the route-explicit setSnapshotsByRoute
 // (for the route-explicit saveSnapshot), and the current-route
-// setSnapshots/setSlots/setOverlays/setFindings/setDismissedFindingKeys. It
+// setSnapshots/setSlots/setFindings/setDismissedFindingKeys. It
 // calls the repo and reports failures via the injected setActionError.
 export function useSnapshots({
   routeState,
@@ -35,11 +35,9 @@ export function useSnapshots({
     templateIdFor,
     templateId,
     slotsByRoute,
-    overlaysByRoute,
     setSnapshotsByRoute,
     setSnapshots,
     setSlots,
-    setOverlays,
     setFindings,
     setDismissedFindingKeys,
   } = routeState
@@ -62,7 +60,6 @@ export function useSnapshots({
     }))
     const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
-    const snapOverlays = overlaysByRoute[routeName].map(o => ({ unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label }))
     // Whole-week day_overrides capture (design §5.2): snapshots are
     // whole-week/template-level, so this is every day, not just the one
     // currently on screen.
@@ -76,14 +73,13 @@ export function useSnapshots({
         is_auto: isAuto,
         created_at: createdAt,
         slots: JSON.stringify(snapSlots),
-        overlays: JSON.stringify(snapOverlays),
         day_overrides_json: dayOverridesJson,
       })
     } catch (err) {
       setActionError(describeWriteFailure(err, 'That version could not be saved.'))
       throw err
     }
-    setRouteSnapshots(prev => [{ id, template_id: tid, name: name || null, is_auto: isAuto, created_at: createdAt, slots: JSON.stringify(snapSlots), overlays: JSON.stringify(snapOverlays), day_overrides_json: dayOverridesJson, restorable: true }, ...prev])
+    setRouteSnapshots(prev => [{ id, template_id: tid, name: name || null, is_auto: isAuto, created_at: createdAt, slots: JSON.stringify(snapSlots), day_overrides_json: dayOverridesJson, restorable: true }, ...prev])
   }
 
   // Deleting a version is the director's call, never an automatic cleanup.
@@ -136,7 +132,6 @@ export function useSnapshots({
     }
 
     fullSnap.slots = parsed.slots
-    fullSnap.overlays = parsed.overlays
     // A snapshot saved before this feature shipped has no day_overrides_json
     // at all — an empty array correctly restores the week to "no overrides"
     // (design §5.2's delete-then-recreate-nothing case), same as an
@@ -152,7 +147,7 @@ export function useSnapshots({
 
     setActionError(null)
     try {
-      await repo.restoreSnapshotRows(templateId, fullSnap.slots, fullSnap.overlays, snapshotDayOverrides)
+      await repo.restoreSnapshotRows(templateId, fullSnap.slots, snapshotDayOverrides)
     } catch (err) {
       setActionError(
         err?.message?.includes('admin role required')
@@ -164,9 +159,6 @@ export function useSnapshots({
 
     const freshSlots = await repo.reloadSlots(templateId)
     setSlots(freshSlots)
-
-    const freshOverlays = await repo.reloadOverlays(templateId)
-    setOverlays(freshOverlays)
 
     // HIGH #3 — reload the WHOLE WEEK's day_overrides (restore is week-level,
     // design §5.2) so ScheduleScreen's applyDayOverrides composition reflects

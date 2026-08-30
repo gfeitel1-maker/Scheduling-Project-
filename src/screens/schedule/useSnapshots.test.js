@@ -11,7 +11,6 @@ function makeRepo(overrides = {}) {
     getSnapshot: vi.fn(async () => ({})),
     restoreSnapshotRows: vi.fn(async () => ({ status: 'applied' })),
     reloadSlots: vi.fn(async () => []),
-    reloadOverlays: vi.fn(async () => []),
     loadDayOverridesForWeek: vi.fn(async () => []),
     ...overrides,
   }
@@ -23,8 +22,8 @@ function makeRepo(overrides = {}) {
 // mirrored onto `props` so the existing assertions read unchanged.
 const ROUTE_STATE_KEYS = new Set([
   'route', 'existingTemplates', 'templateIdFor', 'templateId',
-  'slotsByRoute', 'overlaysByRoute', 'setSnapshotsByRoute', 'setSnapshots',
-  'setSlots', 'setOverlays', 'setFindings', 'setDismissedFindingKeys',
+  'slotsByRoute', 'setSnapshotsByRoute', 'setSnapshots',
+  'setSlots', 'setFindings', 'setDismissedFindingKeys',
 ])
 
 function setup(overrides = {}) {
@@ -37,11 +36,9 @@ function setup(overrides = {}) {
       generated: [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} }],
       manual: [],
     },
-    overlaysByRoute: { generated: [], manual: [] },
     setSnapshotsByRoute: vi.fn(),
     setSnapshots: vi.fn(),
     setSlots: vi.fn(),
-    setOverlays: vi.fn(),
     setFindings: vi.fn(),
     setDismissedFindingKeys: vi.fn(),
   }
@@ -132,25 +129,22 @@ describe('useSnapshots', () => {
     expect(props.setSnapshots).not.toHaveBeenCalled()
   })
 
-  it('restoreSnapshot clears undo/redo, restores rows, and reloads slots/overlays/stats/findings', async () => {
+  it('restoreSnapshot clears undo/redo, restores rows, and reloads slots/stats/findings', async () => {
     const payload = {
       template_id: 'tid-generated',
       slots: JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_anchor: false, flags: {} }]),
-      overlays: JSON.stringify([]),
     }
     const freshSlots = [{ id: 's1', is_anchor: false, activity_id: 'act-1' }]
     const repo = makeRepo({
       getSnapshot: vi.fn(async () => payload),
       reloadSlots: vi.fn(async () => freshSlots),
-      reloadOverlays: vi.fn(async () => []),
     })
     const { result, props } = setup({ repo })
     await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
 
     expect(props.resetUndoRedo).toHaveBeenCalledTimes(1)
-    expect(repo.restoreSnapshotRows).toHaveBeenCalledWith('tid-generated', expect.any(Array), expect.any(Array), [])
+    expect(repo.restoreSnapshotRows).toHaveBeenCalledWith('tid-generated', expect.any(Array), [])
     expect(props.setSlots).toHaveBeenCalledWith(freshSlots)
-    expect(props.setOverlays).toHaveBeenCalledWith([])
     expect(props.recalcStats).toHaveBeenCalledWith(freshSlots)
     expect(props.setFindings).toHaveBeenCalledTimes(1)
     expect(props.setDismissedFindingKeys).toHaveBeenCalledTimes(1)
@@ -158,7 +152,7 @@ describe('useSnapshots', () => {
 
   it('restoreSnapshot refuses a version belonging to the other route without writing', async () => {
     const repo = makeRepo({
-      getSnapshot: vi.fn(async () => ({ template_id: 'tid-manual', slots: '[]', overlays: '[]' })),
+      getSnapshot: vi.fn(async () => ({ template_id: 'tid-manual', slots: '[]' })),
     })
     const { result, props } = setup({ repo })
     await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
@@ -208,11 +202,10 @@ describe('useSnapshots', () => {
       expect(JSON.parse(fields.day_overrides_json)).toEqual([])
     })
 
-    it('restoreSnapshot passes the parsed day_overrides payload as restoreSnapshotRows\' 4th arg', async () => {
+    it('restoreSnapshot passes the parsed day_overrides payload as restoreSnapshotRows\' 3rd arg', async () => {
       const payload = {
         template_id: 'tid-generated',
         slots: JSON.stringify([]),
-        overlays: JSON.stringify([]),
         day_overrides_json: JSON.stringify([
           { day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'pull', activity_id: null },
         ]),
@@ -224,7 +217,6 @@ describe('useSnapshots', () => {
       expect(repo.restoreSnapshotRows).toHaveBeenCalledWith(
         'tid-generated',
         expect.any(Array),
-        expect.any(Array),
         [{ day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'pull', activity_id: null }],
       )
     })
@@ -233,7 +225,6 @@ describe('useSnapshots', () => {
       const payload = {
         template_id: 'tid-generated',
         slots: JSON.stringify([]),
-        overlays: JSON.stringify([]),
         // No day_overrides_json at all — a snapshot saved before this feature shipped.
       }
       const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
@@ -241,7 +232,7 @@ describe('useSnapshots', () => {
       await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
 
       expect(repo.restoreSnapshotRows).toHaveBeenCalledWith(
-        'tid-generated', expect.any(Array), expect.any(Array), [],
+        'tid-generated', expect.any(Array), [],
       )
     })
 
@@ -255,7 +246,6 @@ describe('useSnapshots', () => {
       const payload = {
         template_id: 'tid-generated',
         slots: JSON.stringify([]),
-        overlays: JSON.stringify([]),
         day_overrides_json: JSON.stringify([
           { id: 'ov-restored', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-art' },
         ]),
@@ -279,7 +269,6 @@ describe('useSnapshots', () => {
       const payload = {
         template_id: 'tid-generated',
         slots: JSON.stringify([]),
-        overlays: JSON.stringify([]),
         // No day_overrides_json — pre-feature snapshot.
       }
       const repo = makeRepo({

@@ -64,7 +64,6 @@ const DOMAIN_TABLE_COLUMNS = {
   day_overrides: ['id', 'camp_id', 'schedule_week_id', 'day_id', 'group_id', 'time_block_id', 'activity_id', 'kind', 'note', 'created_at'],
   schedule_templates: ['id', 'camp_id', 'name', 'kind', 'week_id'],
   template_slots: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id', 'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor', 'elective_set_id', 'event_id'],
-  template_overlays: ['id', 'template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
   week_activity_exclusions: ['id', 'week_id', 'activity_id'],
   week_group_exclusions: ['id', 'week_id', 'group_id'],
   week_location_exclusions: ['id', 'week_id', 'location_id'], // T88 — closes the manifest drift (see DOMAIN_SNAPSHOT_ORDER)
@@ -149,7 +148,7 @@ function isValidSnapshotRow(row) {
 // vs. an earlier draft of this design: a per-row skip-and-continue is not
 // safe here — under foreign_keys=ON, in one shared transaction, a skipped
 // row that is itself the FK target of a later table's row (e.g. a skipped
-// schedule_templates row a valid template_overlays row references via a
+// schedule_templates row a valid schedule_snapshots row references via a
 // NOT NULL FK) makes that later INSERT throw, aborting the whole transaction
 // anyway. Validating everything up front and applying all-or-nothing is the
 // deliberately conservative choice this design settled on (see design doc

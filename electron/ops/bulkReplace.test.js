@@ -118,40 +118,6 @@ describe('validateBulkReplaceRows', () => {
     expect(result.valid).toBe(false)
   })
 
-  describe('template_overlays', () => {
-    it('rejects a row missing a required field', () => {
-      const result = validateBulkReplaceRows('template_overlays', [{ template_id: 't1' }])
-      expect(result.valid).toBe(false)
-    })
-
-    it('rejects a row with an unrecognized field', () => {
-      const result = validateBulkReplaceRows('template_overlays', [
-        { id: 'o1', template_id: 't1', not_a_column: 'x' },
-      ])
-      expect(result.valid).toBe(false)
-    })
-
-    it('accepts a well-formed row set using every registered column', () => {
-      const result = validateBulkReplaceRows('template_overlays', [
-        {
-          id: 'o1',
-          template_id: 't1',
-          unit_id: 'unit-1',
-          day_id: 'day-1',
-          from_block_order: '1',
-          to_block_order: '3',
-          label: 'Rain plan',
-        },
-      ])
-      expect(result.valid).toBe(true)
-    })
-
-    it('accepts an empty rows array (the "clear all overlays" call)', () => {
-      const result = validateBulkReplaceRows('template_overlays', [])
-      expect(result.valid).toBe(true)
-    })
-  })
-
   it('rejects a rows array exceeding MAX_BULK_REPLACE_ROWS, before touching the DB', () => {
     const oversized = Array.from({ length: MAX_BULK_REPLACE_ROWS + 1 }, (_, i) => ({
       id: `s${i}`,
@@ -398,71 +364,5 @@ describe('applyBulkReplaceProjection (client-side replay of an already-canonical
 
     const current = db.prepare('SELECT * FROM template_slots WHERE template_id = ? ORDER BY id').all('template-5')
     expect(current.map((r) => r.id)).toEqual(['slot-orig-1', 'slot-orig-2'])
-  })
-})
-
-// Sub-plan E Task 3: template_overlays is a new BULK_REPLACE_ENTITIES entry
-// (ScheduleScreen.jsx's restoreSnapshot() reinserts overlay rows from a
-// snapshot; generate()/placeAnchors() clear overlays via an empty rows array).
-describe('appendBulkReplaceOp for template_overlays', () => {
-  function seedTemplate(templateId) {
-    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(
-      templateId,
-      'camp-1',
-      'Master Template'
-    )
-    db.prepare(
-      'INSERT OR IGNORE INTO days_of_operation (id, camp_id, label) VALUES (?, ?, ?)'
-    ).run('day-1', 'camp-1', 'Monday')
-  }
-
-  it('inserts a fresh overlay row set for the scope', () => {
-    seedTemplate('template-overlay-1')
-    const rows = [
-      {
-        id: 'overlay-1',
-        template_id: 'template-overlay-1',
-        unit_id: 'unit-1',
-        day_id: 'day-1',
-        from_block_order: '1',
-        to_block_order: '3',
-        label: 'Rain plan',
-      },
-    ]
-
-    appendBulkReplaceOp(db, {
-      entity: 'template_overlays',
-      scope_id: 'template-overlay-1',
-      rows,
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-    })
-
-    const current = db
-      .prepare('SELECT * FROM template_overlays WHERE template_id = ?')
-      .all('template-overlay-1')
-    expect(current).toHaveLength(1)
-    expect(current[0].id).toBe('overlay-1')
-    expect(current[0].label).toBe('Rain plan')
-  })
-
-  it('clears all overlays for the scope when rows is an empty array', () => {
-    seedTemplate('template-overlay-2')
-    db.prepare(
-      'INSERT INTO template_overlays (id, template_id, unit_id, day_id, from_block_order, to_block_order, label) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run('existing-overlay', 'template-overlay-2', 'unit-1', 'day-1', 1, 2, 'Old stamp')
-
-    appendBulkReplaceOp(db, {
-      entity: 'template_overlays',
-      scope_id: 'template-overlay-2',
-      rows: [],
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-    })
-
-    const current = db
-      .prepare('SELECT * FROM template_overlays WHERE template_id = ?')
-      .all('template-overlay-2')
-    expect(current).toHaveLength(0)
   })
 })

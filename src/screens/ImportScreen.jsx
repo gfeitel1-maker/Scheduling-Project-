@@ -211,7 +211,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // schedule grid, not a standalone CRUD screen with "templates" to refill).
   const [snapshotCount, setSnapshotCount] = useState(0)
   // Slots placed on EITHER schedule route, camp-wide. replaceScope tears down
-  // template_slots and template_overlays for both Manual Build and Generated
+  // template_slots for both Manual Build and Generated
   // Schedule (FK ordering forces it), and the director sees the count only
   // in the success banner today — after it has already happened. This reads
   // it pre-confirm instead (Red Hat, T61 round 3).

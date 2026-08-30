@@ -36,7 +36,7 @@ function activityCount(n) {
 // One concept, one name, across both routes: a director sees "your schedules",
 // never "templates" or "routes".
 function whatChanges(preview) {
-  const { entity, name, slot_count, ref_count, anchor_count, overlay_count } = preview
+  const { entity, name, slot_count, ref_count, anchor_count } = preview
   const who = name || `this ${LABEL[entity].the}`
 
   if (entity === 'locations') {
@@ -57,7 +57,6 @@ function whatChanges(preview) {
   const parts = []
   if (slot_count > 0) parts.push(places(slot_count))
   if (anchor_count > 0) parts.push(`${anchor_count} recurring event${anchor_count === 1 ? '' : 's'}`)
-  if (overlay_count > 0) parts.push(`${overlay_count} trip${overlay_count === 1 ? '' : 's'} or other overlay`)
   if (parts.length === 0) return `Nothing in your schedules uses ${who}.`
   const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
   return `${who} holds ${list} across your schedules. Deleting it removes that day from every group's week.`

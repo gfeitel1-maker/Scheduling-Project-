@@ -360,18 +360,14 @@ describe('deleting a group removes its week', () => {
 })
 
 describe('deleting a day removes it from the week', () => {
-  it('removes anchors, overlays, and the slot rows no foreign key protects', () => {
+  it('removes anchors and the slot rows no foreign key protects', () => {
     const ids = seedCamp()
     write('anchor_activities', 'anchor-1', 'camp_id', 'camp1')
     write('anchor_activities', 'anchor-1', 'day_id', ids.days[0])
-    db.prepare(
-      'INSERT INTO template_overlays (id, template_id, day_id, label) VALUES (?, ?, ?, ?)'
-    ).run('overlay-1', ids.templates.manual, ids.days[0], 'Trip')
 
     const preview = previewDelete(db, { entity: 'days_of_operation', entity_id: ids.days[0] })
     expect(preview.destructive).toBe(true)
     expect(preview.anchor_count).toBe(1)
-    expect(preview.overlay_count).toBe(1)
     expect(preview.slot_count).toBe(20)
 
     const result = deleteRecord(db, {
@@ -383,7 +379,6 @@ describe('deleting a day removes it from the week', () => {
     expect(result.ok).toBe(true)
     expect(db.prepare('SELECT 1 FROM days_of_operation WHERE id = ?').get(ids.days[0])).toBeFalsy()
     expect(db.prepare('SELECT COUNT(*) n FROM anchor_activities WHERE day_id = ?').get(ids.days[0]).n).toBe(0)
-    expect(db.prepare('SELECT COUNT(*) n FROM template_overlays WHERE day_id = ?').get(ids.days[0]).n).toBe(0)
     // The orphans a day delete leaves behind today.
     expect(db.prepare('SELECT COUNT(*) n FROM template_slots WHERE day_id = ?').get(ids.days[0]).n).toBe(0)
     expect(db.prepare('SELECT COUNT(*) n FROM schedule_snapshots').get().n).toBe(2)

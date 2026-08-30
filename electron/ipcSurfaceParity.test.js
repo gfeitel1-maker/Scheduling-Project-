@@ -330,7 +330,6 @@ describe('MOCK_WRITE_ALLOWLIST stays in sync with PROJECTIONS', () => {
 describe('MOCK_SCOPE_KEYS stays in sync with PARENT_SCOPED_ENTITIES (C4)', () => {
   const SCOPED_LIST_ENTITIES = [
     'template_slots',
-    'template_overlays',
     'schedule_snapshots',
     'week_activity_exclusions',
     'week_group_exclusions',

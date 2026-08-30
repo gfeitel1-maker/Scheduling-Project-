@@ -612,17 +612,7 @@ CREATE TABLE IF NOT EXISTS schedule_templates (
 -- is created by migration v27, not here, for the same re-execution reason.
 -- v27 runs on fresh databases too, so both paths end up identical.
 
-CREATE TABLE IF NOT EXISTS template_overlays (
-  id TEXT PRIMARY KEY,
-  template_id TEXT NOT NULL REFERENCES schedule_templates(id),
-  unit_id TEXT,
-  day_id TEXT REFERENCES days_of_operation(id),
-  from_block_order INTEGER,
-  to_block_order INTEGER,
-  label TEXT
-);
-
--- slots/overlays are JSON TEXT columns: a snapshot is an immutable
+-- slots is a JSON TEXT column: a snapshot is an immutable
 -- point-in-time blob by design, not something field-level-synced (see design
 -- doc) — do not generalize this pattern to any actively-edited table.
 -- day_overrides_json (schema v38, T108, ADR 2026-08-21-day-overrides-repoint-
@@ -639,7 +629,6 @@ CREATE TABLE IF NOT EXISTS schedule_snapshots (
   is_auto INTEGER,
   created_at TEXT NOT NULL,
   slots TEXT,
-  overlays TEXT,
   day_overrides_json TEXT
 );
 
@@ -727,7 +716,6 @@ CREATE TABLE IF NOT EXISTS camp_maps (
 -- from each table's original creation, so re-execution on every open never
 -- hits a pre-migration file missing the column.
 CREATE INDEX IF NOT EXISTS idx_template_slots_template_id ON template_slots(template_id);
-CREATE INDEX IF NOT EXISTS idx_template_overlays_template_id ON template_overlays(template_id);
 CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_template_id ON schedule_snapshots(template_id);
 
 -- Special days (schema v34, T40 slice 1,

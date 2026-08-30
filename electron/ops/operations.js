@@ -268,12 +268,6 @@ export const BULK_REPLACE_ENTITIES = {
     ],
     requiredColumns: ['id', 'template_id'],
   },
-  template_overlays: {
-    table: 'template_overlays',
-    scopeColumn: 'template_id',
-    columns: ['id', 'template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
-    requiredColumns: ['id', 'template_id'],
-  },
 }
 
 export function isBulkReplaceOp(op) {

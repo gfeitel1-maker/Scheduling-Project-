@@ -37,7 +37,6 @@ export const RESTORE_DECISIONS = Object.freeze({
   schedule_templates: 'refused: a route, not a record — recreated by opening the route',
   schedule_weeks: 'refused: weeks are archived (reversible), never trashed, in this slice — a later delete slice decides restorability',
   template_slots: 'refused: schedule edits already have snapshots on ScheduleScreen',
-  template_overlays: 'refused: schedule edits already have snapshots on ScheduleScreen',
   schedule_snapshots: 'refused: a snapshot is itself the undo story; nesting one is confusing',
   week_activity_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
   week_group_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',

@@ -50,19 +50,11 @@ function seedSlot(db, templateId, n) {
   return id
 }
 
-function seedOverlay(db, templateId, n) {
-  const id = `overlay-${templateId}-${n}`
-  db.prepare(
-    'INSERT INTO template_overlays (id, template_id, unit_id, day_id, from_block_order, to_block_order, label) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, templateId, null, `day-${n}`, n, n + 1, `Overlay ${n}`)
-  return id
-}
-
 function seedSnapshot(db, templateId, n) {
   const id = `snap-${templateId}-${n}`
   db.prepare(
-    "INSERT INTO schedule_snapshots (id, template_id, name, is_auto, created_at, slots, overlays) VALUES (?, ?, ?, ?, ?, ?, ?)"
-  ).run(id, templateId, `Snap ${n}`, 0, new Date().toISOString(), '[]', '[]')
+    "INSERT INTO schedule_snapshots (id, template_id, name, is_auto, created_at, slots) VALUES (?, ?, ?, ?, ?, ?)"
+  ).run(id, templateId, `Snap ${n}`, 0, new Date().toISOString(), '[]')
   return id
 }
 
@@ -127,7 +119,6 @@ describe('deleteWeek — S3-1: cascade', () => {
     seedSlotPrereqs(db, campId, 1); seedSlot(db, tidGen, 1)
     seedSlotPrereqs(db, campId, 2); seedSlot(db, tidGen, 2)
     seedSlotPrereqs(db, campId, 3); seedSlot(db, tidMan, 3)
-    seedOverlay(db, tidGen, 1)
     seedSnapshot(db, tidGen, 1)
     db.prepare('INSERT INTO week_location_exclusions (id, week_id, location_id) VALUES (?, ?, ?)')
       .run('wlx-1', 'week1', 'loc-pool')
@@ -141,7 +132,6 @@ describe('deleteWeek — S3-1: cascade', () => {
     expect(db.prepare('SELECT COUNT(*) as c FROM schedule_templates WHERE week_id = ?').get('week1').c).toBe(0)
     expect(db.prepare('SELECT COUNT(*) as c FROM template_slots WHERE template_id = ?').get(tidGen).c).toBe(0)
     expect(db.prepare('SELECT COUNT(*) as c FROM template_slots WHERE template_id = ?').get(tidMan).c).toBe(0)
-    expect(db.prepare('SELECT COUNT(*) as c FROM template_overlays WHERE template_id = ?').get(tidGen).c).toBe(0)
     expect(db.prepare('SELECT COUNT(*) as c FROM schedule_snapshots WHERE template_id = ?').get(tidGen).c).toBe(0)
     // M5: no orphaned week_location_exclusions rows after the parent week is gone.
     expect(db.prepare('SELECT COUNT(*) as c FROM week_location_exclusions WHERE week_id = ?').get('week1').c).toBe(0)
@@ -206,7 +196,6 @@ describe('deleteWeek — S3-7: duplicate then delete source', () => {
     const tid1Man = seedTemplate(db, 'week1', 'manual', campId)
     seedSlotPrereqs(db, campId, 1); seedSlot(db, tid1Gen, 1)
     seedSlotPrereqs(db, campId, 2); seedSlot(db, tid1Man, 2)
-    seedOverlay(db, tid1Gen, 1)
 
     // Duplicate week1 → week3
     const dupResult = duplicateWeek(db, { sourceWeekId: 'week1', campId }, CTX)

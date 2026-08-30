@@ -48,7 +48,10 @@ function seedCamp(db, campId = 'camp1') {
 // The state a camp is left in by the v23 window: a real generated row carrying a
 // RANDOM uuid, plus a week of slots written under the DERIVED generated id that
 // no schedule_templates row holds.
-function seedOrphanedCamp(db, campId, realId, { slots = 3, overlays = 1 } = {}) {
+// overlays are gone (template_overlays retired in v53,
+// docs/adr/2026-08-30-retire-overlay-stamp-subsystem.md); this seed and the
+// v26 recovery it exercises are now slots-only.
+function seedOrphanedCamp(db, campId, realId, { slots = 3 } = {}) {
   seedCamp(db, campId)
   db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind) VALUES (?, ?, ?, ?)')
     .run(realId, campId, 'Master Template', 'generated')
@@ -65,22 +68,6 @@ function seedOrphanedCamp(db, campId, realId, { slots = 3, overlays = 1 } = {}) 
       i === 1 ? 'anchor-1' : null,
       i === 1 ? 1 : 0
     )
-  }
-  // template_overlays carries a REAL foreign key to schedule_templates and
-  // openLocalDb sets PRAGMA foreign_keys = ON, so an orphan overlay cannot
-  // arise in the field — template_slots is the outlier that has no declared FK,
-  // which is exactly why it alone accumulated orphans in the v23 window. The
-  // pragma is dropped here only to plant one, so v26's defensive handling of
-  // the overlay branch is actually exercised rather than assumed.
-  if (overlays > 0) {
-    db.pragma('foreign_keys = OFF')
-    for (let i = 0; i < overlays; i++) {
-      db.prepare(
-        `INSERT INTO template_overlays (id, template_id, unit_id, day_id, from_block_order, to_block_order, label)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(`${campId}-orphan-overlay-${i}`, orphanId, `unit-${i}`, null, 1, 2, 'Lunch')
-    }
-    db.pragma('foreign_keys = ON')
   }
   // A week the director CAN see, on the real template. Its presence is exactly
   // why v24 declined to repoint: repointing would overwrite it.
@@ -125,7 +112,6 @@ describe('migration v26: retiring orphaned schedule slots', () => {
 
     expect(orphanSlotCount(db)).toBe(0)
     expect(db.prepare('SELECT COUNT(*) c FROM template_slots WHERE template_id = ?').get(orphanId).c).toBe(0)
-    expect(db.prepare('SELECT COUNT(*) c FROM template_overlays WHERE template_id = ?').get(orphanId).c).toBe(0)
     expect(db.prepare('SELECT COUNT(*) c FROM template_slots WHERE template_id = ?').get('random-uuid-1').c).toBe(1)
     db.close()
   })
@@ -186,9 +172,6 @@ describe('migration v26: retiring orphaned schedule slots', () => {
     // saveSnapshot writes from normalizeSlots output.
     expect(parsed.slots.map((s) => s.is_anchor)).toEqual([false, true, false])
     expect(parsed.slots[0].flags).toEqual({ UNFILLABLE: true, UNFILLABLE_reason: 'no room' })
-    expect(parsed.overlays).toEqual([
-      { unit_id: 'unit-0', day_id: null, from_block_order: 1, to_block_order: 2, label: 'Lunch' },
-    ])
     db.close()
   })
 
@@ -204,7 +187,6 @@ describe('migration v26: retiring orphaned schedule slots', () => {
     rerunV26(db)
 
     expect(db.prepare('SELECT COUNT(*) c FROM template_slots WHERE template_id = ?').get(orphan1).c).toBe(3)
-    expect(db.prepare('SELECT COUNT(*) c FROM template_overlays WHERE template_id = ?').get(orphan1).c).toBe(1)
     expect(db.prepare('SELECT COUNT(*) c FROM template_slots WHERE template_id = ?').get(orphan2).c).toBe(0)
 
     const rows = journal(db)
@@ -212,7 +194,7 @@ describe('migration v26: retiring orphaned schedule slots', () => {
     expect(skipped).toHaveLength(1)
     expect(skipped[0].orphan_template_id).toBe(orphan1)
     expect(skipped[0].reason).toMatch(/blocked for test/)
-    expect(rows.filter((r) => r.outcome === 'retired' && r.camp_id === 'camp2')).toHaveLength(4)
+    expect(rows.filter((r) => r.outcome === 'retired' && r.camp_id === 'camp2')).toHaveLength(3)
     // Nothing was journalled as retired for the camp that was skipped.
     expect(rows.filter((r) => r.outcome === 'retired' && r.camp_id === 'camp1')).toHaveLength(0)
     db.close()
@@ -237,7 +219,7 @@ describe('migration v26: retiring orphaned schedule slots', () => {
     ).run(deriveScheduleTemplateId('camp1'))
 
     const dump = () =>
-      ['template_slots', 'template_overlays', 'schedule_snapshots', 'schedule_templates']
+      ['template_slots', 'schedule_snapshots', 'schedule_templates']
         .map((t) => JSON.stringify(db.prepare(`SELECT * FROM ${t} ORDER BY id`).all()))
         .join('|')
 
@@ -423,13 +405,9 @@ describe('migration v26: retiring orphaned schedule slots', () => {
       expect(
         JSON.stringify(db.prepare('SELECT * FROM template_slots WHERE template_id = ? ORDER BY id').all(orphanId))
       ).toBe(beforeSlots)
-      // The planted orphan OVERLAY cannot come back: template_overlays has a
-      // real FK to schedule_templates, so SQLite refuses to re-insert it under
-      // a parentless template_id. That same FK is why an orphan overlay is
-      // unreachable in the field — this fixture had to disable the pragma to
-      // create one. The rollback reports it rather than aborting, so the slots,
-      // which are the actual subject of v26, are restored regardless.
-      expect(result.unrestorable).toBe(1)
+      // Slots are the only thing v26 retires now that template_overlays is gone
+      // (v53), so every retired row is restorable and none is reported unrestorable.
+      expect(result.unrestorable).toBe(0)
       expect(db.prepare('SELECT 1 FROM schema_migrations WHERE version = 26').get()).toBeUndefined()
       // The journal is kept, and the Version stays: removing a Version the
       // director may since have restored from would be its own harm (ADR).

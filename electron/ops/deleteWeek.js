@@ -15,15 +15,14 @@ import { appendOp, DELETE_FIELD } from './operations.js'
 //       NULL the binding, don't delete the set — a reusable, director-named
 //       elective set must survive the week it happened to be scoped to)
 //   1. schedule_snapshots      (real FK → schedule_templates)
-//   2. template_overlays       (real FK → schedule_templates)
-//   3. template_slots          (no FK — orphans must be cleaned explicitly)
-//   4. week_activity_exclusions
-//   5. week_group_exclusions
-//   6. week_location_exclusions (no FK on location_id — see M1's deliberate
+//   2. template_slots          (no FK — orphans must be cleaned explicitly)
+//   3. week_activity_exclusions
+//   4. week_group_exclusions
+//   5. week_location_exclusions (no FK on location_id — see M1's deliberate
 //      no-FK convention, deleteRecord.js:40; week_id itself IS a real FK)
-//   7. conflicts               (unresolved rows pointing at entities deleted above)
-//   8. schedule_templates      (real FK ← schedule_weeks via week_id)
-//   9. schedule_weeks          (the week row itself, last)
+//   6. conflicts               (unresolved rows pointing at entities deleted above)
+//   7. schedule_templates      (real FK ← schedule_weeks via week_id)
+//   8. schedule_weeks          (the week row itself, last)
 //
 // Explicitly NOT cascaded (not an omission):
 //   - operations — append-only history, never deleted; this is what makes
@@ -98,7 +97,7 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
       .prepare('SELECT id FROM schedule_templates WHERE week_id = ?')
       .all(weekId)
 
-    // Collect deleted entity ids for conflict closure (steps 1–5).
+    // Collect deleted entity ids for conflict closure (steps 1–4).
     const deletedEntityIds = new Set()
 
     for (const tmpl of templates) {
@@ -111,16 +110,7 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
         deletedEntityIds.add(s.id)
       }
 
-      // Step 2: template_overlays
-      const overlays = db
-        .prepare('SELECT id FROM template_overlays WHERE template_id = ?')
-        .all(tmpl.id)
-      for (const o of overlays) {
-        ops.push(del('template_overlays', o.id))
-        deletedEntityIds.add(o.id)
-      }
-
-      // Step 3: template_slots (no FK — orphans must be cleaned explicitly)
+      // Step 2: template_slots (no FK — orphans must be cleaned explicitly)
       const slots = db
         .prepare('SELECT id FROM template_slots WHERE template_id = ?')
         .all(tmpl.id)
@@ -130,7 +120,7 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
       }
     }
 
-    // Step 4: week_activity_exclusions
+    // Step 3: week_activity_exclusions
     const actExclusions = db
       .prepare('SELECT id FROM week_activity_exclusions WHERE week_id = ?')
       .all(weekId)
@@ -139,7 +129,7 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
       deletedEntityIds.add(e.id)
     }
 
-    // Step 5: week_group_exclusions
+    // Step 4: week_group_exclusions
     const grpExclusions = db
       .prepare('SELECT id FROM week_group_exclusions WHERE week_id = ?')
       .all(weekId)
@@ -148,7 +138,7 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
       deletedEntityIds.add(e.id)
     }
 
-    // Step 6: week_location_exclusions
+    // Step 5: week_location_exclusions
     const locExclusions = db
       .prepare('SELECT id FROM week_location_exclusions WHERE week_id = ?')
       .all(weekId)
@@ -157,9 +147,9 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
       deletedEntityIds.add(e.id)
     }
 
-    // S3-3: Step 7 — conflict closure.
+    // S3-3: Step 6 — conflict closure.
     // Close any unresolved conflicts rows whose entity_id is one of the rows
-    // deleted in steps 1–6. Closing means a delete op, not raw SQL, so it
+    // deleted in steps 1–5. Closing means a delete op, not raw SQL, so it
     // replicates and appears in history.
     if (deletedEntityIds.size > 0) {
       const pendingConflicts = db
@@ -172,12 +162,12 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
       }
     }
 
-    // Step 8: schedule_templates (both manual + generated)
+    // Step 7: schedule_templates (both manual + generated)
     for (const tmpl of templates) {
       ops.push(del('schedule_templates', tmpl.id))
     }
 
-    // Step 9: schedule_weeks — the week row itself, last
+    // Step 8: schedule_weeks — the week row itself, last
     ops.push(del('schedule_weeks', weekId))
 
     return { ok: true, ops }

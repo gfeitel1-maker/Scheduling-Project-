@@ -14,7 +14,6 @@ import { createScheduleRepository } from './scheduleRepository'
 // registry-driven filtering is covered in main.test.js and localClient.mock.test.js).
 const FAKE_SCOPE_KEYS = {
   template_slots: 'template_id',
-  template_overlays: 'template_id',
   week_activity_exclusions: 'week_id',
   week_group_exclusions: 'week_id',
   week_location_exclusions: 'week_id',
@@ -102,7 +101,7 @@ describe('field writes — one write() per field, in insertion order', () => {
     await repo.writeSnapshotFields('snap-1', {
       template_id: 'tid', name: 'My Version', is_auto: false,
       created_at: '2026-01-01T00:00:00.000Z',
-      slots: JSON.stringify([{ a: 1 }]), overlays: JSON.stringify([]),
+      slots: JSON.stringify([{ a: 1 }]),
     })
     expect(client.calls.write).toEqual([
       ['tok', 'schedule_snapshots', 'snap-1', 'template_id', 'tid'],
@@ -110,7 +109,6 @@ describe('field writes — one write() per field, in insertion order', () => {
       ['tok', 'schedule_snapshots', 'snap-1', 'is_auto', false],
       ['tok', 'schedule_snapshots', 'snap-1', 'created_at', '2026-01-01T00:00:00.000Z'],
       ['tok', 'schedule_snapshots', 'snap-1', 'slots', JSON.stringify([{ a: 1 }])],
-      ['tok', 'schedule_snapshots', 'snap-1', 'overlays', JSON.stringify([])],
     ])
   })
 
@@ -160,18 +158,16 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     type: 'anchor', activityId: null, anchorId: 'anc-1', is_span_head: false, flags: {},
   }
 
-  it('replaceWeek: clears overlays FIRST, then bulkReplaces slots mapped from engine slots (is_span_head emitted)', async () => {
+  it('replaceWeek: bulkReplaces slots mapped from engine slots (is_span_head emitted)', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })
     await repo.replaceWeek('tid', [engineOpenSlot, engineAnchorSlot])
 
-    // Order is load-bearing: overlays cleared before slots land.
-    expect(client.calls.bulkReplace[0]).toEqual(['tok', 'template_overlays', 'tid', []])
-    expect(client.calls.bulkReplace[1][0]).toBe('tok')
-    expect(client.calls.bulkReplace[1][1]).toBe('template_slots')
-    expect(client.calls.bulkReplace[1][2]).toBe('tid')
+    expect(client.calls.bulkReplace[0][0]).toBe('tok')
+    expect(client.calls.bulkReplace[0][1]).toBe('template_slots')
+    expect(client.calls.bulkReplace[0][2]).toBe('tid')
 
-    const rows = client.calls.bulkReplace[1][3]
+    const rows = client.calls.bulkReplace[0][3]
     // Pins the exact mapped row for an engine OPEN slot.
     expect(rows[0]).toEqual({
       id: 'uuid-1', template_id: 'tid',
@@ -200,7 +196,7 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     }
     await repo.replaceWeek('tid', [engineOpenSlot, unavailableSlot, engineAnchorSlot])
 
-    const rows = client.calls.bulkReplace[1][3]
+    const rows = client.calls.bulkReplace[0][3]
     expect(rows).toHaveLength(2)
     expect(rows.some(r => r.day_id === 'd3')).toBe(false)
     expect(rows.map(r => r.day_id)).toEqual(['d1', 'd2'])
@@ -211,21 +207,18 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     const repo = createScheduleRepository({ localClient: client, getToken })
     const noSpanHead = { groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'open', activityId: 'a', anchorId: null, flags: {} }
     await repo.replaceWeek('tid', [noSpanHead])
-    expect(client.calls.bulkReplace[1][3][0].is_span_head).toBe('1')
+    expect(client.calls.bulkReplace[0][3][0].is_span_head).toBe('1')
   })
 
-  it('restoreSnapshotRows: maps snapshot slots WITHOUT is_span_head (column default preserved), slots then overlays', async () => {
+  it('restoreSnapshotRows: maps snapshot slots WITHOUT is_span_head (column default preserved)', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })
     const snapSlot = { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-r', anchor_id: null, is_anchor: false, flags: {} }
     const snapAnchor = { group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: null, anchor_id: 'anc-1', is_anchor: true, flags: {} }
-    const snapOverlay = { unit_id: 't1', day_id: 'd1', from_block_order: 1, to_block_order: 3, label: 'Trip' }
 
-    await repo.restoreSnapshotRows('tid', [snapSlot, snapAnchor], [snapOverlay])
+    await repo.restoreSnapshotRows('tid', [snapSlot, snapAnchor])
 
-    // Slots first, then overlays (opposite order from replaceWeek — preserved).
     expect(client.calls.bulkReplace[0][1]).toBe('template_slots')
-    expect(client.calls.bulkReplace[1][1]).toBe('template_overlays')
 
     const slotRows = client.calls.bulkReplace[0][3]
     // The span-head field must be ABSENT so the DB column keeps its default —
@@ -240,22 +233,6 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     // is_anchor derived from the truthy snapshot value.
     expect(slotRows[1].is_anchor).toBe('1')
     expect(slotRows[1]).not.toHaveProperty('is_span_head')
-
-    // Overlay rows: block orders coerced to strings, fresh ids stamped.
-    expect(client.calls.bulkReplace[1][3]).toEqual([{
-      id: 'uuid-3', template_id: 'tid',
-      unit_id: 't1', day_id: 'd1',
-      from_block_order: '1', to_block_order: '3', label: 'Trip',
-    }])
-  })
-
-  it('restoreSnapshotRows: null block orders stay null (no String(null))', async () => {
-    const client = makeFakeClient()
-    const repo = createScheduleRepository({ localClient: client, getToken })
-    await repo.restoreSnapshotRows('tid', [], [{ unit_id: 't1', day_id: 'd1', from_block_order: null, to_block_order: null, label: 'X' }])
-    const overlayRow = client.calls.bulkReplace[1][3][0]
-    expect(overlayRow.from_block_order).toBeNull()
-    expect(overlayRow.to_block_order).toBeNull()
   })
 })
 
@@ -271,34 +248,24 @@ describe('day_overrides field writes (T108 override-authoring-mode)', () => {
   })
 })
 
-describe('overlay field writes', () => {
-  it('writeOverlayFields writes template_overlays fields in order', async () => {
-    const client = makeFakeClient()
-    const repo = createScheduleRepository({ localClient: client, getToken })
-    await repo.writeOverlayFields('ov-1', { to_block_order: 4 })
-    expect(client.calls.write).toEqual([['tok', 'template_overlays', 'ov-1', 'to_block_order', 4]])
-  })
-})
-
 describe('deletes — repo owns the call + token, screen keeps the status decision', () => {
   it('deleteEntity forwards to localClient with the token and RETURNS the raw result (no throw on bad status)', async () => {
     const client = makeFakeClient()
     client.deleteEntity = vi.fn(() => Promise.resolve({ status: 'rejected' }))
     const repo = createScheduleRepository({ localClient: client, getToken })
-    const result = await repo.deleteEntity('template_overlays', 'ov-1')
-    expect(client.deleteEntity).toHaveBeenCalledWith('tok', 'template_overlays', 'ov-1')
+    const result = await repo.deleteEntity('schedule_snapshots', 'snap-1')
+    expect(client.deleteEntity).toHaveBeenCalledWith('tok', 'schedule_snapshots', 'snap-1')
     // Must not throw — deleteSnapshot needs the raw status to pick its message.
     expect(result).toEqual({ status: 'rejected' })
   })
 })
 
 describe('reads — fetch + normalize', () => {
-  it('loadTemplateData returns templates + normalized slots (flags parsed, booleans coerced) + raw overlays/snapshots', async () => {
+  it('loadTemplateData returns templates + normalized slots (flags parsed, booleans coerced) + raw snapshots', async () => {
     const client = makeFakeClient()
     client.setListStore({
       schedule_templates: [{ id: 'tid', camp_id: 'camp-1' }],
       template_slots: [{ id: 's1', template_id: 'tid', is_anchor: 0, is_span_head: 1, flags: '{"UNFILLABLE":true}' }],
-      template_overlays: [{ id: 'ov1', template_id: 'tid' }],
       schedule_snapshots: [{ id: 'snap1', template_id: 'tid' }],
     })
     const repo = createScheduleRepository({ localClient: client, getToken })
@@ -307,7 +274,6 @@ describe('reads — fetch + normalize', () => {
     expect(data.slots[0].is_anchor).toBe(false)
     expect(data.slots[0].is_span_head).toBe(true)
     expect(data.slots[0].flags).toEqual({ UNFILLABLE: true })
-    expect(data.overlays).toEqual([{ id: 'ov1', template_id: 'tid' }])
     expect(data.snapshots).toEqual([{ id: 'snap1', template_id: 'tid' }])
   })
 
@@ -415,14 +381,6 @@ describe('reads — fetch + normalize', () => {
     expect(client.calls.listByScope).toEqual([['template_slots', null]])
   })
 
-  it('reloadOverlays calls listByScope(template_overlays, templateId)', async () => {
-    const client = makeFakeClient()
-    client.setListStore({ template_overlays: [{ id: 'o1', template_id: 'tid' }, { id: 'o2', template_id: 'x' }] })
-    const repo = createScheduleRepository({ localClient: client, getToken })
-    expect(await repo.reloadOverlays('tid')).toEqual([{ id: 'o1', template_id: 'tid' }])
-    expect(client.calls.listByScope).toEqual([['template_overlays', 'tid']])
-  })
-
   it('getSnapshot finds a schedule_snapshots row by id', async () => {
     const client = makeFakeClient()
     client.setListStore({ schedule_snapshots: [{ id: 'snap-1', slots: '[]' }, { id: 'snap-2', slots: '[]' }] })
@@ -444,7 +402,7 @@ describe('is_anchor derivation is shape-specific, not a disjunction', () => {
     await repo.replaceWeek('tid', [
       { groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'activity', is_anchor: true, activityId: 'a', anchorId: null, flags: {} },
     ])
-    expect(client.calls.bulkReplace[1][3][0].is_anchor).toBe('0')
+    expect(client.calls.bulkReplace[0][3][0].is_anchor).toBe('0')
   })
 
   it('snapshot path (restoreSnapshotRows): is_anchor comes from `is_anchor`, ignoring a stray type', async () => {
@@ -453,7 +411,7 @@ describe('is_anchor derivation is shape-specific, not a disjunction', () => {
     // is_anchor says NOT an anchor, but a stray type:'anchor' is present.
     await repo.restoreSnapshotRows('tid', [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', type: 'anchor', is_anchor: false, activity_id: 'a', anchor_id: null, flags: {} },
-    ], [])
+    ])
     expect(client.calls.bulkReplace[0][3][0].is_anchor).toBe('0')
   })
 })
@@ -581,7 +539,7 @@ describe('day_overrides — loadDayOverridesForWeek / restoreSnapshotRows whole-
       ],
     })
     const repo = createScheduleRepository({ localClient: client, getToken })
-    await repo.restoreSnapshotRows('tid', [], [], [
+    await repo.restoreSnapshotRows('tid', [], [
       { day_id: 'd2', group_id: 'g2', time_block_id: 'b2', activity_id: 'act-new', kind: 'swap', note: null },
     ])
 
@@ -608,16 +566,16 @@ describe('day_overrides — loadDayOverridesForWeek / restoreSnapshotRows whole-
       ],
     })
     const repo = createScheduleRepository({ localClient: client, getToken })
-    await repo.restoreSnapshotRows('tid', [], [], [])
+    await repo.restoreSnapshotRows('tid', [], [])
 
     expect(client.calls.deleteEntity).toEqual([['tok', 'day_overrides', 'existing-1']])
     expect(client.calls.write.filter((c) => c[1] === 'day_overrides')).toHaveLength(0)
   })
 
-  it('restoreSnapshotRows: omitting the 4th arg entirely does not touch day_overrides (back-compat, no template match needed)', async () => {
+  it('restoreSnapshotRows: omitting the 3rd arg entirely does not touch day_overrides (back-compat, no template match needed)', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })
-    await repo.restoreSnapshotRows('tid', [], [])
+    await repo.restoreSnapshotRows('tid', [])
     expect(client.calls.deleteEntity.filter((c) => c[1] === 'day_overrides')).toHaveLength(0)
     expect(client.calls.write.filter((c) => c[1] === 'day_overrides')).toHaveLength(0)
   })

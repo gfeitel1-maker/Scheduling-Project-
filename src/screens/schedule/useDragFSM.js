@@ -42,10 +42,9 @@ export function resolveHit(point) {
     edge: closestEdge(el.getBoundingClientRect(), { y: point.y }),
     el,
     // Preserves exactly what `useDroppable({ disabled })` used to reject: locked
-    // cells, anchors, stamp mode, and overlay cells (which never had a droppable
-    // at all). A resolved-but-rejected target makes the FSM tear down instead of
-    // commit — see isValidHit in dragFSM.js.
-    valid: el.dataset.dropDisabled === undefined && el.dataset.cellKind !== 'overlay',
+    // cells and anchors. A resolved-but-rejected target makes the FSM tear down
+    // instead of commit — see isValidHit in dragFSM.js.
+    valid: el.dataset.dropDisabled === undefined,
   }
 }
 
@@ -54,7 +53,6 @@ export function resolveHit(point) {
 // authoritative, so a wrong guess here self-corrects.
 function kindFromTarget(target) {
   if (!target?.closest) return null
-  if (target.closest('.overlay-fill-handle')) return DRAG_KINDS.OVERLAY_FILL
   if (target.closest('[data-palette-activity]')) return DRAG_KINDS.PALETTE_DROP
   if (target.closest('[data-cell-key]')) return DRAG_KINDS.SLOT_MOVE
   return null

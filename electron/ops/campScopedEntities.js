@@ -10,8 +10,8 @@
 //
 // `template_slots` is deliberately in the parent-scoped group, not the
 // direct-camp_id group: per schema.sql it has only `template_id` (no
-// `camp_id` column at all), same as template_overlays/schedule_snapshots.
-// It is scoped via JOIN through schedule_templates, exactly like those two.
+// `camp_id` column at all), same as schedule_snapshots.
+// It is scoped via JOIN through schedule_templates, exactly like that one.
 export const DIRECT_CAMP_ENTITIES = new Set([
   'groups',
   'tiers',
@@ -46,11 +46,6 @@ export const DIRECT_CAMP_ENTITIES = new Set([
 export const PARENT_SCOPED_ENTITIES = {
   template_slots: {
     table: 'template_slots',
-    parentTable: 'schedule_templates',
-    parentKey: 'template_id',
-  },
-  template_overlays: {
-    table: 'template_overlays',
     parentTable: 'schedule_templates',
     parentKey: 'template_id',
   },
@@ -151,7 +146,6 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'day_overrides', // T108; references schedule_weeks.id/days_of_operation.id/groups.id, all NOT NULL — positioned after all three
   'schedule_templates', // references schedule_weeks.id, nullable
   'template_slots', // references groups.id/activities.id, both nullable — no declared FK to schedule_templates.id (schema.sql); elective_set_id (v35) also has no declared FK
-  'template_overlays', // references schedule_templates.id NOT NULL, days_of_operation.id nullable
   'week_activity_exclusions', // references schedule_weeks.id and activities.id, both NOT NULL
   'week_group_exclusions', // references schedule_weeks.id and groups.id, both NOT NULL
   'week_location_exclusions', // T88: references schedule_weeks.id (NOT NULL, no DB-level FK on this side); location_id has no declared FK

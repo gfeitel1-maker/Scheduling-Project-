@@ -15,9 +15,9 @@
 //              exists because our commits can fail, so there must be one place that
 //              means "in flight" and one place that returns to Idle either way.
 //
-// One machine, three drag kinds. The kind rides in the context payload. Hit
+// One machine, two drag kinds. The kind rides in the context payload. Hit
 // vocabulary (initialHit / movingHit / finalHit) is FullCalendar's HitDragging
-// naming; the three-machine split is not adopted — three drag kinds do not need it.
+// naming; a per-kind machine split is not adopted — two drag kinds do not need it.
 //
 // A fourth kind, EXPAND_DRAG, existed here until T92: a drag strip that did the
 // same job (extend an activity into the next block) as the `.cell-action` merge
@@ -32,7 +32,6 @@ export const RESOLVING = 'Resolving'
 export const DRAG_KINDS = {
   SLOT_MOVE: 'slot-move',
   PALETTE_DROP: 'palette-drop',
-  OVERLAY_FILL: 'overlay-fill',
 }
 
 export const idleState = { name: IDLE, context: null }

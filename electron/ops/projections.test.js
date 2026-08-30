@@ -465,9 +465,9 @@ describe('applyProjection T111 mutual exclusion — template_slots', () => {
     expect(row.elective_set_id).toBeNull()
   })
 
-  it('confirms the no-op-for-other-entities behavior — template_overlays has no exclusive pair', () => {
-    expect(MUTUALLY_EXCLUSIVE_FIELDS.template_overlays).toBeUndefined()
-    expect(sanitizeMutuallyExclusiveRow('template_overlays', { activity_id: 'x', elective_set_id: 'y' })).toEqual({
+  it('confirms the no-op-for-other-entities behavior — schedule_snapshots has no exclusive pair', () => {
+    expect(MUTUALLY_EXCLUSIVE_FIELDS.schedule_snapshots).toBeUndefined()
+    expect(sanitizeMutuallyExclusiveRow('schedule_snapshots', { activity_id: 'x', elective_set_id: 'y' })).toEqual({
       activity_id: 'x',
       elective_set_id: 'y',
     })

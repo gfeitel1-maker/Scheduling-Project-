@@ -30,8 +30,7 @@ const ANCHOR_ID = 'anc-flagpole'
 const TEMPLATE_ID = deriveScheduleTemplateId(WEEK_ID, 'generated')
 const MANUAL_TEMPLATE_ID = deriveScheduleTemplateId(WEEK_ID, 'manual')
 
-// replaceWeek calls bulkReplace twice: once for template_overlays (empty [])
-// and once for template_slots (the actual rows). Filter to the slots call.
+// replaceWeek calls bulkReplace for template_slots (the actual rows).
 function getSlotsBulkReplaceArgs() {
   return localClient.bulkReplace.mock.calls.find(([, entity]) => entity === 'template_slots')
 }
@@ -90,7 +89,6 @@ function makeBase({ withArcheryExclusion = false, anchorGroupIds = null, exclude
       { id: TEMPLATE_ID, camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: WEEK_ID },
     ],
     template_slots: [],
-    template_overlays: [],
     schedule_snapshots: [],
   }
 }
@@ -126,7 +124,7 @@ describe('S2-9: generated rebuild respects week exclusions', () => {
     await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
     fireEvent.click(screen.getByText('Generate a schedule'))
 
-    // replaceWeek calls bulkReplace twice (overlays then slots); wait for the slots call
+    // replaceWeek calls bulkReplace for the slots; wait for that call
     await waitFor(() => expect(getSlotsBulkReplaceArgs()).toBeDefined())
 
     const [, , scopeId, generatedSlots] = getSlotsBulkReplaceArgs()

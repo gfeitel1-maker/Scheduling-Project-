@@ -48,7 +48,6 @@ export function useGeneration({
     setSlotsByRoute,
     setFindingsByRoute,
     setDismissedByRoute,
-    setOverlaysByRoute,
     setStatsByRoute,
   } = routeState
   // Writes ONLY to the generated candidate — the manual one is never read,
@@ -65,7 +64,6 @@ export function useGeneration({
     const setGenSlots = routeSetter(setSlotsByRoute, 'generated')
     const setGenFindings = routeSetter(setFindingsByRoute, 'generated')
     const setGenDismissed = routeSetter(setDismissedByRoute, 'generated')
-    const setGenOverlays = routeSetter(setOverlaysByRoute, 'generated')
     const setGenStats = routeSetter(setStatsByRoute, 'generated')
 
     const { groups: effGroups, activities: effActivities, anchors: effAnchors } = resolveWeekCatalog({
@@ -127,8 +125,7 @@ export function useGeneration({
 
     setActionError(null)
     try {
-      // Clear overlays when regenerating (post-generation stamps are re-applied
-      // manually), then replace every slot in one transactional bulk_replace.
+      // Replace every slot in one transactional bulk_replace.
       await repo.replaceWeek(tid, result.slots)
     } catch (err) {
       setActionError(
@@ -139,7 +136,6 @@ export function useGeneration({
       setGenerating(false)
       return
     }
-    setGenOverlays([])
 
     const freshSlots = await repo.reloadSlots(tid)
     setGenSlots(freshSlots)
@@ -163,7 +159,6 @@ export function useGeneration({
     const setManualSlots = routeSetter(setSlotsByRoute, 'manual')
     const setManualFindings = routeSetter(setFindingsByRoute, 'manual')
     const setManualDismissed = routeSetter(setDismissedByRoute, 'manual')
-    const setManualOverlays = routeSetter(setOverlaysByRoute, 'manual')
     const setManualStats = routeSetter(setStatsByRoute, 'manual')
 
     // Same week-exclusion pre-pass generate() runs (above): the manual blank
@@ -217,7 +212,6 @@ export function useGeneration({
       setGenerating(false)
       return
     }
-    setManualOverlays([])
 
     const freshSlots = await repo.reloadSlots(tid)
     setManualSlots(freshSlots)

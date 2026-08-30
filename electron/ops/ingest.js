@@ -65,7 +65,6 @@ const REPLACEABLE_ENTITIES = Object.freeze([
 // PARENT_SCOPED_ENTITIES rather than a join written out a second time here.
 const PARENT_SCOPED_DEPENDENTS = Object.freeze([
   'template_slots',
-  'template_overlays',
   'week_activity_exclusions',
   'week_group_exclusions',
   'week_location_exclusions',
@@ -159,7 +158,7 @@ export function replaceScope(db, { camp_id, author_user_id = null, device_id, so
 
   // A violation here means the clearing above missed a table, and committing
   // would leave a torn camp. It covers REAL foreign keys only — it says
-  // nothing about the plain-TEXT soft references (template_overlays.unit_id)
+  // nothing about the plain-TEXT soft references (template_slots.day_id)
   // or the snapshot JSON blobs.
   const violations = db.pragma('foreign_key_check')
   if (violations.length > 0) {

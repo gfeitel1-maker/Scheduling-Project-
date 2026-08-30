@@ -317,18 +317,17 @@ describe('POINTER_DOWN outside Idle re-arms rather than wedging', () => {
 })
 
 // ---------------------------------------------------------------------------
-// All three drag kinds go through the one machine.
+// All drag kinds go through the one machine.
 // ---------------------------------------------------------------------------
 
-describe('all three drag kinds use the same machine', () => {
+describe('all drag kinds use the same machine', () => {
   const kinds = [
     DRAG_KINDS.SLOT_MOVE,
     DRAG_KINDS.PALETTE_DROP,
-    DRAG_KINDS.OVERLAY_FILL,
   ]
 
-  it('exposes exactly the three kinds', () => {
-    expect(kinds).toEqual(['slot-move', 'palette-drop', 'overlay-fill'])
+  it('exposes exactly the two kinds', () => {
+    expect(kinds).toEqual(['slot-move', 'palette-drop'])
   })
 
   for (const kind of kinds) {

@@ -5,7 +5,7 @@
 // throws, and a dropped role="row" wrapper degrades the accessibility tree
 // without any visible symptom. Both are asserted here on a fixture that
 // carries a rowSpan > 1 head, the cell immediately to its right, a skipped
-// tail, an empty cell and an overlay.
+// tail and an empty cell.
 //
 // What this file CANNOT verify, by construction: jsdom performs no layout, so
 // scrollWidth/clientWidth are always 0 and the "zero clipped cells" predicate
@@ -39,17 +39,13 @@ const slots = [
   { id: 's3', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a2', is_anchor: false },
 ]
 
-const overlays = [
-  { id: 'o1', unit_id: 't1', day_id: 'd2', from_block_order: 3, to_block_order: 3, label: 'Field trip' },
-]
-
 const actMap = new Map([
   ['a1', { id: 'a1', name: LONG_NAME }],
   ['a2', { id: 'a2', name: 'Soccer' }],
 ])
 
 function renderView(extra = {}) {
-  const geometry = makeGridGeometry({ slots, timeBlocks, groups, overlays, fillState: null })
+  const geometry = makeGridGeometry({ slots, timeBlocks, groups })
   const noop = () => {}
   const { container } = render(
     <DndContext>
@@ -60,19 +56,13 @@ function renderView(extra = {}) {
         selectedGroup="g1"
         onSelectGroup={noop}
         weatherMode={false}
-        stampMode={false}
         actMap={actMap}
         anchorMap={new Map()}
         releaseCell={noop}
         geometry={geometry}
-        handleFillEnter={noop}
-        startFill={noop}
-        removeOverlay={noop}
-        handleStampClick={noop}
         eligibleActivitiesFor={() => []}
         onPlace={noop}
         onCreateNew={noop}
-        fillState={null}
         onExpandSlot={noop}
         onSplitSlot={noop}
         selectedSlotKeys={new Set()}
@@ -162,15 +152,6 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
     expect(container.querySelectorAll(`[data-cell-key="g1|d1|b1"]`).length).toBe(1)
   })
 
-  it('renders the overlay as one placed gridcell', () => {
-    const container = renderView()
-    const overlay = cellAt(container, 'g1|d2|b3')
-    expect(overlay.getAttribute('role')).toBe('gridcell')
-    expect(overlay.style.gridRow).toBe('3 / span 1')
-    expect(overlay.style.gridColumn).toBe('3 / span 1')
-    expect(overlay.textContent).toContain('Field trip')
-  })
-
   it('renders empty cells as visible placeholders, not nothing', () => {
     const container = renderView()
     const empty = cellAt(container, 'g1|d1|b3')
@@ -209,15 +190,6 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
     expect(empty.querySelector('.cell-inline-editor-input')).not.toBeNull()
   })
 
-  it('T112 — stamp mode active: empty-cell click stamps, not edits', () => {
-    const stamped = []
-    const container = renderView({ stampMode: 'Field trip', handleStampClick: (g, d, b) => stamped.push([g, d, b]) })
-    const empty = cellAt(container, 'g1|d1|b3')
-    fireEvent.click(empty)
-    expect(stamped).toEqual([['g1', 'd1', 'b3']])
-    expect(empty.querySelector('.cell-inline-editor-input')).toBeNull()
-  })
-
   it('T112 — paste mode active: empty-cell click pastes (onCellSelect), not edits', () => {
     const selected = []
     const container = renderView({ pasteMode: true, onCellSelect: (slot) => selected.push(slot) })
@@ -252,19 +224,13 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
           selectedGroup="g1"
           onSelectGroup={() => {}}
           weatherMode={false}
-          stampMode={false}
           actMap={actMap}
           anchorMap={new Map()}
           releaseCell={() => {}}
-          geometry={makeGridGeometry({ slots, timeBlocks, groups, overlays, fillState: null })}
-          handleFillEnter={() => {}}
-          startFill={() => {}}
-          removeOverlay={() => {}}
-          handleStampClick={() => {}}
+          geometry={makeGridGeometry({ slots, timeBlocks, groups })}
           eligibleActivitiesFor={() => []}
           onPlace={() => {}}
           onCreateNew={() => {}}
-          fillState={null}
           onExpandSlot={() => {}}
           onSplitSlot={() => {}}
           selectedSlotKeys={new Set()}
@@ -290,19 +256,13 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
           selectedGroup="g1"
           onSelectGroup={() => {}}
           weatherMode={false}
-          stampMode={false}
           actMap={actMap}
           anchorMap={new Map()}
           releaseCell={() => {}}
-          geometry={makeGridGeometry({ slots: filledSlots, timeBlocks, groups, overlays, fillState: null })}
-          handleFillEnter={() => {}}
-          startFill={() => {}}
-          removeOverlay={() => {}}
-          handleStampClick={() => {}}
+          geometry={makeGridGeometry({ slots: filledSlots, timeBlocks, groups })}
           eligibleActivitiesFor={() => []}
           onPlace={() => {}}
           onCreateNew={() => {}}
-          fillState={null}
           onExpandSlot={() => {}}
           onSplitSlot={() => {}}
           selectedSlotKeys={new Set()}
@@ -428,7 +388,7 @@ describe('ScheduleGroupView — collapse (T55)', () => {
       ...slots,
       { id: 's4', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a2', is_anchor: false, flags: { OVERLAP: true } },
     ]
-    const geometry = makeGridGeometry({ slots: flagged, timeBlocks, groups, overlays, fillState: null })
+    const geometry = makeGridGeometry({ slots: flagged, timeBlocks, groups })
 
     const shut = renderView({ geometry, collapsedBlockIds: new Set(['b2']) })
     const shown = [...shut.querySelectorAll('.row-flag-dot[data-collapsed][data-flag]')]
@@ -442,7 +402,7 @@ describe('ScheduleGroupView — collapse (T55)', () => {
       { id: 's4', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', is_anchor: false, flags: { UNFILLABLE: true } },
     ]
     const shut2 = renderView({
-      geometry: makeGridGeometry({ slots: unfillable, timeBlocks, groups, overlays, fillState: null }),
+      geometry: makeGridGeometry({ slots: unfillable, timeBlocks, groups }),
       collapsedBlockIds: new Set(['b2']),
     })
     const shown2 = [...shut2.querySelectorAll('.row-flag-dot[data-collapsed][data-flag]')]

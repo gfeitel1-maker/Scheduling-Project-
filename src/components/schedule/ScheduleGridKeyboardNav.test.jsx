@@ -41,7 +41,7 @@ const actMap = new Map([
 const noop = () => {}
 
 function renderGroupView(extra = {}) {
-  const geometry = makeGridGeometry({ slots, timeBlocks, groups, overlays: [], fillState: null })
+  const geometry = makeGridGeometry({ slots, timeBlocks, groups })
   const { container } = render(
     <DndContext>
       <ScheduleGroupView
@@ -51,19 +51,13 @@ function renderGroupView(extra = {}) {
         selectedGroup="g1"
         onSelectGroup={noop}
         weatherMode={false}
-        stampMode={false}
         actMap={actMap}
         anchorMap={new Map()}
         releaseCell={noop}
         geometry={geometry}
-        handleFillEnter={noop}
-        startFill={noop}
-        removeOverlay={noop}
-        handleStampClick={noop}
         eligibleActivitiesFor={() => []}
         onPlace={noop}
         onCreateNew={noop}
-        fillState={null}
         {...extra}
       />
     </DndContext>,
@@ -221,18 +215,16 @@ describe('T59 — accessible names', () => {
   })
 
   it('names day-view cells by their GROUP, because that view\'s columns are groups', () => {
-    const geometry = makeGridGeometry({ slots, timeBlocks, groups, overlays: [], fillState: null })
+    const geometry = makeGridGeometry({ slots, timeBlocks, groups })
     const { container: c } = render(
       <DndContext>
         <ScheduleDayView
           groups={groups} days={days} timeBlocks={timeBlocks}
           selectedDay="d2" onSelectDay={noop}
-          weatherMode={false} stampMode={false}
+          weatherMode={false}
           actMap={actMap} anchorMap={new Map()}
-          releaseCell={noop} geometry={geometry}
-          handleFillEnter={noop} startFill={noop} removeOverlay={noop}
-          handleStampClick={noop} eligibleActivitiesFor={() => []}
-          onPlace={noop} onCreateNew={noop} fillState={null}
+          releaseCell={noop} geometry={geometry} eligibleActivitiesFor={() => []}
+          onPlace={noop} onCreateNew={noop}
         />
       </DndContext>,
     )

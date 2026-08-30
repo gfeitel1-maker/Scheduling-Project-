@@ -31,7 +31,6 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // -- into tiers --
   { fromTable: 'groups', fromColumn: 'tier_id', toEntity: 'tiers', kind: 'scalar', enforced: false },
   { fromTable: 'activities', fromColumn: 'eligible_tier_ids', toEntity: 'tiers', kind: 'json_array', enforced: false },
-  { fromTable: 'template_overlays', fromColumn: 'unit_id', toEntity: 'tiers', kind: 'scalar', enforced: false }, // 3rd Red Hat pass finding
   // -- into groups --
   { fromTable: 'template_slots', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: true },
   { fromTable: 'week_group_exclusions', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: true },
@@ -55,7 +54,6 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'day_overrides', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: true },
   // -- into days_of_operation --
   { fromTable: 'anchor_activities', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: true },
-  { fromTable: 'template_overlays', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: true },
   { fromTable: 'template_slots', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
   { fromTable: 'day_overrides', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: true }, // T108 Phase 2 review round 3
   // v43 (Slice 3a) — elective_sets.day_id mirrors anchor_activities.day_id:

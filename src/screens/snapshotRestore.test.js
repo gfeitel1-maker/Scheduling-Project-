@@ -10,19 +10,18 @@ import {
   UNRESTORABLE_UNREADABLE,
 } from './snapshotRestore'
 
-// T8 — snapshots saved before af6a9d8 have NULL slots/overlays because the
-// boolean `is_auto` threw at the bind, so every field after it in key order was
-// never written. Restoring one silently did nothing.
+// T8 — snapshots saved before af6a9d8 have NULL slots because the boolean
+// `is_auto` threw at the bind, so every field after it in key order was never
+// written. Restoring one silently did nothing.
 
 const good = {
   id: 's1',
   name: 'Before regen',
   slots: JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 't1', activity_id: 'a1', flags: {} }]),
-  overlays: JSON.stringify([{ unit_id: 'u1', day_id: 'd1', from_block_order: 1, to_block_order: 2, label: 'Trip' }]),
 }
 
 // Exactly the shape of the three rows found in the production DB.
-const deadRow = { id: 's2', name: 'Auto-save', slots: null, overlays: null }
+const deadRow = { id: 's2', name: 'Auto-save', slots: null }
 
 describe('hasPayload', () => {
   it('accepts a snapshot whose slots column holds JSON text', () => {
@@ -82,18 +81,11 @@ describe('unrestorableMessage', () => {
 })
 
 describe('parseSnapshotPayload', () => {
-  it('round-trips slots and overlays in the shape saveSnapshot writes', () => {
+  it('round-trips slots in the shape saveSnapshot writes', () => {
     const result = parseSnapshotPayload(good)
     expect(result.ok).toBe(true)
     expect(result.slots).toHaveLength(1)
     expect(result.slots[0].activity_id).toBe('a1')
-    expect(result.overlays[0].label).toBe('Trip')
-  })
-
-  it('treats a snapshot with no overlays as having an empty overlay list', () => {
-    const result = parseSnapshotPayload({ ...good, overlays: null })
-    expect(result.ok).toBe(true)
-    expect(result.overlays).toEqual([])
   })
 
   it('refuses a dead row with a specific reason rather than throwing', () => {
