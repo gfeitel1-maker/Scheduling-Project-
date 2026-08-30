@@ -3,8 +3,10 @@
 // Special Events unification (owner-approved 2026-08-29, docs/adr/2026-08-29-
 // unify-special-events-screen.md). Replaces EventScreen.test.jsx +
 // SpecialDaysScreen.test.jsx with one suite covering the merged create/manage
-// hub: card grid of special_days + events, create both kinds, open a
-// detail, edit notes, "Build →" to the Plants build surface, delete.
+// hub: an inline-add TABLE of special_days + events (Wave C — cards→table so
+// all Sprouts setup screens are one family), create both kinds via the blank
+// last row, open a detail, edit notes, "Build →" to the Plants build surface,
+// delete.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
@@ -24,6 +26,14 @@ import { seedFailureMessage } from './specialDay/seedFailureMessage'
 import { localClient } from '../localClient'
 
 const CAMP_ID = 'camp-1'
+
+// Fill the always-present InlineAddRow (name + type select) and commit via +Add.
+function addViaInlineRow({ name, type }) {
+  fireEvent.change(screen.getByPlaceholderText('Name a special day or event…'), { target: { value: name } })
+  // The type select defaults to "Event"; switch it when adding a Special Day.
+  fireEvent.change(screen.getByDisplayValue('Event'), { target: { value: type } })
+  fireEvent.click(screen.getByText('+ Add'))
+}
 
 function eventRow(overrides = {}) {
   return { id: 'ev-1', camp_id: CAMP_ID, name: 'Color War', sort_order: null, notes: null, ...overrides }
@@ -59,56 +69,70 @@ beforeEach(() => {
 })
 
 describe('SpecialEventsScreen — empty state', () => {
-  it('shows a calm empty state when the camp has no special days or events', async () => {
+  it('shows an in-table empty state (with a reachable inline-add row) when the camp has no special days or events', async () => {
     localClient.list.mockImplementation(byEntity(emptyEntries))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
 
     await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
+    // The blank inline-add row is present even at zero items.
+    expect(screen.getByPlaceholderText('Name a special day or event…')).toBeTruthy()
+    expect(screen.getByText('+ Add')).toBeTruthy()
   })
 })
 
 describe('SpecialEventsScreen — create', () => {
-  it('creates an event and shows it tagged "Event"', async () => {
+  it('creates an event via the inline row (type = Event)', async () => {
     localClient.list.mockImplementation(byEntity(emptyEntries))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
     await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('+ Event'))
-    fireEvent.change(screen.getByPlaceholderText('e.g. Color War'), { target: { value: 'Color War' } })
-    fireEvent.click(screen.getByText('Create'))
+    addViaInlineRow({ name: 'Color War', type: 'event' })
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
     const fields = localClient.write.mock.calls.map((c) => c[3])
     expect(fields[0]).toBe('name')
+    // No special_days write for an event.
+    expect(localClient.write.mock.calls.some((c) => c[1] === 'special_days')).toBe(false)
   })
 
-  it('creates a special day and shows it tagged "Special Day"', async () => {
+  it('creates a special day via the inline row (type = Special Day) AND shows the seed prompt', async () => {
     localClient.list.mockImplementation(byEntity(emptyEntries))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
     await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('+ Special Day'))
-    fireEvent.change(screen.getByPlaceholderText('Name your special day…'), { target: { value: 'Visiting Day' } })
-    fireEvent.click(screen.getByText('Create'))
+    addViaInlineRow({ name: 'Visiting Day', type: 'day' })
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'special_days', expect.any(String), 'name', 'Visiting Day'))
-    // Seed prompt appears after create.
+    // Seed-from-time-blocks prompt still fires when a Special Day is created inline.
     await waitFor(() => expect(screen.queryByText(/Seed from Time Blocks/)).not.toBeNull())
   })
 
-  it('lists both kinds with correct type tags', async () => {
+  it('lists both kinds as table rows with correct type tags', async () => {
     localClient.list.mockImplementation(byEntity({ ...emptyEntries, events: [eventRow()], special_days: [dayRow()] }))
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
 
     await waitFor(() => expect(screen.queryByText('Color War')).not.toBeNull())
     expect(screen.getByText('Visiting Day')).toBeTruthy()
-    expect(screen.getByText('Event')).toBeTruthy()
-    expect(screen.getByText('Special Day')).toBeTruthy()
+    // Type tags render as chip <span>s on the rows (distinct from the add-row
+    // <option>s that share the same label text).
+    const eventTag = screen.getAllByText('Event').filter((el) => el.tagName === 'SPAN')
+    const dayTag = screen.getAllByText('Special Day').filter((el) => el.tagName === 'SPAN')
+    expect(eventTag.length).toBe(1)
+    expect(dayTag.length).toBe(1)
+  })
+
+  it('clicking a row opens that item’s detail', async () => {
+    localClient.list.mockImplementation(byEntity({ ...emptyEntries, events: [eventRow()] }))
+    render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Color War')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Color War'))
+    await waitFor(() => expect(screen.getByText('← Back to Special Events')).toBeTruthy())
   })
 })
 
 describe('SpecialEventsScreen — event detail', () => {
-  it('click card opens detail with name + notes, and Build → routes correctly', async () => {
+  it('click row opens detail with name + notes, and Build → routes correctly', async () => {
     localClient.list.mockImplementation(byEntity({ ...emptyEntries, events: [eventRow({ notes: 'Bring points sheet' })] }))
     const onNavigate = vi.fn()
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
@@ -148,7 +172,7 @@ describe('SpecialEventsScreen — event detail', () => {
 })
 
 describe('SpecialEventsScreen — special day detail', () => {
-  it('click card opens detail with name + notes, and Build → routes with { specialDayId }', async () => {
+  it('click row opens detail with name + notes, and Build → routes with { specialDayId }', async () => {
     localClient.list.mockImplementation(byEntity({ ...emptyEntries, special_days: [dayRow({ notes: 'Setup at 8am' })] }))
     const onNavigate = vi.fn()
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
@@ -235,9 +259,7 @@ describe('SpecialEventsScreen — seed from camp time blocks', () => {
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" />)
     await waitFor(() => expect(screen.queryByText('No special events yet.')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('+ Special Day'))
-    fireEvent.change(screen.getByPlaceholderText('Name your special day…'), { target: { value: 'Color War' } })
-    fireEvent.click(screen.getByText('Create'))
+    addViaInlineRow({ name: 'Color War', type: 'day' })
     await waitFor(() => expect(screen.queryByText(/Seed from Time Blocks/)).not.toBeNull())
 
     fireEvent.click(screen.getByText(/Seed from Time Blocks/))
