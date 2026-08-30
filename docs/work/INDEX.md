@@ -150,6 +150,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Persisted open reconciliation decisions — host-local journal feeding Roots home's attention list](../../docs/adr/2026-08-28-persisted-reconciliation-decisions.md) | accepted | not_started | — |
 | [Roots home is a distinct screen — census tiles stay import-only, structure and attention are live reads](../../docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md) | proposed | not_started | — |
 | [ADR: Stage-Aware Navigation + Landing Routing/State-Machine (WS1)](../../docs/adr/2026-08-28-stage-aware-nav-landing.md) | proposed | proposed | — |
+| [Unify Events, Special Days, and Special Schedules into one Special Events screen](../../docs/adr/2026-08-29-unify-special-events-screen.md) | accepted | implemented | [T110-unify-special-events-screen](../../docs/work/tickets/T110-unify-special-events-screen.md) |
 
 ## Runs
 

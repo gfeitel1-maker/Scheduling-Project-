@@ -14,7 +14,7 @@ const REAL_SCREEN_KEYS = new Set([
   'cohorts', 'tiers', 'groups', 'days', 'timeblocks', 'activities',
   'locations', 'anchors', 'schedule',
   'schedule:manual', 'schedule:generated', 'schedule:special',
-  'events', 'specialdays', 'electives',
+  'specialevents', 'electives',
 ])
 
 describe('rootMapNav — every nav target is a real screen', () => {
@@ -65,11 +65,12 @@ describe('rootMapNav — every nav target is a real screen', () => {
   })
 
   // Regroup slice (owner decision 2026-08-24) — Events/Special Days/
-  // Electives are now Scheduling children, each with its own setup-entity
-  // edit screen (not the Schedule-side build pickers).
+  // Electives are Scheduling children, each with its own setup-entity edit
+  // screen (not the Schedule-side build pickers). Special Events unification
+  // (2026-08-29) merged Events and Special Days into one screen.
   it('resolves Events, Special Days, and Electives to their own setup screens under Scheduling', () => {
-    expect(screenForNode('Scheduling', 'Events')).toBe('events')
-    expect(screenForNode('Scheduling', 'Special Days')).toBe('specialdays')
+    expect(screenForNode('Scheduling', 'Events')).toBe('specialevents')
+    expect(screenForNode('Scheduling', 'Special Days')).toBe('specialevents')
     expect(screenForNode('Scheduling', 'Electives')).toBe('electives')
   })
 

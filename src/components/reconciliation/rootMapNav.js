@@ -30,8 +30,8 @@ export const CHILD_SCREEN = {
   // not the Schedule-side build pickers ('schedule:special',
   // 'schedule:electives'), which are a separate destination for building the
   // actual grid, not editing the entity list.
-  Events: 'events',
-  'Special Days': 'specialdays',
+  Events: 'specialevents',
+  'Special Days': 'specialevents',
   Electives: 'electives',
 }
 
@@ -49,8 +49,7 @@ export const SCREEN_LABEL = {
   'schedule:manual': 'Schedule',
   'schedule:generated': 'Schedule',
   'schedule:special': 'Special Schedules',
-  events: 'Events',
-  specialdays: 'Special Days',
+  specialevents: 'Special Events',
   electives: 'Electives',
 }
 

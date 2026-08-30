@@ -76,28 +76,15 @@ export const NAV_SECTIONS = [
       // builds elective sets/offerings here, off the campwide grid, which
       // stays opaque ("Electives"). Optional, like Locations.
       { key: 'electives',    label: 'Electives',     area: 'electives',    optional: true },
-      // Override-family-model ADR §6c (docs/adr/2026-08-23-override-
-      // family-model.md): Events and Special Days are display-grouped
-      // under one quiet, non-navigating heading — "these feel like one
-      // thing" (owner's felt model), decided again by the lifecycle-IA spec
-      // (§9: "keep the two existing rows under a quiet 'Special Events'
-      // sub-heading"). Display-layer grouping only: no schema change, each
-      // row keeps its own `area`/optional status/Next-chain identity
-      // untouched. Sidebar.jsx renders a `heading` marker as a plain label,
-      // never a row.
-      { key: 'special-events-heading', heading: 'Special Events' },
-      // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-
-      // overlay-placement.md §5): an event is a named, opaque block a
-      // director places directly on the campwide schedule (not its own
-      // sub-schedule, unlike Electives). Optional, same posture.
-      { key: 'events',       label: 'Events',        area: 'events',       optional: true },
-      // T106 (docs/adr/2026-08-20-special-days-authoring-and-day-override-
-      // repoint.md D1/D3b): a special day is authored once and reused
-      // (tier (c) durable), a setup-shaped relationship to the camp, not a
-      // "build this week" relationship — its grid lives in Plants (you
-      // grow it), but authoring it lives here (you plant it) — same seam
-      // the lifecycle-IA spec names for the special-schedule entities.
-      { key: 'specialdays',  label: 'Special Days',  area: 'specialdays',  optional: true },
+      // Special Events unification (owner-approved 2026-08-29, docs/adr/2026-
+      // 08-29-unify-special-events-screen.md) — Events and Special Days were
+      // previously two display-grouped rows under a quiet "Special Events"
+      // heading (override-family-model ADR §6c); the owner corrected that to
+      // an actual 2→1 merge: one row, one create/manage screen
+      // (SpecialEventsScreen) covering both entity kinds. Its grid still
+      // builds in Plants (schedule:special), untouched — only the Sprouts
+      // authoring surface merged.
+      { key: 'specialevents', label: 'Special Events', area: 'specialevents', optional: true },
     ],
   },
   {
@@ -179,7 +166,9 @@ export const AREA_TABLE = {
   activities: 'activities',
   locations: 'locations',
   anchors: 'anchor_activities',
-  specialdays: 'special_days',
   electives: 'elective_sets',
-  events: 'events',
+  // No entry for 'specialevents': the merged row spans two tables
+  // (special_days + events) and AREA_TABLE only supports a single table per
+  // area, so the badge count is simply omitted for this row (judgment call,
+  // Maker round — see PR description).
 }

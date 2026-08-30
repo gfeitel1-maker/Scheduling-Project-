@@ -16,10 +16,9 @@ import ActivitiesScreen from './screens/ActivitiesScreen'
 import LocationsScreen from './screens/LocationsScreen'
 import AnchorsScreen from './screens/AnchorsScreen'
 import ElectivesScreen from './screens/ElectivesScreen'
-import EventScreen from './screens/EventScreen'
+import SpecialEventsScreen from './screens/SpecialEventsScreen'
 import DaysScreen from './screens/DaysScreen'
 import CohortsScreen from './screens/CohortsScreen'
-import SpecialDaysScreen from './screens/SpecialDaysScreen'
 import SpecialSchedulesScreen from './screens/SpecialSchedulesScreen'
 import ScheduleElectivesScreen from './screens/ScheduleElectivesScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
@@ -70,8 +69,10 @@ const SCREENS = {
   // fixed `route` prop), not two screens.
   fixedevents:  AnchorsScreen,
   electives:    ElectivesScreen,
-  events:       EventScreen,
-  specialdays:  SpecialDaysScreen,
+  // Special Events unification (docs/adr/2026-08-29-unify-special-events-
+  // screen.md) — one create/manage hub replacing the separate Events and
+  // Special Days screens; the Plants build surface below is unchanged.
+  specialevents: SpecialEventsScreen,
   // Two routes to a week, two sidebar destinations, one screen. Neither is the
   // camp's "real" schedule — the director makes that call, never the app
   // (docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md). 'schedule' is
@@ -134,11 +135,11 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // builder to open focused on. Lifted above the screen swap, cleared
   // whenever navigation heads anywhere other than 'schedule:electives'.
   const [electiveFocusSetId, setElectiveFocusSetId] = useState(null)
-  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
-  // placement.md §5) — the event_id an event cell's drill-in button wants
-  // EventScreen to open focused on, carried the same way electiveFocusSetId
-  // carries the elective drill-in target.
-  const [eventFocusId, setEventFocusId] = useState(null)
+  // Special Events unification — the { type: 'event'|'day', id } an event
+  // cell's drill-in button (or a Roots link) wants SpecialEventsScreen to
+  // open focused on, carried the same way electiveFocusSetId carries the
+  // elective drill-in target. Replaces the old eventFocusId scalar.
+  const [specialEventsFocus, setSpecialEventsFocus] = useState(null)
   // Schedule-side build entry (docs/work/specs/2026-08-23-schedule-build-ia.md,
   // "the seam, precisely") — SpecialDaysScreen's "Open" row action and
   // EventScreen's "Build this event's schedule" link both navigate here with
@@ -155,8 +156,8 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
     const target = next === 'readiness' ? 'roots' : next
     if (target !== 'schedule:electives') setElectiveFocusSetId(null)
     if (opts?.electiveSetId) setElectiveFocusSetId(opts.electiveSetId)
-    if (target !== 'events') setEventFocusId(null)
-    if (opts?.eventId) setEventFocusId(opts.eventId)
+    if (target !== 'specialevents') setSpecialEventsFocus(null)
+    if (opts?.eventId) setSpecialEventsFocus({ type: 'event', id: opts.eventId })
     if (target !== 'schedule:special') setSpecialScheduleFocus(null)
     if (opts?.specialDayId) setSpecialScheduleFocus({ type: 'day', id: opts.specialDayId })
     if (opts?.buildEventId) setSpecialScheduleFocus({ type: 'event', id: opts.buildEventId })
@@ -246,7 +247,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         // Slice 2 — the set id a schedule cell's drill-in (or Roots's "Open"
         // row action) wants the Schedule-side Electives builder focused on.
         ...(resolvedScreen === 'schedule:electives' ? { initialElectiveSetId: electiveFocusSetId } : {}),
-        ...(resolvedScreen === 'events' ? { initialEventId: eventFocusId } : {}),
+        ...(resolvedScreen === 'specialevents' ? { initialFocus: specialEventsFocus } : {}),
         ...(resolvedScreen === 'schedule:special' ? { initialSelection: specialScheduleFocus } : {}),
         ...(ANCHOR_KIND_BY_SCREEN[resolvedScreen] ? { kind: ANCHOR_KIND_BY_SCREEN[resolvedScreen] } : {}),
       }

@@ -58,18 +58,23 @@ describe('NAV_SECTIONS sprouts items', () => {
     }
   })
 
-  it('lists Electives, then a quiet "Special Events" heading, then Events and Special Days', () => {
+  it('lists a single "Special Events" row after Electives — the merged Events + Special Days entry (ADR 2026-08-29-unify-special-events-screen)', () => {
     const keys = items.map(i => i.key)
     const electivesIdx = keys.indexOf('electives')
-    const headingIdx = keys.findIndex(k => k === 'special-events-heading')
-    const eventsIdx = keys.indexOf('events')
-    const specialDaysIdx = keys.indexOf('specialdays')
+    const specialEventsIdx = keys.indexOf('specialevents')
     expect(electivesIdx).toBeGreaterThan(-1)
-    expect(headingIdx).toBeGreaterThan(electivesIdx)
-    expect(eventsIdx).toBeGreaterThan(headingIdx)
-    expect(specialDaysIdx).toBeGreaterThan(eventsIdx)
-    const heading = items.find(i => i.key === 'special-events-heading')
-    expect(heading.heading).toBe('Special Events')
+    expect(specialEventsIdx).toBeGreaterThan(electivesIdx)
+    const row = items.find(i => i.key === 'specialevents')
+    expect(row.label).toBe('Special Events')
+    expect(row.optional).toBe(true)
+  })
+
+  it('no longer carries the old Events/Special Days rows or the "Special Events" heading', () => {
+    const keys = items.map(i => i.key)
+    expect(keys).not.toContain('events')
+    expect(keys).not.toContain('specialdays')
+    expect(keys).not.toContain('special-events-heading')
+    expect(items.some(i => i.heading === 'Special Events')).toBe(false)
   })
 })
 
