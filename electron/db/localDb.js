@@ -14,9 +14,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 52
+export const CURRENT_SCHEMA_VERSION = 53
 
 export function initSchema(db) {
+  // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
+  // stamp-subsystem.md). Historical migrations below (v21, v27) repoint it as a
+  // child of schedule_templates. On a genuine forward migration the table
+  // exists from v10 until v53 drops it, so those repoints always run against a
+  // real table. This guard makes them no-op when the table is already gone —
+  // the case exercised when a test resets schema_migrations to a pre-v21/v27
+  // version on an already-fully-migrated (v53) database.
+  const tableExists = (name) =>
+    !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name)
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
   db.exec(schema)
   db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)').run(
@@ -824,7 +833,9 @@ export function initSchema(db) {
 
         for (const { id: dupeId } of dupes) {
           db.prepare('UPDATE template_slots SET template_id = ? WHERE template_id = ?').run(keepRow.id, dupeId)
-          db.prepare('UPDATE template_overlays SET template_id = ? WHERE template_id = ?').run(keepRow.id, dupeId)
+          if (tableExists('template_overlays')) {
+            db.prepare('UPDATE template_overlays SET template_id = ? WHERE template_id = ?').run(keepRow.id, dupeId)
+          }
           db.prepare('UPDATE schedule_snapshots SET template_id = ? WHERE template_id = ?').run(keepRow.id, dupeId)
         }
       }
@@ -850,7 +861,9 @@ export function initSchema(db) {
         if (newId === oldId) continue
         db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(newId, camp_id, name)
         db.prepare('UPDATE template_slots SET template_id = ? WHERE template_id = ?').run(newId, oldId)
-        db.prepare('UPDATE template_overlays SET template_id = ? WHERE template_id = ?').run(newId, oldId)
+        if (tableExists('template_overlays')) {
+          db.prepare('UPDATE template_overlays SET template_id = ? WHERE template_id = ?').run(newId, oldId)
+        }
         db.prepare('UPDATE schedule_snapshots SET template_id = ? WHERE template_id = ?').run(newId, oldId)
         db.prepare('DELETE FROM schedule_templates WHERE id = ?').run(oldId)
       }
@@ -993,6 +1006,7 @@ export function initSchema(db) {
         if (orphanId === t.id || present.has(orphanId)) continue
 
         for (const table of ['template_slots', 'template_overlays', 'schedule_snapshots']) {
+          if (!tableExists(table)) continue // template_overlays retired in v53
           const mine = db.prepare(`SELECT COUNT(*) c FROM ${table} WHERE template_id = ?`).get(t.id).c
           if (mine > 0) continue // a competing week exists — leave the orphans alone
           const orphans = db.prepare(`SELECT id FROM ${table} WHERE template_id = ?`).all(orphanId)
@@ -1127,7 +1141,12 @@ export function initSchema(db) {
         if (orphanId === t.id || present.has(orphanId)) continue
 
         const slots = db.prepare('SELECT * FROM template_slots WHERE template_id = ? ORDER BY id').all(orphanId)
-        const overlays = db.prepare('SELECT * FROM template_overlays WHERE template_id = ? ORDER BY id').all(orphanId)
+        // template_overlays retired in v53: absent once the drop has run (the
+        // artificial post-v53 mid-history rollback exercised by tests). On a
+        // genuine forward migration it exists here and this reads real rows.
+        const overlays = tableExists('template_overlays')
+          ? db.prepare('SELECT * FROM template_overlays WHERE template_id = ? ORDER BY id').all(orphanId)
+          : []
         handled.add(orphanId)
         if (slots.length === 0 && overlays.length === 0) continue
 
@@ -1181,16 +1200,34 @@ export function initSchema(db) {
                 'schedule_snapshots', snapshotId, JSON.stringify(priorSnap), now
               )
             }
-            db.prepare(
-              `INSERT OR REPLACE INTO schedule_snapshots
-                 (id, template_id, name, is_auto, created_at, slots, overlays)
-               VALUES (?, ?, ?, 0, ?, ?, ?)`
-            ).run(
-              snapshotId, t.id, snapName, now,
-              JSON.stringify(snapSlots), JSON.stringify(snapOverlays)
-            )
+            // The overlays column was dropped in v53. When it is still present
+            // (genuine forward migration, or a real pre-v53 device) the recovered
+            // Version carries its overlays; when absent (post-v53) the snapshot is
+            // slots-only, matching the retired subsystem.
+            const snapshotsHaveOverlays = db
+              .pragma('table_info(schedule_snapshots)')
+              .some((c) => c.name === 'overlays')
+            if (snapshotsHaveOverlays) {
+              db.prepare(
+                `INSERT OR REPLACE INTO schedule_snapshots
+                   (id, template_id, name, is_auto, created_at, slots, overlays)
+                 VALUES (?, ?, ?, 0, ?, ?, ?)`
+              ).run(
+                snapshotId, t.id, snapName, now,
+                JSON.stringify(snapSlots), JSON.stringify(snapOverlays)
+              )
+            } else {
+              db.prepare(
+                `INSERT OR REPLACE INTO schedule_snapshots
+                   (id, template_id, name, is_auto, created_at, slots)
+                 VALUES (?, ?, ?, 0, ?, ?)`
+              ).run(snapshotId, t.id, snapName, now, JSON.stringify(snapSlots))
+            }
 
-            for (const [table, rows] of [['template_slots', slots], ['template_overlays', overlays]]) {
+            const retiredTables = tableExists('template_overlays')
+              ? [['template_slots', slots], ['template_overlays', overlays]]
+              : [['template_slots', slots]]
+            for (const [table, rows] of retiredTables) {
               for (const row of rows) {
                 db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(row.id)
                 journal.run(
@@ -2050,6 +2087,40 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (52, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v53 — retire the overlay/stamp subsystem (docs/adr/2026-08-30-retire-overlay-stamp-subsystem.md).
+  // Drops template_overlays outright (no live writer — the authoring path was already dead, see the
+  // ADR §1) and drops schedule_snapshots.overlays (hard cutover, no back-compat: pre-production, no
+  // real camp data, existing snapshot overlays JSON is discarded per the ADR's explicit decision).
+  // Guard is `>= 52 && < 53`, NOT a bare `< 53` — see the v50 block's comment for the load-bearing
+  // reason (bug #194). day_overrides_json MUST stay the last column on the rebuilt table.
+  if (getSchemaVersion(db) >= 52 && getSchemaVersion(db) < 53) {
+    db.transaction(() => {
+      db.pragma('foreign_keys = OFF')
+      db.exec(`DROP TABLE IF EXISTS template_overlays;`)
+      db.exec(`
+        CREATE TABLE schedule_snapshots_v53 (
+          id TEXT PRIMARY KEY,
+          template_id TEXT NOT NULL REFERENCES schedule_templates(id),
+          name TEXT,
+          is_auto INTEGER,
+          created_at TEXT NOT NULL,
+          slots TEXT,
+          day_overrides_json TEXT
+        );
+        INSERT INTO schedule_snapshots_v53
+          SELECT id, template_id, name, is_auto, created_at, slots, day_overrides_json
+          FROM schedule_snapshots;
+        DROP TABLE schedule_snapshots;
+        ALTER TABLE schedule_snapshots_v53 RENAME TO schedule_snapshots;
+      `)
+      db.pragma('foreign_keys = ON')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (53, ?)').run(
       new Date().toISOString()
     )
   }

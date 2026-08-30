@@ -11,7 +11,7 @@
 // the full round trip named in the Task 5 success predicate — build a
 // schedule (bulk_replace template_slots), regenerate it (bulk_replace
 // again), create a manual snapshot (schedule_snapshots field-level write),
-// restore it (bulk_replace template_slots + template_overlays) — and
+// restore it (bulk_replace template_slots) — and
 // confirming a separately-connected Client ends up with the identical final
 // state as the Host after sync. It does not substitute for a real
 // multi-process UI check; see VERIFIER report for the explicit gap
@@ -84,9 +84,7 @@ beforeEach(async () => {
     for (const activityId of ['swim', 'kayak', 'hiking']) {
       db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(activityId, campId, activityId)
     }
-    // template_overlays.day_id (unlike template_slots.day_id) is a real FK
-    // to days_of_operation(id) — seed it so the overlay bulk_replace below
-    // doesn't fail the FOREIGN KEY constraint.
+    // Seed the day the template_slots below reference.
     db.prepare('INSERT INTO days_of_operation (id, camp_id, label) VALUES (?, ?, ?)').run('day-1', campId, 'Day 1')
   }
 
@@ -119,7 +117,7 @@ describe('Sub-plan E Task 5: full schedule round trip replicates Host -> Client'
   // `latestScopeOpSeq` reads `COALESCE(host_seq, seq)` so it uses the
   // Host-canonical value on a Client and plain `seq` (unaffected) on the
   // Host.
-  it('build -> regenerate -> snapshot create -> restore ends with identical template_slots/template_overlays on Host and Client', async () => {
+  it('build -> regenerate -> snapshot create -> restore ends with identical template_slots on Host and Client', async () => {
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
@@ -144,23 +142,11 @@ describe('Sub-plan E Task 5: full schedule round trip replicates Host -> Client'
     result = await client.writeBulkReplace({ entity: 'template_slots', scope_id: templateId, rows: regeneratedRows })
     expect(result.status).toBe('applied')
 
-    // Also give the regenerated schedule one overlay, via bulk_replace (per
-    // Task 3: template_overlays is extended into the same bulk_replace
-    // allowlist, not a second bulk mechanism).
-    // from_block_order/to_block_order are stringified before bulk_replace,
-    // matching ScheduleScreen.jsx's restoreSnapshot() (validateBulkReplaceRows
-    // requires every row field to be a string or null).
-    const overlayRows = [
-      { id: 'overlay-1', template_id: templateId, unit_id: 'group-1', day_id: 'day-1', from_block_order: '1', to_block_order: '2', label: 'Field trip' },
-    ]
-    result = await client.writeBulkReplace({ entity: 'template_overlays', scope_id: templateId, rows: overlayRows })
-    expect(result.status).toBe('applied')
-
     // 3. Create a manual snapshot: schedule_snapshots is NOT a bulk_replace
-    // entity (per schema.sql's own comment: slots/overlays are JSON-text
-    // columns, an explicitly scoped exception to field-level sync) - so
-    // snapshot creation goes through ordinary per-field write() calls, one
-    // per field, exactly as ScheduleScreen.jsx's writeFields() helper does.
+    // entity (per schema.sql's own comment: slots is a JSON-text column, an
+    // explicitly scoped exception to field-level sync) - so snapshot creation
+    // goes through ordinary per-field write() calls, one per field, exactly as
+    // ScheduleScreen.jsx's writeFields() helper does.
     const snapshotId = 'snapshot-1'
     const snapshotFields = {
       template_id: templateId,
@@ -168,7 +154,6 @@ describe('Sub-plan E Task 5: full schedule round trip replicates Host -> Client'
       is_auto: 0,
       created_at: new Date().toISOString(),
       slots: JSON.stringify(regeneratedRows),
-      overlays: JSON.stringify(overlayRows),
     }
     for (const [field, value] of Object.entries(snapshotFields)) {
       const writeResult = await client.write({ entity: 'schedule_snapshots', entity_id: snapshotId, field, value })
@@ -189,23 +174,17 @@ describe('Sub-plan E Task 5: full schedule round trip replicates Host -> Client'
     expect(hostSnapshotRow, 'Host schedule_snapshots row was not materialized from the field-level op-log writes').toBeTruthy()
     expect(hostSnapshotRow?.name).toBe('Manual Snapshot')
     expect(hostSnapshotRow?.slots).toBe(JSON.stringify(regeneratedRows))
-    expect(hostSnapshotRow?.overlays).toBe(JSON.stringify(overlayRows))
 
     const clientSnapshotRow = clientDb.prepare('SELECT * FROM schedule_snapshots WHERE id = ?').get(snapshotId)
     expect(clientSnapshotRow, 'Client schedule_snapshots row did not replicate from Host').toBeTruthy()
     expect(clientSnapshotRow?.name).toBe(hostSnapshotRow?.name)
     expect(clientSnapshotRow?.slots).toBe(hostSnapshotRow?.slots)
-    expect(clientSnapshotRow?.overlays).toBe(hostSnapshotRow?.overlays)
 
-    // 4. Restore the snapshot: bulk_replace template_slots + template_overlays
-    // back to the snapshot's stored rows (mirrors ScheduleScreen.jsx's
-    // restoreSnapshot()).
+    // 4. Restore the snapshot: bulk_replace template_slots back to the
+    // snapshot's stored rows (mirrors ScheduleScreen.jsx's restoreSnapshot()).
     const restoredSlots = JSON.parse(hostSnapshotRow.slots)
-    const restoredOverlays = JSON.parse(hostSnapshotRow.overlays)
 
     result = await client.writeBulkReplace({ entity: 'template_slots', scope_id: templateId, rows: restoredSlots })
-    expect(result.status).toBe('applied')
-    result = await client.writeBulkReplace({ entity: 'template_overlays', scope_id: templateId, rows: restoredOverlays })
     expect(result.status).toBe('applied')
 
     // 5. Confirm the Client sees the same final state as the Host after sync.
@@ -218,10 +197,6 @@ describe('Sub-plan E Task 5: full schedule round trip replicates Host -> Client'
     // not the originally-built one — restoring it reproduces that same
     // row set, not the pre-regenerate slot-1/slot-2.
     expect(hostFinalSlots.map((r) => r.id)).toEqual(['slot-3', 'slot-4'])
-
-    const hostFinalOverlays = hostDb.prepare('SELECT * FROM template_overlays WHERE template_id = ? ORDER BY id').all(templateId)
-    const clientFinalOverlays = clientDb.prepare('SELECT * FROM template_overlays WHERE template_id = ? ORDER BY id').all(templateId)
-    expect(clientFinalOverlays).toEqual(hostFinalOverlays)
 
     client.close()
   })

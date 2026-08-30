@@ -24,7 +24,7 @@
  *   f. the parent delete is the LAST op, so a peer applying in seq order never
  *      violates its own foreign_keys = ON.
  *   g. deleting an activity empties its cells and leaves the grid intact.
- *   h. deleting a day takes its anchors, overlays, and the orphan slots no FK
+ *   h. deleting a day takes its anchors and the orphan slots no FK
  *      protects.
  *   i. a failed save aborts the delete and destroys nothing.
  */
@@ -273,15 +273,13 @@ export async function run() {
       throw new Error('Deleting the activity left it placed somewhere')
     }
 
-    // --- h. a day: anchors, overlays, and the orphans no FK protects --------
+    // --- h. a day: anchors and the orphans no FK protects -------------------
     write('anchor_activities', 'anchor-1', 'camp_id', host.campId)
     write('anchor_activities', 'anchor-1', 'day_id', dayIds[0])
-    host.db.prepare('INSERT INTO template_overlays (id, template_id, day_id, label) VALUES (?, ?, ?, ?)')
-      .run('overlay-1', templates.manual, dayIds[0], 'Trip')
 
     const dayPreview = previewDelete(host.db, { entity: 'days_of_operation', entity_id: dayIds[0] })
-    if (dayPreview.anchor_count !== 1 || dayPreview.overlay_count !== 1) {
-      throw new Error(`Day preview reported ${dayPreview.anchor_count} anchors / ${dayPreview.overlay_count} overlays, expected 1 / 1`)
+    if (dayPreview.anchor_count !== 1) {
+      throw new Error(`Day preview reported ${dayPreview.anchor_count} anchors, expected 1`)
     }
     const dayResult = deleteRecord(host.db, {
       entity: 'days_of_operation',
@@ -290,7 +288,7 @@ export async function run() {
       ...session,
     })
     if (!dayResult.ok) throw new Error(`Deleting the day failed: ${JSON.stringify(dayResult)}`)
-    for (const [table, column] of [['anchor_activities', 'day_id'], ['template_overlays', 'day_id'], ['template_slots', 'day_id']]) {
+    for (const [table, column] of [['anchor_activities', 'day_id'], ['template_slots', 'day_id']]) {
       const left = host.db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE ${column} = ?`).get(dayIds[0]).n
       if (left !== 0) {
         throw new Error(`Deleting the day left ${left} orphaned ${table} row(s) pointing at a day that no longer exists`)

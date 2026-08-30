@@ -17,7 +17,7 @@ function pickBulkColumns(row, entity, newId, newScopeId) {
 }
 
 // Duplicate a week: create a new schedule_weeks row, two new schedule_templates
-// rows (one per route), copy all template_slots/template_overlays via
+// rows (one per route), copy all template_slots via
 // appendBulkReplaceOp, and copy exclusion rows via per-row appendOp.
 //
 // The new week's ops are appended LAST (after all children) so a partially-
@@ -133,19 +133,6 @@ export function duplicateWeek(db, { sourceWeekId, campId }, { author_user_id, de
         entity: 'template_slots', scope_id: newTemplateId, rows: newSlots,
         author_user_id, device_id,
         client_write_id: cwid(`template_slots.${kind}`, 0),
-      }))
-
-      // Copy overlays via bulk_replace.
-      const sourceOverlays = db
-        .prepare('SELECT * FROM template_overlays WHERE template_id = ?')
-        .all(sourceTemplate.id)
-      const newOverlays = sourceOverlays.map((o) =>
-        pickBulkColumns(o, 'template_overlays', randomUUID(), newTemplateId)
-      )
-      ops.push(appendBulkReplaceOp(db, {
-        entity: 'template_overlays', scope_id: newTemplateId, rows: newOverlays,
-        author_user_id, device_id,
-        client_write_id: cwid(`template_overlays.${kind}`, 0),
       }))
     }
 

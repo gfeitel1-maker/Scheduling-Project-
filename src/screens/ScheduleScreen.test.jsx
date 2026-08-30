@@ -85,14 +85,13 @@ function mockList(overridesByEntity = {}) {
     schedule_weeks: [{ id: CAMP_ID, camp_id: CAMP_ID, name: 'Week 1', sort_order: 0, is_archived: 0 }],
     schedule_templates: [{ id: 'schedule-template:camp-1', camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: CAMP_ID }],
     template_slots: [slotRow()],
-    template_overlays: [],
     schedule_snapshots: [],
   }
   const merged = { ...base, ...overridesByEntity }
   localClient.list.mockImplementation((entity) => Promise.resolve(merged[entity] ?? []))
   // Mirrors main.js's PARENT_SCOPED_ENTITIES parentKey for the entities
-  // reloadSlots/reloadOverlays actually call listByScope for.
-  const scopeKeyByEntity = { template_slots: 'template_id', template_overlays: 'template_id' }
+  // reloadSlots actually calls listByScope for.
+  const scopeKeyByEntity = { template_slots: 'template_id' }
   localClient.listByScope.mockImplementation((entity, scopeId) => {
     const key = scopeKeyByEntity[entity]
     return Promise.resolve((merged[entity] ?? []).filter((row) => row[key] === scopeId))
@@ -127,7 +126,8 @@ beforeEach(() => {
 // Mode / Versions / Export / Rebuild now render as an always-visible, quiet
 // secondary cluster instead of hiding behind a menu. Week switcher, View
 // toggle, and Undo/Redo stay directly on the toolbar, visually primary. The
-// overlay/stamp subsystem itself is untouched (S2b).
+// overlay/stamp subsystem has since been fully retired (T111,
+// docs/adr/2026-08-30-retire-overlay-stamp-subsystem.md).
 describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed, secondary controls form a quiet visible cluster', () => {
   it('renders no "Field Trips" control on the toolbar', async () => {
     mockList()
@@ -444,31 +444,13 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
     expect(screen.getByText('Generate a schedule')).toBeTruthy()
   })
 
-  it('removeOverlay: clicking the remove button on a stamped overlay deletes it via localClient.deleteEntity', async () => {
-    mockList({
-      template_overlays: [{ id: 'ov-1', template_id: 'schedule-template:camp-1', unit_id: 't1', day_id: 'd1', from_block_order: 1, to_block_order: 1, label: 'Field Trip' }],
-    })
-    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
-    fireEvent.click(screen.getByText('Daily View'))
-
-    await waitFor(() => expect(screen.getAllByText('Field Trip').length).toBeGreaterThan(0))
-    fireEvent.click(screen.getAllByText('Field Trip')[0])
-
-    await waitFor(() => expect(screen.getAllByText('✕ Remove').length).toBeGreaterThan(0))
-    fireEvent.click(screen.getAllByText('✕ Remove')[0])
-
-    await waitFor(() => {
-      expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'template_overlays', 'ov-1')
-    })
-  })
 })
 
 // Task 4: saveSnapshot/restoreSnapshot's payload fetch/renameSnapshot ported
-// from Supabase to localClient. slots/overlays are the one scoped exception
+// from Supabase to localClient. slots is the one scoped exception
 // where a JSON-text-column is written via ordinary writeFields (not bulk_replace).
 describe('snapshot CRUD ported to localClient', () => {
-  it('saveSnapshot: writes template_id/name/is_auto/created_at/slots/overlays via writeFields (slots+overlays JSON.stringify\'d) and updates snapshot list optimistically', async () => {
+  it('saveSnapshot: writes template_id/name/is_auto/created_at/slots via writeFields (slots JSON.stringify\'d) and updates snapshot list optimistically', async () => {
     mockList({
       template_slots: [slotRow({ flags: { UNFILLABLE: true } })],
     })
@@ -489,7 +471,6 @@ describe('snapshot CRUD ported to localClient', () => {
       'token-abc', 'schedule_snapshots', 'new-id-1', 'slots',
       JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: { UNFILLABLE: true } }])
     )
-    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'overlays', JSON.stringify([]))
 
     // Optimistic local state update — new snapshot appears in the dropdown.
     await waitFor(() => expect(screen.getByText('My Version')).toBeTruthy())
@@ -519,14 +500,14 @@ describe('snapshot CRUD ported to localClient', () => {
     expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'snap-1', 'is_auto', false)
   })
 
-  it('restoreSnapshot: parses stored slots/overlays JSON strings back into arrays and applies them to the live schedule', async () => {
+  it('restoreSnapshot: parses stored slots JSON string back into an array and applies it to the live schedule', async () => {
     const storedSlots = JSON.stringify([
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-restored', anchor_id: null, is_anchor: false, flags: {} },
     ])
     mockList({
       schedule_snapshots: [
         { id: 'snap-1', template_id: 'schedule-template:camp-1', name: null, is_auto: true, created_at: '2026-01-01T00:00:00.000Z' },
-        { id: 'snap-2', template_id: 'schedule-template:camp-1', name: 'Older', is_auto: false, created_at: '2025-12-31T00:00:00.000Z', slots: storedSlots, overlays: '' },
+        { id: 'snap-2', template_id: 'schedule-template:camp-1', name: 'Older', is_auto: false, created_at: '2025-12-31T00:00:00.000Z', slots: storedSlots },
       ],
       activities: [activity(), activity({ id: 'act-restored', name: 'Arts & Crafts' })],
     })
@@ -539,7 +520,7 @@ describe('snapshot CRUD ported to localClient', () => {
     fireEvent.click(screen.getByText('📋 Versions ▾'))
     await waitFor(() => expect(screen.getByText('Restore')).toBeTruthy())
 
-    // After restore, the refetch of template_slots/template_overlays reflects
+    // After restore, the refetch of template_slots reflects
     // what bulkReplace was called with — built from the parsed snapshot slots.
     fireEvent.click(screen.getByText('Restore'))
 
@@ -555,7 +536,7 @@ describe('snapshot CRUD ported to localClient', () => {
     mockList({
       schedule_snapshots: [
         { id: 'snap-1', template_id: 'schedule-template:camp-1', name: null, is_auto: true, created_at: '2026-01-01T00:00:00.000Z' },
-        { id: 'snap-2', template_id: 'schedule-template:camp-1', name: 'Corrupt', is_auto: false, created_at: '2025-12-31T00:00:00.000Z', slots: '{not valid json', overlays: '' },
+        { id: 'snap-2', template_id: 'schedule-template:camp-1', name: 'Corrupt', is_auto: false, created_at: '2025-12-31T00:00:00.000Z', slots: '{not valid json' },
       ],
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
@@ -1186,7 +1167,6 @@ describe('ScheduleScreen — generate() is route-explicit', () => {
       schedule_weeks: [{ id: CAMP_ID, camp_id: CAMP_ID, name: 'Week 1', sort_order: 0, is_archived: 0 }],
       schedule_templates: [],
       template_slots: [],
-      template_overlays: [],
       schedule_snapshots: [],
     }
     localClient.list.mockImplementation((entity) => Promise.resolve(store[entity] ?? []))

@@ -5,10 +5,10 @@
 // row exists but its payload was never written" — into a silent no-op. A director
 // clicked Restore and nothing happened, with no way to tell that anything was wrong.
 //
-// Snapshots written before the op-value coercion fix (af6a9d8) have NULL `slots`
-// and `overlays`: the boolean `is_auto` threw at the better-sqlite3 bind, so every
-// field after it in key order was never written. Those rows are permanently
-// unrestorable — they contain nothing to restore.
+// Snapshots written before the op-value coercion fix (af6a9d8) have NULL `slots`:
+// the boolean `is_auto` threw at the better-sqlite3 bind, so every field after it
+// in key order was never written. Those rows are permanently unrestorable — they
+// contain nothing to restore.
 //
 // This lives apart from ScheduleScreen so the rule has one home and can be tested
 // without standing up the whole screen. The list view and the restore action must
@@ -52,9 +52,9 @@ export function unrestorableMessage(reason) {
   }
 }
 
-// Parses a snapshot's stored payload into slots + overlays.
-// Returns { ok: true, slots, overlays } or { ok: false, reason }.
-// Both columns are JSON text (an explicitly scoped exception to field-level
+// Parses a snapshot's stored payload into slots.
+// Returns { ok: true, slots } or { ok: false, reason }.
+// `slots` is JSON text (an explicitly scoped exception to field-level
 // sync — see PLATFORM_STATE.md), so a parse failure is a real possibility and
 // must surface rather than throw into a click handler.
 export function parseSnapshotPayload(snapshot) {
@@ -62,11 +62,10 @@ export function parseSnapshotPayload(snapshot) {
   if (reason) return { ok: false, reason }
   try {
     const slots = JSON.parse(snapshot.slots)
-    const overlays = snapshot.overlays ? JSON.parse(snapshot.overlays) : []
-    if (!Array.isArray(slots) || !Array.isArray(overlays)) {
+    if (!Array.isArray(slots)) {
       return { ok: false, reason: UNRESTORABLE_UNREADABLE }
     }
-    return { ok: true, slots, overlays }
+    return { ok: true, slots }
   } catch {
     return { ok: false, reason: UNRESTORABLE_UNREADABLE }
   }

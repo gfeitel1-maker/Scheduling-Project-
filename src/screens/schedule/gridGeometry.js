@@ -1,6 +1,6 @@
 // Pure grid geometry for the schedule grids. Extracted verbatim from
 // ScheduleScreen.jsx (T29): given plain data (DB-shaped, normalizeSlots-normalized
-// slot rows plus timeBlocks/groups/overlays and the transient fillState), it
+// slot rows plus timeBlocks/groups), it
 // answers "what goes in this cell and how tall is it". No React, no IPC, no
 // closure over component state — every input is an explicit argument, which is
 // what makes it directly unit-testable.
@@ -63,77 +63,29 @@ export function getActivityRowSpan(slots, timeBlocks, groupId, dayId, blockId) {
   return span
 }
 
-// Returns the overlay object if an overlay covers this (group, day, block), else null.
-// fillState carries the live drag-preview extent (previewToOrder) so a fill drag
-// visually extends the overlay before the write lands.
-export function overlayForCell(groups, timeBlocks, overlays, fillState, groupId, dayId, blockId) {
-  const group = groups.find(g => g.id === groupId)
-  const block = timeBlocks.find(b => b.id === blockId)
-  if (!group || !block) return null
-  return overlays.find(o => {
-    const effectiveTo = (fillState?.overlayId === o.id && fillState.previewToOrder !== undefined)
-      ? fillState.previewToOrder
-      : o.to_block_order
-    return (
-      o.unit_id === group.tier_id &&
-      o.day_id === dayId &&
-      block.sort_order >= o.from_block_order &&
-      block.sort_order <= effectiveTo
-    )
-  }) || null
-}
-
-// Returns true if this block is the FIRST block of an overlay (render the OverlayCell here)
-export function isOverlayHead(groups, timeBlocks, overlays, fillState, groupId, dayId, blockId) {
-  const group = groups.find(g => g.id === groupId)
-  const block = timeBlocks.find(b => b.id === blockId)
-  if (!group || !block) return false
-  const overlay = overlayForCell(groups, timeBlocks, overlays, fillState, groupId, dayId, blockId)
-  if (!overlay) return false
-  return block.sort_order === overlay.from_block_order
-}
-
-// Returns the rowSpan for an overlay starting at this block (uses live preview during fill drag)
-export function getOverlayRowSpan(timeBlocks, fillState, overlay) {
-  const effectiveTo = (fillState?.overlayId === overlay.id && fillState.previewToOrder !== undefined)
-    ? fillState.previewToOrder
-    : overlay.to_block_order
-  return timeBlocks.filter(b => b.sort_order >= overlay.from_block_order && b.sort_order <= effectiveTo).length
-}
-
 // Binds the current data once so callers (the screen, the views) invoke the
 // readers with just a cell coordinate — the same call shape they used when these
 // were closures on the component. Pure: data in → a facade of bound pure fns out.
-export function makeGridGeometry({ slots, timeBlocks, groups, overlays, fillState }) {
+export function makeGridGeometry({ slots, timeBlocks }) {
   return {
     getSlot: (groupId, dayId, blockId) => getSlot(slots, groupId, dayId, blockId),
     isAnchorTail: (groupId, dayId, blockId) => isAnchorTail(slots, timeBlocks, groupId, dayId, blockId),
     getAnchorRowSpan: (groupId, dayId, blockId) => getAnchorRowSpan(slots, timeBlocks, groupId, dayId, blockId),
     isActivityTail: (groupId, dayId, blockId) => isActivityTail(slots, groupId, dayId, blockId),
     getActivityRowSpan: (groupId, dayId, blockId) => getActivityRowSpan(slots, timeBlocks, groupId, dayId, blockId),
-    overlayForCell: (groupId, dayId, blockId) => overlayForCell(groups, timeBlocks, overlays, fillState, groupId, dayId, blockId),
-    isOverlayHead: (groupId, dayId, blockId) => isOverlayHead(groups, timeBlocks, overlays, fillState, groupId, dayId, blockId),
-    getOverlayRowSpan: (overlay) => getOverlayRowSpan(timeBlocks, fillState, overlay),
   }
 }
 
 // Single source of the cell-decision branching that ScheduleGroupView and
 // ScheduleDayView both ran inline (identically). Given a bound geometry facade
 // and a cell coordinate, returns what to render; each view maps the descriptor
-// to its own markup (OverlayCell direction, SlotCell prop set) which genuinely
+// to its own markup (SlotCell prop set) which genuinely
 // differs. Returns one of:
 //   { kind: 'skip' }                          — tail covered by a head's rowSpan
 //   { kind: 'empty' }                         — droppable empty cell
-//   { kind: 'overlay', overlay, rowSpan }     — overlay head
 //   { kind: 'slot', slot, rowSpan, cellType } — a SlotCell (anchor vs cellType
 //                                               resolved by the view via slot.is_anchor)
 export function decideCell(geometry, groupId, dayId, blockId) {
-  const overlay = geometry.overlayForCell(groupId, dayId, blockId)
-  if (overlay) {
-    if (!geometry.isOverlayHead(groupId, dayId, blockId)) return { kind: 'skip' }
-    return { kind: 'overlay', overlay, rowSpan: geometry.getOverlayRowSpan(overlay) }
-  }
-
   const slot = geometry.getSlot(groupId, dayId, blockId)
   if (!slot) return { kind: 'empty' }
   if (slot.is_anchor && geometry.isAnchorTail(groupId, dayId, blockId)) return { kind: 'skip' }

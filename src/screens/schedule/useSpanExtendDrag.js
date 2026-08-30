@@ -3,9 +3,7 @@ import { computeSpanExtendPreview } from './useSlotMutations'
 
 // T107 item 1 (Designer spec 2026-08-21) — drag-to-extend gesture.
 //
-// Modeled as a raw-pointer-event gesture on the extend handle itself, the
-// SAME architectural precedent this codebase already ships for a small-
-// handle drag: `useOverlayFillStamp`'s fill handle (OverlayCell.jsx) is a
+// Modeled as a raw-pointer-event gesture on the extend handle itself: a
 // plain onPointerDown + a window pointerup listener, not a dnd-kit
 // useDraggable pickup. The Designer spec's Implementation Note #1 asks for a
 // "third drag-FSM gesture kind"; this hook instead reuses the fill-handle
@@ -143,8 +141,7 @@ export function useSpanExtendDrag({ slots, timeBlocks, activities, expandSlot })
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('keydown', onKey)
     }
-  // Re-bind whenever the inputs the closures read are replaced — same
-  // precedent as useOverlayFillStamp's own fillState effect.
+  // Re-bind whenever the inputs the closures read are replaced.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortedTimeBlocks, activities, expandSlot])
 

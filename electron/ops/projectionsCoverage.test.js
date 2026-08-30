@@ -269,15 +269,6 @@ const BULK_REPLACE_ROW_SOURCES = [
       'flags',
     ],
   },
-  {
-    file: 'src/data/scheduleRepository.js',
-    entity: 'template_overlays',
-    // Human-verified: the inline row literal built inside
-    // restoreSnapshotRows() (scheduleRepository.js ~lines 213-221), mapping
-    // each snapshot overlay to a template_overlays row.
-    rowBuilder: 'restoreSnapshotRows() inline overlay row literal',
-    fields: ['id', 'template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
-  },
 ]
 
 // ---------------------------------------------------------------------------

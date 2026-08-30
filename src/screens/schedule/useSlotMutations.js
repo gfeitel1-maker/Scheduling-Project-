@@ -141,9 +141,9 @@ function computeSpanExtendPreview(slots, sortedTimeBlocks, activities, { groupId
   return { coveredBlockIds: covered, truncatedAtBlockId: null }
 }
 
-// The per-cell slot / overlay mutation cluster (T32), over the T28 repository.
+// The per-cell slot mutation cluster (T32), over the T28 repository.
 // Every handler follows the same shape: read the target from `slots` ->
-// repo.writeSlotFields/writeOverlayFields -> setActionError on failure ->
+// repo.writeSlotFields -> setActionError on failure ->
 // optimistic route setter -> pushUndo({undo, redo}) where it records one.
 //
 // This hook orchestrates but owns NO state: the route-scoped values and the
@@ -244,7 +244,6 @@ export function useSlotMutations({
     existingTemplates,
     templateId,
     setSlots,
-    setOverlays,
   } = routeState
 
   // T108 (design §6.1, Red Hat Finding #5 fix): a non-override-mode edit onto
@@ -505,7 +504,7 @@ export function useSlotMutations({
   // successful onSuccess — the ONE place every own-write is captured,
   // regardless of which of the ~13 call sites below fired. A caller that
   // doesn't touch activity_id/elective_set_id (dismissFlag, releaseCell's
-  // is_released, overlays) simply omits it.
+  // is_released) simply omits it.
   async function runMutation({ keys, claimId, dispatch, getError, onError, onSuccess, ownWriteKinds }) {
     const outcome = await claimAndRun(keys, claimId, dispatch)
     const error = getError ? getError() : undefined
@@ -823,49 +822,6 @@ export function useSlotMutations({
     // elective_set_id — no ownWriteRef entry belongs here (T105 §5 table:
     // releaseCell's 'empty' entry is for a FUTURE cell-clear action, not this
     // one; unlocking a locked cell does not change its content).
-  }
-
-  async function addOverlay({ unitId, dayId, fromBlockOrder, toBlockOrder, label }) {
-    if (!existingTemplates[route]) return
-    if (!unitId) {
-      console.warn('addOverlay: group has no tier_id — cannot create overlay')
-      return
-    }
-    const id = crypto.randomUUID()
-    const overlay = { id, template_id: templateId, unit_id: unitId, day_id: dayId, from_block_order: fromBlockOrder, to_block_order: toBlockOrder, label }
-    setActionError(null)
-    try {
-      await repo.writeOverlayFields(id, { template_id: templateId, unit_id: unitId, day_id: dayId, from_block_order: fromBlockOrder, to_block_order: toBlockOrder, label })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That field trip could not be added.'))
-      return
-    }
-    setOverlays(prev => [...prev, overlay])
-  }
-
-  async function removeOverlay(overlayId) {
-    setActionError(null)
-    try {
-      const result = await repo.deleteEntity('template_overlays', overlayId)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error('delete failed')
-      }
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That field trip could not be removed.'))
-      return
-    }
-    setOverlays(prev => prev.filter(o => o.id !== overlayId))
-  }
-
-  async function updateOverlayRange(overlayId, toBlockOrder) {
-    setActionError(null)
-    try {
-      await repo.writeOverlayFields(overlayId, { to_block_order: toBlockOrder })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That field trip could not be updated.'))
-      return
-    }
-    setOverlays(prev => prev.map(o => o.id === overlayId ? { ...o, to_block_order: toBlockOrder } : o))
   }
 
   // activityOverride lets createActivityFromCell place an activity it just
@@ -1809,9 +1765,6 @@ export function useSlotMutations({
     dismissFlag,
     lockActivity,
     releaseCell,
-    addOverlay,
-    removeOverlay,
-    updateOverlayRange,
     pullOverrideDay,
     placeActivityManual,
     expandSlot,

@@ -150,25 +150,19 @@ export function createScheduleRepository({
 
     async loadTemplateData() {
       const templates = (await localClient.list('schedule_templates')) || []
-      const [slotData, overlayData, snapData] = await Promise.all([
+      const [slotData, snapData] = await Promise.all([
         localClient.list('template_slots'),
-        localClient.list('template_overlays'),
         localClient.list('schedule_snapshots'),
       ])
       return {
         templates,
         slots: normalizeSlots(slotData),
-        overlays: overlayData || [],
         snapshots: snapData || [],
       }
     },
 
     async reloadSlots(templateId) {
       return normalizeSlots(await localClient.listByScope('template_slots', templateId ?? null))
-    },
-
-    async reloadOverlays(templateId) {
-      return await localClient.listByScope('template_overlays', templateId ?? null)
     },
 
     async getSnapshot(snapshotId) {
@@ -274,10 +268,6 @@ export function createScheduleRepository({
       await writeFields('activities', activityId, fields)
     },
 
-    async writeOverlayFields(overlayId, fields) {
-      await writeFields('template_overlays', overlayId, fields)
-    },
-
     async writeElectiveSetFields(electiveSetId, fields) {
       await writeFields('elective_sets', electiveSetId, fields)
     },
@@ -304,8 +294,8 @@ export function createScheduleRepository({
     },
 
     // --- bulk replace ------------------------------------------------------
-    // generate() and placeAnchors() both: clear overlays, then replace slots
-    // from engine slots. Identical operation, one method.
+    // generate() and placeAnchors() both replace slots from engine slots.
+    // Identical operation, one method.
     async replaceWeek(templateId, engineSlots) {
       const token = getToken()
       // 'unavailable' engine slots (group availability excludes the block's
@@ -319,13 +309,10 @@ export function createScheduleRepository({
       // group.availability vs block.part_of_day — no data is lost by omitting it.
       const placeableSlots = engineSlots.filter(s => s.type !== 'unavailable')
       const rows = placeableSlots.map(s => mapSlotToRow(s, templateId, { spanHead: true }))
-      await localClient.bulkReplace(token, 'template_overlays', templateId, [])
       await localClient.bulkReplace(token, 'template_slots', templateId, rows)
     },
 
-    // restoreSnapshot(): replace slots (from snapshot slots — no is_span_head),
-    // then overlays. Opposite order and different overlay content from
-    // replaceWeek; both preserved.
+    // restoreSnapshot(): replace slots (from snapshot slots — no is_span_head).
     // snapshotDayOverrides (T108, design §5.2): the whole week's day_overrides
     // rows captured at save time. Restore is whole-week delete-then-recreate
     // (matching schedule_snapshots' own whole-week/template-level grain, not
@@ -334,20 +321,10 @@ export function createScheduleRepository({
     // template (no matching schedule_templates row, e.g. in tests that don't
     // seed one) is a no-op for day_overrides, same posture as an omitted 4th
     // arg — neither is a bug, both leave day_overrides untouched.
-    async restoreSnapshotRows(templateId, snapshotSlots, snapshotOverlays, snapshotDayOverrides) {
+    async restoreSnapshotRows(templateId, snapshotSlots, snapshotDayOverrides) {
       const token = getToken()
       const rows = snapshotSlots.map(s => mapSlotToRow(s, templateId, { spanHead: false }))
-      const overlayRows = (snapshotOverlays || []).map(o => ({
-        id: crypto.randomUUID(),
-        template_id: templateId,
-        unit_id: o.unit_id,
-        day_id: o.day_id,
-        from_block_order: o.from_block_order != null ? String(o.from_block_order) : null,
-        to_block_order: o.to_block_order != null ? String(o.to_block_order) : null,
-        label: o.label,
-      }))
       await localClient.bulkReplace(token, 'template_slots', templateId, rows)
-      await localClient.bulkReplace(token, 'template_overlays', templateId, overlayRows)
 
       const templates = (await localClient.list('schedule_templates')) || []
       const weekId = templates.find((t) => t.id === templateId)?.week_id
@@ -374,9 +351,9 @@ export function createScheduleRepository({
 
     // --- delete ------------------------------------------------------------
     // Owns the call + token, RETURNS the raw result. The status->message
-    // decision stays in the screen: removeOverlay throws on a bad status while
-    // deleteSnapshot distinguishes it from a thrown "admin role required", so
-    // the repository must not collapse those by throwing here.
+    // decision stays in the screen: deleteSnapshot distinguishes a bad status
+    // from a thrown "admin role required", so the repository must not collapse
+    // those by throwing here.
     async deleteEntity(entity, id) {
       return localClient.deleteEntity(getToken(), entity, id)
     },

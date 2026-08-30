@@ -1116,34 +1116,4 @@ describe('bulkReplace mutual-exclusion sanitizer (T111)', () => {
     expect(row.elective_set_id).toBeNull()
   })
 
-  it('leaves an entity without a registered exclusive pair (template_overlays) untouched', () => {
-    db.prepare('INSERT INTO days_of_operation (id, camp_id, label, sort_order) VALUES (?, ?, ?, ?)').run(
-      'day-1',
-      'camp-1',
-      'Monday',
-      1
-    )
-
-    const op = appendBulkReplaceOp(db, {
-      entity: 'template_overlays',
-      scope_id: 'tmpl-1',
-      rows: [
-        {
-          id: 'overlay-1',
-          template_id: 'tmpl-1',
-          unit_id: 'unit-1',
-          day_id: 'day-1',
-          from_block_order: '1',
-          to_block_order: '2',
-          label: 'Lunch',
-        },
-      ],
-      author_user_id: 'user-1',
-      device_id: 'device-1',
-    })
-
-    const row = db.prepare('SELECT * FROM template_overlays WHERE id = ?').get('overlay-1')
-    expect(row.label).toBe('Lunch')
-    expect(JSON.parse(op.value)[0].label).toBe('Lunch')
-  })
 })

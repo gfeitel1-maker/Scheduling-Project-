@@ -41,17 +41,13 @@ const slots = [
   { id: 's5', group_id: 'g2', day_id: 'd1', time_block_id: 'b3', activity_id: 'a1', is_anchor: false },
 ]
 
-const overlays = [
-  { id: 'o1', unit_id: 't1', day_id: 'd1', from_block_order: 4, to_block_order: 4, label: 'Field trip' },
-]
-
 const actMap = new Map([
   ['a1', { id: 'a1', name: LONG_NAME }],
   ['a2', { id: 'a2', name: 'Soccer' }],
 ])
 
 function renderView(extra = {}) {
-  const geometry = makeGridGeometry({ slots, timeBlocks, groups, overlays, fillState: null })
+  const geometry = makeGridGeometry({ slots, timeBlocks, groups })
   const noop = () => {}
   const { container } = render(
     <DndContext>
@@ -62,19 +58,13 @@ function renderView(extra = {}) {
         selectedDay="d1"
         onSelectDay={noop}
         weatherMode={false}
-        stampMode={false}
         actMap={actMap}
         anchorMap={new Map()}
         releaseCell={noop}
         geometry={geometry}
-        handleFillEnter={noop}
-        startFill={noop}
-        removeOverlay={noop}
-        handleStampClick={noop}
         eligibleActivitiesFor={() => []}
         onPlace={noop}
         onCreateNew={noop}
-        fillState={null}
         {...extra}
       />
     </DndContext>
@@ -136,15 +126,6 @@ describe('ScheduleDayView — CSS Grid conversion (T56)', () => {
     })
   })
 
-  it('renders the overlay and the empty cell as placed gridcells', () => {
-    const container = renderView()
-    const overlay = cellAt(container, 'g1|d1|b4')
-    expect(overlay.getAttribute('role')).toBe('gridcell')
-    expect(overlay.style.gridRow).toBe('4 / span 1')
-    expect(overlay.style.gridColumn).toBe('2 / span 1')
-    expect(overlay.textContent).toContain('Field trip')
-  })
-
   it('T112 — a single plain click on an empty cell does NOT open the inline editor (WS5 double-click-to-edit)', () => {
     const container = renderView()
     const empty = cellAt(container, 'g1|d1|b2')
@@ -169,14 +150,6 @@ describe('ScheduleDayView — CSS Grid conversion (T56)', () => {
     expect(filled.querySelector('.cell-inline-editor-input')).not.toBeNull()
   })
 
-  it('T112 — stamp mode active: empty-cell click stamps, not edits (day view has no paste mode)', () => {
-    const stamped = []
-    const container = renderView({ stampMode: 'Field trip', handleStampClick: (g, d, b) => stamped.push([g, d, b]) })
-    const empty = cellAt(container, 'g1|d1|b2')
-    fireEvent.click(empty)
-    expect(stamped).toEqual([['g1', 'd1', 'b2']])
-    expect(empty.querySelector('.cell-inline-editor-input')).toBeNull()
-  })
 
   it('drives row tracks from buildRowTracks and keeps the view own minWidth', () => {
     const container = renderView()
@@ -222,7 +195,7 @@ describe('ScheduleDayView — merge/split/extend parity with Group view (WS5 Dai
       { id: 's1', group_id: 'g2', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_anchor: false },
       { id: 's2', group_id: 'g2', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false },
     ]
-    const geometry = makeGridGeometry({ slots: merged, timeBlocks, groups, overlays: [], fillState: null })
+    const geometry = makeGridGeometry({ slots: merged, timeBlocks, groups })
     const calls = []
     const container = renderView({ geometry, onExpandSlot: () => {}, onSplitSlot: (...args) => calls.push(args) })
     const head = cellAt(container, 'g2|d1|b1')
@@ -301,7 +274,7 @@ describe('ScheduleDayView — collapse (T56 extends T55)', () => {
       ...slots.filter(s => s.id !== 's4'),
       { id: 's4', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'a2', is_anchor: false, flags: { UNFILLABLE: true } },
     ]
-    const geometry = makeGridGeometry({ slots: flagged, timeBlocks, groups, overlays, fillState: null })
+    const geometry = makeGridGeometry({ slots: flagged, timeBlocks, groups })
     const shut = renderView({ geometry, collapsedBlockIds: new Set(['b3']) })
     const shown = [...shut.querySelectorAll('.row-flag-dot[data-collapsed][data-flag]')]
     expect(shown.length).toBe(1)

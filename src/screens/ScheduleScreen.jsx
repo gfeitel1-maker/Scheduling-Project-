@@ -28,7 +28,6 @@ import { useDragFSM } from './schedule/useDragFSM'
 import GridDragSurface from './schedule/GridDragSurface'
 import { useUndoRedo } from './schedule/useUndoRedo'
 import { useClipboardSelection } from './schedule/useClipboardSelection'
-import { useOverlayFillStamp } from './schedule/useOverlayFillStamp'
 import { useSpanExtendDrag } from './schedule/useSpanExtendDrag'
 import { useSnapshots } from './schedule/useSnapshots'
 import { useWeeks } from './schedule/useWeeks'
@@ -95,7 +94,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const repo = useMemo(() => createScheduleRepository({ localClient }), [])
 
   // C1 — setup catalog, weeks + weekId resolution, week exclusions, and
-  // per-route template data (slots/overlays/snapshots/stats/findings), plus
+  // per-route template data (slots/snapshots/stats/findings), plus
   // load/error state, all live in one hook with one load lifecycle. It never
   // touches useRouteState (route data flows out, never in) and designates
   // neither route as canonical. `weekId` below is the RESOLVED week — the
@@ -151,7 +150,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setTemplateIdByRoute,
     slotsByRoute,
     templateIdFor,
-    rawSlots, stats, findings, dismissedFindingKeys, overlays, snapshots,
+    rawSlots, stats, findings, dismissedFindingKeys, snapshots,
     setStats, setFindings, setDismissedFindingKeys,
     collapsedBlockIds, toggleBlockCollapsed,
   } = routeState
@@ -263,16 +262,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // from the transient-reset block below on a route switch.
   const { undoStack, redoStack, pushUndo, handleUndo, handleRedo, reset: resetUndoRedo } = useUndoRedo({ setActionError })
 
-  // Overlay fill / field-trip stamp. Transient direct-manipulation state;
-  // orchestrates persistence through the slot mutations' addOverlay/
-  // updateOverlayRange (wrapped below). reset() runs from the block below.
-  const {
-    fillState, stampMode,
-    startFill, handleFillEnter, handleStampClick, reset: resetOverlayFillStamp,
-  } = useOverlayFillStamp({ groups, timeBlocks, overlays, addOverlay, updateOverlayRange })
-
-  // T32 — the per-cell slot/overlay mutation cluster lives in its own hook: the
-  // ~11 handlers that write a slot/overlay through the T28 repo and record the
+  // T32 — the per-cell slot mutation cluster lives in its own hook: the
+  // ~11 handlers that write a slot through the T28 repo and record the
   // undo entry. It owns no state — route-scoped values and the route-PINNED
   // setters come from routeState; pushUndo, recalcStats, the geometry getSlot
   // and the data lists are injected. `slots` is the screen's overlap-flagged
@@ -302,7 +293,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   })
   const {
     replaceSlot, dismissFlag, lockActivity, releaseCell,
-    removeOverlay, placeActivityManual, expandSlot, splitSlot,
+    placeActivityManual, expandSlot, splitSlot,
     createActivityFromCell, createElectiveFromCell, placeEventOnCell, ownWriteRef,
     pullOverrideDay, hasInFlightClaim,
   } = slotMutations
@@ -314,7 +305,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   useEffect(() => { hasInFlightClaimRef.current = hasInFlightClaim }, [hasInFlightClaim])
 
   // T107 item 1 — drag-to-extend (Designer spec 2026-08-21). One instance
-  // for the whole screen, same as useOverlayFillStamp; expandSlot is already
+  // for the whole screen; expandSlot is already
   // route-agnostic (routed through routeState, ADR §5), so this single
   // instance serves both routes' views below without a parallel
   // implementation.
@@ -397,14 +388,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     onNavigate?.('specialevents', { eventId })
   }
 
-  // addOverlay / updateOverlayRange are consumed by useOverlayFillStamp, which
-  // runs BEFORE useSlotMutations, so they are provided as thin hoisted wrappers
-  // that delegate to the hook. The fill/stamp hook only calls them from event
-  // handlers (stamp click, fill pointer-up), never during render, so
-  // `slotMutations` is always assigned by the time they fire.
-  function addOverlay(args) { return slotMutations.addOverlay(args) }
-  function updateOverlayRange(overlayId, toBlockOrder) { return slotMutations.updateOverlayRange(overlayId, toBlockOrder) }
-
   // T3 — selection + clipboard + paste + keyboard live in their own hook. It
   // reads the week on screen (copy/select-all) and hands a pasted activity back
   // to placeActivityManual (available above). Transient — reset() is called from
@@ -472,7 +455,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setTransientRoute(route)
     resetUndoRedo()
     resetClipboardSelection()
-    resetOverlayFillStamp()
   }
 
   // loadAll() re-runs on every op-applied event. Defaulting the selection
@@ -503,7 +485,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         stats: templateData.statsByRoute[r],
         findings: templateData.findingsByRoute[r],
         dismissed: new Set(),
-        overlays: templateData.overlaysByRoute[r],
         snapshots: templateData.snapshotsByRoute[r],
         existingTemplate: templateData.existingTemplates[r],
         templateId: templateData.templateIdByRoute[r],
@@ -742,8 +723,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // stale after an edit or a restore — and so it is never inferred from list
   // position, which is what made the newest version unrestorable.
   const versionRows = useMemo(
-    () => snapshots.map(s => ({ ...s, on_screen: snapshotMatchesSchedule(s, { slots, overlays }) })),
-    [snapshots, slots, overlays]
+    () => snapshots.map(s => ({ ...s, on_screen: snapshotMatchesSchedule(s, { slots }) })),
+    [snapshots, slots]
   )
 
   // colorIdx carries the activity's stable id, which activityColor() looks up in
@@ -792,10 +773,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const groupDrag = useDragFSM({ commit: groupHandlers.commit, describeDrag, describeHit, isOccupied })
   const dayDrag = useDragFSM({ commit: dayHandlers.commit, describeDrag, describeHit, isOccupied })
 
-  // Grid geometry (getSlot / tails / rowspans / overlays) lives in the pure
+  // Grid geometry (getSlot / tails / rowspans) lives in the pure
   // ./schedule/gridGeometry module. Bind the current data once so the views and
   // the handlers below call the readers with just a cell coordinate.
-  const geometry = makeGridGeometry({ slots, timeBlocks, groups, overlays, fillState })
+  const geometry = makeGridGeometry({ slots, timeBlocks })
 
   // One required set, shared with the sidebar. This used to be an
   // inline check of a different four areas — see src/engine/readiness.js.
@@ -1288,15 +1269,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 selectedGroup={selectedGroup}
                 onSelectGroup={handleSelectGroup}
                 weatherMode={weatherMode}
-                stampMode={stampMode}
                 actMap={actMap}
                 anchorMap={anchorMap}
                 releaseCell={releaseCell}
                 geometry={geometry}
-                handleFillEnter={handleFillEnter}
-                startFill={startFill}
-                removeOverlay={removeOverlay}
-                handleStampClick={handleStampClick}
                 eligibleActivitiesFor={eligibleActivitiesFor}
                 onPlace={handleCellPlace}
                 onCreateNew={handleCellCreateNew}
@@ -1309,7 +1285,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 eventsAll={eventsAll}
                 isContentRaced={isContentRaced}
                 onDismissContentRace={dismissContentRace}
-                fillState={fillState}
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
                 onSpanExtendStart={onSpanExtendStart}
@@ -1339,16 +1314,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onToggleOverrideMode={toggleOverrideMode}
                 onPullOverrideDay={pullOverrideDay}
                 weatherMode={weatherMode}
-                stampMode={stampMode}
                 actMap={actMap}
                 anchorMap={anchorMap}
                 lockActivity={lockActivity}
                 releaseCell={releaseCell}
                 geometry={geometry}
-                handleFillEnter={handleFillEnter}
-                startFill={startFill}
-                removeOverlay={removeOverlay}
-                handleStampClick={handleStampClick}
                 eligibleActivitiesFor={eligibleActivitiesFor}
                 onPlace={handleCellPlace}
                 onCreateNew={handleCellCreateNew}
@@ -1361,7 +1331,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 eventsAll={eventsAll}
                 isContentRaced={isContentRaced}
                 onDismissContentRace={dismissContentRace}
-                fillState={fillState}
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
                 onSpanExtendStart={onSpanExtendStart}

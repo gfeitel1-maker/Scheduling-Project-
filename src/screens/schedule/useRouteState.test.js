@@ -106,13 +106,13 @@ describe('useRouteState', () => {
     act(() => { result.current.toggleBlockCollapsed('b2') })
     act(() => {
       result.current.setRouteData('generated', {
-        slots: [], stats: null, findings: [], dismissed: new Set(), overlays: [], snapshots: [],
+        slots: [], stats: null, findings: [], dismissed: new Set(), snapshots: [],
       })
     })
     expect(result.current.collapsedBlockIds).toEqual(new Set(['b2']))
   })
 
-  it('setRouteData replaces all six atoms for the named route and leaves the other route untouched', () => {
+  it('setRouteData replaces all five atoms for the named route and leaves the other route untouched', () => {
     const { result } = setup('generated')
 
     act(() => {
@@ -121,7 +121,6 @@ describe('useRouteState', () => {
         stats: { open: 1, filled: 1 },
         findings: [{ id: 'f1' }],
         dismissed: new Set(['k1']),
-        overlays: [{ id: 'o1' }],
         snapshots: [{ id: 'snap1' }],
       })
     })
@@ -130,7 +129,6 @@ describe('useRouteState', () => {
     expect(result.current.statsByRoute.generated).toEqual({ open: 1, filled: 1 })
     expect(result.current.findingsByRoute.generated).toEqual([{ id: 'f1' }])
     expect(result.current.dismissedByRoute.generated).toEqual(new Set(['k1']))
-    expect(result.current.overlaysByRoute.generated).toEqual([{ id: 'o1' }])
     expect(result.current.snapshotsByRoute.generated).toEqual([{ id: 'snap1' }])
 
     // Manual route is completely untouched.
@@ -138,15 +136,14 @@ describe('useRouteState', () => {
     expect(result.current.statsByRoute.manual).toBe(null)
     expect(result.current.findingsByRoute.manual).toEqual([])
     expect(result.current.dismissedByRoute.manual).toEqual(new Set())
-    expect(result.current.overlaysByRoute.manual).toEqual([])
     expect(result.current.snapshotsByRoute.manual).toEqual([])
   })
 
-  it('setRouteData throws if any of the six required keys is omitted', () => {
+  it('setRouteData throws if any of the five required keys is omitted', () => {
     const { result } = setup('generated')
 
     const full = {
-      slots: [], stats: null, findings: [], dismissed: new Set(), overlays: [], snapshots: [],
+      slots: [], stats: null, findings: [], dismissed: new Set(), snapshots: [],
     }
 
     for (const key of Object.keys(full)) {
@@ -163,7 +160,7 @@ describe('useRouteState', () => {
 
     act(() => {
       result.current.setRouteData('generated', {
-        slots: [], stats: null, findings: [], overlays: [], snapshots: [],
+        slots: [], stats: null, findings: [], snapshots: [],
         dismissed: new Set(['old-key']),
       })
     })
@@ -171,7 +168,7 @@ describe('useRouteState', () => {
 
     act(() => {
       result.current.setRouteData('generated', {
-        slots: [], stats: null, findings: [], overlays: [], snapshots: [],
+        slots: [], stats: null, findings: [], snapshots: [],
         dismissed: new Set(['new-key']),
       })
     })
@@ -185,7 +182,7 @@ describe('useRouteState', () => {
 
     act(() => {
       result.current.setRouteData('generated', {
-        slots: [], stats: null, findings: [], dismissed: new Set(), overlays: [], snapshots: [],
+        slots: [], stats: null, findings: [], dismissed: new Set(), snapshots: [],
         existingTemplate: true,
         templateId: 'tpl-123',
       })
@@ -195,7 +192,7 @@ describe('useRouteState', () => {
 
     act(() => {
       result.current.setRouteData('generated', {
-        slots: [], stats: null, findings: [], dismissed: new Set(), overlays: [], snapshots: [],
+        slots: [], stats: null, findings: [], dismissed: new Set(), snapshots: [],
       })
     })
     // Omitted -> untouched, still the previously-set values.
@@ -212,7 +209,6 @@ describe('useRouteState', () => {
       result.current.setSlotsByRoute(prev => ({ ...prev, manual: [{ id: 'man-slot' }] }))
       result.current.setFindingsByRoute(prev => ({ ...prev, manual: [{ id: 'man-finding' }] }))
       result.current.setDismissedByRoute(prev => ({ ...prev, manual: new Set(['man-dismissed']) }))
-      result.current.setOverlaysByRoute(prev => ({ ...prev, manual: [{ id: 'man-overlay' }] }))
       result.current.setStatsByRoute(prev => ({ ...prev, manual: { open: 9 } }))
       result.current.setSnapshotsByRoute(prev => ({ ...prev, manual: [{ id: 'man-snap' }] }))
     })
@@ -220,7 +216,6 @@ describe('useRouteState', () => {
     expect(result.current.slotsByRoute.manual).toEqual([{ id: 'man-slot' }])
     expect(result.current.findingsByRoute.manual).toEqual([{ id: 'man-finding' }])
     expect(result.current.dismissedByRoute.manual).toEqual(new Set(['man-dismissed']))
-    expect(result.current.overlaysByRoute.manual).toEqual([{ id: 'man-overlay' }])
     expect(result.current.statsByRoute.manual).toEqual({ open: 9 })
     expect(result.current.snapshotsByRoute.manual).toEqual([{ id: 'man-snap' }])
     // Current route (generated) untouched by these writes.

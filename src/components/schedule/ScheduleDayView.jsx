@@ -1,7 +1,6 @@
 import SlotCell from '../schedule/SlotCell'
 import EmptyCell from './EmptyCell'
 import PulledCell from './PulledCell'
-import OverlayCell from '../schedule/OverlayCell'
 import OverrideToggleButton from './OverrideToggleButton'
 import { decideCell, computeSpanCellProps } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
@@ -23,11 +22,10 @@ const NO_COLLAPSE = new Set()
 // there is deliberately no second placement helper.
 export default function ScheduleDayView({
   groups, days, timeBlocks, selectedDay, onSelectDay,
-  weatherMode, stampMode, actMap, anchorMap,
+  weatherMode, actMap, anchorMap,
   releaseCell,
   geometry,
-  handleFillEnter, startFill, removeOverlay, handleStampClick,
-  eligibleActivitiesFor, onPlace, onCreateNew, fillState,
+  eligibleActivitiesFor, onPlace, onCreateNew,
   // WS5 follow-up "Daily-first + restore Daily merge" — same handler
   // instances Group view already receives (route- and view-agnostic).
   onExpandSlot,
@@ -115,10 +113,6 @@ export default function ScheduleDayView({
                     aria-rowindex={blockIndex + 2}
                     style={{ display: 'contents' }}
                     onClickCapture={isCollapsed ? (e => { e.stopPropagation(); toggle() }) : undefined}
-                    onPointerEnter={() => {
-                      const b = timeBlocks.find(tb => tb.id === block.id)
-                      if (b && fillState) handleFillEnter(b.sort_order)
-                    }}
                   >
                     <div
                       role="rowheader"
@@ -160,30 +154,7 @@ export default function ScheduleDayView({
                             onCreateElective={onCreateElective}
                             eligibleEvents={eventsAll}
                             onPlaceEvent={onPlaceEvent}
-                            // Stamp mode wins over opening the editor, mirroring the
-                            // SlotCell call below. Day view has no paste mode.
-                            onCellClick={stampMode ? (() => handleStampClick(group.id, selectedDay, block.id)) : undefined}
                             {...placeCell({ blockIndex, columnIndex: groupIndex })}
-                          />
-                        )
-                      }
-                      if (decision.kind === 'overlay') {
-                        const { overlay, rowSpan } = decision
-                        return (
-                          <OverlayCell
-                            key={group.id}
-                            label={overlay.label}
-                            rowSpan={rowSpan}
-                            onRemove={() => removeOverlay(overlay.id)}
-                            showFillHandle={true}
-                            fillHandleDirection="both"
-                            onFillStart={() => startFill(overlay)}
-                            ariaColIndex={ariaColIndex}
-                            cellKey={cellKey}
-                            collapsed={isCollapsed}
-                            blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
-                            column={group.name}
-                            {...placeCell({ blockIndex, columnIndex: groupIndex, rowSpan })}
                           />
                         )
                       }
@@ -209,9 +180,6 @@ export default function ScheduleDayView({
                       const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
                       const actIsLocked = slot.activity_id && act?.is_locked
                       const isLocked = Boolean(actIsLocked && !slot.is_released)
-                      const cellClickHandler = stampMode
-                        ? () => handleStampClick(group.id, selectedDay, block.id)
-                        : undefined
 
                       const {
                         isMerged, nextBlock, hasMergeDown, spanTailBlockIds,
@@ -235,7 +203,6 @@ export default function ScheduleDayView({
                           anchor={anchor}
                           actColorIdx={act?.colorIdx || 0}
                           weatherMode={weatherMode}
-                          onCellClick={cellClickHandler}
                           eligibleActivities={eligibleActivitiesFor?.(group.id) ?? []}
                           onPlace={onPlace}
                           onCreateNew={onCreateNew}
@@ -250,7 +217,7 @@ export default function ScheduleDayView({
                           onDismissContentRace={() => onDismissContentRace?.(`${group.id}|${selectedDay}|${block.id}`)}
                           onRelease={s => releaseCell(s.id)}
                           isLocked={isLocked}
-                          isDndEnabled={!isLocked && !stampMode}
+                          isDndEnabled={!isLocked}
                           hasMergeDown={hasMergeDown}
                           isMerged={isMerged}
                           onMergeDown={onMergeDown}

@@ -183,7 +183,6 @@ function seedDemoCamp() {
     schedule_weeks: [{ id: WEEK, camp_id: CAMP, name: 'Week 1', sort_order: 0, is_archived: 0 }],
     schedule_templates: [{ id: TEMPLATE, camp_id: CAMP, name: 'Generated', kind: 'generated', week_id: WEEK }],
     template_slots,
-    template_overlays: [],
     schedule_snapshots: [],
     day_overrides: [],
   }
@@ -283,7 +282,6 @@ let opRejectedListeners = []
 // check rather than by sharing code.
 export const MOCK_SCOPE_KEYS = {
   template_slots: 'template_id',
-  template_overlays: 'template_id',
   schedule_snapshots: 'template_id',
   week_activity_exclusions: 'week_id',
   week_group_exclusions: 'week_id',
@@ -373,8 +371,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],
   // day_overrides_json (T108, design §5.2) — hand-transcribed mirror of
   // PROJECTIONS.schedule_snapshots.fields.
-  schedule_snapshots: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays', 'day_overrides_json'],
-  template_overlays: ['template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
+  schedule_snapshots: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'day_overrides_json'],
   template_slots: [
     'template_id',
     'group_id',
@@ -531,8 +528,8 @@ export const mockShoresh = {
     return { status: 'applied' }
   },
   // Wholesale delete-and-reinsert of one scope, mirroring the real
-  // bulk_replace primitive (electron/ops/operations.js). The two registered
-  // bulk_replace entities (template_slots, template_overlays) are both scoped
+  // bulk_replace primitive (electron/ops/operations.js). The registered
+  // bulk_replace entity (template_slots) is scoped
   // by template_id, so replace every row in that scope with the new set.
   async bulkReplace({ entity, scope_id, rows } = {}) {
     if (!entity) return { status: 'applied' }
@@ -612,7 +609,7 @@ export const mockShoresh = {
     if (mode === 'replace') {
       const entityTables = ['activities', 'groups', 'time_blocks', 'days_of_operation', 'tiers']
       const dependentTables = [
-        'template_slots', 'template_overlays', 'week_activity_exclusions',
+        'template_slots', 'week_activity_exclusions',
         'week_group_exclusions', 'week_location_exclusions', 'anchor_activities',
       ]
       replaced = { entities: {}, dependents: {} }
@@ -1416,7 +1413,6 @@ export const mockShoresh = {
       routes: [],
       unprotected_count: 0,
       anchor_count: 0,
-      overlay_count: 0,
       weather_dependent_count: 0,
     }
   },
@@ -1476,7 +1472,6 @@ export const mockShoresh = {
     if (!Array.isArray(state.schedule_weeks)) state.schedule_weeks = []
     if (!Array.isArray(state.schedule_templates)) state.schedule_templates = []
     if (!Array.isArray(state.template_slots)) state.template_slots = []
-    if (!Array.isArray(state.template_overlays)) state.template_overlays = []
 
     for (const kind of ['generated', 'manual']) {
       const srcTemplate = state.schedule_templates.find(
@@ -1496,11 +1491,6 @@ export const mockShoresh = {
       const srcSlots = state.template_slots.filter((s) => s.template_id === srcTemplate.id)
       for (const s of srcSlots) {
         state.template_slots.push({ ...s, id: randomId(), template_id: newTemplateId })
-      }
-
-      const srcOverlays = state.template_overlays.filter((o) => o.template_id === srcTemplate.id)
-      for (const o of srcOverlays) {
-        state.template_overlays.push({ ...o, id: randomId(), template_id: newTemplateId })
       }
     }
 
@@ -1546,7 +1536,6 @@ export const mockShoresh = {
     const templateIds = new Set(templates.map(t => t.id))
 
     state.schedule_snapshots = (state.schedule_snapshots || []).filter(s => !templateIds.has(s.template_id))
-    state.template_overlays = (state.template_overlays || []).filter(o => !templateIds.has(o.template_id))
     state.template_slots = (state.template_slots || []).filter(s => !templateIds.has(s.template_id))
     state.week_activity_exclusions = (state.week_activity_exclusions || []).filter(e => e.week_id !== weekId)
     state.week_group_exclusions = (state.week_group_exclusions || []).filter(e => e.week_id !== weekId)

@@ -1,15 +1,14 @@
 // @vitest-environment jsdom
 //
 // T54's transitional `renderAs` prop and its <td> branch were deleted in T56,
-// together with the constraint this file originally pinned (that SlotCell and
-// OverlayCell must default to <td> while three views were still tables). What
-// remains is the invariant that replaced it: both components are unconditional
-// role="gridcell" divs, and both carry the placement their caller computed.
+// together with the constraint this file originally pinned (that SlotCell must
+// default to <td> while three views were still tables). What remains is the
+// invariant that replaced it: SlotCell is an unconditional role="gridcell" div
+// carrying the placement its caller computed.
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { DndContext } from '@dnd-kit/core'
 import SlotCell from './SlotCell'
-import OverlayCell from './OverlayCell'
 
 const slot = {
   id: 's1', groupId: 'g1', dayId: 'd1', blockId: 'b1',
@@ -79,26 +78,6 @@ describe('shared cell components render placed gridcells (T56)', () => {
       </DndContext>
     )
     expect(noFlag.container.querySelector('.flag--week-closed')).toBeNull()
-  })
-
-  it('OverlayCell renders a placed gridcell and no table markup', () => {
-    const { container } = render(
-      <OverlayCell
-        label="Field trip"
-        rowSpan={3}
-        onRemove={() => {}}
-        gridRow="1 / span 3"
-        gridColumn="2 / span 1"
-        ariaColIndex={2}
-        cellKey="g1|d1|b1"
-      />
-    )
-    const cell = container.querySelector('[role="gridcell"]')
-    expect(cell.tagName).toBe('DIV')
-    expect(cell.style.gridRow).toBe('1 / span 3')
-    expect(cell.style.gridColumn).toBe('2 / span 1')
-    expect(cell.getAttribute('aria-rowspan')).toBe('3')
-    expect(container.querySelectorAll('td, th, tr, table').length).toBe(0)
   })
 
   it('renders the merge button permanently in the idle DOM, queryable without any hover (T92)', () => {
@@ -770,7 +749,6 @@ describe('Events overlay Slice 1 — real placement path (create -> place -> ren
     const targetSlot = { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: null, event_id: null, flags: {} }
     const repo = {
       writeSlotFields: async () => ({ status: 'applied' }),
-      writeOverlayFields: async () => ({ status: 'applied' }),
       writeActivityFields: async () => ({ status: 'applied' }),
       deleteEntity: async () => ({ status: 'applied' }),
       writeElectiveSetFields: async () => ({ status: 'applied' }),
@@ -785,7 +763,6 @@ describe('Events overlay Slice 1 — real placement path (create -> place -> ren
       existingTemplates: { generated: true, manual: true },
       templateId: 'tid-manual',
       setSlots: () => {},
-      setOverlays: () => {},
     }
 
     const hook = renderHook(

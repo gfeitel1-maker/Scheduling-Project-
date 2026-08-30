@@ -6,7 +6,7 @@ status: accepted
 date: 2026-08-06
 supersedes: []
 implementation_state: implemented
-affects: [src/components/schedule/ScheduleGroupView.jsx, src/components/schedule/ScheduleDayView.jsx, src/components/schedule/ScheduleActivityView.jsx, src/components/schedule/ManualBuildView.jsx, src/components/schedule/SlotCell.jsx, src/components/schedule/OverlayCell.jsx, src/components/schedule/slotCellConstants.js, src/screens/schedule/gridGeometry.js, src/screens/schedule/dragHandlers.js, src/screens/ScheduleScreen.jsx, src/styles/shared.js, CLAUDE.md]
+affects: [src/components/schedule/ScheduleGroupView.jsx, src/components/schedule/ScheduleDayView.jsx, src/components/schedule/ScheduleActivityView.jsx, src/components/schedule/ManualBuildView.jsx, src/components/schedule/SlotCell.jsx, src/components/schedule/slotCellConstants.js, src/screens/schedule/gridGeometry.js, src/screens/schedule/dragHandlers.js, src/screens/ScheduleScreen.jsx, src/styles/shared.js, CLAUDE.md]
 ---
 
 # CSS Grid as the schedule grid rendering primitive; HTML table and rowSpan retired

@@ -117,10 +117,6 @@ function anchorRows(db, day_id) {
   return db.prepare('SELECT id FROM anchor_activities WHERE day_id = ?').all(day_id)
 }
 
-function overlayRows(db, day_id) {
-  return db.prepare('SELECT id FROM template_overlays WHERE day_id = ?').all(day_id)
-}
-
 // v43 Slice 3a: elective_sets.day_id carries a real DB-level FK (schema.sql:
 // day_id TEXT REFERENCES days_of_operation(id)), same shape as
 // anchor_activities.day_id above — but unlike an anchor, an elective set is
@@ -192,7 +188,6 @@ export function previewDelete(db, { entity, entity_id }) {
     routes,
     unprotected_count,
     anchor_count: entity === 'days_of_operation' ? anchorRows(db, entity_id).length : 0,
-    overlay_count: entity === 'days_of_operation' ? overlayRows(db, entity_id).length : 0,
     weather_dependent_count: entity === 'activities' ? weatherDependents(db, entity_id).length : 0,
   }
 }
@@ -226,12 +221,6 @@ function writeRouteSnapshot(db, { template_id, name, author_user_id, device_id }
       is_anchor: s.is_anchor,
       flags: s.flags ? JSON.parse(s.flags) : {},
     }))
-  const overlays = db
-    .prepare(
-      `SELECT unit_id, day_id, from_block_order, to_block_order, label
-         FROM template_overlays WHERE template_id = ?`
-    )
-    .all(template_id)
 
   const ops = []
   const push = (field, value) =>
@@ -242,7 +231,6 @@ function writeRouteSnapshot(db, { template_id, name, author_user_id, device_id }
   push('is_auto', true)
   push('created_at', new Date().toISOString())
   push('slots', JSON.stringify(slots))
-  push('overlays', JSON.stringify(overlays))
 
   // A write that returned without throwing is not evidence that a payload was
   // recorded. Re-read it before anything is destroyed.
@@ -290,8 +278,8 @@ function removeSlotRows(db, rows, { author_user_id, device_id }) {
 }
 
 // Deleting a DAY removes one column-day from every group's week, so it is in
-// the same destructive class as a group. Its anchors and overlays block the
-// delete through real FKs; its template_slots rows do NOT (day_id carries no
+// the same destructive class as a group. Its anchors block the
+// delete through a real FK; its template_slots rows do NOT (day_id carries no
 // FK) and today are silently orphaned instead. An orphan is not harmless — it
 // is counted by latestScopeOpSeq, carried by bulkReplace, and rendered in a
 // grid position that no longer exists — so it is deleted here too.
@@ -301,7 +289,6 @@ function removeDayFromWeek(db, { day_id, slots, author_user_id, device_id }) {
 
   const ops = []
   for (const row of anchorRows(db, day_id)) ops.push(del('anchor_activities', row.id))
-  for (const row of overlayRows(db, day_id)) ops.push(del('template_overlays', row.id))
   for (const row of electiveSetRows(db, day_id)) {
     ops.push(
       appendOp(db, {

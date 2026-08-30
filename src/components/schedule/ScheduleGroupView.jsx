@@ -1,7 +1,6 @@
 import SlotCell from '../schedule/SlotCell'
 import EmptyCell from './EmptyCell'
 import PulledCell from './PulledCell'
-import OverlayCell from '../schedule/OverlayCell'
 import OverrideToggleButton from './OverrideToggleButton'
 import { decideCell } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
@@ -20,11 +19,10 @@ const NO_COLLAPSE = new Set()
 // attributes written directly to the DOM — no drag prop is threaded through here.
 export default function ScheduleGroupView({
   groups, days, timeBlocks, selectedGroup, onSelectGroup,
-  weatherMode, stampMode, actMap, anchorMap,
+  weatherMode, actMap, anchorMap,
   releaseCell,
   geometry,
-  handleFillEnter, startFill, removeOverlay, handleStampClick,
-  eligibleActivitiesFor, onPlace, onCreateNew, fillState,
+  eligibleActivitiesFor, onPlace, onCreateNew,
   onExpandSlot,
   onSplitSlot,
   // T107 item 1 / ADR §5 — generated-route parity: same drag-to-extend
@@ -145,10 +143,6 @@ export default function ScheduleGroupView({
                       // opening its editor; the cell keeps every handler it had,
                       // they simply do not fire at 20px. Nothing is unmounted.
                       onClickCapture={isCollapsed ? (e => { e.stopPropagation(); toggle() }) : undefined}
-                      onPointerEnter={() => {
-                        const b = timeBlocks.find(tb => tb.id === block.id)
-                        if (b && fillState) handleFillEnter(b.sort_order)
-                      }}
                     >
                       <div
                         role="rowheader"
@@ -194,37 +188,12 @@ export default function ScheduleGroupView({
                               onCreateElective={onCreateElective}
                               eligibleEvents={eventsAll}
                               onPlaceEvent={onPlaceEvent}
-                              // Three-way precedence (stamp > paste > edit): onCellClick
-                              // is only defined while stamp mode is active, mirroring the
-                              // SlotCell call below exactly.
-                              onCellClick={stampMode ? (() => handleStampClick(selectedGroup, day.id, block.id)) : undefined}
                               pasteMode={pasteMode}
                               onCellSelect={onCellSelect}
                               {...placeCell({ blockIndex, columnIndex: dayIndex })}
                             />
                           )
                         }
-                        if (decision.kind === 'overlay') {
-                          const { overlay, rowSpan } = decision
-                          return (
-                            <OverlayCell
-                              key={day.id}
-                              label={overlay.label}
-                              rowSpan={rowSpan}
-                              onRemove={() => removeOverlay(overlay.id)}
-                              showFillHandle={true}
-                              fillHandleDirection="vertical"
-                              onFillStart={() => startFill(overlay)}
-                              ariaColIndex={ariaColIndex}
-                              cellKey={cellKey}
-                              collapsed={isCollapsed}
-                              blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
-                              column={day.label}
-                              {...placeCell({ blockIndex, columnIndex: dayIndex, rowSpan })}
-                            />
-                          )
-                        }
-
                         // T108 Phase 2 (design §5.1) — a PULL override, never droppable.
                         if (decision.kind === 'pulled') {
                           return (
@@ -244,9 +213,6 @@ export default function ScheduleGroupView({
                         const { slot, rowSpan, cellType } = decision
                         const act = slot.activity_id ? actMap.get(slot.activity_id) : null
                         const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
-                        const cellClickHandler = stampMode
-                          ? () => handleStampClick(selectedGroup, day.id, block.id)
-                          : undefined
 
                         const actIsLocked = slot.activity_id && act?.is_locked
                         const isLocked = Boolean(actIsLocked && !slot.is_released)
@@ -273,7 +239,6 @@ export default function ScheduleGroupView({
                             anchor={anchor}
                             actColorIdx={act?.colorIdx || 0}
                             weatherMode={weatherMode}
-                            onCellClick={cellClickHandler}
                             eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
                             onPlace={onPlace}
                             onCreateNew={onCreateNew}
@@ -288,8 +253,8 @@ export default function ScheduleGroupView({
                             onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
                             onRelease={s => releaseCell(s.id)}
                             isLocked={isLocked}
-                            onSelect={!stampMode && !slot.is_anchor ? onCellSelect : undefined}
-                            isDndEnabled={!stampMode && !slot.is_anchor && !isLocked}
+                            onSelect={!slot.is_anchor ? onCellSelect : undefined}
+                            isDndEnabled={!slot.is_anchor && !isLocked}
                             isSelected={isSelected}
                             isMultiSelected={isMultiSelected}
                             pasteMode={pasteMode}

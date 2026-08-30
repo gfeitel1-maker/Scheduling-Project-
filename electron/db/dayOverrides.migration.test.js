@@ -61,8 +61,12 @@ function preV38Db(tag = 'v38-migrated') {
     slots TEXT,
     overlays TEXT
   )`)
-  db.exec(`INSERT INTO schedule_snapshots (id, template_id, name, is_auto, created_at, slots, overlays)
-    SELECT id, template_id, name, is_auto, created_at, slots, overlays FROM schedule_snapshots_tmp`)
+  // overlays was retired in v53 (ADR 2026-08-30-retire-overlay-stamp-subsystem):
+  // the fully-migrated source table no longer has the column, so it cannot be
+  // copied. The synthetic v37-shape table keeps overlays (NULL) so that running
+  // the migration ladder forward through v53 genuinely exercises v53's drop.
+  db.exec(`INSERT INTO schedule_snapshots (id, template_id, name, is_auto, created_at, slots)
+    SELECT id, template_id, name, is_auto, created_at, slots FROM schedule_snapshots_tmp`)
   db.exec('DROP TABLE schedule_snapshots_tmp')
   db.pragma('foreign_keys = ON')
   db.prepare('DELETE FROM schema_migrations WHERE version >= 38').run()
@@ -127,7 +131,7 @@ describe('migration v38: fresh vs migrated equivalence', () => {
   it('declares schedule_snapshots columns in order, day_overrides_json last', () => {
     const db = freshDb()
     expect(db.pragma('table_info(schedule_snapshots)').map((c) => c.name)).toEqual([
-      'id', 'template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays', 'day_overrides_json',
+      'id', 'template_id', 'name', 'is_auto', 'created_at', 'slots', 'day_overrides_json',
     ])
     db.close()
   })

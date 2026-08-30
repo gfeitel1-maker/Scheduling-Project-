@@ -42,7 +42,7 @@ const actMap = new Map([
 const anchorMap = new Map([['an1', { id: 'an1', name: 'Lunch' }]])
 
 function renderView(extra = {}) {
-  const geometry = makeGridGeometry({ slots, timeBlocks, groups, overlays: [], fillState: null })
+  const geometry = makeGridGeometry({ slots, timeBlocks, groups })
   const noop = () => {}
   const { container } = render(
     <DndContext>
@@ -232,7 +232,7 @@ describe('ManualBuildView — collapse (T56 extends T55)', () => {
       { id: 's3', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_anchor: false, is_span_head: true, flags: { expanded: true } },
       { id: 's3b', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false },
     ]
-    const geometry = makeGridGeometry({ slots: merged, timeBlocks, groups, overlays: [], fillState: null })
+    const geometry = makeGridGeometry({ slots: merged, timeBlocks, groups })
     const container = renderView({ geometry })
 
     const head = cellAt(container, 'g1|d2|b1')
@@ -250,7 +250,7 @@ describe('ManualBuildView — collapse (T56 extends T55)', () => {
       ...slots.filter(s => s.id !== 's5'),
       { id: 's5', group_id: 'g1', day_id: 'd2', time_block_id: 'b3', activity_id: 'a2', is_anchor: false, flags: { OVERLAP: true } },
     ]
-    const geometry = makeGridGeometry({ slots: flagged, timeBlocks, groups, overlays: [], fillState: null })
+    const geometry = makeGridGeometry({ slots: flagged, timeBlocks, groups })
     const shut = renderView({ geometry, collapsedBlockIds: new Set(['b3']) })
     const shown = [...shut.querySelectorAll('.row-flag-dot[data-collapsed][data-flag]')]
     expect(shown.length).toBe(1)

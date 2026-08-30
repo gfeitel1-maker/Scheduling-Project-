@@ -23,7 +23,6 @@ function preview(over = {}) {
     slot_count: 0,
     routes: [],
     anchor_count: 0,
-    overlay_count: 0,
     ...over,
   }
 }

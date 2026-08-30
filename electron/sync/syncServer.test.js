@@ -935,7 +935,7 @@ describe('full_sync on first pairing', () => {
     for (const table of [
       'cohorts', 'days_of_operation', 'groups', 'tiers', 'time_blocks', 'activities',
       'anchor_activities', 'schedule_templates',
-      'template_slots', 'template_overlays',
+      'template_slots',
     ]) {
       expect(msg[table], `expected msg.${table} to be []`).toEqual([])
     }
@@ -1995,7 +1995,6 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
       schedule_templates: 'name',
       schedule_weeks: 'name',
       template_slots: 'activity_id',
-      template_overlays: 'label',
       schedule_snapshots: 'name',
       // Exclusion rows have no name-shaped field; 'week_id' is the field their
       // projection's ensureExists keys on (electron/ops/projections.js:205-226).

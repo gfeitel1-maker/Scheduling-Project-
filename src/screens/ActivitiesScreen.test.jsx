@@ -81,7 +81,7 @@ beforeEach(() => {
   localClient.previewDelete.mockReset().mockResolvedValue({
     ok: true, entity: 'activities', entity_id: 'act-1', name: 'Archery',
     destructive: true, slot_count: 0, routes: [], unprotected_count: 0,
-    anchor_count: 0, overlay_count: 0, weather_dependent_count: 0,
+    anchor_count: 0, weather_dependent_count: 0,
   })
   localClient.deleteRecord.mockReset().mockResolvedValue({ ok: true, cleared: 0 })
   localClient.listImportEvidence.mockReset().mockResolvedValue({ evidence: [], fieldSources: {} })

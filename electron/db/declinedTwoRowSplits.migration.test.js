@@ -67,7 +67,7 @@ describe('migration v47: declined_two_row_splits', () => {
     const db = freshDb()
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 47').get().c).toBe(1)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(52)
+    expect(CURRENT_SCHEMA_VERSION).toBe(53)
     expect(db.prepare('SELECT COUNT(*) c FROM declined_two_row_splits').get().c).toBe(0)
     db.close()
   })

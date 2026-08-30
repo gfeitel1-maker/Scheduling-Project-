@@ -10,7 +10,6 @@ import { getSlot } from './gridGeometry'
 function makeRepo(overrides = {}) {
   return {
     writeSlotFields: vi.fn(async () => ({ status: 'applied' })),
-    writeOverlayFields: vi.fn(async () => ({ status: 'applied' })),
     writeActivityFields: vi.fn(async () => ({ status: 'applied' })),
     deleteEntity: vi.fn(async () => ({ status: 'applied' })),
     // T105
@@ -60,16 +59,15 @@ function makeRealisticDayOverrideRepo() {
   }
 }
 
-// The route-scoped values the hook pulls off routeState. setSlots/setOverlays are
-// the route-PINNED setters (in the real screen they are bound to the route the
-// entry was made on); the tests assert the undo closures still target these.
+// The route-scoped values the hook pulls off routeState. setSlots is the
+// route-PINNED setter (in the real screen it is bound to the route the
+// entry was made on); the tests assert the undo closures still target it.
 function makeRouteState(overrides = {}) {
   return {
     route: 'manual',
     existingTemplates: { generated: true, manual: true },
     templateId: 'tid-manual',
     setSlots: vi.fn(),
-    setOverlays: vi.fn(),
     ...overrides,
   }
 }
@@ -561,38 +559,6 @@ describe('useSlotMutations — releaseCell', () => {
     await act(async () => { await hook.result.current.releaseCell('s9') })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s9', { is_released: true })
     expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('useSlotMutations — overlays', () => {
-  it('addOverlay writes the overlay fields and appends to the route overlays', async () => {
-    const { hook, props } = setup()
-    await act(async () => {
-      await hook.result.current.addOverlay({
-        unitId: 'u1', dayId: 'd1', fromBlockOrder: 2, toBlockOrder: 4, label: 'Trip',
-      })
-    })
-    expect(props.repo.writeOverlayFields).toHaveBeenCalledWith(
-      expect.any(String),
-      { template_id: 'tid-manual', unit_id: 'u1', day_id: 'd1', from_block_order: 2, to_block_order: 4, label: 'Trip' },
-    )
-    expect(props.routeState.setOverlays).toHaveBeenCalledTimes(1)
-  })
-
-  it('addOverlay does nothing without a unitId', async () => {
-    const { hook, props } = setup()
-    await act(async () => {
-      await hook.result.current.addOverlay({ unitId: null, dayId: 'd1', fromBlockOrder: 0, toBlockOrder: 0, label: 'x' })
-    })
-    expect(props.repo.writeOverlayFields).not.toHaveBeenCalled()
-    expect(props.routeState.setOverlays).not.toHaveBeenCalled()
-  })
-
-  it('removeOverlay deletes via the repo and updates the route overlays', async () => {
-    const { hook, props } = setup()
-    await act(async () => { await hook.result.current.removeOverlay('ov-1') })
-    expect(props.repo.deleteEntity).toHaveBeenCalledWith('template_overlays', 'ov-1')
-    expect(props.routeState.setOverlays).toHaveBeenCalledTimes(1)
   })
 })
 

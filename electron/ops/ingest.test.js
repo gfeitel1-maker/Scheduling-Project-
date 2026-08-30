@@ -587,7 +587,7 @@ describe('activity rules resolved at commit (T35)', () => {
 const ALL_TABLES = [
   'operations', 'groups', 'tiers', 'activities', 'cohorts', 'days_of_operation',
   'time_blocks', 'anchor_activities', 'schedule_templates', 'schedule_weeks',
-  'template_slots', 'template_overlays',
+  'template_slots',
   'schedule_snapshots',
   'week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions',
 ]
@@ -619,8 +619,6 @@ function seedCampWithSchedule() {
 
   db.prepare('INSERT INTO template_slots (id, template_id, group_id, activity_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?, ?)')
     .run(id('slot'), templateId, groupId, activityId, dayId, blockId)
-  db.prepare('INSERT INTO template_overlays (id, template_id, day_id, label) VALUES (?, ?, ?, ?)')
-    .run(id('ovl'), templateId, dayId, 'Rain')
   db.prepare('INSERT INTO week_activity_exclusions (id, week_id, activity_id) VALUES (?, ?, ?)')
     .run(id('wax'), weekId, activityId)
   db.prepare('INSERT INTO week_group_exclusions (id, week_id, group_id) VALUES (?, ?, ?)')
@@ -631,8 +629,8 @@ function seedCampWithSchedule() {
   db.prepare('INSERT INTO anchor_activities (id, camp_id, cohort_id, day_id, time_block_id, name) VALUES (?, ?, ?, ?, ?, ?)')
     .run(id('anc'), campId, cohortId, dayId, blockId, 'Mifkad')
 
-  db.prepare('INSERT INTO schedule_snapshots (id, template_id, name, created_at, slots, overlays) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id('snap'), templateId, 'Before', new Date().toISOString(), '[]', '[]')
+  db.prepare('INSERT INTO schedule_snapshots (id, template_id, name, created_at, slots) VALUES (?, ?, ?, ?, ?)')
+    .run(id('snap'), templateId, 'Before', new Date().toISOString(), '[]')
 
   return { cohortId, tierId, groupId, dayId, blockId, activityId, weekId, templateId }
 }
@@ -649,7 +647,6 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
 
     // Dependents: gone.
     expect(count('template_slots')).toBe(0)
-    expect(count('template_overlays')).toBe(0)
     expect(count('week_activity_exclusions')).toBe(0)
     expect(count('week_group_exclusions')).toBe(0)
     expect(count('week_location_exclusions')).toBe(0)
@@ -683,7 +680,7 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
       activities: 1, groups: 1, time_blocks: 1, days_of_operation: 1, tiers: 1,
     })
     expect(result.replaced.dependents).toEqual({
-      template_slots: 1, template_overlays: 1, week_activity_exclusions: 1,
+      template_slots: 1, week_activity_exclusions: 1,
       week_group_exclusions: 1, week_location_exclusions: 1, anchor_activities: 1,
     })
   })
@@ -694,9 +691,9 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
       mode: 'replace', approved: {}, camp_id: campId, author_user_id: 'u1', device_id: deviceId,
     })
     const deletes = db.prepare("SELECT entity FROM operations WHERE field = '__deleted__'").all()
-    // 5 entities + 6 dependent rows.
-    expect(deletes.length).toBe(11)
-    expect(new Set(deletes.map((d) => d.entity))).toContain('template_overlays')
+    // 5 entities + 5 dependent rows.
+    expect(deletes.length).toBe(10)
+    expect(new Set(deletes.map((d) => d.entity))).toContain('template_slots')
   })
 
   it('unhooks weather_alternative_id before deleting activities, including a mutual A→B/B→A pair', () => {

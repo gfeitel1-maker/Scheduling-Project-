@@ -118,7 +118,6 @@ export function scheduleStateTool(args, { dbPath }) {
     const slots = normalizeSlots(
       listEntities(db, 'template_slots').filter((s) => s.template_id === template.id)
     )
-    const overlays = listEntities(db, 'template_overlays').filter((o) => o.template_id === template.id)
 
     const inputs = assembleScheduleEngineInputs(db, camp.id)
     const preplacedSlots = slots
@@ -133,7 +132,6 @@ export function scheduleStateTool(args, { dbPath }) {
       week_id: weekId,
       template,
       slots,
-      overlays,
       findings: engineResult.findings || [],
       conflicts: engineResult.conflicts || [],
     }

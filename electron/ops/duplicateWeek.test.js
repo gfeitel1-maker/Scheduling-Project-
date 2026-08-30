@@ -49,14 +49,6 @@ function seedSlot(db, templateId, n) {
   return id
 }
 
-function seedOverlay(db, templateId, n) {
-  const id = `overlay-${templateId}-${n}`
-  db.prepare(
-    'INSERT INTO template_overlays (id, template_id, unit_id, day_id, from_block_order, to_block_order, label) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, templateId, null, `day-${n}`, n, n + 1, `Overlay ${n}`)
-  return id
-}
-
 function seedActivity(db, campId, n) {
   db.prepare("INSERT OR IGNORE INTO activities (id, camp_id, name) VALUES (?, ?, ?)").run(`act-${n}`, campId, `Activity ${n}`)
 }
@@ -92,7 +84,7 @@ function seedDay(db, campId, n) {
 }
 
 describe('duplicateWeek', () => {
-  it('duplicating a week with both routes produces a new week with deep-copied slots/overlays', () => {
+  it('duplicating a week with both routes produces a new week with deep-copied slots', () => {
     const db = makeDb()
     const campId = seedCamp(db)
     seedDevice(db)
@@ -104,7 +96,6 @@ describe('duplicateWeek', () => {
     seedDay(db, campId, 1)
     seedSlot(db, genId, 1); seedSlot(db, genId, 2)
     seedSlot(db, manId, 1)
-    seedOverlay(db, genId, 1)
 
     const result = duplicateWeek(db, { sourceWeekId: 'week-1', campId }, CTX)
     expect(result.ok).toBe(true)
@@ -127,9 +118,6 @@ describe('duplicateWeek', () => {
     const srcSlotIds = db.prepare('SELECT id FROM template_slots WHERE template_id = ?').all(genId).map((s) => s.id)
     const newSlotIds = newSlots.map((s) => s.id)
     expect(newSlotIds.some((id) => srcSlotIds.includes(id))).toBe(false)
-
-    const newOverlays = db.prepare('SELECT * FROM template_overlays WHERE template_id = ?').all(newGenTemplate.id)
-    expect(newOverlays).toHaveLength(1)
 
     db.close()
   })

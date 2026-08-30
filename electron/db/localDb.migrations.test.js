@@ -393,19 +393,20 @@ describe('Fix 5: WAL mode, busy_timeout, safe open', () => {
 describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
   // day_override_templates/day_override_template_slots were part of the
   // original v10 set but were dropped in v46 (confirmed-dead table pair,
-  // docs/adr/2026-08-23-override-family-model.md §6a) — a fresh install no
-  // longer creates them, so they are excluded here.
+  // docs/adr/2026-08-23-override-family-model.md §6a). template_overlays was
+  // part of it too but was dropped in v53 (overlay/stamp subsystem retirement,
+  // docs/adr/2026-08-30-retire-overlay-stamp-subsystem.md). A fresh install no
+  // longer creates any of them, so they are excluded here.
   const NEW_TABLES = [
     'cohorts',
     'days_of_operation',
     'time_blocks',
     'anchor_activities',
     'schedule_templates',
-    'template_overlays',
     'schedule_snapshots',
   ]
 
-  it('creates all 7 surviving v10 tables on a fresh install', () => {
+  it('creates all 6 surviving v10 tables on a fresh install', () => {
     const db = freshDb()
     for (const t of NEW_TABLES) {
       const table = db
@@ -1289,7 +1290,7 @@ describe('schema v20: device trust, pairing, and revocation', () => {
 })
 
 describe('T7 fix: schedule_templates re-key + UNIQUE(camp_id) (schema version 21)', () => {
-  it('re-keys an existing random-UUID schedule_templates row to the deterministic id, repointing template_slots/template_overlays/schedule_snapshots children', () => {
+  it('re-keys an existing random-UUID schedule_templates row to the deterministic id, repointing template_slots/schedule_snapshots children', () => {
     const db = freshDb()
     // freshDb() already ran the version-21 migration once (as a no-op, on an
     // empty schedule_templates table) as part of its initial full
@@ -1307,7 +1308,6 @@ describe('T7 fix: schedule_templates re-key + UNIQUE(camp_id) (schema version 21
     // children already pointing at it.
     db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run('old-random-uuid', 'camp1', 'Master Template')
     db.prepare("INSERT INTO template_slots (id, template_id) VALUES ('slot1', 'old-random-uuid')").run()
-    db.prepare("INSERT INTO template_overlays (id, template_id) VALUES ('ov1', 'old-random-uuid')").run()
     db.prepare("INSERT INTO schedule_snapshots (id, template_id, created_at) VALUES ('snap1', 'old-random-uuid', ?)").run(new Date().toISOString())
     db.prepare('DELETE FROM schema_migrations WHERE version >= 21').run()
 
@@ -1319,7 +1319,6 @@ describe('T7 fix: schedule_templates re-key + UNIQUE(camp_id) (schema version 21
     expect(db.prepare("SELECT id FROM schedule_templates WHERE id = 'old-random-uuid'").get()).toBeUndefined()
 
     expect(db.prepare('SELECT template_id FROM template_slots WHERE id = ?').get('slot1').template_id).toBe(deterministicId)
-    expect(db.prepare('SELECT template_id FROM template_overlays WHERE id = ?').get('ov1').template_id).toBe(deterministicId)
     expect(db.prepare('SELECT template_id FROM schedule_snapshots WHERE id = ?').get('snap1').template_id).toBe(deterministicId)
 
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)

@@ -79,7 +79,6 @@ function preview(overrides = {}) {
     routes: [],
     unprotected_count: 0,
     anchor_count: 0,
-    overlay_count: 0,
     weather_dependent_count: 0,
     ...overrides,
   }

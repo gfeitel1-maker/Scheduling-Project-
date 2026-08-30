@@ -77,7 +77,7 @@ const REPAIR_QUIESCENCE_MS = 750
 
 const EMPTY_TEMPLATE_DATA = {
   existingTemplates: {}, templateIdByRoute: {},
-  slotsByRoute: {}, overlaysByRoute: {}, snapshotsByRoute: {}, statsByRoute: {}, findingsByRoute: {},
+  slotsByRoute: {}, snapshotsByRoute: {}, statsByRoute: {}, findingsByRoute: {},
 }
 
 // Owns the load: setup catalog, weeks + weekId resolution, week exclusions,
@@ -274,14 +274,13 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
     // applied op, and a load that only refreshed the route on screen would
     // leave the other one showing whatever it held before the op arrived.
     try {
-      const { templates, slots: allSlots, overlays: overlayData, snapshots: snapData } =
+      const { templates, slots: allSlots, snapshots: snapData } =
         await repo.loadTemplateData()
       if (gen !== generationRef.current) return
 
       const exists = {}
       const nextTids = {}
       const nextSlots = {}
-      const nextOverlays = {}
       const nextSnaps = {}
       const nextStats = {}
       const nextFindings = {}
@@ -299,7 +298,6 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
         // around.
         const saved = exists[r] ? allSlots.filter(x => x.template_id === tid) : []
         nextSlots[r] = saved
-        nextOverlays[r] = (overlayData || []).filter(o => o.template_id === tid)
 
         // T107 item 3 / ADR §4 + Red Hat R2 — repair-on-read, quiescence-
         // guarded. Heal an orphan only if it also showed up on the load
@@ -351,7 +349,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
           .map(x => ({
             id: x.id, template_id: x.template_id, name: x.name,
             is_auto: x.is_auto, created_at: x.created_at,
-            slots: x.slots, overlays: x.overlays,
+            slots: x.slots,
             restorable: isRestorable(x),
           }))
       }
@@ -361,7 +359,6 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
         existingTemplates: exists,
         templateIdByRoute: nextTids,
         slotsByRoute: nextSlots,
-        overlaysByRoute: nextOverlays,
         snapshotsByRoute: nextSnaps,
         statsByRoute: nextStats,
         findingsByRoute: nextFindings,

@@ -44,7 +44,6 @@ export function useRouteState(weekId, route) {
   const [findingsByRoute, setFindingsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
   const [dismissedByRoute, setDismissedByRoute] = useState(() => EMPTY_BY_ROUTE(() => new Set()))
   const [snapshotsByRoute, setSnapshotsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
-  const [overlaysByRoute, setOverlaysByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
   // T55. Which time blocks are folded to a thin strip. View state only: it is
   // deliberately NOT persisted and NOT part of setRouteData's replace payload —
   // it never reaches the database, the op-log or PROJECTIONS, and a reload
@@ -65,7 +64,6 @@ export function useRouteState(weekId, route) {
   const stats = statsByRoute[route]
   const findings = findingsByRoute[route]
   const dismissedFindingKeys = dismissedByRoute[route]
-  const overlays = overlaysByRoute[route]
   const snapshots = snapshotsByRoute[route]
   const collapsedBlockIds = collapsedByRoute[route]
 
@@ -73,7 +71,6 @@ export function useRouteState(weekId, route) {
   const setStats = routeSetter(setStatsByRoute, route)
   const setFindings = routeSetter(setFindingsByRoute, route)
   const setDismissedFindingKeys = routeSetter(setDismissedByRoute, route)
-  const setOverlays = routeSetter(setOverlaysByRoute, route)
   const setSnapshots = routeSetter(setSnapshotsByRoute, route)
   const setCollapsedBlockIds = routeSetter(setCollapsedByRoute, route)
 
@@ -96,7 +93,7 @@ export function useRouteState(weekId, route) {
   // silently leaving a stale field. dismissed is replaced wholesale too —
   // dismissal state resets when findings recompute, never merges across calls.
   function setRouteData(r, payload) {
-    const required = ['slots', 'stats', 'findings', 'dismissed', 'overlays', 'snapshots']
+    const required = ['slots', 'stats', 'findings', 'dismissed', 'snapshots']
     for (const key of required) {
       if (payload[key] === undefined) {
         throw new Error(`setRouteData: missing required key "${key}" for route "${r}"`)
@@ -106,7 +103,6 @@ export function useRouteState(weekId, route) {
     setStatsByRoute(prev => ({ ...prev, [r]: payload.stats }))
     setFindingsByRoute(prev => ({ ...prev, [r]: payload.findings }))
     setDismissedByRoute(prev => ({ ...prev, [r]: payload.dismissed }))
-    setOverlaysByRoute(prev => ({ ...prev, [r]: payload.overlays }))
     setSnapshotsByRoute(prev => ({ ...prev, [r]: payload.snapshots }))
     if (payload.existingTemplate !== undefined) {
       setExistingTemplates(prev => ({ ...prev, [r]: payload.existingTemplate }))
@@ -127,14 +123,13 @@ export function useRouteState(weekId, route) {
     findingsByRoute, setFindingsByRoute,
     dismissedByRoute, setDismissedByRoute,
     snapshotsByRoute, setSnapshotsByRoute,
-    overlaysByRoute, setOverlaysByRoute,
     collapsedByRoute, setCollapsedByRoute,
     // Current-route id resolution.
     templateIdFor, templateId,
     // Current-route derived values.
-    rawSlots, stats, findings, dismissedFindingKeys, overlays, snapshots, collapsedBlockIds,
+    rawSlots, stats, findings, dismissedFindingKeys, snapshots, collapsedBlockIds,
     // Current-route setters.
-    setSlots, setStats, setFindings, setDismissedFindingKeys, setOverlays, setSnapshots,
+    setSlots, setStats, setFindings, setDismissedFindingKeys, setSnapshots,
     setCollapsedBlockIds, toggleBlockCollapsed,
     // Bulk per-route replace (see setRouteData above).
     setRouteData,
