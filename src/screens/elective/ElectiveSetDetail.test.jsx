@@ -257,7 +257,7 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
     renderDetail({ activities: [activity()] })
 
-    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
   })
 
   it('file -> parse -> populate wiring: selecting a file runs parseTextGrid -> parseGridSchedule -> populateElectiveSet, then reloads', async () => {
@@ -273,11 +273,11 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     populateElectiveSet.mockResolvedValue({ ok: true })
 
     renderDetail({ activities: [activity()] })
-    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
 
     const listCallsBefore = localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length
 
-    const importButton = screen.getByText(/import this set’s offerings from a file/)
+    const importButton = screen.getByText(/Import from a file/)
     fireEvent.click(importButton)
     const file = new File(['irrelevant'], 'chugim.txt', { type: 'text/plain' })
     const input = document.querySelector('input[type="file"]')
@@ -302,7 +302,7 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     populateElectiveSet.mockResolvedValue({ ok: false, reason: 'This elective set already has offerings. Clear it first if you want to replace it with an import, or add to it by hand.' })
 
     renderDetail({ activities: [activity()] })
-    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
 
     const input = document.querySelector('input[type="file"]')
     const file = new File(['irrelevant'], 'chugim.txt', { type: 'text/plain' })
@@ -321,7 +321,7 @@ describe('ElectiveSetDetail — grid-schedule import affordance (docs/adr/2026-0
     populateElectiveSet.mockRejectedValue(new Error('write failed for field "activity_id"'))
 
     renderDetail({ activities: [activity()] })
-    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Import from a file/)).toBeTruthy())
 
     const listCallsBefore = localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length
 
@@ -356,7 +356,7 @@ describe('ElectiveSetDetail — Clear offerings control (Tester MEDIUM)', () => 
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'elective_set_activities', 'off-1'))
     await waitFor(() => expect(screen.queryByText('No offerings yet')).not.toBeNull())
-    expect(screen.queryByText(/import this set’s offerings from a file/)).not.toBeNull()
+    expect(screen.queryByText(/Import from a file/)).not.toBeNull()
   })
 })
 

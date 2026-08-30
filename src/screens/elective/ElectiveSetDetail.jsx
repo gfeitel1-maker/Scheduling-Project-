@@ -34,7 +34,7 @@ const activityRepo = { ...repository, writeActivityFields: (id, fields) => repos
 const offeringScopeFilter = (row, electiveSetId) => row.elective_set_id === electiveSetId
 
 const IMPORT_LABELS = {
-  importAction: 'or import this set’s offerings from a file',
+  importAction: 'Import from a file',
   noGridFound: 'No schedule could be read out of that. It may be a scan rather than a document with text in it.',
 }
 
@@ -324,10 +324,6 @@ export default function ElectiveSetDetail({ set, role, activities, locations, ti
 
       <div style={{ marginTop: 12, marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 20 }}>{set.name || '(untitled set)'}</div>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
-          Offerings a group sees when they're in this elective period — the "Electives" cell on the campwide schedule
-          stays opaque; this is the detail behind it.
-        </div>
       </div>
 
       {error && <div style={S.errorBanner}>{error}</div>}
@@ -345,12 +341,11 @@ export default function ElectiveSetDetail({ set, role, activities, locations, ti
       ) : offerings.length === 0 ? (
         <div style={emptyStyles.wrap}>
           <div style={emptyStyles.title}>No offerings yet</div>
-          <div style={emptyStyles.body}>Add an activity below to make it one of this set's choices.</div>
           <button
             className="press-97"
             onClick={() => fileInputRef.current?.click()}
             disabled={importing}
-            style={{ ...S.btnSecondary, fontStyle: 'italic', marginTop: 10 }}
+            style={{ ...S.btnSecondary, marginTop: 10 }}
           >
             {importing ? 'Importing…' : IMPORT_LABELS.importAction}
           </button>
@@ -440,10 +435,5 @@ const emptyStyles = {
     fontSize: 15,
     color: 'var(--text)',
     marginTop: 8,
-  },
-  body: {
-    fontSize: 13,
-    color: 'var(--text-secondary)',
-    maxWidth: '56ch',
   },
 }
