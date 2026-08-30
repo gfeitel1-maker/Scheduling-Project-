@@ -144,7 +144,7 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
+    await screen.findByPlaceholderText('Name (e.g. Block 1)')
 
     fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
@@ -177,7 +177,7 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
+    await screen.findByPlaceholderText('Name (e.g. Block 1)')
 
     // Enter "10:00" first, then "09:00" — a director typing blocks in the
     // wrong order must still get chronological sort_order values.
@@ -212,7 +212,7 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
+    await screen.findByPlaceholderText('Name (e.g. Block 1)')
 
     fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
@@ -231,7 +231,7 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
+    await screen.findByPlaceholderText('Name (e.g. Block 1)')
 
     fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
@@ -249,7 +249,7 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
+    await screen.findByPlaceholderText('Name (e.g. Block 1)')
 
     fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
     fireEvent.keyDown(screen.getByPlaceholderText('Name (e.g. Block 1)'), { key: 'Enter' })
@@ -270,7 +270,7 @@ describe('TimeBlocksScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
+    await screen.findByPlaceholderText('Name (e.g. Block 1)')
 
     fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
     const timeInputs = document.querySelectorAll('input[type="time"]')
