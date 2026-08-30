@@ -1,9 +1,9 @@
 ---
 title: "Retire the schedule overlay/stamp subsystem (template_overlays)"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
-implementation_state: not started
+implementation_state: implemented
 task_class: database-sync
 date: 2026-08-30
 supersedes: []

@@ -151,7 +151,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Roots home is a distinct screen — census tiles stay import-only, structure and attention are live reads](../../docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md) | proposed | not_started | — |
 | [ADR: Stage-Aware Navigation + Landing Routing/State-Machine (WS1)](../../docs/adr/2026-08-28-stage-aware-nav-landing.md) | proposed | proposed | — |
 | [Unify Events, Special Days, and Special Schedules into one Special Events screen](../../docs/adr/2026-08-29-unify-special-events-screen.md) | accepted | implemented | [T110-unify-special-events-screen](../../docs/work/tickets/T110-unify-special-events-screen.md) |
-| [Retire the schedule overlay/stamp subsystem (template_overlays)](../../docs/adr/2026-08-30-retire-overlay-stamp-subsystem.md) | proposed | not started | — |
+| [Retire the schedule overlay/stamp subsystem (template_overlays)](../../docs/adr/2026-08-30-retire-overlay-stamp-subsystem.md) | accepted | implemented | [T116-retire-overlay-stamp-subsystem](../../docs/work/tickets/T116-retire-overlay-stamp-subsystem.md) |
 
 ## Runs
 
