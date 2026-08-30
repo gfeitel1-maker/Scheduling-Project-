@@ -10,7 +10,7 @@ authors: [architect]
 supersedes: []
 ticket_size: large
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
-affects: [src/components/schedule/ScheduleGroupView.jsx, src/components/schedule/ScheduleDayView.jsx, src/components/schedule/ScheduleActivityView.jsx, src/components/schedule/ManualBuildView.jsx, src/components/schedule/SlotCell.jsx, src/components/schedule/OverlayCell.jsx, src/screens/schedule/gridGeometry.js, src/screens/schedule/dragHandlers.js, src/styles/shared.js]
+affects: [src/components/schedule/ScheduleGroupView.jsx, src/components/schedule/ScheduleDayView.jsx, src/components/schedule/ScheduleActivityView.jsx, src/components/schedule/ManualBuildView.jsx, src/components/schedule/SlotCell.jsx, src/screens/schedule/gridGeometry.js, src/screens/schedule/dragHandlers.js, src/styles/shared.js]
 ---
 
 # Schedule grid redesign — CSS Grid as the rendering primitive
