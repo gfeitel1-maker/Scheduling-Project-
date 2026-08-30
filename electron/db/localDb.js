@@ -1901,6 +1901,7 @@ export function initSchema(db) {
         const srcGridX = hasGridX ? 'grid_x' : 'NULL'
         const srcGridY = hasGridY ? 'grid_y' : 'NULL'
         db.pragma('foreign_keys = OFF')
+        try {
         db.exec(`
           CREATE TABLE locations_v49 (
             id TEXT PRIMARY KEY,
@@ -1925,7 +1926,16 @@ export function initSchema(db) {
           ALTER TABLE locations_v49 RENAME TO locations;
           CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_camp_name ON locations(camp_id, name);
         `)
-        db.pragma('foreign_keys = ON')
+        } finally {
+          // Belt-and-suspenders: restore FK enforcement on every path, including
+          // a throw mid-DDL. Today the OFF above is a SQLite no-op because this
+          // whole block runs inside db.transaction() (PRAGMA foreign_keys does
+          // nothing while a transaction is open), so FK is never actually OFF
+          // here. This finally exists so that if the DDL is ever moved out of the
+          // transaction, a partial failure still can't leave FK enforcement OFF
+          // for the rest of the connection's lifetime.
+          db.pragma('foreign_keys = ON')
+        }
       }
     })()
 
@@ -1956,6 +1966,7 @@ export function initSchema(db) {
       const mapCols = db.pragma('table_info(camp_maps)').map((c) => c.name)
       if (!mapCols.includes('kind')) {
         db.pragma('foreign_keys = OFF')
+        try {
         db.exec(`
           CREATE TABLE camp_maps_v50 (
             id TEXT PRIMARY KEY,
@@ -1972,7 +1983,12 @@ export function initSchema(db) {
           DROP TABLE camp_maps;
           ALTER TABLE camp_maps_v50 RENAME TO camp_maps;
         `)
-        db.pragma('foreign_keys = ON')
+        } finally {
+          // See the v49 block above: FK-restore on every path. The OFF is a
+          // no-op inside this transaction today; the finally guards a future
+          // refactor that moves the DDL out of the transaction.
+          db.pragma('foreign_keys = ON')
+        }
       }
       const locCols = db.pragma('table_info(locations)').map((c) => c.name)
       if (!locCols.includes('map_id')) {
@@ -2015,6 +2031,7 @@ export function initSchema(db) {
       const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
       if (!cols.includes('kind')) {
         db.pragma('foreign_keys = OFF')
+        try {
         db.exec(`
           CREATE TABLE anchor_activities_v51 (
             id TEXT PRIMARY KEY,
@@ -2050,7 +2067,12 @@ export function initSchema(db) {
           DROP TABLE anchor_activities;
           ALTER TABLE anchor_activities_v51 RENAME TO anchor_activities;
         `)
-        db.pragma('foreign_keys = ON')
+        } finally {
+          // See the v49 block above: FK-restore on every path. The OFF is a
+          // no-op inside this transaction today; the finally guards a future
+          // refactor that moves the DDL out of the transaction.
+          db.pragma('foreign_keys = ON')
+        }
       }
     })()
 
