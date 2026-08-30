@@ -741,6 +741,20 @@ export const S = {
     letterSpacing: '0.05em',
   },
 
+  // Text-secondary variant of S.sectionLabel used for the small-caps section
+  // count header ("3 GROUPS", "5 DAYS", "4 BLOCKS") above setup-screen lists.
+  // Same condensed/700/13px/uppercase treatment, no marginBottom, muted color.
+  // Consolidated from a local `eyebrow` object in SetupScreenShell plus
+  // byte-identical inline copies in Locations/Cohorts (Wave B2).
+  sectionCount: {
+    fontFamily: 'var(--font-condensed)',
+    fontWeight: 700,
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+
   // W12b (docs/work/specs/2026-08-22-brand-placement-round2.md §3) — optional
   // icon slot for S.emptyState. Sits directly on the page/table background,
   // no card, matching DESIGN_STANDARD §5a's "calm, not boxed" rule for

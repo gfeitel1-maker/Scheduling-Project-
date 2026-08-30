@@ -581,7 +581,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           ) : (
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <div style={S.sectionCount}>
                   {locations.length} location{locations.length !== 1 ? 's' : ''}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>

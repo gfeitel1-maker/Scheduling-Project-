@@ -302,9 +302,37 @@ describe('DaysScreen', () => {
     expect(localClient.write).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'day-1', 'day_of_week', 3)
   })
 
-  // Days deliberately omits bulk Excel import (SetupScreenShell `actions` config
-  // — a director does not bulk-import 5 weekday rows); the old import-preview
-  // test was removed along with the in-screen import UI it exercised.
+  // Days offers bulk Excel import like the other setup screens (Wave B2
+  // coherence — every setup screen now exposes the same Import affordance).
+  it('exposes an "Import from Excel" affordance', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    expect(screen.queryByText('Import from Excel')).not.toBeNull()
+  })
+
+  it('imports days from Excel, skipping duplicates and rows with a warning', async () => {
+    localClient.list.mockResolvedValue([day({ id: 'd1', label: 'Monday', day_of_week: 1 })])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    const file = new File(['dummy'], 'days.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { label: 'monday', day_of_week: 1, sort_order: 1 }, // duplicate (case-insensitive)
+      { label: '', day_of_week: 2, sort_order: 2 },       // missing label -> warning
+      { label: 'Tuesday', day_of_week: 2, sort_order: 2 }, // new, valid
+    ])
+
+    fireEvent.change(fileInput, { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.queryByText(/1 with warnings/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 2/))
+
+    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+    const labelsWritten = localClient.write.mock.calls.filter(c => c[3] === 'label').map(c => c[4])
+    expect(labelsWritten).toEqual(['Tuesday'])
+  })
 })
 
 describe('DaysScreen — row-click to edit', () => {

@@ -379,7 +379,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
     <SetupScreenShell
       countLabel={`${blocks.length} block${blocks.length !== 1 ? 's' : ''}`}
       role={role}
-      actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll, deleteAllProminent: false, deleteAllDisabled: !activeCohort }}
+      actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll, deleteAllDisabled: !activeCohort }}
       fileInputRef={fileRef}
       onFileChange={onFileChange}
       maxWidth={780}
