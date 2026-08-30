@@ -10,6 +10,7 @@ import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import ImportModal from '../components/setup/ImportModal'
+import InlineAddRow from '../components/setup/InlineAddRow'
 import { DOW } from './setup/setupHelpers'
 
 const repository = createSetupCrudRepository({ localClient })
@@ -81,61 +82,6 @@ function DayRow({ day, role, onSave, onDelete }) {
   )
 }
 
-// The always-present blank "type here to add" row that lives as the last row of
-// the days table (Excel-like inline add). Typing a label + choosing a day and
-// pressing Enter — or blurring out of the row — creates the day via the same
-// create path the screen already uses; on success the row clears and stays put
-// so several days can be added in a row. Wave C1 prototype (Days only).
-function AddDayRow({ label, setLabel, dow, setDow, onAdd, adding }) {
-  const rowRef = useRef()
-  const canAdd = !!label.trim() && !adding
-
-  // Blur-to-commit, but only when focus leaves the row entirely (moving between
-  // the label input and the day select must not commit a half-typed row).
-  function onRowBlur(e) {
-    if (!canAdd) return
-    if (rowRef.current && rowRef.current.contains(e.relatedTarget)) return
-    onAdd()
-  }
-
-  return (
-    <tr
-      ref={rowRef}
-      onBlur={onRowBlur}
-      style={{ borderTop: '1px solid var(--border)', background: 'var(--bg)' }}
-    >
-      <td style={S.td}>
-        <input
-          placeholder="Label (e.g. Monday)"
-          value={label}
-          onChange={e => setLabel(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && canAdd) onAdd() }}
-          style={{ ...S.input, background: 'var(--surface)' }}
-        />
-      </td>
-      <td style={S.td}>
-        <select
-          value={dow}
-          onChange={e => setDow(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && canAdd) onAdd() }}
-          style={{ ...S.input, background: 'var(--surface)' }}
-        >
-          {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
-        </select>
-      </td>
-      <td style={{ ...S.td, textAlign: 'right' }}>
-        <button
-          className="press-97"
-          onClick={onAdd}
-          disabled={!canAdd}
-          title="Add this day"
-          style={canAdd ? { ...S.btnSecondary } : { ...S.btnSecondary, ...S.buttonDisabled }}
-        >{adding ? 'Adding…' : '+ Add'}</button>
-      </td>
-    </tr>
-  )
-}
-
 export default function DaysScreen({ campId, role, onNavigate }) {
   const { rows: unsortedDays, loading, error, setError, adding, add, save, deleteAll: deleteAllRecords, reload } =
     useCrudScreen({
@@ -158,8 +104,6 @@ export default function DaysScreen({ campId, role, onNavigate }) {
     })
   const days = [...unsortedDays].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.day_of_week ?? 0) - (b.day_of_week ?? 0))
 
-  const [newLabel, setNewLabel] = useState('')
-  const [newDow, setNewDow] = useState(1)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
@@ -169,10 +113,11 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   const [importing, setImporting] = useState(false)
   const fileRef = useRef()
 
-  async function addDay() {
-    if (!newLabel.trim()) return
-    const succeeded = await add({ label: newLabel.trim(), dayOfWeek: Number(newDow), sortOrder: Number(newDow) })
-    if (succeeded) { setNewLabel('') }
+  async function addDay(values) {
+    const label = String(values.label ?? '').trim()
+    if (!label) return false
+    const dow = Number(values.day_of_week)
+    return await add({ label, dayOfWeek: dow, sortOrder: dow })
   }
 
   // Deleting a record a schedule uses: count first, confirm with the count
@@ -326,7 +271,14 @@ export default function DaysScreen({ campId, role, onNavigate }) {
               )}
               {/* The always-present blank "type here to add" row — shown even
                   while the list loads, so a director can start typing at once. */}
-              <AddDayRow label={newLabel} setLabel={setNewLabel} dow={newDow} setDow={setNewDow} onAdd={addDay} adding={adding} />
+              <InlineAddRow
+                fields={[
+                  { key: 'label', type: 'text', placeholder: 'Label (e.g. Monday)', required: true },
+                  { key: 'day_of_week', type: 'select', default: 1, options: DOW.map((d, i) => ({ value: i, label: d })) },
+                ]}
+                onAdd={addDay}
+                adding={adding}
+              />
             </tbody>
           </table>
         </div>
