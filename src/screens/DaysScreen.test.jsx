@@ -148,12 +148,12 @@ describe('DaysScreen', () => {
     expect(localClient.write).not.toHaveBeenCalled()
   })
 
-  it('names the schedule cells, recurring events and overlays a day holds, before deleting it', async () => {
+  it('names the schedule cells and recurring events a day holds, before deleting it', async () => {
     localClient.list.mockResolvedValue([day()])
     localClient.previewDelete.mockResolvedValue({
       ok: true, entity: 'days_of_operation', entity_id: 'day-1', name: 'Monday',
       destructive: true, slot_count: 30, routes: [], unprotected_count: 0,
-      anchor_count: 1, overlay_count: 2, weather_dependent_count: 0,
+      anchor_count: 1, weather_dependent_count: 0,
     })
     localClient.deleteRecord.mockResolvedValue({ ok: true, cleared: 30 })
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
@@ -161,10 +161,9 @@ describe('DaysScreen', () => {
 
     fireEvent.click(screen.getByText('Delete'))
 
-    // Three different things to a director, reported as three things.
+    // Two different things to a director, reported as two things.
     await waitFor(() => expect(screen.queryAllByText(/30 places/).length).toBeGreaterThan(0))
     expect(screen.queryByText(/1 recurring event/)).not.toBeNull()
-    expect(screen.queryByText(/2 trips or other overlay/)).not.toBeNull()
     expect(localClient.deleteRecord).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByText('Delete and clear 30 places'))
