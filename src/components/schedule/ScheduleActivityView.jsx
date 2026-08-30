@@ -86,7 +86,7 @@ export default function ScheduleActivityView({
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                 <button className="press-97"
                   onClick={() => onSelectActivity(null)}
-                  style={{ ...S.btnSecondary, padding: '5px 12px', fontSize: 12 }}
+                  style={S.backBar}
                 >← All Activities</button>
                 <span style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }} />
                 <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 18, color: 'var(--text)' }}>{act?.name}</span>

@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
-import { aoaToSanitizedSheet } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
@@ -9,6 +9,7 @@ import { S, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
+import ImportModal from '../components/setup/ImportModal'
 import { DOW } from './setup/setupHelpers'
 
 const repository = createSetupCrudRepository({ localClient })
@@ -107,6 +108,11 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
+  const [importStep, setImportStep] = useState(null)
+  const [importRows, setImportRows] = useState([])
+  const [importResult, setImportResult] = useState(null)
+  const [importing, setImporting] = useState(false)
+  const fileRef = useRef()
 
   async function addDay() {
     if (!newLabel.trim()) return
@@ -161,6 +167,68 @@ export default function DaysScreen({ campId, role, onNavigate }) {
     XLSX.writeFile(wb, 'days_template.xlsx')
   }
 
+  function onFileChange(e) {
+    const file = e.target.files[0]; if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const wb = XLSX.read(ev.target.result, { type: 'array' })
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
+      const parsed = rows.map(r => {
+        const label = String(r.label || '').trim()
+        const dowRaw = r.day_of_week
+        const day_of_week = dowRaw !== '' && dowRaw !== null && dowRaw !== undefined ? Number(dowRaw) : null
+        const sort_order = r.sort_order !== '' ? Number(r.sort_order) : null
+        let warning = null
+        if (!label) warning = 'Missing label'
+        else if (day_of_week === null || !Number.isInteger(day_of_week) || day_of_week < 0 || day_of_week > 6) warning = 'day_of_week must be a whole number 0–6'
+        else if (sort_order !== null && !(Number.isInteger(sort_order) && sort_order >= 0)) warning = 'sort_order must be a whole number 0 or greater'
+        return { label, day_of_week, sort_order, warning }
+      })
+      setImportRows(parsed); setImportStep('preview')
+    }
+    reader.readAsArrayBuffer(file); e.target.value = ''
+  }
+
+  async function confirmImport() {
+    setImporting(true)
+    try {
+      const existingLabels = new Set(days.map(d => String(d.label ?? '').toLowerCase()))
+      let added = 0, skipped = 0
+      for (const row of importRows) {
+        if (!row.label || row.warning) { skipped++; continue }
+        const lower = String(row.label).toLowerCase()
+        if (existingLabels.has(lower)) { skipped++; continue }
+        const sortVal = row.sort_order !== null ? row.sort_order : row.day_of_week
+        try {
+          const id = crypto.randomUUID()
+          // `label` first — createRecord does the write-then-cleanup-on-failure
+          // dance and requires the collision-guarded field first.
+          await repository.createRecord('days_of_operation', id, {
+            label: row.label,
+            camp_id: campId,
+            day_of_week: row.day_of_week,
+            sort_order: sortVal,
+          })
+          added++
+          existingLabels.add(lower)
+        } catch (err) {
+          console.error(`Failed to import day "${row.label}"`, err)
+          skipped++
+        }
+      }
+      setImportResult({ added, skipped }); setImportStep('done')
+    } catch (err) {
+      console.error('Import failed', err)
+      setError(describeWriteFailure(err, 'That import could not be completed.'))
+      setImportStep(null); setImportRows([])
+    } finally {
+      setImporting(false); await reload()
+    }
+  }
+
+  const readyRows = importRows.filter(r => r.label && !r.warning)
+  const warnRows = importRows.filter(r => r.warning || !r.label)
+
   const enterStyle = useEnterTransition('liftFade')
 
   return (
@@ -169,7 +237,9 @@ export default function DaysScreen({ campId, role, onNavigate }) {
     <SetupScreenShell
       countLabel={`${days.length} day${days.length !== 1 ? 's' : ''}`}
       role={role}
-      actions={{ onDownloadTemplate: downloadTemplate, onDeleteAll: deleteAll, deleteAllProminent: false }}
+      actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
+      fileInputRef={fileRef}
+      onFileChange={onFileChange}
       nextLabel="Next: Time Blocks →"
       onNext={() => onNavigate('timeblocks')}
       error={error}
@@ -212,6 +282,24 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       </div>
       </SetupScreenShell>
       </div>
+      <ImportModal
+        step={importStep}
+        title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
+        width={520}
+        columns={[{ key: 'label', label: 'Label' }, { key: 'day_of_week', label: 'Day' }, { key: 'status', label: 'Status' }]}
+        rows={importRows}
+        readyCount={readyRows.length}
+        warnCount={warnRows.length}
+        result={importResult}
+        importing={importing}
+        onConfirm={confirmImport}
+        onCancel={() => { setImportStep(null); setImportRows([]) }}
+        renderCell={(r, c) => {
+          if (c.key === 'label') return r.label || '—'
+          if (c.key === 'day_of_week') return (r.day_of_week !== null && r.day_of_week >= 0 && r.day_of_week <= 6) ? DOW[r.day_of_week] : '—'
+          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
+        }}
+      />
       {pendingDelete && (
         <DeleteRecordDialog
           preview={pendingDelete}

@@ -115,7 +115,7 @@ describe('SpecialSchedulesScreen — selecting a row opens the existing editor',
     await waitFor(() => expect(screen.getByText('Color War')).toBeTruthy())
     fireEvent.click(screen.getByText('Color War'))
 
-    await waitFor(() => expect(screen.getByText('← Back to Special Days')).toBeTruthy())
+    await waitFor(() => expect(screen.getAllByText('← Back to Special Schedules')[0]).toBeTruthy())
   })
 
   it('opens EventGridEditor unchanged when an event card is clicked, and Back returns to the picker list', async () => {
@@ -128,8 +128,8 @@ describe('SpecialSchedulesScreen — selecting a row opens the existing editor',
     await waitFor(() => expect(screen.getByText('Banquet')).toBeTruthy())
     fireEvent.click(screen.getByText('Banquet'))
 
-    await waitFor(() => expect(screen.getByText('← Back to Event')).toBeTruthy())
-    fireEvent.click(screen.getByText('← Back to Event'))
+    await waitFor(() => expect(screen.getAllByText('← Back to Special Schedules')[0]).toBeTruthy())
+    fireEvent.click(screen.getAllByText('← Back to Special Schedules')[0])
 
     await waitFor(() => expect(screen.getByText('Banquet')).toBeTruthy())
   })
@@ -144,7 +144,7 @@ describe('SpecialSchedulesScreen — selecting a row opens the existing editor',
     }))
     render(<SpecialSchedulesScreen campId={CAMP_ID} role="admin" initialSelection={{ type: 'day', id: 'sd-1' }} />)
 
-    await waitFor(() => expect(screen.getByText('← Back to Special Days')).toBeTruthy())
+    await waitFor(() => expect(screen.getAllByText('← Back to Special Schedules')[0]).toBeTruthy())
   })
 })
 
@@ -169,7 +169,7 @@ describe('SpecialSchedulesScreen — onDeletedElsewhere surfaces a message', () 
     fireEvent.click(screen.getByText('Color War'))
 
     await waitFor(() => expect(screen.getByText('This special day was deleted.')).toBeTruthy())
-    expect(screen.queryByText('← Back to Special Days')).toBeNull()
+    expect(screen.queryByText('← Back to Special Schedules')).toBeNull()
   })
 
   it('shows "This event was deleted." and returns to the list when the open event is gone', async () => {
@@ -185,7 +185,7 @@ describe('SpecialSchedulesScreen — onDeletedElsewhere surfaces a message', () 
     fireEvent.click(screen.getByText('Banquet'))
 
     await waitFor(() => expect(screen.getByText('This event was deleted.')).toBeTruthy())
-    expect(screen.queryByText('← Back to Event')).toBeNull()
+    expect(screen.queryByText('← Back to Special Schedules')).toBeNull()
   })
 })
 

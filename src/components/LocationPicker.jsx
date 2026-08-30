@@ -175,7 +175,7 @@ export function LocationPicker({ value, locations, onChange, onCreate, onUpdateC
               else if (showCreateRow) handleCreate()
             } else if (e.key === 'Escape') { setOpen(false) }
           }}
-          placeholder="Search or add a location…"
+          placeholder="Search your camp's locations…"
           style={pickerStyles.input}
         />
       </div>
@@ -190,12 +190,6 @@ export function LocationPicker({ value, locations, onChange, onCreate, onUpdateC
           onSelectMatch={selectMatch}
           onCreate={handleCreate}
         />
-      )}
-      {/* C3: reassurance that an empty picker is a fine, deliberate state —
-          not shown while a dangling id needs attention (that warning above
-          already explains why the field reads as unset). */}
-      {!query && !value && (
-        <div style={pickerStyles.emptyHint}>Leaving it blank is fine. Not every activity has a room.</div>
       )}
     </div>
   )
@@ -238,9 +232,6 @@ const pickerStyles = {
     width: 22, height: 22, borderRadius: 5, fontSize: 15, lineHeight: 1, cursor: 'pointer',
   },
   hint: { fontSize: 11, color: 'var(--text-secondary)', marginTop: 5 },
-  // C3: faint reassurance shown only on the true empty state (nothing typed,
-  // nothing bound) — not shown alongside the C5 dangling warning.
-  emptyHint: { fontSize: 11, color: 'var(--text-secondary)', marginTop: 5 },
   // C5: a location_id bound to a place that no longer exists.
   danglingWarning: { fontSize: 11, color: 'var(--warning)', marginBottom: 5 },
 }

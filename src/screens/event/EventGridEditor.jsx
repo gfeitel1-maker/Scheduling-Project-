@@ -30,7 +30,7 @@ import EventCell from './EventCell'
 import '../../components/schedule/scheduleGrid.css'
 
 const LABELS = {
-  backLink: '← Back to Event',
+  backLink: '← Back to Special Schedules',
   addBlock: '+ Add Block',
   addGroup: '+ Add Group',
   clearSchedule: 'Clear schedule',
@@ -471,7 +471,7 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
   return (
     <div style={enterStyle}>
       <div className="back-row" style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-        <button className="press-97" onClick={onBack} style={S.btnSecondary}>{LABELS.backLink}</button>
+        <button className="press-97" onClick={onBack} style={S.backBar}>{LABELS.backLink}</button>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18 }}>
           {event.name} — Internal schedule
         </div>
@@ -594,9 +594,8 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
         </div>
       )}
 
-      <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)', textAlign: 'right' }}>
-        <button className="press-97" onClick={doPrint} style={{ ...S.btnSecondary, marginRight: 8 }}>{LABELS.printAction}</button>
-        <button className="press-97" onClick={onBack} style={S.btnPrimary}>{LABELS.backLink.replace('← ', '')}</button>
+      <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+        <button className="press-97" onClick={doPrint} style={S.btnSecondary}>{LABELS.printAction}</button>
       </div>
     </div>
   )

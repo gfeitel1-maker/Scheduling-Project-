@@ -237,3 +237,11 @@ describe('SpecialDayGridEditor — dangling-reference fallbacks', () => {
     expect(screen.getAllByRole('columnheader').filter(el => el.textContent !== 'Block')).toHaveLength(1)
   })
 })
+
+describe('SpecialDayGridEditor — back control', () => {
+  it('renders the corrected "← Back to Special Schedules" label (returns to the picker list)', async () => {
+    baseFixtures({})
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getAllByText('← Back to Special Schedules')[0]).toBeTruthy())
+  })
+})

@@ -8,6 +8,7 @@ import { buildAttentionList, buildStructureIssues } from '../ingest/attentionLis
 import { INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { downloadWorkbook } from '../utils/exportWorkbook.js'
 import { ACTIVITY_COLORS } from '../components/schedule/slotCellConstants.js'
+import { ScheduleDoor } from '../components/ScheduleDoor'
 
 // ADR docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md — the Roots
 // home is a distinct screen from now on: no census/diff vocabulary, no
@@ -104,16 +105,6 @@ function ChipRow({ card, collections }) {
   )
 }
 
-function scheduleBarHover(e, on) {
-  if (prefersReducedMotion()) return
-  e.currentTarget.style.borderColor = on
-    ? 'color-mix(in srgb, var(--primary) 40%, var(--border))'
-    : 'color-mix(in srgb, var(--primary) 24%, var(--border))'
-  e.currentTarget.style.transform = on ? 'translateY(-1px)' : 'none'
-  const arrow = e.currentTarget.querySelector('[data-arrow]')
-  if (arrow) arrow.style.transform = on ? 'translateX(var(--space-1))' : 'none'
-}
-
 function cardHover(e, on) {
   if (prefersReducedMotion()) return
   e.currentTarget.style.borderColor = on ? 'color-mix(in srgb, var(--secondary) 12%, var(--border))' : 'var(--border)'
@@ -169,15 +160,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
     <div data-testid="roots-screen" style={{ maxWidth: 920, margin: '0 auto', ...enterStyle }}>
       <h1 style={styles.title}>Roots</h1>
 
-      <button
-        className="press-97"
-        onClick={() => onNavigate('schedule')}
-        onMouseEnter={(e) => scheduleBarHover(e, true)}
-        onMouseLeave={(e) => scheduleBarHover(e, false)}
-        style={styles.scheduleBar}
-      >
-        <span>Schedule</span> <span data-arrow style={styles.scheduleArrow}>→</span>
-      </button>
+      <ScheduleDoor label="Schedule" onClick={() => onNavigate('schedule')} />
 
       <section style={{ marginTop: 'var(--space-5)' }}>
         <div style={styles.sectionLabel}>What has taken root</div>
@@ -282,33 +265,6 @@ const styles = {
     letterSpacing: '-0.015em',
     color: 'var(--text)',
     margin: '0 0 var(--space-4)',
-  },
-  scheduleBar: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-    textAlign: 'left',
-    padding: 'var(--space-4)',
-    // WS4b refinement #1 — a light navy tint weights this as the forward
-    // door, distinct from the plain-surface bento cards below it. Resting
-    // fill/border only; the existing press-97/hover behavior is untouched.
-    background: 'color-mix(in srgb, var(--primary) 6%, var(--surface))',
-    border: '1px solid color-mix(in srgb, var(--primary) 24%, var(--border))',
-    borderRadius: 'var(--radius-md)',
-    color: 'var(--text)',
-    fontSize: 15,
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    transition: 'border-color var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-out)',
-  },
-  scheduleArrow: {
-    display: 'inline-block',
-    color: 'var(--primary)',
-    fontSize: 17,
-    fontWeight: 700,
-    transition: 'transform var(--motion-fast) var(--ease-out)',
   },
   sectionLabel: {
     fontSize: 12.5,

@@ -533,7 +533,7 @@ describe('ActivitiesScreen — import preview shows new-vs-reused location', () 
 describe('ActivitiesScreen — location picker (M3b)', () => {
   async function openAddModal() {
     fireEvent.click(screen.getByText('+ Add Activity'))
-    await waitFor(() => expect(screen.queryByPlaceholderText('Search or add a location…')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByPlaceholderText("Search your camp's locations…")).not.toBeNull())
   }
 
   it('D5: the modal save path writes location_id and never the free-text location column', async () => {
@@ -562,7 +562,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'be' } })
+    fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'be' } })
 
     await waitFor(() => expect(screen.queryByText('Beit Midrash')).not.toBeNull())
     expect(screen.queryByText('Create "be" as a new location')).not.toBeNull()
@@ -579,7 +579,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
 
     await openAddModal()
     fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Swim' } })
-    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Pool' } })
+    fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'Pool' } })
     fireEvent.mouseDown(screen.getByText('Pool'))
 
     await waitFor(() => expect(screen.queryByText('· 3 groups at once')).not.toBeNull())
@@ -607,7 +607,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
 
     await openAddModal()
     fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Kayaking' } })
-    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Lake' } })
+    fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'Lake' } })
     fireEvent.mouseDown(screen.getByText('Create "Lake" as a new location'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', 'new-location-id', 'name', 'Lake'))
@@ -628,12 +628,12 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
 
     await openAddModal()
     fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Swim' } })
-    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Pool' } })
+    fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'Pool' } })
     fireEvent.mouseDown(screen.getByText('Pool'))
     await waitFor(() => expect(screen.queryByLabelText('Clear')).not.toBeNull())
 
     fireEvent.click(screen.getByLabelText('Clear'))
-    await waitFor(() => expect(screen.queryByPlaceholderText('Search or add a location…')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByPlaceholderText("Search your camp's locations…")).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Activity' }))
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', null))
@@ -645,20 +645,19 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
 describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
   async function openAddModal() {
     fireEvent.click(screen.getByText('+ Add Activity'))
-    await waitFor(() => expect(screen.queryByPlaceholderText('Search or add a location…')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByPlaceholderText("Search your camp's locations…")).not.toBeNull())
   }
 
-  it('C3: labels the field "Location (optional)" and shows blank-is-fine helper text on the empty state', async () => {
+  it('C3: labels the field "Location (optional)"', async () => {
     localClient.list.mockImplementation(() => Promise.resolve([]))
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
     expect(screen.queryByText('Location (optional)')).not.toBeNull()
-    expect(screen.queryByText('Leaving it blank is fine. Not every activity has a room.')).not.toBeNull()
   })
 
-  it('C3: the blank-is-fine hint disappears once typing starts or a location is bound', async () => {
+  it('C3: typing filters to a match that can be bound', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'locations') return Promise.resolve([{ id: 'loc-1', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
       return Promise.resolve([])
@@ -667,12 +666,10 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Po' } })
-    expect(screen.queryByText('Leaving it blank is fine. Not every activity has a room.')).toBeNull()
+    fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'Po' } })
 
     fireEvent.mouseDown(screen.getByText('Pool'))
     await waitFor(() => expect(screen.queryByLabelText('Clear')).not.toBeNull())
-    expect(screen.queryByText('Leaving it blank is fine. Not every activity has a room.')).toBeNull()
   })
 
   it('C4: the search input carries a reasonable maxLength', async () => {
@@ -681,7 +678,7 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    expect(screen.getByPlaceholderText('Search or add a location…').getAttribute('maxLength')).toBe('60')
+    expect(screen.getByPlaceholderText("Search your camp's locations…").getAttribute('maxLength')).toBe('60')
   })
 
   it('C2: a location picked from the existing list shows the plain capacity meta, not a stepper', async () => {
@@ -693,7 +690,7 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Pool' } })
+    fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'Pool' } })
     fireEvent.mouseDown(screen.getByText('Pool'))
     await waitFor(() => expect(screen.queryByText('· 3 groups at once')).not.toBeNull())
     expect(screen.queryByLabelText('Groups at once')).toBeNull()
@@ -708,7 +705,7 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Lake' } })
+    fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'Lake' } })
     fireEvent.mouseDown(screen.getByText('Create "Lake" as a new location'))
     await waitFor(() => expect(screen.queryByLabelText('Groups at once')).not.toBeNull())
 
@@ -741,7 +738,7 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     // showed no "from" state at all.
     await act(async () => { await new Promise(r => requestAnimationFrame(r)) })
 
-    fireEvent.focus(screen.getByPlaceholderText('Search or add a location…'))
+    fireEvent.focus(screen.getByPlaceholderText("Search your camp's locations…"))
     const popover = screen.getByText('Pool').closest('button').parentElement
     expect(popover.style.opacity).toBe('0')
 
@@ -762,7 +759,7 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     await waitFor(() => expect(screen.queryByText('The location set here no longer exists — pick a new one.')).not.toBeNull())
     // The search box is shown (not a stale-looking selected token) so the
     // director can immediately pick a replacement.
-    expect(screen.queryByPlaceholderText('Search or add a location…')).not.toBeNull()
+    expect(screen.queryByPlaceholderText("Search your camp's locations…")).not.toBeNull()
   })
 
   it('C5: saving without re-picking a dangling location clears it rather than persisting the stale id', async () => {

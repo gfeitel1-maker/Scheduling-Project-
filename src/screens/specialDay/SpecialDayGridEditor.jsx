@@ -22,7 +22,7 @@ import SpecialDayCell from './SpecialDayCell'
 import '../../components/schedule/scheduleGrid.css'
 
 const LABELS = {
-  backLink: '← Back to Special Days',
+  backLink: '← Back to Special Schedules',
   addBlock: '+ Add Block',
   notesLabel: 'Notes',
   printAction: 'Print',
@@ -298,7 +298,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   return (
     <div style={enterStyle}>
       <div className="back-row" style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-        <button className="press-97" onClick={onBack} style={S.btnSecondary}>{LABELS.backLink}</button>
+        <button className="press-97" onClick={onBack} style={S.backBar}>{LABELS.backLink}</button>
         {editingName ? (
           <input
             autoFocus
@@ -419,10 +419,6 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
             most browsers, so beforeprint copies the live value into this
             plain read-only div (design spec §2 "Print"). */}
         <div ref={notesPrintRef} className="notes-print-view" style={{ display: 'none' }} />
-      </div>
-
-      <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border)', textAlign: 'right' }}>
-        <button className="press-97" onClick={onBack} style={S.btnPrimary}>{LABELS.backLink.replace('← ', '')}</button>
       </div>
     </div>
   )

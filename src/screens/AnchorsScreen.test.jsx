@@ -266,9 +266,9 @@ describe('AnchorsScreen — location picker (location_id)', () => {
     await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Swim' }))
-    await waitFor(() => expect(screen.getByPlaceholderText('Search or add a location…')).not.toBeNull())
+    await waitFor(() => expect(screen.getByPlaceholderText("Search your camp's locations…")).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Pool' } })
+    fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'Pool' } })
     fireEvent.mouseDown(await screen.findByText('Pool Deck'))
 
     fireEvent.click(screen.getByText('Save Changes'))

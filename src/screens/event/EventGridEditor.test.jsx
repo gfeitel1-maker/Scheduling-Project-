@@ -464,3 +464,11 @@ describe('EventGridEditor — grid-schedule import affordance (docs/adr/2026-08-
     ).toBeGreaterThan(listCallsBefore))
   })
 })
+
+describe('EventGridEditor — back control', () => {
+  it('renders the corrected "← Back to Special Schedules" label (returns to the picker list)', async () => {
+    baseFixtures({})
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getAllByText('← Back to Special Schedules')[0]).toBeTruthy())
+  })
+})

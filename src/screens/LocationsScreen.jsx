@@ -581,7 +581,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           ) : (
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <div style={S.sectionCount}>
                   {locations.length} location{locations.length !== 1 ? 's' : ''}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -686,7 +686,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
         </>
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button className="press-97" onClick={() => onNavigate('activities')} style={S.authLinkBtn}>← Back to Activities</button>
+        <button className="press-97" onClick={() => onNavigate('activities')} style={S.backBar}>← Back to Activities</button>
         <button className="press-97" onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Recurring Events →</button>
       </div>
 

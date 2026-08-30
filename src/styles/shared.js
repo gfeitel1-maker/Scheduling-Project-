@@ -89,6 +89,17 @@ export const S = {
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
+  backBar: {
+    background: 'none',
+    border: 'none',
+    padding: '4px 6px',
+    marginLeft: -6,
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
   th: {
     padding: '10px 14px',
     textAlign: 'left',
@@ -726,6 +737,20 @@ export const S = {
     fontWeight: 700,
     fontSize: 13,
     marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+
+  // Text-secondary variant of S.sectionLabel used for the small-caps section
+  // count header ("3 GROUPS", "5 DAYS", "4 BLOCKS") above setup-screen lists.
+  // Same condensed/700/13px/uppercase treatment, no marginBottom, muted color.
+  // Consolidated from a local `eyebrow` object in SetupScreenShell plus
+  // byte-identical inline copies in Locations/Cohorts (Wave B2).
+  sectionCount: {
+    fontFamily: 'var(--font-condensed)',
+    fontWeight: 700,
+    fontSize: 13,
+    color: 'var(--text-secondary)',
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
   },
