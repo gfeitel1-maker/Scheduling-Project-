@@ -284,6 +284,38 @@ describe('migration v51: fresh vs migrated equivalence', () => {
   })
 })
 
+describe('FK enforcement survives a migration (success and forced failure)', () => {
+  // The v49/v50/v51 recreate-and-copy blocks bracket their DDL with
+  // `PRAGMA foreign_keys = OFF ... ON`. The invariant that matters is that a
+  // connection never comes out of migration with FK enforcement left OFF —
+  // otherwise later writes on that connection would silently bypass FK checks.
+  //
+  // Two facts make this robust: (1) these blocks run inside db.transaction(),
+  // and PRAGMA foreign_keys is a no-op while a transaction is open, so the OFF
+  // never actually takes effect today; (2) a finally in each block re-asserts
+  // ON regardless, guarding a future refactor that moves the DDL out of the
+  // transaction. This test pins the observable invariant on both the happy path
+  // and a forced mid-DDL throw.
+  it('leaves foreign_keys=ON after a successful full migration', () => {
+    const db = preV51Db('v51-fk-ok')
+    initSchema(db)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
+    expect(db.pragma('foreign_keys', { simple: true })).toBe(1)
+    db.close()
+  })
+
+  it('leaves foreign_keys=ON even when the v51 DDL throws partway', () => {
+    const db = preV51Db('v51-fk-throw')
+    // Sabotage: a stray table with the migration's scratch name makes the
+    // block's `CREATE TABLE anchor_activities_v51` throw before it finishes,
+    // exercising the throw path through the finally.
+    db.exec('CREATE TABLE anchor_activities_v51 (id TEXT)')
+    expect(() => initSchema(db)).toThrow()
+    expect(db.pragma('foreign_keys', { simple: true })).toBe(1)
+    db.close()
+  })
+})
+
 describe('rollbackV51', () => {
   it('drops the kind column and the schema_migrations row, reporting discarded recurring-row count', () => {
     const db = freshDb()
