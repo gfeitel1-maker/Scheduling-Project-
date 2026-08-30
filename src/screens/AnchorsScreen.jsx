@@ -164,10 +164,8 @@ function AnchorModal({ anchor, kind, tiers, groups, days, timeBlocks, locations,
         <Field label={isNew ? 'Days (select all that apply)' : 'Day'}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {days.map(d => (
-              <label key={d.id} style={{ fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
-                padding: '5px 10px', borderRadius: 5, border: '1px solid var(--border)',
-                background: selectedDays.includes(d.id) ? 'var(--primary)' : 'var(--surface)',
-                color: selectedDays.includes(d.id) ? '#fff' : 'var(--text)',
+              <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 5,
+                ...S.chip('var(--primary)', selectedDays.includes(d.id), { borderRadius: 5, padding: '5px 10px', border: '1px solid var(--border)' }),
                 fontWeight: selectedDays.includes(d.id) ? 600 : 400,
               }}>
                 <input type="checkbox" checked={selectedDays.includes(d.id)} onChange={() => toggleDay(d.id)} style={{ display: 'none' }} />

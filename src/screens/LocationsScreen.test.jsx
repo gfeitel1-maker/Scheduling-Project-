@@ -424,7 +424,10 @@ describe('LocationsScreen: migration review region', () => {
     // The advisory strip must not render while the gate is up.
     expect(screen.queryByText(/Shoresh set a few capacities/)).toBeNull()
 
-    fireEvent.click(screen.getByText('Merge into one location'))
+    const mergeButton = screen.getByText('Merge into one location')
+    expect(mergeButton.style.background).toBe('var(--primary)')
+    expect(mergeButton.style.color).toBe('rgb(255, 255, 255)')
+    fireEvent.click(mergeButton)
 
     await waitFor(() =>
       expect(localClient.mergeLocation).toHaveBeenCalledWith({

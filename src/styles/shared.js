@@ -718,6 +718,18 @@ export const S = {
     ...overrides,
   }),
 
+  // Uppercase condensed section-header label used above an inline "Add X"
+  // form (Tiers/Groups/Days/TimeBlocks/Electives/Locations/Events). Forked
+  // byte-identically across those screens before Wave 3 consolidated it.
+  sectionLabel: {
+    fontFamily: 'var(--font-condensed)',
+    fontWeight: 700,
+    fontSize: 13,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+
   // W12b (docs/work/specs/2026-08-22-brand-placement-round2.md §3) — optional
   // icon slot for S.emptyState. Sits directly on the page/table background,
   // no card, matching DESIGN_STANDARD §5a's "calm, not boxed" rule for

@@ -329,11 +329,7 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
         <Field label="Scheduling Priority">
           <div style={{ display: 'flex', gap: 0, borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)', width: 'fit-content' }}>
             {['high','low'].map(p => (
-              <button key={p} onClick={() => setPriority(p)} style={{
-                padding: '7px 20px', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                background: priority === p ? 'var(--primary)' : 'var(--surface)',
-                color: priority === p ? '#fff' : 'var(--text)',
-              }}>{p.charAt(0).toUpperCase() + p.slice(1)}</button>
+              <button key={p} onClick={() => setPriority(p)} style={S.chip('var(--primary)', priority === p, { borderRadius: 0, border: 'none', padding: '7px 20px' })}>{p.charAt(0).toUpperCase() + p.slice(1)}</button>
             ))}
           </div>
         </Field>
@@ -1233,7 +1229,7 @@ function WeekToggle({ on, label, onToggle }) {
         width: KNOB,
         height: KNOB,
         borderRadius: '50%',
-        background: '#fff',
+        background: 'var(--surface-elevated)',
         transition: reduced ? 'none' : 'left 120ms ease',
       }} />
     </button>

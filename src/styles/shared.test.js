@@ -43,3 +43,16 @@ describe('S.chip', () => {
     expect(S.chip('var(--primary)', true).color).toBe('#fff')
   })
 })
+
+describe('S.sectionLabel', () => {
+  it('matches the byte-identical "Add X" section-header style previously forked across setup screens', () => {
+    expect(S.sectionLabel).toEqual({
+      fontFamily: 'var(--font-condensed)',
+      fontWeight: 700,
+      fontSize: 13,
+      marginBottom: 10,
+      textTransform: 'uppercase',
+      letterSpacing: '0.05em',
+    })
+  })
+})

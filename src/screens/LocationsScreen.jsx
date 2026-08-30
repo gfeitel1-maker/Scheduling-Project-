@@ -634,7 +634,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           )}
 
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Location</div>
+            <div style={S.sectionLabel}>Add Location</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 160px' }}>
                 <label style={fieldLabel}>Name</label>
@@ -769,7 +769,7 @@ function WeekToggle({ on, label, onToggle }) {
         width: KNOB,
         height: KNOB,
         borderRadius: '50%',
-        background: '#fff',
+        background: 'var(--surface-elevated)',
         transition: reduced ? 'none' : 'left 120ms ease',
       }} />
     </button>
@@ -872,7 +872,7 @@ const gateStyles = {
   capRow: { padding: '12px 24px 4px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text)' },
   error: { margin: '10px 24px 0', ...S.errorBanner },
   actions: { padding: '18px 24px 22px', display: 'flex', flexDirection: 'column', gap: 9 },
-  merge: { padding: '11px 0', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 14, width: '100%', cursor: 'pointer' },
+  merge: { ...S.btnPrimary, padding: '11px 0', borderRadius: 8, fontWeight: 700, fontSize: 14, width: '100%' },
   keep: { padding: '9px 0', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, fontWeight: 600, fontSize: 13, color: 'var(--text)', width: '100%', cursor: 'pointer' },
   undo: { textAlign: 'center', fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2 },
 }

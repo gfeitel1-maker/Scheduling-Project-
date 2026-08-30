@@ -100,6 +100,34 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
     const dayIdIds = dayIdCalls.map(c => c[2]).sort()
     expect(dayIdIds).toEqual([...ids].sort())
   })
+
+  it('selected day pill routes its fill/text through S.chip, not a hardcoded #fff', async () => {
+    const days = [
+      day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 }),
+      day({ id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 2 }),
+    ]
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'anchor_activities') return Promise.resolve([])
+      if (entity === 'days_of_operation') return Promise.resolve(days)
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'tiers') return Promise.resolve([])
+      if (entity === 'groups') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('+ Add Fixed Event'))
+    fireEvent.click(screen.getByText('Monday'))
+
+    const selectedLabel = screen.getByText('Monday').closest('label')
+    const unselectedLabel = screen.getByText('Tuesday').closest('label')
+    expect(selectedLabel.style.background).toBe('var(--primary)')
+    expect(selectedLabel.style.color).toBe('rgb(255, 255, 255)')
+    expect(unselectedLabel.style.background).toBe('var(--surface)')
+    expect(unselectedLabel.style.color).toBe('var(--text)')
+  })
 })
 
 // Slice 2 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md):
