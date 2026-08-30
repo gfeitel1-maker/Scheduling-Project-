@@ -1,8 +1,8 @@
 // Unified Special Events hub (owner-approved 2026-08-29, docs/adr/2026-08-29-
 // unify-special-events-screen.md; docs/work/tickets/T110-unify-special-
 // events-screen.md). Replaces the separate EventScreen/SpecialDaysScreen rows
-// in Sprouts with one create/manage surface: a card grid of special_days +
-// events, click a card to open its detail. The Plants build surface
+// in Sprouts with one create/manage surface: a table of special_days +
+// events (type-tagged rows, inline-add), click a row to open its detail. The Plants build surface
 // (SpecialSchedulesScreen, route 'schedule:special') is UNCHANGED — this
 // screen only authors name/notes/location and routes "Build →" there, same
 // as the two screens it replaces did.

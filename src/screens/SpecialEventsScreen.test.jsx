@@ -132,7 +132,7 @@ describe('SpecialEventsScreen — create', () => {
 })
 
 describe('SpecialEventsScreen — event detail', () => {
-  it('click card opens detail with name + notes, and Build → routes correctly', async () => {
+  it('click row opens detail with name + notes, and Build → routes correctly', async () => {
     localClient.list.mockImplementation(byEntity({ ...emptyEntries, events: [eventRow({ notes: 'Bring points sheet' })] }))
     const onNavigate = vi.fn()
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
@@ -172,7 +172,7 @@ describe('SpecialEventsScreen — event detail', () => {
 })
 
 describe('SpecialEventsScreen — special day detail', () => {
-  it('click card opens detail with name + notes, and Build → routes with { specialDayId }', async () => {
+  it('click row opens detail with name + notes, and Build → routes with { specialDayId }', async () => {
     localClient.list.mockImplementation(byEntity({ ...emptyEntries, special_days: [dayRow({ notes: 'Setup at 8am' })] }))
     const onNavigate = vi.fn()
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
