@@ -59,14 +59,14 @@ describe('CohortsScreen', () => {
   it('adding a program writes each field via localClient.write with the token and reloads', async () => {
     localClient.list.mockResolvedValue([])
     render(<CohortsScreen campId={CAMP_ID} />)
-    await waitFor(() => expect(screen.queryByText('No programs yet')).not.toBeNull())
+    await screen.findByPlaceholderText('Name (e.g. Main, Specialty)')
 
     localClient.list.mockResolvedValue([cohort({ id: 'new-cohort-id', name: 'Specialty' })])
 
     fireEvent.change(screen.getByPlaceholderText('Name (e.g. Main, Specialty)'), {
       target: { value: 'Specialty' },
     })
-    fireEvent.click(screen.getByText('+ Add Program'))
+    fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(screen.queryByText('Specialty')).not.toBeNull())
 
@@ -151,13 +151,13 @@ describe('CohortsScreen', () => {
   it('writes name before camp_id when adding a program (round 2 Finding 1: avoids an orphaned partial row on a UNIQUE collision)', async () => {
     localClient.list.mockResolvedValue([])
     render(<CohortsScreen campId={CAMP_ID} />)
-    await waitFor(() => expect(screen.queryByText('No programs yet')).not.toBeNull())
+    await screen.findByPlaceholderText('Name (e.g. Main, Specialty)')
 
     localClient.list.mockResolvedValue([cohort({ id: 'new-cohort-id', name: 'Specialty' })])
     fireEvent.change(screen.getByPlaceholderText('Name (e.g. Main, Specialty)'), {
       target: { value: 'Specialty' },
     })
-    fireEvent.click(screen.getByText('+ Add Program'))
+    fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(screen.queryByText('Specialty')).not.toBeNull())
 
@@ -171,12 +171,12 @@ describe('CohortsScreen', () => {
     localClient.list.mockResolvedValue([])
     localClient.write.mockRejectedValue(new Error('UNIQUE constraint failed: cohorts.camp_id, cohorts.name'))
     render(<CohortsScreen campId={CAMP_ID} />)
-    await waitFor(() => expect(screen.queryByText('No programs yet')).not.toBeNull())
+    await screen.findByPlaceholderText('Name (e.g. Main, Specialty)')
 
     fireEvent.change(screen.getByPlaceholderText('Name (e.g. Main, Specialty)'), {
       target: { value: 'Main' },
     })
-    fireEvent.click(screen.getByText('+ Add Program'))
+    fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() =>
       expect(
@@ -218,12 +218,12 @@ describe('CohortsScreen', () => {
       return Promise.reject(new Error('disk failure'))
     })
     render(<CohortsScreen campId={CAMP_ID} />)
-    await waitFor(() => expect(screen.queryByText('No programs yet')).not.toBeNull())
+    await screen.findByPlaceholderText('Name (e.g. Main, Specialty)')
 
     fireEvent.change(screen.getByPlaceholderText('Name (e.g. Main, Specialty)'), {
       target: { value: 'Specialty' },
     })
-    fireEvent.click(screen.getByText('+ Add Program'))
+    fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() =>
       expect(screen.queryByText(/That program could not be added\./)).not.toBeNull()

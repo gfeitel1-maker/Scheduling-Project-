@@ -3,6 +3,7 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import InlineAddRow from '../components/setup/InlineAddRow'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import uiPeople from '../assets/brand/icons/ui-people.png'
 
@@ -137,12 +138,6 @@ export default function CohortsScreen({ campId }) {
   const emptyEnter = useEnterTransition('liftFade')
   const [cohorts, setCohorts] = useState([])
   const [loading, setLoading] = useState(true)
-  const [newName, setNewName] = useState('')
-  const [newWeekStart, setNewWeekStart] = useState(1)
-  const [newWeekEnd, setNewWeekEnd] = useState(1)
-  const [newAnchorModel, setNewAnchorModel] = useState('fixed')
-  const [newCapacitySource, setNewCapacitySource] = useState('groups_per_slot')
-  const [newSort, setNewSort] = useState('')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null) // cohort being confirmed for delete
@@ -179,10 +174,13 @@ export default function CohortsScreen({ campId }) {
     await repository.writeFields('cohorts', id, fields)
   }
 
-  async function addCohort() {
-    if (!newName.trim()) return
+  async function addCohort(values) {
+    const name = String(values.name ?? '').trim()
+    if (!name) return false
     setAdding(true)
-    const sortVal = newSort !== '' ? Number(newSort) : (cohorts.length + 1)
+    // Name-only inline add — the remaining program attributes take their
+    // former add-form defaults and are edited in-row afterward.
+    const sortVal = cohorts.length + 1
     try {
       const id = crypto.randomUUID()
       // `name` is written FIRST — see ensureCohort.js's identical ordering
@@ -194,27 +192,23 @@ export default function CohortsScreen({ campId }) {
       // write, and the row-creation + failed UPDATE are the same SQLite
       // transaction (see appendOp), so nothing is left behind at all.
       await writeFields(id, {
-        name: newName.trim(),
+        name,
         camp_id: campId,
-        session_week_start: Number(newWeekStart),
-        session_week_end: Number(newWeekEnd),
-        anchor_model: newAnchorModel,
-        capacity_source: newCapacitySource,
+        session_week_start: 1,
+        session_week_end: 1,
+        anchor_model: 'fixed',
+        capacity_source: 'groups_per_slot',
         sort_order: sortVal,
       })
-      setNewName('')
-      setNewWeekStart(1)
-      setNewWeekEnd(1)
-      setNewSort('')
-      setNewAnchorModel('fixed')
-      setNewCapacitySource('groups_per_slot')
       await load()
+      return true
     } catch (err) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'A program with this name already exists — choose a different name.'
           : describeWriteFailure(err, 'That program could not be added.')
       )
+      return false
     } finally {
       setAdding(false)
     }
@@ -306,49 +300,24 @@ export default function CohortsScreen({ campId }) {
               ) : cohorts.map(c => (
                 <CohortRow key={c.id} cohort={c} onSave={saveCohort} onDelete={deleteCohort} />
               ))}
+              {/* The always-present blank "type here to add" row — lives as
+                  the last row of the programs table (Excel-like inline add).
+                  Name-only; the four blank trailing cells hold the Session
+                  Weeks / Recurring Events / Capacity Source / Order columns
+                  so "+ Add" sits under Actions. Program attributes take their
+                  defaults and are edited in-row afterward. */}
+              <InlineAddRow
+                fields={[
+                  { key: 'name', type: 'text', placeholder: 'Name (e.g. Main, Specialty)', required: true },
+                ]}
+                onAdd={addCohort}
+                adding={adding}
+                trailingCells={<><td style={S.td} /><td style={S.td} /><td style={S.td} /><td style={S.td} /></>}
+              />
             </tbody>
           </table>
         </div>
       )}
-
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Add Program
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
-          <input placeholder="Name (e.g. Main, Specialty)" value={newName}
-            onChange={e => setNewName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addCohort()}
-            style={{ ...S.input, flex: '1 1 160px' }} />
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Weeks</span>
-            <input type="number" min="1" value={newWeekStart}
-              onChange={e => setNewWeekStart(e.target.value)}
-              style={{ ...S.input, width: 56 }} />
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>–</span>
-            <input type="number" min="1" value={newWeekEnd}
-              onChange={e => setNewWeekEnd(e.target.value)}
-              style={{ ...S.input, width: 56 }} />
-          </div>
-          <input type="number" placeholder="Order" value={newSort}
-            onChange={e => setNewSort(e.target.value)}
-            style={{ ...S.input, width: 70 }} />
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select value={newAnchorModel} onChange={e => setNewAnchorModel(e.target.value)}
-            style={{ ...S.input, flex: '1 1 220px' }}>
-            {ANCHOR_MODELS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <select value={newCapacitySource} onChange={e => setNewCapacitySource(e.target.value)}
-            style={{ ...S.input, flex: '1 1 200px' }}>
-            {CAPACITY_SOURCES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <button className="press-97" onClick={addCohort} disabled={adding || !newName.trim()}
-            style={{ ...S.btnPrimary, flexShrink: 0 }}>
-            {adding ? 'Adding…' : '+ Add Program'}
-          </button>
-        </div>
-      </div>
 
       <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
         A program groups age divisions, time blocks, and recurring events that share a schedule structure.
