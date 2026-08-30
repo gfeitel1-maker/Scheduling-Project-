@@ -394,7 +394,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // hands its event id up here, mirroring openElective exactly (App.jsx's
   // navigate/eventFocusId).
   function openEvent(eventId) {
-    onNavigate?.('events', { eventId })
+    onNavigate?.('specialevents', { eventId })
   }
 
   // addOverlay / updateOverlayRange are consumed by useOverlayFillStamp, which

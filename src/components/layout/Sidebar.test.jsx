@@ -111,11 +111,11 @@ describe('Sidebar: Roots — fixed, chevron-less top row (ADR Decision 3)', () =
     // `expected`, not `optional` (see the dedicated describe block below) —
     // they read "attention", not "optional", though they still never show '!'.
     renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, locations: 0 } })
-    // Electives (Slice 1) and Events (Slice 1, docs/adr/2026-08-22-events-
-    // overlay-placement.md) are the 3rd and 4th optional entities, alongside
-    // Locations and Special Days.
-    expect(screen.getAllByText('optional').length).toBe(4)
-    for (const label of ['Locations', 'Special Days', 'Electives', 'Events']) {
+    // Electives (Slice 1) and Special Events (the unified Events + Special
+    // Days row, docs/adr/2026-08-29-unify-special-events-screen.md) are the
+    // other two optional entities, alongside Locations.
+    expect(screen.getAllByText('optional').length).toBe(3)
+    for (const label of ['Locations', 'Special Events', 'Electives']) {
       const row = screen.getByText(label).closest('button')
       expect(within(row).queryByText('!')).toBeNull()
     }
@@ -147,34 +147,18 @@ describe('Sidebar: Fixed Events and Recurring Events are two separate, expected 
   })
 })
 
-describe('Sidebar: Events and Special Days read as one family under a shared heading (override-family-model ADR §6c)', () => {
-  it('renders a "Special Events" heading among the Sprouts rows', () => {
-    renderSidebar()
-    expect(screen.getByText('Special Events')).toBeTruthy()
-  })
-
-  it('keeps Events and Special Days as their own navigable rows under the heading', () => {
+describe('Sidebar: Events and Special Days are unified into one Special Events row (docs/adr/2026-08-29-unify-special-events-screen.md)', () => {
+  it('renders a single navigable "Special Events" row', () => {
     const onNavigate = vi.fn()
     renderSidebar({ onNavigate })
-    fireEvent.click(screen.getByText('Events').closest('button'))
-    expect(onNavigate).toHaveBeenCalledWith('events')
-
-    fireEvent.click(screen.getByText('Special Days').closest('button'))
-    expect(onNavigate).toHaveBeenCalledWith('specialdays')
+    fireEvent.click(screen.getByText('Special Events').closest('button'))
+    expect(onNavigate).toHaveBeenCalledWith('specialevents')
   })
 
-  it('does not treat the heading itself as a navigable row', () => {
-    const onNavigate = vi.fn()
-    renderSidebar({ onNavigate })
-    fireEvent.click(screen.getByText('Special Events'))
-    expect(onNavigate).not.toHaveBeenCalled()
-  })
-
-  it('gives the heading no count, checkmark, or optional affordance', () => {
+  it('no longer renders separate "Events"/"Special Days" rows', () => {
     renderSidebar()
-    const heading = screen.getByText('Special Events')
-    expect(within(heading.closest('div')).queryByText('optional')).toBeNull()
-    expect(within(heading.closest('div')).queryByText('✓')).toBeNull()
+    expect(screen.queryByText('Events')).toBeNull()
+    expect(screen.queryByText('Special Days')).toBeNull()
   })
 })
 
