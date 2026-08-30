@@ -29,7 +29,10 @@ function initialValues(fields) {
   return values
 }
 
-export default function InlineAddRow({ fields, onAdd, adding }) {
+// `trailingCells` (optional): extra <td>s rendered between the field cells and
+// the "+ Add" action cell, so the add row can align under tables that carry
+// columns InlineAddRow doesn't own (e.g. Groups' per-week toggle column).
+export default function InlineAddRow({ fields, onAdd, adding, trailingCells = null }) {
   const rowRef = useRef()
   const [values, setValues] = useState(() => initialValues(fields))
 
@@ -89,6 +92,7 @@ export default function InlineAddRow({ fields, onAdd, adding }) {
           )}
         </td>
       ))}
+      {trailingCells}
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button
           className="press-97"

@@ -8,6 +8,7 @@ import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
+import InlineAddRow from '../components/setup/InlineAddRow'
 import RecordHistory from '../components/RecordHistory'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
@@ -110,9 +111,6 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   const [groups, setGroups] = useState([])
   const [tiers, setTiers] = useState([])
   const [loading, setLoading] = useState(true)
-  const [newName, setNewName] = useState('')
-  const [newTierId, setNewTierId] = useState('')
-  const [newAvail, setNewAvail] = useState('all')
   const [adding, setAdding] = useState(false)
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
@@ -190,9 +188,11 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
     setPendingExclusion(null)
   }
 
-  async function addGroup() {
-    if (!newName.trim()) return
+  async function addGroup(values) {
+    const name = String(values.name ?? '').trim()
+    if (!name) return false
     setAdding(true)
+    setError(null)
     try {
       const id = crypto.randomUUID()
       // `name` is written FIRST — mirrors ensureCohort.js/CohortsScreen.jsx's
@@ -202,19 +202,20 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       // than leaving a camp_id-only orphan behind. createRecord does the
       // write-then-cleanup-on-failure dance.
       await repository.createRecord('groups', id, {
-        name: newName.trim(),
+        name,
         camp_id: campId,
-        tier_id: newTierId || null,
-        availability: newAvail,
+        tier_id: values.tier_id || null,
+        availability: values.availability,
       })
-      setNewName(''); setNewTierId(''); setNewAvail('all')
       await load()
+      return true
     } catch (err) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'A group with this name already exists — choose a different name.'
           : describeWriteFailure(err, 'That group could not be added.')
       )
+      return false
     } finally {
       setAdding(false)
     }
@@ -412,7 +413,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
               {groups.length === 0 ? (
                 <tr><td colSpan={weekId ? 5 : 4} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No groups yet</div>
-                  <div style={S.emptyStateBody}>Add your first group below.</div>
+                  <div style={S.emptyStateBody}>Type a group below to add your first one.</div>
                 </td></tr>
               ) : (
                 <>
@@ -446,27 +447,25 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                   )}
                 </>
               )}
+              {/* The always-present blank "type here to add" row — lives as the
+                  last row of the groups table (Excel-like inline add). */}
+              <InlineAddRow
+                fields={[
+                  { key: 'name', type: 'text', placeholder: 'Group name', required: true },
+                  { key: 'tier_id', type: 'select', default: '', options: [
+                    { value: '', label: '— No age division —' },
+                    ...tiers.map(t => ({ value: t.id, label: t.name })),
+                  ] },
+                  { key: 'availability', type: 'select', default: 'all', options: AVAIL_OPTIONS },
+                ]}
+                onAdd={addGroup}
+                adding={adding}
+                trailingCells={weekId ? <td style={S.td} /> : null}
+              />
             </tbody>
           </table>
         </div>
       )}
-
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-        <div style={S.sectionLabel}>Add Group</div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input placeholder="Group name" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '1 1 160px', minWidth: 120 }} />
-          <select value={newTierId} onChange={e => setNewTierId(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '0 0 140px' }}>
-            <option value="">— No age division —</option>
-            {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-          <select value={newAvail} onChange={e => setNewAvail(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '0 0 150px' }}>
-            {AVAIL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <button className="press-97" onClick={addGroup} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>
-            {adding ? 'Adding…' : '+ Add'}
-          </button>
-        </div>
-      </div>
       </SetupScreenShell>
       </div>
 

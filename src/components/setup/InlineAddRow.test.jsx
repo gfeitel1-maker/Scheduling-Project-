@@ -111,6 +111,18 @@ describe('InlineAddRow', () => {
     expect(input.value).toBe('Wednesday')
   })
 
+  it('renders trailingCells between the field cells and the action cell', () => {
+    render(
+      <table><tbody>
+        <InlineAddRow fields={FIELDS} adding={false} onAdd={vi.fn()} trailingCells={<td data-testid="spacer" />} />
+      </tbody></table>
+    )
+    const cells = document.querySelectorAll('tr td')
+    // 2 field cells, then the spacer, then the +Add cell.
+    expect(cells[2].getAttribute('data-testid')).toBe('spacer')
+    expect(cells[cells.length - 1].textContent).toContain('+ Add')
+  })
+
   it('renders text, time, and select field types', () => {
     renderRow({ fields: [
       { key: 'name', type: 'text', placeholder: 'Name', required: true },
