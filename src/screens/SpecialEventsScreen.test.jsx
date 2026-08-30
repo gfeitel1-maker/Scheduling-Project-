@@ -118,7 +118,7 @@ describe('SpecialEventsScreen — event detail', () => {
     await waitFor(() => expect(screen.getByText('← Back to Special Events')).toBeTruthy())
     expect(screen.getByDisplayValue('Bring points sheet')).toBeTruthy()
 
-    fireEvent.click(screen.getByText(/Build this event's schedule from Special Schedules/))
+    fireEvent.click(screen.getByText('Build the schedule →'))
     expect(onNavigate).toHaveBeenCalledWith('schedule:special', { buildEventId: 'ev-1' })
   })
 
@@ -158,7 +158,7 @@ describe('SpecialEventsScreen — special day detail', () => {
     await waitFor(() => expect(screen.getByText('← Back to Special Events')).toBeTruthy())
     expect(screen.getByDisplayValue('Setup at 8am')).toBeTruthy()
 
-    fireEvent.click(screen.getByText(/Build this day's schedule from Special Schedules/))
+    fireEvent.click(screen.getByText('Build the schedule →'))
     expect(onNavigate).toHaveBeenCalledWith('schedule:special', { specialDayId: 'day-1' })
   })
 
@@ -201,7 +201,7 @@ describe('SpecialEventsScreen — event detail location picker (location_id)', (
     render(<SpecialEventsScreen campId={CAMP_ID} role="admin" initialFocus={{ type: 'event', id: 'ev-1' }} />)
     await waitFor(() => expect(screen.getByText('← Back to Special Events')).toBeTruthy())
 
-    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Field' } })
+    fireEvent.change(screen.getByPlaceholderText("Search your camp's locations…"), { target: { value: 'Field' } })
     fireEvent.mouseDown(await screen.findByText('Field House'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith(

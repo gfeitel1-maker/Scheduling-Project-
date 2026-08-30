@@ -13,6 +13,7 @@ import { useCrudScreen } from '../hooks/useCrudScreen'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../styles/shared'
 import { LocationPicker } from '../components/LocationPicker'
+import { ScheduleDoor } from '../components/ScheduleDoor'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import CalmEmptyState from '../components/CalmEmptyState'
 import { seedFailureMessage } from './specialDay/seedFailureMessage'
@@ -50,40 +51,10 @@ const fieldLabel = {
   display: 'block',
 }
 
-const linkButtonStyle = {
-  background: 'none', border: 'none', padding: 0, color: 'var(--primary)',
-  fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
-  textDecoration: 'underline',
-}
-
-// Read-only placement summary — query template_slots WHERE event_id, resolve
-// day/block/group names, render as a plain list. Carried over from
-// EventScreen.jsx unchanged.
-function PlacementSummary({ eventId, placements, groups, days, timeBlocks }) {
-  if (placements.length === 0) {
-    return <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Not placed on the schedule yet.</div>
-  }
-  const groupName = (id) => groups.find((g) => g.id === id)?.name ?? '(deleted group)'
-  const dayLabel = (id) => days.find((d) => d.id === id)?.label ?? '(deleted day)'
-  const blockName = (id) => timeBlocks.find((b) => b.id === id)?.name ?? '(deleted period)'
-
-  return (
-    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
-      {placements
-        .filter((p) => p.event_id === eventId)
-        .map((p) => (
-          <li key={p.id}>
-            {dayLabel(p.day_id)}, {groupName(p.group_id)}, {blockName(p.time_block_id)}
-          </li>
-        ))}
-    </ul>
-  )
-}
-
-// Event detail — carried over from EventScreen.jsx's EventDetail unchanged:
-// editable name + notes (commit-on-blur), location picker, read-only
-// PlacementSummary, "Build →" to the Plants build surface.
-export function EventDetail({ event, role, placements, groups, days, timeBlocks, locations, onBack, onSave, onDelete, onCreateLocation, onUpdateLocationCapacity, onNavigate }) {
+// Event detail — carried over from EventScreen.jsx's EventDetail: editable
+// name + notes (commit-on-blur), location picker, and a ScheduleDoor to the
+// Plants build surface.
+export function EventDetail({ event, role, locations, onBack, onSave, onDelete, onCreateLocation, onUpdateLocationCapacity, onNavigate }) {
   const [name, setName] = useState(event.name)
   const [notes, setNotes] = useState(event.notes ?? '')
   const [locationId, setLocationId] = useState(event.location_id ?? null)
@@ -139,19 +110,11 @@ export function EventDetail({ event, role, placements, groups, days, timeBlocks,
         {saving && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>Saving…</div>}
       </div>
 
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', marginBottom: 16 }}>
-        <div style={S.sectionLabel}>Where this is placed</div>
-        <PlacementSummary eventId={event.id} placements={placements} groups={groups} days={days} timeBlocks={timeBlocks} />
-      </div>
-
-      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
-        <button
-          className="press-97"
+      <div style={{ marginBottom: 16 }}>
+        <ScheduleDoor
+          label="Build the schedule →"
           onClick={() => onNavigate?.('schedule:special', { buildEventId: event.id })}
-          style={linkButtonStyle}
-        >
-          Build this event's schedule from Special Schedules
-        </button>
+        />
       </div>
 
       <button
@@ -219,14 +182,11 @@ function SpecialDayDetail({ day, role, onBack, onSave, onDelete, onNavigate }) {
         {saving && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>Saving…</div>}
       </div>
 
-      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
-        <button
-          className="press-97"
+      <div style={{ marginBottom: 16 }}>
+        <ScheduleDoor
+          label="Build the schedule →"
           onClick={() => onNavigate?.('schedule:special', { specialDayId: day.id })}
-          style={linkButtonStyle}
-        >
-          Build this day's schedule from Special Schedules
-        </button>
+        />
       </div>
 
       <button
@@ -265,7 +225,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   const [toast, setToast] = useState(null)
 
   const [selected, setSelected] = useState(initialFocus)
-  const [supportData, setSupportData] = useState({ placements: [], groups: [], daysOfOp: [], timeBlocks: [], locations: [] })
+  const [supportData, setSupportData] = useState({ locations: [] })
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -295,18 +255,8 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   }
 
   async function loadSupportData() {
-    const [slots, groups, daysOfOp, timeBlocks, locations] = await Promise.all([
-      localClient.list('template_slots'),
-      localClient.list('groups'),
-      localClient.list('days_of_operation'),
-      localClient.list('time_blocks'),
-      localClient.list('locations'),
-    ])
+    const locations = await localClient.list('locations')
     setSupportData({
-      placements: (slots || []).filter((s) => s.event_id),
-      groups: groups || [],
-      daysOfOp: daysOfOp || [],
-      timeBlocks: timeBlocks || [],
       locations: (locations || []).filter((l) => l.camp_id === campId),
     })
   }
@@ -437,10 +387,6 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
         <EventDetail
           event={selectedEvent}
           role={role}
-          placements={supportData.placements}
-          groups={supportData.groups}
-          days={supportData.daysOfOp}
-          timeBlocks={supportData.timeBlocks}
           locations={supportData.locations}
           onBack={() => setSelected(null)}
           onSave={saveEvent}
