@@ -180,7 +180,7 @@ describe('TiersScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 age divisions')).not.toBeNull())
+    await screen.findByPlaceholderText('Age division name (e.g. Yeladim)')
 
     fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))
@@ -220,7 +220,7 @@ describe('TiersScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('2 age divisions')).not.toBeNull())
+    await screen.findByPlaceholderText('Age division name (e.g. Yeladim)')
 
     fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Chalutzim' } })
     fireEvent.click(screen.getByText('+ Add'))
@@ -242,7 +242,7 @@ describe('TiersScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 age divisions')).not.toBeNull())
+    await screen.findByPlaceholderText('Age division name (e.g. Yeladim)')
 
     fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))
@@ -269,7 +269,7 @@ describe('TiersScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 age divisions')).not.toBeNull())
+    await screen.findByPlaceholderText('Age division name (e.g. Yeladim)')
 
     fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))

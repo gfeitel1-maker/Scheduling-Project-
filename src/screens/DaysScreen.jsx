@@ -10,6 +10,7 @@ import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import ImportModal from '../components/setup/ImportModal'
+import InlineAddRow from '../components/setup/InlineAddRow'
 import { DOW } from './setup/setupHelpers'
 
 const repository = createSetupCrudRepository({ localClient })
@@ -103,8 +104,6 @@ export default function DaysScreen({ campId, role, onNavigate }) {
     })
   const days = [...unsortedDays].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.day_of_week ?? 0) - (b.day_of_week ?? 0))
 
-  const [newLabel, setNewLabel] = useState('')
-  const [newDow, setNewDow] = useState(1)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
@@ -114,10 +113,11 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   const [importing, setImporting] = useState(false)
   const fileRef = useRef()
 
-  async function addDay() {
-    if (!newLabel.trim()) return
-    const succeeded = await add({ label: newLabel.trim(), dayOfWeek: Number(newDow), sortOrder: Number(newDow) })
-    if (succeeded) { setNewLabel('') }
+  async function addDay(values) {
+    const label = String(values.label ?? '').trim()
+    if (!label) return false
+    const dow = Number(values.day_of_week)
+    return await add({ label, dayOfWeek: dow, sortOrder: dow })
   }
 
   // Deleting a record a schedule uses: count first, confirm with the count
@@ -244,9 +244,6 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       onNext={() => onNavigate('timeblocks')}
       error={error}
     >
-      {loading ? (
-        <div style={S.stateLoading}>Loading…</div>
-      ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -257,29 +254,34 @@ export default function DaysScreen({ campId, role, onNavigate }) {
               </tr>
             </thead>
             <tbody>
-              {days.length === 0 ? (
-                <tr><td colSpan={3} style={S.emptyState}>
-                  <div style={S.emptyStateTitle}>No days yet</div>
-                  <div style={S.emptyStateBody}>Add your first day below.</div>
-                </td></tr>
-              ) : days.map(day => (
-                <DayRow key={day.id} day={day} role={role} onSave={save} onDelete={deleteDay} />
-              ))}
+              {loading ? (
+                <tr><td colSpan={3} style={S.stateLoading}>Loading…</td></tr>
+              ) : (
+                <>
+                  {days.length === 0 && (
+                    <tr><td colSpan={3} style={S.emptyState}>
+                      <div style={S.emptyStateTitle}>No days yet</div>
+                      <div style={S.emptyStateBody}>Type a day below to add your first one.</div>
+                    </td></tr>
+                  )}
+                  {days.map(day => (
+                    <DayRow key={day.id} day={day} role={role} onSave={save} onDelete={deleteDay} />
+                  ))}
+                </>
+              )}
+              {/* The always-present blank "type here to add" row — shown even
+                  while the list loads, so a director can start typing at once. */}
+              <InlineAddRow
+                fields={[
+                  { key: 'label', type: 'text', placeholder: 'Label (e.g. Monday)', required: true },
+                  { key: 'day_of_week', type: 'select', default: 1, options: DOW.map((d, i) => ({ value: i, label: d })) },
+                ]}
+                onAdd={addDay}
+                adding={adding}
+              />
             </tbody>
           </table>
         </div>
-      )}
-
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-        <div style={S.sectionLabel}>Add Day</div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input placeholder="Label (e.g. Monday)" value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '1 1 150px' }} />
-          <select value={newDow} onChange={e => setNewDow(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '0 0 140px' }}>
-            {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
-          </select>
-          <button className="press-97" onClick={addDay} disabled={adding || !newLabel.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
-        </div>
-      </div>
       </SetupScreenShell>
       </div>
       <ImportModal

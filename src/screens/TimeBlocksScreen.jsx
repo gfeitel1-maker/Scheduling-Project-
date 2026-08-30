@@ -10,6 +10,7 @@ import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
+import InlineAddRow from '../components/setup/InlineAddRow'
 import uiClock from '../assets/brand/icons/ui-clock.png'
 import { minutesFromMidnight } from './setup/setupHelpers'
 
@@ -116,10 +117,6 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   const emptyEnter = useEnterTransition('liftFade')
   const [blocks, setBlocks] = useState([])
   const [loading, setLoading] = useState(true)
-  const [newName, setNewName] = useState('')
-  const [newStart, setNewStart] = useState('')
-  const [newEnd, setNewEnd] = useState('')
-  const [newPod, setNewPod] = useState('morning')
   const [adding, setAdding] = useState(false)
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
@@ -173,9 +170,11 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
     }
   }
 
-  async function addBlock() {
-    if (!newName.trim() || !newStart || !newEnd || !activeCohort) return
-    const trimmedName = newName.trim()
+  async function addBlock(values) {
+    const trimmedName = String(values.name ?? '').trim()
+    const start = values.start_time
+    const end = values.end_time
+    if (!trimmedName || !start || !end || !activeCohort) return false
     // Case/whitespace-normalized existing-name check, matching
     // confirmImport's dedupe — without this, the plain "+ Add" button had
     // zero dedupe check while import did, letting a same-named block slip
@@ -183,9 +182,10 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
     // the UNIQUE(camp_id, cohort_id, name) index below guards against.
     if (blocks.some(b => String(b.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())) {
       setError('A time block with this name already exists — choose a different name.')
-      return
+      return false
     }
     setAdding(true)
+    setError(null)
     try {
       const id = crypto.randomUUID()
       // `name` written FIRST — mirrors GroupsScreen.jsx's addGroup ordering.
@@ -198,19 +198,20 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         name: trimmedName,
         camp_id: campId,
         cohort_id: activeCohort.id,
-        start_time: newStart,
-        end_time: newEnd,
-        part_of_day: newPod,
-        sort_order: minutesFromMidnight(newStart),
+        start_time: start,
+        end_time: end,
+        part_of_day: values.part_of_day,
+        sort_order: minutesFromMidnight(start),
       })
-      setNewName(''); setNewStart(''); setNewEnd('')
       await load()
+      return true
     } catch (err) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'A time block with this name already exists — choose a different name.'
           : describeWriteFailure(err, 'That time block could not be added.')
       )
+      return false
     } finally {
       setAdding(false)
     }
@@ -419,23 +420,22 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
               ) : blocks.map(b => (
                 <BlockRow key={b.id} block={b} role={role} onSave={saveBlock} onDelete={deleteBlock} />
               ))}
+              {/* The always-present blank "type here to add" row — lives as the
+                  last row of the time blocks table (Excel-like inline add). */}
+              <InlineAddRow
+                fields={[
+                  { key: 'name', type: 'text', placeholder: 'Name (e.g. Block 1)', required: true },
+                  { key: 'start_time', type: 'time', required: true, width: 110 },
+                  { key: 'end_time', type: 'time', required: true, width: 110 },
+                  { key: 'part_of_day', type: 'select', default: 'morning', width: 120, options: POD_OPTIONS },
+                ]}
+                onAdd={addBlock}
+                adding={adding}
+              />
             </tbody>
           </table>
         </div>
       )}
-
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-        <div style={S.sectionLabel}>Add Time Block</div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input placeholder="Name (e.g. Block 1)" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...S.input, flex: '1 1 120px' }} />
-          <input type="time" value={newStart} onChange={e => setNewStart(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...S.input, flex: '0 0 120px' }} />
-          <input type="time" value={newEnd} onChange={e => setNewEnd(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...S.input, flex: '0 0 120px' }} />
-          <select value={newPod} onChange={e => setNewPod(e.target.value)} style={{ ...S.input, flex: '0 0 130px' }}>
-            {POD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <button className="press-97" onClick={addBlock} disabled={adding || !newName.trim() || !newStart || !newEnd || !activeCohort} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
-        </div>
-      </div>
       </SetupScreenShell>
 
       <ImportModal

@@ -12,13 +12,14 @@
 //
 // No campers roster, no solver (ADR §2) — this screen only holds and
 // displays what the director decides.
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
-import { S, useEnterTransition } from '../styles/shared'
+import { S } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import InlineAddRow from '../components/setup/InlineAddRow'
 
 const repository = createSetupCrudRepository({ localClient })
 const setScopeFilter = (row, campId) => row.camp_id === campId
@@ -97,16 +98,13 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
     saveFailedText: 'That elective set could not be saved.',
   })
 
-  const [newName, setNewName] = useState('')
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
-  const nameRef = useRef()
-  const enter = useEnterTransition('liftFade')
 
-  async function addSet() {
-    if (!newName.trim()) return
-    const succeeded = await add({ name: newName.trim() })
-    if (succeeded) setNewName('')
+  async function addSet(values) {
+    const name = String(values.name ?? '').trim()
+    if (!name) return false
+    return await add({ name })
   }
 
   async function confirmDeleteSet() {
@@ -130,13 +128,6 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
 
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
-      ) : sets.length === 0 ? (
-        <div style={{ ...emptyStyles.wrap, ...enter }}>
-          <div style={emptyStyles.title}>No elective sets yet</div>
-          <button className="press-97" onClick={() => nameRef.current?.focus()} style={{ ...S.btnPrimary, marginTop: 14 }}>
-            Add your first elective set
-          </button>
-        </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -147,7 +138,12 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
               </tr>
             </thead>
             <tbody>
-              {sets.map((set) => (
+              {sets.length === 0 ? (
+                <tr><td colSpan={2} style={S.emptyState}>
+                  <div style={S.emptyStateTitle}>No elective sets yet</div>
+                  <div style={S.emptyStateBody}>Type a name below to add your first one.</div>
+                </td></tr>
+              ) : sets.map((set) => (
                 <ElectiveSetRow
                   key={set.id}
                   set={set}
@@ -157,30 +153,20 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
                   onDelete={setPendingDelete}
                 />
               ))}
+              {/* The always-present blank "type here to add" row — lives as
+                  the last row of the elective sets table (Excel-like inline
+                  add). */}
+              <InlineAddRow
+                fields={[
+                  { key: 'name', type: 'text', placeholder: 'e.g. Afternoon Chugim', required: true },
+                ]}
+                onAdd={addSet}
+                adding={adding}
+              />
             </tbody>
           </table>
         </div>
       )}
-
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-        <div style={S.sectionLabel}>Add Elective Set</div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 220px' }}>
-            <label style={fieldLabel}>Name</label>
-            <input
-              ref={nameRef}
-              placeholder="e.g. Afternoon Chugim"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addSet()}
-              style={S.input}
-            />
-          </div>
-          <button className="press-97" onClick={addSet} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>
-            {adding ? 'Adding…' : '+ Add'}
-          </button>
-        </div>
-      </div>
 
       {pendingDelete && (
         <ConfirmDangerDialog
@@ -196,33 +182,3 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
   )
 }
 
-const fieldLabel = {
-  fontSize: 11,
-  fontFamily: 'var(--font-mono)',
-  fontWeight: 500,
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-  color: 'var(--text-secondary)',
-  marginBottom: 5,
-  display: 'block',
-}
-
-// Calm, no-card empty block — DESIGN_STANDARD §5a, same treatment
-// LocationsScreen.jsx uses for its own optional-entity empty state.
-const emptyStyles = {
-  wrap: {
-    padding: '60px 16px',
-    textAlign: 'center',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 6,
-  },
-  title: {
-    fontFamily: 'var(--font-condensed)',
-    fontWeight: 600,
-    fontSize: 15,
-    color: 'var(--text)',
-    marginTop: 8,
-  },
-}

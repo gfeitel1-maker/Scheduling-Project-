@@ -54,7 +54,7 @@ describe('ElectivesScreen', () => {
   it('creates a new elective set by writing camp_id and name', async () => {
     localClient.list.mockImplementation(byEntity({ elective_sets: [] }))
     render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
-    await waitFor(() => expect(screen.queryByText('No elective sets yet')).not.toBeNull())
+    await screen.findByPlaceholderText('e.g. Afternoon Chugim')
 
     fireEvent.change(screen.getByPlaceholderText('e.g. Afternoon Chugim'), { target: { value: 'Morning Bechirot' } })
     fireEvent.click(screen.getByText('+ Add'))

@@ -10,6 +10,7 @@ import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
+import InlineAddRow from '../components/setup/InlineAddRow'
 import uiPeople from '../assets/brand/icons/ui-people.png'
 
 // Tiers' load is cohort-scoped (camp_id AND cohort_id), fetches groups
@@ -106,7 +107,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   const [tiers, setTiers] = useState([])
   const [groupCounts, setGroupCounts] = useState({})
   const [loading, setLoading] = useState(true)
-  const [newName, setNewName] = useState('')
   const [adding, setAdding] = useState(false)
   const [importStep, setImportStep] = useState(null) // null | 'preview' | 'done'
   const [importRows, setImportRows] = useState([])
@@ -168,15 +168,15 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     }
   }
 
-  async function addTier() {
-    if (!newName.trim() || !activeCohort) return
-    const trimmedName = newName.trim()
+  async function addTier(values) {
+    const trimmedName = String(values.name ?? '').trim()
+    if (!trimmedName || !activeCohort) return false
     // Case/whitespace-normalized existing-name check, matching
     // confirmImport's dedupe — without this, the plain "+ Add" button had
     // zero dedupe check while import did.
     if (tiers.some(t => String(t.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())) {
       setError('An age division with this name already exists — choose a different name.')
-      return
+      return false
     }
     setAdding(true)
     try {
@@ -197,14 +197,15 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         cohort_id: activeCohort.id,
         sort_order: sortVal,
       })
-      setNewName('')
       await load()
+      return true
     } catch (err) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'An age division with this name already exists — choose a different name.'
           : describeWriteFailure(err, 'That age division could not be added.')
       )
+      return false
     } finally {
       setAdding(false)
     }
@@ -414,29 +415,22 @@ export default function TiersScreen({ campId, role, onNavigate }) {
                   onDelete={deleteTier}
                 />
               ))}
+              {/* The always-present blank "type here to add" row — lives as
+                  the last row of the age divisions table (Excel-like inline
+                  add). Aligns Name under Name; a blank trailing cell holds
+                  the Groups column so "+ Add" sits under Actions. */}
+              <InlineAddRow
+                fields={[
+                  { key: 'name', type: 'text', placeholder: 'Age division name (e.g. Yeladim)', required: true },
+                ]}
+                onAdd={addTier}
+                adding={adding}
+                trailingCells={<td style={S.td} />}
+              />
             </tbody>
           </table>
         </div>
       )}
-
-      {/* Add row */}
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-        <div style={S.sectionLabel}>
-          Add Age Division
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <input
-            placeholder="Age division name (e.g. Yeladim)"
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addTier()}
-            style={{ ...S.input, flex: 1 }}
-          />
-          <button className="press-97" onClick={addTier} disabled={adding || !newName.trim() || !activeCohort} style={S.btnPrimary}>
-            {adding ? 'Adding…' : '+ Add'}
-          </button>
-        </div>
-      </div>
       </SetupScreenShell>
 
       <ImportModal
