@@ -89,6 +89,17 @@ export const S = {
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
+  backBar: {
+    background: 'none',
+    border: 'none',
+    padding: '4px 6px',
+    marginLeft: -6,
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
   th: {
     padding: '10px 14px',
     textAlign: 'left',

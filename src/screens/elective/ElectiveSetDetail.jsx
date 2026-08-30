@@ -320,7 +320,7 @@ export default function ElectiveSetDetail({ set, role, activities, locations, ti
 
   return (
     <div style={{ maxWidth: 760 }}>
-      <button className="press-97" onClick={onBack} style={S.authLinkBtn}>← Back to Elective Sets</button>
+      <button className="press-97" onClick={onBack} style={S.backBar}>← Back to Elective Sets</button>
 
       <div style={{ marginTop: 12, marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 20 }}>{set.name || '(untitled set)'}</div>

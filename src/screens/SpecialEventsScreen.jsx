@@ -109,7 +109,7 @@ export function EventDetail({ event, role, placements, groups, days, timeBlocks,
 
   return (
     <div style={{ maxWidth: 640 }}>
-      <button className="press-97" onClick={onBack} style={{ ...S.btnSecondary, marginBottom: 14 }}>
+      <button className="press-97" onClick={onBack} style={{ ...S.backBar, marginBottom: 14 }}>
         ← Back to Special Events
       </button>
 
@@ -191,7 +191,7 @@ function SpecialDayDetail({ day, role, onBack, onSave, onDelete, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 640 }}>
-      <button className="press-97" onClick={onBack} style={{ ...S.btnSecondary, marginBottom: 14 }}>
+      <button className="press-97" onClick={onBack} style={{ ...S.backBar, marginBottom: 14 }}>
         ← Back to Special Events
       </button>
 
