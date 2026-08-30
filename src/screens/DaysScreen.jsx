@@ -81,6 +81,61 @@ function DayRow({ day, role, onSave, onDelete }) {
   )
 }
 
+// The always-present blank "type here to add" row that lives as the last row of
+// the days table (Excel-like inline add). Typing a label + choosing a day and
+// pressing Enter — or blurring out of the row — creates the day via the same
+// create path the screen already uses; on success the row clears and stays put
+// so several days can be added in a row. Wave C1 prototype (Days only).
+function AddDayRow({ label, setLabel, dow, setDow, onAdd, adding }) {
+  const rowRef = useRef()
+  const canAdd = !!label.trim() && !adding
+
+  // Blur-to-commit, but only when focus leaves the row entirely (moving between
+  // the label input and the day select must not commit a half-typed row).
+  function onRowBlur(e) {
+    if (!canAdd) return
+    if (rowRef.current && rowRef.current.contains(e.relatedTarget)) return
+    onAdd()
+  }
+
+  return (
+    <tr
+      ref={rowRef}
+      onBlur={onRowBlur}
+      style={{ borderTop: '1px solid var(--border)', background: 'var(--bg)' }}
+    >
+      <td style={S.td}>
+        <input
+          placeholder="Label (e.g. Monday)"
+          value={label}
+          onChange={e => setLabel(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && canAdd) onAdd() }}
+          style={{ ...S.input, background: 'var(--surface)' }}
+        />
+      </td>
+      <td style={S.td}>
+        <select
+          value={dow}
+          onChange={e => setDow(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && canAdd) onAdd() }}
+          style={{ ...S.input, background: 'var(--surface)' }}
+        >
+          {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
+        </select>
+      </td>
+      <td style={{ ...S.td, textAlign: 'right' }}>
+        <button
+          className="press-97"
+          onClick={onAdd}
+          disabled={!canAdd}
+          title="Add this day"
+          style={canAdd ? { ...S.btnSecondary } : { ...S.btnSecondary, ...S.buttonDisabled }}
+        >{adding ? 'Adding…' : '+ Add'}</button>
+      </td>
+    </tr>
+  )
+}
+
 export default function DaysScreen({ campId, role, onNavigate }) {
   const { rows: unsortedDays, loading, error, setError, adding, add, save, deleteAll: deleteAllRecords, reload } =
     useCrudScreen({
@@ -244,9 +299,6 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       onNext={() => onNavigate('timeblocks')}
       error={error}
     >
-      {loading ? (
-        <div style={S.stateLoading}>Loading…</div>
-      ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -257,29 +309,27 @@ export default function DaysScreen({ campId, role, onNavigate }) {
               </tr>
             </thead>
             <tbody>
-              {days.length === 0 ? (
-                <tr><td colSpan={3} style={S.emptyState}>
-                  <div style={S.emptyStateTitle}>No days yet</div>
-                  <div style={S.emptyStateBody}>Add your first day below.</div>
-                </td></tr>
-              ) : days.map(day => (
-                <DayRow key={day.id} day={day} role={role} onSave={save} onDelete={deleteDay} />
-              ))}
+              {loading ? (
+                <tr><td colSpan={3} style={S.stateLoading}>Loading…</td></tr>
+              ) : (
+                <>
+                  {days.length === 0 && (
+                    <tr><td colSpan={3} style={S.emptyState}>
+                      <div style={S.emptyStateTitle}>No days yet</div>
+                      <div style={S.emptyStateBody}>Type a day below to add your first one.</div>
+                    </td></tr>
+                  )}
+                  {days.map(day => (
+                    <DayRow key={day.id} day={day} role={role} onSave={save} onDelete={deleteDay} />
+                  ))}
+                </>
+              )}
+              {/* The always-present blank "type here to add" row — shown even
+                  while the list loads, so a director can start typing at once. */}
+              <AddDayRow label={newLabel} setLabel={setNewLabel} dow={newDow} setDow={setNewDow} onAdd={addDay} adding={adding} />
             </tbody>
           </table>
         </div>
-      )}
-
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-        <div style={S.sectionLabel}>Add Day</div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input placeholder="Label (e.g. Monday)" value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '1 1 150px' }} />
-          <select value={newDow} onChange={e => setNewDow(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '0 0 140px' }}>
-            {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
-          </select>
-          <button className="press-97" onClick={addDay} disabled={adding || !newLabel.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
-        </div>
-      </div>
       </SetupScreenShell>
       </div>
       <ImportModal

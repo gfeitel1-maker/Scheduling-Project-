@@ -92,7 +92,7 @@ describe('DaysScreen', () => {
     expect(screen.queryByPlaceholderText('Order')).toBeNull()
   })
 
-  it('adds a day by writing each field via localClient.write, label first, deriving sort_order from day_of_week', async () => {
+  it('adds a day from the inline blank row by writing each field via localClient.write, label first, deriving sort_order from day_of_week', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
@@ -108,6 +108,64 @@ describe('DaysScreen', () => {
     const sortOrderCall = localClient.write.mock.calls.find(c => c[3] === 'sort_order')
     const dayOfWeekCall = localClient.write.mock.calls.find(c => c[3] === 'day_of_week')
     expect(sortOrderCall[4]).toBe(dayOfWeekCall[4])
+  })
+
+  it('adds a day when Enter is pressed in the inline row label input', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+
+    const labelInput = screen.getByPlaceholderText('Label (e.g. Monday)')
+    fireEvent.change(labelInput, { target: { value: 'Sunday' } })
+    fireEvent.keyDown(labelInput, { key: 'Enter' })
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    const labelsWritten = localClient.write.mock.calls.filter(c => c[3] === 'label').map(c => c[4])
+    expect(labelsWritten).toContain('Sunday')
+  })
+
+  it('adds a day when focus leaves the inline row entirely (blur-to-commit)', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+
+    const labelInput = screen.getByPlaceholderText('Label (e.g. Monday)')
+    fireEvent.change(labelInput, { target: { value: 'Saturday' } })
+    // Blur with relatedTarget outside the row commits the add.
+    fireEvent.blur(labelInput, { relatedTarget: document.body })
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    const labelsWritten = localClient.write.mock.calls.filter(c => c[3] === 'label').map(c => c[4])
+    expect(labelsWritten).toContain('Saturday')
+  })
+
+  it('does not commit the inline row on blur when the label is empty', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+
+    const labelInput = screen.getByPlaceholderText('Label (e.g. Monday)')
+    fireEvent.blur(labelInput, { relatedTarget: document.body })
+
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
+
+  it('clears the inline row and keeps it present after a successful add', async () => {
+    localClient.list.mockResolvedValueOnce([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+
+    // After the add, the reload returns the newly-created day.
+    localClient.list.mockResolvedValue([day({ id: 'new-day-id', label: 'Wednesday', day_of_week: 3, sort_order: 3 })])
+    const labelInput = screen.getByPlaceholderText('Label (e.g. Monday)')
+    fireEvent.change(labelInput, { target: { value: 'Wednesday' } })
+    fireEvent.click(screen.getByText('+ Add'))
+
+    // The created day now shows as a real row...
+    await waitFor(() => expect(screen.queryByText('1 day')).not.toBeNull())
+    // ...and the blank row is still there, cleared, ready for the next entry.
+    const blankInput = screen.getByPlaceholderText('Label (e.g. Monday)')
+    expect(blankInput.value).toBe('')
   })
 
   it('cleans up a partial row if a later field write fails during add', async () => {
