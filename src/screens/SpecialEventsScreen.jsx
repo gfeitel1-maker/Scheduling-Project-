@@ -6,7 +6,7 @@
 // (SpecialSchedulesScreen, route 'schedule:special') is UNCHANGED — this
 // screen only authors name/notes/location and routes "Build →" there, same
 // as the two screens it replaces did.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
@@ -15,16 +15,20 @@ import { S, useEnterTransition } from '../styles/shared'
 import { LocationPicker } from '../components/LocationPicker'
 import { ScheduleDoor } from '../components/ScheduleDoor'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
-import CalmEmptyState from '../components/CalmEmptyState'
+import InlineAddRow from '../components/setup/InlineAddRow'
 import { seedFailureMessage } from './specialDay/seedFailureMessage'
 
 const repository = createSetupCrudRepository({ localClient })
 const eventScopeFilter = (row, campId) => row.camp_id === campId
 
+const TYPE_OPTIONS = [
+  { value: 'event', label: 'Event' },
+  { value: 'day', label: 'Special Day' },
+]
+
 const LABELS = {
   emptyMessage: 'No special events yet.',
-  addEventCta: '+ Event',
-  addDayCta: '+ Special Day',
+  namePlaceholder: 'Name a special day or event…',
   seedPrompt: 'Special Day created. Start with your camp’s regular time blocks (you can edit them after), or start empty?',
   seedFromBlocks: 'Seed from Time Blocks',
   startEmpty: 'Start Empty',
@@ -229,12 +233,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
-  const [addingEvent, setAddingEvent] = useState(false)
-  const [addingDay, setAddingDay] = useState(false)
-  const [newEventName, setNewEventName] = useState('')
-  const [newDayName, setNewDayName] = useState('')
-  const eventNameRef = useRef()
-  const dayNameRef = useRef()
+  const [adding, setAdding] = useState(false)
   const enterStyle = useEnterTransition('liftFade')
 
   async function loadDays() {
@@ -272,24 +271,40 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
     }
   }, [initialFocus])
 
-  async function createEvent() {
-    if (!newEventName.trim()) return
-    const succeeded = await addEvent({ name: newEventName.trim() })
-    if (succeeded) { setNewEventName(''); setAddingEvent(false) }
+  // Inline-add dispatch: the always-present blank row commits a { name, type }.
+  // `type` picks the entity — 'event' goes through the same useCrudScreen add
+  // path EventScreen used; 'day' goes through createDay, which mints the row
+  // AND fires the seed-from-time-blocks prompt exactly as the old "+ Special
+  // Day" button did. Returns truthy on success so InlineAddRow clears its row.
+  async function addSpecialEvent(values) {
+    const name = String(values.name ?? '').trim()
+    if (!name) return false
+    setAdding(true)
+    try {
+      return values.type === 'day' ? await createDay(name) : await createEvent(name)
+    } finally {
+      setAdding(false)
+    }
   }
 
-  async function createDay() {
-    const trimmed = newDayName.trim()
-    if (!trimmed) return
+  async function createEvent(name) {
+    const trimmed = String(name ?? '').trim()
+    if (!trimmed) return false
+    return await addEvent({ name: trimmed })
+  }
+
+  async function createDay(name) {
+    const trimmed = String(name ?? '').trim()
+    if (!trimmed) return false
     const id = crypto.randomUUID()
     try {
       await writeField('special_days', id, 'name', trimmed)
       setDays((prev) => [...prev, { id, camp_id: campId, name: trimmed }])
-      setNewDayName('')
-      setAddingDay(false)
       setSeedPromptForId(id)
+      return true
     } catch (err) {
       setError(describeWriteFailure(err, 'Could not create that special day.'))
+      return false
     }
   }
 
@@ -436,97 +451,88 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
     )
   }
 
-  const isEmpty = !loading && events.length === 0 && days.length === 0
+  const rows = [
+    ...days.map((d) => ({ key: `day-${d.id}`, name: d.name, type: 'day', tag: 'Special Day', tagColor: 'var(--secondary)', focus: { type: 'day', id: d.id } })),
+    ...events.map((e) => ({ key: `event-${e.id}`, name: e.name, type: 'event', tag: 'Event', tagColor: 'var(--primary)', focus: { type: 'event', id: e.id } })),
+  ]
 
   return (
     <div style={{ maxWidth: 760 }}>
       {toast && <div style={{ ...S.errorBanner, background: 'var(--surface)', marginBottom: 16 }}>{toast}</div>}
       {error && <div style={S.errorBanner}>{error}</div>}
 
-      <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-        <button className="press-97" onClick={() => { setAddingDay(true); setTimeout(() => dayNameRef.current?.focus(), 0) }} style={S.btnSecondary}>
-          {LABELS.addDayCta}
-        </button>
-        <button className="press-97" onClick={() => { setAddingEvent(true); setTimeout(() => eventNameRef.current?.focus(), 0) }} style={S.btnPrimary}>
-          {LABELS.addEventCta}
-        </button>
-      </div>
-
-      {addingDay && (
-        <div style={{ ...enterStyle, display: 'flex', gap: 8, marginBottom: 16 }}>
-          <input
-            ref={dayNameRef}
-            autoFocus
-            value={newDayName}
-            onChange={(e) => setNewDayName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && createDay()}
-            placeholder="Name your special day…"
-            style={{ ...S.input, flex: 1 }}
-          />
-          <button className="press-97" onClick={createDay} style={S.btnPrimary} disabled={!newDayName.trim()}>Create</button>
-          <button className="press-97" onClick={() => { setAddingDay(false); setNewDayName('') }} style={S.btnSecondary}>Cancel</button>
-        </div>
-      )}
-
-      {addingEvent && (
-        <div style={{ ...enterStyle, display: 'flex', gap: 8, marginBottom: 16 }}>
-          <input
-            ref={eventNameRef}
-            autoFocus
-            value={newEventName}
-            onChange={(e) => setNewEventName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && createEvent()}
-            placeholder="e.g. Color War"
-            style={{ ...S.input, flex: 1 }}
-          />
-          <button className="press-97" onClick={createEvent} style={S.btnPrimary} disabled={!newEventName.trim()}>Create</button>
-          <button className="press-97" onClick={() => { setAddingEvent(false); setNewEventName('') }} style={S.btnSecondary}>Cancel</button>
-        </div>
-      )}
-
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
-      ) : isEmpty ? (
-        <CalmEmptyState message={LABELS.emptyMessage} />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {days.map((d) => (
-            <Card key={d.id} name={d.name} tag="Special Day" tagColor="var(--secondary)" onClick={() => setSelected({ type: 'day', id: d.id })} />
-          ))}
-          {events.map((e) => (
-            <Card key={e.id} name={e.name} tag="Event" tagColor="var(--primary)" onClick={() => setSelected({ type: 'event', id: e.id })} />
-          ))}
-          {seedPromptForId && days.some((d) => d.id === seedPromptForId) && (
-            <div style={{ ...enterStyle, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 16px' }}>
-              <div style={{ fontSize: 13, marginBottom: 8 }}>{LABELS.seedPrompt}</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="press-97" onClick={() => seedFromCampTimeBlocks(seedPromptForId)} style={S.btnSecondary}>{LABELS.seedFromBlocks}</button>
-                <button className="press-97" onClick={() => startEmpty(seedPromptForId)} style={S.btnSecondary}>{LABELS.startEmpty}</button>
-              </div>
-            </div>
-          )}
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
+                <th style={S.th}>Name</th>
+                <th style={S.th}>Type</th>
+                <th style={S.th} aria-hidden="true" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr><td colSpan={3} style={S.emptyState}>
+                  <div style={S.emptyStateTitle}>{LABELS.emptyMessage}</div>
+                  <div style={S.emptyStateBody}>Type a name below and pick a type to add your first one.</div>
+                </td></tr>
+              ) : (
+                rows.map((r) => (
+                  <SpecialEventRow key={r.key} name={r.name} tag={r.tag} tagColor={r.tagColor} onOpen={() => setSelected(r.focus)} />
+                ))
+              )}
+              <InlineAddRow
+                fields={[
+                  { key: 'name', type: 'text', placeholder: LABELS.namePlaceholder, required: true },
+                  { key: 'type', type: 'select', default: 'event', options: TYPE_OPTIONS },
+                ]}
+                onAdd={addSpecialEvent}
+                adding={adding}
+              />
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {seedPromptForId && days.some((d) => d.id === seedPromptForId) && (
+        <div style={{ ...enterStyle, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 16px' }}>
+          <div style={{ fontSize: 13, marginBottom: 8 }}>{LABELS.seedPrompt}</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="press-97" onClick={() => seedFromCampTimeBlocks(seedPromptForId)} style={S.btnSecondary}>{LABELS.seedFromBlocks}</button>
+            <button className="press-97" onClick={() => startEmpty(seedPromptForId)} style={S.btnSecondary}>{LABELS.startEmpty}</button>
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-function Card({ name, tag, tagColor, onClick }) {
+// One list row — clicking anywhere opens that item's detail (the same detail
+// the old card click opened). Type shows as a colored tag, reusing S.chip.
+function SpecialEventRow({ name, tag, tagColor, onOpen }) {
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClick() }}
-      className="press-97"
-      style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
-        padding: '12px 16px', cursor: 'pointer',
-      }}
+    <tr
+      style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+      onClick={onOpen}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = '' }}
     >
-      <div style={{ fontSize: 14, fontWeight: 500 }}>{name || '(unnamed)'}</div>
-      <span style={S.chip(tagColor, false, { padding: '3px 10px', fontSize: 11 })}>{tag}</span>
-    </div>
+      <td style={S.td}>
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Open ${name || '(unnamed)'}`}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
+          style={{ cursor: 'pointer', fontWeight: 500 }}
+        >{name || '(unnamed)'}</span>
+      </td>
+      <td style={S.td}>
+        <span style={S.chip(tagColor, false, { padding: '3px 10px', fontSize: 11 })}>{tag}</span>
+      </td>
+      <td style={S.td} />
+    </tr>
   )
 }
