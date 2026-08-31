@@ -32,12 +32,16 @@ function initialValues(fields) {
 // `trailingCells` (optional): extra <td>s rendered between the field cells and
 // the "+ Add" action cell, so the add row can align under tables that carry
 // columns InlineAddRow doesn't own (e.g. Groups' per-week toggle column).
-export default function InlineAddRow({ fields, onAdd, adding, trailingCells = null }) {
+// `disabled` (optional): a screen-level guard (e.g. Tiers/TimeBlocks's
+// `!activeCohort`). When true, the "+ Add" button is disabled and none of the
+// three commit paths (click / Enter / blur-out-of-row) fire — so the row can
+// never silently no-op a create when the screen isn't ready to accept one.
+export default function InlineAddRow({ fields, onAdd, adding, trailingCells = null, disabled = false }) {
   const rowRef = useRef()
   const [values, setValues] = useState(() => initialValues(fields))
 
   const requiredFilled = fields.every(f => !f.required || String(values[f.key] ?? '').trim() !== '')
-  const canAdd = requiredFilled && !adding
+  const canAdd = requiredFilled && !adding && !disabled
 
   function setValue(key, value) {
     setValues(prev => ({ ...prev, [key]: value }))

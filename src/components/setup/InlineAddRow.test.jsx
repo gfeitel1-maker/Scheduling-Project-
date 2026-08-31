@@ -123,6 +123,42 @@ describe('InlineAddRow', () => {
     expect(cells[cells.length - 1].textContent).toContain('+ Add')
   })
 
+  it('disables "+ Add" when the screen-level `disabled` guard is set, even with required fields filled', () => {
+    render(
+      <table><tbody>
+        <InlineAddRow fields={FIELDS} adding={false} onAdd={vi.fn()} disabled />
+      </tbody></table>
+    )
+    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Wednesday' } })
+    expect(screen.getByText('+ Add').disabled).toBe(true)
+  })
+
+  it('does NOT commit on "+ Add" click, Enter, or blur-out when `disabled` is set', async () => {
+    const onAdd = vi.fn(() => Promise.resolve(true))
+    render(
+      <table><tbody>
+        <InlineAddRow fields={FIELDS} adding={false} onAdd={onAdd} disabled />
+      </tbody></table>
+    )
+    const input = screen.getByPlaceholderText('Label (e.g. Monday)')
+    fireEvent.change(input, { target: { value: 'Wednesday' } })
+
+    fireEvent.click(screen.getByText('+ Add'))
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.blur(input, { relatedTarget: document.body })
+
+    // Give any (incorrectly) scheduled async commit a chance to fire.
+    await Promise.resolve()
+    expect(onAdd).not.toHaveBeenCalled()
+  })
+
+  it('commits normally when `disabled` is absent (default false) — behavior unchanged', async () => {
+    const { onAdd } = renderRow()
+    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Wednesday' } })
+    fireEvent.click(screen.getByText('+ Add'))
+    await waitFor(() => expect(onAdd).toHaveBeenCalled())
+  })
+
   it('renders text, time, and select field types', () => {
     renderRow({ fields: [
       { key: 'name', type: 'text', placeholder: 'Name', required: true },
