@@ -215,6 +215,46 @@ The schedule components carry hardcoded colors a future retheme ticket must migr
 
 ---
 
+## 6a. Shared cross-screen primitives — the canonical forms
+
+These are the **one** implementation of each recurring interaction. New screens use them; do not
+reintroduce a bespoke variant (that drift is exactly what these consolidations retired). They landed
+in the whole-app coherence pass (Wave B/C).
+
+### `InlineAddRow` — `src/components/setup/InlineAddRow.jsx`
+The canonical inline "add a record" convention for **table-based setup screens**. An always-present
+blank row lives as the last row of the table (Excel-like); the director types the required field(s)
+and commits by **Enter**, a **+ Add** action, or **blurring out of the row**. On success the row
+clears its required fields, keeps its defaults, and stays put for the next entry. It is config-driven
+— each field is `{ key, type, placeholder?, required?, default?, options?, width? }` with types
+`text | number | time | select`; `onAdd(values)` runs the screen's own create path and returns truthy
+on success.
+
+- A new setup screen that presents its records as a table **SHOULD** use `InlineAddRow` rather than a
+  separate bottom "ADD …" card-form. Current adopters: Days, Groups, Time Blocks, Age Divisions
+  (Tiers), Electives-sets, Cohorts, and Special Events.
+- **Documented exception:** `LocationsScreen` keeps a card-form add plus a bulk "+ Add rooms"
+  affordance (and the §5a empty state), because location entry is bulk-oriented rather than one row
+  at a time. This is the only sanctioned deviation; adding a second is drift.
+
+### `S.backBar` — the single back-navigation treatment
+`src/styles/shared.js`'s `S.backBar` is the one back-nav control (borderless, `var(--text-secondary)`,
+weight 500, negative left margin to optically align). Every screen-level "← back" affordance uses it.
+**Do not introduce a new back-bar variant.**
+
+### `S.sectionCount` — the count-header token
+`S.sectionCount` (`var(--font-condensed)` 700, 13px, uppercase, `0.05em` tracking,
+`var(--text-secondary)`) is the canonical treatment for a section count header — e.g. "3 GROUPS".
+Use it wherever a count labels a section; do not restyle counts per screen.
+
+### `ScheduleDoor` — `src/components/ScheduleDoor.jsx`
+The canonical **forward-to-schedule "door"**: a full-width, navy-tinted control with an arrow that
+nudges right on hover (reduced-motion aware). Props: `label`, optional `sublabel`, `onClick`. Use it
+for any hand-off that sends the director into a schedule surface, rather than a bespoke link or
+button.
+
+---
+
 ## 7. Font imports needed
 
 Replace the current Fredoka + Nunito + IBM Plex Mono load in `index.html` with **Inter + IBM Plex Sans + IBM Plex Mono**.
