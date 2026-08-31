@@ -654,7 +654,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                       <tr><td colSpan={weekId ? 6 : 5} style={S.emptyState}>
                         <div style={enter}>
                           <div style={S.emptyStateTitle}>No locations yet</div>
-                          <div style={S.emptyStateBody}>Add a location below and say how many groups fit at once. Or skip this — the schedule works fine without it, and you can add locations any time.</div>
+                          <div style={S.emptyStateBody}>Add a location below to add your first one.</div>
                         </div>
                       </td></tr>
                     ) : locations.map((location) => (

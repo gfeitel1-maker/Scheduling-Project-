@@ -97,7 +97,7 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
-    expect(screen.queryByText(/Add a location below and say how many groups fit at once/)).not.toBeNull()
+    expect(screen.queryByText(/Add a location below to add your first one/)).not.toBeNull()
     // The table now always renders (in-table empty-row pattern), so the inline
     // add row and the Import toolbar are reachable even with no locations.
     expect(screen.queryByRole('table')).not.toBeNull()
