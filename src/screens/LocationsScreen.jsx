@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
+import * as XLSX from 'xlsx'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
+import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -7,6 +9,8 @@ import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
+import ImportModal from '../components/setup/ImportModal'
+import InlineAddRow from '../components/setup/InlineAddRow'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { CapacityStepper } from '../components/CapacityStepper'
@@ -200,15 +204,15 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
         </td>
         <td style={S.td}><CapacityStepper value={capacity} onChange={setCapacity} /></td>
         <td style={S.td}>
-          <input value={notes} onChange={(e) => setNotes(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} />
-        </td>
-        <td style={S.td}>
           <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ ...S.input, padding: '4px 6px' }}>
             <option value="">— none —</option>
             {KIND_OPTIONS.map(({ value, icon, label }) => (
               <option key={value} value={value}>{icon} {label}</option>
             ))}
           </select>
+        </td>
+        <td style={S.td}>
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} />
         </td>
         <td style={{ ...S.td, textAlign: 'right' }}>
           <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
@@ -227,8 +231,8 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
     >
       <td style={{ ...S.td, fontWeight: 500 }}>{location.name}</td>
       <td style={{ ...S.td, fontVariantNumeric: 'tabular-nums' }}>{capacityWord(location.capacity)}</td>
-      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{location.notes || '—'}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }} title={kindInfo?.label}>{kindInfo ? `${kindInfo.icon} ${kindInfo.label}` : '—'}</td>
+      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{location.notes || '—'}</td>
       {weekToggle}
       <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
         <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
@@ -274,11 +278,15 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
       // placeholder row for the new id BEFORE the collision on `name` ever
       // fires, reintroducing this ADR's orphan-row defect via a different
       // field. Pinned by a regression test in LocationsScreen.test.jsx.
-      buildCreateFields: ({ name, capacity, notes, map_geometry, map_id }) => ({
+      buildCreateFields: ({ name, capacity, notes, kind, map_geometry, map_id }) => ({
         name,
         camp_id: campId,
         capacity,
         notes: notes || null,
+        // kind is optional on the List add path (the inline row supplies it);
+        // spread only when present so the write shape stays minimal when it's
+        // not chosen, matching notes' null-when-absent treatment above.
+        ...(kind ? { kind } : {}),
         // Only the map's click-to-create path supplies these — the List add
         // form never does, so ...spread keeps that path's write shape
         // byte-identical to before this feature existed. map_id is stamped only
@@ -293,15 +301,16 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     })
   const locations = [...unsortedLocations].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name ?? '').localeCompare(String(b.name ?? '')))
 
-  const [newName, setNewName] = useState('')
-  const [newCapacity, setNewCapacity] = useState(1)
-  const [newNotes, setNewNotes] = useState('')
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
   const [excludedLocationIds, setExcludedLocationIds] = useState(new Set())
   const [pendingExclusion, setPendingExclusion] = useState(null) // { location, slotCount }
-  const nameRef = useRef()
+  const [importStep, setImportStep] = useState(null)
+  const [importPreviewRows, setImportPreviewRows] = useState([])
+  const [importResult, setImportResult] = useState(null)
+  const [importing, setImporting] = useState(false)
+  const fileRef = useRef()
   const enter = useEnterTransition('liftFade')
 
 
@@ -465,11 +474,76 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     }
   }
 
-  async function addLocation() {
-    if (!newName.trim()) return
-    const succeeded = await add({ name: newName.trim(), capacity: Number(newCapacity), notes: newNotes.trim() })
-    if (succeeded) { setNewName(''); setNewCapacity(1); setNewNotes('') }
+  // The inline blank-row add (last row of the table) — name + capacity + kind.
+  // Notes are edited in-row after creation. Wired to the same create path
+  // (`add`) as the card form, so validation + describeWriteFailure are shared.
+  async function handleInlineAdd(values) {
+    const name = String(values.name ?? '').trim()
+    if (!name) return false
+    return add({
+      name,
+      capacity: Math.max(1, Math.round(Number(values.capacity)) || 1),
+      kind: values.kind || null,
+    })
   }
+
+  // Standard Excel import, matching the other setup screens. Reuses the shared
+  // importRows path (which skips warned rows, dedupes within the batch, and
+  // reloads once). mapRow bypasses buildCreateFields, so `name` is written
+  // first here too (the load-bearing collision-fails-atomically ordering).
+  function downloadTemplate() {
+    const ws = aoaToSanitizedSheet([
+      ['name', 'capacity', 'kind'],
+      ['Pool', 1, 'pool'],
+    ])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Locations')
+    XLSX.writeFile(wb, 'locations_template.xlsx')
+  }
+
+  function onFileChange(e) {
+    const file = e.target.files[0]; if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const wb = XLSX.read(ev.target.result, { type: 'array' })
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
+      const validKinds = new Set(KIND_OPTIONS.map(k => k.value))
+      const parsed = rows.map(r => {
+        const name = String(r.name || '').trim()
+        const rawCap = r.capacity
+        const capacity = rawCap === '' || rawCap == null ? 1 : Number(rawCap)
+        const kindRaw = String(r.kind || '').trim().toLowerCase()
+        const kind = validKinds.has(kindRaw) ? kindRaw : null
+        let warning = null
+        if (!name) warning = 'Missing name'
+        else if (!Number.isInteger(capacity) || capacity < 1) warning = 'Capacity must be a whole number 1 or greater'
+        return { name, capacity, kind, warning }
+      })
+      setImportPreviewRows(parsed); setImportStep('preview')
+    }
+    reader.readAsArrayBuffer(file); e.target.value = ''
+  }
+
+  async function confirmImport() {
+    setImporting(true)
+    try {
+      const { added, skipped } = await importRows(importPreviewRows, {
+        mapRow: (row) => ({
+          name: row.name,
+          camp_id: campId,
+          capacity: row.capacity,
+          ...(row.kind ? { kind: row.kind } : {}),
+        }),
+        duplicateCheck: (seen, row) => seen.some((s) => String(s.name ?? '').toLowerCase() === row.name.toLowerCase()),
+      })
+      setImportResult({ added, skipped }); setImportStep('done')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const importReadyRows = importPreviewRows.filter(r => r.name && !r.warning)
+  const importWarnRows = importPreviewRows.filter(r => r.warning || !r.name)
 
   // Deleting a record a schedule uses: count first, confirm with the count
   // shown, then clear and delete in one Host-side transaction — the shared
@@ -544,16 +618,6 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
 
           {loading ? (
             <div style={S.stateLoading}>Loading…</div>
-          ) : locations.length === 0 ? (
-            <div style={{ ...emptyStyles.wrap, ...enter }}>
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="1.5">
-                <path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z" />
-                <circle cx="12" cy="11" r="2.2" />
-              </svg>
-              <div style={emptyStyles.title}>No locations yet</div>
-              <div style={emptyStyles.body}>Add a location below and say how many groups fit at once. Or skip this — the schedule works fine without it, and you can add locations any time.</div>
-              <button className="press-97" onClick={() => nameRef.current?.focus()} style={{ ...S.btnPrimary, marginTop: 14 }}>Add your first location</button>
-            </div>
           ) : (
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -561,6 +625,9 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                   {locations.length} location{locations.length !== 1 ? 's' : ''}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
+                  <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
+                  <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
                   <button
                     onClick={deleteAll}
                     disabled={role !== 'admin'}
@@ -576,14 +643,21 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                     <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
                       <th style={S.th}>Name</th>
                       <th style={S.th}>Groups at once</th>
-                      <th style={S.th}>Notes</th>
                       <th style={S.th}>Kind</th>
+                      <th style={S.th}>Notes</th>
                       {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
                       <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {locations.map((location) => (
+                    {locations.length === 0 ? (
+                      <tr><td colSpan={weekId ? 6 : 5} style={S.emptyState}>
+                        <div style={enter}>
+                          <div style={S.emptyStateTitle}>No locations yet</div>
+                          <div style={S.emptyStateBody}>Add a location below and say how many groups fit at once. Or skip this — the schedule works fine without it, and you can add locations any time.</div>
+                        </div>
+                      </td></tr>
+                    ) : locations.map((location) => (
                       <LocationRow
                         key={location.id}
                         location={location}
@@ -603,30 +677,28 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                         ) : null}
                       />
                     ))}
+                    {/* The always-present blank "type here to add" row — lives as
+                        the last row of the locations table (Excel-like inline add).
+                        Notes are edited in-row after creation, so they aren't a
+                        field here — an empty trailing cell keeps the columns aligned. */}
+                    <InlineAddRow
+                      fields={[
+                        { key: 'name', type: 'text', placeholder: 'e.g. Pool, Gym, Beit Midrash', required: true },
+                        { key: 'capacity', type: 'number', default: 1, width: 90 },
+                        { key: 'kind', type: 'select', default: '', options: [
+                          { value: '', label: '— none —' },
+                          ...KIND_OPTIONS.map(k => ({ value: k.value, label: `${k.icon} ${k.label}` })),
+                        ] },
+                      ]}
+                      onAdd={handleInlineAdd}
+                      adding={adding}
+                      trailingCells={<><td style={S.td} />{weekId ? <td style={S.td} /> : null}</>}
+                    />
                   </tbody>
                 </table>
               </div>
             </>
           )}
-
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-            <div style={S.sectionLabel}>Add Location</div>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div style={{ flex: '1 1 160px' }}>
-                <label style={fieldLabel}>Name</label>
-                <input ref={nameRef} placeholder="e.g. Pool, Gym, Beit Midrash" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLocation()} style={S.input} />
-              </div>
-              <div>
-                <label style={fieldLabel}>Groups at once</label>
-                <CapacityStepper value={newCapacity} onChange={setNewCapacity} />
-              </div>
-              <div style={{ flex: '1 1 160px' }}>
-                <label style={fieldLabel}>Notes (optional)</label>
-                <input placeholder="e.g. shared with the town" value={newNotes} onChange={(e) => setNewNotes(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLocation()} style={S.input} />
-              </div>
-              <button className="press-97" onClick={addLocation} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
-            </div>
-          </div>
         </>
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -652,6 +724,27 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           onCancel={() => setPendingDeleteAll(false)}
         />
       )}
+
+      <ImportModal
+        step={importStep}
+        title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
+        width={560}
+        columns={[{ key: 'name', label: 'Name' }, { key: 'capacity', label: 'Groups at once', mono: true }, { key: 'kind', label: 'Kind' }, { key: 'status', label: 'Status' }]}
+        rows={importPreviewRows}
+        readyCount={importReadyRows.length}
+        warnCount={importWarnRows.length}
+        result={importResult}
+        importing={importing}
+        onConfirm={confirmImport}
+        onCancel={() => { setImportStep(null); setImportPreviewRows([]) }}
+        previewSubtitle={<>{importReadyRows.length} ready{importWarnRows.length > 0 && `, ${importWarnRows.length} with warnings (skipped)`}</>}
+        renderCell={(r, c) => {
+          if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
+          if (c.key === 'capacity') return r.capacity
+          if (c.key === 'kind') return KIND_OPTIONS.find(k => k.value === r.kind)?.label ?? '—'
+          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
+        }}
+      />
 
       {pendingExclusion && (
         <ExclusionConfirmDialog
@@ -718,43 +811,6 @@ function WeekToggle({ on, label, onToggle }) {
       }} />
     </button>
   )
-}
-
-const fieldLabel = {
-  fontSize: 11,
-  fontFamily: 'var(--font-mono)',
-  fontWeight: 500,
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-  color: 'var(--text-secondary)',
-  marginBottom: 5,
-  display: 'block',
-}
-
-// Calm, no-card empty block — DESIGN_STANDARD §5a. NOT the in-table colSpan
-// row Days/Groups use, and not a bordered card like Activities': Locations
-// are optional, so their emptiness must read as deliberately fine.
-const emptyStyles = {
-  wrap: {
-    padding: '60px 16px',
-    textAlign: 'center',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 6,
-  },
-  title: {
-    fontFamily: 'var(--font-condensed)',
-    fontWeight: 600,
-    fontSize: 15,
-    color: 'var(--text)',
-    marginTop: 8,
-  },
-  body: {
-    fontSize: 13,
-    color: 'var(--text-secondary)',
-    maxWidth: '56ch',
-  },
 }
 
 // docs/work/specs/m3-mockup.html §3.1 — the on-brand deep-navy scrim (not the
