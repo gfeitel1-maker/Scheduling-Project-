@@ -267,18 +267,20 @@ export default function DaysScreen({ campId, role, onNavigate }) {
                   {days.map(day => (
                     <DayRow key={day.id} day={day} role={role} onSave={save} onDelete={deleteDay} />
                   ))}
+                  {/* The always-present blank "type here to add" row — lives as
+                      the last row of the days table (Excel-like inline add).
+                      Gated behind the loaded branch, like the sibling setup
+                      screens (Groups/Tiers/TimeBlocks/Electives). */}
+                  <InlineAddRow
+                    fields={[
+                      { key: 'label', type: 'text', placeholder: 'Label (e.g. Monday)', required: true },
+                      { key: 'day_of_week', type: 'select', default: 1, options: DOW.map((d, i) => ({ value: i, label: d })) },
+                    ]}
+                    onAdd={addDay}
+                    adding={adding}
+                  />
                 </>
               )}
-              {/* The always-present blank "type here to add" row — shown even
-                  while the list loads, so a director can start typing at once. */}
-              <InlineAddRow
-                fields={[
-                  { key: 'label', type: 'text', placeholder: 'Label (e.g. Monday)', required: true },
-                  { key: 'day_of_week', type: 'select', default: 1, options: DOW.map((d, i) => ({ value: i, label: d })) },
-                ]}
-                onAdd={addDay}
-                adding={adding}
-              />
             </tbody>
           </table>
         </div>

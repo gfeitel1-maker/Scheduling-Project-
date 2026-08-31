@@ -425,6 +425,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
                 ]}
                 onAdd={addTier}
                 adding={adding}
+                disabled={!activeCohort}
                 trailingCells={<td style={S.td} />}
               />
             </tbody>

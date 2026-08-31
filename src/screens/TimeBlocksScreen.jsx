@@ -431,6 +431,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
                 ]}
                 onAdd={addBlock}
                 adding={adding}
+                disabled={!activeCohort}
               />
             </tbody>
           </table>

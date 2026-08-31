@@ -83,7 +83,7 @@ describe('DaysScreen', () => {
   it('has no Sort Order input or column anywhere in the DOM', async () => {
     localClient.list.mockResolvedValue([day()])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     expect(screen.queryByText('Sort Order')).toBeNull()
     expect(screen.queryByPlaceholderText('Order')).toBeNull()
@@ -95,7 +95,7 @@ describe('DaysScreen', () => {
   it('adds a day from the inline blank row by writing each field via localClient.write, label first, deriving sort_order from day_of_week', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
     fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Wednesday' } })
     fireEvent.click(screen.getByText('+ Add'))
@@ -113,7 +113,7 @@ describe('DaysScreen', () => {
   it('adds a day when Enter is pressed in the inline row label input', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
     const labelInput = screen.getByPlaceholderText('Label (e.g. Monday)')
     fireEvent.change(labelInput, { target: { value: 'Sunday' } })
@@ -127,7 +127,7 @@ describe('DaysScreen', () => {
   it('adds a day when focus leaves the inline row entirely (blur-to-commit)', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
     const labelInput = screen.getByPlaceholderText('Label (e.g. Monday)')
     fireEvent.change(labelInput, { target: { value: 'Saturday' } })
@@ -142,7 +142,7 @@ describe('DaysScreen', () => {
   it('does not commit the inline row on blur when the label is empty', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
     const labelInput = screen.getByPlaceholderText('Label (e.g. Monday)')
     fireEvent.blur(labelInput, { relatedTarget: document.body })
@@ -153,7 +153,7 @@ describe('DaysScreen', () => {
   it('clears the inline row and keeps it present after a successful add', async () => {
     localClient.list.mockResolvedValueOnce([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
     // After the add, the reload returns the newly-created day.
     localClient.list.mockResolvedValue([day({ id: 'new-day-id', label: 'Wednesday', day_of_week: 3, sort_order: 3 })])
@@ -175,7 +175,7 @@ describe('DaysScreen', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
     fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Thursday' } })
     fireEvent.click(screen.getByText('+ Add'))
@@ -187,7 +187,7 @@ describe('DaysScreen', () => {
   it('commits the add on Enter from the day-of-week select, a secondary field, when the row is valid', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
     fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Friday' } })
     const dowSelect = screen.getByDisplayValue('Monday')
@@ -199,7 +199,7 @@ describe('DaysScreen', () => {
   it('does not add on Enter from a secondary field when the row is invalid (no label)', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
     fireEvent.keyDown(screen.getByDisplayValue('Monday'), { key: 'Enter' })
 
@@ -215,7 +215,7 @@ describe('DaysScreen', () => {
     })
     localClient.deleteRecord.mockResolvedValue({ ok: true, cleared: 30 })
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
 
@@ -234,7 +234,7 @@ describe('DaysScreen', () => {
     localClient.list.mockResolvedValue([day()])
     localClient.previewDelete.mockRejectedValue(new Error('admin role required'))
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
 
@@ -276,7 +276,7 @@ describe('DaysScreen', () => {
   it('surfaces an error banner when Delete All fails unexpectedly instead of silently closing', async () => {
     localClient.list.mockResolvedValue([day({ id: 'd1', label: 'Monday' })])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     // Open the confirm modal, then make the re-fetch inside deleteAll (in
     // useCrudScreen) throw — confirming must surface an error banner, not
@@ -292,7 +292,7 @@ describe('DaysScreen', () => {
   it('cancels Delete All without deleting', async () => {
     localClient.list.mockResolvedValue([day({ id: 'd1', label: 'Monday' })])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
     await waitFor(() => expect(screen.queryByText('Delete all days?')).not.toBeNull())
@@ -305,7 +305,7 @@ describe('DaysScreen', () => {
   it('disables Delete All for non-admin roles', async () => {
     localClient.list.mockResolvedValue([day()])
     render(<DaysScreen campId={CAMP_ID} role="staff" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     expect(screen.getByText('Delete All').disabled).toBe(true)
   })
@@ -321,7 +321,7 @@ describe('DaysScreen', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
     fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Monday' } })
     fireEvent.click(screen.getByText('+ Add'))
@@ -332,7 +332,7 @@ describe('DaysScreen', () => {
   it('saves an edited day by writing only the changed fields via localClient.write', async () => {
     localClient.list.mockResolvedValue([day()])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Monday' }))
     const labelInput = screen.getAllByDisplayValue('Monday')[0]
@@ -347,7 +347,7 @@ describe('DaysScreen', () => {
   it('re-derives sort_order from day_of_week when saving an edited day', async () => {
     localClient.list.mockResolvedValue([day()])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Monday' }))
     const dowSelect = screen.getAllByDisplayValue('Monday')[1]
@@ -365,14 +365,14 @@ describe('DaysScreen', () => {
   it('exposes an "Import from Excel" affordance', async () => {
     localClient.list.mockResolvedValue([day()])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
     expect(screen.queryByText('Import from Excel')).not.toBeNull()
   })
 
   it('imports days from Excel, skipping duplicates and rows with a warning', async () => {
     localClient.list.mockResolvedValue([day({ id: 'd1', label: 'Monday', day_of_week: 1 })])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     const file = new File(['dummy'], 'days.xlsx')
     const fileInput = document.querySelector('input[type="file"]')
@@ -397,14 +397,14 @@ describe('DaysScreen — row-click to edit', () => {
   it('has no visible Edit button', async () => {
     localClient.list.mockResolvedValue([day()])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
     expect(screen.queryByText('Edit')).toBeNull()
   })
 
   it('Enter on a focused row enters edit mode', async () => {
     localClient.list.mockResolvedValue([day()])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     const row = screen.getByRole('button', { name: 'Edit Monday' })
     fireEvent.keyDown(row, { key: 'Enter' })
@@ -415,7 +415,7 @@ describe('DaysScreen — row-click to edit', () => {
   it('clicking Delete does not enter edit mode', async () => {
     localClient.list.mockResolvedValue([day()])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Edit Monday' })).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
 
