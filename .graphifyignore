@@ -1,0 +1,18 @@
+# graphify: keep the knowledge graph scoped to signal.
+# gitignore syntax; honored by every build INCLUDING the post-commit hook,
+# so the graph stays this shape without manual re-scoping.
+
+# Process churn — gate reports, tickets, run logs, handoffs. High volume, low
+# architectural signal; floods community detection.
+docs/work/
+
+# Historical / retired. Accurate as of its date, never current instruction.
+docs/archive/
+
+# Vendored skill copies and agent prompt files — not this codebase.
+docs/superpowers/
+.claude/
+
+# Bundled asset icons/illustrations — no code-understanding value.
+src/assets/
+public/
