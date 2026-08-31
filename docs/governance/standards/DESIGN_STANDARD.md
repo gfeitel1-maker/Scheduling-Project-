@@ -231,11 +231,10 @@ clears its required fields, keeps its defaults, and stays put for the next entry
 on success.
 
 - A new setup screen that presents its records as a table **SHOULD** use `InlineAddRow` rather than a
-  separate bottom "ADD …" card-form. Current adopters: Days, Groups, Time Blocks, Age Divisions
-  (Tiers), Electives-sets, Cohorts, and Special Events.
-- **Documented exception:** `LocationsScreen` keeps a card-form add plus a bulk "+ Add rooms"
-  affordance (and the §5a empty state), because location entry is bulk-oriented rather than one row
-  at a time. This is the only sanctioned deviation; adding a second is drift.
+  separate bottom "ADD …" card-form. Adopters: Days, Groups, Time Blocks, Age Divisions
+  (Tiers), Electives-sets, Cohorts, Special Events, and Locations — **every table-based setup screen,
+  no exceptions.** The many-rows case (e.g. a camp's numbered rooms) is served by "Import from Excel",
+  not a bespoke bulk-add control.
 
 ### `S.backBar` — the single back-navigation treatment
 `src/styles/shared.js`'s `S.backBar` is the one back-nav control (borderless, `var(--text-secondary)`,
