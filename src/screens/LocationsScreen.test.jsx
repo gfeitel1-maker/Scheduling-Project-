@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { deriveLocationId } from '../../electron/ops/locationId'
 
 vi.mock('../localClient', () => ({
@@ -17,8 +18,20 @@ vi.mock('../localClient', () => ({
   },
 }))
 
+vi.mock('xlsx', () => ({
+  utils: {
+    book_new: vi.fn(() => ({})),
+    book_append_sheet: vi.fn(),
+    sheet_to_json: vi.fn(() => []),
+    aoa_to_sheet: vi.fn(() => ({})),
+  },
+  writeFile: vi.fn(),
+  read: vi.fn(() => ({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })),
+}))
+
 import LocationsScreen from './LocationsScreen'
 import { localClient } from '../localClient'
+import * as XLSX from 'xlsx'
 
 const CAMP_ID = 'camp-1'
 
@@ -75,21 +88,25 @@ beforeEach(() => {
   localClient.mergeLocation.mockReset().mockResolvedValue({ ok: true, cleared: 0, reassigned_activity_ids: [] })
   localClient.listMigrationReviews.mockReset().mockResolvedValue([])
   localClient.dismissMigrationReviews.mockReset().mockResolvedValue({ ok: true, dismissed: 0 })
+  XLSX.utils.sheet_to_json.mockReset().mockReturnValue([])
+  XLSX.read.mockReset().mockReturnValue({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })
 })
 
 describe('LocationsScreen', () => {
-  it('renders the calm empty state when the camp has no locations, with no toolbar or table', async () => {
+  it('renders an in-table empty row and keeps the toolbar + inline-add row reachable at zero locations', async () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
-    expect(screen.queryByText(/Add a location below and say how many groups fit at once/)).not.toBeNull()
-    expect(screen.queryByText('Add your first location')).not.toBeNull()
-    // No toolbar/count eyebrow and no table — the empty state is the calm
-    // no-card block (DESIGN_STANDARD §5a), not a 0-row table.
-    expect(screen.queryByText(/locations$/)).toBeNull()
-    expect(screen.queryByRole('table')).toBeNull()
-    // The Add Location card still renders below the empty block.
-    expect(screen.queryByText('Add Location')).not.toBeNull()
+    expect(screen.queryByText(/Add a location below to add your first one/)).not.toBeNull()
+    // The table now always renders (in-table empty-row pattern), so the inline
+    // add row and the Import toolbar are reachable even with no locations.
+    expect(screen.queryByRole('table')).not.toBeNull()
+    expect(screen.queryByText('0 locations')).not.toBeNull()
+    expect(screen.queryByText('Import from Excel')).not.toBeNull()
+    expect(screen.queryByPlaceholderText('e.g. Pool, Gym, Beit Midrash')).not.toBeNull()
+    // The old calm-card "Add your first location" CTA + Add Location card are gone.
+    expect(screen.queryByText('Add your first location')).toBeNull()
+    expect(screen.queryByText('Add Location')).toBeNull()
   })
 
   it('loads locations scoped to campId and shows the populated table', async () => {
@@ -111,7 +128,7 @@ describe('LocationsScreen', () => {
     expect(screen.queryByText('Wrong Camp')).toBeNull()
   })
 
-  it('adds a location by writing name first, then camp_id/capacity/notes', async () => {
+  it('adds a location via the inline row, writing name first, then camp_id/capacity/notes', async () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
 
@@ -125,12 +142,9 @@ describe('LocationsScreen', () => {
     expect(fieldsWritten).toEqual(expect.arrayContaining(['name', 'camp_id', 'capacity', 'notes']))
   })
 
-  it('the capacity stepper defaults to 1 in the Add card and cannot go below 1', async () => {
+  it('the inline add row defaults capacity to 1 and writes it', async () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
-
-    const decrease = screen.getByLabelText('Decrease')
-    expect(decrease.disabled).toBe(true)
 
     fireEvent.change(screen.getByPlaceholderText('e.g. Pool, Gym, Beit Midrash'), { target: { value: 'Gym' } })
     fireEvent.click(screen.getByText('+ Add'))
@@ -138,6 +152,68 @@ describe('LocationsScreen', () => {
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
     const capacityCall = localClient.write.mock.calls.find((c) => c[3] === 'capacity')
     expect(capacityCall[4]).toBe(1)
+  })
+
+  it('the inline add row writes the chosen kind and clears after a successful add', async () => {
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
+
+    const nameInput = screen.getByPlaceholderText('e.g. Pool, Gym, Beit Midrash')
+    fireEvent.change(nameInput, { target: { value: 'Pool' } })
+    // The inline row's kind <select> — the only select on the empty screen.
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'pool' } })
+    fireEvent.click(screen.getByText('+ Add'))
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    const kindCall = localClient.write.mock.calls.find((c) => c[3] === 'kind')
+    expect(kindCall).toBeTruthy()
+    expect(kindCall[4]).toBe('pool')
+    // Row clears back to empty after a successful add so it stays put for the next entry.
+    await waitFor(() => expect(nameInput.value).toBe(''))
+  })
+
+  it('the inline add row does not commit an empty name', async () => {
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
+
+    // The "+ Add" button is disabled while name is blank, and clicking it is a no-op.
+    const addBtn = screen.getByText('+ Add')
+    expect(addBtn.disabled).toBe(true)
+    fireEvent.click(addBtn)
+
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
+
+  it('imports locations from Excel through the shared importRows path, skipping dupes and warnings', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool' })])
+      return Promise.resolve([])
+    })
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+
+    const file = new File(['dummy'], 'locations.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    const rows = [
+      { name: 'pool', capacity: 2, kind: 'pool' },        // duplicate (case-insensitive) -> skipped
+      { name: '', capacity: 1, kind: '' },                 // missing name -> warning -> skipped
+      { name: 'Gym', capacity: 4, kind: 'court' },         // new, valid
+    ]
+    XLSX.utils.sheet_to_json.mockReturnValue(rows)
+
+    await userEvent.upload(fileInput, file)
+
+    // The case-insensitive dupe ('pool') is not parse-flagged — it looks ready
+    // and is only skipped at confirm-time by importRows' duplicateCheck. So the
+    // preview counts 2 ready (pool + Gym) and 1 with warnings (the blank name).
+    await waitFor(() => expect(screen.queryByText(/1 with warnings/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 2/))
+
+    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+    const namesWritten = localClient.write.mock.calls.filter((c) => c[3] === 'name').map((c) => c[4])
+    expect(namesWritten).toEqual(['Gym'])
+    const capsWritten = localClient.write.mock.calls.filter((c) => c[3] === 'capacity').map((c) => c[4])
+    expect(capsWritten).toEqual([4])
   })
 
   it('edits capacity via the stepper in the inline edit row and saves the new value', async () => {
