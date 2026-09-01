@@ -102,7 +102,26 @@ the handlers. Verify the `npm run mcp` invocation resolves and the ABI note is c
 
 ---
 
-## M2 — Stable, portable JSON schedule export (the §14 artifact)
+## M2 — Stable, portable JSON schedule export (the §14 artifact) — M2a/b/c DONE (2026-09-01), M2d deferred
+
+**Status:** M2a (resolver + versioned builder), M2b (Excel refactor onto the shared
+resolver), and M2c (`export_schedule` MCP verb) are shipped and verified. M2d (renderer
+"Export as JSON") is deferred to a small follow-up — see its note below.
+
+**Evidence:**
+- `src/utils/scheduleCells.js` (`buildScheduleLookups` / `resolveSlotCell` / `formatCellLabel`)
+  + `src/utils/exportScheduleJson.js` (`buildScheduleExport`, xlsx-free) — the single cell
+  source both formats share.
+- `exportToExcel` refactored onto it; **existing `exportSchedule.test.js` stays green with no
+  assertion changes** (behavior preserved).
+- `export_schedule` MCP verb added + registered; read-only; same `needs_week` resolution as
+  `schedule_state`.
+- Tests: `scheduleCells.test.js` + `exportScheduleJson.test.js` + `exportSchedule.test.js`
+  + `scripts/mcp/tools.test.js` = **all green (tools 18/18, +3 export cases)**. Lint clean.
+- Headless proof (real dev db): `export_schedule({route:'generated'})` → `format_version: 1`,
+  15×5×9 axes, **540 cells** (150 anchor + 390 activity), each a structured reference with a
+  resolved name.
+
 
 **Intent:** one versioned, documented, machine-readable representation of a candidate
 schedule that the owner (and any downstream tool) can rely on — the format that answers
@@ -142,14 +161,19 @@ and the two output formats provably share one resolver.
   object shape as M2a for a seeded db; multi-week dbs return `needs_week` consistently with
   `schedule_state`.
 
-### M2d — Renderer "Export as JSON" alongside Excel
+### M2d — Renderer "Export as JSON" alongside Excel — DEFERRED (follow-up)
 
-- `ExportChooserModal` offers JSON; it writes `buildScheduleExport(...)` as a downloaded
-  `.json` file. Export still **asks the route every time and does not remember** (the
-  non-canonical invariant is untouched).
-- **Success predicate:** from the Schedule screen, a director exports the currently-viewed
-  candidate as a `.json` matching the M2a shape; the route prompt behaves exactly as the
-  Excel path does today.
+Deferred to its own small slice. Rationale: it's UI-significant (the toolbar Export control
+just went through the WS5 slimming — adding a format axis is a restraint decision that wants
+a Designer pass per the constitution's UI task class), and it needs renderer-state sourcing
+(camp name + current week object) to fill the export envelope the MCP path already has for
+free. Building blocks are all in place — `buildScheduleExport` is pure and shipped; the
+renderer only needs a format choice + a blob download.
+
+- Must preserve the invariant: export **asks the route every time and does not remember**.
+- **Success predicate (when built):** from the Schedule screen, a director exports the
+  currently-viewed candidate as a `.json` matching the M2a shape; the route prompt behaves
+  exactly as the Excel path does today.
 
 **Task class:** architecture (export contract / data-flow; the `format_version` is a stable
 public contract). M2b/M2d also touch ui-ux; the stricter gate list applies.
