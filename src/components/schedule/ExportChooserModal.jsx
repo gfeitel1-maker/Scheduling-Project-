@@ -8,14 +8,14 @@ import { S, useEnterTransition } from '../../styles/shared'
 //
 // The counts are the whole point of the screen — they let a director tell two
 // ideas apart without opening both.
-export default function ExportChooserModal({ options, onChoose, onCancel }) {
+export default function ExportChooserModal({ options, onChoose, onCancel, formatLabel = 'Excel' }) {
   const enterStyle = useEnterTransition('liftFade')
   return (
     <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={{ ...S.modalLg, maxWidth: 460 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Which schedule do you want to export?</div>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>
-          You have more than one week in progress. Pick the one to send to Excel.
+          You have more than one week in progress. Pick the one to send to {formatLabel}.
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>

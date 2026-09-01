@@ -167,6 +167,7 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
     expect(screen.getByText(/Weather Mode/)).toBeTruthy()
     expect(screen.getByText('📋 Versions ▾')).toBeTruthy()
     expect(screen.getByText('Export to Excel')).toBeTruthy()
+    expect(screen.getByText('Export data (JSON)')).toBeTruthy()
     expect(screen.getByText('Rebuild this schedule')).toBeTruthy()
 
     // The S2a overflow popup is gone entirely — no trigger, no menu role.

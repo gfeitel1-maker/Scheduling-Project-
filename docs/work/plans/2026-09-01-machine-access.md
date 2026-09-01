@@ -161,19 +161,18 @@ and the two output formats provably share one resolver.
   object shape as M2a for a seeded db; multi-week dbs return `needs_week` consistently with
   `schedule_state`.
 
-### M2d — Renderer "Export as JSON" alongside Excel — DEFERRED (follow-up)
+### M2d — Renderer "Export as JSON" alongside Excel — DONE (2026-09-01)
 
-Deferred to its own small slice. Rationale: it's UI-significant (the toolbar Export control
-just went through the WS5 slimming — adding a format axis is a restraint decision that wants
-a Designer pass per the constitution's UI task class), and it needs renderer-state sourcing
-(camp name + current week object) to fill the export envelope the MCP path already has for
-free. Building blocks are all in place — `buildScheduleExport` is pure and shipped; the
-renderer only needs a format choice + a blob download.
+A second quiet toolbar button, "Export data (JSON)", sits beside "Export to Excel". Both run
+the SAME route-resolution flow (`handleExportClick(format)`): with one route started it
+exports directly; with both, `ExportChooserModal` asks which — **every time, remembering
+nothing** (invariant preserved; the modal's subtitle is now format-aware via a `formatLabel`
+prop). The JSON path calls the shared pure `buildScheduleExport` and triggers a
+`camp_schedule.json` blob download. Envelope filled from renderer state (`campId`, resolved
+`weekId`/`weeks`); camp name is left to the MCP path, which has it.
 
-- Must preserve the invariant: export **asks the route every time and does not remember**.
-- **Success predicate (when built):** from the Schedule screen, a director exports the
-  currently-viewed candidate as a `.json` matching the M2a shape; the route prompt behaves
-  exactly as the Excel path does today.
+- **Evidence:** `ScheduleScreen.test.jsx` **65/65** (pins the new button on the toolbar);
+  lint clean. JSON shape itself is covered by `exportScheduleJson.test.js` (M2a).
 
 **Task class:** architecture (export contract / data-flow; the `format_version` is a stable
 public contract). M2b/M2d also touch ui-ux; the stricter gate list applies.

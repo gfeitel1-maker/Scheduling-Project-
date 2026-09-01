@@ -17,6 +17,7 @@ import VersionsDropdown from '../components/schedule/VersionsDropdown'
 import WeekSwitcher from '../components/schedule/WeekSwitcher'
 import { snapshotMatchesSchedule } from './snapshotMatchesSchedule'
 import { exportToExcel } from '../utils/exportSchedule'
+import { buildScheduleExport } from '../utils/exportScheduleJson'
 import { withOverlapFlags } from '../utils/computeOverlaps'
 import { withWeekClosureFlags } from '../utils/computeWeekClosures'
 import { applyDayOverrides } from '../utils/applyDayOverrides'
@@ -244,6 +245,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [selectedActivity, setSelectedActivity] = useState(null)
   const [actionError, setActionError] = useState(null)
   const [exportChoosing, setExportChoosing] = useState(false)
+  const [exportFormat, setExportFormat] = useState('excel')
   const [deletingWeek, setDeletingWeek] = useState(null)
   const [showVersions, setShowVersions] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -869,18 +871,38 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
   const startRoute = { manual: placeAnchors, generated: generate }
 
-  function exportRoute(r) {
-    exportToExcel({ slots: slotsByRoute[r], activities, anchors, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities, events: eventsAll })
+  function exportRoute(r, format = 'excel') {
+    const bundle = { slots: slotsByRoute[r], activities, anchors, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities, events: eventsAll }
+    if (format === 'json') {
+      // The portable machine-readable format (M2, Premise §14). Same non-canonical
+      // rule as Excel: this exports the ONE route the director just chose, and the
+      // app remembers nothing.
+      const week = weeks.find(w => w.id === weekId) || null
+      const data = buildScheduleExport({ ...bundle, camp: { id: campId }, week, route: r })
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'camp_schedule.json'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      return
+    }
+    exportToExcel(bundle)
   }
 
   // If only one route has been started there is no choice to make and nothing
   // is being elected. As soon as both exist, the director picks — every time.
-  function handleExportClick() {
+  // The format (Excel / JSON) is a separate axis, carried through the modal.
+  function handleExportClick(format = 'excel') {
     const started = ROUTES.filter(r => slotsByRoute[r].length > 0)
     if (started.length <= 1) {
-      exportRoute(started[0] ?? route)
+      exportRoute(started[0] ?? route, format)
       return
     }
+    setExportFormat(format)
     setExportChoosing(true)
   }
 
@@ -1023,9 +1045,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                   time, and never remembers the answer. */}
               <button
                 className="press-97"
-                onClick={handleExportClick}
+                onClick={() => handleExportClick('excel')}
                 style={{ ...S.btnSecondary, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)' }}
               >Export to Excel</button>
+              <button
+                className="press-97"
+                onClick={() => handleExportClick('json')}
+                title="Machine-readable schedule data for another tool"
+                style={{ ...S.btnSecondary, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)' }}
+              >Export data (JSON)</button>
               {!isManual && (
                 // Quiet at rest like the rest of the secondary cluster; the
                 // destructive amber only surfaces on hover, where the intent to
@@ -1405,7 +1433,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             filled: slotsByRoute[r].filter(x => x.is_anchor === false && x.activity_id).length,
             total: slotsByRoute[r].filter(x => x.is_anchor === false).length,
           }))}
-          onChoose={r => { setExportChoosing(false); exportRoute(r) }}
+          formatLabel={exportFormat === 'json' ? 'a data file (JSON)' : 'Excel'}
+          onChoose={r => { setExportChoosing(false); exportRoute(r, exportFormat) }}
           onCancel={() => setExportChoosing(false)}
         />
       )}
