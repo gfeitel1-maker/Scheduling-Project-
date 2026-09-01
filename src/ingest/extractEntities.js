@@ -148,19 +148,29 @@ function whitespaceInsensitiveKey(name) {
 // entirely, so this is a no-op for a clean file. Pure. Scans cells with the
 // bare (map-less) activityNamesFromCell to gather raw spellings.
 export function buildActivityNameCanonicalMap(pages) {
-  const counts = new Map() // key -> Map(rawSpelling -> count)
+  const names = []
   for (const page of pages ?? []) {
     for (const row of page.rows ?? []) {
       for (const cell of row.cells ?? []) {
-        for (const name of activityNamesFromCell(cell)) {
-          const k = whitespaceInsensitiveKey(name)
-          if (!k) continue
-          if (!counts.has(k)) counts.set(k, new Map())
-          const m = counts.get(k)
-          m.set(name, (m.get(name) || 0) + 1)
-        }
+        for (const name of activityNamesFromCell(cell)) names.push(name)
       }
     }
+  }
+  return electCanonicalSpellings(names)
+}
+
+// The core: from a flat list of raw activity-name spellings, elect one dominant
+// spelling per whitespace/case cluster. Shared by the grid-schedule parser
+// (electives/events import), which reads cells its own way, so both import
+// surfaces fold typos identically. Pure; empty map when there's no variance.
+export function electCanonicalSpellings(rawNames) {
+  const counts = new Map() // key -> Map(rawSpelling -> count)
+  for (const name of rawNames ?? []) {
+    const k = whitespaceInsensitiveKey(name)
+    if (!k) continue
+    if (!counts.has(k)) counts.set(k, new Map())
+    const m = counts.get(k)
+    m.set(name, (m.get(name) || 0) + 1)
   }
   const map = new Map()
   for (const [k, spellings] of counts) {
