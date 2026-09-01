@@ -60,7 +60,7 @@ export function inferActivityRules(activityNames, activityPages, seenCounts, day
   const pages = activityPages ?? {}
   const counts = seenCounts?.activities ?? {}
   const allGroups = Array.isArray(allGroupNames) ? allGroupNames : []
-  const days = Math.max(Number(dayCount) || 0, 1)
+  void dayCount // retained in the signature for caller stability; no longer used in the frequency math (see below)
   const excluded = new Set([...(excludeNames ?? [])].map(normalizeName))
 
   const rules = new Map()
@@ -89,14 +89,23 @@ export function inferActivityRules(activityNames, activityPages, seenCounts, day
     }
 
     const eligibleGroupCount = Math.max(matchedGroups.length, 1)
-    let perWeek = Math.round(appearances / eligibleGroupCount / days)
+    // Observed WEEKLY frequency: total appearances ÷ the groups that had it.
+    // Previously this ALSO divided by `days`, which computed a per-DAY rate and
+    // floored almost everything to 1 — no real frequency ever surfaced, so a
+    // director got min 1 / max 2 for every activity regardless of how often it
+    // actually ran. `dayCount` stays in the signature (callers unchanged) but no
+    // longer divides here. Floor to 1; this is a director-visible inference.
+    let perWeek = Math.round(appearances / eligibleGroupCount)
     if (perWeek < 1) perWeek = 1
 
     rules.set(name, {
       eligible_group_names: eligibleGroupNames,
       eligibility_known: eligibilityKnown,
       min_per_week: perWeek,
-      max_per_week: perWeek + 1,
+      // Headroom above the observed floor so the engine can vary placement round
+      // to round (was a flat +1 → always 2; +2 puts a typical activity in the
+      // 3–5 band the director expects rather than a hard ceiling of min+1).
+      max_per_week: perWeek + 2,
       _inferred: true,
       // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): the exact
       // observation the derived fields above came from, so a director asking
