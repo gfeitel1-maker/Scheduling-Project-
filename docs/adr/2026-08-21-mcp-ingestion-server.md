@@ -4,7 +4,7 @@ document_type: adr
 status: accepted
 date: 2026-08-21
 authority: subordinate-to-constitution
-implementation_state: not-yet-implemented
+implementation_state: implemented (2026-09-01; scripts/mcp/{server,tools}.js + tests, launchable via `npm run mcp`)
 accepted_by: product owner (2026-08-21)
 ---
 
