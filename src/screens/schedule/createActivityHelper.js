@@ -1,4 +1,4 @@
-import { normalizeName } from '../../ingest/preview.js'
+import { whitespaceInsensitiveName } from '../../ingest/preview.js'
 
 // Extracted from useSlotMutations.js (T105) so the weekly createActivityFromCell,
 // createElectiveFromCell's member-creation loop, and the T106 special-day adapter
@@ -35,7 +35,12 @@ export function newActivityDefaultFields(trimmedName, campId) {
 export async function createActivity({ name, campId, activities }, repo) {
   const trimmed = String(name ?? '').trim()
 
-  const dupe = (activities ?? []).find(a => normalizeName(a.name) === normalizeName(trimmed))
+  // Whitespace/case-insensitive so typing a typo-variant ("Lunch2" when
+  // "Lunch 2" exists) REUSES the existing activity instead of minting a duplicate
+  // the engine would then treat as a separate activity. Same key the ingest
+  // typo-canonicalization uses; never merges word-forms ("Swim Return" vs
+  // "Swim Returning").
+  const dupe = (activities ?? []).find(a => whitespaceInsensitiveName(a.name) === whitespaceInsensitiveName(trimmed))
   if (dupe) {
     return { activityId: dupe.id, activity: dupe, isNew: false }
   }
