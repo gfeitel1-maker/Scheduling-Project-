@@ -113,6 +113,11 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
   const orientation = proposal?.orientation ?? {}
   const allGroups = proposal?.entities?.groups ?? []
   const groupNameByTitle = proposal?.groupNameByTitle ?? {}
+  // Read cells through the SAME canonical spellings the entity proposal used, so
+  // a "Lunch2" typo that extractEntities folded onto "Lunch 2" counts toward the
+  // real event's footprint here too — otherwise the typo silently drops a day
+  // and fragments the event (the name-identity invariant, extended to the fix).
+  const canonicalMap = proposal?.canonicalMap
   const knownBlockNames = new Set(
     (options.knownTimeBlockNames ?? []).map((n) => String(n ?? '').trim().toLowerCase()).filter(Boolean)
   )
@@ -163,7 +168,7 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
         const block = row.label.trim()
         for (const { i, day } of dayCols) {
           const cell = row.cells?.[i]
-          for (const a of activityNamesFromCell(cell)) addTuple(groupName, day, block, a, cellPeriod(cell))
+          for (const a of activityNamesFromCell(cell, canonicalMap)) addTuple(groupName, day, block, a, cellPeriod(cell))
         }
       }
     } else {
@@ -178,7 +183,7 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
           if (!rawGroupName) return
           const groupName = regGroup(rawGroupName)
           const cell = row.cells?.[i]
-          for (const a of activityNamesFromCell(cell)) addTuple(groupName, day, block, a, cellPeriod(cell))
+          for (const a of activityNamesFromCell(cell, canonicalMap)) addTuple(groupName, day, block, a, cellPeriod(cell))
         })
       }
     }

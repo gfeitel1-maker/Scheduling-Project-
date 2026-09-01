@@ -116,13 +116,82 @@ export function dayNameFromTitle(title) {
 // the seam where a time used to be: "Instructional Swim - Recreational Swim" is
 // two activities, not one. Exported so fixed-event detection reads a cell to the
 // exact same names extractEntities does (the name-identity invariant).
-export function activityNamesFromCell(cell) {
+//
+// `canonicalMap` (optional, from buildActivityNameCanonicalMap) folds pure
+// whitespace/case typo-variants of a name onto one dominant spelling BEFORE the
+// name leaves this seam — so a "Lunch2" cell reads as "Lunch 2" identically in
+// both the entity proposal and fixed-event detection. Passing the SAME map to
+// both callers is what preserves the name-identity invariant across the fix.
+export function activityNamesFromCell(cell, canonicalMap) {
   const names = []
   for (const part of cleanCellValue(cell).split(/\s+[-–—]\s+/)) {
     const value = part.replace(/^[\s\-–—:]+|[\s\-–—:]+$/g, '').trim()
-    if (isActivityLike(value)) names.push(value)
+    if (isActivityLike(value)) names.push(canonicalizeActivityName(value, canonicalMap))
   }
   return names
+}
+
+// Whitespace/case-insensitive identity used ONLY for typo-merging activity
+// names: "Lunch 2" and "Lunch2" share a key; "Swim Return" and "Swim Returning"
+// (a word-ending difference, not whitespace) do NOT. This deliberately never
+// merges fuzzy word-forms — a near-identical name is often a genuinely different
+// activity ("Swim" vs "Swim Return"), and a wrong merge malforms generation
+// exactly as a duplicate would.
+function whitespaceInsensitiveKey(name) {
+  return String(name ?? '').toLowerCase().replace(/\s+/g, '')
+}
+
+// Build the canonical-spelling map for one file's activity cells: among names
+// that differ ONLY by whitespace/case, elect the dominant spelling (most
+// frequent; ties → the spelling that has whitespace, then the longer, then
+// alphabetical) as the single canonical form. A key with no variance is omitted
+// entirely, so this is a no-op for a clean file. Pure. Scans cells with the
+// bare (map-less) activityNamesFromCell to gather raw spellings.
+export function buildActivityNameCanonicalMap(pages) {
+  const counts = new Map() // key -> Map(rawSpelling -> count)
+  for (const page of pages ?? []) {
+    for (const row of page.rows ?? []) {
+      for (const cell of row.cells ?? []) {
+        for (const name of activityNamesFromCell(cell)) {
+          const k = whitespaceInsensitiveKey(name)
+          if (!k) continue
+          if (!counts.has(k)) counts.set(k, new Map())
+          const m = counts.get(k)
+          m.set(name, (m.get(name) || 0) + 1)
+        }
+      }
+    }
+  }
+  const map = new Map()
+  for (const [k, spellings] of counts) {
+    if (spellings.size <= 1) continue // no whitespace variance → nothing to canonicalize
+    let best = null
+    let bestCount = -1
+    for (const [spelling, c] of spellings) {
+      if (best === null || preferSpelling(spelling, c, best, bestCount)) {
+        best = spelling
+        bestCount = c
+      }
+    }
+    map.set(k, best)
+  }
+  return map
+}
+
+function preferSpelling(spelling, count, best, bestCount) {
+  if (count !== bestCount) return count > bestCount
+  const hasSpace = /\s/.test(spelling)
+  const bestHasSpace = /\s/.test(best)
+  if (hasSpace !== bestHasSpace) return hasSpace // a spaced spelling is the human one
+  if (spelling.length !== best.length) return spelling.length > best.length
+  return spelling < best // deterministic final tie-break
+}
+
+// Fold a name onto its canonical spelling if it has a whitespace/case variant
+// twin; otherwise return it unchanged. Undefined map → identity (no-op).
+export function canonicalizeActivityName(name, canonicalMap) {
+  if (!canonicalMap) return name
+  return canonicalMap.get(whitespaceInsensitiveKey(name)) ?? name
 }
 
 export function splitUnitAndGroup(title) {
@@ -312,6 +381,11 @@ export function detectOrientation(pages) {
 export function extractEntities(parsed) {
   const pages = parsed?.pages ?? []
   const orientation = detectOrientation(pages)
+  // Elect one canonical spelling per whitespace/case typo-cluster BEFORE any
+  // name is read into an entity (heals: a "Lunch2" cell becoming a phantom
+  // catalog activity, AND its event fragmenting because the typo dropped a day
+  // from the real event's footprint). Empty for a clean file → no-op.
+  const canonicalMap = buildActivityNameCanonicalMap(pages)
 
   const groups = []
   const activityPages = new Map()
@@ -452,7 +526,7 @@ export function extractEntities(parsed) {
         })
       }
       row.cells.forEach((cell, cellIndex) => {
-        const names = activityNamesFromCell(cell)
+        const names = activityNamesFromCell(cell, canonicalMap)
         if (names.length === 0) {
           // Same cleaning activityNamesFromCell itself applies, so what's
           // reported is exactly the text that failed to become an activity —
@@ -631,6 +705,9 @@ export function extractEntities(parsed) {
   return {
     orientation,
     entities,
+    // Shared with inferFixedEvents so it reads cells through the SAME canonical
+    // spellings — the name-identity invariant across the typo-merge fix.
+    canonicalMap,
     groupUnits: Object.fromEntries(groupUnits),
     groupNameByTitle: Object.fromEntries(groupNameByTitleMap),
     activityPages: activityPagesOut,

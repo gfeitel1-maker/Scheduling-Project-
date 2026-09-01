@@ -68,6 +68,11 @@ export function inferMultiBlockCandidates(parsed, proposal = {}) {
   const orientation = proposal?.orientation ?? detectOrientation(pages)
   const groupNameByTitle = proposal?.groupNameByTitle ?? {}
   const allGroups = proposal?.entities?.groups ?? []
+  // Read cells through the SAME canonical spellings the entity proposal and
+  // inferFixedEvents use, so a whitespace/case typo in a multi-block (merged)
+  // cell doesn't surface a candidate spelled differently from the catalog
+  // activity — the name-identity invariant, third seam (Red Hat).
+  const canonicalMap = proposal?.canonicalMap
   const allGroupsNorm = new Set(allGroups.map(normalizeName))
 
   const groupSpelling = new Map() // normalizeName(group) -> first spelling seen
@@ -103,7 +108,7 @@ export function inferMultiBlockCandidates(parsed, proposal = {}) {
           const colHeader = page.columns[cellIndex]
           if (!isDayName(colHeader)) return
           const day = canonicalDay(colHeader)
-          for (const name of activityNamesFromCell(row.cells?.[cellIndex])) {
+          for (const name of activityNamesFromCell(row.cells?.[cellIndex], canonicalMap)) {
             addOccurrence(name, startBlock, span, day, groupName)
           }
         })
@@ -120,7 +125,7 @@ export function inferMultiBlockCandidates(parsed, proposal = {}) {
           const rawGroupName = page.columns[cellIndex]
           if (!rawGroupName) return
           const groupName = groupNameByTitle[rawGroupName] ?? rawGroupName
-          for (const name of activityNamesFromCell(row.cells?.[cellIndex])) {
+          for (const name of activityNamesFromCell(row.cells?.[cellIndex], canonicalMap)) {
             addOccurrence(name, startBlock, span, day, groupName)
           }
         })
