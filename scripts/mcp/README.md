@@ -53,7 +53,15 @@ whatever `.shoresh` path was chosen. Point `--db` at the exact file you want to 
 | `ingest_commit` | **yes** (`--allow-write`) | Commit an import into the camp's setup. |
 | `list_entities` | no | Rows of one setup entity (Age Divisions, Programs, Groups, Locations, Activities, Days, Time Blocks, Weeks). |
 | `setup_summary` | no | Row counts across every setup entity — a quick health check. |
-| `schedule_state` | no | One candidate schedule (Manual/Generated) for one week: template, placed slots, and **engine-computed findings/conflicts** (re-runs the pure engine over the stored placement, moving nothing). |
+| `schedule_state` | no | Read **and validate** one candidate schedule (Manual/Generated) for one week: template, placed slots, and **engine-computed findings/conflicts** (re-runs the pure engine over the stored placement, moving nothing). |
+| `export_schedule` | no | One candidate schedule as a stable, versioned JSON document (`format_version` 1) — the portable "move it anywhere" format: camp/week/route, the group/day/time-block axes, and one record per occupied cell. |
+
+### Validating a schedule
+
+There is no separate "validate" tool — **`schedule_state` is the validate verb.** It re-runs
+the same pure engine the Schedule screen uses, over the stored placement, and returns the
+identical `findings`/`conflicts`. A schedule with an empty `findings` and `conflicts` array
+is clean; entries describe exactly what the app would flag.
 
 Tool descriptions use canonical vocabulary (Age Division, Program, Location, Group) — never
 internal table names. Multi-week camps: `schedule_state` returns `needs_week: true` + the

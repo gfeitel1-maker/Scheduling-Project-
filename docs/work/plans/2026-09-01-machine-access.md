@@ -179,18 +179,19 @@ public contract). M2b/M2d also touch ui-ux; the stricter gate list applies.
 
 ---
 
-## M3 — Confirm and label the read/validate surface
+## M3 — Confirm and label the read/validate surface — DONE (2026-09-01)
 
 **Intent:** make explicit that "validate a schedule" is already served, rather than build a
-duplicate. Verify `schedule_state`'s findings/conflicts are the same the renderer shows for
-the same stored placement, and surface that in the tool description + README so the owner
-knows the verb exists for that purpose.
+duplicate.
 
-**Success predicate:** a documented note (README + tool description) states that
-`schedule_state` returns engine-computed findings/conflicts for a stored candidate; a test
-asserts parity between `schedule_state`'s findings and the renderer's for one seeded fixture.
-If a genuine gap is found (a finding the renderer shows that the verb omits), it becomes a
-small follow-up ticket — not a new tool.
+**Shipped:**
+- `schedule_state`'s tool description + `scripts/mcp/README.md` now state plainly that it
+  **is the validate verb** — it re-runs the same pure engine the Schedule screen uses over
+  the stored placement and returns the identical `findings`/`conflicts`; empty arrays = clean.
+- Parity test (`scripts/mcp/tools.test.js`): asserts `schedule_state`'s `findings`/`conflicts`
+  equal the engine's output for the exact input the verb passed it (deterministic engine →
+  verbatim pass-through). Verb == engine == what the renderer shows, transitively.
+- No gap found; no new tool built. Tests **19/19**, lint clean.
 
 **Task class:** scheduling-engine (touches engine-output parity) + documentation.
 
