@@ -97,7 +97,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     // Contract: eligible_tier_ids / eligible_group_ids are arrays of ids.
     // Callers normalize — this engine does not deserialize; see
     // src/utils/normalizeActivityEligibility.js.
-    if (import.meta.env.DEV) assertIdListShape(act.eligible_group_ids, 'eligible_group_ids', act.id)
+    if (import.meta.env?.DEV) assertIdListShape(act.eligible_group_ids, 'eligible_group_ids', act.id)
     const eligible = new Set()
     for (const g of groups) {
       if (isActivityEligibleForGroup(act, g)) eligible.add(g.id)
@@ -131,7 +131,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     } else {
       // Contract: group_ids is an array of ids. Callers normalize — this
       // engine does not deserialize; see src/screens/schedule/useScheduleData.js.
-      if (import.meta.env.DEV) assertIdListShape(anchor.group_ids, 'group_ids', anchor.id)
+      if (import.meta.env?.DEV) assertIdListShape(anchor.group_ids, 'group_ids', anchor.id)
       groupList = anchor.group_ids || []
     }
 
@@ -598,7 +598,7 @@ export function computeFindings({ slots, groups, activities, days }) {
     // Contract: eligible_tier_ids / eligible_group_ids are arrays of ids.
     // Callers normalize — this engine does not deserialize; see
     // src/utils/normalizeActivityEligibility.js.
-    if (import.meta.env.DEV) assertIdListShape(act.eligible_group_ids, 'eligible_group_ids', act.id)
+    if (import.meta.env?.DEV) assertIdListShape(act.eligible_group_ids, 'eligible_group_ids', act.id)
     const eligible = new Set()
     for (const g of groups) {
       if (isActivityEligibleForGroup(act, g)) eligible.add(g.id)

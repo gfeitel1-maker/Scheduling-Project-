@@ -66,7 +66,7 @@ export function resolveWeekCatalog({
     // does not deserialize; see src/screens/schedule/useScheduleData.js.
     // Only suppress if EVERY group in the anchor's group list is excluded.
     if (!anchor.is_all_groups) {
-      if (import.meta.env.DEV) assertIdListShape(anchor.group_ids, 'group_ids', anchor.id)
+      if (import.meta.env?.DEV) assertIdListShape(anchor.group_ids, 'group_ids', anchor.id)
       const anchorGroupIds = anchor.group_ids || []
 
       if (

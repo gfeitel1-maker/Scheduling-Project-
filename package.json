@@ -19,6 +19,8 @@
     "electron:build": "node scripts/write-build-info.js && vite build && electron-builder",
     "install:mac": "bash scripts/install-macos.sh",
     "deploy:local": "bash scripts/deploy-local.sh",
+    "premcp": "node scripts/ensure-abi.js node",
+    "mcp": "node scripts/mcp/server.js",
     "index:work": "node scripts/build-work-index.js",
     "check:governance": "node scripts/check-governance.js",
     "verify": "node scripts/verify.js"
