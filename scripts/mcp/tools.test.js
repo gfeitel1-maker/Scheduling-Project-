@@ -33,6 +33,7 @@ import {
   exportScheduleTool,
   ENTITY_MAP,
 } from './tools.js'
+import buildSchedule from '../../src/engine/buildSchedule.js'
 
 const SAMPLE = path.join(process.cwd(), 'docs/work/specs/samples/campB-achva-by-day.txt')
 
@@ -243,6 +244,41 @@ describe('scripts/mcp/tools.js', () => {
       expect(result.slots.length).toBe(1)
       expect(Array.isArray(result.findings)).toBe(true)
       expect(Array.isArray(result.conflicts)).toBe(true)
+    })
+
+    // M3 (validate surface): schedule_state IS the "validate a schedule" verb.
+    // Its findings/conflicts must be exactly what the engine produces over the
+    // stored placement — the same engine, over the same normalized slots, that
+    // the Schedule screen renders. Prove the verb surfaces the engine output
+    // verbatim (deterministic engine → re-running the captured input matches).
+    it('surfaces the engine findings/conflicts verbatim (this is the validate verb)', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath, campId, userId } = bootstrapDb(dir)
+      ingestCommitTool({ file_path: SAMPLE }, { dbPath, allowWrite: true, authorUserId: userId })
+
+      const db = openLocalDb(dbPath)
+      const weekId = randomUUID()
+      db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order) VALUES (?, ?, ?, ?)').run(weekId, campId, 'Week 1', 0)
+      const templateId = randomUUID()
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, kind, name, week_id) VALUES (?, ?, ?, ?, ?)')
+        .run(templateId, campId, 'generated', 'Week 1', weekId)
+      const group = db.prepare('SELECT id FROM groups LIMIT 1').get()
+      const activity = db.prepare('SELECT id FROM activities LIMIT 1').get()
+      const day = db.prepare('SELECT id FROM days_of_operation LIMIT 1').get()
+      const block = db.prepare('SELECT id FROM time_blocks LIMIT 1').get()
+      db.prepare(
+        'INSERT INTO template_slots (id, template_id, group_id, activity_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(randomUUID(), templateId, group.id, activity.id, day.id, block.id)
+      db.close()
+
+      const result = scheduleStateTool({ route: 'generated' }, { dbPath })
+      // Re-run the engine over the exact input the verb passed it — a deterministic
+      // engine must return byte-identical findings/conflicts.
+      const captured = buildScheduleCalls[buildScheduleCalls.length - 1]
+      const engineResult = buildSchedule(captured)
+      expect(result.findings).toEqual(engineResult.findings)
+      expect(result.conflicts).toEqual(engineResult.conflicts)
     })
 
     it('maps the friendly "weeks" name to schedule_weeks rows', () => {
