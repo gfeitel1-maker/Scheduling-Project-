@@ -29,7 +29,7 @@ them product decisions only the owner can make. Maker does not start until §7 i
 
 Slice 1 shipped: `schedule_weeks` (migration v27), `schedule_templates.week_id`,
 `UNIQUE(week_id, kind)`, the WeekSwitcher, and `loadWeeks`/`createWeek`/`writeWeekFields`
-in `/Users/gregfeitel/dev/shoresh/src/data/scheduleRepository.js`. Groups, tiers,
+in `~/dev/shoresh/src/data/scheduleRepository.js`. Groups, tiers,
 activities and days remained camp-wide.
 
 Product owner direction, verbatim:
@@ -125,14 +125,14 @@ the same reason `idx_schedule_weeks_camp_name` is — `schema.sql` re-executes o
 
 ### 2.2 Required registrations (all four, or the feature silently half-works)
 
-1. `/Users/gregfeitel/dev/shoresh/electron/ops/campScopedEntities.js` →
+1. `~/dev/shoresh/electron/ops/campScopedEntities.js` →
    `PARENT_SCOPED_ENTITIES`, both tables, `parentTable: 'schedule_weeks'`,
    `parentKey: 'week_id'`.
-2. `/Users/gregfeitel/dev/shoresh/electron/ops/projections.js` → two `PROJECTIONS`
+2. `~/dev/shoresh/electron/ops/projections.js` → two `PROJECTIONS`
    entries, `fields: ['week_id','activity_id']` / `['week_id','group_id']`, with
    `ensureExists` gated on `field === 'week_id'` arriving first, mirroring
    `day_override_template_slots`. **Without this, writes silently never materialize.**
-3. `/Users/gregfeitel/dev/shoresh/electron/sync/syncServer.js` →
+3. `~/dev/shoresh/electron/sync/syncServer.js` →
    `DOMAIN_PARENT_SCOPED_ENTITIES` (~line 25). **This array is hand-maintained and is NOT
    derived from `PARENT_SCOPED_ENTITIES`'s keys**, despite `campScopedEntities.js`'s own
    header comment claiming the two are structurally guaranteed to match. They are not.
@@ -144,7 +144,7 @@ the same reason `idx_schedule_weeks_camp_name` is — `schema.sql` re-executes o
 
 ### 2.3 Resolution — what the engine receives
 
-New pure module `/Users/gregfeitel/dev/shoresh/src/engine/weekCatalog.js`, co-located with
+New pure module `~/dev/shoresh/src/engine/weekCatalog.js`, co-located with
 `buildSchedule.js` for the same reason (no React, no IPC, unit-testable directly):
 
 ```js
@@ -189,7 +189,7 @@ forbids.
 
 ### 3.1 Mechanism
 
-New host-only module `/Users/gregfeitel/dev/shoresh/electron/ops/duplicateWeek.js`,
+New host-only module `~/dev/shoresh/electron/ops/duplicateWeek.js`,
 structured exactly like the existing `electron/ops/deleteRecord.js` precedent: **one
 `db.transaction()`, host only, ops collected and returned for broadcast after commit.**
 
@@ -254,7 +254,7 @@ No existing helper covers this. `deleteRecord.js`'s `CLEARABLE_ENTITIES` is
 `{groups, activities, days_of_operation}` and its "clear what blocks the delete" logic does
 not apply — deleting a week deletes everything scoped to it.
 
-New host-only module `/Users/gregfeitel/dev/shoresh/electron/ops/deleteWeek.js`, one
+New host-only module `~/dev/shoresh/electron/ops/deleteWeek.js`, one
 transaction, children before parents, routed through the op-log as tombstone/delete ops —
 **never a raw SQL DELETE outside the op-log**, or it neither replicates nor audits.
 

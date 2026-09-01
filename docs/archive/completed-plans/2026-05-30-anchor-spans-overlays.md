@@ -33,7 +33,7 @@
 
 ## Context for Subagents
 
-**Project location:** `/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-/`
+**Project location:** `~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-/`
 
 **Run tests:** `npm test` (Vitest). Only `src/engine/buildSchedule.test.js` has tests — that is the only file to add engine tests to.
 
@@ -85,7 +85,7 @@ Verify: run the verification query at the bottom. Expect two rows returned (`spa
 - [ ] **Step 3: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 git add supabase/migrations/20260530_01_anchor_spans.sql
 git commit -m "feat: add span_blocks and unit_id to anchor_activities"
 ```
@@ -251,7 +251,7 @@ describe('anchor span_blocks', () => {
 - [ ] **Step 2: Run tests — verify new tests fail**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm test -- src/engine/buildSchedule.test.js
 ```
 

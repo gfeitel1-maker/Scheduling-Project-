@@ -41,9 +41,9 @@ Two databases, three operations apart. Neither currently holds a real camp.
 The fallback name is `Electron` — a constant, derived from the Electron binary, **not from the
 repository**. Every development clone on this machine therefore resolves to the *same* directory:
 
-- `/Users/gregfeitel/dev/shoresh`
-- `/Users/gregfeitel/dev/shoresh-ui`
-- `/Users/gregfeitel/dev/shoresh-verify` (referenced in T9's captured process args)
+- `~/dev/shoresh`
+- `~/dev/shoresh-ui`
+- `~/dev/shoresh-verify` (referenced in T9's captured process args)
 
 At the time of writing, `shoresh-ui` is running `electron:dev` against
 `~/Library/Application Support/Electron` — the same database this repository's dev build uses. Two

@@ -19,7 +19,7 @@ stacked layout of domain layers containing entity chips. It is implementation-fa
 Maker will edit real files, not build another prototype.
 
 **Reference prototype (read before implementing):**
-`/private/tmp/claude-501/-Users-gregfeitel-dev-shoresh--claude-worktrees-camp-setup-ingestion-0ce0e1/5d3b0f85-cefd-48c5-ab1c-e3fc0e83de14/scratchpad/roots-proto-metaphor.html`
+`/private/tmp/claude-501/-Users-user-dev-shoresh--claude-worktrees-camp-setup-ingestion-0ce0e1/5d3b0f85-cefd-48c5-ab1c-e3fc0e83de14/scratchpad/roots-proto-metaphor.html`
 It is a static demo with its own token names and only two states shown per chip (`needs-attention`
 confirms → `understood` locally). Treat it as the visual/motion reference only — this spec's data
 model, state names, and interaction contract are the real ones from the current codebase and override
@@ -349,7 +349,7 @@ values needed here — same durations the current component already uses.
 
 ## Prototype
 
-`/private/tmp/claude-501/-Users-gregfeitel-dev-shoresh--claude-worktrees-camp-setup-ingestion-0ce0e1/5d3b0f85-cefd-48c5-ab1c-e3fc0e83de14/scratchpad/roots-proto-metaphor.html`
+`/private/tmp/claude-501/-Users-user-dev-shoresh--claude-worktrees-camp-setup-ingestion-0ce0e1/5d3b0f85-cefd-48c5-ab1c-e3fc0e83de14/scratchpad/roots-proto-metaphor.html`
 — visual/motion reference only, as noted above. This is a scratchpad file, not committed to the repo;
 Maker should treat its exact CSS values as the source of truth for numbers (spacing, radii, keyframe
 percentages) but must map every color through `STATE_TOKEN`/DESIGN_STANDARD tokens rather than the
@@ -442,6 +442,6 @@ layer from data ALREADY present, keeping full detail in the existing RootMapPane
 
 ### Verification
 After build, run the Impeccable mechanical detector once over the changed UI:
-`node /Users/gregfeitel/.claude/skills/impeccable/scripts/detect.mjs --json src/components/reconciliation/RootMap.jsx`
+`node ~/.claude/skills/impeccable/scripts/detect.mjs --json src/components/reconciliation/RootMap.jsx`
 and address its findings in the review round, alongside the normal loop + a Tester pass on the
 running screen.

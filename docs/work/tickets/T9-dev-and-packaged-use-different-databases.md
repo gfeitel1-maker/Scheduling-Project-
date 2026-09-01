@@ -38,8 +38,8 @@ The dev process is launched as `electron electron/main.js`, so Electron resolves
 Confirmed in the running process arguments:
 
 ```
---user-data-dir=/Users/gregfeitel/Library/Application Support/Electron
---app-path=/Users/gregfeitel/dev/shoresh-verify/electron
+--user-data-dir=~/Library/Application Support/Electron
+--app-path=~/dev/shoresh-verify/electron
 ```
 
 ## Why it matters
