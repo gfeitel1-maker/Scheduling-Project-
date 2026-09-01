@@ -14,7 +14,7 @@ archive_when: superseded by an approved B1+ implementation
 # B0 — Reconcile & Confirm Baseline
 
 Read-only. No product code touched. Verified every claim below against the actual worktree at
-`/Users/gregfeitel/dev/shoresh-ingestion`, branch `work/ingestion-reconciliation`, rebased on
+`~/dev/shoresh-ingestion`, branch `work/ingestion-reconciliation`, rebased on
 `main` at `a9bd126` (`git merge-base main HEAD` = `0162ec2`, i.e. this branch's only commits beyond
 `main` are the ADR/discovery/brief docs themselves — no product code has diverged from `main` yet).
 

@@ -405,7 +405,7 @@ constitution. My recommendation is the addendum, for the durable record.
   Over-inclusion; director splits. No change.
 
 - **R5 — `.gitignore` protection is branch-local.** `.ingest-incoming/` is gitignored on this worktree
-  branch but **not** on the main clone at `/Users/gregfeitel/dev/shoresh` (confirmed:
+  branch but **not** on the main clone at `~/dev/shoresh` (confirmed:
   `git check-ignore` says NOT-IGNORED there). The real extraction is safe here; ensure the `.gitignore`
   change ships with this branch so the ignore rule reaches `main`. Minor, but it is the guard that
   keeps real camp names out of history.

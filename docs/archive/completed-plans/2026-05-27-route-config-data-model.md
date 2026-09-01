@@ -63,7 +63,7 @@ ALTER TABLE anchor_activities ADD COLUMN IF NOT EXISTS cohort_id uuid REFERENCES
 - [ ] **Step 2: Apply the migration**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 supabase db reset
 ```
 
@@ -80,7 +80,7 @@ Expected output includes: `id`, `camp_id`, `name`, `session_week_start`, `sessio
 - [ ] **Step 4: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 git add supabase/migrations/20260527010000_add_cohorts.sql
 git commit -m "feat: add cohorts table and nullable cohort_id FK columns"
 ```
@@ -114,7 +114,7 @@ ALTER TABLE template_slots
 - [ ] **Step 2: Apply via reset**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 supabase db reset
 ```
 
@@ -131,7 +131,7 @@ Expected: 3 rows — `activities.span_blocks`, `schedule_slots.is_span_head`, `t
 - [ ] **Step 4: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 git add supabase/migrations/20260527020000_add_span_columns.sql
 git commit -m "feat: add span_blocks to activities and is_span_head to slot tables"
 ```
@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS schedule_day_overrides (
 - [ ] **Step 2: Apply via reset**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 supabase db reset
 ```
 
@@ -198,7 +198,7 @@ Expected: 3 rows.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 git add supabase/migrations/20260527030000_add_day_override_tables.sql
 git commit -m "feat: add day override tables for week-to-week schedule exceptions"
 ```
@@ -246,7 +246,7 @@ CREATE POLICY "schedule_day_overrides_camp_isolation" ON schedule_day_overrides
 - [ ] **Step 2: Apply via reset**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 supabase db reset
 ```
 
@@ -263,7 +263,7 @@ Expected: all 4 rows show `rowsecurity = true`.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 git add supabase/migrations/20260527040000_rls_new_tables.sql
 git commit -m "feat: add RLS policies for cohorts and day override tables"
 ```
@@ -316,7 +316,7 @@ ALTER TABLE anchor_activities ALTER COLUMN cohort_id SET NOT NULL;
 - [ ] **Step 2: Apply via reset**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 supabase db reset
 ```
 
@@ -351,7 +351,7 @@ Expected: `0`.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 git add supabase/migrations/20260527050000_migrate_to_cohorts.sql
 git commit -m "feat: backfill existing camps to single default cohort, add NOT NULL constraints"
 ```
@@ -551,7 +551,7 @@ describe('span_blocks', () => {
 - [ ] **Step 2: Run the tests to confirm they fail**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm test -- src/engine/buildSchedule.test.js
 ```
 
@@ -964,7 +964,7 @@ export default buildSchedule
 - [ ] **Step 2: Run the full test suite**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm test -- src/engine/buildSchedule.test.js
 ```
 
@@ -973,7 +973,7 @@ Expected: ALL tests pass, including existing tests (backward compat) and all new
 - [ ] **Step 3: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 git add src/engine/buildSchedule.js src/engine/buildSchedule.test.js
 git commit -m "feat: add cohorts-array signature, span_blocks support, is_span_head to buildSchedule"
 ```
@@ -987,7 +987,7 @@ Verify the migration + engine changes haven't broken the running app.
 - [ ] **Step 1: Confirm local Supabase is running**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 supabase status
 ```
 
@@ -996,7 +996,7 @@ Expected: `API URL: http://127.0.0.1:54321` with all services running.
 - [ ] **Step 2: Start the dev server**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm run dev
 ```
 
@@ -1011,7 +1011,7 @@ Expected: app loads to the main screen with no console errors. Schedule generati
 - [ ] **Step 4: Verify cohort row was created for the camp**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/shoresh"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/shoresh"
 supabase db query "SELECT name, session_week_start, session_week_end, anchor_model FROM cohorts;"
 ```
 

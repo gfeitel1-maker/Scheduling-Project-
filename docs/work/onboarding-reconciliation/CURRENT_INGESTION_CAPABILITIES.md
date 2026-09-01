@@ -11,7 +11,7 @@ archive_when: superseded by an approved implementation plan
 
 # Current Ingestion Capabilities
 
-Verified against the code on `main` (repo `/Users/gregfeitel/dev/shoresh`) on 2026-08-08.
+Verified against the code on `main` (repo `~/dev/shoresh`) on 2026-08-08.
 This document establishes the load-bearing behaviour the onboarding/reconciliation program
 **inherits and must not break**. It is the counterpart to `SOURCE_FAMILIES.md` (which adapters
 feed this pipeline) — every source family emits into the machinery described here, and every

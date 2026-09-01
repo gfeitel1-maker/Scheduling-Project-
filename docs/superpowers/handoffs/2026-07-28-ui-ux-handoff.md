@@ -16,13 +16,13 @@ happens.
 ### Working directory
 
 ```
-/Users/gregfeitel/dev/shoresh-ui        branch: ui/state-primitives   ← YOU WORK HERE
+~/dev/shoresh-ui        branch: ui/state-primitives   ← YOU WORK HERE
 ```
 
 This is a **git worktree**, not a clone.
 
 ```
-/Users/gregfeitel/dev/shoresh           branch: governance/promote-and-archive
+~/dev/shoresh           branch: governance/promote-and-archive
 ```
 
 That is a **separate worktree** owned by a **concurrent session** doing sync / op-log / Electron
@@ -32,7 +32,7 @@ work. The two worktrees share a single `.git` directory.
 > this writing `git worktree list` reports it at `b7a1900 [governance/promote-and-archive]`. It
 > moves. Do not assume its branch; just stay out of it.
 
-**Never** read, write, commit, `cd` into, or run commands against `/Users/gregfeitel/dev/shoresh`.
+**Never** read, write, commit, `cd` into, or run commands against `~/dev/shoresh`.
 Because the `.git` is shared, a careless git operation there — or a branch checkout from here — can
 corrupt the other session's in-flight work.
 
@@ -61,15 +61,15 @@ Branch `ui/state-primitives` is **3 commits ahead of `main`**. Working tree is c
 
 `1d01192` carries the design record:
 
-- ADR: `/Users/gregfeitel/dev/shoresh-ui/docs/adr/2026-07-28-schedule-flag-findings-reshape.md`
-- Specs: `/Users/gregfeitel/dev/shoresh-ui/docs/superpowers/specs/2026-07-28-schedule-flag-findings-reshape-design.md`
+- ADR: `~/dev/shoresh-ui/docs/adr/2026-07-28-schedule-flag-findings-reshape.md`
+- Specs: `~/dev/shoresh-ui/docs/superpowers/specs/2026-07-28-schedule-flag-findings-reshape-design.md`
   and `.../2026-07-28-schedule-grid-decolorization-design.md`
-- Prototype: `/Users/gregfeitel/dev/shoresh-ui/docs/superpowers/specs/prototypes/2026-07-28-schedule-grid-decolorization-prototype.html`
+- Prototype: `~/dev/shoresh-ui/docs/superpowers/specs/prototypes/2026-07-28-schedule-grid-decolorization-prototype.html`
 
 ### Gates at HEAD (run by the previous governor, re-run them yourself before trusting them)
 
 ```bash
-cd /Users/gregfeitel/dev/shoresh-ui
+cd ~/dev/shoresh-ui
 npm run lint            # 0 errors, 11 warnings (all pre-existing react-hooks/exhaustive-deps)
 npx vitest run src/     # 146 passed
 npm run build           # succeeds
@@ -124,13 +124,13 @@ has stalled for hours in the past when a governor backgrounded a child dispatch.
 ### 4.1 Start the dev server
 
 The preview/launch tooling (`preview_start` by config name, `.claude/launch.json`) is anchored to
-`/Users/gregfeitel/dev/shoresh`, **not** this worktree. It will not start the right server from
+`~/dev/shoresh`, **not** this worktree. It will not start the right server from
 here. Start it with a background shell command and open the URL directly.
 
 Port **5200 belongs to the other session.** Use 5201.
 
 ```bash
-cd /Users/gregfeitel/dev/shoresh-ui
+cd ~/dev/shoresh-ui
 npm run dev -- --port 5201 --strictPort
 ```
 
@@ -287,7 +287,7 @@ document is the authoritative version.
 
 ### Ticket 1 — Day view shows only 5 of 16 groups
 
-**File:** `/Users/gregfeitel/dev/shoresh-ui/src/components/schedule/ScheduleDayView.jsx`
+**File:** `~/dev/shoresh-ui/src/components/schedule/ScheduleDayView.jsx`
 
 **Evidence (measured, not estimated).** In a live browser at a 1280px viewport with 16 groups,
 **5 group columns are visible.** An earlier estimate of "8 of 16", derived by reading the CSS
@@ -330,7 +330,7 @@ ticket most likely to need Red Hat's input on the drag-interaction risk.
 
 ### Ticket 2 — Escape does not close the Assign Activity modal
 
-**File:** `/Users/gregfeitel/dev/shoresh-ui/src/components/schedule/EditModal.jsx`
+**File:** `~/dev/shoresh-ui/src/components/schedule/EditModal.jsx`
 
 **Evidence.** Confirmed in a live browser: Escape pressed twice with the modal open, DOM checked
 afterward — the modal is still mounted. Grepping `EditModal.jsx` for `Escape` / `keydown` /
@@ -364,7 +364,7 @@ you only read.
 
 ### Ticket 3 — All 12 sidebar nav buttons have no accessible name
 
-**Directory:** `/Users/gregfeitel/dev/shoresh-ui/src/components/layout/`
+**Directory:** `~/dev/shoresh-ui/src/components/layout/`
 (`Sidebar.jsx`, `Shell.jsx`, `TopBar.jsx`)
 
 **Evidence.** Reading the **live accessibility tree** in the browser, all 12 sidebar nav buttons
@@ -405,7 +405,7 @@ markup structure, have Tester confirm the sidebar still looks identical.
 
 ### Ticket 4 — Activity colours repeat past six activities
 
-**File:** `/Users/gregfeitel/dev/shoresh-ui/src/components/schedule/slotCellConstants.js`
+**File:** `~/dev/shoresh-ui/src/components/schedule/slotCellConstants.js`
 
 **Evidence.** Verified with 22 activities: Swimming and Drama both render bronze. The cause is
 plain — the palette has exactly six entries:
@@ -435,7 +435,7 @@ almost certainly produce colours that read as *decorative* — which violates "c
 not decoration," the exact principle `1d01192` established. Weigh that seriously.
 
 The design-system doc to correct, if that is the outcome:
-`/Users/gregfeitel/dev/shoresh-ui/docs/superpowers/specs/design-system.md`
+`~/dev/shoresh-ui/docs/superpowers/specs/design-system.md`
 
 **Success predicate (whichever branch you take):** *"Either two different activities never share a
 colour, or the documentation now honestly says colour is a weak repeating accent that carries no
@@ -471,7 +471,7 @@ These were established by live observation, not by reading a spec. Re-opening th
    drilldown. Do not build it into the app without that prototype step.
 
 4. **Still open from the original 2026-07-26 handoff**
-   (`/Users/gregfeitel/dev/shoresh-ui/docs/superpowers/plans/2026-07-26-ui-ux-handoff.md`),
+   (`~/dev/shoresh-ui/docs/superpowers/plans/2026-07-26-ui-ux-handoff.md`),
    **not yet done:**
    - Validating `ConflictsScreen` against **real conflicting data**. Blocked: needs two real
      devices. Cannot be done in the browser mock.
@@ -485,7 +485,7 @@ These were established by live observation, not by reading a spec. Re-opening th
 
 - Do not run `git stash`. Ever.
 - Do not push, or offer pushing as a next step. The user pushes.
-- Do not read, write, or `cd` into `/Users/gregfeitel/dev/shoresh`. Shared `.git`.
+- Do not read, write, or `cd` into `~/dev/shoresh`. Shared `.git`.
 - Do not touch `electron/**` or the sync layer. Different session, different scope.
 - Do not "fix" the pre-existing `npm run test` failures in `electron/`.
 - Do not give `--warning` a new meaning. `src/index.css:12` documents it in-line:

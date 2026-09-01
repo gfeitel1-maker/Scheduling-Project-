@@ -133,7 +133,7 @@ useEffect(() => {
 - [ ] **Step 4: Build to verify**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm run build 2>&1 | tail -5
 ```
 
@@ -142,7 +142,7 @@ Expected: `✓ built in N.Ns` with no errors.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 git add src/hooks/useCohorts.js src/utils/ensureCohort.js src/App.jsx
 git commit -m "feat: add useCohorts hook and ensureCohort bootstrap"
 ```
@@ -197,7 +197,7 @@ export default function CohortPicker({ cohorts, activeCohort, onChange }) {
 - [ ] **Step 2: Build**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm run build 2>&1 | tail -5
 ```
 
@@ -206,7 +206,7 @@ Expected: no errors.
 - [ ] **Step 3: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 git add src/components/CohortPicker.jsx
 git commit -m "feat: add CohortPicker (visible only for multi-cohort camps)"
 ```
@@ -492,7 +492,7 @@ export default function CohortsScreen({ campId }) {
 - [ ] **Step 2: Build**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm run build 2>&1 | tail -5
 ```
 
@@ -501,7 +501,7 @@ Expected: no errors.
 - [ ] **Step 3: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 git add src/screens/CohortsScreen.jsx
 git commit -m "feat: add CohortsScreen"
 ```
@@ -611,7 +611,7 @@ return (
 - [ ] **Step 7: Build**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm run build 2>&1 | tail -5
 ```
 
@@ -620,7 +620,7 @@ Expected: no errors.
 - [ ] **Step 8: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 git add src/screens/TiersScreen.jsx
 git commit -m "feat: scope TiersScreen to active cohort"
 ```
@@ -724,7 +724,7 @@ return (
 - [ ] **Step 7: Build**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm run build 2>&1 | tail -5
 ```
 
@@ -733,7 +733,7 @@ Expected: no errors.
 - [ ] **Step 8: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 git add src/screens/TimeBlocksScreen.jsx
 git commit -m "feat: scope TimeBlocksScreen to active cohort"
 ```
@@ -856,7 +856,7 @@ return (
 - [ ] **Step 7: Build**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm run build 2>&1 | tail -5
 ```
 
@@ -865,7 +865,7 @@ Expected: no errors.
 - [ ] **Step 8: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 git add src/screens/AnchorsScreen.jsx
 git commit -m "feat: scope AnchorsScreen to active cohort"
 ```
@@ -1161,7 +1161,7 @@ export default function DayOverridesScreen({ campId }) {
 - [ ] **Step 2: Build**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm run build 2>&1 | tail -5
 ```
 
@@ -1170,7 +1170,7 @@ Expected: no errors.
 - [ ] **Step 3: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 git add src/screens/DayOverridesScreen.jsx
 git commit -m "feat: add DayOverridesScreen"
 ```
@@ -1226,7 +1226,7 @@ const NAV = [
 - [ ] **Step 3: Build**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm run build 2>&1 | tail -5
 ```
 
@@ -1235,7 +1235,7 @@ Expected: no errors.
 - [ ] **Step 4: Run tests**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 npm test
 ```
 
@@ -1244,7 +1244,7 @@ Expected: 16/16 engine tests still passing.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd "/Users/gregfeitel/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
+cd "~/Desktop/Camp App System /Applications/Schedule Project/Scheduling-Project-"
 git add src/App.jsx src/components/layout/Sidebar.jsx
 git commit -m "feat: wire CohortsScreen and DayOverridesScreen into sidebar nav"
 ```
