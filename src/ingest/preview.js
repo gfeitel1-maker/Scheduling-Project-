@@ -15,6 +15,15 @@ export function normalizeName(name) {
   return String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+// Like normalizeName but ALSO space-insensitive (removes all whitespace, not
+// just collapsing runs): "Lunch 2" and "Lunch2" share this key, while
+// normalizeName keeps them distinct. Used where a whitespace/case typo must NOT
+// mint a duplicate — the ingest typo-canonicalization and the live create gates.
+// It does NOT merge word-form differences ("Swim Return" vs "Swim Returning").
+export function whitespaceInsensitiveName(name) {
+  return String(name ?? '').toLowerCase().replace(/\s+/g, '')
+}
+
 // M4 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D3). The
 // recognition key every entity's identity is keyed by. `locations` is the ONE
 // deviation: its id (deriveLocationId) and its UNIQUE(camp_id, name) constraint

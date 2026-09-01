@@ -13,6 +13,10 @@
 // feature exists to remove.
 
 import { isDayName } from './textGrid.js'
+// The whitespace/case-insensitive key is single-sourced in preview.js (the
+// identity-primitives home) so the ingest typo-canonicalization and the live
+// create gates fold names identically — no drift.
+import { whitespaceInsensitiveName as whitespaceInsensitiveKey } from './preview.js'
 
 // ADR §2 — the entities ingestion may propose, as a whitelist rather than a
 // convention. "Entities only" comes under pressure the moment someone notices
@@ -132,15 +136,6 @@ export function activityNamesFromCell(cell, canonicalMap) {
 }
 
 // Whitespace/case-insensitive identity used ONLY for typo-merging activity
-// names: "Lunch 2" and "Lunch2" share a key; "Swim Return" and "Swim Returning"
-// (a word-ending difference, not whitespace) do NOT. This deliberately never
-// merges fuzzy word-forms — a near-identical name is often a genuinely different
-// activity ("Swim" vs "Swim Return"), and a wrong merge malforms generation
-// exactly as a duplicate would.
-function whitespaceInsensitiveKey(name) {
-  return String(name ?? '').toLowerCase().replace(/\s+/g, '')
-}
-
 // Build the canonical-spelling map for one file's activity cells: among names
 // that differ ONLY by whitespace/case, elect the dominant spelling (most
 // frequent; ties → the spelling that has whitespace, then the longer, then

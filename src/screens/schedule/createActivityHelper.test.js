@@ -54,6 +54,23 @@ describe('createActivity', () => {
     expect(result).toEqual({ activityId: 'act-existing', activity: existing, isNew: false })
   })
 
+  it('a whitespace/case typo-variant REUSES the existing activity (no duplicate minted)', async () => {
+    const repo = makeRepo()
+    const existing = { id: 'act-lunch2', name: 'Lunch 2', eligible_tier_ids: [], eligible_group_ids: [] }
+    // typing "Lunch2" (no space) when "Lunch 2" exists must not mint a second one
+    const result = await createActivity({ name: 'Lunch2', groupId: 'g1', campId: 'camp-1', activities: [existing] }, repo)
+    expect(repo.writeActivityFields).not.toHaveBeenCalled()
+    expect(result).toEqual({ activityId: 'act-lunch2', activity: existing, isNew: false })
+  })
+
+  it('does NOT merge a word-ending variant — "Swim Returning" mints distinct from "Swim Return"', async () => {
+    const repo = makeRepo()
+    const existing = { id: 'act-swimreturn', name: 'Swim Return', eligible_tier_ids: [], eligible_group_ids: [] }
+    const result = await createActivity({ name: 'Swim Returning', groupId: 'g1', campId: 'camp-1', activities: [existing] }, repo)
+    expect(repo.writeActivityFields).toHaveBeenCalledTimes(1)
+    expect(result.isNew).toBe(true)
+  })
+
   it('trims the name before dedupe/mint', async () => {
     const repo = makeRepo()
     const result = await createActivity({ name: '  Archery  ', groupId: 'g1', campId: 'camp-1', activities: [] }, repo)
