@@ -16,6 +16,7 @@ import { listEntities } from '../../electron/ops/read.js'
 import { assembleScheduleEngineInputs } from '../../electron/ops/scheduleEngineInputs.js'
 import { normalizeSlots } from '../../src/utils/normalizeSlots.js'
 import buildSchedule from '../../src/engine/buildSchedule.js'
+import { buildScheduleExport } from '../../src/utils/exportScheduleJson.js'
 
 export const ENTITY_MAP = {
   age_divisions: 'tiers',
@@ -135,6 +136,53 @@ export function scheduleStateTool(args, { dbPath }) {
       findings: engineResult.findings || [],
       conflicts: engineResult.conflicts || [],
     }
+  } finally {
+    db.close()
+  }
+}
+
+// Assemble one candidate schedule (route × week) into the stable, versioned
+// JSON export shape (buildScheduleExport, src/utils/exportScheduleJson.js) —
+// the portable "move this schedule anywhere" format (M2c,
+// docs/work/plans/2026-09-01-machine-access.md). Read-only. Reuses the same
+// week/template resolution as scheduleStateTool (needs_week when >1 week and
+// none given). A camp/week/route with no placed template yields a valid export
+// with the axes populated and cells: [].
+export function exportScheduleTool(args, { dbPath }) {
+  const db = openLocalDb(dbPath)
+  try {
+    const camp = db.prepare('SELECT id, name FROM camps LIMIT 1').get()
+    if (!camp) return { ok: true, export: null, empty: true }
+
+    const weeks = listEntities(db, 'schedule_weeks')
+    let weekId = args.week_id ?? null
+    if (!weekId) {
+      if (weeks.length === 0) return { ok: true, export: null, empty: true }
+      if (weeks.length > 1) return { ok: true, route: args.route, needs_week: true, weeks }
+      weekId = weeks[0].id
+    }
+    const week = weeks.find((w) => w.id === weekId) ?? { id: weekId }
+
+    const template = templateRowFor(listEntities(db, 'schedule_templates'), weekId, args.route)
+    const slots = template
+      ? normalizeSlots(listEntities(db, 'template_slots').filter((s) => s.template_id === template.id))
+      : []
+
+    const out = buildScheduleExport({
+      slots,
+      activities: listEntities(db, 'activities'),
+      anchors: listEntities(db, 'anchor_activities'),
+      groups: listEntities(db, 'groups'),
+      days: listEntities(db, 'days_of_operation'),
+      timeBlocks: listEntities(db, 'time_blocks'),
+      electiveSets: listEntities(db, 'elective_sets'),
+      electiveSetActivities: listEntities(db, 'elective_set_activities'),
+      events: listEntities(db, 'events'),
+      camp,
+      week,
+      route: args.route,
+    })
+    return { ok: true, export: out }
   } finally {
     db.close()
   }

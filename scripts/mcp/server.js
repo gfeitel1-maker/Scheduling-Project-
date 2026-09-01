@@ -20,6 +20,7 @@ import {
   listEntitiesTool,
   setupSummaryTool,
   scheduleStateTool,
+  exportScheduleTool,
 } from './tools.js'
 
 function parseArgs(argv) {
@@ -111,6 +112,20 @@ const TOOLS = [
       required: ['route'],
     },
     handler: scheduleStateTool,
+  },
+  {
+    name: 'export_schedule',
+    description:
+      "Export one candidate schedule (Manual or Generated route) for one week of this camp as a stable, versioned JSON document (format_version 1) — the portable representation for moving a schedule into any other tool. Read-only. Contains the camp/week/route, the groups/days/time-blocks axes, and one record per occupied cell (activity, anchor, event, or elective with its member activities). Multi-week camps: pass week_id, or omit it to get needs_week plus the week list.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        route: { type: 'string', enum: ['manual', 'generated'] },
+        week_id: { type: 'string', description: 'Optional. Required only when the camp has more than one week.' },
+      },
+      required: ['route'],
+    },
+    handler: exportScheduleTool,
   },
 ]
 
