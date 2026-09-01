@@ -4,7 +4,9 @@ import {
   canonicalizeActivityName,
   activityNamesFromCell,
 } from './extractEntities.js'
+import { electCanonicalSpellings } from './extractEntities.js'
 import { inferMultiBlockCandidates } from './multiBlockCandidates.js'
+import { parseGridSchedule } from './parseGridSchedule.js'
 
 // Typo-merge canonicalization (①/③ ingest fix): pure whitespace/case variants of
 // an activity name fold onto one dominant spelling BEFORE any name is read into
@@ -91,5 +93,31 @@ describe('inferMultiBlockCandidates canonicalizes through proposal.canonicalMap'
     const { multiBlockCandidates } = inferMultiBlockCandidates(parsed, proposal)
     expect(multiBlockCandidates.map((c) => c.name)).toEqual(['Lunch 2'])
     expect(multiBlockCandidates.some((c) => c.name === 'Lunch2')).toBe(false)
+  })
+})
+
+describe('electCanonicalSpellings (flat-name core)', () => {
+  it('elects the dominant spelling for a whitespace cluster', () => {
+    expect(electCanonicalSpellings(['Lunch 2', 'Lunch 2', 'Lunch2']).get('lunch2')).toBe('Lunch 2')
+  })
+  it('is empty when there is no variance', () => {
+    expect(electCanonicalSpellings(['Swim', 'Sports']).size).toBe(0)
+  })
+})
+
+// The electives/events grid import path (parseGridSchedule -> populate) is the
+// second import surface; it must fold typos the same way (Red Hat A).
+describe('parseGridSchedule canonicalizes typo-variant activity names', () => {
+  it('folds "Lunch2" onto "Lunch 2" in the output cells', () => {
+    const page = {
+      columns: ['Kinders', '1st Grade'],
+      rows: [
+        { label: '9:30-10:10', cells: ['Lunch 2', 'Lunch 2'] },
+        { label: '10:15-10:55', cells: ['Lunch2', 'Lunch 2'] },
+      ],
+    }
+    const names = new Set(parseGridSchedule([page]).cells.map((c) => c.activityName))
+    expect(names.has('Lunch2')).toBe(false)
+    expect(names.has('Lunch 2')).toBe(true)
   })
 })

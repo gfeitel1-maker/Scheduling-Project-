@@ -11,7 +11,7 @@
 // result. It knows nothing about event_*/elective_* tables, campId, eventId,
 // or writes — that is the consumer's job (eventGridPopulate.js).
 
-import { cleanCellValue } from './extractEntities.js'
+import { cleanCellValue, electCanonicalSpellings, canonicalizeActivityName } from './extractEntities.js'
 
 // A row/column label "looks like time" if it contains an H:MM (or H.MM)
 // token anywhere — mirrors the shape textGrid.js's looksLikeTime/
@@ -249,8 +249,14 @@ export function parseGridSchedule(pages) {
   // deterministic id scheme) want a stable, dense position.
   const timeIndexMap = new Map(timeAxis.map((t, i) => [t.sourceIndex, i]))
   const groupIndexMap = new Map(groupAxis.map((g, i) => [g.sourceIndex, i]))
+  // Fold whitespace/case typo-variants of an activity name onto one dominant
+  // spelling, exactly as the main schedule import does — so a "Lunch2" cell in
+  // an electives/events grid doesn't mint a duplicate of "Lunch 2" (the same
+  // regression, this second import surface). No-op when there's no variance.
+  const canonicalMap = electCanonicalSpellings(cells.map((c) => c.activityName))
   const reindexedCells = cells.map((c) => ({
     ...c,
+    activityName: canonicalizeActivityName(c.activityName, canonicalMap),
     timeIndex: timeIndexMap.get(c.timeIndex) ?? c.timeIndex,
     groupIndex: groupIndexMap.get(c.groupIndex) ?? c.groupIndex,
   }))
