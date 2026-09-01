@@ -7,14 +7,15 @@ function seenCounts(activities, unitShare) {
 }
 
 describe('inferActivityRules', () => {
-  it('computes min/max per week from appearances / groups / days', () => {
-    // 12 appearances across 3 groups over 4 days -> 12/3/4 = 1 per group per week.
+  it('computes weekly min/max from appearances / groups (NOT / days)', () => {
+    // 12 appearances across 3 groups -> 12/3 = 4 per group per week. dayCount (4)
+    // is passed but must NOT divide — the old /days made this read as 1.
     const activityPages = { swim: ['Yeladim', 'Bogrim', 'Amichai'] }
     const counts = seenCounts({ Swim: 12 }, { swim: 1 })
     const rules = inferActivityRules(['Swim'], activityPages, counts, 4, ['Yeladim', 'Bogrim', 'Amichai'])
     const rule = rules.get('Swim')
-    expect(rule.min_per_week).toBe(1)
-    expect(rule.max_per_week).toBe(2)
+    expect(rule.min_per_week).toBe(4)
+    expect(rule.max_per_week).toBe(6) // observed floor + 2 headroom
   })
 
   // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): support is
@@ -119,7 +120,7 @@ describe('inferActivityRules', () => {
       const counts = seenCounts({ Swim: 12 }, { swim: 1 })
       const rules = inferActivityRules(['Swim', 'Lunch'], activityPages, counts, 4, allGroups, ['Lunch'])
       expect(rules.has('Swim')).toBe(true)
-      expect(rules.get('Swim').min_per_week).toBe(1)
+      expect(rules.get('Swim').min_per_week).toBe(4) // 12 appearances / 3 groups
     })
 
     it('excludeNames matching is normalized the same as internal keying', () => {
