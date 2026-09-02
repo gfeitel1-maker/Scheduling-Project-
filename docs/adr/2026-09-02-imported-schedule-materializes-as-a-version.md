@@ -1,5 +1,12 @@
 ---
-status: proposed
+title: "Importing a prior-year schedule materializes it as a saved version, not the working grid"
+document_type: adr
+authority: normative
+status: accepted
+date: 2026-09-02
+supersedes: []
+implementation_state: in-progress
+affects: [docs/work/tickets/T117-imported-schedule-as-version-slice2.md]
 ---
 
 # Importing a prior-year schedule materializes it as a saved version, not the working grid
@@ -93,3 +100,26 @@ there is no concurrency gap in practice, because nothing else can run on this th
   because the resolver is anchor-aware.
 - Anchor names and activity names are resolved through the same `normalizeName` key `commitIngest`
   already uses for the six entities — no new identity rule introduced.
+
+## v1 limitations (accepted)
+
+Red Hat review surfaced three gaps in the resolver/materialization path. None block v1; all are
+recorded here rather than silently swept, per the review's ask.
+
+- **Anchor-first name resolution.** A placement whose name matches both an anchor and an activity
+  (a "dual-use" name) always resolves to the anchor — `resolveImportedPlacements` keys on name
+  alone and does not disambiguate per-cell which entity the imported grid actually meant. A camp
+  that names an activity and an anchor identically will always get the anchor. Accepted for v1;
+  revisit if dual-use names turn out to be common in practice.
+- **Anchor scope not verified.** `resolveImportedPlacements` attaches `anchor_id` by name match
+  without checking that the anchor's own day/block/group scope actually covers the cell it is
+  being placed into. An anchor restricted to a different day or group can still be placed onto a
+  cell outside its scope if the name matches. Low-frequency in practice (anchors are usually
+  scoped broadly); accepted for v1, not mitigated.
+- **First-import concurrency window.** When the manual `schedule_templates` row must be MINTED
+  (the first import into a given week — see "no concurrency gap in practice" above), there is one
+  `await` (the template mint write) before the live catalog is read to build the name→id maps. The
+  "no interleaving" property therefore holds fully only when the template row already exists; on a
+  first import, a peer op landing in that window could shift one placement's resolved/unresolved
+  status. Low blast radius (at most one placement affected, and it fails safe as unresolved rather
+  than misplaced); documented, not mitigated in v1.

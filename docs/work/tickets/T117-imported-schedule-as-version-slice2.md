@@ -1,3 +1,13 @@
+---
+title: T117-imported-schedule-as-version-slice2
+document_type: ticket
+status: in-progress
+created: 2026-09-02
+governing_docs: [docs/adr/2026-09-02-imported-schedule-materializes-as-a-version.md]
+related_adrs: [docs/adr/2026-09-02-imported-schedule-materializes-as-a-version.md]
+archive_when: slice 2 shipped and restore-guard follow-up resolved
+---
+
 # T117 — Imported schedule materializes as a saved version (slice 2)
 
 See `docs/adr/2026-09-02-imported-schedule-materializes-as-a-version.md` for the decision this

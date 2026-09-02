@@ -406,7 +406,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const { saveSnapshot, deleteSnapshot, restoreSnapshot, renameSnapshot } = useSnapshots({
     routeState, repo, setActionError,
     recalcStats, resetUndoRedo,
-    groups, activities, days, weekId,
+    groups, activities, days, timeBlocks, anchors, weekId,
     // HIGH #3 (T108 review round 2) — restoreSnapshot reloads day_overrides
     // and hands the fresh rows back here so the slots pipe recomposes.
     setDayOverrides,
