@@ -224,7 +224,7 @@ Managed by `electron/db/projectManager.js`. A "project" is a named SQLite file o
 
 ## Test Coverage
 
-- **Vitest unit tests**: **287 test files** in `electron/` and `src/` (file count only; the full suite was not re-run for an exact case count during this doc refresh) — auth, ops, projections, sync handlers, IPC handlers, schedule engine, ingest, plus the events/electives/recurrence/location-contention/inline-add-setup-screen surfaces. Run with `npm run test`.
+- **Vitest unit tests**: **292 test files** in `electron/` and `src/` (file count only; the full suite was not re-run for an exact case count during this doc refresh) — auth, ops, projections, sync handlers, IPC handlers, schedule engine, ingest, plus the events/electives/recurrence/location-contention/inline-add-setup-screen surfaces. Run with `npm run test`.
 - **Integration test harness**: `test/integration/` — **27 separate-process scenarios** driven by `node test/integration/run.js`. Each scenario spawns real Node child processes (not Electron, but using the same `electron/` modules) to verify cross-process behavior that single-process Vitest cannot distinguish from correct behavior. Scenarios cover: bootstrap, offline restart, idempotency, conflict detection, device revocation, seq catch-up, pairing reconnect, field-merge ordering, lock expiry, snapshot restore, schema migration, host crash mid-sync, corrupt payload rejection, clock skew, role-change enforcement, second-device domain sync, restore queue, retiring orphan slots, deleting a used record, prior-year ingest, location merge, camp-map sync, and full-sync manifest coverage for week-location-exclusions / special-days / electives.
 
 ---
