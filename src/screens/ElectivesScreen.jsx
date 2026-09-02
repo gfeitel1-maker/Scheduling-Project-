@@ -16,6 +16,7 @@ import { useState } from 'react'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
+import { whitespaceInsensitiveName } from '../ingest/preview'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { S } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
@@ -104,6 +105,12 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
   async function addSet(values) {
     const name = String(values.name ?? '').trim()
     if (!name) return false
+    // Whitespace/case-insensitive so "Chugim"/"Chugim " don't split into two
+    // elective sets (same regression as activities, secondary entity).
+    if (sets.some((s) => whitespaceInsensitiveName(s.name) === whitespaceInsensitiveName(name))) {
+      setError('An elective set with this name already exists — choose a different name.')
+      return false
+    }
     return await add({ name })
   }
 
