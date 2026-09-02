@@ -110,6 +110,17 @@ describe('foldTriageInputs', () => {
     const { confirmedElectiveSets } = foldTriageInputs(baseInputs, decisions, {})
     expect(confirmedElectiveSets).toEqual([])
   })
+
+  // T117 slice 2 — foldTriageInputs spreads ...baseInputs into its return, so
+  // placements (an additive key ImportScreen adds to baseInputs, not one this
+  // module knows about) must survive untouched, same as any other pass-through
+  // field. This is the survives-the-fold guarantee the ticket calls out.
+  it('placements on baseInputs survive the fold untouched', () => {
+    const placements = [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', activityName: 'Swim' }]
+    const withPlacements = { ...baseInputs, placements }
+    const result = foldTriageInputs(withPlacements, [], {})
+    expect(result.placements).toBe(placements)
+  })
 })
 
 describe('identityRememberCalls', () => {

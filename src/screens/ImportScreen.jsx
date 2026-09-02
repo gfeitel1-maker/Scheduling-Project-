@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
+import { capturePlacements } from '../ingest/capturePlacements'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
 import { inferActivityRules } from '../ingest/activityRules'
@@ -141,6 +142,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // "survives staging" reasoning as fileGroupUnitsRef: normalized(activity
   // name) -> the one place name it was captured next to.
   const fileActivityLocationsRef = useRef({})
+  // T117 slice 2 — the grid's actual (group, day, block) -> activity/anchor
+  // placements (capturePlacements.js), computed once at parse time next to
+  // proposal (same "survives staging" reasoning as the two refs above), so
+  // buildCommitInputs can ship them to ingestCommit for materializeImportedVersion.
+  const placementsRef = useRef([])
   // Proposed recurring recurring events (T34). Every inferred recurring event is sent
   // unconditionally at commit (sub-slice 4, §3/A1) — there is no local tick
   // to gate it. A low-confidence one that the director hasn't reconciled is
@@ -346,6 +352,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // bookkeeping — a fresh upload simply overwrites it.
       fileGroupUnitsRef.current = proposal.groupUnits ?? {}
       fileActivityLocationsRef.current = proposal.activityLocations ?? {}
+      placementsRef.current = capturePlacements({ pages }, proposal).placements
 
       // Recurring recurring events implied by the grid (T34). Every inferred event
       // is shown and ships unconditionally at commit (sub-slice 4) — a
@@ -807,6 +814,10 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // through unchanged to buildPlan's buildElectiveCandidates.
       electiveHeaderFindings: proposal?.electiveHeaderFindings ?? [],
       activityPeriods: proposal?.activityPeriods ?? {},
+      // T117 slice 2 — the imported grid's actual placements, so a raw
+      // schedule import also materializes as a saved version (ADR
+      // 2026-09-02-imported-schedule-materializes-as-a-version.md).
+      placements: [...placementsRef.current],
     }
   }
 
@@ -857,7 +868,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // failure(s) named in the existing error banner, rather than silently
   // routing to Roots as if nothing went wrong (repo convention: every write
   // failure is surfaced, never swallowed) — see describeWriteFailure.
-  async function handleReconciliationCommitted() {
+  async function handleReconciliationCommitted(outcome) {
     const splitFailures = await applyStagedSplits()
     setLedger(null)
     setFileNames([])
@@ -870,6 +881,18 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         `Your import finished, but ${splitFailures.length === 1 ? 'a split' : `${splitFailures.length} splits`} couldn't be saved: ${splitFailures.map((f) => f.message).join(' ')}`
       )
       return
+    }
+    // T117 slice 2 — materializeImportedVersion's outcome, reusing this
+    // screen's own post-commit error-surface convention (the splitFailures
+    // banner above) rather than inventing a toast. The quiet-confirmation case
+    // (created, nothing skipped) shows nothing, per the Governor-confirmed copy.
+    const version = outcome?.version
+    if (version && version.created && version.unresolvedCount > 0) {
+      setError(
+        `${version.unresolvedCount} placement${version.unresolvedCount === 1 ? '' : 's'} couldn't be matched and ${version.unresolvedCount === 1 ? 'was' : 'were'} skipped.`
+      )
+    } else if (version && !version.created && version.unresolvedCount > 0) {
+      setError('Your imported schedule couldn’t be saved as a version this time.')
     }
     onNavigate('roots')
   }

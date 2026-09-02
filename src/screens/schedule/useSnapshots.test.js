@@ -150,6 +150,39 @@ describe('useSnapshots', () => {
     expect(props.setDismissedFindingKeys).toHaveBeenCalledTimes(1)
   })
 
+  // T117 slice 2 — a version written by materializeImportedVersion.js (the
+  // 'Imported schedule' snapshot) uses the EXACT same slot shape as any other
+  // snapshot, including a mix of activity and anchor placements. Proves that
+  // shape round-trips through the unchanged restore path, no special-casing.
+  it('restoreSnapshot restores a version written by materializeImportedVersion, including both activity and anchor placements', async () => {
+    const payload = {
+      template_id: 'tid-generated',
+      slots: JSON.stringify([
+        { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} },
+        { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, anchor_id: 'anc-1', is_anchor: true, flags: {} },
+      ]),
+      name: 'Imported schedule',
+      is_auto: false,
+    }
+    const freshSlots = [
+      { id: 's1', is_anchor: false, activity_id: 'act-1' },
+      { id: 's2', is_anchor: true, anchor_id: 'anc-1' },
+    ]
+    const repo = makeRepo({
+      getSnapshot: vi.fn(async () => payload),
+      reloadSlots: vi.fn(async () => freshSlots),
+    })
+    const { result, props } = setup({ repo })
+    await act(async () => { await result.current.restoreSnapshot({ id: 'snap-imported' }) })
+
+    expect(repo.restoreSnapshotRows).toHaveBeenCalledWith('tid-generated', expect.any(Array), [])
+    const restoredSlots = repo.restoreSnapshotRows.mock.calls[0][1]
+    expect(restoredSlots).toHaveLength(2)
+    expect(restoredSlots.find((s) => s.is_anchor)).toMatchObject({ anchor_id: 'anc-1', activity_id: null })
+    expect(restoredSlots.find((s) => !s.is_anchor)).toMatchObject({ activity_id: 'act-1', anchor_id: null })
+    expect(props.setSlots).toHaveBeenCalledWith(freshSlots)
+  })
+
   it('restoreSnapshot refuses a version belonging to the other route without writing', async () => {
     const repo = makeRepo({
       getSnapshot: vi.fn(async () => ({ template_id: 'tid-manual', slots: '[]' })),

@@ -25,6 +25,7 @@ import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from '
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
 import { commitIngest, ingestUndo, listImportEvidence } from './ops/ingest.js'
+import { materializeImportedVersion } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { recordDeclinedSplit, listDeclinedSplitNames } from './ops/declinedSplits.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
@@ -279,7 +280,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // device's sync mode — and the guard below reads it; a shadowing parameter
   // would silently turn the Host check into a comparison against the import
   // mode instead.
-  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents } = {}) {
+  // NOT declared async: every existing caller (and test) calls this
+  // synchronously and reads the outcome off the return value directly. When
+  // `placements` is present this returns a Promise instead (ipcMain.handle
+  // and localClient both already await/resolve their handler's return value
+  // either way) — but every pre-T117 caller, which never passes placements,
+  // keeps getting the outcome object back synchronously, unchanged.
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -304,7 +311,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) throw new Error('no camp on this device')
-    return commitIngest(db, {
+    const outcome = commitIngest(db, {
       approved,
       links,
       // ADR 2026-08-09 Decision 2 — the S4b clear path (record.clears) now has
@@ -356,6 +363,23 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // behavior as before (docs/adr/2026-08-17-onescreen-reconciliation-undo.md).
       captureInverse: captureInverse === true,
     })
+    // T117 slice 2 — the grid placements the import captured (capturePlacements.js
+    // on the renderer side), materialized into a saved version AFTER the catalog
+    // commit above succeeds. Never rethrown: the catalog import already landed and
+    // must not be reported as failed because the version step had trouble.
+    if (Array.isArray(placements) && placements.length > 0) {
+      return materializeImportedVersion(db, syncClient, {
+        campId: camp.id, authorUserId: session.userId, placements,
+      }).then((version) => {
+        outcome.version = version
+        return outcome
+      }).catch((err) => {
+        console.error('materializeImportedVersion failed (non-fatal, catalog import still succeeded)', err)
+        outcome.version = { created: false, snapshotId: null, unresolvedCount: placements.length, unresolvedNames: [] }
+        return outcome
+      })
+    }
+    return outcome
   }
 
   // D1 (dry-run reconciliation, docs/adr/2026-08-10-...ingestion-phaseD...).
