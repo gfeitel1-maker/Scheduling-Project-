@@ -56,6 +56,8 @@ function setup(overrides = {}) {
     groups: [{ id: 'g1', tier_id: 't1' }],
     activities: [{ id: 'act-1', name: 'Swim' }],
     days: [{ id: 'd1' }],
+    timeBlocks: [{ id: 'b1' }, { id: 'b2' }],
+    anchors: [{ id: 'anc-1' }],
     weekId: 'week-1',
     ...rest,
   }
@@ -202,6 +204,85 @@ describe('useSnapshots', () => {
     expect(props.setActionError).toHaveBeenCalled()
     expect(props.setSnapshots).toHaveBeenCalledTimes(1) // marks restorable:false
     expect(repo.restoreSnapshotRows).not.toHaveBeenCalled()
+  })
+
+  // T117 slice 2, restore-time reference guard (Red Hat HIGH) — a Replace
+  // re-import mints NEW catalog ids but does not clear existing snapshots.
+  // Restoring such a version must non-destructively skip any cell whose
+  // referenced ids no longer exist, rather than write dead references into
+  // template_slots.
+  describe('restore-time reference guard', () => {
+    it('restores all slots and reports nothing when every reference is live', async () => {
+      const payload = {
+        template_id: 'tid-generated',
+        slots: JSON.stringify([
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} },
+        ]),
+      }
+      const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
+      const { result, props } = setup({ repo })
+      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
+
+      const restoredSlots = repo.restoreSnapshotRows.mock.calls[0][1]
+      expect(restoredSlots).toHaveLength(1)
+      expect(props.setActionError).not.toHaveBeenCalledWith(expect.stringContaining('no longer exist'))
+    })
+
+    it('drops slots referencing a dead activity_id or a dead group_id and surfaces the count', async () => {
+      const payload = {
+        template_id: 'tid-generated',
+        slots: JSON.stringify([
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} },
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'dead-activity', anchor_id: null, is_anchor: false, flags: {} },
+          { group_id: 'dead-group', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} },
+        ]),
+      }
+      const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
+      const { result, props } = setup({ repo })
+      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
+
+      const restoredSlots = repo.restoreSnapshotRows.mock.calls[0][1]
+      expect(restoredSlots).toEqual([
+        { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: {} },
+      ])
+      expect(props.setActionError).toHaveBeenCalledWith(
+        'Restored. 2 cell(s) referenced items that no longer exist (likely from a re-import) and were skipped.'
+      )
+    })
+
+    it('drops an is_anchor slot with a dead anchor_id', async () => {
+      const payload = {
+        template_id: 'tid-generated',
+        slots: JSON.stringify([
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: 'dead-anchor', is_anchor: true, flags: {} },
+        ]),
+      }
+      const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
+      const { result, props } = setup({ repo })
+      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
+
+      const restoredSlots = repo.restoreSnapshotRows.mock.calls[0][1]
+      expect(restoredSlots).toHaveLength(0)
+      expect(props.setActionError).toHaveBeenCalledWith(
+        'Restored. 1 cell(s) referenced items that no longer exist (likely from a re-import) and were skipped.'
+      )
+    })
+
+    it('keeps an empty cell (valid group/day/block, no activity or anchor) — not counted as dropped', async () => {
+      const payload = {
+        template_id: 'tid-generated',
+        slots: JSON.stringify([
+          { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, anchor_id: null, is_anchor: false, flags: {} },
+        ]),
+      }
+      const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
+      const { result, props } = setup({ repo })
+      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
+
+      const restoredSlots = repo.restoreSnapshotRows.mock.calls[0][1]
+      expect(restoredSlots).toHaveLength(1)
+      expect(props.setActionError).not.toHaveBeenCalledWith(expect.stringContaining('no longer exist'))
+    })
   })
 
   it('renameSnapshot writes the new name and clears the auto flag', async () => {

@@ -103,6 +103,7 @@ describe('materializeImportedVersion', () => {
     const result = await materializeImportedVersion(db, fakeSyncClient(db), { campId, authorUserId, placements })
     expect(result.created).toBe(false)
     expect(result.unresolvedCount).toBe(1)
+    expect(result.unresolvedNames).toEqual(['Swim'])
     expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(0)
   })
 

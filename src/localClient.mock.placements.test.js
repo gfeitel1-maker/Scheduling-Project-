@@ -72,4 +72,21 @@ describe('mockShoresh.ingestCommit — placements materialize a version (T117 sl
     const outcome = await mockShoresh.ingestCommit({ approved: {}, cohort_id: null })
     expect(outcome.version).toBeUndefined()
   })
+
+  // Real materializeImportedVersion.js only runs on the actual commit, never
+  // on a dry run — a dryRun outcome must not report a misleading
+  // "0 unresolved" version that was never actually attempted.
+  it('omits outcome.version on a dry run even when placements are present', async () => {
+    const { mockShoresh } = await import('./localClient.mock.js')
+    const outcome = await mockShoresh.ingestCommit({
+      approved: {},
+      cohort_id: null,
+      dryRun: true,
+      placements: [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', activityName: 'Swim' }],
+    })
+
+    expect(outcome.version).toBeUndefined()
+    const state = JSON.parse(globalThis.localStorage.getItem(STORE_KEY))
+    expect(state.schedule_snapshots).toHaveLength(0)
+  })
 })

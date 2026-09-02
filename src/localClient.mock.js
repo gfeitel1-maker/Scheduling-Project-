@@ -1141,7 +1141,7 @@ export const mockShoresh = {
     if (replaced) outcome.replaced = replaced
     if (dryRun) { outcome.dryRun = true; outcome.planItems = plan.items; outcome.electiveCandidates = plan.electiveCandidates }
     if (captureInverse) { outcome.invertibleOps = invertibleOps; outcome.createdEntityIds = createdEntityIds }
-    if (Array.isArray(placements) && placements.length > 0) outcome.version = version
+    if (!dryRun && Array.isArray(placements) && placements.length > 0) outcome.version = version
     return outcome
   },
 

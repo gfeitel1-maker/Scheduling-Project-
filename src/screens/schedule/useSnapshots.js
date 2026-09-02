@@ -21,6 +21,8 @@ export function useSnapshots({
   groups,
   activities,
   days,
+  timeBlocks,
+  anchors,
   weekId,
   // T108 review round 2 (HIGH #3) — dayOverrides is owned by useScheduleData,
   // not this hook; restoreSnapshot must reload it and hand the fresh rows
@@ -145,9 +147,34 @@ export function useSnapshots({
       }
     }
 
+    // Restore-time reference guard (Red Hat HIGH, T117 slice 2) — a Replace
+    // re-import mints NEW catalog ids for groups/days/time_blocks/activities
+    // but does not clear existing schedule_snapshots rows. Restoring a
+    // version saved before such a re-import would otherwise write
+    // template_slots rows referencing dead ids (no runtime FK enforcement),
+    // producing a silently-broken/blank grid. Product decision: keep the
+    // versions, but skip any dead cell non-destructively and tell the
+    // director how many were skipped.
+    const groupIds = new Set(groups.map(g => g.id))
+    const dayIds = new Set(days.map(d => d.id))
+    const timeBlockIds = new Set((timeBlocks || []).map(b => b.id))
+    const activityIds = new Set(activities.map(a => a.id))
+    const anchorIds = new Set((anchors || []).map(a => a.id))
+    let droppedCount = 0
+    const survivingSlots = fullSnap.slots.filter(s => {
+      const dead =
+        !groupIds.has(s.group_id) ||
+        !dayIds.has(s.day_id) ||
+        !timeBlockIds.has(s.time_block_id) ||
+        (s.is_anchor && s.anchor_id && !anchorIds.has(s.anchor_id)) ||
+        (!s.is_anchor && s.activity_id && !activityIds.has(s.activity_id))
+      if (dead) droppedCount += 1
+      return !dead
+    })
+
     setActionError(null)
     try {
-      await repo.restoreSnapshotRows(templateId, fullSnap.slots, snapshotDayOverrides)
+      await repo.restoreSnapshotRows(templateId, survivingSlots, snapshotDayOverrides)
     } catch (err) {
       setActionError(
         err?.message?.includes('admin role required')
@@ -172,6 +199,10 @@ export function useSnapshots({
     recalcStats(freshSlots)
     setFindings(computeFindings({ slots: freshSlots, groups, activities, days }))
     setDismissedFindingKeys(new Set())
+
+    if (droppedCount > 0) {
+      setActionError(`Restored. ${droppedCount} cell(s) referenced items that no longer exist (likely from a re-import) and were skipped.`)
+    }
   }
 
   async function renameSnapshot(snapshotId, newName) {

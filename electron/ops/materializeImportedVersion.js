@@ -41,7 +41,7 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     .prepare('SELECT id FROM schedule_weeks WHERE camp_id = ? AND is_archived = 0 ORDER BY sort_order ASC LIMIT 1')
     .get(campId)
   if (!week) {
-    return { created: false, snapshotId: null, unresolvedCount: placements.length, unresolvedNames: [] }
+    return { created: false, snapshotId: null, unresolvedCount: placements.length, unresolvedNames: placements.map((p) => p.activityName) }
   }
   const weekId = week.id
 
