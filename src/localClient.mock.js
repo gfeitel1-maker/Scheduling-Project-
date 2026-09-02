@@ -17,6 +17,10 @@ import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor
 // src/screens/locationMigrationReview.js already established — pure id
 // derivation, no electron-only dependency.
 import { deriveLocationId } from '../electron/ops/locationId.js'
+// T117 slice 2 — same src/-may-import-electron/ops/*.js pure-module exception,
+// this time so :5200 can prove a version got created without a second resolver.
+import { resolveImportedPlacements } from '../electron/ops/resolveImportedPlacements.js'
+import { deriveScheduleTemplateId } from '../electron/ops/scheduleTemplateId.js'
 
 const STORE_KEY = 'shoresh-mock-state'
 
@@ -572,7 +576,7 @@ export const mockShoresh = {
   // off localStorage on every call (never a live reference), so skipping the
   // final saveState() is sufficient to discard every mutation this run made —
   // CLONE-RUN-DISCARD without a second copy step.
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
     // U1 Invariant 3 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) —
@@ -1078,12 +1082,66 @@ export const mockShoresh = {
       }
     }
 
+    // T117 slice 2 — same resolveImportedPlacements pure fn the real
+    // materializeImportedVersion.js calls, run against the mock's own
+    // in-memory catalog + its existing schedule_snapshots/schedule_templates
+    // store, so :5200 can prove a version got created. Mirrors the real
+    // orchestrator's shape exactly (no schedule_weeks row -> created:false;
+    // 0 resolved -> no snapshot written) but writes straight to mock state,
+    // matching every other mutation in this function.
+    let version = { created: false, snapshotId: null, unresolvedCount: 0, unresolvedNames: [] }
+    if (!dryRun && Array.isArray(placements) && placements.length > 0) {
+      const week = (state.schedule_weeks || [])
+        .filter((w) => w.camp_id === campId && !w.is_archived)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))[0]
+      if (!week) {
+        version = { created: false, snapshotId: null, unresolvedCount: placements.length, unresolvedNames: [] }
+      } else {
+        if (!Array.isArray(state.schedule_templates)) state.schedule_templates = []
+        if (!Array.isArray(state.schedule_snapshots)) state.schedule_snapshots = []
+        let template = state.schedule_templates.find((t) => t.week_id === week.id && t.kind === 'manual')
+        if (!template) {
+          template = { id: deriveScheduleTemplateId(week.id, 'manual'), camp_id: campId, week_id: week.id, name: '', kind: 'manual' }
+          state.schedule_templates.push(template)
+        }
+        const nameMap = (entity) => new Map(
+          (state[entity] ?? [])
+            .filter((r) => r.camp_id === campId)
+            .map((r) => [normalizeName(r[mockNameColumnFor(entity)]), r.id])
+        )
+        const maps = {
+          activityIdByName: nameMap('activities'),
+          anchorIdByName: nameMap('anchor_activities'),
+          groupIdByName: nameMap('groups'),
+          dayIdByName: nameMap('days_of_operation'),
+          blockIdByName: nameMap('time_blocks'),
+        }
+        const { slots, unresolved } = resolveImportedPlacements(placements, maps)
+        if (slots.length > 0) {
+          const snapshotId = randomId()
+          state.schedule_snapshots.push({
+            id: snapshotId,
+            template_id: template.id,
+            name: 'Imported schedule',
+            is_auto: false,
+            created_at: new Date().toISOString(),
+            slots: JSON.stringify(slots),
+            day_overrides_json: '[]',
+          })
+          version = { created: true, snapshotId, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName) }
+        } else {
+          version = { created: false, snapshotId: null, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName) }
+        }
+      }
+    }
+
     if (!dryRun) saveState(state)
     const outcome = { held: false, conflicts: [], created, total, updated, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial, moved: [] } }
     if (electiveSetsCreated.length > 0) outcome.electiveSetsCreated = electiveSetsCreated
     if (replaced) outcome.replaced = replaced
     if (dryRun) { outcome.dryRun = true; outcome.planItems = plan.items; outcome.electiveCandidates = plan.electiveCandidates }
     if (captureInverse) { outcome.invertibleOps = invertibleOps; outcome.createdEntityIds = createdEntityIds }
+    if (Array.isArray(placements) && placements.length > 0) outcome.version = version
     return outcome
   },
 

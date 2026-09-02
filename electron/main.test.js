@@ -2037,6 +2037,49 @@ describe('ingestCommit: who may import, and from where', () => {
   })
 })
 
+describe('ingestCommit: placements materialize a version end-to-end (T117 slice 2)', () => {
+  it('resolves outcome.version through the Host-local syncClient.write path', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7194 })
+    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    const weekId = randomUUID()
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, 0, 0)').run(weekId, campIdHere, 'Week 1')
+    db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Bunk 1')
+    db.prepare('INSERT INTO days_of_operation (id, camp_id, label) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Monday')
+    db.prepare('INSERT INTO time_blocks (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, '09:00')
+
+    const result = await handlers.ingestCommit({
+      token,
+      approved: { activities: ['Swim'] },
+      placements: [{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00', activityName: 'Swim' }],
+    })
+
+    expect(result.version.created).toBe(true)
+    expect(result.version.unresolvedCount).toBe(0)
+    const snap = db.prepare('SELECT * FROM schedule_snapshots WHERE id = ?').get(result.version.snapshotId)
+    expect(snap).toBeTruthy()
+    expect(JSON.parse(snap.slots)).toHaveLength(1)
+  })
+
+  it('returns the catalog outcome unchanged (no thrown error) when placements do not resolve', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7195 })
+    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+
+    const result = await handlers.ingestCommit({
+      token,
+      approved: { activities: ['Swim'] },
+      placements: [{ groupName: 'Ghost', dayName: 'Ghost', blockLabel: 'Ghost', activityName: 'Ghost' }],
+    })
+
+    expect(result.total).toBeGreaterThan(0)
+    expect(result.version.created).toBe(false)
+  })
+})
+
 describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
   async function adminToken(handlers) {
     await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
