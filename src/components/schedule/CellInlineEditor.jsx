@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { normalizeName } from '../../ingest/preview.js'
+import { whitespaceInsensitiveName } from '../../ingest/preview.js'
 
 // T105 §1 — colon-delimiter grammar: `<set name>: <member 1>, <member 2>`.
 // Everything before the first `:` is the set name (trimmed); everything
@@ -31,19 +31,19 @@ export default function CellInlineEditor({
 
   useEffect(() => { inputRef.current?.focus() }, [])
 
-  const query = normalizeName(value)
+  const query = whitespaceInsensitiveName(value)
   const matches = useMemo(() => {
     if (!query) return []
-    return eligibleActivities.filter(a => normalizeName(a.name).includes(query))
+    return eligibleActivities.filter(a => whitespaceInsensitiveName(a.name).includes(query))
   }, [eligibleActivities, query])
 
   const eventMatches = useMemo(() => {
     if (!query) return []
-    return eligibleEvents.filter(e => normalizeName(e.name).includes(query))
+    return eligibleEvents.filter(e => whitespaceInsensitiveName(e.name).includes(query))
   }, [eligibleEvents, query])
 
   const exact = useMemo(
-    () => eligibleActivities.find(a => normalizeName(a.name) === query) ?? null,
+    () => eligibleActivities.find(a => whitespaceInsensitiveName(a.name) === query) ?? null,
     [eligibleActivities, query]
   )
 
@@ -53,7 +53,7 @@ export default function CellInlineEditor({
   // activity (activity_id survives event_id in the exclusivity precedence
   // order, ADR §3).
   const exactEvent = useMemo(
-    () => (exact ? null : eligibleEvents.find(e => normalizeName(e.name) === query) ?? null),
+    () => (exact ? null : eligibleEvents.find(e => whitespaceInsensitiveName(e.name) === query) ?? null),
     [eligibleEvents, query, exact]
   )
 
@@ -130,7 +130,7 @@ export default function CellInlineEditor({
       {query && !exact && hasColon && liveParsed && (
         <div className="cell-inline-editor-elective-chips">
           {liveParsed.memberNames.map((name, i) => {
-            const known = eligibleActivities.some(a => normalizeName(a.name) === normalizeName(name))
+            const known = eligibleActivities.some(a => whitespaceInsensitiveName(a.name) === whitespaceInsensitiveName(name))
             return (
               <span key={`${name}-${i}`} className="cell-inline-editor-chip" data-known={known ? '' : undefined}>
                 {name}

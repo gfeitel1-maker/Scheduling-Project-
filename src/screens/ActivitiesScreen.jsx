@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
+import { whitespaceInsensitiveName } from '../ingest/preview'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
@@ -551,7 +552,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   async function saveActivity(id, fields) {
     const { name, ...rest } = fields
     const trimmedName = String(name ?? '').trim()
-    if (!id && activities.some(a => String(a.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())) {
+    if (!id && activities.some(a => whitespaceInsensitiveName(a.name) === whitespaceInsensitiveName(trimmedName))) {
       const err = new Error('An activity with this name already exists')
       setError('An activity with this name already exists — choose a different name.')
       throw err
@@ -646,7 +647,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     // saveActivity's create path, not just a generic connection-error
     // fallback (Red Hat finding, Sub-plan C Task 5 round 1).
     let copyName = `Copy of ${a.name}`
-    if (activities.some(x => String(x.name ?? '').trim().toLowerCase() === copyName.toLowerCase())) {
+    if (activities.some(x => whitespaceInsensitiveName(x.name) === whitespaceInsensitiveName(copyName))) {
       setError(`An activity named "${copyName}" already exists — rename it before duplicating again.`)
       return
     }
@@ -686,7 +687,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   async function addActivityQuick() {
     const trimmedName = quickName.trim()
     if (!trimmedName) return
-    if (activities.some(a => String(a.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())) {
+    if (activities.some(a => whitespaceInsensitiveName(a.name) === whitespaceInsensitiveName(trimmedName))) {
       setError('An activity with this name already exists — choose a different name.')
       return
     }
@@ -841,7 +842,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     try {
       // Defense-in-depth: a stray malformed row here must not throw and
       // wedge the modal on "Importing…" forever.
-      const existingNames = new Set(activities.map(a => String(a.name ?? '').toLowerCase()))
+      const existingNames = new Set(activities.map(a => whitespaceInsensitiveName(a.name)))
       // D5 UI freeze, extended to this sheet-driven path (the sheet's
       // `location` column is a free-text place NAME, same resolution as
       // eligible_tiers/weather_alternative above): resolve it to a
@@ -878,7 +879,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       let added = 0, skipped = 0
       for (const row of importRows) {
         if (!row.name || row.warning) { skipped++; continue }
-        const lower = String(row.name).toLowerCase()
+        const lower = whitespaceInsensitiveName(row.name)
         if (existingNames.has(lower)) { skipped++; continue }
 
         let locationId = null

@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
+import { whitespaceInsensitiveName } from '../ingest/preview'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../styles/shared'
@@ -290,12 +291,22 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   async function createEvent(name) {
     const trimmed = String(name ?? '').trim()
     if (!trimmed) return false
+    // Whitespace/case-insensitive so "Color War"/"ColorWar" don't become two
+    // events (same regression as activities, secondary entity).
+    if (events.some((e) => whitespaceInsensitiveName(e.name) === whitespaceInsensitiveName(trimmed))) {
+      setError('An event with this name already exists — choose a different name.')
+      return false
+    }
     return await addEvent({ name: trimmed })
   }
 
   async function createDay(name) {
     const trimmed = String(name ?? '').trim()
     if (!trimmed) return false
+    if (days.some((d) => whitespaceInsensitiveName(d.name) === whitespaceInsensitiveName(trimmed))) {
+      setError('A special day with this name already exists — choose a different name.')
+      return false
+    }
     const id = crypto.randomUUID()
     try {
       await writeField('special_days', id, 'name', trimmed)

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
-import { normalizeName } from '../../ingest/preview.js'
+import { whitespaceInsensitiveName } from '../../ingest/preview.js'
 import { isActivityEligibleForGroup } from '../../engine/eligibility'
 import { createActivity } from './createActivityHelper'
 import { findOverrideId, upsertDayOverride } from '../../utils/dayOverrideCoordinate.js'
@@ -1276,7 +1276,7 @@ export function useSlotMutations({
     const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
     if (overrideGuard(targetRow)) return
 
-    const dupe = activities.find(a => normalizeName(a.name) === normalizeName(trimmed))
+    const dupe = activities.find(a => whitespaceInsensitiveName(a.name) === whitespaceInsensitiveName(trimmed))
     if (dupe) {
       await placeActivityManual(dupe.id, target.groupId, target.dayId, target.blockId)
       return
@@ -1329,7 +1329,7 @@ export function useSlotMutations({
     // Reuse-from-existing-durable-set (design §1): an exact name match against
     // the DURABLE list (never electiveSetsAll) places that set directly,
     // rather than minting a duplicate.
-    const durableMatch = durableElectiveSets.find(s => normalizeName(s.name) === normalizeName(trimmedSet))
+    const durableMatch = durableElectiveSets.find(s => whitespaceInsensitiveName(s.name) === whitespaceInsensitiveName(trimmedSet))
     if (durableMatch) {
       // Never deleted by our own undo (isFreshOneOff stays false) — redo's
       // existence check will therefore always find it, so no recreate path
