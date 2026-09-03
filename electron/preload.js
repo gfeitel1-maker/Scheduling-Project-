@@ -88,6 +88,10 @@ contextBridge.exposeInMainWorld('shoresh', {
   // suggestion, so re-import does not re-suggest it.
   recordDeclinedSplit: (args) => ipcRenderer.invoke('shoresh:record-declined-split', args),
   listDeclinedSplitNames: (args) => ipcRenderer.invoke('shoresh:list-declined-split-names', args),
+  // T118 slice 4 — read the camp's confirmed compound-cell-pattern decisions
+  // (docs/adr/2026-09-03-compound-cell-interpretation.md), so a resolved
+  // pattern never asks again on a later import.
+  listCompoundCellDecisions: (args) => ipcRenderer.invoke('shoresh:list-compound-cell-decisions', args),
   latestOpSeq: () => ipcRenderer.invoke('shoresh:latest-op-seq'),
   onSyncStatusChanged: (cb) => {
     const listener = (_e, status) => cb(status)

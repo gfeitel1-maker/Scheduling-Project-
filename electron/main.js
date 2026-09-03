@@ -24,9 +24,10 @@ import { RESTORABLE_ENTITIES, restoreEntity, lastKnownFieldSources } from './ops
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from './ops/deleteRecord.js'
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
-import { commitIngest, ingestUndo, listImportEvidence } from './ops/ingest.js'
+import { commitIngest, ingestUndo, listImportEvidence, listCompoundCellDecisions } from './ops/ingest.js'
 import { materializeImportedVersion } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
+import { confirmCompoundCellPattern } from './ops/confirmCompoundCellPattern.js'
 import { recordDeclinedSplit, listDeclinedSplitNames } from './ops/declinedSplits.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
@@ -286,7 +287,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // and localClient both already await/resolve their handler's return value
   // either way) — but every pre-T117 caller, which never passes placements,
   // keeps getting the outcome object back synchronously, unchanged.
-  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements } = {}) {
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -363,6 +364,32 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // behavior as before (docs/adr/2026-08-17-onescreen-reconciliation-undo.md).
       captureInverse: captureInverse === true,
     })
+    // T118 slice 4 — the director's freshly-resolved compound-cell-pattern
+    // decisions (ImportScreen's "Cells We Weren't Sure About"), written to the
+    // per-camp learned table AFTER the catalog commit above succeeds, same
+    // "already landed, must not be reported as failed" seam as
+    // materializeImportedVersion below. Per-item try/catch: one bad decision
+    // must not block the others or make the whole import look like it failed.
+    if (Array.isArray(compoundCellDecisions) && compoundCellDecisions.length > 0) {
+      const written = { count: 0, failed: [] }
+      for (const decision of compoundCellDecisions) {
+        try {
+          confirmCompoundCellPattern(db, {
+            camp_id: camp.id,
+            pattern: decision.pattern,
+            interpretation: decision.interpretation,
+            anchor_name: decision.anchor_name ?? null,
+            wrapper_name: decision.wrapper_name ?? null,
+            confirmed_by: session.userId,
+          })
+          written.count += 1
+        } catch (err) {
+          console.error('confirmCompoundCellPattern failed (non-fatal, catalog import still succeeded)', err)
+          written.failed.push(decision.pattern)
+        }
+      }
+      outcome.compoundCellDecisionsWritten = written
+    }
     // T117 slice 2 — the grid placements the import captured (capturePlacements.js
     // on the renderer side), materialized into a saved version AFTER the catalog
     // commit above succeeds. Never rethrown: the catalog import already landed and
@@ -521,6 +548,19 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) return []
     return Array.from(listDeclinedSplitNames(db, { campId: camp.id }))
+  }
+
+  // T118 slice 4 — read-only, same 'groups.import' gate as ingestCommit (this
+  // is only ever read from the ImportScreen at parse time, by the same
+  // director who is about to run an import). IPC can't carry a Map, so this
+  // returns plain [pattern, { interpretation, anchor_name, wrapper_name }]
+  // entries; localClient.js re-wraps them into a Map for extractEntities.
+  function listCompoundCellDecisionsHandler({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'groups.import' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return []
+    return Array.from(listCompoundCellDecisions(db, camp.id).entries())
   }
 
   // S4b §4 — the op-log's current generation, so S4a's export can stamp a real
@@ -1477,6 +1517,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     confirmAlias: confirmAliasHandler,
     recordDeclinedSplit: recordDeclinedSplitHandler,
     listDeclinedSplitNames: listDeclinedSplitNamesHandler,
+    listCompoundCellDecisions: listCompoundCellDecisionsHandler,
     latestOpSeq: latestOpSeqHandler,
     resolveConflict,
     listPendingConflicts: listPendingConflictsHandler,
@@ -1633,6 +1674,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
     ipcMain.handle('shoresh:record-declined-split', (_event, args) => handlers.recordDeclinedSplit(args))
     ipcMain.handle('shoresh:list-declined-split-names', (_event, args) => handlers.listDeclinedSplitNames(args))
+    ipcMain.handle('shoresh:list-compound-cell-decisions', (_event, args) => handlers.listCompoundCellDecisions(args))
     ipcMain.handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
     ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
     ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))

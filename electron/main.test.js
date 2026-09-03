@@ -2080,6 +2080,63 @@ describe('ingestCommit: placements materialize a version end-to-end (T117 slice 
   })
 })
 
+// T118 slice 4 — end-to-end: a director's freshly-resolved compound-cell
+// decision writes a compound_cell_decisions row AFTER the catalog commit
+// succeeds, and the upstream rewrite means the wrapper name never had to be
+// in `approved.activities` for the catalog to come out right (docs/adr/
+// 2026-09-03-compound-cell-interpretation.md, ticket T118 Slice 4 test list).
+describe('ingestCommit: compound-cell decisions (T118 slice 4)', () => {
+  it('writes a compound_cell_decisions row and creates only the anchor activity, not the wrapper', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7401 })
+    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+
+    const result = await handlers.ingestCommit({
+      token,
+      // The upstream rewrite already happened in the renderer (buildCommitInputs
+      // re-parses via extractEntities before commit) — approved.activities here
+      // is what THAT rewrite produces: "Lunch", never "Lunch + Leave".
+      approved: { activities: ['Lunch'] },
+      compoundCellDecisions: [
+        { pattern: 'Lunch + Leave', interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' },
+      ],
+    })
+
+    expect(result.compoundCellDecisionsWritten).toEqual({ count: 1, failed: [] })
+    const row = db.prepare('SELECT * FROM compound_cell_decisions WHERE camp_id = ? AND pattern = ?').get(campIdHere, 'Lunch + Leave')
+    expect(row).toBeTruthy()
+    expect(row.interpretation).toBe('wrapper')
+    expect(row.anchor_name).toBe('Lunch')
+
+    const activities = db.prepare('SELECT name FROM activities WHERE camp_id = ?').all(campIdHere).map((r) => r.name)
+    expect(activities).toContain('Lunch')
+    expect(activities).not.toContain('Lunch + Leave')
+  })
+
+  it('does not fail the whole import when one decision write fails (per-item, non-fatal)', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7402 })
+    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+
+    const result = await handlers.ingestCommit({
+      token,
+      approved: { activities: ['Lunch'] },
+      compoundCellDecisions: [
+        // 'wrapper' with a missing wrapper_name is refused by confirmCompoundCellPattern
+        // (ConfirmCompoundCellPatternError('wrapper_requires_names')) — the write must be
+        // caught per-item, not thrown, since the catalog import already succeeded.
+        { pattern: 'Bad Pattern', interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: null },
+      ],
+    })
+
+    expect(result.total).toBeGreaterThan(0)
+    expect(result.compoundCellDecisionsWritten).toEqual({ count: 0, failed: ['Bad Pattern'] })
+  })
+})
+
 describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
   async function adminToken(handlers) {
     await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })

@@ -576,7 +576,7 @@ export const mockShoresh = {
   // off localStorage on every call (never a live reference), so skipping the
   // final saveState() is sufficient to discard every mutation this run made —
   // CLONE-RUN-DISCARD without a second copy step.
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
     // U1 Invariant 3 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) —
@@ -1135,6 +1135,29 @@ export const mockShoresh = {
       }
     }
 
+    // T118 slice 4 mock parity — record confirmed compound-cell-pattern
+    // decisions the same way __aliases/__declinedTwoRowSplits are recorded:
+    // a plain array on mock state, no transaction/atomicity, proves the UI
+    // toggle rather than real persistence (that stays electron:dev).
+    let compoundCellDecisionsWritten
+    if (!dryRun && Array.isArray(compoundCellDecisions) && compoundCellDecisions.length > 0) {
+      if (!Array.isArray(state.__compoundCellDecisions)) state.__compoundCellDecisions = []
+      let written = 0
+      for (const decision of compoundCellDecisions) {
+        const existingIdx = state.__compoundCellDecisions.findIndex((d) => d.pattern === decision.pattern)
+        const row = {
+          pattern: decision.pattern,
+          interpretation: decision.interpretation,
+          anchor_name: decision.anchor_name ?? null,
+          wrapper_name: decision.wrapper_name ?? null,
+        }
+        if (existingIdx >= 0) state.__compoundCellDecisions[existingIdx] = row
+        else state.__compoundCellDecisions.push(row)
+        written += 1
+      }
+      compoundCellDecisionsWritten = { count: written, failed: [] }
+    }
+
     if (!dryRun) saveState(state)
     const outcome = { held: false, conflicts: [], created, total, updated, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial, moved: [] } }
     if (electiveSetsCreated.length > 0) outcome.electiveSetsCreated = electiveSetsCreated
@@ -1142,6 +1165,7 @@ export const mockShoresh = {
     if (dryRun) { outcome.dryRun = true; outcome.planItems = plan.items; outcome.electiveCandidates = plan.electiveCandidates }
     if (captureInverse) { outcome.invertibleOps = invertibleOps; outcome.createdEntityIds = createdEntityIds }
     if (!dryRun && Array.isArray(placements) && placements.length > 0) outcome.version = version
+    if (compoundCellDecisionsWritten) outcome.compoundCellDecisionsWritten = compoundCellDecisionsWritten
     return outcome
   },
 
@@ -1270,6 +1294,14 @@ export const mockShoresh = {
   async listDeclinedSplitNames() {
     const state = loadState()
     return Array.isArray(state.__declinedTwoRowSplits) ? state.__declinedTwoRowSplits.slice() : []
+  },
+  // T118 slice 4 — mock stand-in for listCompoundCellDecisions
+  // (electron/ops/ingest.js), returning entries in the same [pattern, value]
+  // shape the real IPC boundary does (localClient.js re-wraps into a Map).
+  async listCompoundCellDecisions() {
+    const state = loadState()
+    const rows = Array.isArray(state.__compoundCellDecisions) ? state.__compoundCellDecisions : []
+    return rows.map((d) => [d.pattern, { interpretation: d.interpretation, anchor_name: d.anchor_name, wrapper_name: d.wrapper_name }])
   },
   // S4b §4 — the dev mock has no op log/seq clock, so the export stamps 0 and
   // the staleness gate is inert at :5200 (the real clock lives under electron:dev).
