@@ -762,9 +762,13 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       const choice = compoundCellDecisions[candidate.pattern]
       if (!choice) continue
       // v1: no free-text override — a "wrapper" verdict uses the classifier's
-      // own guess (anchorGuess/wrapperGuess), falling back to the raw split
-      // parts on the rare ambiguous card (both guesses null) so the pill is
-      // always resolvable to real names.
+      // own guess (anchorGuess/wrapperGuess). The card only ever offers the
+      // "wrapper" pill when both are non-null (an ambiguous, both-standalone
+      // candidate withholds that specific pill — see the card render below,
+      // 2026-09-03 pressure-testing finding: a raw-split-order fallback
+      // guessed backwards on a real file), so `choice === 'wrapper'` here can
+      // only be reached with real names — the `?? parts[...]` fallback is
+      // defensive, not a live path.
       const entry =
         choice === 'wrapper'
           ? {
@@ -1499,12 +1503,22 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {compoundCellCandidates.map((c) => {
                   const decision = compoundCellDecisions[c.pattern]
-                  // v1: no free-text override on the card — the wrapper pill
-                  // always reads the classifier's own guess, falling back to
-                  // the raw split parts on the rare ambiguous candidate
-                  // (both guesses null) so the copy is never blank.
-                  const anchor = c.anchorGuess ?? c.parts[0]
-                  const wrapper = c.wrapperGuess ?? c.parts[1]
+                  // Pressure-testing finding (2026-09-03, Camp Mindy's real
+                  // "Change/Snack") — when neither part appears standalone
+                  // anywhere in the file, the classifier genuinely doesn't
+                  // know which side is the real activity. Guessing via raw
+                  // split order was proven wrong on a real file (picked
+                  // "Change" — the transition word — as the anchor, and would
+                  // have fabricated a weekly-frequency rule for it). No v1
+                  // free-text override exists to let the director flip a
+                  // wrong guess, so the safer fix is to never offer a
+                  // specific-direction "wrapper" choice when the classifier
+                  // itself is honestly uncertain — as-written/alternatives/
+                  // not-sure all stay available; only the guess-dependent
+                  // pill is withheld.
+                  const isAmbiguous = c.anchorGuess == null
+                  const anchor = c.anchorGuess
+                  const wrapper = c.wrapperGuess
                   const choose = (choice) => setCompoundCellDecisions((d) => ({ ...d, [c.pattern]: choice }))
                   const pill = {
                     fontSize: 11, padding: '4px 9px', borderRadius: 5, fontFamily: 'inherit', cursor: 'pointer',
@@ -1536,16 +1550,19 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                             </span>
                           </div>
                           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5 }}>
-                            Is this one activity as written, or does "{wrapper}" mean something
-                            happens around "{anchor}"?
+                            {isAmbiguous
+                              ? `Is this one activity as written, or are "${c.parts[0]}" and "${c.parts[1]}" two separate things?`
+                              : `Is this one activity as written, or does "${wrapper}" mean something happens around "${anchor}"?`}
                           </div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             <button type="button" onClick={() => choose('as_written')} style={pill}>
                               One thing, as written
                             </button>
-                            <button type="button" onClick={() => choose('wrapper')} style={pill}>
-                              "{wrapper}" is a wrapper around "{anchor}"
-                            </button>
+                            {!isAmbiguous && (
+                              <button type="button" onClick={() => choose('wrapper')} style={pill}>
+                                "{wrapper}" is a wrapper around "{anchor}"
+                              </button>
+                            )}
                             <button type="button" onClick={() => choose('alternatives')} style={pill}>
                               These are alternatives — either one
                             </button>

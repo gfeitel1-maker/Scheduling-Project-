@@ -681,4 +681,48 @@ describe('ImportScreen — compound-cell interpretation (T118 slice 4)', () => {
 
     expect(screen.queryByText(/"Lunch \+ Leave"/)).toBeNull()
   })
+
+  // 2026-09-03 pressure-testing finding, against a real Camp Mindy file:
+  // "Change/Snack" is a genuine wrapper pattern (Change is a transition
+  // word), but neither "Change" nor "Snack" ever appears as its own
+  // standalone cell in that file, so anchorGuess/wrapperGuess come back
+  // null. The v1 UI used to fall back to raw split order ("Change" first in
+  // the text) as the guessed anchor — which was BACKWARDS on the real file
+  // and would have fabricated a weekly-frequency rule for "Change" itself,
+  // with no way for the director to flip a wrong guess. Fix: withhold the
+  // specific-direction "wrapper" pill entirely when the classifier itself
+  // doesn't know which side is real — as_written/alternatives/not-sure stay.
+  it('withholds the specific-direction "wrapper" pill when the classifier cannot tell which side is the real activity', async () => {
+    const ambiguousPages = [{
+      title: 'Bunk 1',
+      columns: ['Monday'],
+      rows: [
+        { cells: ['Change/Snack'] },
+        { cells: ['Change/Snack'] },
+        { cells: ['Change/Ga Ga'] },
+      ],
+    }]
+    const proposalWithAmbiguousCompound = {
+      ...baseProposal,
+      entities: { ...baseProposal.entities, activities: ['Change/Snack', 'Change/Ga Ga'] },
+      seenCounts: { activities: { 'Change/Snack': 2, 'Change/Ga Ga': 1 }, activityUnitShare: {} },
+    }
+    parseTextGrid.mockReturnValueOnce({ pages: ambiguousPages })
+    extractEntities.mockReturnValueOnce(proposalWithAmbiguousCompound)
+
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant, parseTextGrid is mocked'], 'schedule.txt', { type: 'text/plain' })
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(screen.getByText(/"Change\/Snack"/)).toBeTruthy())
+
+    // No pill can claim a specific direction ("X is a wrapper around Y") —
+    // neither ordering of the two real words should appear as a button. Both
+    // "Change/Snack" and "Change/Ga Ga" render as separate cards, so the
+    // shared pills legitimately appear twice — assert presence, not count.
+    expect(screen.queryByRole('button', { name: /is a wrapper around/ })).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'One thing, as written' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'These are alternatives — either one' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Not sure — ask me later' }).length).toBeGreaterThan(0)
+  })
 })
