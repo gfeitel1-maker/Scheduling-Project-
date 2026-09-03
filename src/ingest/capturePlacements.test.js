@@ -58,4 +58,31 @@ describe('capturePlacements', () => {
     const { placements } = capturePlacements({ pages }, proposal)
     expect(placements).toEqual([{ groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '09:00-09:40', activityName: 'Swim' }])
   })
+
+  // T118 slice 3 code review — activityNamesFromCell has a FOURTH caller
+  // (this file), not three: a prior fix (PR #256) missed a third call site,
+  // and the initial T118 slice 3 diff repeated that miss one caller later by
+  // threading compoundCellDecisions through only extractEntities/
+  // inferFixedEvents/inferMultiBlockCandidates. Every reader of raw cells
+  // through activityNamesFromCell must apply the SAME confirmed decisions, or
+  // a wrapper-resolved cell (e.g. "Lunch + Leave" -> "Lunch") would still
+  // capture its placement under the unresolved wrapper name here, which
+  // resolveImportedPlacements.js (T117) can never match to a real activity.
+  it('reads placements through the same confirmed compound-cell decisions as extractEntities (T118 slice 3)', () => {
+    const pages = [{
+      title: 'Bunk 1',
+      columns: ['Monday', 'Tuesday'],
+      rows: [{ label: '11:25-12:05', cells: ['Lunch + Leave', 'Lunch + Leave'] }],
+    }]
+    const decisions = new Map([
+      ['Lunch + Leave', { interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' }],
+    ])
+    const proposal = extractEntities({ pages }, decisions)
+    expect(proposal.compoundCellDecisions).toBe(decisions)
+    const { placements } = capturePlacements({ pages }, proposal)
+    expect(placements).toEqual([
+      { groupName: 'Bunk 1', dayName: 'Monday', blockLabel: '11:25-12:05', activityName: 'Lunch' },
+      { groupName: 'Bunk 1', dayName: 'Tuesday', blockLabel: '11:25-12:05', activityName: 'Lunch' },
+    ])
+  })
 })

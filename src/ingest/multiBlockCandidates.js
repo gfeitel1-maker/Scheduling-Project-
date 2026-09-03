@@ -73,6 +73,10 @@ export function inferMultiBlockCandidates(parsed, proposal = {}) {
   // cell doesn't surface a candidate spelled differently from the catalog
   // activity — the name-identity invariant, third seam (Red Hat).
   const canonicalMap = proposal?.canonicalMap
+  // T118 slice 3 — same seam as canonicalMap above: a confirmed compound-cell
+  // wrapper must resolve to its anchor here too, or a multi-block wrapper cell
+  // surfaces a merged-cell candidate under its own (never-to-exist) name.
+  const compoundCellDecisions = proposal?.compoundCellDecisions
   const allGroupsNorm = new Set(allGroups.map(normalizeName))
 
   const groupSpelling = new Map() // normalizeName(group) -> first spelling seen
@@ -108,7 +112,7 @@ export function inferMultiBlockCandidates(parsed, proposal = {}) {
           const colHeader = page.columns[cellIndex]
           if (!isDayName(colHeader)) return
           const day = canonicalDay(colHeader)
-          for (const name of activityNamesFromCell(row.cells?.[cellIndex], canonicalMap)) {
+          for (const name of activityNamesFromCell(row.cells?.[cellIndex], canonicalMap, compoundCellDecisions)) {
             addOccurrence(name, startBlock, span, day, groupName)
           }
         })
@@ -125,7 +129,7 @@ export function inferMultiBlockCandidates(parsed, proposal = {}) {
           const rawGroupName = page.columns[cellIndex]
           if (!rawGroupName) return
           const groupName = groupNameByTitle[rawGroupName] ?? rawGroupName
-          for (const name of activityNamesFromCell(row.cells?.[cellIndex], canonicalMap)) {
+          for (const name of activityNamesFromCell(row.cells?.[cellIndex], canonicalMap, compoundCellDecisions)) {
             addOccurrence(name, startBlock, span, day, groupName)
           }
         })
