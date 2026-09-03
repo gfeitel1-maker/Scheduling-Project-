@@ -118,6 +118,11 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
   // real event's footprint here too — otherwise the typo silently drops a day
   // and fragments the event (the name-identity invariant, extended to the fix).
   const canonicalMap = proposal?.canonicalMap
+  // T118 slice 3 — same seam as canonicalMap above: a cell the director
+  // confirmed as a compound-cell wrapper must resolve to its anchor here too,
+  // not just in the entity proposal, or the fixed-event footprint still
+  // fragments/double-counts against the wrapper's own text.
+  const compoundCellDecisions = proposal?.compoundCellDecisions
   const knownBlockNames = new Set(
     (options.knownTimeBlockNames ?? []).map((n) => String(n ?? '').trim().toLowerCase()).filter(Boolean)
   )
@@ -168,7 +173,7 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
         const block = row.label.trim()
         for (const { i, day } of dayCols) {
           const cell = row.cells?.[i]
-          for (const a of activityNamesFromCell(cell, canonicalMap)) addTuple(groupName, day, block, a, cellPeriod(cell))
+          for (const a of activityNamesFromCell(cell, canonicalMap, compoundCellDecisions)) addTuple(groupName, day, block, a, cellPeriod(cell))
         }
       }
     } else {
@@ -183,7 +188,7 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
           if (!rawGroupName) return
           const groupName = regGroup(rawGroupName)
           const cell = row.cells?.[i]
-          for (const a of activityNamesFromCell(cell, canonicalMap)) addTuple(groupName, day, block, a, cellPeriod(cell))
+          for (const a of activityNamesFromCell(cell, canonicalMap, compoundCellDecisions)) addTuple(groupName, day, block, a, cellPeriod(cell))
         })
       }
     }

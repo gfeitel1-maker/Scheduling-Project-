@@ -6,6 +6,8 @@ import {
   extractEntities, detectOrientation, INGESTIBLE_ENTITIES,
   isElectiveHeaderText, ELECTIVE_HEADER_TERMS,
 } from './extractEntities'
+import { inferFixedEvents } from './fixedEvents'
+import { inferMultiBlockCandidates } from './multiBlockCandidates'
 
 // docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md §2, §7.
 
@@ -551,5 +553,139 @@ describe('elective header-label detector (Slice 3a)', () => {
     for (const text of ['Chugim', 'Electives', 'Indoor Elective', 'Outdoor Elective', 'chugim', 'INDOOR ELECTIVE']) {
       expect(isElectiveHeaderText(text)).toBe(true)
     }
+  })
+})
+
+// T118 slice 3 — extraction integration for confirmed compound-cell decisions.
+// docs/adr/2026-09-03-compound-cell-interpretation.md,
+// docs/work/tickets/T118-compound-cell-interpretation.md "Slice 3".
+//
+// Real pattern from the ADR's own pressure-testing: a "Lunch + Leave" cell —
+// a real activity (Lunch) plus a short bus/transition wrapper (Leave) that a
+// camp compressed into one cell.
+describe('compound-cell decisions (T118 slice 3)', () => {
+  const LUNCH_LEAVE = 'Lunch + Leave'
+
+  function gridWithCell(cellText) {
+    return {
+      pages: [{
+        title: 'A',
+        columns: ['Monday', 'Tuesday'],
+        rows: [{ label: '12:00', cells: [cellText, cellText] }],
+      }],
+    }
+  }
+
+  it('no compoundCellDecisions argument at all — unchanged behavior (regression guard)', () => {
+    const parsed = gridWithCell(LUNCH_LEAVE)
+    const withoutArg = extractEntities(parsed)
+    const withEmptyMap = extractEntities(parsed, new Map())
+    expect(withoutArg.entities.activities).toEqual([LUNCH_LEAVE])
+    expect(withoutArg.seenCounts.activities).toEqual({ [LUNCH_LEAVE]: 2 })
+    // An empty Map (nothing confirmed yet) must be byte-for-byte identical to
+    // no argument at all — the common case for a camp's first-ever import.
+    // (compoundCellDecisions itself legitimately differs — it just rides the
+    // proposal object back out, same as canonicalMap would with a different
+    // input map — everything else must match exactly.)
+    const { compoundCellDecisions: _a, ...restWithout } = withoutArg
+    const { compoundCellDecisions: _b, ...restWithEmpty } = withEmptyMap
+    expect(restWithEmpty).toEqual(restWithout)
+  })
+
+  it('a confirmed "wrapper" decision folds the wrapper cell onto the anchor alone', () => {
+    const parsed = gridWithCell(LUNCH_LEAVE)
+    const decisions = new Map([
+      [LUNCH_LEAVE, { interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' }],
+    ])
+    const { entities, seenCounts } = extractEntities(parsed, decisions)
+    expect(entities.activities).toEqual(['Lunch'])
+    expect(entities.activities).not.toContain(LUNCH_LEAVE)
+    expect(seenCounts.activities).toEqual({ Lunch: 2 })
+    expect(seenCounts.activities[LUNCH_LEAVE]).toBeUndefined()
+  })
+
+  it('a confirmed "as_written" decision is identical to having no decision for that pattern', () => {
+    const parsed = gridWithCell(LUNCH_LEAVE)
+    const decisions = new Map([
+      [LUNCH_LEAVE, { interpretation: 'as_written', anchor_name: null, wrapper_name: null }],
+    ])
+    const withDecision = extractEntities(parsed, decisions)
+    const withoutDecision = extractEntities(parsed)
+    const { compoundCellDecisions: _a, ...restWith } = withDecision
+    const { compoundCellDecisions: _b, ...restWithout } = withoutDecision
+    expect(restWith).toEqual(restWithout)
+  })
+
+  it('a confirmed "alternatives" decision does not throw and keeps the cell literal, same as as_written for now', () => {
+    const parsed = gridWithCell(LUNCH_LEAVE)
+    const decisions = new Map([
+      [LUNCH_LEAVE, { interpretation: 'alternatives', anchor_name: null, wrapper_name: null }],
+    ])
+    expect(() => extractEntities(parsed, decisions)).not.toThrow()
+    const { entities, seenCounts } = extractEntities(parsed, decisions)
+    // Slice 4 decides shared-slot eligibility mechanics; for slice 3 this must
+    // read exactly like as_written/no-decision — a deliberate, explicitly
+    // asserted placeholder so a future change to this is an intentional edit.
+    expect(entities.activities).toEqual([LUNCH_LEAVE])
+    expect(seenCounts.activities).toEqual({ [LUNCH_LEAVE]: 2 })
+  })
+
+  it('a pattern in the Map that never appears in this file is a no-op', () => {
+    const parsed = gridWithCell('Swim')
+    const decisions = new Map([
+      [LUNCH_LEAVE, { interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' }],
+    ])
+    expect(() => extractEntities(parsed, decisions)).not.toThrow()
+    const { entities } = extractEntities(parsed, decisions)
+    expect(entities.activities).toEqual(['Swim'])
+  })
+
+  // The exact seam Red Hat caught missing in PR #256 (typo-canonicalization):
+  // canonicalMap threading missed a third call site. compoundCellDecisions
+  // must reach every caller of activityNamesFromCell, not just extractEntities
+  // itself — grep-verify the count rather than hardcoding one, since the T118
+  // slice 3 code review itself caught a FOURTH caller (capturePlacements.js,
+  // covered in capturePlacements.test.js) that this same class of miss had
+  // already slipped past once in this diff.
+  describe('reaches every activityNamesFromCell caller (see capturePlacements.test.js for the 4th)', () => {
+    const decisions = new Map([
+      [LUNCH_LEAVE, { interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' }],
+    ])
+
+    it('inferFixedEvents sees the resolved anchor name, not the wrapper text', () => {
+      const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+      const parsed = {
+        pages: [{
+          title: 'A',
+          columns: DAYS,
+          rows: [{ label: '12:00-12:30', cells: [LUNCH_LEAVE, LUNCH_LEAVE, LUNCH_LEAVE, LUNCH_LEAVE, LUNCH_LEAVE] }],
+        }],
+      }
+      const proposal = extractEntities(parsed, decisions)
+      expect(proposal.compoundCellDecisions).toBe(decisions)
+      const { fixedEvents } = inferFixedEvents(parsed, proposal)
+      const names = fixedEvents.map((e) => e.name)
+      expect(names).toContain('Lunch')
+      expect(names).not.toContain(LUNCH_LEAVE)
+    })
+
+    it('inferMultiBlockCandidates sees the resolved anchor name, not the wrapper text', () => {
+      const row = (label, cells, blockSpans) => ({ label, cells, ...(blockSpans && { blockSpans }) })
+      const parsed = {
+        pages: [{
+          title: 'A',
+          columns: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+          rows: [
+            row('16:00', [LUNCH_LEAVE, '', '', '', ''], [2]),
+            row('17:00', ['', '', '', '', '']),
+          ],
+        }],
+      }
+      const proposal = extractEntities(parsed, decisions)
+      const { multiBlockCandidates } = inferMultiBlockCandidates(parsed, proposal)
+      const names = multiBlockCandidates.map((c) => c.name)
+      expect(names).toContain('Lunch')
+      expect(names).not.toContain(LUNCH_LEAVE)
+    })
   })
 })

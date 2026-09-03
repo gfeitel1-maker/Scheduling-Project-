@@ -5,7 +5,8 @@
 //
 // Pure. Mirrors fixedEvents.js's two-orientation walk over the SAME pages/
 // proposal shape (reuse, not reinvention), and reads cells through the SAME
-// canonical spellings (proposal.canonicalMap) so a placement's activityName
+// canonical spellings (proposal.canonicalMap) AND the same confirmed compound-
+// cell decisions (proposal.compoundCellDecisions, T118 slice 3) so a placement's activityName
 // matches the catalog activity/anchor it will resolve to at commit — the
 // name-identity invariant, extended to placements. Nothing here writes; commit
 // resolves these names → ids and materializes the snapshot.
@@ -31,6 +32,7 @@ export function capturePlacements(parsed, proposal = {}) {
   const orientation = proposal?.orientation ?? {}
   const groupNameByTitle = proposal?.groupNameByTitle ?? {}
   const canonicalMap = proposal?.canonicalMap
+  const compoundCellDecisions = proposal?.compoundCellDecisions
   // A row is a time-block row when its label matches a proposed time_block
   // (spelled exactly as extractEntities emitted them). Keyed loosely (trim/case)
   // so "09:00" and " 09:00 " agree; the OUTPUT keeps the proposal's spelling.
@@ -51,7 +53,7 @@ export function capturePlacements(parsed, proposal = {}) {
         const blockLabel = blockLabelFor(row.label)
         if (!blockLabel) continue
         for (const { i, day } of dayCols) {
-          for (const activityName of activityNamesFromCell(row.cells?.[i], canonicalMap)) {
+          for (const activityName of activityNamesFromCell(row.cells?.[i], canonicalMap, compoundCellDecisions)) {
             placements.push({ groupName, dayName: day, blockLabel, activityName })
           }
         }
@@ -66,7 +68,7 @@ export function capturePlacements(parsed, proposal = {}) {
         page.columns.forEach((rawGroupName, i) => {
           if (!rawGroupName) return
           const groupName = groupNameByTitle[rawGroupName] ?? rawGroupName
-          for (const activityName of activityNamesFromCell(row.cells?.[i], canonicalMap)) {
+          for (const activityName of activityNamesFromCell(row.cells?.[i], canonicalMap, compoundCellDecisions)) {
             placements.push({ groupName, dayName, blockLabel, activityName })
           }
         })

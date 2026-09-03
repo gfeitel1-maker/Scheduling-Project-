@@ -126,7 +126,24 @@ export function dayNameFromTitle(title) {
 // name leaves this seam — so a "Lunch2" cell reads as "Lunch 2" identically in
 // both the entity proposal and fixed-event detection. Passing the SAME map to
 // both callers is what preserves the name-identity invariant across the fix.
-export function activityNamesFromCell(cell, canonicalMap) {
+//
+// `compoundCellDecisions` (T118 slice 3, optional — a Map keyed by the exact
+// raw cell text, from listCompoundCellDecisions/electron/ops/ingest.js) is
+// checked FIRST, before cleanCellValue or the dash-split run, because the key
+// is the director's confirmed reading of the WHOLE cell as it appeared in the
+// file — cleaning (time-stripping, repeat-collapsing) or the dash-split could
+// otherwise change or fragment the exact string the decision was recorded
+// against. Only `wrapper` changes what this function returns (folds the cell
+// to the anchor alone, mirroring how canonicalizeActivityName folds a typo
+// variant onto its canonical spelling); `as_written`, `alternatives`, and "no
+// decision for this pattern" all fall through to today's unchanged behavior —
+// an unrecognized pattern must never behave differently because this feature
+// exists.
+export function activityNamesFromCell(cell, canonicalMap, compoundCellDecisions) {
+  const decision = compoundCellDecisions?.get(String(cell ?? '').trim())
+  if (decision?.interpretation === 'wrapper') {
+    return [canonicalizeActivityName(decision.anchor_name, canonicalMap)]
+  }
   const names = []
   for (const part of cleanCellValue(cell).split(/\s+[-–—]\s+/)) {
     const value = part.replace(/^[\s\-–—:]+|[\s\-–—:]+$/g, '').trim()
@@ -142,12 +159,12 @@ export function activityNamesFromCell(cell, canonicalMap) {
 // alphabetical) as the single canonical form. A key with no variance is omitted
 // entirely, so this is a no-op for a clean file. Pure. Scans cells with the
 // bare (map-less) activityNamesFromCell to gather raw spellings.
-export function buildActivityNameCanonicalMap(pages) {
+export function buildActivityNameCanonicalMap(pages, compoundCellDecisions) {
   const names = []
   for (const page of pages ?? []) {
     for (const row of page.rows ?? []) {
       for (const cell of row.cells ?? []) {
-        for (const name of activityNamesFromCell(cell)) names.push(name)
+        for (const name of activityNamesFromCell(cell, undefined, compoundCellDecisions)) names.push(name)
       }
     }
   }
@@ -380,17 +397,24 @@ export function detectOrientation(pages) {
 /**
  * Propose the setup entities a grid implies.
  *
+ * `compoundCellDecisions` (T118 slice 3, optional) is the camp's confirmed
+ * compound-cell readings — a Map keyed by exact raw cell text, in the shape
+ * `listCompoundCellDecisions` (electron/ops/ingest.js) returns. This function
+ * stays pure: the caller (renderer, at parse time) fetches the Map via
+ * localClient and passes it in — no db access is added here, so the CLI, the
+ * sweep harness, and every existing test keep working with no argument at all.
+ *
  * Returns `{ orientation, entities, counts }`, where `entities` only ever has
  * keys from INGESTIBLE_ENTITIES. Nothing here touches the database.
  */
-export function extractEntities(parsed) {
+export function extractEntities(parsed, compoundCellDecisions) {
   const pages = parsed?.pages ?? []
   const orientation = detectOrientation(pages)
   // Elect one canonical spelling per whitespace/case typo-cluster BEFORE any
   // name is read into an entity (heals: a "Lunch2" cell becoming a phantom
   // catalog activity, AND its event fragmenting because the typo dropped a day
   // from the real event's footprint). Empty for a clean file → no-op.
-  const canonicalMap = buildActivityNameCanonicalMap(pages)
+  const canonicalMap = buildActivityNameCanonicalMap(pages, compoundCellDecisions)
 
   const groups = []
   const activityPages = new Map()
@@ -531,7 +555,7 @@ export function extractEntities(parsed) {
         })
       }
       row.cells.forEach((cell, cellIndex) => {
-        const names = activityNamesFromCell(cell, canonicalMap)
+        const names = activityNamesFromCell(cell, canonicalMap, compoundCellDecisions)
         if (names.length === 0) {
           // Same cleaning activityNamesFromCell itself applies, so what's
           // reported is exactly the text that failed to become an activity —
@@ -713,6 +737,11 @@ export function extractEntities(parsed) {
     // Shared with inferFixedEvents so it reads cells through the SAME canonical
     // spellings — the name-identity invariant across the typo-merge fix.
     canonicalMap,
+    // T118 slice 3 — same "ride the proposal object" pattern as canonicalMap,
+    // so inferFixedEvents/inferMultiBlockCandidates read cells through the
+    // SAME confirmed compound-cell decisions extractEntities used, rather than
+    // each needing its own db-backed fetch (this function stays pure).
+    compoundCellDecisions,
     groupUnits: Object.fromEntries(groupUnits),
     groupNameByTitle: Object.fromEntries(groupNameByTitleMap),
     activityPages: activityPagesOut,
