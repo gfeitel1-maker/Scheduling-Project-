@@ -1,12 +1,22 @@
 ---
 title: T118-compound-cell-interpretation
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-03
 governing_docs: [docs/adr/2026-09-03-compound-cell-interpretation.md]
 related_adrs: [docs/adr/2026-09-03-compound-cell-interpretation.md]
-archive_when: all four slices shipped and merged
+archive_when: next archive sweep
 ---
+
+> **COMPLETE 2026-09-03.** All four slices shipped and merged: classifier
+> (#263), per-camp persistence (#264), extraction integration (#265), UI +
+> commit wiring (#266). Along the way, fixed a real pre-existing bug
+> (localClient.js's ingestCommit silently dropped clears/humanEditedFields on
+> every real commit) and closed two Red Hat findings (stale location ref
+> after a wrapper fold; a decision-write failure that wasn't surfaced).
+> Explicitly out of scope, per the ADR: the PDF multi-line-cell fragmentation
+> bug, PDF import support, and any change to createConfidenceTier itself.
+
 
 # T118 — Compound cell interpretation (director-confirmed, per-camp learned)
 
