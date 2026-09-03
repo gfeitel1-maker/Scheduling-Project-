@@ -52,8 +52,11 @@ export const localClient = {
   // is additive and opt-in; every existing caller that omits it is unaffected.
   // T117 slice 2 — placements captured off the imported grid (capturePlacements.js),
   // resolved server-side into a saved version. Additive; defaults to none.
-  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements } = {}) =>
-    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements }),
+  // T118 slice 4 — compoundCellDecisions rides alongside placements: the
+  // director's freshly-resolved compound-cell-pattern decisions THIS import,
+  // written to the per-camp learned table once, at successful commit.
+  ingestCommit: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions } = {}) =>
+    shoresh.ingestCommit({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions }),
   // D1 — read-only dry run of the same commit pipeline, for the reconciliation
   // summary. Same argument shape as ingestCommit; never writes.
   ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents } = {}) =>
@@ -76,6 +79,15 @@ export const localClient = {
     shoresh.recordDeclinedSplit({ token: currentToken(), activityName }),
   listDeclinedSplitNames: () =>
     shoresh.listDeclinedSplitNames({ token: currentToken() }),
+  // T118 slice 4 — the camp's confirmed compound-cell-pattern decisions
+  // (docs/adr/2026-09-03-compound-cell-interpretation.md), fetched at parse
+  // time so a resolved pattern never asks again. IPC returns plain entries
+  // (a Map can't cross the bridge); re-wrapped here into the Map shape
+  // extractEntities/the classifier filter both expect.
+  listCompoundCellDecisions: async (campId) => {
+    const entries = await shoresh.listCompoundCellDecisions({ token: currentToken(), campId })
+    return new Map(entries ?? [])
+  },
   // S4b §4 — the op-log generation S4a's export stamps as base_generation so the
   // round-trip's staleness gate has a real clock. Read-only; 0 on the dev mock.
   latestOpSeq: () => (shoresh.latestOpSeq ? shoresh.latestOpSeq() : Promise.resolve(0)),

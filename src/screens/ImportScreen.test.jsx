@@ -60,6 +60,11 @@ vi.mock('../localClient', () => ({
     deleteEntity: vi.fn(),
     ingestCommit: vi.fn().mockResolvedValue({ total: 3, fixedEvents: { created: 0, skipped: [], partial: [] } }),
     ingestReconcile: vi.fn().mockResolvedValue({ planItems: [], fixedEventsReport: {}, legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {} }),
+    // T118 slice 4 — the camp's already-confirmed compound-cell-pattern
+    // decisions, fetched at parse time. Defaults to none; individual tests
+    // override with mockResolvedValueOnce to prove the re-import regression
+    // (a confirmed pattern never shows a card again).
+    listCompoundCellDecisions: vi.fn().mockResolvedValue(new Map()),
   },
 }))
 
@@ -76,6 +81,7 @@ beforeEach(() => {
   extractEntities.mockReturnValue(baseProposal)
   localClient.list.mockResolvedValue([])
   localClient.ingestCommit.mockResolvedValue({ total: 3, fixedEvents: { created: 0, skipped: [], partial: [] } })
+  localClient.listCompoundCellDecisions.mockResolvedValue(new Map())
   inferFixedEvents.mockReturnValue({ fixedEvents: [] })
 })
 
@@ -588,5 +594,91 @@ describe('ImportScreen — mount transition (coherence Wave 2)', () => {
     const { container } = render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
     const root = container.firstChild
     expect(root.style.transition).toMatch(/opacity/)
+  })
+})
+
+// T118 slice 4 — "Cells We Weren't Sure About"
+// (docs/adr/2026-09-03-compound-cell-interpretation.md). detectCompoundCellPatterns
+// itself is real (unmocked, its own unit tests cover the classifier); these
+// tests are about the SCREEN's wiring — the card renders, a "wrapper" verdict
+// rewrites what commits (structurally different from Longer Blocks, which
+// only appends), and the compound_cell_decisions row travels to ingestCommit.
+describe('ImportScreen — compound-cell interpretation (T118 slice 4)', () => {
+  // "Leave" pairing with two different real activities (Lunch, Swim) is what
+  // makes it a wrapper CANDIDATE at all (compoundCellPatterns.js's partner-
+  // diversity rule) — a single "Lunch + Leave" pattern alone would look like
+  // a fixed name (same shape as "Arts & Crafts") and never surface a card.
+  const compoundPages = [{
+    title: 'Bunk 1',
+    columns: ['Monday'],
+    rows: [
+      { cells: ['Lunch + Leave'] },
+      { cells: ['Lunch + Leave'] },
+      { cells: ['Lunch'] },
+      { cells: ['Swim + Leave'] },
+      { cells: ['Swim'] },
+    ],
+  }]
+
+  const proposalWithCompoundCells = {
+    ...baseProposal,
+    entities: { ...baseProposal.entities, activities: ['Lunch + Leave', 'Swim + Leave', 'Lunch', 'Swim'] },
+    seenCounts: { activities: { 'Lunch + Leave': 2, 'Swim + Leave': 1, Lunch: 1, Swim: 1 }, activityUnitShare: {} },
+  }
+  // What extractEntities returns once re-parsed at commit time with the
+  // director's "wrapper" verdict folded in (buildCommitInputs) — "Lunch +
+  // Leave" is gone; "Swim + Leave" is untouched because that card was never
+  // resolved (same "unticked = not written" contract as Longer Blocks).
+  const proposalAfterWrapperFold = {
+    ...baseProposal,
+    entities: { ...baseProposal.entities, activities: ['Swim + Leave', 'Lunch', 'Swim'] },
+    seenCounts: { activities: { 'Swim + Leave': 1, Lunch: 3, Swim: 1 }, activityUnitShare: {} },
+  }
+
+  it('renders no section at all when the file has zero compound-cell patterns', async () => {
+    await uploadFile()
+    expect(screen.queryByText("Cells We Weren't Sure About")).toBeNull()
+  })
+
+  it('shows a card for a detected pattern; picking "wrapper" then committing folds it upstream and writes the decision', async () => {
+    parseTextGrid.mockReturnValueOnce({ pages: compoundPages })
+    extractEntities.mockReturnValueOnce(proposalWithCompoundCells) // parse-time call
+
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant, parseTextGrid is mocked'], 'schedule.txt', { type: 'text/plain' })
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(screen.getByText(/"Lunch \+ Leave"/)).toBeTruthy())
+
+    // A card left untouched (Swim + Leave) must ship nothing extra — verified
+    // implicitly below via the compoundCellDecisions array length.
+    await userEvent.click(screen.getByRole('button', { name: '"Leave" is a wrapper around "Lunch"' }))
+    await waitFor(() => expect(screen.getByText(/won.t become its own activity/)).toBeTruthy())
+
+    extractEntities.mockReturnValueOnce(proposalAfterWrapperFold) // buildCommitInputs' re-parse at commit
+    await goToCommit()
+
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+    const call = localClient.ingestCommit.mock.calls[0][0]
+    expect(call.approved.activities).not.toContain('Lunch + Leave')
+    expect(call.compoundCellDecisions).toEqual([
+      { pattern: 'Lunch + Leave', interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' },
+    ])
+  })
+
+  it('a pattern already confirmed at this camp never shows a card again on re-import', async () => {
+    localClient.listCompoundCellDecisions.mockResolvedValueOnce(
+      new Map([['Lunch + Leave', { interpretation: 'wrapper', anchor_name: 'Lunch', wrapper_name: 'Leave' }]])
+    )
+    parseTextGrid.mockReturnValueOnce({ pages: compoundPages })
+    extractEntities.mockReturnValueOnce(proposalWithCompoundCells)
+
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant, parseTextGrid is mocked'], 'schedule.txt', { type: 'text/plain' })
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
+
+    expect(screen.queryByText(/"Lunch \+ Leave"/)).toBeNull()
   })
 })

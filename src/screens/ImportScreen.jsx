@@ -9,6 +9,7 @@ import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { capturePlacements } from '../ingest/capturePlacements'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
+import { detectCompoundCellPatterns } from '../ingest/compoundCellPatterns'
 import { inferActivityRules } from '../ingest/activityRules'
 import { normalizeName } from '../ingest/preview'
 import { autoAccepts } from '../ingest/confidence'
@@ -147,6 +148,16 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // proposal (same "survives staging" reasoning as the two refs above), so
   // buildCommitInputs can ship them to ingestCommit for materializeImportedVersion.
   const placementsRef = useRef([])
+  // T118 slice 4 — the raw pages this import parsed, retained so
+  // buildCommitInputs can re-run extractEntities at commit time with this
+  // import's live compound-cell decisions folded in (same "survives staging"
+  // reasoning as the refs above — a ref, not state, since it's never rendered).
+  const pagesRef = useRef([])
+  // This camp's already-confirmed compound-cell-pattern decisions
+  // (listCompoundCellDecisions), fetched once at parse time alongside
+  // existingRecordsAll below. Needed again at commit time to merge with this
+  // import's fresh in-UI decisions (buildCommitInputs).
+  const confirmedCompoundDecisionsRef = useRef(new Map())
   // Proposed recurring recurring events (T34). Every inferred recurring event is sent
   // unconditionally at commit (sub-slice 4, §3/A1) — there is no local tick
   // to gate it. A low-confidence one that the director hasn't reconciled is
@@ -170,6 +181,15 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // not written" rule the rest of this screen already follows.
   const [multiBlockCandidates, setMultiBlockCandidates] = useState([])
   const [multiBlockDecisions, setMultiBlockDecisions] = useState({})
+  // T118 slice 4 (docs/adr/2026-09-03-compound-cell-interpretation.md) — a
+  // compound cell (e.g. "Lunch + Leave") the classifier flagged as unresolved,
+  // filtered against this camp's already-confirmed decisions so a resolved
+  // pattern never shows a card again. compoundCellDecisions is keyed by the
+  // literal `pattern` string -> 'as_written' | 'wrapper' | 'alternatives';
+  // same "unticked = not written" contract as multiBlockDecisions above — a
+  // pattern with no key is undecided and ships nothing at commit.
+  const [compoundCellCandidates, setCompoundCellCandidates] = useState([])
+  const [compoundCellDecisions, setCompoundCellDecisions] = useState({})
   // Slice 2b — dualUseNames lifted out of the throwaway destructure in
   // readFiles (was computed only to seed pinOnlySet, then discarded). Filtered
   // against declined_two_row_splits on every readFiles() pass so a director's
@@ -254,6 +274,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     setSplitDecisions({})
     setMultiBlockCandidates([])
     setMultiBlockDecisions({})
+    setCompoundCellCandidates([])
+    setCompoundCellDecisions({})
     const files = [...(fileList ?? [])]
     if (files.length === 0) return
     setFileNames(files.map((f) => f.name))
@@ -329,7 +351,23 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         return
       }
 
-      const proposal = extractEntities({ pages })
+      // T118 slice 4 — this camp's already-confirmed compound-cell-pattern
+      // decisions, fetched at the SAME moment existingRecordsAll is (ADR §3),
+      // so a resolved pattern reads correctly on THIS parse already (not just
+      // at commit) and never shows a card again below.
+      // Optional-chained like listDeclinedSplitNames below — several sibling
+      // test suites (unitColumn/multiBlock/locations/twoRowSplit/
+      // fixedEventRouting) mock localClient with a partial object that
+      // predates this call; calling a missing method throws SYNCHRONOUSLY
+      // (before .catch() ever attaches), landing in the outer try/catch's
+      // generic "could not be read" error and failing every one of those
+      // unrelated tests. `?.()` makes an absent method behave like an
+      // instantly-empty Map, matching every other optional read on this
+      // screen (found by running the full suite, not just this feature's own
+      // tests — see T118 slice 4 fix-pass notes).
+      const confirmedCompoundDecisions = (await localClient.listCompoundCellDecisions?.(campId).catch(() => new Map())) ?? new Map()
+      confirmedCompoundDecisionsRef.current = confirmedCompoundDecisions
+      const proposal = extractEntities({ pages }, confirmedCompoundDecisions)
       const existingAll = {}
       for (const entity of INGESTIBLE_ENTITIES) {
         existingAll[entity] = await localClient.list(entity).catch(() => [])
@@ -353,6 +391,22 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       fileGroupUnitsRef.current = proposal.groupUnits ?? {}
       fileActivityLocationsRef.current = proposal.activityLocations ?? {}
       placementsRef.current = capturePlacements({ pages }, proposal).placements
+      pagesRef.current = pages
+
+      // T118 slice 4 — every raw cell value across the file, run through the
+      // pure classifier (slice 1), then filtered against this camp's already-
+      // confirmed decisions (fetched above) so a resolved pattern never shows
+      // a card again on a later import.
+      const allCellValues = []
+      for (const page of pages) {
+        for (const row of page.rows ?? []) {
+          for (const cell of row.cells ?? []) allCellValues.push(cell)
+        }
+      }
+      const compoundCandidates = detectCompoundCellPatterns(allCellValues).filter(
+        (c) => !confirmedCompoundDecisions.has(c.pattern)
+      )
+      setCompoundCellCandidates(compoundCandidates)
 
       // Recurring recurring events implied by the grid (T34). Every inferred event
       // is shown and ships unconditionally at commit (sub-slice 4) — a
@@ -689,8 +743,62 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // The exact inputs a commit sends — built once here so a held re-commit (T73)
   // re-sends the SAME inputs plus the director's resolutions (ADR §1).
   function buildCommitInputs() {
+    // T118 slice 4 — unlike Longer Blocks (which only APPENDS an
+    // interpretation on top of an already-correct proposal.entities), a
+    // resolved compound-cell decision must change what approved.activities/
+    // outgoingRules are built FROM, upstream. Merge this camp's already-
+    // confirmed decisions (fetched at parse time, confirmedCompoundDecisionsRef)
+    // with this import's fresh, not-yet-persisted UI decisions
+    // (compoundCellDecisions), then re-run extractEntities against the SAME
+    // pages this import parsed (pagesRef) — reusing slice 3's already-tested
+    // fold logic exactly, rather than duplicating it as a post-process step
+    // against the stale parse-time `proposal.entities`/`seenCounts`. A card
+    // left on "not sure" or untouched contributes nothing here (same
+    // "unticked = not written" contract as every other decision on this
+    // screen) and is not re-parsed for.
+    const mergedCompoundDecisions = new Map(confirmedCompoundDecisionsRef.current)
+    const newlyResolvedCompoundDecisions = []
+    for (const candidate of compoundCellCandidates) {
+      const choice = compoundCellDecisions[candidate.pattern]
+      if (!choice) continue
+      // v1: no free-text override — a "wrapper" verdict uses the classifier's
+      // own guess (anchorGuess/wrapperGuess), falling back to the raw split
+      // parts on the rare ambiguous card (both guesses null) so the pill is
+      // always resolvable to real names.
+      const entry =
+        choice === 'wrapper'
+          ? {
+              interpretation: 'wrapper',
+              anchor_name: candidate.anchorGuess ?? candidate.parts[0],
+              wrapper_name: candidate.wrapperGuess ?? candidate.parts[1],
+            }
+          : { interpretation: choice }
+      mergedCompoundDecisions.set(candidate.pattern, entry)
+      newlyResolvedCompoundDecisions.push({ pattern: candidate.pattern, ...entry })
+    }
+    // Only re-parse when this import actually resolved something — the
+    // parse-time `proposal` already reflects every PRIOR camp decision
+    // (confirmedCompoundDecisionsRef was folded into extractEntities in
+    // readFiles), so it stays correct as-is when nothing new was decided.
+    const effectiveProposal =
+      newlyResolvedCompoundDecisions.length > 0
+        ? extractEntities({ pages: pagesRef.current }, mergedCompoundDecisions)
+        : proposal
+    // Red Hat (T118 slice 4 review) — a re-parse re-keys activityLocations to
+    // whatever name activityNamesFromCell now resolves a cell to (a wrapper
+    // fold means "Lunch + Leave" becomes "Lunch"), but fileActivityLocationsRef
+    // is populated once in readFiles() and never touched again. Left stale,
+    // the Q8 location-pairing lookup below silently misses on a wrapper-
+    // resolved activity's new name — no error, just a dropped location. Read
+    // straight off effectiveProposal instead of the ref whenever a re-parse
+    // happened, so the lookup always matches the names actually being committed.
+    const activityLocationsForCommit =
+      newlyResolvedCompoundDecisions.length > 0
+        ? (effectiveProposal?.activityLocations ?? {})
+        : fileActivityLocationsRef.current
+
     const approved = {}
-    for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(proposal?.entities[entity] ?? [])]
+    for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(effectiveProposal?.entities[entity] ?? [])]
     // ADR 2026-08-09 Decision 2 — three explicit per-group unit review states.
     const groupUnits = {}
     const groupClears = {}
@@ -757,7 +865,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // every location create is tier:'low' regardless of frequency, so it
       // always requires an explicit director resolution on
       // ReconciliationScreen before it is minted or bound to.
-      const pairedLocation = fileActivityLocationsRef.current[normalizeName(name)]
+      const pairedLocation = activityLocationsForCommit[normalizeName(name)]
       if (pairedLocation) {
         outgoingRules[name].location = pairedLocation
       }
@@ -808,16 +916,24 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       activityRules: outgoingRules,
       mode: importMode === 'replace' ? 'replace' : 'add',
       // §1 — real create confidence input, and A3's pin-only carry-over.
-      seenCounts: proposal?.seenCounts ?? null,
+      // T118 slice 4 — reads effectiveProposal (not the stale parse-time
+      // `proposal`), so a wrapper fold's changed seenCounts/activityPeriods
+      // are what buildPlan's create-confidence/rule inference actually sees.
+      seenCounts: effectiveProposal?.seenCounts ?? null,
       pinOnlyActivityNames: [...pinOnlyActivityNames],
       // Slice 3a — plain data extractEntities already computed, carried
       // through unchanged to buildPlan's buildElectiveCandidates.
-      electiveHeaderFindings: proposal?.electiveHeaderFindings ?? [],
-      activityPeriods: proposal?.activityPeriods ?? {},
+      electiveHeaderFindings: effectiveProposal?.electiveHeaderFindings ?? [],
+      activityPeriods: effectiveProposal?.activityPeriods ?? {},
       // T117 slice 2 — the imported grid's actual placements, so a raw
       // schedule import also materializes as a saved version (ADR
       // 2026-09-02-imported-schedule-materializes-as-a-version.md).
       placements: [...placementsRef.current],
+      // T118 slice 4 — every pattern the director resolved THIS import (an
+      // already-confirmed-from-a-prior-import pattern is skipped — nothing
+      // new to write). Written once, at successful commit, by
+      // electron/main.js's ingestCommit handler via confirmCompoundCellPattern.
+      compoundCellDecisions: newlyResolvedCompoundDecisions,
     }
   }
 
@@ -887,13 +1003,28 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     // banner above) rather than inventing a toast. The quiet-confirmation case
     // (created, nothing skipped) shows nothing, per the Governor-confirmed copy.
     const version = outcome?.version
+    const notices = []
     if (version && version.created && version.unresolvedCount > 0) {
-      setError(
+      notices.push(
         `${version.unresolvedCount} placement${version.unresolvedCount === 1 ? '' : 's'} couldn't be matched and ${version.unresolvedCount === 1 ? 'was' : 'were'} skipped.`
       )
     } else if (version && !version.created && version.unresolvedCount > 0) {
-      setError('Your imported schedule couldn’t be saved as a version this time.')
+      notices.push('Your imported schedule couldn’t be saved as a version this time.')
     }
+    // T118 slice 4 (Red Hat review) — a compound-cell decision write failing
+    // is rare (per-item, non-fatal, same seam as materializeImportedVersion
+    // above) but must still surface: a silently-dropped decision means the
+    // exact same "what does this cell mean" question comes back on the NEXT
+    // import with no sign anything went wrong THIS time — precisely the
+    // repeat-asking this feature exists to end. Same banner convention as
+    // every other post-commit notice on this screen, never a silent swallow.
+    const failedDecisions = outcome?.compoundCellDecisionsWritten?.failed ?? []
+    if (failedDecisions.length > 0) {
+      notices.push(
+        `${failedDecisions.length} cell interpretation${failedDecisions.length === 1 ? '' : 's'} couldn't be saved and may be asked about again next time.`
+      )
+    }
+    if (notices.length > 0) setError(notices.join(' '))
     onNavigate('roots')
   }
 
@@ -1334,6 +1465,96 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                           Just this once
                         </button>
                       </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* T118 slice 4 — "Cells We Weren't Sure About"
+              (docs/adr/2026-09-03-compound-cell-interpretation.md). A
+              compound cell (e.g. "Lunch + Leave") the pure classifier
+              (compoundCellPatterns.js) could not resolve on its own — same
+              "nothing pre-selected, an unresolved candidate ships nothing"
+              contract as Longer Blocks above, but structurally different at
+              commit: a resolved card here rewrites what approved.activities
+              is built FROM (buildCommitInputs re-parses via extractEntities),
+              not just appends an interpretation on top of it. Renders
+              nothing when the classifier found no candidate (the common
+              case). */}
+          {compoundCellCandidates.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{
+                fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: 'var(--text-secondary)', marginBottom: 8,
+              }}>
+                Cells We Weren't Sure About
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+                These cells combined more than one word. Tell us what each one means — Shoresh will
+                remember your answer for next time.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {compoundCellCandidates.map((c) => {
+                  const decision = compoundCellDecisions[c.pattern]
+                  // v1: no free-text override on the card — the wrapper pill
+                  // always reads the classifier's own guess, falling back to
+                  // the raw split parts on the rare ambiguous candidate
+                  // (both guesses null) so the copy is never blank.
+                  const anchor = c.anchorGuess ?? c.parts[0]
+                  const wrapper = c.wrapperGuess ?? c.parts[1]
+                  const choose = (choice) => setCompoundCellDecisions((d) => ({ ...d, [c.pattern]: choice }))
+                  const pill = {
+                    fontSize: 11, padding: '4px 9px', borderRadius: 5, fontFamily: 'inherit', cursor: 'pointer',
+                    border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-secondary)',
+                    textAlign: 'left',
+                  }
+                  return (
+                    <div key={c.pattern} style={{
+                      background: 'var(--surface)', border: '1px solid var(--border)',
+                      borderRadius: 8, padding: '10px 12px',
+                    }}>
+                      {decision ? (
+                        <>
+                          <div style={{ fontSize: 13, color: 'var(--text-secondary)', textDecoration: 'line-through', opacity: 0.6, marginBottom: 4 }}>
+                            "{c.pattern}"
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--text)' }}>
+                            {decision === 'wrapper' && `✓ Wrapper — "${wrapper}" won't become its own activity`}
+                            {decision === 'alternatives' && '✓ Alternatives — either one is eligible'}
+                            {decision === 'as_written' && '✓ Kept as one thing, as written'}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>
+                            "{c.pattern}"
+                            <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 11 }}>
+                              · seen {c.occurrences} {c.occurrences === 1 ? 'time' : 'times'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5 }}>
+                            Is this one activity as written, or does "{wrapper}" mean something
+                            happens around "{anchor}"?
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            <button type="button" onClick={() => choose('as_written')} style={pill}>
+                              One thing, as written
+                            </button>
+                            <button type="button" onClick={() => choose('wrapper')} style={pill}>
+                              "{wrapper}" is a wrapper around "{anchor}"
+                            </button>
+                            <button type="button" onClick={() => choose('alternatives')} style={pill}>
+                              These are alternatives — either one
+                            </button>
+                            <button type="button" onClick={() => choose(undefined)} style={pill}>
+                              Not sure — ask me later
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )
                 })}

@@ -107,3 +107,43 @@ describe('localClient.campHasSetupData', () => {
     expect(await localClient.campHasSetupData()).toBe(true)
   })
 })
+
+// Red Hat (T118 slice 4 review) — ingestCommit's destructure/passthrough was
+// missing `clears`/`humanEditedFields` entirely: real commits through
+// ReconciliationScreen.apply() silently dropped the S4b group-unit-clear
+// path AND activity-rule human-edit provenance protection on every real
+// import, even though the sibling ingestReconcile dry-run had both fields
+// correctly wired since commit 820a415 — so the reconciliation PREVIEW a
+// director saw could show correct clear/provenance behavior while the actual
+// commit did not apply it. Fixed alongside T118 slice 4 (same signature was
+// being edited); this test exists so a future "cleanup" of the long
+// destructure list can't silently drop these two fields again with nothing
+// failing — main.test.js's ingestCommit coverage calls handlers.ingestCommit
+// directly and can never catch a regression at this specific wrapper.
+describe('localClient.ingestCommit', () => {
+  let ingestCommitSpy
+
+  beforeEach(() => {
+    vi.resetModules()
+    globalThis.localStorage = makeLocalStorage()
+    ingestCommitSpy = vi.fn().mockResolvedValue({ held: false, created: {}, total: 0 })
+    globalThis.window = {
+      shoresh: { ingestCommit: ingestCommitSpy },
+      location: { pathname: '/', search: '', replace: vi.fn() },
+    }
+  })
+
+  it('forwards clears and humanEditedFields to shoresh.ingestCommit', async () => {
+    globalThis.localStorage.setItem(TOKEN_KEY, 'tok-123')
+    const { localClient } = await import('./localClient.js')
+
+    const clears = { groups: { 'Bunk 1': ['unit'] } }
+    const humanEditedFields = { groups: { 'Bunk 1': ['unit'] }, activities: { Swim: ['min_per_week'] } }
+    await localClient.ingestCommit({ approved: {}, links: {}, clears, humanEditedFields, mode: 'add' })
+
+    const call = ingestCommitSpy.mock.calls[0][0]
+    expect(call.clears).toBe(clears)
+    expect(call.humanEditedFields).toBe(humanEditedFields)
+    expect(call.token).toBe('tok-123')
+  })
+})
