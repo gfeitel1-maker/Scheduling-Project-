@@ -263,6 +263,32 @@ function listAliasMap(db, camp_id, cohort_id) {
   return map
 }
 
+/**
+ * T118 slice 2: host-local read of confirmed compound-cell-pattern
+ * decisions, sibling to listAliasMap above. Returns a `Map` keyed by the
+ * literal `pattern` string (the exact cell text as it appeared), value =
+ * `{ interpretation, anchor_name, wrapper_name }` — the minimal shape
+ * slice 3's extractEntities integration needs.
+ * docs/adr/2026-09-03-compound-cell-interpretation.md.
+ */
+export function listCompoundCellDecisions(db, camp_id) {
+  const map = new Map()
+  const rows = db
+    .prepare(
+      `SELECT pattern, interpretation, anchor_name, wrapper_name
+         FROM compound_cell_decisions WHERE camp_id = ?`
+    )
+    .all(camp_id)
+  for (const row of rows) {
+    map.set(row.pattern, {
+      interpretation: row.interpretation,
+      anchor_name: row.anchor_name,
+      wrapper_name: row.wrapper_name,
+    })
+  }
+  return map
+}
+
 // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md). entity_type is
 // attacker-influenced (sourced from the imported file, same as
 // ALIAS_ENTITY_TABLE above), so it is validated against a FIXED set rather

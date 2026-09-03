@@ -121,6 +121,25 @@ CREATE TABLE IF NOT EXISTS source_aliases (
 CREATE INDEX IF NOT EXISTS idx_source_aliases_lookup
   ON source_aliases (camp_id, entity_type, cohort_id);
 
+-- Host-only table, like source_aliases. NEVER included in any full-sync
+-- SELECT/payload, NEVER sent over the wire, NEVER added to DIRECT_CAMP_ENTITIES
+-- or PROJECTIONS. A director's confirmed interpretation of a compound
+-- schedule cell (e.g. "Lunch + Leave" = a wrapper around "Lunch"), so a
+-- future import at the SAME camp never asks again. Written only from
+-- electron/ops/confirmCompoundCellPattern.js, admin-gated at the IPC boundary
+-- like confirmAlias. docs/adr/2026-09-03-compound-cell-interpretation.md.
+CREATE TABLE IF NOT EXISTS compound_cell_decisions (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  pattern TEXT NOT NULL,          -- the literal cell text as it appeared, e.g. "Lunch + Leave" — the lookup key
+  interpretation TEXT NOT NULL,   -- 'as_written' | 'wrapper' | 'alternatives'
+  anchor_name TEXT,               -- set when interpretation = 'wrapper'
+  wrapper_name TEXT,              -- set when interpretation = 'wrapper'
+  confirmed_by TEXT,              -- plain TEXT user id, provenance only
+  confirmed_at TEXT NOT NULL,
+  UNIQUE(camp_id, pattern)
+);
+
 -- Host-local memory of a declined two-rows split suggestion, so a re-import
 -- does not re-suggest a split the director already said no to (docs/adr/
 -- 2026-08-23-two-rows-multipattern-split.md, docs/work/specs/2026-08-23-
