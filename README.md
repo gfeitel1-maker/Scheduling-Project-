@@ -20,7 +20,7 @@ You define the rules: groups, tiers, time blocks, activities, anchors, and const
 - **Drag-and-drop editing** — swap slots between groups directly on the grid
 - **Flag system** — surfaces unfillable slots, underserved activities, weather risk, and distribution gaps
 - **Locking** — protect decisions that shouldn't change across regenerations
-- **Snapshots** — named versions with auto-save before every regeneration
+- **Snapshots** — named versions with auto-save before every regeneration; importing a prior year's schedule also saves its placements as a version you can pull up later, without overwriting what you're currently building
 - **Conflict resolution** — when two devices edit the same field offline, a dedicated screen surfaces the conflict and lets a director choose which version to keep
 - **Local-first** — each camp's data lives in its own on-device SQLite database, isolated by design
 
