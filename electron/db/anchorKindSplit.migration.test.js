@@ -89,7 +89,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
   it('declares schema version 51 on a fresh db and gives anchor_activities the kind column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(53)
+    expect(CURRENT_SCHEMA_VERSION).toBe(54)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 51').get().c).toBe(1)
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
     expect(cols).toContain('kind')

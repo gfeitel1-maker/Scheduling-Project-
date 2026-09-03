@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 53
+export const CURRENT_SCHEMA_VERSION = 54
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2146,6 +2146,31 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v54 — compound_cell_decisions, the host-local per-camp memory of a
+  // director's confirmed interpretation of a compound schedule cell
+  // (docs/adr/2026-09-03-compound-cell-interpretation.md).
+  //
+  // Both-places DDL, following the v30/source_aliases and v47/
+  // declined_two_row_splits precedent: the table is declared here AND in
+  // schema.sql, byte-identical text (COMPOUND_CELL_DECISIONS_DDL), so a fresh
+  // install and a migrated db agree on PRAGMA table_info(compound_cell_decisions).
+  // DDL only, no data movement — reapplying this migration is harmless
+  // (CREATE TABLE IF NOT EXISTS).
+  //
+  // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
+  // DIRECT_CAMP_ENTITIES, full_sync) — same reasoning as source_aliases:
+  // exactly one writer (electron/ops/confirmCompoundCellPattern.js),
+  // host-only, admin-only.
+  if (getSchemaVersion(db) >= 53 && getSchemaVersion(db) < 54) {
+    db.transaction(() => {
+      db.exec(COMPOUND_CELL_DECISIONS_DDL)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (54, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -2498,6 +2523,22 @@ export const DECLINED_TWO_ROW_SPLITS_DDL = `CREATE TABLE IF NOT EXISTS declined_
   activity_name_normalized TEXT NOT NULL,  -- normalizeName(name) — the read side must match
   declined_at TEXT NOT NULL,
   UNIQUE(camp_id, activity_name_normalized)
+)`
+
+// Byte-identical duplicate of the compound_cell_decisions block in
+// schema.sql (docs/adr/2026-09-03-compound-cell-interpretation.md). Kept as a
+// constant so the v54 migration cannot drift from it by a stray space — the
+// same discipline as SOURCE_ALIASES_DDL above.
+export const COMPOUND_CELL_DECISIONS_DDL = `CREATE TABLE IF NOT EXISTS compound_cell_decisions (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  pattern TEXT NOT NULL,          -- the literal cell text as it appeared, e.g. "Lunch + Leave" — the lookup key
+  interpretation TEXT NOT NULL,   -- 'as_written' | 'wrapper' | 'alternatives'
+  anchor_name TEXT,               -- set when interpretation = 'wrapper'
+  wrapper_name TEXT,              -- set when interpretation = 'wrapper'
+  confirmed_by TEXT,              -- plain TEXT user id, provenance only
+  confirmed_at TEXT NOT NULL,
+  UNIQUE(camp_id, pattern)
 )`
 
 // Byte-identical duplicate of the import_evidence block in schema.sql
