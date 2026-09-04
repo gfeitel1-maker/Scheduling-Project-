@@ -167,7 +167,7 @@ describe('ImportScreen — oversized text-file guard (F4)', () => {
 describe('ImportScreen — inferred activity rules (T35)', () => {
   it('renders a rule summary for a proposed activity, collapsed by default with the full editor behind Adjust', async () => {
     await uploadFile()
-    // Swim: 4 appearances / 1 matched group / 2 days = 2/wk.
+    // Swim: 4 appearances / 1 matched group = 4/wk (bd40e7c, no day division).
     expect(screen.getByText(/Groups: Yeladim/)).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: /Adjust/ }))
     // B2 (commit 57f75ed): prevalence alone never manufactures a priority, so an
@@ -208,7 +208,9 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     await goToCommit()
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     const [{ activityRules }] = localClient.ingestCommit.mock.calls[0]
-    expect(activityRules.Swim).toMatchObject({ min_per_week: 2, max_per_week: 3 })
+    // bd40e7c — weekly frequency is appearances ÷ matched groups (no day
+    // division): 4 appearances / 1 matched group = 4/wk, +2 headroom.
+    expect(activityRules.Swim).toMatchObject({ min_per_week: 4, max_per_week: 6 })
     // B2 (commit 57f75ed): an inferred rule carries no priority VALUE — it stays
     // UNKNOWN (undefined) and is resolved to the engine's two-valued contract at
     // generation time, not manufactured from prevalence here.
