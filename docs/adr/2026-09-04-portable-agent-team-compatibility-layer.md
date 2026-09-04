@@ -5,8 +5,8 @@ authority: normative
 status: accepted
 date: 2026-09-04
 supersedes: []
-implementation_state: not started
-affects: [.claude/agents/code-reviewer.md, .claude/agents/red-hat.md, .claude/agents/security.md, .claude/agents/verifier.md, .claude/agents/grader.md]
+implementation_state: in-progress
+affects: [.claude/agents/code-reviewer.md, .claude/agents/red-hat.md, .claude/agents/security.md, .claude/agents/verifier.md, .claude/agents/grader.md, .claude/agents/architect.md, .claude/agents/architecture-auditor.md, .claude/agents/design-auditor.md, .claude/agents/designer.md, .claude/agents/governor.md, .claude/agents/maker.md, .claude/agents/tester.md, scripts/generateAgentProfiles.js]
 ---
 
 # Portable agent-team compatibility layer
@@ -113,6 +113,46 @@ reports, `shoresh-config`) is touched by this fix, so rollback is single-command
 hand-written `.claude/agents/*.md` files already in the repo — they are not deleted or replaced by
 the generator's existence, only optionally regenerated from it. Restoring prior behavior requires
 no data migration because the generated output is defined to be identical to today's files.
+
+## Phase 1 status (shipped)
+
+Built rather than only proposed, because the actual generic/project split turned out small,
+concrete, and independently verifiable — not the open-ended design work the rest of Phase 1
+implied:
+
+- **Reusable fragment source:** `~/.claude/organization/VERSION` (`0.1.0`) and
+  `~/.claude/organization/fragments/SKILL_MANDATE_WRAPPER.md`. That fragment is the one piece of
+  content found to be byte-identical, word-for-word, across ten of the twelve profiles
+  (`code-reviewer`, `red-hat`, `security`, `verifier`, `grader`, `architect`, `designer`,
+  `governor`, `maker`, `tester` — `architecture-auditor` and `design-auditor` have no such block
+  and pass straight through). It is the "invoke your mandated skills via the `Skill` tool before
+  doing anything else" compulsion text — genuinely project-agnostic; nothing about it names
+  Shoresh, SQLite, or camps.
+- **Project bindings:** `docs/governance/agent-bindings/*.md`, one per role, each the full current
+  profile with the shared wrapper replaced by a `{{SKILL_MANDATE_WRAPPER}}` placeholder (verbatim
+  for the two pass-through roles). This is genuinely everything else — the per-role skill list,
+  BDI framing, domain knowledge, output contracts — none of it generalizes yet; it stayed exactly
+  as specific as it already was.
+- **Generator/validator:** `scripts/generateAgentProfiles.js`. `npm run agents:check` (default) generates
+  in memory and diffs against the committed `.claude/agents/*.md`, exiting non-zero on any
+  divergence — this is the acceptance test named above, and it currently passes for all twelve
+  roles. `npm run agents:generate` writes the generated output and
+  `docs/governance/agent-bindings/manifest.json` (per-role adapter/generated content hashes,
+  keyed to the organization package's `VERSION`).
+- **Not wired into `npm run verify` or `check:governance` yet.** It is a standalone script so this
+  phase's blast radius stays limited to new files plus the already-approved tool/Skill fix; wiring
+  it into the required gate list is a candidate follow-up, not assumed here.
+- **Confirmed:** all twelve roles regenerate byte-for-byte identical to the profiles already on
+  `main` — no role's tool access, model, mandate, or report routing changed as a side effect of
+  this refactor.
+
+What Phase 1 did **not** do, deliberately: no attempt to further generalize the per-role bindings
+(they are 100% Shoresh-specific content today, just reorganized), no `departments.json` or
+`capabilities.json` from the handoff's proposed `organization/` layout (nothing yet needs them),
+and no change to `shoresh-config`'s distribution mechanism. The second-project portability test
+the handoff document calls for — proving the `SKILL_MANDATE_WRAPPER` fragment binds cleanly to a
+different project's roster without a Shoresh adapter — is unstarted and would be the natural next
+slice before claiming actual portability rather than just a cleaner Shoresh-local build.
 
 ## Note on provenance
 

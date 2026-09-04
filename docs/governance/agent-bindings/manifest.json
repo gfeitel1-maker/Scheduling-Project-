@@ -1,0 +1,53 @@
+{
+  "org_version": "0.1.0",
+  "roles": {
+    "architect": {
+      "adapter_hash": "03723e88ba1c440b",
+      "generated_hash": "91ec9e6cd1dd20e4"
+    },
+    "architecture-auditor": {
+      "adapter_hash": "b33bebfac5c16af9",
+      "generated_hash": "b33bebfac5c16af9"
+    },
+    "code-reviewer": {
+      "adapter_hash": "bf1ca9b4406555e8",
+      "generated_hash": "f24cb630307d4da2"
+    },
+    "design-auditor": {
+      "adapter_hash": "5602011c8e655eb8",
+      "generated_hash": "5602011c8e655eb8"
+    },
+    "designer": {
+      "adapter_hash": "cfc7a7697b997ed1",
+      "generated_hash": "26b2cd4fa5579318"
+    },
+    "governor": {
+      "adapter_hash": "d3e757ba774509ca",
+      "generated_hash": "b69d75634b1ca319"
+    },
+    "grader": {
+      "adapter_hash": "c256e14080dd10e0",
+      "generated_hash": "377198c86278080e"
+    },
+    "maker": {
+      "adapter_hash": "f228a6250ecc7c2a",
+      "generated_hash": "65a0219dcdcfe940"
+    },
+    "red-hat": {
+      "adapter_hash": "0622395ff287addc",
+      "generated_hash": "5d82df10a429218c"
+    },
+    "security": {
+      "adapter_hash": "b8cc03b3b0715e41",
+      "generated_hash": "95c17cc79b781708"
+    },
+    "tester": {
+      "adapter_hash": "92d28efede65f9d0",
+      "generated_hash": "c8a2fdb8004f363f"
+    },
+    "verifier": {
+      "adapter_hash": "0e23c991022f3b2e",
+      "generated_hash": "8780196b66c761f0"
+    }
+  }
+}
