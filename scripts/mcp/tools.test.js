@@ -31,6 +31,8 @@ import {
   setupSummaryTool,
   scheduleStateTool,
   exportScheduleTool,
+  checkProjectionHealthTool,
+  repairProjectionEntityTool,
   ENTITY_MAP,
 } from './tools.js'
 import buildSchedule from '../../src/engine/buildSchedule.js'
@@ -429,6 +431,90 @@ describe('scripts/mcp/tools.js', () => {
       expect(result.needs_week).toBe(true)
       expect(result.weeks.map((w) => w.id).sort()).toEqual([week1, week2].sort())
       expect(result.export).toBeUndefined()
+    })
+  })
+
+  describe('checkProjectionHealthTool', () => {
+    it('is read-only/always-available: reports unresolved projection_failures rows regardless of allowWrite', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath, deviceId } = bootstrapDb(dir)
+
+      const db = openLocalDb(dbPath)
+      const opId = randomUUID()
+      const groupId = randomUUID()
+      db.prepare(
+        `INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp)
+         VALUES (?, 'groups', ?, '__deleted__', 1, ?, ?)`
+      ).run(opId, groupId, deviceId, new Date().toISOString())
+      db.prepare(
+        `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at)
+         VALUES (?, 'groups', ?, '__deleted__', 'boom', ?)`
+      ).run(opId, groupId, new Date().toISOString())
+      db.close()
+
+      const result = checkProjectionHealthTool({}, { dbPath, allowWrite: false })
+
+      expect(result.ok).toBe(true)
+      expect(result.failures).toHaveLength(1)
+      expect(result.failures[0].entity).toBe('groups')
+      expect(result.failures[0].entity_id).toBe(groupId)
+    })
+  })
+
+  describe('repairProjectionEntityTool', () => {
+    it('refuses to run when allowWrite is false, without touching the db', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath } = bootstrapDb(dir)
+
+      const result = repairProjectionEntityTool(
+        { entity: 'groups', entity_id: randomUUID() },
+        { dbPath, allowWrite: false }
+      )
+
+      expect(result.ok).toBe(false)
+      expect(result.error).toMatch(/--allow-write/)
+    })
+
+    it('rejects an entity not registered in PROJECTIONS rather than running an unbounded scan', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath } = bootstrapDb(dir)
+
+      const result = repairProjectionEntityTool(
+        { entity: 'not_a_real_entity', entity_id: randomUUID() },
+        { dbPath, allowWrite: true }
+      )
+
+      expect(result.ok).toBe(false)
+      expect(result.error).toMatch(/unknown entity/)
+    })
+
+    it('replays the op-log for the given entity and reports success', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath, campId, deviceId } = bootstrapDb(dir)
+
+      const groupId = randomUUID()
+      const db = openLocalDb(dbPath)
+      db.prepare(
+        `INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp)
+         VALUES (?, 'groups', ?, 'camp_id', ?, ?, ?)`
+      ).run(randomUUID(), groupId, campId, deviceId, new Date().toISOString())
+      db.prepare(
+        `INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp)
+         VALUES (?, 'groups', ?, 'name', 'Bears', ?, ?)`
+      ).run(randomUUID(), groupId, deviceId, new Date().toISOString())
+      db.close()
+
+      const result = repairProjectionEntityTool({ entity: 'groups', entity_id: groupId }, { dbPath, allowWrite: true })
+
+      expect(result.ok).toBe(true)
+      const after = openLocalDb(dbPath)
+      const row = after.prepare('SELECT name FROM groups WHERE id = ?').get(groupId)
+      after.close()
+      expect(row.name).toBe('Bears')
     })
   })
 })

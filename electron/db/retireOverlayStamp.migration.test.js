@@ -57,7 +57,7 @@ describe('migration v53: retire overlay/stamp subsystem', () => {
   it('declares schema version 53 on a fresh db; no template_overlays, no snapshots.overlays', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(54)
+    expect(CURRENT_SCHEMA_VERSION).toBe(55)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 53').get().c).toBe(1)
     expect(tableExists(db, 'template_overlays')).toBe(false)
     expect(columnsOf(db, 'schedule_snapshots')).not.toContain('overlays')

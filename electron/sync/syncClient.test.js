@@ -47,7 +47,8 @@ function syncDeviceSecretToClient(sourceDb, targetDb, deviceId) {
   targetDb.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'synced-device')
   targetDb.prepare('UPDATE devices SET device_secret_identifier = ? WHERE id = ?').run(row.device_secret_identifier, deviceId)
 }
-import { appendOp, recordConflict, listPendingConflicts } from '../ops/operations.js'
+import { appendOp, recordConflict, listPendingConflicts, DELETE_FIELD } from '../ops/operations.js'
+import { repairProjectionForEntity } from '../ops/projectionRepair.js'
 import { startSyncServer } from './syncServer.js'
 import { createSyncClient } from './syncClient.js'
 import { getFreePort } from '../../test/integration/harness.js'
@@ -2759,6 +2760,195 @@ describe('anchor_activities.kind sync round-trip (v51)', () => {
     await waitFor(() => clientDb.prepare('SELECT kind FROM anchor_activities WHERE id = ?').get('anc-sync-2')?.kind === 'fixed')
     const clientRow = clientDb.prepare('SELECT kind FROM anchor_activities WHERE id = ?').get('anc-sync-2')
     expect(clientRow.kind).toBe('fixed')
+
+    client.close()
+  })
+})
+
+// docs/adr/2026-09-04-projection-failure-detection-and-recovery.md, section 4
+// regression scenario: a projection failure must be DETECTED (recorded in
+// projection_failures, op-log durability unaffected, projected row
+// unchanged) and RECOVERABLE (repairProjectionForEntity). The ADR's own
+// worked example uses `locations` blocked by a referencing `template_slots`
+// row, but locations.* columns are deliberately FK-by-convention with NO
+// DB-level FOREIGN KEY (schema.sql, per docs/adr/2026-08-15-locations-
+// concurrent-create-collision.md) — a real SQLITE_CONSTRAINT_FOREIGNKEY can
+// never fire for a locations delete on this schema. `groups`, referenced by
+// template_slots.group_id with a genuine DB FK (schema.sql, default
+// RESTRICT), reproduces the exact reachable case applyRemoteOp's own
+// existing catch comment already describes.
+describe('projection_failures instrumentation (2026-09-04 ADR)', () => {
+  it('a blocked FK delete is logged durably, recorded in projection_failures, and the row stays present — then repair clears it once the blocker is gone', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const groupId = randomUUID()
+    clientDb.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(groupId, campId, 'Bears')
+    // A locally-known referencing row (e.g. queued while offline) that the
+    // Host never knew about — this is what makes the Host's delete op for
+    // `groupId` unable to apply here.
+    const slotId = randomUUID()
+    clientDb.prepare('INSERT INTO template_slots (id, template_id, group_id) VALUES (?, ?, ?)').run(
+      slotId,
+      randomUUID(),
+      groupId
+    )
+
+    const ws = client.__getWs()
+    const opId = randomUUID()
+    const msg = JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: opId,
+        seq: 1,
+        entity: 'groups',
+        entity_id: groupId,
+        field: DELETE_FIELD,
+        value: 1,
+        device_id: deviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })
+
+    expect(() => ws.emit('message', Buffer.from(msg))).not.toThrow()
+
+    // Op-log durability preserved regardless of projection outcome.
+    const opRow = clientDb.prepare('SELECT * FROM operations WHERE id = ?').get(opId)
+    expect(opRow).toBeTruthy()
+
+    const failureRow = clientDb.prepare('SELECT * FROM projection_failures WHERE op_id = ?').get(opId)
+    expect(failureRow).toBeTruthy()
+    expect(failureRow.entity).toBe('groups')
+    expect(failureRow.entity_id).toBe(groupId)
+    expect(failureRow.resolved_at).toBeNull()
+
+    // The delete did not silently succeed.
+    expect(clientDb.prepare('SELECT * FROM groups WHERE id = ?').get(groupId)).toBeTruthy()
+
+    // Remove the blocker (simulating the referencing slot's own delete op
+    // arriving) and repair.
+    clientDb.prepare('DELETE FROM template_slots WHERE id = ?').run(slotId)
+    const result = repairProjectionForEntity(clientDb, 'groups', groupId)
+
+    expect(result.ok).toBe(true)
+    expect(clientDb.prepare('SELECT * FROM groups WHERE id = ?').get(groupId)).toBeUndefined()
+    const resolvedRow = clientDb.prepare('SELECT * FROM projection_failures WHERE op_id = ?').get(opId)
+    expect(resolvedRow.resolved_at).not.toBeNull()
+
+    client.close()
+  })
+
+  it('a normal, successful remote op creates no projection_failures row (negative case)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const groupId = randomUUID()
+    clientDb.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(groupId, campId, 'Bears')
+
+    const ws = client.__getWs()
+    const opId = randomUUID()
+    const msg = JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: opId,
+        seq: 1,
+        entity: 'groups',
+        entity_id: groupId,
+        field: 'name',
+        value: 'Wolves',
+        device_id: deviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })
+
+    ws.emit('message', Buffer.from(msg))
+
+    expect(clientDb.prepare('SELECT name FROM groups WHERE id = ?').get(groupId).name).toBe('Wolves')
+    expect(clientDb.prepare('SELECT * FROM projection_failures WHERE op_id = ?').get(opId)).toBeUndefined()
+
+    client.close()
+  })
+
+  it('automatically repairs an unresolved projection_failures row once op_applied traffic settles, without any renderer-facing call', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const groupId = randomUUID()
+    clientDb.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(groupId, campId, 'Bears')
+    const slotId = randomUUID()
+    clientDb.prepare('INSERT INTO template_slots (id, template_id, group_id) VALUES (?, ?, ?)').run(
+      slotId,
+      randomUUID(),
+      groupId
+    )
+
+    const ws = client.__getWs()
+    const deleteOpId = randomUUID()
+    ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: deleteOpId,
+        seq: 1,
+        entity: 'groups',
+        entity_id: groupId,
+        field: DELETE_FIELD,
+        value: 1,
+        device_id: deviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })))
+
+    // Recorded, unresolved, per the earlier test — sanity check before
+    // exercising the automatic trigger.
+    expect(clientDb.prepare('SELECT resolved_at FROM projection_failures WHERE op_id = ?').get(deleteOpId).resolved_at).toBeNull()
+
+    // Remove the blocker, as the referencing slot's own delete op arriving
+    // (later in the same, or a later, catch-up batch) would.
+    clientDb.prepare('DELETE FROM template_slots WHERE id = ?').run(slotId)
+
+    // A further op_applied message — standing in for the rest of a catch-up
+    // batch continuing to arrive — is what the debounce waits to go quiet
+    // after, exactly as it would for a real sendMissedOps burst.
+    const otherGroupId = randomUUID()
+    clientDb.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(otherGroupId, campId, 'Wolves')
+    ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: randomUUID(),
+        seq: 2,
+        entity: 'groups',
+        entity_id: otherGroupId,
+        field: 'name',
+        value: 'Wolves',
+        device_id: deviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })))
+
+    await waitFor(
+      () => clientDb.prepare('SELECT resolved_at FROM projection_failures WHERE op_id = ?').get(deleteOpId)?.resolved_at != null,
+      { timeout: 5000 }
+    )
+    expect(clientDb.prepare('SELECT * FROM groups WHERE id = ?').get(groupId)).toBeUndefined()
 
     client.close()
   })

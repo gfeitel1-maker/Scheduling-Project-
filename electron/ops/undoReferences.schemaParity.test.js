@@ -157,6 +157,8 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'pending_writes', column: 'entity_id', reason: 'polymorphic (entity varies), no single-table target' },
   { table: 'pending_restores', column: 'entity_id', reason: 'polymorphic (entity varies), no single-table target' },
   { table: 'audit_events', column: 'target_id', reason: 'polymorphic (target_type varies), no single-table target' },
+  { table: 'projection_failures', column: 'op_id', reason: 'points at operations, not a U2-deletable entity — local-only diagnostic ledger row (never synced), never undone' },
+  { table: 'projection_failures', column: 'entity_id', reason: 'polymorphic (entity varies), no single-table target — mirrors operations.entity_id' },
 
   // -- source_aliases is host-local, admin-only confirmation metadata; a stale
   //    cohort_id after a cohort is undo-deleted leaves an alias unmatched on

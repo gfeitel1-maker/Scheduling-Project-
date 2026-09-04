@@ -262,6 +262,28 @@ CREATE INDEX IF NOT EXISTS idx_operations_entity ON operations(entity, entity_id
 -- index is created in initSchema's version-8 migration block instead, right
 -- after the column is confirmed to exist.
 
+-- Local-only diagnostic ledger, never synced: NEVER included in any
+-- full-sync SELECT/payload, NEVER sent over the wire, NEVER added to
+-- DOMAIN_SNAPSHOT_TABLES (syncClient.js) or written through appendOp — same
+-- category as devices.last_synced_seq. Records a projection failure (the
+-- op-log insert in applyRemoteOp succeeded, but applyProjection/
+-- applyBulkReplaceProjection then threw), so a device that is silently out
+-- of step in its projected tables becomes queryable instead of invisible.
+-- op_id is the primary key: re-encountering the same failure (e.g. a repair
+-- attempt that fails again) is an idempotent upsert, never a duplicate row.
+-- docs/adr/2026-09-04-projection-failure-detection-and-recovery.md.
+CREATE TABLE IF NOT EXISTS projection_failures (
+  op_id TEXT PRIMARY KEY REFERENCES operations(id),
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  field TEXT NOT NULL,
+  error_message TEXT NOT NULL,
+  failed_at TEXT NOT NULL,
+  resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_projection_failures_unresolved
+  ON projection_failures(entity, entity_id) WHERE resolved_at IS NULL;
+
 -- Durable record of every conflict ever detected (either locally, via
 -- detectConflict in handleSubmitOp on the host, or received over the wire as
 -- an op_conflict message on a client). This is what makes conflicts survive

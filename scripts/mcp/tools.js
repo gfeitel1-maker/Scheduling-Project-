@@ -17,6 +17,8 @@ import { assembleScheduleEngineInputs } from '../../electron/ops/scheduleEngineI
 import { normalizeSlots } from '../../src/utils/normalizeSlots.js'
 import buildSchedule from '../../src/engine/buildSchedule.js'
 import { buildScheduleExport } from '../../src/utils/exportScheduleJson.js'
+import { PROJECTIONS } from '../../electron/ops/projections.js'
+import { repairProjectionForEntity, checkProjectionHealth } from '../../electron/ops/projectionRepair.js'
 
 export const ENTITY_MAP = {
   age_divisions: 'tiers',
@@ -183,6 +185,44 @@ export function exportScheduleTool(args, { dbPath }) {
       route: args.route,
     })
     return { ok: true, export: out }
+  } finally {
+    db.close()
+  }
+}
+
+// docs/adr/2026-09-04-projection-failure-detection-and-recovery.md, "Product
+// decisions" #1/#3: v1 has no director-facing UI or renderer IPC for
+// projection_failures — this MCP surface is the only manual entry point,
+// for dogfooding/support use. Read-only, so always available like
+// list_entities/setup_summary — no --allow-write gate.
+export function checkProjectionHealthTool(_args, { dbPath }) {
+  const db = openLocalDb(dbPath)
+  try {
+    return { ok: true, ...checkProjectionHealth(db) }
+  } finally {
+    db.close()
+  }
+}
+
+// Mutating (replays op-log history back into the projected table), so it is
+// gated the same way ingest_commit already is — the ADR's stated posture for
+// this call ("Repair trigger and authority" #3). entity is validated against
+// PROJECTIONS (the same registry applyProjection itself checks) before any
+// query runs, so an invalid entity name is rejected rather than executing an
+// unbounded scan (ADR §3, "Trust boundary").
+export function repairProjectionEntityTool(args, { dbPath, allowWrite }) {
+  if (!allowWrite) {
+    return {
+      ok: false,
+      error: 'repair is disabled — relaunch the server with --allow-write to enable repair_projection_entity',
+    }
+  }
+  if (!PROJECTIONS[args.entity]) {
+    return { ok: false, error: `unknown entity: ${args.entity}` }
+  }
+  const db = openLocalDb(dbPath)
+  try {
+    return { ...repairProjectionForEntity(db, args.entity, args.entity_id), entity: args.entity, entity_id: args.entity_id }
   } finally {
     db.close()
   }

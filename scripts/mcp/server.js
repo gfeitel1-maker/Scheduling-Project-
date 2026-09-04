@@ -21,6 +21,8 @@ import {
   setupSummaryTool,
   scheduleStateTool,
   exportScheduleTool,
+  checkProjectionHealthTool,
+  repairProjectionEntityTool,
 } from './tools.js'
 
 function parseArgs(argv) {
@@ -126,6 +128,27 @@ const TOOLS = [
       required: ['route'],
     },
     handler: exportScheduleTool,
+  },
+  {
+    name: 'check_projection_health',
+    description:
+      "Read-only diagnostic: lists this device's unresolved projection failures (an op-log entry that logged durably but whose effect never materialized into this device's local tables — docs/adr/2026-09-04-projection-failure-detection-and-recovery.md). Support/debugging use; always available, no --allow-write required.",
+    inputSchema: { type: 'object', properties: {} },
+    handler: checkProjectionHealthTool,
+  },
+  {
+    name: 'repair_projection_entity',
+    description:
+      "Re-derive one entity's row from its full op-log history, clearing any unresolved projection failure for it once the blocking condition (e.g. a since-resolved foreign-key dependency) is gone. Requires the server to have been launched with --allow-write; otherwise refuses. Support/debugging use — this is not a director-facing action.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entity: { type: 'string', description: 'The op-log entity name, e.g. groups, locations, activities.' },
+        entity_id: { type: 'string' },
+      },
+      required: ['entity', 'entity_id'],
+    },
+    handler: repairProjectionEntityTool,
   },
 ]
 
