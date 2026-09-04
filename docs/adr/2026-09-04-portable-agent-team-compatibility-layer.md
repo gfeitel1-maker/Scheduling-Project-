@@ -59,13 +59,13 @@ Add `Skill` to the tool allowlist of the five affected agents:
 No other line in any of the five files changes. Role mandate, output contract, and report
 destination (Grader vs. Governor) are untouched.
 
-Known related gap, **not fixed here, flagged for a separate decision**: `security.md`'s body
-mandates invoking a `security-review` skill (line 36) that does not exist anywhere under
-`~/.claude` (confirmed by the live audit). Adding the `Skill` tool lets Security *attempt* the
-call; it will still fail to find the skill. Resolving this requires either (a) writing a
-Shoresh-owned `security-review` skill, or (b) adopting an adapted version of Addy Osmani's
-`security-and-hardening` skill per the handoff's Part B — both are Phase-2-scope decisions, out of
-this ADR.
+Related gap, since closed (see "Phase 1 status" below): `security.md`'s body mandates invoking a
+`security-review` skill (line 36) that, at the time this ADR was first drafted, did not exist
+anywhere under `~/.claude` (confirmed by the live audit). Adding the `Skill` tool let Security
+*attempt* the call but it would still fail to find the skill. `~/.claude/skills/security-review/`
+was written to close this — a Shoresh-owned methodology skill, not an Addy Osmani import — so
+option (a) from the original two listed here. Option (b), adopting Addy's `security-and-hardening`
+skill instead or in addition, remains a separate, unstarted decision.
 
 **Propose for approval (not yet built):**
 
@@ -145,6 +145,12 @@ implied:
 - **Confirmed:** all twelve roles regenerate byte-for-byte identical to the profiles already on
   `main` — no role's tool access, model, mandate, or report routing changed as a side effect of
   this refactor.
+- **`security-review` skill written** at `~/.claude/skills/security-review/SKILL.md` — closes the
+  dangling dependency Security's profile always expected. Original methodology (attack-surface
+  mapping, an OWASP-derived checklist, confirm-before-report), explicitly deferring to
+  `SECURITY.md`'s accepted exceptions and never re-flagging them. This lives outside the repo (it's
+  a global skill, like the rest of this project's skill catalog) so there is no repo diff for it —
+  noted here for provenance.
 
 What Phase 1 did **not** do, deliberately: no attempt to further generalize the per-role bindings
 (they are 100% Shoresh-specific content today, just reorganized), no `departments.json` or
