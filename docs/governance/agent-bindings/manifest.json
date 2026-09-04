@@ -2,8 +2,8 @@
   "org_version": "0.1.0",
   "roles": {
     "architect": {
-      "adapter_hash": "03723e88ba1c440b",
-      "generated_hash": "91ec9e6cd1dd20e4"
+      "adapter_hash": "11029372130d3e39",
+      "generated_hash": "9cde8fe7f36dfcd5"
     },
     "architecture-auditor": {
       "adapter_hash": "b33bebfac5c16af9",
@@ -22,8 +22,8 @@
       "generated_hash": "26b2cd4fa5579318"
     },
     "governor": {
-      "adapter_hash": "96ad587462f2e225",
-      "generated_hash": "65f34b7e87a17578"
+      "adapter_hash": "a5d220859f0f7e8a",
+      "generated_hash": "1ae7ccb62e84b1c7"
     },
     "grader": {
       "adapter_hash": "c256e14080dd10e0",

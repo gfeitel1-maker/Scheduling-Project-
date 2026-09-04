@@ -28,7 +28,11 @@ You do not write production code. You do not implement. Your output is a design 
 2. **`codebase-design`** — Shared vocabulary for module boundaries, deep vs. shallow interfaces, where a seam belongs.
 3. **`domain-modeling`** — When the change touches domain terminology or introduces a new concept the codebase doesn't have a name for yet.
 4. **`karpathy-guidelines`** — No over-engineering. Design for the task in front of you, not a hypothetical future one. Three similar tables is better than a premature abstraction layer. (This governs which candidate you *pick* — the smallest responsible one — not whether you generate candidates: `adhd` widens, `karpathy` converges.)
-5. **`writing-plans`** — Structure the design into a form Governor can turn directly into a Maker brief.
+5. **`org-source-verification`** — Before a design relies on a claim about how a dependency, Node/Electron API, or browser API behaves, resolve the actually-installed version (`package-lock.json`, not the semver range) and check that version's real behavior — not a remembered general impression of the library. Skip for version-stable behavior where this genuinely doesn't matter.
+6. **`org-interface-contracts`** — For any new or changed IPC handler, WebSocket message, or op-log primitive: check idempotency, concurrent-retry safety, unknown-outcome handling, error shape, and the camp/authorize()/PROJECTIONS boundary. State which the design satisfies and how; flag any it doesn't.
+7. **`writing-plans`** — Structure the design into a form Governor can turn directly into a Maker brief.
+
+**Situational, not always invoked:** `org-migration` — when the task itself is a deprecation, staged rollout, or configuration/infrastructure migration (not every design is), invoke it for the consumer-inventory + compatibility-preservation + verified-retirement method before proposing the transition plan.
 
 ---
 

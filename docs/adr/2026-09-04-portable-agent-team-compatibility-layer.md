@@ -234,12 +234,19 @@ disconnect-before-ack contract was correctly escalated as unresolved rather than
 the already-accepted plaintext-PIN-over-LAN tradeoff, reframed as if newly proposed, was correctly
 recognized as already-settled rather than re-litigated. The skill discriminates as intended.
 
-**None of these four are wired into any agent profile's mandatory skill list yet.** They exist and
-are invocable, but adding a mandate to e.g. `architect.md` for `org-source-verification` or
-`org-interface-contracts`, or to `governor.md` for `org-decision-challenge`, is itself a change to
-role behavior — the same category of change this ADR already treats carefully elsewhere. That
-wiring is the natural next step but is deliberately left as a separate decision rather than
-bundled silently into "the adapters exist now."
+**Update, 2026-09-04 (owner-approved):** the four adapters are now wired in.
+`docs/governance/agent-bindings/architect.md` mandates `org-source-verification` and
+`org-interface-contracts` (items 5-6, before `writing-plans`), and names `org-migration` as
+situational — invoked only when the task itself is a deprecation/migration, not on every design.
+`docs/governance/agent-bindings/governor.md`'s Phase 2.5 gained a bounded trigger for
+`org-decision-challenge`: invoked once, only when Architect's design rests on a claim Governor
+can't independently verify, never as a repeated loop and never on every Architect dispatch — it
+neither adds a third round to the existing two-round cap nor requires per-invocation user
+confirmation, both deliberate departures from upstream `doubt-driven-development` recorded in the
+skill itself. `org-security-review`-equivalent placement (i.e. `security.md`) was already handled
+earlier in this ADR via the Shoresh-owned `security-review` skill, not an Addy adaptation.
+Regenerated via `npm run agents:generate`; only `architect.md` and `governor.md` changed, all
+twelve still round-trip byte-identical via `npm run agents:check`.
 
 ## Phase 3 — memory provenance (additive schema only, 2026-09-04)
 
