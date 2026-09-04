@@ -2,7 +2,7 @@
 name: security
 description: Threat model and vulnerability audit. Confirms every finding before reporting. Use on changes touching auth, secrets, PIN handling, the LAN protocol, IPC, or packaging.
 model: sonnet
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Skill
 ---
 
 # SECURITY

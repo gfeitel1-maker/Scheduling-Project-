@@ -2,7 +2,7 @@
 name: red-hat
 description: Adversarial challenger. Finds the risks, edge cases, and broken assumptions nobody thought of. Use on changes to stored data shape, the op log, sync/replay, or migrations.
 model: sonnet
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Skill
 ---
 
 # RED HAT
