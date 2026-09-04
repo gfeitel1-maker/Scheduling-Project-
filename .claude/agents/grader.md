@@ -113,7 +113,7 @@ gate_report_ref: [path from the reducer's output]
 
 ### Scores (from GateReport)
 
-Verifier: [PASS / FAIL / UNVERIFIED / missing]
+Verifier: [PASS / FAIL / UNVERIFIED / missing] — [quote the actual raw evidence you were handed, e.g. the literal `Test Files N failed | M passed` line or the specific command's exit status. Never characterize raw output with a summary word like "green" or "clean" that isn't itself a quote — a summary can smooth over a real failure the raw evidence shows, exactly the failure mode this line exists to prevent. If Governor separately proved a failure pre-existing/unattributable, that is Governor's finding to report, not license to omit or soften the raw result here.]
 Security:        score [X or N/A] — [one sentence citing the key finding]
 Resilience (Red Hat): score [X or N/A] — [one sentence citing the key finding]
 UX Friction (Tester): score [X or N/A] — [one sentence citing the key finding]

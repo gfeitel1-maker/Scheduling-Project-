@@ -22,12 +22,12 @@
       "generated_hash": "26b2cd4fa5579318"
     },
     "governor": {
-      "adapter_hash": "a5d220859f0f7e8a",
-      "generated_hash": "1ae7ccb62e84b1c7"
+      "adapter_hash": "632ee4fcaad7e4bc",
+      "generated_hash": "65f363c05fcd430e"
     },
     "grader": {
-      "adapter_hash": "c256e14080dd10e0",
-      "generated_hash": "377198c86278080e"
+      "adapter_hash": "61aab5075e41f542",
+      "generated_hash": "ec94feac910c803e"
     },
     "maker": {
       "adapter_hash": "5d6641ad6a18d6c1",
