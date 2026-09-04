@@ -205,6 +205,42 @@ baseline reference is found, or a failure doesn't exactly match a recorded one, 
 suite against the pre-change tree (or asks Governor to) before calling it pre-existing — never
 infers innocence from where the failing file lives.
 
+## Addy Osmani adapter pilot (2026-09-04)
+
+Per Part B's first-candidate set, four uniquely-named, project-adapted skills were written
+(pinned to commit `1c760d643497e9da289300e5eb2f5aca861503f7`, each documenting its exact local
+changes from upstream, per the handoff's own installation checklist item 3):
+
+- `~/.claude/skills/org-source-verification/` — adapted from `source-driven-development`.
+- `~/.claude/skills/org-interface-contracts/` — adapted from `api-and-interface-design`, remapped
+  from REST/TypeScript examples onto this project's actual IPC/WebSocket/op-log contracts.
+- `~/.claude/skills/org-migration/` — adapted from `deprecation-and-migration`, widened to cover
+  configuration/infrastructure consumers (settings, symlinks, launch paths) alongside application
+  code, and explicitly stripped of any license to delete project history.
+- `~/.claude/skills/org-decision-challenge/` — adapted from `doubt-driven-development`, bounded to
+  one cycle (not upstream's up-to-three), no per-invocation confirmation, no external-provider
+  consultation, and grounded in this project's existing two-round cap rather than adding a second
+  loop.
+- `~/.claude/skills/security-review/` (written earlier this session, see above) fills the fifth
+  first-candidate slot — a Shoresh-owned skill rather than an Addy adaptation, since `security.md`
+  already needed a `security-review` skill to exist by that exact name.
+
+`org-decision-challenge` was fixture-tested against its own three stated cases by an independent
+fresh-context agent (a separate dispatch, not this session reasoning about its own skill) before
+being considered pilot-ready. **All three passed:** the false-idempotency claim (an `updated_at`-
+only comparison that clobbers on any timestamp mismatch, not a real no-op-if-unchanged check) was
+correctly classified as a failed claim rather than rubber-stamped; the unspecified `sync_batch`
+disconnect-before-ack contract was correctly escalated as unresolved rather than guessed at; and
+the already-accepted plaintext-PIN-over-LAN tradeoff, reframed as if newly proposed, was correctly
+recognized as already-settled rather than re-litigated. The skill discriminates as intended.
+
+**None of these four are wired into any agent profile's mandatory skill list yet.** They exist and
+are invocable, but adding a mandate to e.g. `architect.md` for `org-source-verification` or
+`org-interface-contracts`, or to `governor.md` for `org-decision-challenge`, is itself a change to
+role behavior — the same category of change this ADR already treats carefully elsewhere. That
+wiring is the natural next step but is deliberately left as a separate decision rather than
+bundled silently into "the adapters exist now."
+
 ## Note on provenance
 
 The source handoff document lives outside this repository at
