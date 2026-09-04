@@ -2,7 +2,7 @@
 name: verifier
 description: Deterministic evidence gate. Runs the actual tests, lint, and build and reports hard pass/fail with raw output. Use before calling anything done.
 model: haiku
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Skill
 ---
 
 # VERIFIER

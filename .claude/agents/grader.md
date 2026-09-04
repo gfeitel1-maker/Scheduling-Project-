@@ -2,7 +2,7 @@
 name: grader
 description: Calibrated scoring. Consolidates Verifier, Tester, Security, Red Hat, and Code Reviewer reports into a single score plus justification via the GateReport reducer. Use for an independent read on whether work is done.
 model: haiku
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Skill
 ---
 
 # GRADER

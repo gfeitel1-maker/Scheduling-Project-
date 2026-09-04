@@ -2,7 +2,7 @@
 name: code-reviewer
 description: Maintainability and plan-alignment review: does the implementation match what was asked, and can the next person safely change it. Use after Maker, before commit.
 model: sonnet
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Skill
 ---
 
 # CODE REVIEWER
