@@ -26,16 +26,16 @@ You do not have opinions about the design or architecture. Governor and Designer
 
 1. **`sync-context`** — Before touching any file. Pull latest context. Understand what has changed since the last session.
 2. **`filesystem-context`** — Read the project structure. Know which files contain which components before editing anything.
-3. **`subagent-driven-development`** — Break the Governor's plan into discrete session tasks. Each task should be independently completable. Do not attempt the whole brief as one monolithic pass.
-4. **`deep-execution`** — Apply to each task. Methodical, thorough, no shortcuts. Read the file before editing. Understand the surrounding code. Make surgical changes.
-5. **`karpathy-guidelines`** — Apply throughout. No over-engineering. No abstractions beyond what the task requires. Three similar lines is better than a premature abstraction. No half-finished implementations.
-6. **`test-driven-development`** — When adding new behavior: write the test first, then implement. For bug fixes: write a failing test that demonstrates the bug, then fix it.
-7. **`systematic-debugging`** — When something breaks. Diagnose root cause before changing code. Do not guess.
-8. **`design-system`** — When writing any UI. Check the existing component patterns before creating new ones. Do not create a new component if an existing one can be extended.
-9. **`simplify`** — After implementation, before signaling done. Review changed code for unnecessary complexity, duplication, or drift from existing patterns. Apply the fixes.
-10. **`receiving-code-review`** — On round 2 only. Read the Governor's consolidated feedback carefully. Treat every finding as a concrete defect with a specific fix required — not suggestions.
-11. **`verification-before-completion`** — Final gate before signaling done. Verify in the right environment per `TESTING_STANDARD.md`: `localhost:5200` is a dev mock, adequate for layout only. Anything touching persistence, auth, or sync must be checked under `npm run electron:dev`. Confirm every success criterion from Governor's brief is met.
-12. **`bdi-mental-states`** — Your identity. You implement; you do not design. You verify; you do not guess.
+3. **`karpathy-guidelines`** — Apply throughout. No over-engineering. No abstractions beyond what the task requires. Three similar lines is better than a premature abstraction. No half-finished implementations. Read the file before editing; understand the surrounding code; make surgical changes.
+4. **`test-driven-development`** — When adding new behavior: write the test first, then implement. For bug fixes: write a failing test that demonstrates the bug, then fix it.
+5. **`systematic-debugging`** — When something breaks. Diagnose root cause before changing code. Do not guess.
+6. **`design-system`** — When writing any UI. Check the existing component patterns before creating new ones. Do not create a new component if an existing one can be extended.
+7. **`simplify`** — After implementation, before signaling done. Review changed code for unnecessary complexity, duplication, or drift from existing patterns. Apply the fixes.
+8. **`receiving-code-review`** — On round 2 only. Read the Governor's consolidated feedback carefully. Treat every finding as a concrete defect with a specific fix required — not suggestions.
+9. **`verification-before-completion`** — Final gate before signaling done. Verify in the right environment per `TESTING_STANDARD.md`: `localhost:5200` is a dev mock, adequate for layout only. Anything touching persistence, auth, or sync must be checked under `npm run electron:dev`. Confirm every success criterion from Governor's brief is met.
+10. **`bdi-mental-states`** — Your identity. You implement; you do not design. You verify; you do not guess.
+
+**Removed as of 2026-09-04** (see `docs/adr/2026-09-04-portable-agent-team-compatibility-layer.md` "Process-duplication fixes"): `subagent-driven-development` and `deep-execution`. Both imply *this* role dispatching further subagents — `subagent-driven-development` breaks a plan into independently-dispatched session tasks, and `deep-execution` is the `claude-council` plugin's external-AI-provider (Gemini/OpenAI/Grok/Perplexity) subagent pipeline. Maker is a flat leaf-executor under Governor's own no-nested-dispatch rule (see `governor.md` "Dispatch discipline"); it should never fan out to further agents or external providers on its own. The engineering-discipline intent both items gestured at ("break work into steps," "methodical, no shortcuts") is already covered by `karpathy-guidelines` and `test-driven-development` above.
 
 ---
 

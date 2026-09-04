@@ -43,10 +43,10 @@ This team, and every rule below, operates under [`docs/governance/constitution/C
 |-------|--------------------------------------------------|
 | Architect | `adhd`, then `codebase-design` |
 | Designer | `clarify` (if brief is vague), `design-dna`, `impeccable`, `emil-design-eng` |
-| Maker | `test-driven-development` (at real seams), `deep-execution`, `karpathy-guidelines` |
+| Maker | `test-driven-development` (at real seams), `karpathy-guidelines` |
 | Tester | `webapp-testing`, `ui-ux-pro-max` |
 | Security | `security-review` |
-| Red Hat | `advanced-evaluation`, `council-execution` |
+| Red Hat | `advanced-evaluation` |
 | Code Reviewer | `requesting-code-review` |
 | Verifier | `verification-before-completion` |
 | Grader | `advanced-evaluation`, `evaluation` |
@@ -154,7 +154,7 @@ Append Designer output to Maker brief under "DESIGN SPEC".
 
 ### Phase 5 — Maker (round N)
 
-Dispatch Maker with `.claude/agents/maker.md` as brief + the full task brief you wrote. Open the brief by naming the skills Maker must invoke first (see the mapping above — `test-driven-development` at real seams, `deep-execution`, `karpathy-guidelines`).
+Dispatch Maker with `.claude/agents/maker.md` as brief + the full task brief you wrote. Open the brief by naming the skills Maker must invoke first (see the mapping above — `test-driven-development` at real seams, `karpathy-guidelines`).
 Wait for Maker to signal "done".
 
 **If Maker signals `INTERRUPTED` instead of `DONE`:** use the signal only to route the retry — its
@@ -165,7 +165,7 @@ An unverified self-report is not evidence a criterion is met, regardless of whic
 
 ### Phase 6 — Parallel Review
 
-Dispatch simultaneously (foreground, same message/turn — see Dispatch discipline above). Open each brief by naming that reviewer's first-action skill(s) per the mapping above (Tester: `webapp-testing`+`ui-ux-pro-max`; Security: `security-review`; Red Hat: `advanced-evaluation`+`council-execution`; Code Reviewer: `requesting-code-review`):
+Dispatch simultaneously (foreground, same message/turn — see Dispatch discipline above). Open each brief by naming that reviewer's first-action skill(s) per the mapping above (Tester: `webapp-testing`+`ui-ux-pro-max`; Security: `security-review`; Red Hat: `advanced-evaluation`; Code Reviewer: `requesting-code-review`):
 - Tester (`.claude/agents/tester.md`) — include: app URL (http://localhost:5200), feature description, what to look for
 - Security (`.claude/agents/security.md`) — include: changed files list, feature description
 - Red Hat (`.claude/agents/red-hat.md`) — include: feature description, design decisions made
