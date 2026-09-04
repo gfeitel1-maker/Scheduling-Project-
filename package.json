@@ -26,6 +26,7 @@
     "check:governance": "node scripts/check-governance.js",
     "agents:check": "node scripts/generateAgentProfiles.js",
     "agents:generate": "node scripts/generateAgentProfiles.js --write",
+    "gate:shadow-check": "node scripts/shadowGateEnvelope.js",
     "verify": "node scripts/verify.js"
   },
   "dependencies": {

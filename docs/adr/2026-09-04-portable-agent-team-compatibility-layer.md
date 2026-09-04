@@ -6,7 +6,7 @@ status: accepted
 date: 2026-09-04
 supersedes: []
 implementation_state: in-progress
-affects: [.claude/agents/code-reviewer.md, .claude/agents/red-hat.md, .claude/agents/security.md, .claude/agents/verifier.md, .claude/agents/grader.md, .claude/agents/architect.md, .claude/agents/architecture-auditor.md, .claude/agents/design-auditor.md, .claude/agents/designer.md, .claude/agents/governor.md, .claude/agents/maker.md, .claude/agents/tester.md, scripts/generateAgentProfiles.js]
+affects: [.claude/agents/code-reviewer.md, .claude/agents/red-hat.md, .claude/agents/security.md, .claude/agents/verifier.md, .claude/agents/grader.md, .claude/agents/architect.md, .claude/agents/architecture-auditor.md, .claude/agents/design-auditor.md, .claude/agents/designer.md, .claude/agents/governor.md, .claude/agents/maker.md, .claude/agents/tester.md, scripts/generateAgentProfiles.js, scripts/taskEnvelopeSchema.js, scripts/shadowGateEnvelope.js]
 ---
 
 # Portable agent-team compatibility layer
@@ -240,6 +240,78 @@ are invocable, but adding a mandate to e.g. `architect.md` for `org-source-verif
 role behavior — the same category of change this ADR already treats carefully elsewhere. That
 wiring is the natural next step but is deliberately left as a separate decision rather than
 bundled silently into "the adapters exist now."
+
+## Phase 3 — memory provenance (additive schema only, 2026-09-04)
+
+Adds `~/.claude/organization/schemas/memory-record.md`: an **optional** extension to the existing
+memory taxonomy (`id`, `project_id`, `scope`, `namespace`, `kind`, `status`, `summary`,
+`source_refs`, `observed_at`, `last_verified_at`, `applies_to`, `supersedes`), for new memory
+writes going forward. Explicitly does **not** retrofit any of the ~85 existing memory files with
+fabricated timestamps or provenance, and does not change the nightly consolidation scripts
+(`_consolidation/*.sh`, `consolidate.md`) — those keep writing exactly as they do today. Teaching
+consolidation to populate this schema from birth is a natural next step, deliberately left
+separate. This is the full extent of Phase 3 undertaken in this session: a documented schema, no
+runtime behavior change, and an explicit refusal to manufacture provenance for legacy records.
+
+## Phase 4 — task envelope, shadow mode only (2026-09-04)
+
+Per the owner's explicit choice of "shadow mode only" for this phase — the GateReport reducer is
+the one piece of infrastructure every real feature's pass/fail already depends on, so nothing here
+may touch it:
+
+- `scripts/taskEnvelopeSchema.js` — the proposed `TaskRun` envelope's shape validator, and a pure,
+  read-only projection (`projectTaskRunStatus`) from an existing `GateReport` (produced by the
+  real, unmodified `reduceGateReport`) onto envelope status fields (`in_progress` / `complete` /
+  `blocked` / `escalated`, `pending_human_decision`). It never recomputes `overall_score` or
+  `decision_eligibility` — those stay the reducer's alone, per this ADR's existing "never silently
+  change the reducer inputs" rule.
+- `scripts/shadowGateEnvelope.js` (`npm run gate:shadow-check`) — re-runs the same deterministic
+  scenarios the Phase 0 audit validated the reducer against, through the real `reduceGateReport`,
+  and projects each through the envelope. All nine scenarios (the original eight plus a round-2
+  escalation case) produced the expected `decision_eligibility`/`status` pairing. Confirmed
+  zero-touch: `git status` shows no diff to `gateReportReduce.js`, `gateReportSchema.js`,
+  `gateReportCli.js`, `gateReportPersist.js`, or anything under `docs/work/runs/gate-reports/` —
+  the harness calls the reducer's pure function directly, in-memory, and writes nothing.
+- **A real bug was caught and fixed during this work**, worth recording as evidence the shadow
+  harness itself is trustworthy: the first draft's test fixture accidentally attached a `score` to
+  the `verifier` gate report, which the *existing* schema correctly rejects ("verifier must not
+  carry a score") — this turned every scenario's `verifier_pass` false and every projection into
+  `BLOCK`, a bug in the new harness, not the reducer. Fixed in the harness before treating any
+  result as evidence.
+- **Not done, deliberately:** no comparison against a live Grader run (no real task is in flight
+  to compare against without fabricating fake reviewer reports, which would misrepresent this as
+  tested against reality when it isn't), and no wiring of the envelope into any agent's dispatch
+  or output contract. This stays exactly what "shadow mode" means: provably compatible, never
+  live.
+
+## Phase 5 — second-project portability fixture (2026-09-04)
+
+Built a disposable fixture (scratchpad-only, not committed anywhere — per the source handoff,
+"a portability test, not authorization to migrate another real project"): a fictional Python CLI
+project (`invoice_parser`) with a `reviewer` role binding using `{{SKILL_MANDATE_WRAPPER}}`, the
+same organization fragment Shoresh's ten profiles use. Composed it with the same fragment file
+Shoresh reads from (`~/.claude/organization/fragments/SKILL_MANDATE_WRAPPER.md`), without editing
+that fragment or anything in the Shoresh repo. Confirmed:
+
+- The generated fixture profile carries the identical generic mandate text (`EXTREMELY-IMPORTANT`
+  block present, byte-for-byte the same fragment).
+- **Zero leakage**: grepped the generated output for `shoresh|camp|sqlite|electron|schedule|scheduling`
+  (case-insensitive) — no matches. The fixture's own skill list (`pytest-fixture-design`,
+  `invoice-domain-modeling` — fictional, invented for this test) is entirely its own, unrelated to
+  Shoresh's roster.
+- Removing the fixture leaves nothing behind in either the Shoresh repo or `~/.claude/organization/`
+  — the fixture only ever *read* the shared fragment, never wrote to it.
+
+This confirms the one claim Phase 1 actually makes portable — the `SKILL_MANDATE_WRAPPER`
+fragment — genuinely binds to an unrelated project's own role without modification. It does not
+by itself prove the full `organization/` package (`departments.json`, `capabilities.json`, a real
+generator CLI) is portable, because those don't exist yet — only the fragment does. The **five
+real-task production pilot** from the source handoff's Phase 5 (a predeclared cohort of five
+consecutive Shoresh tasks) was **not** run in this session: fabricating five tasks to complete a
+checklist would produce evidence about contrived tasks, not real usage, which is exactly the kind
+of measurement the source handoff itself warns against ("the old baseline is ten self-authored
+records... it cannot establish broad reliability"). This should happen as genuine Shoresh feature
+work occurs, not be manufactured now.
 
 ## Note on provenance
 
