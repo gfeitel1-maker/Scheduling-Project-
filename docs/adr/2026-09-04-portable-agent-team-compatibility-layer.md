@@ -2,7 +2,7 @@
 title: "Portable agent-team compatibility layer: generate the twelve native agent profiles from a reusable role source plus a Shoresh adapter"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-09-04
 supersedes: []
 implementation_state: not started
