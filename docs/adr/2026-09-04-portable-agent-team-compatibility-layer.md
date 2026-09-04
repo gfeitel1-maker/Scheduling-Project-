@@ -374,6 +374,60 @@ not a requested feature) — the value was in what the run proved:
   *wait* for a long command (e.g. a backgrounded `sleep`) is the same stall risk as backgrounding
   the command itself — a dispatched Governor agent hit exactly this during the smoke test.
 
+## Second verification pass (2026-09-04) — closing the loop the first smoke test left open
+
+The live smoke test above left five things effectively unanswered — two "fixes" that were never
+re-tested after being made, and three open questions treated as an acceptable watch-list rather
+than resolved. On review, that wasn't good enough: a fix nobody re-verified is a claim, not a
+fact. Five direct, targeted dispatches (not another full feature loop — cheaper, more legible
+tests isolating each question) were run:
+
+1. **Does a restricted reviewer actually invoke `Skill` live, now that it has access?** Dispatched
+   Security directly on a real handler. **Still genuinely unresolved.** The mandated "Using
+   [skill] to…" announcement was absent, exactly as in the original smoke test — now confirmed
+   across two independent fresh runs, not one. The available tooling only surfaces a subagent's
+   final report, not its raw tool-call trace, so this can't be resolved further without deeper
+   instrumentation than is currently available. This is recorded as an honest open limitation, not
+   a claimed fix and not silently dropped.
+2. **Does Architect invoke `org-interface-contracts` when a task clearly calls for it?**
+   Dispatched Architect on an unambiguous new-wire-message design. **Confirmed.** Its output
+   contained a dedicated, explicitly labeled "Interface-contract checklist (`org-interface-
+   contracts`)" section working through idempotency, concurrent retries, unknown outcomes, error
+   shape, and the trust boundary — directly traceable to the skill's own checklist, not a
+   coincidence of good design instinct.
+3. **Does Grader's evidence-fidelity fix actually change its behavior on a real failure?** Fed
+   Grader a genuinely failing `npm run test` result. **Confirmed.** Its report quoted the exact
+   raw failure line verbatim instead of any "green"/"clean" gloss — the precise failure mode being
+   fixed. (It also independently ran the real reducer CLI against the synthetic input despite
+   being told it didn't need to, faithfully following its own written procedure; the resulting
+   stray file under `docs/work/runs/gate-reports/` was deleted immediately after, since it was
+   test scaffolding, not real evidence.)
+4. **Does Governor's background-wait fix actually change its behavior on a long command?**
+   Dispatched Governor on a genuinely ~70s command. **Confirmed.** It backgrounded the command
+   itself (the sandbox forces this), but blocked in the foreground on the command's real output
+   file rather than estimating elapsed time or trusting an exit-code notification alone — and
+   explicitly named the distinction between that and the prohibited pattern in its own reasoning.
+5. **Does `org-decision-challenge` actually fire and work end-to-end inside a real Phase 2.5
+   decision?** Handed Governor a design section containing a genuinely uncertain idempotency
+   claim. **Confirmed, and it did more than pass the test:** it correctly triggered (and correctly
+   explained a case that would *not* qualify), re-derived the claim from actual source rather than
+   trusting Architect's justification, classified the outcome as "needs a caveat" with one
+   escalated open question, ran exactly one cycle per its own bound, and in the process found a
+   real, live inconsistency in this codebase unrelated to the migration: `operations.client_write_id`
+   has no backing unique index (`electron/db/schema.sql:256`), while a comment in
+   `electron/ops/duplicateWeek.test.js:157` incorrectly claims duplicates are "absorbed (UNIQUE
+   constraint)." Filed as a separate follow-up, not fixed here — out of this ADR's scope.
+
+**Net result: four of five items now have real, direct evidence, not assumptions. The fifth —
+whether the Skill-invocation announcement mandate is actually followed — remains an honestly
+unresolved instrumentation gap**, not a fix that was skipped. Tool access is proven twice over;
+invocation-announcement discipline has now failed to appear in three independent live runs across
+this whole session (the original smoke test's reviewers, and this pass's direct Security
+dispatch). That pattern is itself worth treating as a standing, known limitation of the
+"announce as proof of compliance" mechanism this project's profiles rely on — not a reason to
+distrust the substantive outputs (which have been correct throughout), but a reason not to claim
+the announcement convention is working as designed.
+
 ## Note on provenance
 
 The source handoff document lives outside this repository at
