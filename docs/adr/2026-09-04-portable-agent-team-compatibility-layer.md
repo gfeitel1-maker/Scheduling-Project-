@@ -320,6 +320,60 @@ of measurement the source handoff itself warns against ("the old baseline is ten
 records... it cannot establish broad reliability"). This should happen as genuine Shoresh feature
 work occurs, not be manufactured now.
 
+## shoresh-config sync (2026-09-04)
+
+`~/dev/shoresh-config` — the detached-HEAD worktree that distributes `.claude/agents/*.md` to
+Desktop-launched sessions — was found stale at `7969a97` (pre-dating this entire migration) while
+auditing gaps in this work. Moved its detached HEAD forward to `origin/main` at the time
+(`ce04d3d`, after PR #273). Confirmed all twelve agent profiles and the `docs/governance/agent-
+bindings/` directory now match `origin/main` exactly. This is a one-time manual sync, not an
+automated one — the existing documented update path ("changes reach all sessions only after merge
+to main → the `~/dev/shoresh-config` sync") still requires someone to actually run it after a
+merge; this session did not build automation for that, matching this ADR's general bias toward not
+building infrastructure ahead of a demonstrated need.
+
+## Live smoke test (2026-09-04)
+
+Dispatched a real, non-synthetic Governor loop (isolated worktree, not a simulation) on a small,
+unambiguous feature (`getAppVersion` IPC method) specifically to exercise today's changes in
+practice, not just byte-diff. Result: **PASS**, feature discarded afterward (it was a smoke test,
+not a requested feature) — the value was in what the run proved:
+
+- **Confirmed working:** Maker never invoked `deep-execution` or `subagent-driven-development`
+  across two full rounds. Red Hat never invoked `council-execution` — every finding cited a
+  specific `file:line` it read itself. The `Skill` tool allowlist fix is real at the config level
+  (directly observed present on all five previously-restricted agents); none of their reports were
+  shaped like a blocked-tool run.
+- **Confirmed, with a caveat:** `org-source-verification` fired and mattered — Architect used it to
+  independently catch that the smoke test's own brief was factually wrong (it cited `getDeviceId`
+  as an unauthenticated precedent; it is actually `authorize()`-gated), which is exactly the
+  failure mode this adapter exists to prevent. `org-interface-contracts` was never named explicitly
+  in Architect's output, though the deliverable was contract-shaped regardless.
+- **Not confirmed, correctly not overclaimed:** whether the restricted reviewers actually *invoke*
+  `Skill` in practice (vs. merely having access) is still open — none printed the required "Using
+  [skill] to…" announcement. Access is proven; invocation discipline is not. Worth a targeted
+  follow-up if it matters enough to chase.
+- **Two new, real findings, unrelated to anything built today, surfaced only by running a live
+  loop:**
+  1. Grader's report characterized a `npm run verify` run that exited 1 with a failing test as
+     "full-suite green" — a false gloss over true raw data. Governor caught it and refused to pass
+     it through, but Grader's own output was wrong. **Fixed**, see below.
+  2. The dispatched Governor tried to "wait" for the 11-minute suite via a backgrounded `sleep`,
+     which doesn't block, and lost track of real elapsed time. **Fixed**, see below.
+- The pre-existing, unrelated `ImportScreen` test failure the run's Verifier proved was already
+  failing at the baseline commit was spun off as its own task, fixed separately (scope confirmed
+  with that session: activityRules test expectation drift from an earlier intentional formula
+  change, nothing to do with this migration).
+
+### Two fixes from the smoke test
+
+- `docs/governance/agent-bindings/grader.md`: the "Verifier: [PASS/FAIL/UNVERIFIED/missing]" output
+  line now requires quoting the actual raw evidence handed to Grader (the literal failing-test
+  line or exit status), never a summary word like "green" that isn't itself a quote.
+- `docs/governance/agent-bindings/governor.md`: added explicit guidance that backgrounding the
+  *wait* for a long command (e.g. a backgrounded `sleep`) is the same stall risk as backgrounding
+  the command itself — a dispatched Governor agent hit exactly this during the smoke test.
+
 ## Note on provenance
 
 The source handoff document lives outside this repository at
