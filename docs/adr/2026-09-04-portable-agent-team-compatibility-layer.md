@@ -160,6 +160,51 @@ the handoff document calls for — proving the `SKILL_MANDATE_WRAPPER` fragment 
 different project's roster without a Shoresh adapter — is unstarted and would be the natural next
 slice before claiming actual portability rather than just a cleaner Shoresh-local build.
 
+## Process-duplication fixes (2026-09-04, second pass)
+
+Working through the rest of the original handoff's flagged conflicts, one turned out to be
+real and concrete rather than superficial:
+
+- **Maker mandated `subagent-driven-development` and `deep-execution`.** `deep-execution` is not
+  a generic "be thorough" skill — it is the `claude-council` plugin's skill for spawning parallel
+  subagents that each query an external AI provider (Gemini/OpenAI/Grok/Perplexity).
+  `subagent-driven-development` breaks a plan into independently-dispatched session tasks. Both
+  imply *Maker itself* fanning out to further agents, which directly contradicts Governor's own
+  documented "Dispatch discipline" (flat dispatch, no nested orchestration, foreground-only).
+  Removed from `docs/governance/agent-bindings/maker.md`; the underlying "be methodical, break
+  work into steps" intent is already covered by `karpathy-guidelines` and
+  `test-driven-development`.
+- **Red Hat mandated `council-execution`** — same `claude-council` plugin, same external-provider
+  fan-out risk, invoked on every single Red Hat dispatch with no explicit authorization. Removed
+  from `docs/governance/agent-bindings/red-hat.md`. The four adversarial personas it named
+  (frustrated director, bad-data scenario, untested sequence, wrong assumption) are unaffected —
+  Red Hat's own "Adversarial Scenarios to Always Run" section already covers this in more
+  Shoresh-specific depth, run directly by the role rather than via an external pipeline.
+- **Pocock's `code-review`** (flagged in the original audit) — confirmed not actually referenced
+  anywhere in the live twelve profiles. Stale finding from the archived snapshot; no action
+  needed.
+- **Architect's `adhd`** — confirmed intentional, not duplicative: `architect.md` already
+  distinguishes it explicitly from Governor's `brainstorming` ("brainstorming sharpens the
+  question, adhd widens the answers"). No change.
+
+`governor.md`'s per-agent skill-mapping table and Phase 5/6 dispatch-brief text were updated to
+match (no more naming `deep-execution` or `council-execution` as load-bearing skills to announce
+in a dispatch brief).
+
+## Verifier baseline-exception fix (2026-09-04)
+
+`verifier.md` previously said: "a change is clean if every failing file is outside the paths it
+touched." The source handoff document called this out explicitly as unsafe — a change can break a
+file it never directly edited (a dependent module, a shared fixture, a changed export another
+test imports) — and said fixing it "requires an explicit governing decision, not an agent-local
+shortcut." Owner approval for this fix was given in this session.
+
+Replaced with: attributing a failure to "pre-existing" now requires matching the exact test name
+and error message against a known baseline record, never file location alone. If no current
+baseline reference is found, or a failure doesn't exactly match a recorded one, Verifier runs the
+suite against the pre-change tree (or asks Governor to) before calling it pre-existing — never
+infers innocence from where the failing file lives.
+
 ## Note on provenance
 
 The source handoff document lives outside this repository at

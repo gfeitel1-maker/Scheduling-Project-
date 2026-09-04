@@ -22,20 +22,20 @@
       "generated_hash": "26b2cd4fa5579318"
     },
     "governor": {
-      "adapter_hash": "d3e757ba774509ca",
-      "generated_hash": "b69d75634b1ca319"
+      "adapter_hash": "96ad587462f2e225",
+      "generated_hash": "65f34b7e87a17578"
     },
     "grader": {
       "adapter_hash": "c256e14080dd10e0",
       "generated_hash": "377198c86278080e"
     },
     "maker": {
-      "adapter_hash": "f228a6250ecc7c2a",
-      "generated_hash": "65a0219dcdcfe940"
+      "adapter_hash": "5d6641ad6a18d6c1",
+      "generated_hash": "dd6f0bd5980ae2af"
     },
     "red-hat": {
-      "adapter_hash": "0622395ff287addc",
-      "generated_hash": "5d82df10a429218c"
+      "adapter_hash": "7f6bab7536f9f9b4",
+      "generated_hash": "67b4a3cec88f19b8"
     },
     "security": {
       "adapter_hash": "b8cc03b3b0715e41",
@@ -46,8 +46,8 @@
       "generated_hash": "c8a2fdb8004f363f"
     },
     "verifier": {
-      "adapter_hash": "0e23c991022f3b2e",
-      "generated_hash": "8780196b66c761f0"
+      "adapter_hash": "bf45ecfe9869aec7",
+      "generated_hash": "f45e92d180475129"
     }
   }
 }

@@ -52,10 +52,20 @@ owns the gate list. It is the source of truth; this section summarizes it.
     scope to the named files above, or adjudicate the **raw full-suite output the orchestrator
     (Governor) captured for you** — you remain the judge of that output either way. Evidence still
     outranks consensus; the orchestrator only *runs* the command, it never decides the verdict.
-  - When reading a captured run, get the **per-file** failure list (never a `| tail`-truncated tail —
-    it drops the FAIL lines). Baseline is ~52–53 pre-existing failures, mostly
-    `src/screens/ImportScreen.*.test.jsx` (`localClient.getCamp is not a function`); a change is clean
-    if every failing file is outside the paths it touched.
+  - When reading a captured run, get the **per-test** failure list (never a `| tail`-truncated tail —
+    it drops the FAIL lines).
+  - **Attributing a failure to "pre-existing" requires matching the exact test name and error
+    message against a known baseline failure — never file location alone.** A change can break a
+    file it never touched (a dependent module, a shared fixture, a changed export another test
+    imports) — "the failing file is outside the paths this change touched" is not evidence the
+    change didn't cause it, and must never be used to convert a real failure into a passing
+    verdict. The last confirmed baseline was ~52–53 failures, mostly
+    `src/screens/ImportScreen.*.test.jsx` (`localClient.getCamp is not a function`) — recorded in
+    `docs/work/runs/` if a current reference exists. If you cannot find a same-day baseline
+    reference, or any failure's test name/message doesn't exactly match one already on record, run
+    the suite against the pre-change tree yourself (or ask Governor to, if the foreground-time
+    ceiling requires it) before calling that failure pre-existing. When in doubt, report the
+    failure — do not infer innocence from file path.
 - `npm run lint`
 - `npm run build`, when the task could plausibly break the build (schema/dependency/import changes — always; a pure copy change — use judgment, but default to running it)
 - **`node test/integration/run.js` — mandatory** for any change touching sync, auth, or schema
