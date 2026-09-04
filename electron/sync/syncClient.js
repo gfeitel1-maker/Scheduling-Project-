@@ -13,6 +13,7 @@ import {
   DELETE_FIELD,
 } from '../ops/operations.js'
 import { PROJECTIONS, applyProjection } from '../ops/projections.js'
+import { repairProjectionForEntity, checkProjectionHealth } from '../ops/projectionRepair.js'
 import { broadcastOps } from './syncServer.js'
 import { insertPendingWrite, deletePendingWrite, listPendingWrites } from './pendingWrites.js'
 import {
@@ -522,6 +523,58 @@ export function createSyncClient(
     return true
   }
 
+  // docs/adr/2026-09-04-projection-failure-detection-and-recovery.md: strictly
+  // additive to the existing console.error calls at both catch sites below —
+  // does not change what is caught or when. Local-only diagnostic write,
+  // never through appendOp/the op-log (same category as
+  // devices.last_synced_seq). op_id is the primary key, so a repeat failure
+  // on the same op (e.g. a repair attempt that fails again) upserts in place
+  // rather than accumulating duplicate rows.
+  // Automatic repair trigger (ADR "Trigger points — decided"): fires once a
+  // burst of op_applied messages settles. The wire protocol has no explicit
+  // "catch-up batch finished" message (sendMissedOps, catchup.js, runs
+  // entirely on the Host side and streams ops one at a time with no batch-
+  // boundary signal to the Client) — a short debounce after the last
+  // op_applied is the practical stand-in: a reconnect catch-up burst is many
+  // op_applied messages arriving back-to-back, so the timer only fires once
+  // traffic actually goes quiet, which is also true after a single live op.
+  // Rather than tracking exactly which entities this specific burst touched,
+  // every sweep re-attempts every currently-unresolved projection_failures
+  // row: repair is idempotent and cheap (this table is O(failures), not
+  // O(all ops) — ADR §1), and this is what actually catches the scenario the
+  // ADR names, where the blocking referencer's OWN delete op — not a new op
+  // for the originally-failed entity — is what arrives and unblocks it.
+  const PROJECTION_REPAIR_DEBOUNCE_MS = 500
+  let projectionRepairTimer = null
+  function scheduleProjectionRepairSweep() {
+    if (projectionRepairTimer) clearTimeout(projectionRepairTimer)
+    projectionRepairTimer = setTimeout(() => {
+      projectionRepairTimer = null
+      try {
+        const { failures } = checkProjectionHealth(db)
+        const seen = new Set()
+        for (const failure of failures) {
+          const key = `${failure.entity} ${failure.entity_id}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          repairProjectionForEntity(db, failure.entity, failure.entity_id)
+        }
+      } catch {
+        // Best-effort: a db closed mid-timer (e.g. app shutdown) or any other
+        // failure here simply means the next sweep (or the next reconnect's
+        // catch-up burst) retries — never surfaced as an unhandled rejection.
+      }
+    }, PROJECTION_REPAIR_DEBOUNCE_MS)
+  }
+
+  function recordProjectionFailure(op, err) {
+    db.prepare(
+      `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(op_id) DO UPDATE SET error_message = excluded.error_message, failed_at = excluded.failed_at`
+    ).run(op.id, op.entity, op.entity_id, op.field, err?.message ?? String(err), new Date().toISOString())
+  }
+
   function applyRemoteOp(op) {
     // The op-log insert must be durable regardless of projection outcome: the
     // server already accepted and broadcast this op as canonical, so this
@@ -617,6 +670,7 @@ export function createSyncClient(
         console.error(
           `applyRemoteOp: this device could not delete ${op.entity}/${op.entity_id} — something here still refers to it, and every other device has removed it. This device is now out of step for that record.`
         )
+        recordProjectionFailure(op, err)
         return
       }
       // D5 (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
@@ -634,6 +688,7 @@ export function createSyncClient(
           `applyRemoteOp: projection failed for ${op.entity}/${op.entity_id}.${op.field} — op is logged but not materialized on this device`,
           err
         )
+        recordProjectionFailure(op, err)
       }
     }
   }
@@ -821,6 +876,7 @@ export function createSyncClient(
           if (!opError && ws && ws.readyState === ws.OPEN) {
             ws.send(JSON.stringify({ type: 'op_applied_ack', op_id: msg.op.id }))
           }
+          scheduleProjectionRepairSweep()
           return
         }
 
@@ -1573,6 +1629,7 @@ export function createSyncClient(
       // loop does not restart.
       closedIntentionally = true
       if (renewalTimer) clearTimeout(renewalTimer)
+      if (projectionRepairTimer) clearTimeout(projectionRepairTimer)
       if (ws) ws.close()
     },
     // test-only accessor: exposes the underlying ws connection so tests can

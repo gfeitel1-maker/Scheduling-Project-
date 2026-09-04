@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 54
+export const CURRENT_SCHEMA_VERSION = 55
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2168,6 +2168,22 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (54, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v55 — projection_failures, the local-only diagnostic ledger for a
+  // failed applyProjection/applyBulkReplaceProjection replay
+  // (docs/adr/2026-09-04-projection-failure-detection-and-recovery.md).
+  // DDL only, no data movement: the CREATE TABLE/INDEX already ran
+  // unconditionally via schema.sql above (initSchema execs it on every
+  // open), so a migrated db already has the table by the time this block
+  // runs — this block only records that this device has passed v55.
+  // Deliberately NOT registered anywhere sync touches (DOMAIN_SNAPSHOT_TABLES,
+  // appendOp) — local diagnostic state, same category as
+  // devices.last_synced_seq, never synced.
+  if (getSchemaVersion(db) >= 54 && getSchemaVersion(db) < 55) {
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (55, ?)').run(
       new Date().toISOString()
     )
   }
