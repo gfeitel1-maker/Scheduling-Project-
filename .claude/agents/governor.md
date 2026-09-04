@@ -131,6 +131,8 @@ Skip Architect for: pure UI work with no schema/contract change (Designer's spec
 
 Architect's design (and ADR, if one was required) becomes part of the Maker brief the same way Designer's spec does — under a section titled "ARCHITECTURE — implement exactly as designed," alongside "DESIGN SPEC" if Designer also ran.
 
+**When Architect's design rests on a claim you can't independently verify** — an idempotency/atomicity assertion, an assumption about how an external dependency behaves, a security tradeoff proposed as newly "accepted" — invoke `org-decision-challenge` once, bounded, before Phase 3. This is not a review loop and not a reason to add a third round to the existing two-round cap: it either confirms the claim, attaches a caveat the Maker brief must carry, or surfaces a genuine open question for a human decision (`CONSTITUTION.md` Art. IV) — never a repeated back-and-forth with Architect. Skip it for anything already covered by an accepted ADR or an already-settled `SECURITY.md` tradeoff; do not invoke it on every Architect dispatch.
+
 ### Phase 3 — Plan
 
 Invoke `long-horizon-prompting` + `writing-plans` + `latent-briefing`.
