@@ -1,6 +1,6 @@
                                   Monday — All Camp
 
-   Time         Yeladim 1      Yeladim 2     Tzofim 1     Tzofim 2      Tzofim 3       Chalutzim 1    Chalutzim 2   Chalutzim 3     Alufim 1       Alufim 2     Alufim 3     Giborim 1     Giborim 2       CIT
+   Time         Beavers 1      Beavers 2     Badger 1     Badger 2      Badger 3       Porcupine 1    Porcupine 2   Porcupine 3     Weasel 1       Weasel 2     Weasel 3     Muskrat 1     Muskrat 2       CIT
 
 08:40–09:00     Carpool         Carpool      Carpool      Carpool       Carpool         Carpool        Carpool       Carpool        Carpool        Carpool      Carpool       Carpool       Carpool      Carpool
 
@@ -37,7 +37,7 @@
 03:40–04:00     Carpool         Carpool      Carpool      Carpool       Carpool         Carpool        Carpool       Carpool        Carpool        Carpool      Carpool       Carpool       Carpool      Carpool
                               Tuesday — All Camp
 
-   Time        Yeladim 1   Yeladim 2      Tzofim 1       Tzofim 2     Tzofim 3     Chalutzim 1   Chalutzim 2      Chalutzim 3     Alufim 1         Alufim 2        Alufim 3        Giborim 1       Giborim 2          CIT
+   Time        Beavers 1   Beavers 2      Badger 1       Badger 2     Badger 3     Porcupine 1   Porcupine 2      Porcupine 3     Weasel 1         Weasel 2        Weasel 3        Muskrat 1       Muskrat 2          CIT
 
 08:40–09:00    Carpool      Carpool       Carpool        Carpool      Carpool       Carpool        Carpool         Carpool        Carpool          Carpool         Carpool          Carpool         Carpool         Carpool
 
@@ -76,7 +76,7 @@
 03:40–04:00    Carpool      Carpool       Carpool        Carpool      Carpool       Carpool        Carpool         Carpool        Carpool          Carpool         Carpool          Carpool         Carpool         Carpool
                                 Wednesday — All Camp
 
-   Time        Yeladim 1     Yeladim 2       Tzofim 1     Tzofim 2      Tzofim 3        Chalutzim 1    Chalutzim 2   Chalutzim 3        Alufim 1      Alufim 2     Alufim 3      Giborim 1       Giborim 2           CIT
+   Time        Beavers 1     Beavers 2       Badger 1     Badger 2      Badger 3        Porcupine 1    Porcupine 2   Porcupine 3        Weasel 1      Weasel 2     Weasel 3      Muskrat 1       Muskrat 2           CIT
 
 08:40–09:00    Carpool       Carpool         Carpool      Carpool       Carpool          Carpool         Carpool       Carpool          Carpool       Carpool      Carpool       Carpool          Carpool          Carpool
 
@@ -111,7 +111,7 @@
 03:40–04:00    Carpool       Carpool         Carpool      Carpool       Carpool          Carpool         Carpool       Carpool          Carpool       Carpool      Carpool       Carpool          Carpool          Carpool
                               Thursday — All Camp
 
-   Time        Yeladim 1   Yeladim 2      Tzofim 1         Tzofim 2         Tzofim 3        Chalutzim 1   Chalutzim 2   Chalutzim 3     Alufim 1      Alufim 2         Alufim 3     Giborim 1     Giborim 2         CIT
+   Time        Beavers 1   Beavers 2      Badger 1         Badger 2         Badger 3        Porcupine 1   Porcupine 2   Porcupine 3     Weasel 1      Weasel 2         Weasel 3     Muskrat 1     Muskrat 2         CIT
 
 08:40–09:00    Carpool      Carpool       Carpool          Carpool          Carpool          Carpool        Carpool      Carpool        Carpool       Carpool          Carpool       Carpool       Carpool       Carpool
 
@@ -148,7 +148,7 @@
 03:40–04:00    Carpool      Carpool       Carpool          Carpool          Carpool          Carpool        Carpool      Carpool        Carpool       Carpool          Carpool       Carpool       Carpool       Carpool
                                Friday — All Camp
 
-   Time        Yeladim 1    Yeladim 2       Tzofim 1     Tzofim 2     Tzofim 3     Chalutzim 1     Chalutzim 2   Chalutzim 3     Alufim 1      Alufim 2     Alufim 3    Giborim 1     Giborim 2          CIT
+   Time        Beavers 1    Beavers 2       Badger 1     Badger 2     Badger 3     Porcupine 1     Porcupine 2   Porcupine 3     Weasel 1      Weasel 2     Weasel 3    Muskrat 1     Muskrat 2          CIT
 
 08:40–09:00    Carpool       Carpool        Carpool      Carpool      Carpool       Carpool         Carpool        Carpool       Carpool       Carpool      Carpool      Carpool       Carpool         Carpool
 

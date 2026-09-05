@@ -45,7 +45,7 @@ describe('residual — unrecognised cell content (T36)', () => {
   it('collects a cell that failed isActivityLike, with its count', () => {
     const parsed = {
       pages: [{
-        title: 'Yeladim',
+        title: 'Beavers',
         columns: ['Monday', 'Tuesday'],
         rows: [
           { label: '9:00', cells: ['Block 2', 'Swim'] },
@@ -60,7 +60,7 @@ describe('residual — unrecognised cell content (T36)', () => {
   it('never reports an empty cell or a bare dash as residual', () => {
     const parsed = {
       pages: [{
-        title: 'Yeladim',
+        title: 'Beavers',
         columns: ['Monday', 'Tuesday'],
         rows: [{ label: '9:00', cells: ['', '-'] }],
       }],
@@ -109,7 +109,7 @@ describe('Camp B — one page per day, groups across', () => {
   const { entities } = extractEntities(campB)
 
   it('finds the groups from the column headers', () => {
-    expect(entities.groups).toContain('Yeladim 1')
+    expect(entities.groups).toContain('Beavers 1')
     expect(entities.groups).toContain('CIT')
     expect(entities.groups.length).toBe(14)
   })
@@ -155,34 +155,34 @@ describe('Camp A — one page per group, days across', () => {
   })
 
   it('reads the unit out of the bunk name, and files the bunk under it', () => {
-    // "Adom 4's - Matzo Balls" names both. An earlier version of this file
+    // "Aqua 4's - Amber Pines" names both. An earlier version of this file
     // asserted the opposite — that a bunk schedule never says which division a
     // bunk is in — which left a 33-bunk camp with 13 units to type by hand.
-    expect(entities.tiers).toContain("Adom 4's")
-    expect(entities.tiers).toContain('Maccabiah')
+    expect(entities.tiers).toContain("Aqua 4's")
+    expect(entities.tiers).toContain('Champions')
     expect(entities.tiers.length).toBe(13)
   })
 
   it('gives a bunk its short name once the unit is a field of its own', () => {
-    expect(entities.groups).toContain('Matzo Balls')
-    expect(entities.groups).not.toContain("Adom 4's - Matzo Balls")
+    expect(entities.groups).toContain('Amber Pines')
+    expect(entities.groups).not.toContain("Aqua 4's - Amber Pines")
   })
 
   it('keeps the full title when two units share a bunk name', () => {
-    // Rimon and Zayit both have a "Traditional", and groups are
+    // Cedar and Birch both have a "Backcountry", and groups are
     // UNIQUE(camp_id, name), so the short name cannot be used for either.
-    expect(entities.groups).toContain('Rimon - Traditional')
-    expect(entities.groups).toContain('Zayit - Traditional')
-    expect(entities.groups).not.toContain('Traditional')
+    expect(entities.groups).toContain('Cedar - Backcountry')
+    expect(entities.groups).toContain('Birch - Backcountry')
+    expect(entities.groups).not.toContain('Backcountry')
   })
 
   it('leaves a bunk with no unit unfiled rather than inventing one', () => {
-    // "Zahav" and "Gesher" have no separator. That is a real shape, not a
+    // "Ochre" and "Bridge" have no separator. That is a real shape, not a
     // parse failure.
     const { groupUnits } = extractEntities(campA)
-    expect(entities.groups).toContain('Zahav')
-    expect(groupUnits.Zahav).toBeUndefined()
-    expect(groupUnits['Matzo Balls']).toBe("Adom 4's")
+    expect(entities.groups).toContain('Ochre')
+    expect(groupUnits.Ochre).toBeUndefined()
+    expect(groupUnits['Amber Pines']).toBe("Aqua 4's")
   })
 
   it('finds the five weekdays from the column headers', () => {
@@ -227,13 +227,13 @@ describe('what it refuses to guess', () => {
   })
 
   it('infers a division from a "Word Number" group-column header (W6)', () => {
-    // Camp B's real headers are "Yeladim 1", "Tzofim 2", etc. — a division
+    // Camp B's real headers are "Beavers 1", "Badger 2", etc. — a division
     // word followed by a bunk number, no hyphen. The division is the leading
     // word-part; the bunk keeps its FULL header as its name (owner decision).
     const { entities, groupUnits } = extractEntities(campB)
-    expect(entities.tiers).toEqual(['Yeladim', 'Tzofim', 'Chalutzim', 'Alufim', 'Giborim', 'CIT'])
-    expect(groupUnits['Tzofim 2']).toBe('Tzofim')
-    expect(groupUnits['Yeladim 1']).toBe('Yeladim')
+    expect(entities.tiers).toEqual(['Beavers', 'Badger', 'Porcupine', 'Weasel', 'Muskrat', 'CIT'])
+    expect(groupUnits['Badger 2']).toBe('Badger')
+    expect(groupUnits['Beavers 1']).toBe('Beavers')
     expect(groupUnits['CIT']).toBe('CIT')
   })
 })
@@ -242,13 +242,13 @@ describe('what it refuses to guess', () => {
 // it, conservatively (a blank unit, never a wrong one).
 describe('unit inference (ADR 2026-08-09 Decision 2)', () => {
   it('groups-are-columns: a "Unit - Bunk" column header now populates the unit', () => {
-    const grid = { pages: [{ title: 'Monday', columns: ['Kfar A - Chagalls', 'Kfar B - Picassos'], rows: [
+    const grid = { pages: [{ title: 'Monday', columns: ['Kfar A - Sailboat', 'Kfar B - Painters'], rows: [
       { label: '09:00-10:00', cells: ['Swim', 'Art'] },
     ] }] }
     const { entities, groupUnits } = extractEntities(grid)
     expect(entities.tiers).toEqual(expect.arrayContaining(['Kfar A', 'Kfar B']))
-    expect(groupUnits['Chagalls']).toBe('Kfar A')
-    expect(groupUnits['Picassos']).toBe('Kfar B')
+    expect(groupUnits['Sailboat']).toBe('Kfar A')
+    expect(groupUnits['Painters']).toBe('Kfar B')
   })
 
   it('groups-are-columns: a lone-token header with no separator and no trailing number becomes its own division (W6)', () => {
@@ -256,41 +256,41 @@ describe('unit inference (ADR 2026-08-09 Decision 2)', () => {
     // lone-token fallback: division "CIT", bunk "CIT" — never "C" (that was
     // the false positive the old guard existed to prevent; the guard's real
     // intent — never mint "C" from "CIT" — still holds under the new rule).
-    const grid = { pages: [{ title: 'Monday', columns: ['Zahav', 'Gesher', 'CIT'], rows: [
+    const grid = { pages: [{ title: 'Monday', columns: ['Ochre', 'Bridge', 'CIT'], rows: [
       { label: '09:00-10:00', cells: ['Swim', 'Art', 'Music'] },
     ] }] }
     const { entities, groupUnits } = extractEntities(grid)
-    expect(entities.tiers).toEqual(['Zahav', 'Gesher', 'CIT'])
-    expect(groupUnits['Zahav']).toBe('Zahav')
-    expect(groupUnits['Gesher']).toBe('Gesher')
+    expect(entities.tiers).toEqual(['Ochre', 'Bridge', 'CIT'])
+    expect(groupUnits['Ochre']).toBe('Ochre')
+    expect(groupUnits['Bridge']).toBe('Bridge')
     expect(groupUnits['CIT']).toBe('CIT')
   })
 
   it('groups-are-columns: a "Word Number" header keeps the full header as the bunk name', () => {
-    const grid = { pages: [{ title: 'Monday', columns: ['Yeladim 1'], rows: [
+    const grid = { pages: [{ title: 'Monday', columns: ['Beavers 1'], rows: [
       { label: '09:00-10:00', cells: ['Swim'] },
     ] }] }
     const { entities, groupUnits } = extractEntities(grid)
-    expect(entities.tiers).toEqual(['Yeladim'])
-    expect(groupUnits['Yeladim 1']).toBe('Yeladim')
+    expect(entities.tiers).toEqual(['Beavers'])
+    expect(groupUnits['Beavers 1']).toBe('Beavers')
   })
 
   it('groups-are-columns: a hyphenated header still splits via the hyphen rule first, even when it also looks like "Word Number"', () => {
-    const grid = { pages: [{ title: 'Monday', columns: ['Kfar A - Chagalls 1'], rows: [
+    const grid = { pages: [{ title: 'Monday', columns: ['Kfar A - Sailboat 1'], rows: [
       { label: '09:00-10:00', cells: ['Swim'] },
     ] }] }
     const { entities, groupUnits } = extractEntities(grid)
     expect(entities.tiers).toEqual(['Kfar A'])
-    expect(groupUnits['Chagalls 1']).toBe('Kfar A')
+    expect(groupUnits['Sailboat 1']).toBe('Kfar A')
   })
 
   it('groups-are-columns: metadata columns (Notes, Lunch) are skipped entirely, not treated as divisions or groups', () => {
-    const grid = { pages: [{ title: 'Monday', columns: ['Yeladim 1', 'Notes', 'Tzofim 2', 'Lunch', 'CIT'], rows: [
+    const grid = { pages: [{ title: 'Monday', columns: ['Beavers 1', 'Notes', 'Badger 2', 'Lunch', 'CIT'], rows: [
       { label: '09:00-10:00', cells: ['Swim', 'n/a', 'Art', 'n/a', 'Archery'] },
     ] }] }
     const { entities, groupUnits } = extractEntities(grid)
-    expect(entities.tiers).toEqual(['Yeladim', 'Tzofim', 'CIT'])
-    expect(entities.groups).toEqual(['Yeladim 1', 'Tzofim 2', 'CIT'])
+    expect(entities.tiers).toEqual(['Beavers', 'Badger', 'CIT'])
+    expect(entities.groups).toEqual(['Beavers 1', 'Badger 2', 'CIT'])
     expect(groupUnits['Notes']).toBeUndefined()
     expect(groupUnits['Lunch']).toBeUndefined()
   })
@@ -315,15 +315,15 @@ describe('unit inference (ADR 2026-08-09 Decision 2)', () => {
 
   it('groups-are-pages (positional-code path) is unaffected by the W6 group-column rule', () => {
     const grid = { pages: [{
-      title: 'Tzofim 1', columns: ['Monday', 'Tuesday'], timeColumnLabeled: false,
+      title: 'Badger 1', columns: ['Monday', 'Tuesday'], timeColumnLabeled: false,
       rows: [{ label: '09:00-10:00', cells: ['Swim', 'Art'] }],
     }] }
     const { entities, groupUnits } = extractEntities(grid)
     // days-orientation path: splitUnitAndGroup then inferUnitFromCode fallback.
-    // "Tzofim 1" has no hyphen and inferUnitFromCode's regex requires a single
-    // leading letter/digit-run token, which "Tzofim" (a whole word) is not.
+    // "Badger 1" has no hyphen and inferUnitFromCode's regex requires a single
+    // leading letter/digit-run token, which "Badger" (a whole word) is not.
     expect(entities.tiers).toEqual([])
-    expect(groupUnits['Tzofim 1']).toBeUndefined()
+    expect(groupUnits['Badger 1']).toBeUndefined()
   })
 
   it('groups-are-pages, labeled: a title matching neither shape now falls back to inferUnitFromCode', () => {
@@ -363,7 +363,7 @@ describe('what it refuses to guess, continued', () => {
 // The tests above assert that specific known-good values appear. That is not
 // the same as the LIST being good, and the difference mattered: an early
 // version passed every one of them while proposing 114 activities for Camp A,
-// of which 29 were page titles ("Adom 5's - Blintzes Schedule") and 14 held a
+// of which 29 were page titles ("Aqua 5's - Lanterns Schedule") and 14 held a
 // time. A director would have had to reject most of the list.
 //
 // These look at the whole proposal instead.
@@ -431,7 +431,7 @@ describe('the proposal as a whole is worth showing a director', () => {
 describe('rarity is judged within a unit, not across the camp', () => {
   // Product owner, 2026-08-01: "count frequency within the unit". A camp with
   // many programmes has activities that are rare overall and completely normal
-  // where they happen — only the Omanut bunks do Ceramics. Judged against the
+  // where they happen — only the Canvas bunks do Ceramics. Judged against the
   // whole camp those look like misreads.
   function campWith(pages) {
     return extractEntities({ pages })
@@ -439,29 +439,29 @@ describe('rarity is judged within a unit, not across the camp', () => {
 
   it('scores an activity by how much of its own unit does it', () => {
     const { seenCounts } = campWith([
-      { title: 'Omanut - Chagalls', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Ceramics'] }] },
-      { title: 'Omanut - Picassos', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Ceramics'] }] },
-      { title: 'Lavan - Chais', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
-      { title: 'Lavan - Yads', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
+      { title: 'Canvas - Sailboat', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Ceramics'] }] },
+      { title: 'Canvas - Painters', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Ceramics'] }] },
+      { title: 'Coral - Tulip', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
+      { title: 'Coral - Oaks', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
     ])
-    // Both Omanut bunks do Ceramics; no Lavan bunk does.
+    // Both Canvas bunks do Ceramics; no Coral bunk does.
     expect(seenCounts.activityUnitShare.ceramics).toBe(1)
   })
 
   it('gives a half share to an activity only one bunk of a unit does', () => {
     const { seenCounts } = campWith([
-      { title: 'Omanut - Chagalls', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Ceramics'] }] },
-      { title: 'Omanut - Picassos', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
+      { title: 'Canvas - Sailboat', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Ceramics'] }] },
+      { title: 'Canvas - Painters', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
     ])
     expect(seenCounts.activityUnitShare.ceramics).toBe(0.5)
   })
 
   it('treats a bunk with no unit as its own unit', () => {
-    // "Gesher" has no unit prefix, and what Gesher does is still normal for
-    // Gesher — "Service Project" should not read as a misread.
+    // "Bridge" has no unit prefix, and what Bridge does is still normal for
+    // Bridge — "Service Project" should not read as a misread.
     const { seenCounts } = campWith([
-      { title: 'Gesher', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Service Project'] }] },
-      { title: 'Lavan - Chais', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
+      { title: 'Bridge', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Service Project'] }] },
+      { title: 'Coral - Tulip', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
     ])
     expect(seenCounts.activityUnitShare['service project']).toBe(1)
   })
@@ -523,12 +523,12 @@ describe('elective header-label detector (Slice 3a)', () => {
     const grid = {
       pages: [{
         title: 'Monday',
-        columns: ['Adom 1', 'Chugim'],
+        columns: ['Aqua 1', 'Chugim'],
         rows: [{ label: '9:00', cells: ['Swim', 'Ceramics'] }],
       }],
     }
     const { entities, electiveHeaderFindings } = extractEntities(grid)
-    expect(entities.groups).toEqual(['Adom 1'])
+    expect(entities.groups).toEqual(['Aqua 1'])
     expect(electiveHeaderFindings.some((f) => f.column === 'Chugim')).toBe(true)
   })
 

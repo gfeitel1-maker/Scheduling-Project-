@@ -36,7 +36,7 @@ describe('looksLikeTime', () => {
   })
 
   it('rejects an activity that merely contains digits', () => {
-    for (const t of ['Lunch 1', 'CIT Block 1', 'Yeladim 2', 'Adom 4’s']) {
+    for (const t of ['Lunch 1', 'CIT Block 1', 'Beavers 2', 'Aqua 4’s']) {
       expect(looksLikeTime(t), t).toBe(false)
     }
   })
@@ -51,7 +51,7 @@ describe('parseTextGrid on Camp B — one page per day, columns are groups', () 
   })
 
   it('reads the group names out of the header row', () => {
-    expect(pages[0].columns).toContain('Yeladim 1')
+    expect(pages[0].columns).toContain('Beavers 1')
     expect(pages[0].columns).toContain('CIT')
     // 14 groups in this camp.
     expect(pages[0].columns.length).toBe(14)
@@ -89,7 +89,7 @@ describe('parseTextGrid on Camp A — one page per group, columns are days', () 
   })
 
   it('carries the bunk name as the page title', () => {
-    expect(pages[0].title).toMatch(/Adom/)
+    expect(pages[0].title).toMatch(/Aqua/)
   })
 
   it('reads activities into the right day column', () => {
