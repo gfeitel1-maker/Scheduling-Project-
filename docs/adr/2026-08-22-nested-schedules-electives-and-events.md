@@ -27,8 +27,8 @@ Program workstreams **W4** (elective + single-day-event ingest) and **W9**
 (programming/doc-storage on events) were investigated together against **nine
 real prior-year artifacts** the owner provided (2026-08-22): two activity-catalog
 PDFs (Camp Aaron / JCC Medford), two standalone event grids (Camp Chai xlsx,
-MJCC Memphis), a team-overlay family email (Camp Achva), and freeform planning
-prose (Camp Achva "Manor Awakens" programming notes, 2023 Maccabiah). A
+MJCC Memphis), a team-overlay family email (Camp Willowbrook), and freeform planning
+prose (Camp Willowbrook "Manor Awakens" programming notes, 2023 Maccabiah). A
 structured brainstorm with the owner ("grill me about what these really are")
 produced a single unifying abstraction and resolved several model questions that
 `docs/work/specs/2026-08-20-group-electives-design.md` had left open or deferred.

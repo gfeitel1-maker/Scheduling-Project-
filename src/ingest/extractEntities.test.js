@@ -13,7 +13,7 @@ import { inferMultiBlockCandidates } from './multiBlockCandidates'
 
 const SAMPLES = path.join(process.cwd(), 'docs/work/specs/samples')
 const campA = parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campA-bunk-schedules.txt'), 'utf8'))
-const campB = parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-achva-by-day.txt'), 'utf8'))
+const campB = parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-by-day.txt'), 'utf8'))
 
 describe('the entities-only boundary (ADR §2)', () => {
   // M4 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D2):

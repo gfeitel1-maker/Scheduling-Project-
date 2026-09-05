@@ -75,7 +75,7 @@ At the real scale (`F3`: 40–60 activities), a flat per-row list is unreadable.
 ### Text sketch — ledger-first preview at 52 activities
 
 ```
- Reviewing "Camp Achva — Summer 2026 schedule.xlsx"
+ Reviewing "Camp Willowbrook — Summer 2026 schedule.xlsx"
 
  ✓  46 activities unchanged                                    [ show ]
  ────────────────────────────────────────────────────────────────────

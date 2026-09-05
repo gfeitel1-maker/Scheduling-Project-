@@ -129,7 +129,7 @@ the size of the work.
 Two real schedules from two different camps. **Both are PDFs**, which is itself the most
 important finding. Everything below is measured from the actual files, not assumed.
 
-| | Camp A — "ALL 2025 Bunk Schedules" | Camp B — "Camp Achva, by day" |
+| | Camp A — "ALL 2025 Bunk Schedules" | Camp B — "Camp Willowbrook, by day" |
 |---|---|---|
 | Pages | 33 — **one per group** | 5 — **one per day** |
 | Rows | time blocks | time blocks |

@@ -411,7 +411,7 @@ export const mockShoresh = {
     return { mode: 'host' }
   },
   async discoverHosts() {
-    return [{ name: 'Camp Achva (demo)', host: '192.168.1.42', port: 7000 }]
+    return [{ name: 'Camp Willowbrook (demo)', host: '192.168.1.42', port: 7000 }]
   },
   async login({ name, pin }) {
     const state = loadState()

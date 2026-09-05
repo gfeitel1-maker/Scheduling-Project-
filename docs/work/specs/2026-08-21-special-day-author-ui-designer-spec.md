@@ -415,7 +415,7 @@ a setup/grid screen to reuse, so a tab would be a new UI primitive for one scree
 Notes                                                         [Print]
 ┌────────────────────────────────────────────────────────────┐
 │ Team Yeshiva: bunks 3, 4, 7 — Station 2: Sylvia              │
-│ Team Achva: bunks 5, 6, 8 — Station 4: Marcus                │
+│ Team Willowbrook: bunks 5, 6, 8 — Station 4: Marcus                │
 │ Bus departs 9:15am, returns 3:30pm.                          │
 │                                                                │
 └────────────────────────────────────────────────────────────┘

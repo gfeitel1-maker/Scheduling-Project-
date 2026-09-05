@@ -12,7 +12,7 @@ import { parseTextGrid, tokenize, looksLikeTime, isDayName, findHeaderLine } fro
 
 const SAMPLES = path.join(process.cwd(), 'docs/work/specs/samples')
 const campA = fs.readFileSync(path.join(SAMPLES, 'campA-bunk-schedules.txt'), 'utf8')
-const campB = fs.readFileSync(path.join(SAMPLES, 'campB-achva-by-day.txt'), 'utf8')
+const campB = fs.readFileSync(path.join(SAMPLES, 'campB-by-day.txt'), 'utf8')
 
 describe('tokenize', () => {
   it('keeps a two-word label together but splits across a wide gap', () => {

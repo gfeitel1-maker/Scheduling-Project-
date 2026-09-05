@@ -21,7 +21,7 @@ the first fixtures for any reader that is built.
   title conventions in the one file; a rotated `Block N` spine that interleaves with the time
   column; merged full-width rows for fixed events; merged multi-row cells for swim spans; colour
   used as meaning (lost in this extraction).
-- `campB-achva-by-day.txt` — 5 pages, **one per day**, 14 groups across the top. Fixed events
+- `campB-by-day.txt` — 5 pages, **one per day**, 14 groups across the top. Fixed events
   appear as a value repeated across every column rather than as merged rows; lunch is staggered
   (`Lunch 1/2/3`); times are 12-hour with no meridiem.
 

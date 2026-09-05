@@ -61,7 +61,7 @@ export async function run() {
     const countOf = (table) => db.prepare(`SELECT COUNT(*) c FROM ${table}`).get().c
 
     // ---- a. both layouts read correctly -------------------------------------
-    const campB = extractEntities(parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-achva-by-day.txt'), 'utf8')))
+    const campB = extractEntities(parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-by-day.txt'), 'utf8')))
     const campA = extractEntities(parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campA-bunk-schedules.txt'), 'utf8')))
 
     assert.equal(campB.orientation.pages, 'days', 'Camp B is one page per day')
@@ -266,7 +266,7 @@ export async function run() {
     db4.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(coMain4, camp4, 'Main')
 
     const { fixedEvents } = inferFixedEvents(
-      parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-achva-by-day.txt'), 'utf8')),
+      parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-by-day.txt'), 'utf8')),
       campB
     )
     assert.ok(fixedEvents.length > 0, 'Camp B implies at least one fixed event')

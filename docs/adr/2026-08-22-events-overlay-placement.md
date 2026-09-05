@@ -40,7 +40,7 @@ each isolated by a different artifact in the set:
    occupies the normal periods under a different name.
 3. **A program document** — theme, stations (location + materials +
    description + staff lead), event-scoped teams, scoring, run-of-show. The
-   family-overlay email (Camp Achva) and freeform planning prose (Camp Achva
+   family-overlay email (Camp Willowbrook) and freeform planning prose (Camp Willowbrook
    "Manor Awakens", 2023 Maccabiah) are this object. Forcing this prose into
    grid cells was already rejected by the parent ADR.
 
