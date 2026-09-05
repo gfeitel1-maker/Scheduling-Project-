@@ -1115,33 +1115,35 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   }
   let replaced = null
 
-  // M4 §D1c. The ONE place an activity's location genuinely needs resolve-OR-
-  // create: a brand-new activity, created via commitCreate, whose location
-  // value was never separately proposed as its own `locations` entity item —
-  // the S4 enrichment-workbook path's real shape (a director types a room name
-  // directly into an editable cell, no corresponding "Locations" review row).
-  // The common path (Q8's own gated flow, or an ordinary new-camp import) never
-  // reaches the mint branch here: locations precedes activities in
-  // INGESTIBLE_ENTITIES order (§D2), so a location approved as a create THIS
-  // import is already live — and in locationIdByName — by the time this runs;
-  // this is then a cache hit, not an actual create. Cross-device deterministic
-  // (INV-1): the id is a pure function of (camp_id, trimmedName), same as D1a.
-  // T101: routed through resolveLocationCreateId rather than bare
-  // deriveLocationId, so a rename-then-recollide (the row that now owns
-  // deriveLocationId's id has since been renamed away from `trimmed`) mints a
-  // disambiguated `${base}:n` id instead of silently reusing the renamed row.
-  const resolveOrCreateLocationId = (db, { camp_id, name, locationIdByName, author_user_id, device_id }) => {
+  // M4 §D1c, corrected. An activity's location resolves ONLY against a
+  // location that is already approved: either already live in the db
+  // (locationIdByName is pre-seeded from every live row, see its
+  // initialization above), or approved as its own `locations` create item
+  // THIS import (locations precedes activities in INGESTIBLE_ENTITIES order,
+  // §D2, so that create already ran and populated locationIdByName by the
+  // time this runs). A name that is neither is a location the director
+  // declined or left unresolved — buildPlan's own create-confidence rule
+  // (createConfidenceTier) always requires an explicit director resolution
+  // for a location create, and that resolution is the single source of
+  // truth for whether the location exists at all. It must never come into
+  // existence as a side effect of an activity that merely names it, so this
+  // never mints — a genuinely new, unapproved name resolves to null and the
+  // activity's location_id is simply left unset (buildSchedule.js treats a
+  // null location as unconstrained by design).
+  //
+  // This previously minted unconditionally, justified by an "S4
+  // enrichment-workbook path" (a director typing a room name into an
+  // editable cell with no corresponding "Locations" review row) — no such
+  // import path exists in this codebase; the live routes (ImportScreen,
+  // ElectiveSetDetail/EventGridEditor grid uploads, LocationsScreen's
+  // separate XLSX importer, the MCP tools) all go through the same
+  // `approved.locations` review gate. That unconditional mint was the bug:
+  // it let an activity resurrect a location the director had explicitly
+  // declined.
+  const resolveApprovedLocationId = (locationIdByName, name) => {
     const trimmed = String(name ?? '').trim()
     if (!trimmed) return null
-    const cached = locationIdByName.get(trimmed)
-    if (cached) return cached
-    const id = resolveLocationCreateId(db, camp_id, trimmed)
-    if (!db.prepare('SELECT 1 FROM locations WHERE id = ?').get(id)) {
-      write(db, { entity: 'locations', entity_id: id, field: 'camp_id', value: camp_id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
-      write(db, { entity: 'locations', entity_id: id, field: 'name', value: trimmed, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
-    }
-    locationIdByName.set(trimmed, id)
-    return id
+    return locationIdByName.get(trimmed) ?? null
   }
 
   // Slice: activities.recurrence_truth_status classifier inputs
@@ -1279,15 +1281,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           minPerWeekUnknown = true
         }
       }
-      // M4 §D1c: a brand-new activity's location, resolved (or minted if truly
-      // absent) inline — the ONE call site that genuinely needs resolve-OR-
-      // create (see resolveOrCreateLocationId's own doc comment for why: a
-      // director-typed room name with no separate `locations` create/review
-      // item to have resolved it first, the S4 workbook path's real shape).
+      // M4 §D1c, corrected: a brand-new activity's location resolves against
+      // an already-approved location only (see resolveApprovedLocationId's
+      // own doc comment for why) — an unapproved name resolves to null and
+      // location_id is left unset.
       if (rule?.location != null && rule.location !== '') {
-        const locationId = resolveOrCreateLocationId(db, {
-          camp_id, name: rule.location, locationIdByName, author_user_id, device_id,
-        })
+        const locationId = resolveApprovedLocationId(locationIdByName, rule.location)
         if (locationId) {
           fields.location_id = locationId
           // Registry row 24 (Governor: ship in M4) — the captured/typed text

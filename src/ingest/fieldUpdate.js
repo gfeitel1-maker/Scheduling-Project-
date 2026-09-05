@@ -156,9 +156,9 @@ export function resolveFieldWrite(field, rawTo, { groupIdByName, tierIdByName, l
   // is not a gap: locations precedes activities in INGESTIBLE_ENTITIES order,
   // so any location the director approved as a create THIS import is already
   // live (and in locationIdByName) by the time this runs — see ingest.js
-  // commitCreate's D1c resolveOrCreateLocationId for the one call site that
-  // genuinely needs resolve-OR-create (a brand-new activity's location never
-  // separately proposed as its own create).
+  // commitCreate's D1c resolveApprovedLocationId, which is likewise a lookup
+  // only (never mint): an activity's location must resolve to an
+  // already-approved location or resolve to nothing at all.
   if (field === 'location') {
     const id = locationIdByName.get(String(rawTo).trim())
     if (!id) return { ok: false, reason: 'location_unresolved', detail: { unresolved: [rawTo] } }
