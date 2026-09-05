@@ -3,6 +3,7 @@ import { TIER_LABEL, tierShapeStyle, tierForCapacitySource } from '../utils/rule
 import * as XLSX from 'xlsx'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
+import { parseLocationsSheetRows } from '../utils/importLocationsSheet.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -752,19 +753,15 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     const reader = new FileReader()
     reader.onload = ev => {
       const wb = XLSX.read(ev.target.result, { type: 'array' })
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
+      // T121: a multi-sheet workbook (the setup enrichment export) carries its
+      // own Locations sheet, which is not necessarily SheetNames[0] — prefer it
+      // by name, falling back to the first sheet for a dedicated single-sheet
+      // locations file (this screen's own downloadTemplate names its sheet
+      // 'Locations' too, so that path is unaffected).
+      const sheetName = wb.SheetNames.includes('Locations') ? 'Locations' : wb.SheetNames[0]
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' }).map(unescapeRow)
       const validKinds = new Set(KIND_OPTIONS.map(k => k.value))
-      const parsed = rows.map(r => {
-        const name = String(r.name || '').trim()
-        const rawCap = r.capacity
-        const capacity = rawCap === '' || rawCap == null ? 1 : Number(rawCap)
-        const kindRaw = String(r.kind || '').trim().toLowerCase()
-        const kind = validKinds.has(kindRaw) ? kindRaw : null
-        let warning = null
-        if (!name) warning = 'Missing name'
-        else if (!Number.isInteger(capacity) || capacity < 1) warning = 'Capacity must be a whole number 1 or greater'
-        return { name, capacity, kind, warning }
-      })
+      const parsed = parseLocationsSheetRows(rows, validKinds)
       setImportPreviewRows(parsed); setImportStep('preview')
     }
     reader.readAsArrayBuffer(file); e.target.value = ''

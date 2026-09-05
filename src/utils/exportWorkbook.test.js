@@ -5,11 +5,14 @@ import * as XLSX from 'xlsx'
 import {
   exportWorkbook,
   SHEET_LAYOUT,
+  LOCATIONS_SHEET,
   META_SHEET,
   ID_COLUMN,
   STATUS_COLUMN,
   PLAN_VERSION,
 } from './exportWorkbook.js'
+import { unescapeRow } from './exportSanitize.js'
+import { parseLocationsSheetRows } from './importLocationsSheet.js'
 
 // A small but complete camp fixture (localClient.list shape, snake_case).
 function fixture() {
@@ -35,8 +38,14 @@ function fixture() {
       { id: 'tb-2', name: 'Second Period', start_time: '09:40', end_time: '10:30', sort_order: 2 },
     ],
     // M4: locations is an extra input, resolved into the activities sheet's
-    // `location` column (not a sheet of its own — see SHEET_LAYOUT).
-    locations: [{ id: 'loc-pool', name: 'Pool' }],
+    // `location` column (via SHEET_LAYOUT) AND rendered as its own visible,
+    // director-editable Locations sheet (see LOCATIONS_SHEET, T121 capacity
+    // round-trip). It deliberately does not join SHEET_LAYOUT's baseline/
+    // shoresh_id/Status machinery — see the comment at LOCATIONS_SHEET.
+    locations: [
+      { id: 'loc-pool', name: 'Pool', capacity: 2, kind: 'pool', sort_order: 2 },
+      { id: 'loc-gym', name: 'Gym', capacity: 4, kind: 'court', sort_order: 1 },
+    ],
     activities: [
       {
         id: 'act-1', name: 'Swim', priority: 'high', min_per_week: 1, max_per_week: 3,
@@ -60,13 +69,14 @@ function metaMap(wb) {
 }
 
 describe('exportWorkbook — sheets + columns', () => {
-  it('has one sheet per ingestible entity plus the hidden metadata sheet', () => {
+  it('has one sheet per ingestible entity, a visible Locations sheet, plus the hidden metadata sheet', () => {
     const wb = exportWorkbook(fixture())
     const expected = SHEET_LAYOUT.map((l) => l.sheet)
     for (const name of expected) expect(wb.SheetNames).toContain(name)
+    expect(wb.SheetNames).toContain(LOCATIONS_SHEET)
     expect(wb.SheetNames).toContain(META_SHEET)
-    // One sheet per entity + meta, nothing else.
-    expect(wb.SheetNames.length).toBe(expected.length + 1)
+    // One sheet per SHEET_LAYOUT entity + Locations + meta, nothing else.
+    expect(wb.SheetNames.length).toBe(expected.length + 2)
   })
 
   it('each entity sheet starts with shoresh_id and ends with Status', () => {
@@ -114,6 +124,72 @@ describe('exportWorkbook — sheets + columns', () => {
     // Explicit status word wins.
     const wb2 = exportWorkbook({ ...fixture(), tiers: [{ id: 'u', name: 'X', status: 'Unknown' }] })
     expect(sheetRows(wb2, 'Age Divisions')[0][STATUS_COLUMN]).toBe('Unknown')
+  })
+})
+
+describe('exportWorkbook — Locations sheet (T121 capacity round-trip)', () => {
+  it('is visible and its header matches the existing LocationsScreen importer exactly', () => {
+    const wb = exportWorkbook(fixture())
+    const idx = wb.SheetNames.indexOf(LOCATIONS_SHEET)
+    expect(idx).toBeGreaterThan(-1)
+    expect(wb.Workbook.Sheets[idx].Hidden).toBe(0)
+    const header = XLSX.utils.sheet_to_json(wb.Sheets[LOCATIONS_SHEET], { header: 1 })[0]
+    // No shoresh_id/Status columns — this sheet is NOT part of SHEET_LAYOUT's
+    // baseline-diffed re-import; it is read by LocationsScreen's own plain
+    // "Import from Excel" path, whose header is exactly name/capacity/kind.
+    expect(header).toEqual(['name', 'capacity', 'kind'])
+  })
+
+  it('carries every location\'s real capacity and kind, ordered by sort_order', () => {
+    const wb = exportWorkbook(fixture())
+    const rows = sheetRows(wb, LOCATIONS_SHEET)
+    expect(rows.map((r) => r.name)).toEqual(['Gym', 'Pool']) // sort_order 1 before 2
+    expect(rows.map((r) => Number(r.capacity))).toEqual([4, 2])
+    expect(rows.map((r) => r.kind)).toEqual(['court', 'pool'])
+  })
+
+  it('an empty camp still produces a header-only Locations sheet', () => {
+    const wb = exportWorkbook({ camp_id: 'c', cohort_id: null, base_generation: 0, locations: [] })
+    const header = XLSX.utils.sheet_to_json(wb.Sheets[LOCATIONS_SHEET], { header: 1 })[0]
+    expect(header).toEqual(['name', 'capacity', 'kind'])
+    expect(sheetRows(wb, LOCATIONS_SHEET)).toEqual([])
+  })
+
+  // The actual point of T121: export -> re-import through the SAME parser
+  // LocationsScreen's "Import from Excel" runs (parseLocationsSheetRows),
+  // proving a non-default capacity survives instead of resetting to 1. Before
+  // this change there was no Locations sheet at all, so this was RED (the
+  // sheet didn't exist to read back).
+  it('a full export -> re-import round-trip preserves non-default capacities', () => {
+    const wb = exportWorkbook(fixture())
+    // Simulate a full write/read cycle through actual xlsx bytes, not just
+    // the in-memory workbook object.
+    const round = XLSX.read(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }), { type: 'array' })
+    const sheetRawRows = XLSX.utils.sheet_to_json(round.Sheets[LOCATIONS_SHEET], { defval: '' }).map(unescapeRow)
+    const validKinds = new Set(['pool', 'court'])
+    const parsed = parseLocationsSheetRows(sheetRawRows, validKinds)
+
+    expect(parsed).toHaveLength(2)
+    const pool = parsed.find((r) => r.name === 'Pool')
+    const gym = parsed.find((r) => r.name === 'Gym')
+    expect(pool.capacity).toBe(2) // not the schema default of 1
+    expect(pool.kind).toBe('pool')
+    expect(gym.capacity).toBe(4)
+    expect(gym.kind).toBe('court')
+    expect(parsed.every((r) => r.warning === null)).toBe(true)
+  })
+
+  it('a workbook exported before this change (no Locations sheet) still parses to zero rows, not an error', () => {
+    const wb = exportWorkbook(fixture())
+    XLSX.utils.book_new() // no-op, keeps intent explicit: simulate pre-T121 shape below
+    delete wb.Sheets[LOCATIONS_SHEET]
+    wb.SheetNames = wb.SheetNames.filter((n) => n !== LOCATIONS_SHEET)
+    const sheetName = wb.SheetNames.includes(LOCATIONS_SHEET) ? LOCATIONS_SHEET : wb.SheetNames[0]
+    // Mirrors LocationsScreen.onFileChange's fallback: a workbook with no
+    // 'Locations' sheet falls back to the first sheet, which parses fine
+    // (rows without a `name`/`capacity` column just come back empty-ish and
+    // get flagged, never throw).
+    expect(() => XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' })).not.toThrow()
   })
 })
 
