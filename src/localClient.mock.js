@@ -791,7 +791,9 @@ export const mockShoresh = {
           // without it.
           if (item.entity === 'activities' && item._rule?.location != null && item._rule.location !== '') {
             const locationName = String(item._rule.location).trim()
-            if (locationName && !approvedLocationNames.has(locationName)) {
+            const declined = Array.isArray(state.__locationWordDecisions)
+              && state.__locationWordDecisions.some((d) => d.word_key === normalizeLocationWordKey(locationName) && d.decision === 'not_a_place')
+            if (locationName && !approvedLocationNames.has(locationName) && !declined) {
               conflicts.push(makeFieldConflict(
                 item, 'location_unresolved', 'location',
                 { from: null, to: item._rule.location },

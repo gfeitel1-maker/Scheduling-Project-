@@ -1631,7 +1631,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // an independent reason to hold, not a competing one.
           if (item.entity === 'activities' && item._rule?.location != null && item._rule.location !== '') {
             const locationName = String(item._rule.location).trim()
-            if (locationName && !approvedLocationNames.has(locationName)) {
+            if (locationName && !approvedLocationNames.has(locationName) && !isWordDeclinedAsPlace(db, { campId: camp_id, rawWord: locationName })) {
               conflicts.push(makeFieldConflict(
                 item, 'location_unresolved', 'location',
                 { from: null, to: item._rule.location },

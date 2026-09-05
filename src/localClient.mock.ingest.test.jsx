@@ -148,6 +148,31 @@ describe('mock ingestCommit — location capacity mock parity (M4)', () => {
     expect((await mockShoresh.list(null, 'locations')).find((l) => l.name === 'Pool')).toBeUndefined()
     expect((await mockShoresh.list(null, 'activities')).find((a) => a.name === 'Swim')).toBeUndefined()
   })
+
+  it('a remembered "not a place" decision is consulted on a brand-new activity CREATE, not just an update — the import completes with location unset', async () => {
+    await bootstrap()
+    // Record the decision via the update path first (Swim already exists).
+    await mockShoresh.ingestCommit({ approved: { activities: ['Swim'] } })
+    await mockShoresh.ingestCommit({
+      approved: { activities: ['Swim'] },
+      activityRules: { Swim: { location: 'Barn' } },
+      resolutions: [
+        { entity: 'activities', name: 'Swim', reason: 'location_unresolved', field: 'location', choice: 'not_a_place' },
+      ],
+    })
+
+    // A later import creates a BRAND NEW activity naming the same declined word.
+    const result = await mockShoresh.ingestCommit({
+      approved: { activities: ['Archery'] },
+      activityRules: { Archery: { location: 'barn' } }, // case/whitespace-different, same word
+    })
+
+    expect(result.held).toBeFalsy()
+    expect(result.conflicts?.some((c) => c.reason === 'location_unresolved')).toBeFalsy()
+    const archery = (await mockShoresh.list(null, 'activities')).find((a) => a.name === 'Archery')
+    expect(archery).toBeTruthy()
+    expect(archery.location_id).toBeFalsy()
+  })
 })
 
 describe('mock ingestCommit — ambiguous identity (S1a §3 / T73)', () => {
