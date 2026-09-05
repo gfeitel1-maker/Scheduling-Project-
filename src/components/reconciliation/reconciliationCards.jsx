@@ -143,9 +143,23 @@ const KIND_SUBTITLE = {
   elective_candidates_truncated: () => 'Electives',
 }
 
+// "Which activities named that room" — a director can't answer "Is Barn a
+// place?" from a bare from/to diff, but can from who used the word. Plural
+// names past the first collapse to a count rather than listing every one
+// (a room named by a dozen activities would otherwise overflow the card).
+function namedByPhrase(names) {
+  const uniq = [...new Set(names)]
+  if (uniq.length <= 1) return `Named by ${uniq[0] ?? 'an activity'}`
+  const [first, ...rest] = uniq
+  return `Named by ${first} and ${rest.length} other ${rest.length === 1 ? 'activity' : 'activities'}`
+}
+
 function subtitleFor(decision) {
   const override = KIND_SUBTITLE[decision.kind]
   if (override) return override(decision)
+  if (decision.kind === 'resolve_conflict' && decision._held && decision._heldKind === 'location') {
+    return namedByPhrase(decision._namingActivities?.length ? decision._namingActivities : [decision.entityName])
+  }
   return `${decision.entity} · ${decision.entityName ?? 'unnamed'} · ${DOMAIN_OF[decision.entity] ?? 'Structure'}`
 }
 

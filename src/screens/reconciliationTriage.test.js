@@ -47,7 +47,33 @@ describe('heldConflictsToDecisions', () => {
     expect(decisions[0]).toEqual(expect.objectContaining({
       kind: 'resolve_conflict', entity: 'activities', entityName: 'Swim',
       field: ['location'], _held: true, _heldKind: 'location', _word: 'Barn',
+      _namingActivities: ['Swim'],
     }))
+  })
+
+  // The card must read as ONE question about the word, not N duplicates —
+  // several activities naming the same unresolved room fold into a single
+  // decision carrying every naming activity's name.
+  it('folds several activities naming the SAME unresolved word into ONE decision, aggregating their names', () => {
+    const decisions = heldConflictsToDecisions([
+      { entity: 'activities', _name: 'Archery', reason: 'location_unresolved', fields: { location: { to: 'Barn' } } },
+      { entity: 'activities', _name: 'Crafts', reason: 'location_unresolved', fields: { location: { to: 'Barn' } } },
+      { entity: 'activities', _name: 'Yoga', reason: 'location_unresolved', fields: { location: { to: 'barn' } } },
+    ])
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0]).toEqual(expect.objectContaining({
+      kind: 'resolve_conflict', field: ['location'], _held: true, _heldKind: 'location',
+      _word: 'Barn', _namingActivities: ['Archery', 'Crafts', 'Yoga'],
+    }))
+  })
+
+  it('keeps two DIFFERENT unresolved words as two separate decisions', () => {
+    const decisions = heldConflictsToDecisions([
+      { entity: 'activities', _name: 'Archery', reason: 'location_unresolved', fields: { location: { to: 'Barn' } } },
+      { entity: 'activities', _name: 'Swim', reason: 'location_unresolved', fields: { location: { to: 'Lake' } } },
+    ])
+    expect(decisions).toHaveLength(2)
+    expect(decisions.map((d) => d._word).sort()).toEqual(['Barn', 'Lake'])
   })
 
   for (const reason of ['validation', 'eligibility_unresolved', 'unit_unresolved']) {
@@ -224,6 +250,16 @@ describe('foldTriageInputs — location_unresolved card', () => {
     ])
     const inputs = foldTriageInputs(baseInputs, decisions, { [decisions[0].id]: { choice: 'not_a_place' } })
     expect(inputs.resolutions).toContainEqual({ entity: 'activities', name: 'Swim', reason: 'location_unresolved', field: 'location', choice: 'not_a_place' })
+  })
+
+  it('answering ONE aggregated card resolves it for EVERY naming activity, not just the first', () => {
+    const decisions = heldConflictsToDecisions([
+      { entity: 'activities', _name: 'Archery', reason: 'location_unresolved', fields: { location: { to: 'Barn' } } },
+      { entity: 'activities', _name: 'Crafts', reason: 'location_unresolved', fields: { location: { to: 'Barn' } } },
+    ])
+    const inputs = foldTriageInputs(baseInputs, decisions, { [decisions[0].id]: { choice: 'not_a_place' } })
+    expect(inputs.resolutions).toContainEqual({ entity: 'activities', name: 'Archery', reason: 'location_unresolved', field: 'location', choice: 'not_a_place' })
+    expect(inputs.resolutions).toContainEqual({ entity: 'activities', name: 'Crafts', reason: 'location_unresolved', field: 'location', choice: 'not_a_place' })
   })
 })
 
