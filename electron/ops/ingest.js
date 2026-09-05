@@ -28,6 +28,7 @@ import { PROJECTIONS } from './projections.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
 import { replaceOpenDecisionsForCommit } from './openReconciliationDecisions.js'
+import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.js'
 
 // U2 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, "Finding 4 fix").
 // Delete order: reverse of INGESTIBLE_ENTITIES with anchor_activities first —
@@ -1520,6 +1521,14 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // spurious null op (prevents a wall of empty clears becoming empty ops).
         if (isClear && !latest) continue
         const res = resolutionFor(item.entity, item._name, field)
+        // ADR 2026-09-05 §4 — the generic fallback card's "skip this field"
+        // action, for the three reasons (validation / eligibility_unresolved
+        // / unit_unresolved) that get no bespoke resolution UI: never
+        // enqueue this field at all, leaving the stored value exactly as it
+        // was (prior value kept, or still unset) — the field simply drops
+        // out of this import, the same "chosen, not silent" posture as
+        // location's choice 3, without a remembered-decision write.
+        if (['validation', 'eligibility_unresolved', 'unit_unresolved'].includes(res?.reason) && res.choice === 'skip') continue
         // S4b §4 (RISK C): the ACTIVE base_generation staleness gate. For a
         // workbook (base_generation > 0), a field written AFTER the workbook was
         // exported (its op seq > base_generation) is stale — held — EVEN when the
@@ -1535,6 +1544,37 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         const enqueue = (parent_op_id) => {
           if (isClear) { toUpdate.push({ item, field: dbField, value: null, parent_op_id }); return }
           const resolved = resolveFieldWrite(field, delta.to, { groupIdByName, tierIdByName, locationIdByName })
+          if (!resolved.ok && resolved.reason === 'location_unresolved') {
+            // ADR 2026-09-05 §3. A director's answer to the "Is <word> a
+            // place?" card, folded back by reconciliationTriage.js exactly
+            // like an ambiguous_identity pick: 'existing' binds the field to
+            // the chosen location id directly, bypassing the failed
+            // locationIdByName lookup that raised location_unresolved above.
+            if (res?.reason === 'location_unresolved' && res.choice === 'existing' && res.location_id) {
+              toUpdate.push({ item, field: 'location_id', value: res.location_id, parent_op_id })
+              return
+            }
+            // Choice 3 ("not a place — ignore it"): two sequenced writes in
+            // this SAME transaction — remember the word for every future
+            // import (recordNotAPlace), and resolve THIS field to null, the
+            // same "commits with no room" outcome as today's silent default,
+            // now chosen rather than accidental.
+            if (res?.reason === 'location_unresolved' && res.choice === 'not_a_place') {
+              recordNotAPlace(db, { campId: camp_id, rawWord: delta.to, confirmedBy: author_user_id })
+              toUpdate.push({ item, field: 'location_id', value: null, parent_op_id })
+              return
+            }
+            // Pre-flight consult (ADR §3): a word the director already said
+            // is "not a place" at this camp, on an earlier import, must never
+            // raise location_unresolved again — resolve straight to null,
+            // exactly as if the director had just answered "not a place"
+            // again. Checked at the same point listAliasMap is already
+            // consulted for alias resolution during plan building.
+            if (isWordDeclinedAsPlace(db, { campId: camp_id, rawWord: delta.to })) {
+              toUpdate.push({ item, field: 'location_id', value: null, parent_op_id })
+              return
+            }
+          }
           if (!resolved.ok) conflicts.push(makeFieldConflict(item, resolved.reason, field, delta, resolved.detail))
           else {
             toUpdate.push({ item, field: resolved.field, value: resolved.value, parent_op_id })

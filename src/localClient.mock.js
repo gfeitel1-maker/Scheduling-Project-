@@ -715,6 +715,13 @@ export const mockShoresh = {
       evidence: { tier: 'exact_name', matched_name: item.evidence?.matched_name ?? item._name },
       _name: item._name,
     })
+    // docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-
+    // conflict-triage-coverage.md §2 — same normalization
+    // electron/ops/locationWordDecisions.js's normalizeWordKey applies
+    // (duplicated here rather than imported: that module also imports
+    // node:crypto for its db-writing half, which this browser-mock file
+    // must not pull in).
+    const normalizeLocationWordKey = (word) => String(word ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
     // S2c §4: a held field conflict from the update path (validation /
     // eligibility_unresolved / unit_unresolved), same shape the real committer
     // builds. resolveFieldWrite (shared) produces the reason + detail.
@@ -813,9 +820,37 @@ export const mockShoresh = {
             if (isClear && src === undefined && (row?.[dbField] == null)) continue
             const isProtected = src !== undefined && src !== 'import'
             const res = resolutionFor(item.entity, item._name, field)
+            // ADR 2026-09-05 §4 — mirrors electron/ops/ingest.js's generic
+            // fallback "skip this field" action.
+            if (['validation', 'eligibility_unresolved', 'unit_unresolved'].includes(res?.reason) && res.choice === 'skip') continue
             const enqueue = () => {
               if (isClear) { toUpdate.push({ item, field: dbField, value: null }); return }
               const resolved = resolveFieldWrite(field, delta.to, { groupIdByName: groupIdByNameRun, tierIdByName, locationIdByName: locationIdByNameRun })
+              // docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-
+              // held-conflict-triage-coverage.md §3 — mirrors electron/ops/ingest.js's
+              // resolution-consumption + pre-flight consult, so the mock's held
+              // behavior cannot drift from the real committer's.
+              if (!resolved.ok && resolved.reason === 'location_unresolved') {
+                if (res?.reason === 'location_unresolved' && res.choice === 'existing' && res.location_id) {
+                  toUpdate.push({ item, field: 'location_id', value: res.location_id })
+                  return
+                }
+                if (res?.reason === 'location_unresolved' && res.choice === 'not_a_place') {
+                  if (!Array.isArray(state.__locationWordDecisions)) state.__locationWordDecisions = []
+                  const wordKey = normalizeLocationWordKey(delta.to)
+                  if (!state.__locationWordDecisions.some((d) => d.word_key === wordKey)) {
+                    state.__locationWordDecisions.push({ word_key: wordKey, raw_word: String(delta.to ?? '').trim(), decision: 'not_a_place' })
+                  }
+                  toUpdate.push({ item, field: 'location_id', value: null })
+                  return
+                }
+                const declined = Array.isArray(state.__locationWordDecisions)
+                  && state.__locationWordDecisions.some((d) => d.word_key === normalizeLocationWordKey(delta.to) && d.decision === 'not_a_place')
+                if (declined) {
+                  toUpdate.push({ item, field: 'location_id', value: null })
+                  return
+                }
+              }
               if (!resolved.ok) conflicts.push(makeFieldConflict(item, resolved.reason, field, delta, resolved.detail))
               else toUpdate.push({ item, field: resolved.field, value: resolved.value })
             }

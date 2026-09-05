@@ -140,6 +140,30 @@ CREATE TABLE IF NOT EXISTS compound_cell_decisions (
   UNIQUE(camp_id, pattern)
 );
 
+-- Host-local memory of a director's "not a place" answer for an unresolved
+-- location word, so a re-import never raises location_unresolved for the
+-- same word again. Same posture as compound_cell_decisions and
+-- declined_two_row_splits: NEVER included in any full-sync SELECT/payload,
+-- NEVER sent over the wire, NEVER added to DIRECT_CAMP_ENTITIES or
+-- PROJECTIONS. Written only from inside commitPlan's commit transaction
+-- (electron/ops/ingest.js), using electron/ops/locationWordDecisions.js's
+-- single writer function — same admin-only import IPC boundary as
+-- import_evidence below.
+-- docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-conflict-triage-coverage.md.
+CREATE TABLE IF NOT EXISTS location_word_decisions (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  word_key TEXT NOT NULL,        -- normalized lookup key (see locationWordDecisions.js) derived from
+                                  -- the literal word ingest read as a location
+  raw_word TEXT NOT NULL,        -- the word as printed, for display/audit —
+                                  -- never used as the lookup key itself
+  decision TEXT NOT NULL,        -- 'not_a_place' (only value written today —
+                                  -- see the ADR §3 on why choices 1/2 don't write here)
+  confirmed_by TEXT,             -- plain TEXT user id, provenance only
+  confirmed_at TEXT NOT NULL,
+  UNIQUE(camp_id, word_key)
+);
+
 -- Host-local memory of a declined two-rows split suggestion, so a re-import
 -- does not re-suggest a split the director already said no to (docs/adr/
 -- 2026-08-23-two-rows-multipattern-split.md, docs/work/specs/2026-08-23-

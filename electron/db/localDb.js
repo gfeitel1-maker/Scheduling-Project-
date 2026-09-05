@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 55
+export const CURRENT_SCHEMA_VERSION = 56
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2187,6 +2187,32 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v56 — location_word_decisions, the host-local per-camp memory of a
+  // director's "not a place" answer for an unresolved location word
+  // (docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-
+  // conflict-triage-coverage.md).
+  //
+  // Both-places DDL, following the v54/compound_cell_decisions precedent:
+  // the table is declared here AND in schema.sql, byte-identical text
+  // (LOCATION_WORD_DECISIONS_DDL), so a fresh install and a migrated db
+  // agree on PRAGMA table_info(location_word_decisions). DDL only, no data
+  // movement — reapplying this migration is harmless (CREATE TABLE IF NOT
+  // EXISTS).
+  //
+  // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
+  // DIRECT_CAMP_ENTITIES, full_sync) — same reasoning as
+  // compound_cell_decisions: exactly one writer
+  // (electron/ops/locationWordDecisions.js), host-only, admin-only.
+  if (getSchemaVersion(db) >= 55 && getSchemaVersion(db) < 56) {
+    db.transaction(() => {
+      db.exec(LOCATION_WORD_DECISIONS_DDL)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (56, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -2555,6 +2581,25 @@ export const COMPOUND_CELL_DECISIONS_DDL = `CREATE TABLE IF NOT EXISTS compound_
   confirmed_by TEXT,              -- plain TEXT user id, provenance only
   confirmed_at TEXT NOT NULL,
   UNIQUE(camp_id, pattern)
+)`
+
+// Byte-identical duplicate of the location_word_decisions block in
+// schema.sql (docs/adr/2026-09-05-unresolved-location-remembered-decisions-
+// and-held-conflict-triage-coverage.md). Kept as a constant so the v56
+// migration cannot drift from it by a stray space — the same discipline as
+// COMPOUND_CELL_DECISIONS_DDL above.
+export const LOCATION_WORD_DECISIONS_DDL = `CREATE TABLE IF NOT EXISTS location_word_decisions (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  word_key TEXT NOT NULL,        -- normalized lookup key (see locationWordDecisions.js) derived from
+                                  -- the literal word ingest read as a location
+  raw_word TEXT NOT NULL,        -- the word as printed, for display/audit —
+                                  -- never used as the lookup key itself
+  decision TEXT NOT NULL,        -- 'not_a_place' (only value written today —
+                                  -- see the ADR §3 on why choices 1/2 don't write here)
+  confirmed_by TEXT,             -- plain TEXT user id, provenance only
+  confirmed_at TEXT NOT NULL,
+  UNIQUE(camp_id, word_key)
 )`
 
 // Byte-identical duplicate of the import_evidence block in schema.sql

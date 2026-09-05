@@ -64,6 +64,56 @@ export function heldConflictsToDecisions(conflicts) {
           _delta: c.fields[field],
         })
       }
+    } else if (c.reason === 'location_unresolved') {
+      // ADR 2026-09-05 §4 — the approved "Is <word> a place?" card. Full
+      // three-choice resolution path (create / use existing / not a place),
+      // the only one of the four previously-unrendered reasons with an
+      // approved design and a real commit-side resolution (§3).
+      for (const field of Object.keys(c.fields ?? {})) {
+        out.push({
+          id: `held:${c.entity}:${c._name}:location:${field}`,
+          kind: 'resolve_conflict',
+          entity: c.entity,
+          entityId: null,
+          entityName: c._name,
+          field: [field],
+          confidence: 'conflict',
+          proposedValue: c.fields[field]?.to ?? null,
+          evidence: null,
+          _held: true,
+          _heldKind: 'location',
+          _word: c.fields[field]?.to ?? null,
+          _delta: c.fields[field],
+        })
+      }
+    } else if (['validation', 'eligibility_unresolved', 'unit_unresolved'].includes(c.reason)) {
+      // ADR §4 — the generic fallback: no bespoke resolution UI exists for
+      // these three (no reported real-world frequency), but a held reason
+      // must NEVER render nothing — that silent dead end is the bug. Same
+      // card shell as location/identity/stale, single action: skip the field.
+      for (const field of Object.keys(c.fields ?? {})) {
+        out.push({
+          id: `held:${c.entity}:${c._name}:fallback:${field}`,
+          kind: 'resolve_conflict',
+          entity: c.entity,
+          entityId: null,
+          entityName: c._name,
+          field: [field],
+          confidence: 'conflict',
+          proposedValue: c.fields[field]?.to ?? null,
+          evidence: null,
+          _held: true,
+          _heldKind: 'generic_fallback',
+          _reason: c.reason,
+          _delta: c.fields[field],
+        })
+      }
+    } else {
+      // ADR §4 — mirrors commitPlan's own assertion (electron/ops/ingest.js
+      // "conflict reason ... is not implemented"): the render-side and
+      // commit-side vocabularies must never silently drift apart the way
+      // this ticket's four missing cases already did once.
+      throw new Error(`heldConflictsToDecisions: held-conflict reason "${c.reason}" has no card — this must be fixed, not silently dropped`)
     }
   }
   return out
@@ -92,6 +142,32 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     if (d.kind !== 'resolve_conflict') continue
     const a = answers[d.id]
     if (!a) continue
+    if (d._held && d._heldKind === 'location') {
+      // ADR 2026-09-05 §3 — folds the director's "Is <word> a place?" answer
+      // into the SAME resolve_conflict/resolutions shape ambiguous_identity
+      // already uses; electron/ops/ingest.js's decideFieldItem consumes
+      // 'existing'/'not_a_place' directly (§3). 'create' is included for
+      // shape-symmetry with ambiguous_identity's own create choice, though
+      // its commit-side counterpart depends on the (unmerged)
+      // claude/location-provenance-honesty create-path fix.
+      if (a.choice === 'existing') {
+        resolutions.push({ entity: d.entity, name: d.entityName, reason: 'location_unresolved', field: d.field[0], choice: 'existing', location_id: a.location_id })
+      } else if (a.choice === 'create') {
+        resolutions.push({ entity: d.entity, name: d.entityName, reason: 'location_unresolved', field: d.field[0], choice: 'create' })
+      } else if (a.choice === 'not_a_place') {
+        resolutions.push({ entity: d.entity, name: d.entityName, reason: 'location_unresolved', field: d.field[0], choice: 'not_a_place' })
+      }
+      continue
+    }
+    if (d._held && d._heldKind === 'generic_fallback') {
+      // ADR §4 — the fallback card's single action: skip this field. See
+      // electron/ops/ingest.js's decideFieldItem, which never enqueues a
+      // field with a matching 'skip' resolution.
+      if (a.choice === 'skip') {
+        resolutions.push({ entity: d.entity, name: d.entityName, reason: d._reason, field: d.field[0], choice: 'skip' })
+      }
+      continue
+    }
     const isIdentity = d._held ? d._heldKind === 'identity' : true
     if (isIdentity) {
       if (a.choice === 'existing') {
@@ -164,6 +240,8 @@ export function isDecisionResolvedFor(decision, answers, dismissedGaps = new Set
   const a = answers[decision.id]
   if (!a) return false
   if (decision.kind === 'resolve_conflict') {
+    if (decision._held && decision._heldKind === 'location') return ['existing', 'create', 'not_a_place'].includes(a.choice)
+    if (decision._held && decision._heldKind === 'generic_fallback') return a.choice === 'skip'
     const isIdentity = decision._held ? decision._heldKind === 'identity' : true
     return isIdentity ? (a.choice === 'existing' || a.choice === 'create') : (a.choice === 'accept' || a.choice === 'keep')
   }
