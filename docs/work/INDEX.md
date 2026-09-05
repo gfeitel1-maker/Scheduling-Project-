@@ -221,8 +221,6 @@ either the document is stranded or an edge was never declared.
 - [docs/work/handoffs/slices-2-3-handoff.md](../../docs/work/handoffs/slices-2-3-handoff.md)
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
 - [docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md](../../docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md)
-- [docs/work/tickets/T120-history-rewrite-privacy-scrub.md](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md)
-- [docs/work/tickets/T121-sync-test-load-fragility.md](../../docs/work/tickets/T121-sync-test-load-fragility.md)
 
 ## Dangling references
 
