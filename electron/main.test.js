@@ -2487,7 +2487,15 @@ describe('locationCapacityProvenance handler (locations.read)', () => {
     expect(() => handlers.locationCapacityProvenance(undefined)).toThrow('token is required')
   })
 
-  it('classifies a location with no capacity op, and one with source=human, as confirmed; source=import as unconfirmed', async () => {
+  it('classifies source=human as confirmed, source=import as unconfirmed, and NO capacity op at all as unconfirmed too', async () => {
+    // A location with no capacity op at all was never written through the
+    // op-log — in practice that only happens via the v32 migration backfill
+    // (electron/db/localDb.js, raw INSERT, no appendOp), which derived
+    // capacity from old activities.max_groups_per_slot values with no human
+    // review. Reading "no op" as confirmed (the pre-fix behavior) let every
+    // migration-era room's guessed capacity display as human-confirmed,
+    // which is exactly backwards — this is the one case where the director
+    // most needs to see it's unreviewed.
     await seedCampAndUser({ name: 'CapacityReader', pin: '1234', role: 'staff' })
     const handlers = makeHandlers(db, deviceId, {})
     const { token } = await handlers.login({ name: 'CapacityReader', pin: '1234' })
@@ -2506,7 +2514,7 @@ describe('locationCapacityProvenance handler (locations.read)', () => {
 
     const result = handlers.locationCapacityProvenance(token)
     expect(result).toEqual({
-      [noOpId]: 'confirmed',
+      [noOpId]: 'unconfirmed',
       [importedId]: 'unconfirmed',
       [confirmedId]: 'confirmed',
     })

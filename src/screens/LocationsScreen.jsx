@@ -243,7 +243,7 @@ function CapacityProvenanceDot({ location, onConfirm }) {
             <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Capacity</span>
             <span style={capacityDotStyles.tierLabel}>{TIER_LABEL.inferred}</span>
           </div>
-          <div style={capacityDotStyles.rowSentence}>Imported — no one has confirmed how many groups fit here.</div>
+          <div style={capacityDotStyles.rowSentence}>No one has confirmed how many groups fit here.</div>
           <div style={capacityDotStyles.rowActions}>
             <button
               type="button"

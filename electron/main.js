@@ -1485,9 +1485,20 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // marker and the Roots attention list's aggregate count. Mirrors
   // listImportEvidenceHandler's shape, narrowed to one field. capacity has no
   // import-evidence record (unlike the activity rule fields), so
-  // tierForField's three-way tier collapses to a binary: 'confirmed' (human,
-  // or no op at all — the location predates this feature) vs 'unconfirmed'
-  // (last write was source='import').
+  // tierForField's three-way tier collapses to a binary: 'confirmed' (an
+  // actual op with source='human') vs 'unconfirmed' (source='import', OR no
+  // capacity op at all).
+  //
+  // The "no op at all" case is NOT the same as tierForField's general
+  // "source is null -> confirmed" default (correct for a hand-created
+  // record that went through the normal write path, where every field gets
+  // a 'human' op). For locations specifically, the ONLY way to have zero
+  // capacity ops is the v32 migration backfill (electron/db/localDb.js,
+  // §"Camp Spatial Model" — a raw INSERT that bypasses the op-log
+  // entirely), which derived capacity from old activities.max_groups_per_slot
+  // values with no director review. So it is read the same as an import: a
+  // machine-derived guess, unconfirmed until a human writes it — checked via
+  // Map.has, not the (always-defined-for-real-ops) source value itself.
   function locationCapacityProvenanceHandler(token) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'locations.read' })
@@ -1496,8 +1507,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const locationIds = db.prepare('SELECT id FROM locations WHERE camp_id = ?').all(camp.id).map((r) => r.id)
     const result = {}
     for (const locationId of locationIds) {
-      const source = lastKnownFieldSources(db, 'locations', locationId).get('capacity') ?? null
-      result[locationId] = tierForField(source, null) === 'confirmed' ? 'confirmed' : 'unconfirmed'
+      const sources = lastKnownFieldSources(db, 'locations', locationId)
+      if (!sources.has('capacity')) { result[locationId] = 'unconfirmed'; continue }
+      result[locationId] = tierForField(sources.get('capacity'), null) === 'confirmed' ? 'confirmed' : 'unconfirmed'
     }
     return result
   }
