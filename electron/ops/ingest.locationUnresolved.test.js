@@ -123,3 +123,30 @@ describe('location_unresolved (update path)', () => {
     expect(res.conflicts.some((c) => c.reason === 'location_unresolved')).toBe(true)
   })
 })
+
+describe('location_unresolved (create path) — must not ask twice either', () => {
+  it('a remembered "not a place" decision is consulted on a brand-new activity CREATE, not just an update — the import completes with location unset', () => {
+    // Record the decision via the update path first (Swim already exists).
+    seedSwim()
+    commit({
+      approved: { activities: ['Swim'] },
+      activityRules: { Swim: { location: 'Barn' } },
+      resolutions: [
+        { entity: 'activities', name: 'Swim', reason: 'location_unresolved', field: 'location', choice: 'not_a_place' },
+      ],
+    })
+    expect(db.prepare('SELECT COUNT(*) c FROM location_word_decisions WHERE camp_id = ?').get(campId).c).toBe(1)
+
+    // A later import creates a BRAND NEW activity naming the same declined word.
+    const res = commit({
+      approved: { activities: ['Archery'] },
+      activityRules: { Archery: { location: 'barn' } }, // case/whitespace-different, same word
+    })
+
+    expect(res.held).toBe(false)
+    expect(res.conflicts?.some((c) => c.reason === 'location_unresolved')).toBeFalsy()
+    const id = actId('Archery')
+    expect(id).toBeTruthy()
+    expect(activityField(id, 'location_id')).toBe(null)
+  })
+})

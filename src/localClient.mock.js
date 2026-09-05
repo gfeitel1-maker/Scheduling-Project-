@@ -771,9 +771,37 @@ export const mockShoresh = {
     const conflicts = []
     const toCreate = []
     const toUpdate = []
+    // D1c parity with ingest.js — see its own comment for why this can't just
+    // be a locationIdByNameRun lookup: a location approved as its own
+    // `locations` create/unchanged item THIS SAME import hasn't populated
+    // locationIdByNameRun yet (that happens in commitCreate, below, after
+    // this decide phase).
+    const approvedLocationNames = new Set(locationIdByNameRun.keys())
+    for (const it of plan.items) {
+      if (it.entity === 'locations' && (it.op === 'create' || it.op === 'unchanged')) {
+        approvedLocationNames.add(String(it._name).trim())
+      }
+    }
     for (const item of plan.items) {
       switch (item.op) {
         case 'create': {
+          // Mirrors electron/ops/ingest.js's create-path location_unresolved
+          // check: a brand-new activity naming a location that isn't already
+          // live or approved this import must hold, not silently create
+          // without it.
+          if (item.entity === 'activities' && item._rule?.location != null && item._rule.location !== '') {
+            const locationName = String(item._rule.location).trim()
+            const declined = Array.isArray(state.__locationWordDecisions)
+              && state.__locationWordDecisions.some((d) => d.word_key === normalizeLocationWordKey(locationName) && d.decision === 'not_a_place')
+            if (locationName && !approvedLocationNames.has(locationName) && !declined) {
+              conflicts.push(makeFieldConflict(
+                item, 'location_unresolved', 'location',
+                { from: null, to: item._rule.location },
+                { unresolved: [item._rule.location] },
+              ))
+              break
+            }
+          }
           const ids = recognition[item.entity].get(recognitionKey(item.entity, item._name))
           if (ids && ids.size >= 1) {
             const res = resolutionFor(item.entity, item._name)
