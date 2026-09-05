@@ -156,7 +156,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Importing a prior-year schedule materializes it as a saved version, not the working grid](../../docs/adr/2026-09-02-imported-schedule-materializes-as-a-version.md) | accepted | in-progress | [T117-imported-schedule-as-version-slice2](../../docs/work/tickets/T117-imported-schedule-as-version-slice2.md) · [T117-imported-schedule-as-version-slice2](../../docs/work/tickets/T117-imported-schedule-as-version-slice2.md) |
 | [Ingest asks the director to interpret compound schedule cells, and remembers the answer per camp](../../docs/adr/2026-09-03-compound-cell-interpretation.md) | accepted | shipped | [T118-compound-cell-interpretation](../../docs/work/tickets/T118-compound-cell-interpretation.md) · [T118-compound-cell-interpretation](../../docs/work/tickets/T118-compound-cell-interpretation.md) |
 | [Portable agent-team compatibility layer: generate the twelve native agent profiles from a reusable role source plus a Shoresh adapter](../../docs/adr/2026-09-04-portable-agent-team-compatibility-layer.md) | accepted | in-progress | — |
-| [ADR: Projection failures must be detected as a distinct, queryable ledger and recoverable by entity-scoped replay from the op-log](../../docs/adr/2026-09-04-projection-failure-detection-and-recovery.md) | accepted | proposed | — |
+| [ADR: Projection failures must be detected as a distinct, queryable ledger and recoverable by entity-scoped replay from the op-log](../../docs/adr/2026-09-04-projection-failure-detection-and-recovery.md) | accepted | implemented | — |
 
 ## Runs
 

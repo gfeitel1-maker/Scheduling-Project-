@@ -2952,4 +2952,62 @@ describe('projection_failures instrumentation (2026-09-04 ADR)', () => {
 
     client.close()
   })
+
+  it('also sweeps after a full_sync completes — the ADR-named scenario where the unblocking op arrives via snapshot, not a live op', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const groupId = randomUUID()
+    clientDb.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(groupId, campId, 'Bears')
+    const slotId = randomUUID()
+    clientDb.prepare('INSERT INTO template_slots (id, template_id, group_id) VALUES (?, ?, ?)').run(
+      slotId,
+      randomUUID(),
+      groupId
+    )
+
+    const ws = client.__getWs()
+    const deleteOpId = randomUUID()
+    ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: deleteOpId,
+        seq: 1,
+        entity: 'groups',
+        entity_id: groupId,
+        field: DELETE_FIELD,
+        value: 1,
+        device_id: deviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })))
+
+    expect(clientDb.prepare('SELECT resolved_at FROM projection_failures WHERE op_id = ?').get(deleteOpId).resolved_at).toBeNull()
+
+    // Remove the blocker, then deliver a full_sync snapshot instead of a
+    // further op_applied — this is the path Defect 2 previously never
+    // triggered a sweep on.
+    clientDb.prepare('DELETE FROM template_slots WHERE id = ?').run(slotId)
+    const msg = JSON.stringify({
+      type: 'full_sync',
+      users: [],
+      camps: [],
+      ...EMPTY_DOMAIN_SNAPSHOT_TABLES,
+    })
+    ws.emit('message', Buffer.from(msg))
+
+    await waitFor(
+      () => clientDb.prepare('SELECT resolved_at FROM projection_failures WHERE op_id = ?').get(deleteOpId)?.resolved_at != null,
+      { timeout: 5000 }
+    )
+    expect(clientDb.prepare('SELECT * FROM groups WHERE id = ?').get(groupId)).toBeUndefined()
+
+    client.close()
+  })
 })
