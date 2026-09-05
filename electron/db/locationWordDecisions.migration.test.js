@@ -1,10 +1,10 @@
 // @vitest-environment node
 //
-// Migration v54 — compound_cell_decisions, the host-local per-camp memory of
-// a director's confirmed interpretation of a compound schedule cell.
-// docs/adr/2026-09-03-compound-cell-interpretation.md
+// Migration v56 — location_word_decisions, the host-local per-camp memory
+// of a director's "not a place" answer for an unresolved location word.
+// docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-conflict-triage-coverage.md
 //
-// Same shape as declinedTwoRowSplits.migration.test.js (v47): fresh-vs-migrated
+// Same shape as compoundCellDecisions.migration.test.js (v54): fresh-vs-migrated
 // schema equivalence and the LOCAL-ONLY guarantee this whole design rests on.
 import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
@@ -33,55 +33,55 @@ function tmpFile(tag) {
 }
 
 function freshDb() {
-  return openLocalDb(tmpFile('v54-fresh'))
+  return openLocalDb(tmpFile('v56-fresh'))
 }
 
 function migratedDb() {
-  const db = new Database(tmpFile('v54-migrated'))
+  const db = new Database(tmpFile('v56-migrated'))
   db.pragma('foreign_keys = ON')
   initSchema(db)
-  db.exec('DROP TABLE IF EXISTS compound_cell_decisions')
-  db.prepare('DELETE FROM schema_migrations WHERE version >= 54').run()
+  db.exec('DROP TABLE IF EXISTS location_word_decisions')
+  db.prepare('DELETE FROM schema_migrations WHERE version >= 56').run()
   return db
 }
 
 const tableInfo = (db) =>
-  db.pragma('table_info(compound_cell_decisions)').map((c) => ({
+  db.pragma('table_info(location_word_decisions)').map((c) => ({
     cid: c.cid, name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value, pk: c.pk,
   }))
 
 const indexes = (db) =>
   db
-    .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'compound_cell_decisions'")
+    .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'location_word_decisions'")
     .all()
     .sort((a, b) => a.name.localeCompare(b.name))
 
 const tableSql = (db) =>
-  db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'compound_cell_decisions'").get()?.sql
+  db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'location_word_decisions'").get()?.sql
 
-describe('migration v54: compound_cell_decisions', () => {
-  it('creates the table on a fresh database and declares schema version 54', () => {
+describe('migration v56: location_word_decisions', () => {
+  it('creates the table on a fresh database and declares schema version 56', () => {
     const db = freshDb()
-    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 54').get().c).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 56').get().c).toBe(1)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(CURRENT_SCHEMA_VERSION).toBe(56)
-    expect(db.prepare('SELECT COUNT(*) c FROM compound_cell_decisions').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM location_word_decisions').get().c).toBe(0)
     db.close()
   })
 
-  it('migrates a pre-v54 database forward, adding only this table', () => {
+  it('migrates a pre-v56 database forward, adding only this table', () => {
     const db = migratedDb()
-    expect(getSchemaVersion(db)).toBe(53)
+    expect(getSchemaVersion(db)).toBe(55)
     expect(tableSql(db)).toBeUndefined()
 
     initSchema(db)
 
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(db.prepare('SELECT COUNT(*) c FROM compound_cell_decisions').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM location_word_decisions').get().c).toBe(0)
     db.close()
   })
 
-  it('gives a fresh db and a migrated db identical compound_cell_decisions columns, indexes and DDL', () => {
+  it('gives a fresh db and a migrated db identical location_word_decisions columns, indexes and DDL', () => {
     const fresh = freshDb()
     const migrated = migratedDb()
     initSchema(migrated)
@@ -89,7 +89,7 @@ describe('migration v54: compound_cell_decisions', () => {
     expect(tableInfo(migrated)).toEqual(tableInfo(fresh))
     expect(indexes(migrated)).toEqual(indexes(fresh))
 
-    // The DDL is written twice — schema.sql and localDb.js's v54 block — and
+    // The DDL is written twice — schema.sql and localDb.js's v56 block — and
     // the two copies can drift silently. sqlite_master stores the original
     // statement text, so this is the only assertion that catches it.
     expect(tableSql(migrated)).toBe(tableSql(fresh))
@@ -112,21 +112,21 @@ describe('migration v54: compound_cell_decisions', () => {
     migrated.close()
   }, 30000)
 
-  it('is idempotent — re-running v54 on an already-migrated db does not error', () => {
+  it('is idempotent — re-running v56 on an already-migrated db does not error', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(db.prepare('SELECT COUNT(*) c FROM compound_cell_decisions').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM location_word_decisions').get().c).toBe(0)
     db.close()
   })
 })
 
-describe('compound_cell_decisions is host-local and cannot replicate', () => {
+describe('location_word_decisions is host-local and cannot replicate', () => {
   it('is absent from every registry that would give it a sync or read path', () => {
-    expect(Object.keys(PROJECTIONS)).not.toContain('compound_cell_decisions')
-    expect(DIRECT_CAMP_ENTITIES.has('compound_cell_decisions')).toBe(false)
-    expect(Object.keys(PARENT_SCOPED_ENTITIES)).not.toContain('compound_cell_decisions')
-    expect(ENTITIES).not.toContain('compound_cell_decisions')
+    expect(Object.keys(PROJECTIONS)).not.toContain('location_word_decisions')
+    expect(DIRECT_CAMP_ENTITIES.has('location_word_decisions')).toBe(false)
+    expect(Object.keys(PARENT_SCOPED_ENTITIES)).not.toContain('location_word_decisions')
+    expect(ENTITIES).not.toContain('location_word_decisions')
   })
 
   it('is not shipped in the first-pairing full_sync snapshot', () => {
@@ -134,7 +134,7 @@ describe('compound_cell_decisions is host-local and cannot replicate', () => {
       path.join(path.dirname(new URL(import.meta.url).pathname), '../sync/syncClient.js'),
       'utf8'
     )
-    expect(src).not.toMatch(/DOMAIN_SNAPSHOT_TABLES[\s\S]{0,600}compound_cell_decisions/)
+    expect(src).not.toMatch(/DOMAIN_SNAPSHOT_TABLES[\s\S]{0,600}location_word_decisions/)
   })
 
   it('is not present in syncServer.js\'s full-sync payload builder', () => {
@@ -142,6 +142,6 @@ describe('compound_cell_decisions is host-local and cannot replicate', () => {
       path.join(path.dirname(new URL(import.meta.url).pathname), '../sync/syncServer.js'),
       'utf8'
     )
-    expect(src).not.toMatch(/compound_cell_decisions/)
+    expect(src).not.toMatch(/location_word_decisions/)
   })
 })

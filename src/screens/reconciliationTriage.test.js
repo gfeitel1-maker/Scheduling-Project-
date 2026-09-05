@@ -31,6 +31,47 @@ describe('heldConflictsToDecisions', () => {
     expect(heldConflictsToDecisions([])).toEqual([])
     expect(heldConflictsToDecisions(undefined)).toEqual([])
   })
+
+  // docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-
+  // conflict-triage-coverage.md §4 — the bug this ADR fixes: 4 of 6 held
+  // reasons fell through this function and rendered nothing at all.
+  it('folds a location_unresolved conflict into a full, actionable "is this a place?" decision', () => {
+    const decisions = heldConflictsToDecisions([
+      {
+        entity: 'activities', _name: 'Swim', reason: 'location_unresolved',
+        fields: { location: { to: 'Barn', conflict: { unresolved: ['Barn'] } } },
+        evidence: { tier: 'exact_name', matched_name: 'Swim' },
+      },
+    ])
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0]).toEqual(expect.objectContaining({
+      kind: 'resolve_conflict', entity: 'activities', entityName: 'Swim',
+      field: ['location'], _held: true, _heldKind: 'location', _word: 'Barn',
+    }))
+  })
+
+  for (const reason of ['validation', 'eligibility_unresolved', 'unit_unresolved']) {
+    it(`folds a ${reason} conflict into a generic fallback decision (no bespoke card exists for it)`, () => {
+      const decisions = heldConflictsToDecisions([
+        {
+          entity: 'activities', _name: 'Swim', reason,
+          fields: { min_per_week: { from: 1, to: 'abc', conflict: { reason } } },
+          evidence: { tier: 'exact_name', matched_name: 'Swim' },
+        },
+      ])
+      expect(decisions).toHaveLength(1)
+      expect(decisions[0]).toEqual(expect.objectContaining({
+        kind: 'resolve_conflict', entity: 'activities', entityName: 'Swim',
+        field: ['min_per_week'], _held: true, _heldKind: 'generic_fallback', _reason: reason,
+      }))
+    })
+  }
+
+  it('throws loudly for a wholly unrecognized held-conflict reason, rather than silently dropping it', () => {
+    expect(() => heldConflictsToDecisions([
+      { entity: 'activities', _name: 'Swim', reason: 'a_brand_new_reason_nobody_wrote_a_card_for', fields: {} },
+    ])).toThrow(/a_brand_new_reason_nobody_wrote_a_card_for/)
+  })
 })
 
 describe('foldTriageInputs', () => {
@@ -166,6 +207,38 @@ describe('identityRememberCalls', () => {
   })
 })
 
+describe('foldTriageInputs — location_unresolved card', () => {
+  const baseInputs = { approved: { activities: ['Swim'] }, resolutions: [] }
+
+  it('"use existing" folds into a location_unresolved resolution binding the chosen location id', () => {
+    const decisions = heldConflictsToDecisions([
+      { entity: 'activities', _name: 'Swim', reason: 'location_unresolved', fields: { location: { to: 'Barn' } } },
+    ])
+    const inputs = foldTriageInputs(baseInputs, decisions, { [decisions[0].id]: { choice: 'existing', location_id: 'loc1' } })
+    expect(inputs.resolutions).toContainEqual({ entity: 'activities', name: 'Swim', reason: 'location_unresolved', field: 'location', choice: 'existing', location_id: 'loc1' })
+  })
+
+  it('"not a place" folds into a location_unresolved resolution with no entity_id/location_id', () => {
+    const decisions = heldConflictsToDecisions([
+      { entity: 'activities', _name: 'Swim', reason: 'location_unresolved', fields: { location: { to: 'Barn' } } },
+    ])
+    const inputs = foldTriageInputs(baseInputs, decisions, { [decisions[0].id]: { choice: 'not_a_place' } })
+    expect(inputs.resolutions).toContainEqual({ entity: 'activities', name: 'Swim', reason: 'location_unresolved', field: 'location', choice: 'not_a_place' })
+  })
+})
+
+describe('foldTriageInputs — generic fallback card', () => {
+  const baseInputs = { approved: { activities: ['Swim'] }, resolutions: [] }
+
+  it('"skip" folds into a resolution carrying the original reason and field', () => {
+    const decisions = heldConflictsToDecisions([
+      { entity: 'activities', _name: 'Swim', reason: 'unit_unresolved', fields: { unit: { to: 'Gimel' } } },
+    ])
+    const inputs = foldTriageInputs(baseInputs, decisions, { [decisions[0].id]: { choice: 'skip' } })
+    expect(inputs.resolutions).toContainEqual({ entity: 'activities', name: 'Swim', reason: 'unit_unresolved', field: 'unit', choice: 'skip' })
+  })
+})
+
 describe('isDecisionResolvedFor', () => {
   it('confirm_value resolves on looks_right or edited, not on any other answer shape', () => {
     const d = { id: 'd1', kind: 'confirm_value' }
@@ -193,6 +266,20 @@ describe('isDecisionResolvedFor', () => {
     expect(isDecisionResolvedFor(d, { d1: { choice: 'existing' } })).toBe(false)
     expect(isDecisionResolvedFor(d, { d1: { choice: 'accept' } })).toBe(true)
     expect(isDecisionResolvedFor(d, { d1: { choice: 'keep' } })).toBe(true)
+  })
+
+  it('resolve_conflict (held/location) resolves on create, existing, or not_a_place', () => {
+    const d = { id: 'd1', kind: 'resolve_conflict', _held: true, _heldKind: 'location' }
+    expect(isDecisionResolvedFor(d, { d1: { choice: 'accept' } })).toBe(false)
+    expect(isDecisionResolvedFor(d, { d1: { choice: 'create' } })).toBe(true)
+    expect(isDecisionResolvedFor(d, { d1: { choice: 'existing', location_id: 'l1' } })).toBe(true)
+    expect(isDecisionResolvedFor(d, { d1: { choice: 'not_a_place' } })).toBe(true)
+  })
+
+  it('resolve_conflict (held/generic_fallback) resolves only on "skip"', () => {
+    const d = { id: 'd1', kind: 'resolve_conflict', _held: true, _heldKind: 'generic_fallback' }
+    expect(isDecisionResolvedFor(d, { d1: { choice: 'accept' } })).toBe(false)
+    expect(isDecisionResolvedFor(d, { d1: { choice: 'skip' } })).toBe(true)
   })
 
   it('review_legacy_priority resolves only on an explicit ack, never an auto-clear', () => {

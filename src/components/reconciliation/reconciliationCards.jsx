@@ -151,6 +151,13 @@ function subtitleFor(decision) {
 function questionFor(decision) {
   const name = decision.entityName ?? 'this record'
   if (decision.kind === 'resolve_conflict') {
+    // ADR 2026-09-05 §4 — the approved mock's "Is <word> a place?" wording.
+    if (decision._held && decision._heldKind === 'location') return `Is "${decision._word ?? '?'}" a place at your camp?`
+    // The generic fallback: no bespoke copy per reason (ADR §4) — names what's
+    // stuck and what field, rather than a bare reason enum.
+    if (decision._held && decision._heldKind === 'generic_fallback') {
+      return `Shoresh needs an answer about "${name}"'s ${decision.field?.[0] ?? 'field'} before it can finish this import.`
+    }
     return decision._held && decision._heldKind === 'stale'
       ? `Keep the current value for "${name}"'s ${decision.field?.[0]} or use the file's value?`
       : `Is "${name}" a new record, or one you already have?`
@@ -183,6 +190,8 @@ function summaryOf(decision, answer) {
   if (answer.choice === 'keep') return 'Keeping the current value'
   if (answer.choice === 'existing') return 'Using your existing record'
   if (answer.choice === 'create') return 'Adding as new'
+  if (answer.choice === 'not_a_place') return 'Imported with no room — won’t be asked about this word again'
+  if (answer.choice === 'skip') return 'Skipped — nothing written for this field'
   if (decision.kind === 'elective_candidate' && answer.choice === 'confirm') return 'Empty elective set created'
   if (decision.kind === 'elective_candidate' && answer.choice === 'decline') return 'Not an elective period — left as-is'
   if (answer.resolved) return 'Acknowledged'
@@ -236,6 +245,29 @@ function ResolutionControls({ decision, onAnswer }) {
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <button className="press-97" onClick={() => onAnswer({ choice: 'confirm' })} style={cardStyles.btnCompactPrimary}>Create elective set</button>
         <button className="press-97" onClick={() => onAnswer({ choice: 'decline' })} style={cardStyles.btnCompactSecondary}>Not electives</button>
+      </div>
+    )
+  }
+
+  // ADR 2026-09-05 §4 — the approved three-choice card. "Use an existing
+  // place" isn't offered here (it needs a live locations list this card
+  // doesn't receive today — a disclosed gap, not a silent one: the
+  // resolution shape and commit-side binding for it already exist and are
+  // tested at the reconciliationTriage.js/ingest.js layer).
+  if (decision._held && decision._heldKind === 'location') {
+    return (
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'create' })} style={cardStyles.btnCompactPrimary}>Yes, add {decision._word ?? 'it'}</button>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'not_a_place' })} style={cardStyles.btnCompactSecondary}>Not a place — ignore it</button>
+      </div>
+    )
+  }
+
+  // ADR §4 — the generic fallback's single action.
+  if (decision._held && decision._heldKind === 'generic_fallback') {
+    return (
+      <div style={{ marginTop: 10 }}>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'skip' })} style={cardStyles.btnCompactSecondary}>Skip this field</button>
       </div>
     )
   }
