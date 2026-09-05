@@ -115,4 +115,45 @@ describe('buildStructureIssues', () => {
     const issues = buildStructureIssues(collections)
     expect(issues.find((i) => i.id?.startsWith('group-no-activities'))).toBeUndefined()
   })
+
+  // T119 — one aggregate row for unconfirmed location capacities, not one
+  // row per location (a 15-location imported camp should not flood the
+  // attention list with 15 rows of the same underlying fact).
+  it('flags no capacity issue when capacitySources is empty or all confirmed', () => {
+    const collections = {
+      tiers: [{ id: 't1' }], groups: [], days_of_operation: [{ id: 'd1' }], time_blocks: [{ id: 'tb1' }],
+      activities: [], locations: [{ id: 'l1', name: 'Pool' }, { id: 'l2', name: 'Gym' }],
+    }
+    expect(buildStructureIssues(collections).find((i) => i.id === 'locations-capacity-unconfirmed')).toBeUndefined()
+    expect(
+      buildStructureIssues(collections, { l1: 'confirmed', l2: 'confirmed' })
+        .find((i) => i.id === 'locations-capacity-unconfirmed')
+    ).toBeUndefined()
+  })
+
+  it('flags ONE aggregate row (singular copy) when exactly one location has unconfirmed capacity', () => {
+    const collections = {
+      tiers: [{ id: 't1' }], groups: [], days_of_operation: [{ id: 'd1' }], time_blocks: [{ id: 'tb1' }],
+      activities: [], locations: [{ id: 'l1', name: 'Pool' }, { id: 'l2', name: 'Gym' }],
+    }
+    const issues = buildStructureIssues(collections, { l1: 'unconfirmed', l2: 'confirmed' })
+    expect(issues.filter((i) => i.id === 'locations-capacity-unconfirmed')).toHaveLength(1)
+    expect(issues.find((i) => i.id === 'locations-capacity-unconfirmed')).toEqual({
+      id: 'locations-capacity-unconfirmed',
+      name: 'Room capacity',
+      why: '1 location was imported without a confirmed capacity.',
+      domainTag: 'Structure',
+      sourceKind: 'structure',
+    })
+  })
+
+  it('flags ONE aggregate row (plural copy) when multiple locations have unconfirmed capacity', () => {
+    const collections = {
+      tiers: [{ id: 't1' }], groups: [], days_of_operation: [{ id: 'd1' }], time_blocks: [{ id: 'tb1' }],
+      activities: [], locations: [{ id: 'l1', name: 'Pool' }, { id: 'l2', name: 'Gym' }, { id: 'l3', name: 'Field' }],
+    }
+    const issues = buildStructureIssues(collections, { l1: 'unconfirmed', l2: 'unconfirmed', l3: 'confirmed' })
+    const issue = issues.find((i) => i.id === 'locations-capacity-unconfirmed')
+    expect(issue.why).toBe('2 locations were imported without a confirmed capacity.')
+  })
 })

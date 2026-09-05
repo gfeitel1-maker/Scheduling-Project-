@@ -52,7 +52,14 @@ const REQUIRED_EMPTY_AREAS = [
   { key: 'activities', label: 'Activities', domainTag: 'Scheduling' },
 ]
 
-export function buildStructureIssues(collections) {
+// T119 (docs/work/tickets/T119-imported-location-capacity-provenance.md §4):
+// capacitySources is { [locationId]: 'confirmed'|'unconfirmed' }, computed by
+// the caller (electron/main.js's locationCapacityProvenanceHandler over IPC)
+// and passed through here since this module stays pure/no-IO, same as
+// decisionsById is threaded into buildAttentionList's reconciliation half.
+// ONE aggregate tally row, not one per location — a camp with 15 imported
+// locations should not produce 15 attention-list rows for the same fact.
+export function buildStructureIssues(collections, capacitySources = {}) {
   if (!collections) return []
   const issues = []
 
@@ -83,6 +90,20 @@ export function buildStructureIssues(collections) {
         })
       }
     }
+  }
+
+  const locations = collections.locations ?? []
+  const unconfirmedCount = locations.filter((l) => capacitySources[l.id] === 'unconfirmed').length
+  if (unconfirmedCount > 0) {
+    issues.push({
+      id: 'locations-capacity-unconfirmed',
+      name: 'Room capacity',
+      why: unconfirmedCount === 1
+        ? '1 location was imported without a confirmed capacity.'
+        : `${unconfirmedCount} locations were imported without a confirmed capacity.`,
+      domainTag: 'Structure',
+      sourceKind: 'structure',
+    })
   }
 
   return issues

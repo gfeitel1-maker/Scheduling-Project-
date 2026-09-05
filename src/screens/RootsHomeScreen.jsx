@@ -126,17 +126,31 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   // this store existed; the hook's { model, decisionsById } carries the real
   // attention/changed rows.
   const { model: openModel, decisionsById: openDecisionsById } = useOpenReconciliationDecisions()
+  // T119 — { [locationId]: 'confirmed'|'unconfirmed' }, feeding the aggregate
+  // "Room capacity" structure-issue row below.
+  const [capacitySources, setCapacitySources] = useState({})
   const [preparingWorksheet, setPreparingWorksheet] = useState(false)
   const enterStyle = useEnterTransition('liftFade')
   const emptyStateEnterStyle = useEnterTransition('liftFade')
   const bentoStyleFor = useStaggerEnter(!loading, 40)
   const attentionStyleFor = useStaggerEnter(!loading, 30)
 
+  // The IIFE wrapper is required by this repo's react-hooks/set-state-in-effect
+  // lint rule — same reason as downloadWorksheet's own effects elsewhere in
+  // this file: it flags a direct call to a named, in-scope function it can
+  // trace back to setState, but not the same call wrapped this way.
+  useEffect(() => {
+    ;(async () => {
+      const sources = await localClient.locationCapacityProvenance().catch(() => ({}))
+      setCapacitySources(sources || {})
+    })()
+  }, [campId])
+
   const attentionRows = collections
     ? buildAttentionList({
         model: openModel,
         decisionsById: openDecisionsById,
-        structureIssues: buildStructureIssues(collections),
+        structureIssues: buildStructureIssues(collections, capacitySources),
       })
     : []
 

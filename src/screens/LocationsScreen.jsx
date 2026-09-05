@@ -175,7 +175,27 @@ function CapacityAdvisoryStrip({ items, locations, onAccept, busyId }) {
 // docs/work/specs/2026-08-16-m6-map-design.md.
 // ---------------------------------------------------------------------------
 
-function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
+// T119 — a quiet per-row marker on the capacity cell, matching the
+// Activities-screen provenance-dot pattern: a small dot, not a banner, on a
+// value the director is already looking at on the screen where they'd fix it.
+function CapacityProvenanceMarker() {
+  return (
+    <span
+      title="Imported — no one has confirmed how many groups fit here."
+      style={{
+        display: 'inline-block',
+        width: 7,
+        height: 7,
+        borderRadius: '50%',
+        background: 'var(--accent)',
+        marginLeft: 6,
+        verticalAlign: 'middle',
+      }}
+    />
+  )
+}
+
+function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnconfirmed }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(location.name)
   const [capacity, setCapacity] = useState(location.capacity)
@@ -187,7 +207,18 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
     if (!name.trim()) return
     setSaving(true)
     try {
-      await onSave(location.id, { name: name.trim(), capacity: Number(capacity), notes: notes.trim() || null, kind: kind || null })
+      // T119: capacity is included only when it actually changed. Always
+      // sending it (even unchanged) would re-write it as source='human' on
+      // every save, silently confirming an unconfirmed imported value the
+      // moment a director edits the NAME or NOTES of a room without ever
+      // touching capacity — provenance must flip only on an actual change.
+      const capacityChanged = Number(capacity) !== Number(location.capacity)
+      await onSave(location.id, {
+        name: name.trim(),
+        ...(capacityChanged ? { capacity: Number(capacity) } : {}),
+        notes: notes.trim() || null,
+        kind: kind || null,
+      })
       setEditing(false)
     } catch {
       // onSave already surfaced the error; stay in edit mode so nothing is lost.
@@ -230,7 +261,10 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
       onMouseLeave={(e) => e.currentTarget.style.background = ''}
     >
       <td style={{ ...S.td, fontWeight: 500 }}>{location.name}</td>
-      <td style={{ ...S.td, fontVariantNumeric: 'tabular-nums' }}>{capacityWord(location.capacity)}</td>
+      <td style={{ ...S.td, fontVariantNumeric: 'tabular-nums' }}>
+        {capacityWord(location.capacity)}
+        {capacityUnconfirmed && <CapacityProvenanceMarker />}
+      </td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }} title={kindInfo?.label}>{kindInfo ? `${kindInfo.icon} ${kindInfo.label}` : '—'}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{location.notes || '—'}</td>
       {weekToggle}
@@ -312,6 +346,20 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   const [importing, setImporting] = useState(false)
   const fileRef = useRef()
   const enter = useEnterTransition('liftFade')
+  // T119 — { [locationId]: 'confirmed'|'unconfirmed' }, feeding the per-row
+  // capacity provenance marker below.
+  const [capacitySources, setCapacitySources] = useState({})
+
+  // The IIFE wrapper is required by this repo's react-hooks/set-state-in-effect
+  // lint rule — same reason as loadExclusions' mount effect below: it flags a
+  // direct call to a named, in-scope function it can trace back to setState,
+  // but not the same call wrapped this way.
+  useEffect(() => {
+    ;(async () => {
+      const sources = await localClient.locationCapacityProvenance().catch(() => ({}))
+      setCapacitySources(sources || {})
+    })()
+  }, [campId])
 
 
   async function loadExclusions() {
@@ -664,6 +712,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                         role={role}
                         onSave={save}
                         onDelete={deleteLocation}
+                        capacityUnconfirmed={capacitySources[location.id] === 'unconfirmed'}
                         weekToggle={weekId ? (
                           <td style={{ ...S.td, textAlign: 'center' }}>
                             <WeekToggle

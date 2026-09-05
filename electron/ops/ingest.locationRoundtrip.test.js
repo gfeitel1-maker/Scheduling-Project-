@@ -284,6 +284,38 @@ describe('T101 — rename-then-recollide never overwrites the renamed row', () =
   })
 })
 
+// T119 — a location minted by EITHER create path must leave an explicit
+// operations row for capacity, source='import', so lastKnownFieldSources can
+// later distinguish "nobody has said what this room holds" from a director's
+// confirmed value. Both a bare `locations` create item (fieldsFor) and the
+// D1c resolve-or-create path (an activity's location minted inline,
+// resolveOrCreateLocationId in ingest.js — a separate write site that does
+// NOT go through fieldsFor/commitCreate's generic field loop) must write it.
+describe('T119 — location capacity provenance on create', () => {
+  it('a plain locations create item writes a capacity op with source=import', () => {
+    const base = deriveLocationId(campId, 'Pool')
+    commitIngest(db, { approved: { locations: ['Pool'] }, camp_id: campId, device_id: deviceId })
+    const op = db.prepare(
+      "SELECT value, source FROM operations WHERE entity='locations' AND entity_id=? AND field='capacity' ORDER BY seq DESC LIMIT 1"
+    ).get(base)
+    expect(op).toBeTruthy()
+    expect(op.source).toBe('import')
+  })
+
+  it('the D1c resolve-or-create path also writes a capacity op with source=import', () => {
+    const base = deriveLocationId(campId, 'Range')
+    commitIngest(db, {
+      approved: { activities: [{ name: 'Archery', fields: { location: 'Range' } }] },
+      camp_id: campId, device_id: deviceId,
+    })
+    const op = db.prepare(
+      "SELECT value, source FROM operations WHERE entity='locations' AND entity_id=? AND field='capacity' ORDER BY seq DESC LIMIT 1"
+    ).get(base)
+    expect(op).toBeTruthy()
+    expect(op.source).toBe('import')
+  })
+})
+
 describe('Invariant 2 — ordering-before-location_id', () => {
   it('writes the location create op(s) at a lower seq than the activity location_id op', () => {
     commitIngest(db, {

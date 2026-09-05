@@ -21,6 +21,7 @@ import { listEntities } from './ops/read.js'
 import { IPC_PIN_FIELDS } from './ops/pinFields.js'
 import { listDeleted, getEntityHistory } from './ops/trash.js'
 import { RESTORABLE_ENTITIES, restoreEntity, lastKnownFieldSources } from './ops/restore.js'
+import { tierForField } from '../src/utils/ruleProvenance.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from './ops/deleteRecord.js'
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
@@ -1479,6 +1480,28 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { evidence, fieldSources }
   }
 
+  // T119 (docs/work/tickets/T119-imported-location-capacity-provenance.md):
+  // batched read backing the Locations screen's per-row capacity provenance
+  // marker and the Roots attention list's aggregate count. Mirrors
+  // listImportEvidenceHandler's shape, narrowed to one field. capacity has no
+  // import-evidence record (unlike the activity rule fields), so
+  // tierForField's three-way tier collapses to a binary: 'confirmed' (human,
+  // or no op at all — the location predates this feature) vs 'unconfirmed'
+  // (last write was source='import').
+  function locationCapacityProvenanceHandler(token) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'locations.read' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return {}
+    const locationIds = db.prepare('SELECT id FROM locations WHERE camp_id = ?').all(camp.id).map((r) => r.id)
+    const result = {}
+    for (const locationId of locationIds) {
+      const source = lastKnownFieldSources(db, 'locations', locationId).get('capacity') ?? null
+      result[locationId] = tierForField(source, null) === 'confirmed' ? 'confirmed' : 'unconfirmed'
+    }
+    return result
+  }
+
   return {
     chooseMode,
     discoverHosts: discoverHostsHandler,
@@ -1496,6 +1519,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     deleteEvent: deleteEventHandler,
     listDurableElectiveSets: listDurableElectiveSetsHandler,
     listImportEvidence: listImportEvidenceHandler,
+    locationCapacityProvenance: locationCapacityProvenanceHandler,
     listDeleted: listDeletedHandler,
     listPendingRestores: listPendingRestoresHandler,
     getEntityHistory: getEntityHistoryHandler,
@@ -1702,6 +1726,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:delete-event', (_event, args) => handlers.deleteEvent(args))
     ipcMain.handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
     ipcMain.handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
+    ipcMain.handle('shoresh:location-capacity-provenance', (_event, args) => handlers.locationCapacityProvenance(args && args.token))
   }
 
   /**

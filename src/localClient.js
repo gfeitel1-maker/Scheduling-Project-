@@ -103,6 +103,9 @@ export const localClient = {
   // Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7) — batched
   // provenance read for the Activities screen's row-level dot.
   listImportEvidence: () => shoresh.listImportEvidence(currentToken()),
+  // T119 — batched read for the Locations screen's per-row capacity marker
+  // and the Roots attention list's aggregate count.
+  locationCapacityProvenance: () => shoresh.locationCapacityProvenance(currentToken()),
   listUsers: () => shoresh.listUsers(currentToken()),
   getDeviceId: () => shoresh.getDeviceId(currentToken()),
   list: (entity) => shoresh.list(currentToken(), entity),

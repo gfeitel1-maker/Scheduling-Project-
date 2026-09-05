@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildPlan, looksLikeAMerge, createConfidenceTier, buildElectiveCandidates } from './buildPlan.js'
+import { buildPlan, looksLikeAMerge, createConfidenceTier, buildElectiveCandidates, fieldsFor } from './buildPlan.js'
 
 // S1a — buildPlan RECOGNITION + AMBIGUITY (ADR 2026-08-08-s1a §1, §3).
 //
@@ -380,5 +380,15 @@ describe('buildElectiveCandidates (Slice 3a content-shape detector)', () => {
     const candidates = buildElectiveCandidates(source, { activities: [] })
     expect(candidates).toHaveLength(25)
     expect(candidates.truncated).toEqual({ total: 30, shown: 25 })
+  })
+})
+
+// T119 — a location create must write an explicit capacity so commitCreate
+// leaves an operations row with source='import', not the bare schema default
+// (which leaves capacity indistinguishable from a director-confirmed value).
+describe('fieldsFor locations (T119)', () => {
+  it('includes an explicit capacity of 1 on location create', () => {
+    const fields = fieldsFor('locations', 'Pool', camp, 0, null)
+    expect(fields.capacity).toBe(1)
   })
 })

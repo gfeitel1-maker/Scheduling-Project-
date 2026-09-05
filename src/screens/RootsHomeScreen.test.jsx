@@ -9,6 +9,7 @@ vi.mock('../localClient', () => ({
     latestOpSeq: vi.fn(),
     listOpenReconciliationDecisions: vi.fn(() => Promise.resolve([])),
     dismissOpenReconciliationDecisions: vi.fn(() => Promise.resolve({ ok: true, dismissed: 0 })),
+    locationCapacityProvenance: vi.fn(() => Promise.resolve({})),
   },
 }))
 
@@ -46,6 +47,7 @@ beforeEach(() => {
   localClient.list.mockReset()
   localClient.getCamp.mockReset().mockResolvedValue({ id: CAMP_ID })
   localClient.latestOpSeq.mockReset().mockResolvedValue(5)
+  localClient.locationCapacityProvenance.mockReset().mockResolvedValue({})
   downloadWorkbook.mockReset()
 })
 
@@ -98,6 +100,28 @@ describe('RootsHomeScreen', () => {
     render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Age divisions')).not.toBeNull())
     expect(screen.queryByText('No age divisions set up yet.')).not.toBeNull()
+  })
+
+  // T119 — the aggregate "Room capacity" attention row, threaded from
+  // localClient.locationCapacityProvenance() through buildStructureIssues.
+  it('flags the aggregate room-capacity attention row when a location has unconfirmed capacity', async () => {
+    const collections = collectionsFor({ locations: [{ id: 'l1', name: 'Pool' }, { id: 'l2', name: 'Gym' }] })
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+    localClient.locationCapacityProvenance.mockResolvedValue({ l1: 'unconfirmed', l2: 'confirmed' })
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Room capacity')).not.toBeNull())
+    expect(screen.queryByText('1 location was imported without a confirmed capacity.')).not.toBeNull()
+  })
+
+  it('does not flag room capacity when every location is confirmed', async () => {
+    const collections = collectionsFor({ locations: [{ id: 'l1', name: 'Pool' }] })
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+    localClient.locationCapacityProvenance.mockResolvedValue({ l1: 'confirmed' })
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Nothing needs you right now.')).not.toBeNull())
+    expect(screen.queryByText('Room capacity')).toBeNull()
   })
 
   it('invokes onNavigate("import") from the bottom Import last year action', async () => {

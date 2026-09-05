@@ -2477,3 +2477,38 @@ describe('listImportEvidence handler (activities.read, staff+admin)', () => {
   })
 
 })
+
+// T119 — locationCapacityProvenance handler: batched read backing the
+// Locations screen's per-row provenance marker and the Roots attention
+// aggregate. Mirrors listImportEvidenceHandler's shape.
+describe('locationCapacityProvenance handler (locations.read)', () => {
+  it('rejects with no token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.locationCapacityProvenance(undefined)).toThrow('token is required')
+  })
+
+  it('classifies a location with no capacity op, and one with source=human, as confirmed; source=import as unconfirmed', async () => {
+    await seedCampAndUser({ name: 'CapacityReader', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'CapacityReader', pin: '1234' })
+    const campId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+
+    const noOpId = randomUUID()
+    db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, ?)').run(noOpId, campId, 'NeverWritten', 1)
+
+    const importedId = randomUUID()
+    db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, ?)').run(importedId, campId, 'Imported', 1)
+    appendOp(db, { entity: 'locations', entity_id: importedId, field: 'capacity', value: '1', device_id: deviceId, source: 'import' })
+
+    const confirmedId = randomUUID()
+    db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, ?)').run(confirmedId, campId, 'Confirmed', 3)
+    appendOp(db, { entity: 'locations', entity_id: confirmedId, field: 'capacity', value: '3', device_id: deviceId, source: 'human' })
+
+    const result = handlers.locationCapacityProvenance(token)
+    expect(result).toEqual({
+      [noOpId]: 'confirmed',
+      [importedId]: 'unconfirmed',
+      [confirmedId]: 'confirmed',
+    })
+  })
+})
