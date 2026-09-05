@@ -33,6 +33,12 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
 
+### test-infrastructure
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [Sync/WS tests fail under concurrent load, making a red gate uninformative](../../docs/work/tickets/T121-sync-test-load-fragility.md) | open | — |
+
 ### ui-ux-design
 
 | Ticket | Status | Referenced by |
@@ -216,6 +222,7 @@ either the document is stranded or an edge was never declared.
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
 - [docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md](../../docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md)
 - [docs/work/tickets/T120-history-rewrite-privacy-scrub.md](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md)
+- [docs/work/tickets/T121-sync-test-load-fragility.md](../../docs/work/tickets/T121-sync-test-load-fragility.md)
 
 ## Dangling references
 
