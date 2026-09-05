@@ -1602,9 +1602,44 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       }
     }
 
+    // D1c parity with the update path: whether a name will resolve to an
+    // approved location by the time commitCreate actually runs. locationIdByName
+    // is only pre-seeded from ALREADY-LIVE rows at this point — a location
+    // approved as its own `locations` create/unchanged item THIS SAME import
+    // doesn't populate it until commitCreate runs (later, in commit order),
+    // so a plain locationIdByName lookup here would false-flag the ordinary
+    // "locations precedes activities" case (D1c's own documented cache-hit
+    // path) as unresolved. Scanning plan.items for a same-commit locations
+    // approval closes that gap without depending on commit order.
+    const approvedLocationNames = new Set(locationIdByName.keys())
+    for (const it of plan.items) {
+      if (it.entity === 'locations' && (it.op === 'create' || it.op === 'unchanged')) {
+        approvedLocationNames.add(String(it._name).trim())
+      }
+    }
+
     for (const item of plan.items) {
       switch (item.op) {
         case 'create': {
+          // D1c parity with the update path (resolveFieldWrite's
+          // location_unresolved): a brand-new activity naming a location that
+          // is neither already live nor approved as its own create item THIS
+          // import must never be created with its location silently left
+          // unset and no record of why — that is exactly the create/update
+          // divergence this held conflict closes. Checked before the
+          // identity-collision branch below since an unresolved location is
+          // an independent reason to hold, not a competing one.
+          if (item.entity === 'activities' && item._rule?.location != null && item._rule.location !== '') {
+            const locationName = String(item._rule.location).trim()
+            if (locationName && !approvedLocationNames.has(locationName)) {
+              conflicts.push(makeFieldConflict(
+                item, 'location_unresolved', 'location',
+                { from: null, to: item._rule.location },
+                { unresolved: [item._rule.location] },
+              ))
+              break
+            }
+          }
           const ids = recognition[item.entity].get(recognitionKey(item.entity, item._name))
           if (ids && ids.size >= 1) {
             // T73: a director who resolved an ambiguity to "create new" pinned

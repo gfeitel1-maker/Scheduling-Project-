@@ -131,15 +131,20 @@ describe('Invariant 1 (INV-1 extension) — cross-device deterministic ingest id
 })
 
 describe('Corrected invariant — an activity binds ONLY to an already-approved location, never mints one', () => {
-  it('an activity naming a location that was never approved does not mint it and leaves location_id unset', () => {
+  it('an activity naming a location that was never approved holds the import as location_unresolved (never silently created without it)', () => {
     const result = commitIngest(db, {
       approved: { activities: [{ name: 'Archery', fields: { location: 'Range' } }] },
       camp_id: campId, device_id: deviceId,
     })
-    expect(result.held).toBe(false)
+    expect(result.held).toBe(true)
+    const conflict = result.conflicts.find((c) => c.reason === 'location_unresolved')
+    expect(conflict).toBeTruthy()
+    expect(conflict.entity).toBe('activities')
+    expect(conflict._name).toBe('Archery')
+    expect(conflict.fields.location.to).toBe('Range')
+    // Held means nothing committed at all — no activity, no location.
     expect(db.prepare('SELECT COUNT(*) c FROM locations WHERE camp_id = ?').get(campId).c).toBe(0)
-    const activity = db.prepare('SELECT location_id FROM activities WHERE camp_id = ? AND name = ?').get(campId, 'Archery')
-    expect(activity.location_id).toBeNull()
+    expect(db.prepare('SELECT COUNT(*) c FROM activities WHERE camp_id = ?').get(campId).c).toBe(0)
   })
 
   it('binds correctly when the location is approved as its own create item in the SAME commit (regression)', () => {
@@ -247,18 +252,20 @@ describe('T101 — rename-then-recollide never overwrites the renamed row', () =
     expect(renamed.name).toBe('Swimming Pool') // the renamed row's name was never touched
   })
 
-  it('an activity referencing "Pool" WITHOUT approving it after the same rename binds nothing (does not fall back to the renamed row)', () => {
+  it('an activity referencing "Pool" WITHOUT approving it after the same rename holds as location_unresolved (does not fall back to the renamed row)', () => {
     const base = deriveLocationId(campId, 'Pool')
     commitIngest(db, { approved: { locations: ['Pool'] }, camp_id: campId, device_id: deviceId })
     db.prepare('UPDATE locations SET name = ? WHERE id = ?').run('Swimming Pool', base)
 
-    commitIngest(db, {
+    const result = commitIngest(db, {
       approved: { activities: [{ name: 'Swim', fields: { location: 'Pool' } }] },
       camp_id: campId, device_id: deviceId,
     })
 
-    const activity = db.prepare('SELECT location_id FROM activities WHERE camp_id = ? AND name = ?').get(campId, 'Swim')
-    expect(activity.location_id).toBeNull()
+    expect(result.held).toBe(true)
+    expect(result.conflicts.some((c) => c.reason === 'location_unresolved')).toBe(true)
+    // Held means nothing committed — no "Swim" activity at all.
+    expect(db.prepare('SELECT COUNT(*) c FROM activities WHERE camp_id = ? AND name = ?').get(campId, 'Swim').c).toBe(0)
     expect(db.prepare('SELECT COUNT(*) c FROM locations WHERE camp_id = ?').get(campId).c).toBe(1) // only the renamed row
   })
 

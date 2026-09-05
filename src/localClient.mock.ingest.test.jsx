@@ -137,15 +137,16 @@ describe('mock ingestCommit — location capacity mock parity (M4)', () => {
     expect(pool.capacity).toBe(1)
   })
 
-  it('an activity naming a location with no corresponding `locations` create item does not mint one', async () => {
+  it('an activity naming a location with no corresponding `locations` create item holds as location_unresolved (does not mint, does not silently create without it)', async () => {
     await bootstrap()
-    await mockShoresh.ingestCommit({
+    const result = await mockShoresh.ingestCommit({
       approved: { activities: ['Swim'] },
       activityRules: { Swim: { location: 'Pool' } },
     })
+    expect(result.held).toBe(true)
+    expect(result.conflicts.some((c) => c.reason === 'location_unresolved')).toBe(true)
     expect((await mockShoresh.list(null, 'locations')).find((l) => l.name === 'Pool')).toBeUndefined()
-    const swim = (await mockShoresh.list(null, 'activities')).find((a) => a.name === 'Swim')
-    expect(swim.location_id).toBeFalsy()
+    expect((await mockShoresh.list(null, 'activities')).find((a) => a.name === 'Swim')).toBeUndefined()
   })
 })
 
