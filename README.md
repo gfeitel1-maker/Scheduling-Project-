@@ -91,7 +91,7 @@ rm -rf node_modules/better-sqlite3/build && npm rebuild better-sqlite3
 ## Tests
 
 ```bash
-npm run test                          # Vitest unit tests (316 files, 4,616 cases as of 2026-09-04; one pre-existing failure in ImportScreen.test.jsx, not yet root-caused — see PLATFORM_STATE.md)
+npm run test                          # Vitest unit tests (317 files, 4,641 cases + 2 skipped, all passing as of 2026-09-04 — see PLATFORM_STATE.md)
 node test/integration/run.js          # 27 multi-process integration scenarios
 npm run lint                          # ESLint
 ```
