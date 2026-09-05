@@ -192,10 +192,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         weekId,
       })
       return route === 'manual'
-        ? withOverlapFlags(withClosures, activities, locations)
+        ? withOverlapFlags(withClosures, activities, locations, electiveSetActivities)
         : withClosures
     },
-    [route, rawSlots, dayOverrides, activities, locations, groups, activityExclusions, groupExclusions, locationExclusions, weekId]
+    [route, rawSlots, dayOverrides, activities, locations, groups, activityExclusions, groupExclusions, locationExclusions, weekId, electiveSetActivities]
   )
   // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
   // flag-review.md). One piece of state is the single source of truth for both
@@ -276,7 +276,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     recalcStats, recalcFindings,
     getSlot, setActivities,
     slots, groups, activities, locations, days, timeBlocks, campId,
-    electiveSetsAll, durableElectiveSets,
+    electiveSetsAll, durableElectiveSets, electiveSetActivities,
     eventsAll,
     // T108 Phase 2 (design §6.1) — overrideModeDayId is the one (week, day)
     // currently in override-authoring mode, or null. The mutation layer

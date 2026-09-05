@@ -5,6 +5,7 @@ import { isActivityEligibleForGroup } from '../../engine/eligibility'
 import { createActivity } from './createActivityHelper'
 import { findOverrideId, upsertDayOverride } from '../../utils/dayOverrideCoordinate.js'
 import { occupantFields, readOccupant, occupantWriteKind } from './slotOccupant.js'
+import { resolveElectiveOfferingLocations } from '../../engine/electiveOccupancy.js'
 
 // T91: collect the covered tail rows of a span head being replaced, via a
 // single walk that covers BOTH span representations identically (owner
@@ -184,6 +185,13 @@ export function useSlotMutations({
   // is_reusable=1 reuse surface (CellInlineEditor's exact-match lookup).
   electiveSetsAll = [],
   durableElectiveSets = [],
+  // Location-contention fix (elective-overlap-visibility) — resolving an
+  // elective set's offering location(s) needs the raw membership rows, the
+  // same shape buildSchedule.js and computeOverlaps.js key by
+  // (elective_set_id, activity_id). Optional so an unrelated caller/test
+  // that omits it just sees no elective occupancy (degrades to the pre-fix
+  // behavior, not a crash).
+  electiveSetActivities = [],
   // Events overlay placement Slice 1 — the render/undo-description lookup,
   // mirroring electiveSetsAll.
   eventsAll = [],
@@ -878,8 +886,26 @@ export function useSlotMutations({
     // defensive parity with computeOverlaps rather than a live path.
     const activityLocationId = activity.location_id ?? null
     const placeCapacity = activityLocationId ? locations.find(l => l.id === activityLocationId)?.capacity : undefined
+    // Elective slots (no activity, an elective set instead) are "a schedule
+    // within a schedule" — an offering resolves to a real place via
+    // elective_set_activities, the same lookup buildSchedule.js and
+    // computeOverlaps.js share (resolveElectiveOfferingLocations). Without
+    // this arm, dragging a group into a place an elective already occupies
+    // produced no warning: the filter below only ever matched a slot's own
+    // activity link.
+    const electiveOfferingsBySetId = new Map()
+    for (const m of (electiveSetActivities || [])) {
+      if (!electiveOfferingsBySetId.has(m.elective_set_id)) electiveOfferingsBySetId.set(m.elective_set_id, [])
+      electiveOfferingsBySetId.get(m.elective_set_id).push(m.activity_id)
+    }
+    const electiveOccupiesPlace = (s) => {
+      if (s.elective_set_id == null) return false
+      const offeringLocations = resolveElectiveOfferingLocations(electiveOfferingsBySetId.get(s.elective_set_id), actMap)
+      return offeringLocations.has(activityLocationId)
+    }
     const coScheduledAtPlace = activityLocationId
-      ? slots.filter(s => s.day_id === dayId && s.time_block_id === blockId && s.activity_id && s.group_id !== groupId && actMap.get(s.activity_id)?.location_id === activityLocationId).length
+      ? slots.filter(s => s.day_id === dayId && s.time_block_id === blockId && s.group_id !== groupId &&
+          ((s.activity_id && actMap.get(s.activity_id)?.location_id === activityLocationId) || electiveOccupiesPlace(s))).length
       : 0
     const placeFull = placeCapacity > 0 && coScheduledAtPlace >= placeCapacity
 

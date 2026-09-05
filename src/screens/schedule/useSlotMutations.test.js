@@ -1259,6 +1259,44 @@ describe('useSlotMutations — placeActivityManual', () => {
         expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', elective_set_id: null, event_id: null, flags: {} })
       })
     })
+
+    // The write-time mirror of computeOverlaps' elective blind spot: a slot
+    // carrying elective_set_id (activity_id: null) was invisible to
+    // coScheduledAtPlace's `s.activity_id && ...` filter, so dragging a group
+    // into an elective-occupied place produced no UNFILLABLE warning either.
+    describe('elective occupancy (generated route write-time check)', () => {
+      it('flags UNFILLABLE when placing would push a PLACE an elective already occupies over capacity', async () => {
+        const locations = [{ id: 'loc-pool', name: 'Pool', capacity: 1 }]
+        const groups = [{ id: 'g1', tier_id: 't1' }, { id: 'g2', tier_id: 't1' }]
+        const electiveOccupied = { id: 's-g1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: 'set-1', flags: {} }
+        const target = { id: 's-g2', group_id: 'g2', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
+        const activities = [{ id: 'act-target', name: 'Swim B', location_id: 'loc-pool', eligible_tier_ids: [], eligible_group_ids: [] }]
+        const electiveSetActivities = [{ elective_set_id: 'set-1', activity_id: 'act-target' }]
+        const { hook, props } = setup({
+          slots: [electiveOccupied, target], groups, activities, locations, electiveSetActivities,
+          routeState: { route: 'generated', templateId: 'tid-generated' },
+        })
+        await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
+
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', elective_set_id: null, event_id: null, flags: { UNFILLABLE: true } })
+      })
+
+      it('does not crash or false-positive when the elective offering has no location_id (dangling/unset)', async () => {
+        const locations = [{ id: 'loc-pool', name: 'Pool', capacity: 1 }]
+        const groups = [{ id: 'g1', tier_id: 't1' }, { id: 'g2', tier_id: 't1' }]
+        const electiveOccupied = { id: 's-g1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: 'set-1', flags: {} }
+        const target = { id: 's-g2', group_id: 'g2', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
+        const activities = [{ id: 'act-target', name: 'Swim B', location_id: 'loc-pool', eligible_tier_ids: [], eligible_group_ids: [] }]
+        const { hook, props } = setup({
+          // No electiveSetActivities entry for set-1 at all (dangling).
+          slots: [electiveOccupied, target], groups, activities, locations,
+          routeState: { route: 'generated', templateId: 'tid-generated' },
+        })
+        await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
+
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', elective_set_id: null, event_id: null, flags: {} })
+      })
+    })
   })
 })
 
