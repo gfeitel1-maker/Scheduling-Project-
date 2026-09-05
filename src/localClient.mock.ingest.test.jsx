@@ -123,16 +123,29 @@ describe('mock ingestCommit — location capacity mock parity (M4)', () => {
     expect(pool.capacity).toBe(1)
   })
 
-  it('a location minted inline via an activity rule (resolveOrCreateLocationId, §D1c) reads back capacity: 1', async () => {
+  it('a location approved in the SAME commit and bound via an activity rule (§D1c, corrected) reads back capacity: 1', async () => {
     await bootstrap()
-    // No separate `locations` create item — the S4 workbook path's real shape,
-    // where a location is only ever named through the activity's own field.
+    // Approved as its own `locations` create item in the same commit — the
+    // cache-hit path resolveApprovedLocationId relies on. An activity
+    // naming a location with NO corresponding `locations` create item must
+    // NOT mint one (see the "does not mint" test below).
     await mockShoresh.ingestCommit({
-      approved: { activities: ['Swim'] },
+      approved: { locations: ['Pool'], activities: ['Swim'] },
       activityRules: { Swim: { location: 'Pool' } },
     })
     const pool = (await mockShoresh.list(null, 'locations')).find((l) => l.name === 'Pool')
     expect(pool.capacity).toBe(1)
+  })
+
+  it('an activity naming a location with no corresponding `locations` create item does not mint one', async () => {
+    await bootstrap()
+    await mockShoresh.ingestCommit({
+      approved: { activities: ['Swim'] },
+      activityRules: { Swim: { location: 'Pool' } },
+    })
+    expect((await mockShoresh.list(null, 'locations')).find((l) => l.name === 'Pool')).toBeUndefined()
+    const swim = (await mockShoresh.list(null, 'activities')).find((a) => a.name === 'Swim')
+    expect(swim.location_id).toBeFalsy()
   })
 })
 

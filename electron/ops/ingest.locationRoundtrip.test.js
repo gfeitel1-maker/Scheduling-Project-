@@ -90,9 +90,11 @@ describe('Invariant 1 (INV-1 extension) — cross-device deterministic ingest id
     }
   })
 
-  it('mints the same id via the D1c resolve-or-create path (no separate locations create item)', () => {
-    // The S4 workbook path's real shape: a brand-new activity whose location
-    // was never separately proposed as its own `locations` create item.
+  it('mints the same id via the D1c approved-in-same-commit path (cache hit across the same commit)', () => {
+    // Corrected D1c shape: "Range" IS approved as its own `locations` create
+    // item in the same commit — resolveApprovedLocationId resolves the
+    // activity's location as a cache hit against that create, never a mint
+    // of its own. Cross-device determinism must still hold for this path.
     const sharedCampId = randomUUID()
     const fileA = path.join(os.tmpdir(), `shoresh-inv1c-a-${Date.now()}-${Math.random()}.sqlite`)
     const fileB = path.join(os.tmpdir(), `shoresh-inv1c-b-${Date.now()}-${Math.random()}.sqlite`)
@@ -100,7 +102,10 @@ describe('Invariant 1 (INV-1 extension) — cross-device deterministic ingest id
     const dbB = seedCampDb(fileB, sharedCampId)
 
     const importInput = {
-      approved: { activities: [{ name: 'Archery', fields: { location: 'Range' } }] },
+      approved: {
+        locations: ['Range'],
+        activities: [{ name: 'Archery', fields: { location: 'Range' } }],
+      },
       camp_id: sharedCampId,
       device_id: deviceId,
     }
@@ -125,14 +130,53 @@ describe('Invariant 1 (INV-1 extension) — cross-device deterministic ingest id
   })
 })
 
-describe('D1c — resolveOrCreateLocationId cannot double-mint within one commit', () => {
-  it('two different activities in ONE commit, both referencing the same new location, mint it exactly once', () => {
-    // Neither activity has its location separately proposed as its own
-    // `locations` create item — the genuine D1c shape (the S4 workbook path).
-    // Both resolve sequentially inside the single-threaded db.transaction();
-    // the second must be a cache hit, not a second appendOp pair.
+describe('Corrected invariant — an activity binds ONLY to an already-approved location, never mints one', () => {
+  it('an activity naming a location that was never approved does not mint it and leaves location_id unset', () => {
+    const result = commitIngest(db, {
+      approved: { activities: [{ name: 'Archery', fields: { location: 'Range' } }] },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(result.held).toBe(false)
+    expect(db.prepare('SELECT COUNT(*) c FROM locations WHERE camp_id = ?').get(campId).c).toBe(0)
+    const activity = db.prepare('SELECT location_id FROM activities WHERE camp_id = ? AND name = ?').get(campId, 'Archery')
+    expect(activity.location_id).toBeNull()
+  })
+
+  it('binds correctly when the location is approved as its own create item in the SAME commit (regression)', () => {
+    commitIngest(db, {
+      approved: {
+        locations: ['Range'],
+        activities: [{ name: 'Archery', fields: { location: 'Range' } }],
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    const loc = db.prepare('SELECT id FROM locations WHERE camp_id = ? AND name = ?').get(campId, 'Range')
+    expect(loc).toBeTruthy()
+    const activity = db.prepare('SELECT location_id FROM activities WHERE camp_id = ? AND name = ?').get(campId, 'Archery')
+    expect(activity.location_id).toBe(loc.id)
+  })
+
+  it('binds correctly to a location already approved in a PRIOR commit (regression)', () => {
+    commitIngest(db, { approved: { locations: ['Pool'] }, camp_id: campId, device_id: deviceId })
+    commitIngest(db, {
+      approved: { activities: [{ name: 'Swim', fields: { location: 'Pool' } }] },
+      camp_id: campId, device_id: deviceId,
+    })
+    const loc = db.prepare('SELECT id FROM locations WHERE camp_id = ? AND name = ?').get(campId, 'Pool')
+    const activity = db.prepare('SELECT location_id FROM activities WHERE camp_id = ? AND name = ?').get(campId, 'Swim')
+    expect(activity.location_id).toBe(loc.id)
+  })
+})
+
+describe('D1c — resolveApprovedLocationId cannot double-mint within one commit', () => {
+  it('two different activities in ONE commit, both referencing the SAME approved location, resolve to it exactly once', () => {
+    // "Pool" is approved as its own `locations` create item in this same
+    // commit. Both activities resolve sequentially inside the single-
+    // threaded db.transaction(); the second must be a cache hit against
+    // that one create, never a second appendOp pair, and never its own mint.
     const result = commitIngest(db, {
       approved: {
+        locations: ['Pool'],
         activities: [
           { name: 'Swim', fields: { location: 'Pool' } },
           { name: 'Water Polo', fields: { location: 'Pool' } },
@@ -179,7 +223,31 @@ describe('T101 — rename-then-recollide never overwrites the renamed row', () =
     expect(newRow).toEqual({ id: `${base}:2`, name: 'Pool' }) // distinct row
   })
 
-  it('resolveOrCreateLocationId (D1c): an activity referencing "Pool" after the same rename binds to the NEW distinct row', () => {
+  it('resolveApprovedLocationId (D1c, corrected): an activity referencing "Pool" alongside its OWN approval binds to the NEW distinct row', () => {
+    const base = deriveLocationId(campId, 'Pool')
+    commitIngest(db, { approved: { locations: ['Pool'] }, camp_id: campId, device_id: deviceId })
+    db.prepare('UPDATE locations SET name = ? WHERE id = ?').run('Swimming Pool', base)
+
+    // "Pool" is approved as its own `locations` create item in this same
+    // commit — the corrected invariant requires that approval; an activity
+    // alone naming "Pool" (with no live row and no create item) would bind
+    // nothing, per the "does not mint" test above.
+    commitIngest(db, {
+      approved: {
+        locations: ['Pool'],
+        activities: [{ name: 'Swim', fields: { location: 'Pool' } }],
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+
+    const activity = db.prepare('SELECT location_id FROM activities WHERE camp_id = ? AND name = ?').get(campId, 'Swim')
+    expect(activity.location_id).toBe(`${base}:2`)
+
+    const renamed = db.prepare('SELECT name FROM locations WHERE id = ?').get(base)
+    expect(renamed.name).toBe('Swimming Pool') // the renamed row's name was never touched
+  })
+
+  it('an activity referencing "Pool" WITHOUT approving it after the same rename binds nothing (does not fall back to the renamed row)', () => {
     const base = deriveLocationId(campId, 'Pool')
     commitIngest(db, { approved: { locations: ['Pool'] }, camp_id: campId, device_id: deviceId })
     db.prepare('UPDATE locations SET name = ? WHERE id = ?').run('Swimming Pool', base)
@@ -190,10 +258,8 @@ describe('T101 — rename-then-recollide never overwrites the renamed row', () =
     })
 
     const activity = db.prepare('SELECT location_id FROM activities WHERE camp_id = ? AND name = ?').get(campId, 'Swim')
-    expect(activity.location_id).toBe(`${base}:2`)
-
-    const renamed = db.prepare('SELECT name FROM locations WHERE id = ?').get(base)
-    expect(renamed.name).toBe('Swimming Pool') // the renamed row's name was never touched
+    expect(activity.location_id).toBeNull()
+    expect(db.prepare('SELECT COUNT(*) c FROM locations WHERE camp_id = ?').get(campId).c).toBe(1) // only the renamed row
   })
 
   it('two independent commits (simulating two devices) after the same synced rename converge on the identical disambiguated id', () => {
@@ -239,9 +305,12 @@ describe('Invariant 2 — ordering-before-location_id', () => {
     expect(locOp.seq).toBeLessThan(actOp.seq)
   })
 
-  it('holds for the D1c resolve-or-create path too (location op still precedes location_id)', () => {
+  it('holds for the D1c approved-in-same-commit path too (location op still precedes location_id)', () => {
     commitIngest(db, {
-      approved: { activities: [{ name: 'Archery', fields: { location: 'Range' } }] },
+      approved: {
+        locations: ['Range'],
+        activities: [{ name: 'Archery', fields: { location: 'Range' } }],
+      },
       camp_id: campId, device_id: deviceId,
     })
     const locOp = db.prepare(
@@ -286,7 +355,7 @@ describe('Invariant 3 — the frozen activities.location column is retained, nev
 //   - create:  fieldsFor('activities', ...)     — never puts 'location' in
 //              the base fields; a create's location travels only through the
 //              _rule side-channel (buildPlan.js, resolved by
-//              resolveOrCreateLocationId in ingest.js, straight to
+//              resolveApprovedLocationId in ingest.js, straight to
 //              fields.location_id).
 //   - update:  resolveFieldWrite('location', ...) — always resolves to
 //              { field: 'location_id', ... }, never { field: 'location' }.

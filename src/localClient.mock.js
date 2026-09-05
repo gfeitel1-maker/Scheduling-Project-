@@ -850,31 +850,18 @@ export const mockShoresh = {
     // extended here as tiers/groups are created, so a group created this run files
     // under a unit created moments earlier — commitPlan's seedNameMaps discipline.
 
-    // M4 §D1c mirror. Resolve-OR-create a location inline for a brand-new
-    // activity whose location was never separately proposed as its own
-    // `locations` create item (the S4 workbook path's real shape). Mirrors
-    // electron/ops/ingest.js's resolveOrCreateLocationId: a cache hit on the
-    // common path (locations precedes activities in INGESTIBLE_ENTITIES
-    // order, so a same-import location create already ran), a genuine mint
-    // only when truly absent.
-    const resolveOrCreateLocationId = (name) => {
+    // M4 §D1c mirror, corrected. An activity's location resolves ONLY
+    // against a location already approved: already live, or approved as its
+    // own `locations` create item THIS import (locations precedes activities
+    // in INGESTIBLE_ENTITIES order, so that create already ran and populated
+    // locationIdByNameRun). Mirrors electron/ops/ingest.js's
+    // resolveApprovedLocationId — a lookup only, never a mint, so an
+    // activity naming a location the director declined or left unresolved
+    // cannot resurrect it.
+    const resolveApprovedLocationId = (name) => {
       const trimmed = String(name ?? '').trim()
       if (!trimmed) return null
-      const cached = locationIdByNameRun.get(trimmed)
-      if (cached) return cached
-      const locId = deriveLocationId(campId, trimmed)
-      if (!Array.isArray(state.locations)) state.locations = []
-      if (!state.locations.some((l) => l.id === locId)) {
-        // capacity: 1 mirrors the schema's own DEFAULT 1 (buildPlan never sets
-        // it for a create, real ingest.js leaves it to SQL) — the mock has no
-        // SQL default to fall back on, so it must set the same value inline
-        // or LocationsScreen reads back `undefined` at :5200.
-        state.locations.push({ id: locId, camp_id: campId, name: trimmed, capacity: 1 })
-        markSource(state, 'locations', locId, 'camp_id', 'import')
-        markSource(state, 'locations', locId, 'name', 'import')
-      }
-      locationIdByNameRun.set(trimmed, locId)
-      return locId
+      return locationIdByNameRun.get(trimmed) ?? null
     }
 
     // commitCreate mirror: extract each FieldDelta's `to`, resolve group tier_id
@@ -914,9 +901,9 @@ export const mockShoresh = {
           // T61 — an eligible activity runs at least once a week or the engine
           // places it zero times. Floored on both paths, matching commitCreate.
           if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) fields.min_per_week = 1
-          // M4 §D1c mirror.
+          // M4 §D1c mirror, corrected.
           if (rule.location != null && rule.location !== '') {
-            const locationId = resolveOrCreateLocationId(rule.location)
+            const locationId = resolveApprovedLocationId(rule.location)
             if (locationId) fields.location_id = locationId
           }
         }
