@@ -258,7 +258,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // confirmation copy the director sees before committing.
   const existingCountAll = REPLACEABLE.reduce((n, e) => n + (existingRecordsAll[e]?.length ?? 0), 0)
 
-  // A camp's schedule can arrive as several files — Camp Mindy exports one
+  // A camp's schedule can arrive as several files — Camp Larkspur exports one
   // spreadsheet per group. They are one camp and must be read as one import,
   // or the same days and activities are proposed four times over and the
   // groups arrive in four separate passes.
@@ -1503,7 +1503,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {compoundCellCandidates.map((c) => {
                   const decision = compoundCellDecisions[c.pattern]
-                  // Pressure-testing finding (2026-09-03, Camp Mindy's real
+                  // Pressure-testing finding (2026-09-03, Camp Larkspur's real
                   // "Change/Snack") — when neither part appears standalone
                   // anywhere in the file, the classifier genuinely doesn't
                   // know which side is the real activity. Guessing via raw

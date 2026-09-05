@@ -50,7 +50,7 @@ const NOT_AN_ACTIVITY = [
 function stripTimes(text) {
   const raw = String(text ?? '')
   // "Change" is only noise when it labels a transition next to a time, as in
-  // Camp A's "11:10-11:20 Change". Camp Mindy has "Change/SPLAT" and "Change
+  // Camp A's "11:10-11:20 Change". Camp Larkspur has "Change/SPLAT" and "Change
   // Time/Snack" as real activities, and stripping the word unconditionally
   // turned those into "/SPLAT" and "Time/Snack".
   const hasTime = /\d{1,2}[:.]\d{2}/.test(raw)
@@ -62,7 +62,7 @@ function stripTimes(text) {
 // A cell repeated down a column accumulates when a page is read too long —
 // "Field Field Field Field". One occurrence is the activity.
 //
-// Only in a value long enough for the repeat to be accidental. Camp Mindy has
+// Only in a value long enough for the repeat to be accidental. Camp Larkspur has
 // an activity written "Change/Ga Ga" — two words, both meant — while Camp A
 // produces "Transition to Dismissal Dismissal" and "Field Field Field Field".
 // Collapsing any doubled word turned "Ga Ga" into "Ga"; refusing to collapse
@@ -217,7 +217,7 @@ export function canonicalizeActivityName(name, canonicalMap) {
 }
 
 export function splitUnitAndGroup(title) {
-  // The separator must have whitespace on at least one side. Camp Mindy has a
+  // The separator must have whitespace on at least one side. Camp Larkspur has a
   // group called "2-3A" — grades 2 and 3, section A — and a bare hyphen rule
   // read it as unit "2", group "3A", quietly renaming the group and inventing
   // a unit called "2". Camp A's real separators all have a space somewhere:

@@ -431,7 +431,7 @@ the announcement convention is working as designed.
 ## Note on provenance
 
 The source handoff document lives outside this repository at
-`/Users/gregfeitel/Documents/Codex/2026-09-04/referenced-chatgpt-conversation-this-is-an/outputs/portable-agent-team-handoff.md`
+`~/Documents/Codex/2026-09-04/referenced-chatgpt-conversation-this-is-an/outputs/portable-agent-team-handoff.md`
 and is not itself committed here. This ADR summarizes only the portion of it acted on so far
 (Phase 0 audit + the tool/Skill fix + the Phase 1 proposal). Later phases, if pursued, should get
 their own ADRs rather than blanket-approving the source document.

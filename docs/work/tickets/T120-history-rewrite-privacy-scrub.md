@@ -23,16 +23,16 @@ sensitive material from any public space" (2026-09-05).
 Two independent categories, deliberately bundled so history is rewritten **once**:
 
 **1. Real camp identity**
-- `docs/work/specs/samples/campA-bunk-schedules.txt` and `campB-achva-by-day.txt` — real
+- `docs/work/specs/samples/campA-bunk-schedules.txt` and `campB-<campname>-by-day.txt` — real
   camp, division, and bunk names. Introduced in `6b14293` (2026-07-30), ~841 commits back.
   `docs/work/specs/samples/INGESTION_SAMPLES.md` stated outright that the names were real.
-- The **filename** `campB-achva-by-day.txt` itself carried the camp's name.
-- `src/screens/CampBootstrapScreen.jsx` shipped `placeholder="Camp Achva"` — the name was
+- The **filename** itself carried the camp's name.
+- `src/screens/CampBootstrapScreen.jsx` shipped a hardcoded `placeholder` naming a real camp — the name was
   **in the product**, on the camp-creation screen. Also `src/localClient.mock.js`'s demo host.
 - The name appeared as a worked example in 10 committed docs (ADRs, specs, archives).
 
 **2. Personal filesystem paths**
-- 14 commits contain `/Users/gregfeitel`. The tip was scrubbed in #248; the history rewrite
+- 14 commits contain the developer's absolute home path. The tip was scrubbed in #248; the history rewrite
   was deferred at that time and is still outstanding. Fold it in here.
 
 ## Known constraints and traps
@@ -60,7 +60,7 @@ they have merged and their worktrees are removed.
 ## Done when
 
 - No commit in history contains the real camp name (in content, path, or product string).
-- No commit in history contains `/Users/gregfeitel`.
+- No commit in history contains the developer home path.
 - The remote reflects the rewritten history.
 - The GitHub-side cached-object question is resolved deliberately — either purged via Support,
   or the repo deleted and re-pushed, or consciously accepted and recorded here as accepted.

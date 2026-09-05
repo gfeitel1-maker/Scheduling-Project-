@@ -37,7 +37,7 @@ campers distributed across them.
 
 Both real camps show elective-shaped periods:
 
-- Camp Mindy: **"Indoor Elective"** and **"Outdoor Elective"** appear as activities, which is a
+- Camp Larkspur: **"Indoor Elective"** and **"Outdoor Elective"** appear as activities, which is a
   camp working around the absence of the feature by naming the period after it.
 - Camp A: **"Chugim"**, the Hebrew for electives, appears as a single activity.
 

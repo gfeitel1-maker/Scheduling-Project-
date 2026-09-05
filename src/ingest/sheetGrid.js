@@ -7,7 +7,7 @@
 // reconstruction is needed. Everything downstream — orientation detection,
 // entity extraction, the preview, the commit — is shared with the PDF path.
 //
-// Camp Mindy's export is four files, one per group, each with the days across
+// Camp Larkspur's export is four files, one per group, each with the days across
 // the top and a single populated sheet. The group's name is in the FILE name,
 // not in the sheet, which is why `title` is passed in rather than read.
 
@@ -137,7 +137,7 @@ function sheetSample(rows, limit = 8) {
 /**
  * A workbook becomes one page per populated sheet.
  *
- * Empty sheets are skipped — Excel ships three by default and Camp Mindy's
+ * Empty sheets are skipped — Excel ships three by default and Camp Larkspur's
  * files use one. A workbook of several real sheets (one per group, say) yields
  * a page each, named for the sheet.
  *
@@ -174,7 +174,7 @@ export function workbookToPages(sheets, fileTitle) {
 /**
  * What a camp calls this group, from the file it arrived in.
  *
- * "Camp Mindy Schedule 2025 - Ruach  A Grades 4 & 5.xlsx" is one group's week,
+ * "Camp Larkspur Schedule 2025 - Ruach  A Grades 4 & 5.xlsx" is one group's week,
  * and the only place its name appears is the filename. The camp's own name and
  * the year are shared by every file in the set, so they are not part of what
  * distinguishes this group — strip them and what remains is the group.

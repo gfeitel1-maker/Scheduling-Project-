@@ -684,7 +684,7 @@ describe('ImportScreen — compound-cell interpretation (T118 slice 4)', () => {
     expect(screen.queryByText(/"Lunch \+ Leave"/)).toBeNull()
   })
 
-  // 2026-09-03 pressure-testing finding, against a real Camp Mindy file:
+  // 2026-09-03 pressure-testing finding, against a real Camp Larkspur file:
   // "Change/Snack" is a genuine wrapper pattern (Change is a transition
   // word), but neither "Change" nor "Snack" ever appears as its own
   // standalone cell in that file, so anchorGuess/wrapperGuess come back
