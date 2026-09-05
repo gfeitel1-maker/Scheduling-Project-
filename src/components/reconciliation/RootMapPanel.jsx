@@ -108,7 +108,7 @@ function usePanelCrossfade(dep) {
 
 export default function RootMapPanel({
   model, selection, lanes, dismissedGaps, answers, onAnswer, onDismissGap, onUndismissGap,
-  expandedEvidence, onToggleEvidence, onNavigate, onClearSelection,
+  expandedEvidence, onToggleEvidence, onNavigate, onClearSelection, locations,
 }) {
   const allDecisions = [...lanes.hold, ...lanes.standard]
   const byId = new Map(allDecisions.map((d) => [d.id, d]))
@@ -284,6 +284,7 @@ export default function RootMapPanel({
               onAnswer={(a) => onAnswer(d.id, a)}
               expanded={expandedEvidence.has(d.id)}
               onToggleEvidence={() => onToggleEvidence(d.id)}
+              locations={locations}
             />
           ))}
         </div>

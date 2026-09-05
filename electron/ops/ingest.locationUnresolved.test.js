@@ -124,6 +124,24 @@ describe('location_unresolved (update path)', () => {
   })
 })
 
+describe('location_unresolved (create path) — "existing" resolution binds too', () => {
+  it('resolution choice "existing" binds a brand-new activity to the chosen location id', () => {
+    commit({ approved: { locations: ['Lake'] } })
+    const lakeId = db.prepare('SELECT id FROM locations WHERE camp_id = ? AND name = ?').get(campId, 'Lake').id
+    const res = commit({
+      approved: { activities: ['Archery'] },
+      activityRules: { Archery: { location: 'Range' } },
+      resolutions: [
+        { entity: 'activities', name: 'Archery', reason: 'location_unresolved', field: 'location', choice: 'existing', location_id: lakeId },
+      ],
+    })
+    expect(res.held).toBe(false)
+    const id = actId('Archery')
+    expect(id).toBeTruthy()
+    expect(activityField(id, 'location_id')).toBe(lakeId)
+  })
+})
+
 describe('location_unresolved (create path) — must not ask twice either', () => {
   it('a remembered "not a place" decision is consulted on a brand-new activity CREATE, not just an update — the import completes with location unset', () => {
     // Record the decision via the update path first (Swim already exists).

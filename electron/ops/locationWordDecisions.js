@@ -13,10 +13,9 @@
 // word_key two different ways.
 
 import { randomUUID } from 'node:crypto'
+import { normalizeWordKey } from '../../src/utils/normalizeWordKey.js'
 
-export function normalizeWordKey(word) {
-  return String(word ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
-}
+export { normalizeWordKey }
 
 /**
  * Record that the director said `rawWord` is not a place at `campId`, so a

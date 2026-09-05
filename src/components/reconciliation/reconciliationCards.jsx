@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { prefersReducedMotion } from '../../styles/shared'
 import { DOMAIN_OF, REQUIRED_GAP_DOMAIN } from './domainRollup.js'
 import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
+import { normalizeWordKey } from '../../utils/normalizeWordKey.js'
 
 // Extracted from ReconciliationScreen.jsx (root-map port,
 // docs/adr/2026-08-18-rootmap-screen-port.md §1/"Files affected") so both
@@ -210,7 +211,53 @@ function RadioOption({ label, description, onClick }) {
   )
 }
 
-function ResolutionControls({ decision, onAnswer }) {
+// Near-matches to the unresolved word sort first (trim/case/whitespace-
+// insensitive via normalizeWordKey — the same comparison class #288 already
+// applies), then the rest alphabetically — a director resolving "Barn"
+// should see an existing "barn" first, not scroll for it.
+function orderLocationsForWord(locations, word) {
+  const wordKey = normalizeWordKey(word)
+  return [...locations].sort((a, b) => {
+    const aNear = normalizeWordKey(a.name) === wordKey
+    const bNear = normalizeWordKey(b.name) === wordKey
+    if (aNear !== bNear) return aNear ? -1 : 1
+    return String(a.name).localeCompare(String(b.name))
+  })
+}
+
+// ADR 2026-09-05 §4's third choice, "Use instead ->" — needs a live
+// locations list (threaded in via the `locations` prop, absent by default
+// so callers that don't have one yet keep the original two-choice card).
+function LocationHoldControls({ decision, onAnswer, locations }) {
+  const [showPicker, setShowPicker] = useState(false)
+  const hasLocations = Array.isArray(locations) && locations.length > 0
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'create' })} style={cardStyles.btnCompactPrimary}>Yes, add {decision._word ?? 'it'}</button>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'not_a_place' })} style={cardStyles.btnCompactSecondary}>Not a place — ignore it</button>
+        {hasLocations && (
+          <button className="press-97" onClick={() => setShowPicker((v) => !v)} style={cardStyles.btnCompactSecondary}>Use instead →</button>
+        )}
+      </div>
+      {hasLocations && showPicker && (
+        <div style={{ marginTop: 8 }}>
+          {orderLocationsForWord(locations, decision._word).map((loc) => (
+            <RadioOption
+              key={loc.id}
+              label={loc.name}
+              description="Use this existing place instead."
+              onClick={() => onAnswer({ choice: 'existing', location_id: loc.id })}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResolutionControls({ decision, onAnswer, locations }) {
   if (decision.kind === 'confirm_value') {
     return (
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -249,18 +296,9 @@ function ResolutionControls({ decision, onAnswer }) {
     )
   }
 
-  // ADR 2026-09-05 §4 — the approved three-choice card. "Use an existing
-  // place" isn't offered here (it needs a live locations list this card
-  // doesn't receive today — a disclosed gap, not a silent one: the
-  // resolution shape and commit-side binding for it already exist and are
-  // tested at the reconciliationTriage.js/ingest.js layer).
+  // ADR 2026-09-05 §4 — the approved three-choice card.
   if (decision._held && decision._heldKind === 'location') {
-    return (
-      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-        <button className="press-97" onClick={() => onAnswer({ choice: 'create' })} style={cardStyles.btnCompactPrimary}>Yes, add {decision._word ?? 'it'}</button>
-        <button className="press-97" onClick={() => onAnswer({ choice: 'not_a_place' })} style={cardStyles.btnCompactSecondary}>Not a place — ignore it</button>
-      </div>
-    )
+    return <LocationHoldControls decision={decision} onAnswer={onAnswer} locations={locations} />
   }
 
   // ADR §4 — the generic fallback's single action.
@@ -314,7 +352,7 @@ function useContentCrossfade(dep) {
   }
 }
 
-export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onToggleEvidence }) {
+export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onToggleEvidence, locations }) {
   const resolved = isDecisionResolvedFor(decision, { [decision.id]: answer })
   const cardStyle = rank === 'hold' ? cardStyles.cardHold : cardStyles.cardStandard
   const question = questionFor(decision)
@@ -362,7 +400,7 @@ export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onTog
           ) : (
             <EvidenceDetail decision={decision} expanded={expanded} />
           )}
-          <ResolutionControls decision={decision} onAnswer={onAnswer} />
+          <ResolutionControls decision={decision} onAnswer={onAnswer} locations={locations} />
         </>
       )}
       </div>
