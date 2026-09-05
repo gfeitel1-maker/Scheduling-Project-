@@ -63,6 +63,55 @@ function seedActivity(id, name, location_id, maxGroups = 1) {
   return id
 }
 
+// T122: the four newer no-FK-convention referrers to a location, alongside
+// activities/week_location_exclusions above.
+function seedAnchor(id, name, location_id) {
+  write('anchor_activities', id, 'camp_id', 'camp1')
+  write('anchor_activities', id, 'name', name)
+  write('anchor_activities', id, 'is_all_groups', 1)
+  if (location_id) write('anchor_activities', id, 'location_id', location_id)
+  return id
+}
+
+function seedEvent(id, name, location_id) {
+  write('events', id, 'camp_id', 'camp1')
+  write('events', id, 'name', name)
+  if (location_id) write('events', id, 'location_id', location_id)
+  return id
+}
+
+function seedSpecialDaySlot(id, special_day_id, location_id) {
+  write('special_day_slots', id, 'special_day_id', special_day_id)
+  write('special_day_slots', id, 'group_id', 'group1')
+  write('special_day_slots', id, 'time_block_id', 'tb1')
+  if (location_id) write('special_day_slots', id, 'location_id', location_id)
+  return id
+}
+
+function seedEventSlot(id, event_id, location_id) {
+  write('event_slots', id, 'event_id', event_id)
+  write('event_slots', id, 'event_group_id', 'eg1')
+  write('event_slots', id, 'time_block_id', 'etb1')
+  if (location_id) write('event_slots', id, 'location_id', location_id)
+  return id
+}
+
+function anchorLocationOf(id) {
+  return db.prepare('SELECT location_id FROM anchor_activities WHERE id = ?').get(id).location_id
+}
+
+function eventLocationOf(id) {
+  return db.prepare('SELECT location_id FROM events WHERE id = ?').get(id).location_id
+}
+
+function specialDaySlotLocationOf(id) {
+  return db.prepare('SELECT location_id FROM special_day_slots WHERE id = ?').get(id).location_id
+}
+
+function eventSlotLocationOf(id) {
+  return db.prepare('SELECT location_id FROM event_slots WHERE id = ?').get(id).location_id
+}
+
 function locationIdOf(activityId) {
   return db.prepare('SELECT location_id FROM activities WHERE id = ?').get(activityId).location_id
 }
@@ -349,5 +398,112 @@ describe('restore-after-merge (D4) — the restored loser comes back empty, no c
 describe('CLEARABLE_ENTITIES includes locations (D2)', () => {
   it('locations is clearable', () => {
     expect(CLEARABLE_ENTITIES.has('locations')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T122 — anchor_activities/events/special_day_slots/event_slots.location_id,
+// four more no-FK-convention referrers that locationReferenceRows previously
+// never counted, so a merge or delete silently orphaned them.
+// ---------------------------------------------------------------------------
+
+describe('previewDelete for locations includes the four newer referrer kinds in a combined ref_count + breakdown', () => {
+  it('reports a combined ref_count plus a per-kind breakdown', () => {
+    seedLocation('loc-flagpole', 'Flagpole', 1)
+    seedActivity('a1', 'Flag Raising', 'loc-flagpole')
+    seedAnchor('anc1', 'Morning Flag', 'loc-flagpole')
+    seedEvent('ev1', 'Sports Day', 'loc-flagpole')
+    seedSpecialDaySlot('sds1', 'sd1', 'loc-flagpole')
+    seedEventSlot('es1', 'ev1', 'loc-flagpole')
+
+    const preview = previewDelete(db, { entity: 'locations', entity_id: 'loc-flagpole' })
+    expect(preview.ok).toBe(true)
+    expect(preview.ref_count).toBe(5)
+    expect(preview.activities.map((a) => a.id)).toEqual(['a1'])
+    expect(preview.anchor_count).toBe(1)
+    expect(preview.event_count).toBe(1)
+    expect(preview.special_day_slot_count).toBe(1)
+    expect(preview.event_slot_count).toBe(1)
+  })
+})
+
+describe('plain delete of a location clears the four newer referrer kinds to null', () => {
+  it('nulls anchor_activities.location_id, events.location_id, special_day_slots.location_id, event_slots.location_id', () => {
+    seedLocation('loc-flagpole', 'Flagpole', 1)
+    seedAnchor('anc1', 'Morning Flag', 'loc-flagpole')
+    seedEvent('ev1', 'Sports Day', 'loc-flagpole')
+    seedSpecialDaySlot('sds1', 'sd1', 'loc-flagpole')
+    seedEventSlot('es1', 'ev1', 'loc-flagpole')
+
+    const result = deleteRecord(db, { entity: 'locations', entity_id: 'loc-flagpole', expected_slot_count: 4, ...session })
+    expect(result.ok).toBe(true)
+    expect(result.cleared).toBe(4)
+
+    expect(anchorLocationOf('anc1')).toBeNull()
+    expect(eventLocationOf('ev1')).toBeNull()
+    expect(specialDaySlotLocationOf('sds1')).toBeNull()
+    expect(eventSlotLocationOf('es1')).toBeNull()
+  })
+})
+
+describe('mergeLocation re-points the four newer referrer kinds to the winner', () => {
+  it('re-points anchor_activities, events, special_day_slots and event_slots rather than clearing them', () => {
+    seedLocation('loc-Pool', 'Pool', 3)
+    seedLocation('loc-pool', 'pool', 1)
+    seedAnchor('anc1', 'Morning Swim', 'loc-pool')
+    seedEvent('ev1', 'Swim Meet', 'loc-pool')
+    seedSpecialDaySlot('sds1', 'sd1', 'loc-pool')
+    seedEventSlot('es1', 'ev1', 'loc-pool')
+
+    const result = mergeLocation(db, {
+      loser_id: 'loc-pool',
+      winner_id: 'loc-Pool',
+      winner_capacity: 3,
+      expected_ref_count: 4,
+      ...session,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.cleared).toBe(4)
+    expect(anchorLocationOf('anc1')).toBe('loc-Pool')
+    expect(eventLocationOf('ev1')).toBe('loc-Pool')
+    expect(specialDaySlotLocationOf('sds1')).toBe('loc-Pool')
+    expect(eventSlotLocationOf('es1')).toBe('loc-Pool')
+    expect(db.prepare('SELECT 1 FROM locations WHERE id = ?').get('loc-pool')).toBeFalsy()
+  })
+})
+
+describe('expected_ref_count guard stays honest against the combined total', () => {
+  it('aborts a delete when an anchor was added to the location after the preview', () => {
+    seedLocation('loc-flagpole', 'Flagpole', 1)
+    seedActivity('a1', 'Flag Raising', 'loc-flagpole')
+    // Director previewed with just the one activity (expected_slot_count: 1)...
+    // ...but a peer bound an anchor to it before the delete confirmed.
+    seedAnchor('anc1', 'Morning Flag', 'loc-flagpole')
+
+    const result = deleteRecord(db, { entity: 'locations', entity_id: 'loc-flagpole', expected_slot_count: 1, ...session })
+    expect(result.error).toBe('count-changed')
+    expect(result.ref_count).toBe(2)
+    // Nothing touched — the activity keeps its location and the anchor is untouched.
+    expect(locationIdOf('a1')).toBe('loc-flagpole')
+    expect(anchorLocationOf('anc1')).toBe('loc-flagpole')
+    expect(db.prepare('SELECT 1 FROM locations WHERE id = ?').get('loc-flagpole')).toBeTruthy()
+  })
+
+  it('aborts a merge when an event was added to the location after the preview', () => {
+    seedLocation('loc-Pool', 'Pool', 3)
+    seedLocation('loc-pool', 'pool', 1)
+    seedEvent('ev1', 'Swim Meet', 'loc-pool')
+
+    const result = mergeLocation(db, {
+      loser_id: 'loc-pool',
+      winner_id: 'loc-Pool',
+      expected_ref_count: 0, // director previewed before ev1 was bound
+      ...session,
+    })
+    expect(result.error).toBe('count-changed')
+    expect(result.ref_count).toBe(1)
+    expect(eventLocationOf('ev1')).toBe('loc-pool')
+    expect(db.prepare('SELECT 1 FROM locations WHERE id = ?').get('loc-pool')).toBeTruthy()
   })
 })
