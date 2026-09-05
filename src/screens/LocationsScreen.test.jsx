@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { deriveLocationId } from '../../electron/ops/locationId'
 
@@ -267,7 +267,12 @@ describe('LocationsScreen', () => {
 
   // T119 — a quiet per-row marker on the capacity cell for a location whose
   // capacity was never director-confirmed (still the importer's default).
-  it('shows a capacity provenance marker for an unconfirmed location, not for a confirmed one', async () => {
+  // T119 (redirect) — mirrors ActivitiesScreen's RuleProvenanceDot pattern
+  // instead of a bare tooltip dot: a button with a "Provenance:" aria-label,
+  // shown only for a location whose capacity is unconfirmed (quiet by
+  // default for a confirmed value, same as Activities hides the dot
+  // entirely for a hand-created row with no import evidence).
+  it('shows a capacity provenance dot for an unconfirmed location, not for a confirmed one', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'locations') {
         return Promise.resolve([
@@ -282,9 +287,31 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
 
-    await waitFor(() => expect(screen.queryByTitle(/no one has confirmed how many groups fit here/i)).not.toBeNull())
-    // Only one marker — Gym's capacity is confirmed.
-    expect(screen.getAllByTitle(/no one has confirmed how many groups fit here/i)).toHaveLength(1)
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Capacity provenance: inferred/i })).not.toBeNull())
+    // Only one dot — Gym's capacity is confirmed, so it stays quiet.
+    expect(screen.getAllByRole('button', { name: /Capacity provenance:/i })).toHaveLength(1)
+  })
+
+  it('opens a popover with the Confirmed/Observed/Inferred vocabulary and a Confirm action, which re-writes capacity and clears the dot', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool', capacity: 3 })])
+      return Promise.resolve([])
+    })
+    localClient.locationCapacityProvenance.mockResolvedValue({ 'loc-1': 'unconfirmed' })
+
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: /Capacity provenance:/i }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByText('Inferred')).not.toBeNull()
+
+    // After confirming, the next provenance read reports it confirmed.
+    localClient.locationCapacityProvenance.mockResolvedValue({ 'loc-1': 'confirmed' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', 'loc-1', 'capacity', 3))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Capacity provenance:/i })).toBeNull())
   })
 
   // T119 — save() must not re-write capacity when the director never touched

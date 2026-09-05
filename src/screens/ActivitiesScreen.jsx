@@ -17,7 +17,7 @@ import { LocationPicker } from '../components/LocationPicker'
 import { CapacityStepper } from '../components/CapacityStepper'
 import { resolveLocationCandidateId } from '../../electron/ops/locationId.js'
 import { CONFIDENCE_COPY, plainEvidenceSentence } from '../components/reconciliation/reconciliationCards.jsx'
-import { deriveActivityProvenance, hasAnyEvidence, worstTier } from '../utils/ruleProvenance.js'
+import { deriveActivityProvenance, hasAnyEvidence, worstTier, TIER_LABEL, TIER_DOT_COLOR, tierShapeStyle } from '../utils/ruleProvenance.js'
 import uiClipboard from '../assets/brand/icons/ui-clipboard.png'
 import { DOW, parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
 import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
@@ -49,28 +49,9 @@ function normalizeActivity(row) {
 // (min/max-per-week, eligible groups, location). Renders nothing when the
 // activity has no import_evidence at all — hand-created activities stay
 // quiet, per the ADR's "not framed as what Shoresh learned".
-const TIER_LABEL = { confirmed: 'Confirmed', observed: 'Observed', inferred: 'Inferred' }
-// Contrast guard (spec's "Contrast guard"): --accent (#B8833A) on --surface
-// (#FCFBF8) at 11px text measures ~3.2:1, under the 4.5:1 AA floor for small
-// text. The tier TEXT label always renders in --text; only the dot itself
-// carries the tier hue (ADR §8's "colors are unchanged" + WCAG 1.4.1 — the
-// dot is never the only signal, the label always accompanies it).
-const TIER_DOT_COLOR = { confirmed: 'var(--secondary)', observed: 'var(--primary)', inferred: 'var(--accent)' }
-
-// Slice E, Target 4 (WCAG 1.4.1) — tier must be distinguishable by dot SHAPE,
-// not hue alone: confirmed = filled solid, observed = ring (no fill),
-// inferred = outlined-fill (a filled dot plus a --surface gap ring, so it
-// reads distinct from confirmed's plain fill at 6px). Color is unchanged;
-// this only adds shape on top of it.
-function tierShapeStyle(tier) {
-  if (tier === 'observed') {
-    return { background: 'transparent', border: `1.5px solid ${TIER_DOT_COLOR.observed}`, boxShadow: 'none' }
-  }
-  if (tier === 'inferred') {
-    return { background: TIER_DOT_COLOR.inferred, border: 'none', boxShadow: `0 0 0 1.5px var(--surface), 0 0 0 2.5px ${TIER_DOT_COLOR.inferred}` }
-  }
-  return { background: TIER_DOT_COLOR.confirmed, border: 'none', boxShadow: 'none' }
-}
+// TIER_LABEL, TIER_DOT_COLOR, and tierShapeStyle moved to
+// ../utils/ruleProvenance.js (T119) — Locations' capacity provenance dot
+// shares the same tier vocabulary now.
 
 function useProvenancePopover(open, onClose) {
   const popRef = useRef(null)

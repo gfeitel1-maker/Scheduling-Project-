@@ -10,14 +10,55 @@ governing_docs:
   - docs/adr/2026-08-22-roots-as-hub-setup-ia.md
 related_adrs:
   - docs/adr/2026-08-15-camp-locations-entity.md
-archive_when: every imported location's capacity is queryable as import-defaulted vs director-confirmed via the same op-log source mechanism as activity-rule provenance, the gap is surfaced on the Roots attention list and the Locations screen, and a regression test pins that commitCreate writes an explicit capacity op on import — DONE.
+archive_when: every imported location's capacity is queryable as import-defaulted vs director-confirmed via the same op-log source mechanism as activity-rule provenance, the gap is surfaced on the Locations screen only, and a regression test pins that commitCreate writes an explicit capacity op on import — DONE.
 ---
 
 # T119 — Imported location capacity is indistinguishable from a confirmed capacity=1
 
 ## Status
 
-**Completed — implemented as designed.** Filed as a ticket, not an ADR — see "Why a ticket, not an ADR" below.
+**Completed — implemented as designed, then redirected on surfacing (see below).** Filed as a
+ticket, not an ADR — see "Why a ticket, not an ADR" below.
+
+## Redirect (2026-09-05): dropped the Roots attention row; the Locations-screen marker now mirrors ActivitiesScreen's dot/popover exactly
+
+After the original design below shipped (commit `8f46120`), the owner found existing precedent
+that supersedes two of its choices. This section is the record of what changed and why; **Items 3
+and 4 below are historical** — they describe the design that was implemented and then partially
+reverted, not the current shape. The "Files/modules affected" list is likewise historical.
+
+1. **The Roots attention-list row (Item 4) is dropped entirely**, along with `capacitySources`
+   threading into `RootsHomeScreen.jsx` and `buildStructureIssues`'s new argument in
+   `attentionList.js`. Rationale: `listImportEvidence` (`electron/main.js:1467`) is hardcoded
+   `entity_type: 'activities'` and renders only on `ActivitiesScreen` — the established pattern is
+   that ingest provenance lives on the entity's own setup screen next to the affected field, never
+   in a global list. A Roots row would have been the only duplicate surface of its kind. The
+   "director might never open Locations" concern that originally justified a Roots row is also
+   moot: imported locations are placeholders minted from activity location references
+   (`resolveOrCreateLocationId`), so visiting Locations to give them real names is unavoidable, not
+   optional.
+2. **The per-row marker (Item 3) is no longer a bare `title=` tooltip dot.** It is now the same
+   dot-button + popover affordance `RuleProvenanceDot`/`ProvenancePopover` use on
+   `ActivitiesScreen.jsx` (`docs/adr/2026-08-22-roots-as-hub-setup-ia.md` §7): a small button with
+   an `aria-label`, a `role="dialog"` popover showing the Confirmed/Observed/Inferred vocabulary
+   (`TIER_LABEL`, `src/utils/ruleProvenance.js`) and a **Confirm** action, plus the same ~700ms
+   `justConfirmed` row-settle highlight. The visual tier vocabulary
+   (`TIER_LABEL`/`TIER_DOT_COLOR`/`tierShapeStyle`) moved out of `ActivitiesScreen.jsx` into
+   `src/utils/ruleProvenance.js` so both screens share one definition of what "confirmed" /
+   "inferred" mean and look like — a second hand-copied version of the WCAG-driven color/shape
+   logic was judged too high a drift risk to duplicate. The dot/popover *component* itself
+   (`RuleProvenanceDot`/`ProvenancePopover`) was mirrored locally in `LocationsScreen.jsx` as a
+   smaller, single-field `CapacityProvenanceDot` rather than shared: the activities version is
+   built around N field rows with per-field import-evidence disclosure text and a "Change" action
+   that opens `ActivityModal`, none of which apply to a single field with no evidence record and
+   an existing inline Edit affordance on the same row — bending it to fit would have added more
+   complexity than the ~90 lines it saved.
+3. Capacity has no `import_evidence` record (unlike the activity rule fields), so
+   `locationCapacityProvenanceHandler` already collapsed the tier to a binary
+   `'confirmed'|'unconfirmed'`. The new `tierForCapacitySource` helper
+   (`src/utils/ruleProvenance.js`) maps that onto the shared 3-tier vocabulary (`'unconfirmed' ->
+   'inferred'`), and the dot renders only when the tier is `'inferred'` — quiet by default for a
+   confirmed value, matching how Activities' dot is quiet for a hand-created row with no evidence.
 
 Frontmatter note: the sibling ADR this design cites throughout
 (`docs/adr/2026-09-05-generated-route-render-time-location-contention.md`) exists on a sibling
