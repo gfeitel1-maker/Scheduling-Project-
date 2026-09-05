@@ -30,6 +30,15 @@ export const META_SHEET = '_shoresh_meta'
 export const ID_COLUMN = 'shoresh_id'
 export const STATUS_COLUMN = 'Status'
 
+// T121 — the visible, director-editable Locations sheet name. Deliberately
+// OUTSIDE SHEET_LAYOUT: it is not part of S4b's id-matched baseline-diff
+// re-import (no shoresh_id/Status columns), it is read by LocationsScreen's
+// own pre-existing plain "Import from Excel" path instead (onFileChange in
+// src/screens/LocationsScreen.jsx), whose header is exactly
+// name/capacity/kind. Matching that shape exactly means the round-trip needs
+// no new parser. See docs/work/tickets/T121-... capacity export gap.
+export const LOCATIONS_SHEET = 'Locations'
+
 // Sheet + column layout, in INGESTIBLE_ENTITIES order (ADR §1 table). Each
 // entity's `columns` are the editable fields exactly; `shoresh_id` is prepended
 // and `Status` appended by the builder. `nameKey` is the entity's display-name
@@ -129,9 +138,12 @@ export function exportWorkbook({
   cohorts = [], tiers = [], groups = [], days_of_operation = [], time_blocks = [], locations = [], activities = [],
   camp_id = null, cohort_id = null, base_generation = null,
 } = {}) {
-  // M4 §D6: 'locations' is an extra input used only to resolve the activities
-  // sheet's `location` column — NOT a sheet of its own. SHEET_LAYOUT stays six
-  // entries; the place catalog lives on LocationsScreen, not the workbook.
+  // M4 §D6 / T121: 'locations' resolves the activities sheet's `location`
+  // column AND gets its own visible Locations sheet below (name/capacity/kind)
+  // so capacity survives an export→import round-trip and a director can bulk
+  // -edit capacity in Excel. SHEET_LAYOUT itself still stays six entries —
+  // the Locations sheet is built separately, outside the baseline/shoresh_id/
+  // Status machinery (see LOCATIONS_SHEET above).
   const entities = { cohorts, tiers, groups, days_of_operation, time_blocks, activities }
   const maps = {
     tierNameById: new Map(tiers.map((t) => [t.id, t.name])),
@@ -188,6 +200,20 @@ export function exportWorkbook({
 
     XLSX.utils.book_append_sheet(wb, ws, layout.sheet)
   }
+
+  // T121 — visible Locations sheet, matching LocationsScreen's own importer
+  // header exactly (name, capacity, kind — no shoresh_id/Status). Sorted by
+  // the persisted sort_order (matching the screen's own sort), never a row
+  // index. Not sanitizer-bypassed: same aoaToSanitizedSheet as every other
+  // sheet.
+  const sortedLocations = [...locations].sort(
+    (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name ?? '').localeCompare(String(b.name ?? ''))
+  )
+  const locHeader = ['name', 'capacity', 'kind']
+  const locAoa = [locHeader, ...sortedLocations.map((l) => [l.name ?? '', l.capacity ?? 1, l.kind ?? ''])]
+  const locWs = aoaToSanitizedSheet(locAoa)
+  locWs['!cols'] = [{ wch: 24 }, { wch: 14 }, { wch: 14 }]
+  XLSX.utils.book_append_sheet(wb, locWs, LOCATIONS_SHEET)
 
   // Hidden metadata sheet: camp/cohort identity, base_generation, and the
   // baseline. REQUIRED — S4b fails closed if it is missing or camp-mismatched.
