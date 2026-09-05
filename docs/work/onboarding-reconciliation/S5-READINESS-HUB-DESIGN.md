@@ -309,7 +309,7 @@ At 40–60 activities a flat per-row list is unreadable. The ledger collapses th
 majority to counts and auto-expands only what needs a decision.
 
 ```
- ┌── Reviewing “Camp Achva — Summer 2026 schedule.xlsx” ────────────────────────┐
+ ┌── Reviewing “Camp Willowbrook — Summer 2026 schedule.xlsx” ────────────────────────┐
  │                                                                              │
  │  ✓  46 activities unchanged                                        [ show ]  │
  │  ✓  2 updated        Basketball (min 2→3),  Hike (priority low→high)         │

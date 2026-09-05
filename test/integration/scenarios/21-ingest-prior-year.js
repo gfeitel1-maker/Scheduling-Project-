@@ -61,7 +61,7 @@ export async function run() {
     const countOf = (table) => db.prepare(`SELECT COUNT(*) c FROM ${table}`).get().c
 
     // ---- a. both layouts read correctly -------------------------------------
-    const campB = extractEntities(parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-achva-by-day.txt'), 'utf8')))
+    const campB = extractEntities(parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-by-day.txt'), 'utf8')))
     const campA = extractEntities(parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campA-bunk-schedules.txt'), 'utf8')))
 
     assert.equal(campB.orientation.pages, 'days', 'Camp B is one page per day')
@@ -181,7 +181,7 @@ export async function run() {
     assert.ok(listNames('groups').includes(rejected), 'the previously-rejected group now exists')
 
     // ---- f. units are read from the bunk names and linked ------------------
-    // "Adom 4's - Matzo Balls" names both the unit and the bunk. 29 of Camp A's
+    // "Aqua 4's - Amber Pines" names both the unit and the bunk. 29 of Camp A's
     // 33 titles do; the other four are bunks with no unit, which is a real
     // shape rather than a parse failure.
     const aPreview = campA
@@ -212,8 +212,8 @@ export async function run() {
 
     const matzo = db2
       .prepare('SELECT t.name AS unit FROM groups g JOIN tiers t ON t.id = g.tier_id WHERE g.name = ?')
-      .get('Matzo Balls')
-    assert.equal(matzo?.unit, "Adom 4's", 'Matzo Balls is in Adom 4\'s')
+      .get('Amber Pines')
+    assert.equal(matzo?.unit, "Aqua 4's", 'Amber Pines is in Aqua 4\'s')
 
     // ---- g. units and time blocks are filed into the active Program (T33) ----
     // Units and time blocks are Program-scoped; the setup screens list only the
@@ -246,7 +246,7 @@ export async function run() {
     )
     const matzo3 = db3
       .prepare('SELECT t.cohort_id AS c FROM groups g JOIN tiers t ON t.id = g.tier_id WHERE g.name = ?')
-      .get('Matzo Balls')
+      .get('Amber Pines')
     assert.equal(matzo3?.c, coMain, 'a filed bunk\'s unit lives in the active Program, so both are visible together')
     db3.close()
 
@@ -266,7 +266,7 @@ export async function run() {
     db4.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(coMain4, camp4, 'Main')
 
     const { fixedEvents } = inferFixedEvents(
-      parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-achva-by-day.txt'), 'utf8')),
+      parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-by-day.txt'), 'utf8')),
       campB
     )
     assert.ok(fixedEvents.length > 0, 'Camp B implies at least one fixed event')

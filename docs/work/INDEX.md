@@ -27,6 +27,18 @@ Regenerate with `npm run index:work`.
 | [T115-locations-ingest-create-name-first](../../docs/work/tickets/T115-locations-ingest-create-name-first.md) | open | — |
 | [T36-ingest-unlabeled-path-residuals](../../docs/work/tickets/T36-ingest-unlabeled-path-residuals.md) | open | — |
 
+### documentation-governance
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
+
+### test-infrastructure
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [Sync/WS tests fail under concurrent load, making a red gate uninformative](../../docs/work/tickets/T121-sync-test-load-fragility.md) | open | — |
+
 ### ui-ux-design
 
 | Ticket | Status | Referenced by |

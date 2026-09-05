@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../electron/db/localDb.js'
 import { runIngestCli } from './ingestCli.js'
 
-const SAMPLE = path.join(process.cwd(), 'docs/work/specs/samples/campB-achva-by-day.txt')
+const SAMPLE = path.join(process.cwd(), 'docs/work/specs/samples/campB-by-day.txt')
 
 function makeTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-cli-'))

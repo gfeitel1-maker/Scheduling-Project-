@@ -321,7 +321,7 @@ describe('AuthScreen', () => {
   it('switches to signup tab', () => {
     render(<AuthScreen />)
     fireEvent.click(screen.getByText('Sign up'))
-    expect(screen.getByPlaceholderText('Camp Achva')).toBeTruthy()
+    expect(screen.getByPlaceholderText('Camp Willowbrook')).toBeTruthy()
   })
 
   it('shows error on empty login submit', async () => {
@@ -439,7 +439,7 @@ export default function AuthScreen() {
         {tab === 'signup' && (
           <form onSubmit={handleSignup}>
             <label style={lbl}>Camp name</label>
-            <input style={inputStyle} type="text" placeholder="Camp Achva" value={campName} onChange={e => setCampName(e.target.value)} autoFocus />
+            <input style={inputStyle} type="text" placeholder="Camp Willowbrook" value={campName} onChange={e => setCampName(e.target.value)} autoFocus />
             <label style={lbl}>Email</label>
             <input style={inputStyle} type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} />
             <label style={lbl}>Password</label>

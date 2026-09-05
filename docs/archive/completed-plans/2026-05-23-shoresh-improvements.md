@@ -59,7 +59,7 @@ CREATE UNIQUE INDEX camps_name_lower_idx
   ON camps (lower(name));
 ```
 
-The first line adds a standard unique constraint. The second adds a case-insensitive index so `ALTER TABLE` alone isn't enough — `lower(name)` ensures "Camp Achva" and "camp achva" are treated as the same.
+The first line adds a standard unique constraint. The second adds a case-insensitive index so `ALTER TABLE` alone isn't enough — `lower(name)` ensures "Camp Willowbrook" and "camp willowbrook" are treated as the same.
 
 - [ ] **Step 2: Verify**
 
@@ -191,7 +191,7 @@ function OpenScreen({ name, setName, searching, onOpen, onCreateNew }) {
       <label style={lbl}>Camp name</label>
       <input
         style={inputStyle}
-        placeholder="e.g. Camp Achva"
+        placeholder="e.g. Camp Willowbrook"
         value={name}
         autoFocus
         onChange={e => setName(e.target.value)}
@@ -243,7 +243,7 @@ function CreateScreen({ name, setName, onCreate, creating, onBack, nameError }) 
       <label style={lbl}>Camp name</label>
       <input
         style={inputStyle}
-        placeholder="e.g. Camp Achva"
+        placeholder="e.g. Camp Willowbrook"
         value={name}
         autoFocus
         onChange={e => setName(e.target.value)}
@@ -475,7 +475,7 @@ export default function Shell({ children, currentScreen, onNavigate, campId }) {
 
 - [ ] **Step 2: Fetch camp name in Sidebar**
 
-Open `src/components/layout/Sidebar.jsx`. Replace the hardcoded `"Camp Achva"` sub-label with a fetched name. Replace the full file with:
+Open `src/components/layout/Sidebar.jsx`. Replace the hardcoded `"Camp Willowbrook"` sub-label with a fetched name. Replace the full file with:
 
 ```jsx
 import { useState, useEffect } from 'react'
@@ -556,7 +556,7 @@ export default function Sidebar({ current, onNavigate, campId }) {
 
 - [ ] **Step 3: Verify in browser**
 
-Open the app. The sidebar sub-label under "Shoresh" should now show the actual camp name from Supabase (e.g. "Camp Achva") instead of the hardcoded string. It may flicker briefly while loading — that's fine.
+Open the app. The sidebar sub-label under "Shoresh" should now show the actual camp name from Supabase (e.g. "Camp Willowbrook") instead of the hardcoded string. It may flicker briefly while loading — that's fine.
 
 - [ ] **Step 4: Commit**
 

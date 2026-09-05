@@ -27,7 +27,7 @@ parsers over them revealed:
   - **Group Schedules 1.xlsx** (owner's own camp): 14 multi-row merges, all
     **`Ruach & Shabbat` spanning 3 blocks** — a recurring multi-block special
     block.
-  - **Camp Mindy** (4 files): 31–36 multi-row merges each, including
+  - **Camp Larkspur** (4 files): 31–36 multi-row merges each, including
     **`Weekly Special`** and **`Special Activity`** (2-block spans).
   - **ALL 2025 Bunk Schedules.pdf**: **`Special Event … Mitzvah Project`**
     spanning blocks 6–7 every Friday.
@@ -54,7 +54,7 @@ recurring blocks the director expects it to pick up.
 ## Owner decisions (2026-08-24)
 
 - **XLSX-first.** Read XLSX merge ranges (`!merges`, explicit and reliable) now;
-  covers the owner's own camp + Camp Mindy. PDF-text merge reconstruction
+  covers the owner's own camp + Camp Larkspur. PDF-text merge reconstruction
   (fragile, whitespace-based) is **best-effort/deferred**, not in the first cut.
 - **Recurring OR one-off — the director decides, ingest does not force a bucket.**
   A merged multi-block block can be recurring (Shabbat, every week; a weekly
@@ -226,7 +226,7 @@ unaffected.
    - **Horizontal merges** (`e.c > s.c`, i.e. a value spans multiple
      day/group columns): the ADR's own validation data describes every real
      merge as "multi-**row**" (`Group Schedules 1.xlsx`: "14 multi-row
-     merges"; Camp Mindy: "multi-row merges" per file) — no horizontal merge
+     merges"; Camp Larkspur: "multi-row merges" per file) — no horizontal merge
      is reported in the validated files. **Slice A scopes to vertical merges
      only.** A horizontal merge (`s.r === e.r && e.c > s.c`) is not
      reconstructed — it is left exactly as today (value in the leftmost

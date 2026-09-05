@@ -53,7 +53,7 @@ sanity-check the results:
   `export_schedule` — confirm cell counts and kinds match what the Schedule
   screen shows.
 - Schedules built from the real prior-year files in `~/Desktop/camp schedules/`
-  (Camp Mindy 2025, Group Schedules, …) — import → build → export → eyeball.
+  (Camp Larkspur 2025, Group Schedules, …) — import → build → export → eyeball.
 
 Not committed (it runs against mutable databases); it is a runbook step.
 

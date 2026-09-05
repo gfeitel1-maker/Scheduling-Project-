@@ -47,7 +47,7 @@ Replace `CampIdGate` with a landing screen. **Camp name is the primary access pa
 **Supabase change:** Add a `UNIQUE` constraint on `camps.name`. Case-insensitive uniqueness enforced at the DB level.
 
 ### Sidebar
-- Replace hardcoded "Camp Achva" with the actual `name` field from the `camps` table
+- Replace hardcoded "Camp Willowbrook" with the actual `name` field from the `camps` table
 - Pass `campId` through `Shell` → `Sidebar` as a prop; `Sidebar` fetches `camps.name` on mount
 
 ### Constraints

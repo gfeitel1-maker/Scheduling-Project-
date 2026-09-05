@@ -58,7 +58,7 @@ All three screens reuse the same centered single-card shell already established 
 - Primary button: "Create camp & continue →". Disabled until all three fields pass minimum validation (camp name non-empty, name non-empty, PIN length ≥ 4).
 
 ### 4. Login
-- Logo block, but subtitle swaps from the static "Camp activity scheduling" tagline to the **actual camp name** (e.g. "Camp Achva") once a camp is configured — this is a small but important trust signal that they're connecting to the right camp.
+- Logo block, but subtitle swaps from the static "Camp activity scheduling" tagline to the **actual camp name** (e.g. "Camp Willowbrook") once a camp is configured — this is a small but important trust signal that they're connecting to the right camp.
 - Title: "Sign in." Two fields: Name (text), PIN (password, numeric-hinted).
 - Primary button: "Sign in."
 - **Error state (wrong PIN):** an inline `error-box` above the fields with a message that confirms the *name* matched but the PIN didn't ("That PIN doesn't match Sarah Cohen. Try again — you have a few attempts left."), plus four small PIN-position dots below the PIN field that flash red once on submit failure (see Animation) to give tactile, non-verbal feedback. Do not clear the Name field on error — only PIN.

@@ -7,17 +7,24 @@ import { extractEntities } from './extractEntities'
 
 // docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md §6 — Tier 1.
 //
-// Run against a real camp's export where one exists on this machine. Camp
-// Mindy's four spreadsheets are the product owner's own files and are NOT
-// committed — they carry a real camp's group names, and the permission given
-// was to test with them, not to publish them. So these tests use fixtures of
-// the same shape, and the one test that reads the real files skips when they
-// are absent.
+// Run against a real camp's export where one exists on this machine. Those
+// spreadsheets are the product owner's own files and are NOT committed — they
+// carry a real camp's group names, and the permission given was to test with
+// them, not to publish them. So these tests use fixtures of the same shape,
+// and the one test that reads real files runs only when explicitly pointed at
+// a directory.
+//
+// Opt in with SHORESH_REAL_EXPORT_DIR=/path/to/dir (every .xlsx in it is read
+// as one camp). Deliberately opt-in rather than globbing a well-known folder:
+// a test that silently appears or disappears with the contents of ~/Downloads
+// makes the suite's test count vary between runs on an identical tree, which
+// makes a green gate less trustworthy than it looks.
 
-const MINDY_DIR = path.join(process.env.HOME ?? '', 'Downloads')
-const mindyFiles = (() => {
+const REAL_EXPORT_DIR = process.env.SHORESH_REAL_EXPORT_DIR ?? ''
+const realExportFiles = (() => {
+  if (!REAL_EXPORT_DIR) return []
   try {
-    return fs.readdirSync(MINDY_DIR).filter((n) => /^Camp Mindy.*\.xlsx$/i.test(n))
+    return fs.readdirSync(REAL_EXPORT_DIR).filter((n) => /\.xlsx$/i.test(n) && !n.startsWith('~$'))
   } catch {
     return []
   }
@@ -189,9 +196,9 @@ describe('workbookToPages', () => {
 describe('the group name comes from the filename', () => {
   it('strips what every file has in common, keeping what differs', () => {
     const names = [
-      'Camp Mindy Schedule 2025 - 1A.xlsx',
-      'Camp Mindy Schedule 2025 - 2-3A.xlsx',
-      'Camp Mindy Schedule 2025 - K1.xlsx',
+      'Camp Larkspur Schedule 2025 - 1A.xlsx',
+      'Camp Larkspur Schedule 2025 - 2-3A.xlsx',
+      'Camp Larkspur Schedule 2025 - K1.xlsx',
     ]
     const prefix = sharedFilenamePrefix(names)
     expect(names.map((n) => groupNameFromFilename(n, prefix))).toEqual(['1A', '2-3A', 'K1'])
@@ -206,7 +213,7 @@ describe('the group name comes from the filename', () => {
   })
 
   it('strips nothing from a lone file, because there is nothing to compare', () => {
-    expect(sharedFilenamePrefix(['Camp Mindy Schedule 2025 - 1A.xlsx'])).toBe('')
+    expect(sharedFilenamePrefix(['Camp Larkspur Schedule 2025 - 1A.xlsx'])).toBe('')
   })
 })
 
@@ -225,12 +232,12 @@ describe('several files are one camp', () => {
   })
 })
 
-describe.skipIf(mindyFiles.length === 0)('a real camp export (not committed — see the note above)', () => {
+describe.skipIf(realExportFiles.length === 0)('a real camp export (opt-in via SHORESH_REAL_EXPORT_DIR)', () => {
   it('reads four spreadsheets as one camp', () => {
-    const prefix = sharedFilenamePrefix(mindyFiles)
+    const prefix = sharedFilenamePrefix(realExportFiles)
     const pages = []
-    for (const file of mindyFiles) {
-      const wb = XLSX.readFile(path.join(MINDY_DIR, file))
+    for (const file of realExportFiles) {
+      const wb = XLSX.readFile(path.join(REAL_EXPORT_DIR, file))
       const sheets = wb.SheetNames.map((name) => ({
         name,
         rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '' }),

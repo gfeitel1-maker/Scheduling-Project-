@@ -63,7 +63,7 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
           <input
             style={S.authField}
             type="text"
-            placeholder="Camp Achva"
+            placeholder="Camp Willowbrook"
             value={campName}
             onChange={e => setCampName(e.target.value)}
             autoFocus

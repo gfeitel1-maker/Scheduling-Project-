@@ -37,7 +37,7 @@ import {
 } from './tools.js'
 import buildSchedule from '../../src/engine/buildSchedule.js'
 
-const SAMPLE = path.join(process.cwd(), 'docs/work/specs/samples/campB-achva-by-day.txt')
+const SAMPLE = path.join(process.cwd(), 'docs/work/specs/samples/campB-by-day.txt')
 
 function makeTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-mcp-'))
