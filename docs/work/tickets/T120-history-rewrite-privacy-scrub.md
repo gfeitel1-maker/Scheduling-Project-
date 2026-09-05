@@ -5,6 +5,7 @@ status: open
 created: 2026-09-05
 task_class: documentation-governance
 archive_when: "the rewrite has landed, the remote reflects it, and GitHub's cached objects for the affected SHAs are confirmed unreachable"
+governing_docs: [docs/governance/constitution/CONSTITUTION.md]
 ---
 
 # T120 — History rewrite: purge real camp identity and personal paths

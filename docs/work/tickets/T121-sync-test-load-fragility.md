@@ -5,6 +5,7 @@ status: open
 created: 2026-09-05
 task_class: test-infrastructure
 archive_when: "a full `npm run verify` passes reliably while another test suite runs concurrently, and no WS/mDNS scenario has flaked for a sustained period"
+governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 ---
 
 # T121 — Sync/WS tests fail under concurrent load
