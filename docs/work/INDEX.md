@@ -27,6 +27,12 @@ Regenerate with `npm run index:work`.
 | [T115-locations-ingest-create-name-first](../../docs/work/tickets/T115-locations-ingest-create-name-first.md) | open | — |
 | [T36-ingest-unlabeled-path-residuals](../../docs/work/tickets/T36-ingest-unlabeled-path-residuals.md) | open | — |
 
+### documentation-governance
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
+
 ### ui-ux-design
 
 | Ticket | Status | Referenced by |
@@ -209,6 +215,7 @@ either the document is stranded or an edge was never declared.
 - [docs/work/handoffs/slices-2-3-handoff.md](../../docs/work/handoffs/slices-2-3-handoff.md)
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
 - [docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md](../../docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md)
+- [docs/work/tickets/T120-history-rewrite-privacy-scrub.md](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md)
 
 ## Dangling references
 
