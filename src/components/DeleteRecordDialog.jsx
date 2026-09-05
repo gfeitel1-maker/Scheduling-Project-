@@ -33,6 +33,26 @@ function activityCount(n) {
   return `${n} activit${n === 1 ? 'y' : 'ies'}`
 }
 
+// A breakdown, not just a bigger number — a director deleting a room should
+// see that recurring events or a special day depend on it, not only a count
+// that could be all activities or none of them. Shared by the body text and
+// the confirm button so they can never say two different things about the
+// same preview.
+function locationRefParts(preview) {
+  const { activities, anchor_count, event_count, special_day_slot_count, event_slot_count } = preview
+  const parts = []
+  if (activities.length > 0) parts.push(activityCount(activities.length))
+  if (anchor_count > 0) parts.push(`${anchor_count} recurring event${anchor_count === 1 ? '' : 's'}`)
+  if (event_count > 0) parts.push(`${event_count} event${event_count === 1 ? '' : 's'}`)
+  if (special_day_slot_count > 0) parts.push(`${special_day_slot_count} special-day cell${special_day_slot_count === 1 ? '' : 's'}`)
+  if (event_slot_count > 0) parts.push(`${event_slot_count} event cell${event_slot_count === 1 ? '' : 's'}`)
+  return parts
+}
+
+function joinParts(parts) {
+  return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+}
+
 // One concept, one name, across both routes: a director sees "your schedules",
 // never "templates" or "routes".
 function whatChanges(preview) {
@@ -41,7 +61,8 @@ function whatChanges(preview) {
 
   if (entity === 'locations') {
     if (ref_count === 0) return `Nothing uses ${who} right now.`
-    return `${activityCount(ref_count)} use ${who} right now. Deleting it takes ${who} off those activities — they stay on the schedule, just without a location.`
+    const list = joinParts(locationRefParts(preview))
+    return `${list} use ${who} right now. Deleting it takes ${who} off all of them — they stay on the schedule, just without a location.`
   }
 
   if (entity === 'activities') {
@@ -119,7 +140,7 @@ export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
   const confirmLabel =
     preview.entity === 'locations'
       ? preview.ref_count > 0
-        ? `Delete and clear ${activityCount(preview.ref_count)}`
+        ? `Delete and clear ${joinParts(locationRefParts(preview))}`
         : `Delete ${LABEL[preview.entity].the}`
       : preview.slot_count > 0
         ? `Delete and clear ${places(preview.slot_count)}`

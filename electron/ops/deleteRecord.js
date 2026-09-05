@@ -134,18 +134,37 @@ function weatherDependents(db, activity_id) {
 }
 
 // Locations have no template_slots row to count — their references are
-// activities.location_id and week_location_exclusions.location_id, both
-// no-FK convention references (docs/adr/2026-08-15-locations-merge-and-
-// delete-rehome.md D1). Shared by previewDelete and deleteOrMergeLocation so
-// the count shown and the rows re-pointed/cleared cannot drift apart, same
-// discipline as SLOT_QUERY above.
+// activities.location_id, week_location_exclusions.location_id,
+// anchor_activities.location_id, events.location_id,
+// special_day_slots.location_id and event_slots.location_id — all no-FK
+// convention references (docs/adr/2026-08-15-locations-merge-and-delete-
+// rehome.md D1; the four newer ones added by T122 with the same posture:
+// nullable, no DB-level FOREIGN KEY, NULL already means "unconstrained" /
+// "no location" for every one of them per schema.sql's own comments on those
+// columns). Shared by previewDelete and deleteOrMergeLocation so the count
+// shown and the rows re-pointed/cleared cannot drift apart, same discipline
+// as SLOT_QUERY above.
 function locationReferenceRows(db, location_id) {
   return {
     activities: db
       .prepare('SELECT id, name, max_groups_per_slot FROM activities WHERE location_id = ?')
       .all(location_id),
     exclusions: db.prepare('SELECT id FROM week_location_exclusions WHERE location_id = ?').all(location_id),
+    anchors: db.prepare('SELECT id FROM anchor_activities WHERE location_id = ?').all(location_id),
+    events: db.prepare('SELECT id FROM events WHERE location_id = ?').all(location_id),
+    special_day_slots: db.prepare('SELECT id FROM special_day_slots WHERE location_id = ?').all(location_id),
+    event_slots: db.prepare('SELECT id FROM event_slots WHERE location_id = ?').all(location_id),
   }
+}
+
+// The single number the director agrees to and the guard re-checks —
+// everything locationReferenceRows found EXCEPT week_location_exclusions,
+// which previewDelete has never counted (it is a week-closure record, not a
+// "thing that uses this location" the confirm dialog describes) and must not
+// start counting now, or the guard and the sentence it protects would part
+// ways from what a director actually read.
+function totalLocationRefCount({ activities, anchors, events, special_day_slots, event_slots }) {
+  return activities.length + anchors.length + events.length + special_day_slots.length + event_slots.length
 }
 
 // What the confirmation is built from. Read-only, but gated by the caller with
@@ -157,16 +176,24 @@ export function previewDelete(db, { entity, entity_id }) {
   if (entity === 'locations') {
     const row = db.prepare('SELECT name FROM locations WHERE id = ?').get(entity_id)
     if (!row) return { error: 'no-record' }
-    const { activities } = locationReferenceRows(db, entity_id)
-    // D2/D5: bound-activity count + rows only — never routes/slot_count/
+    const refs = locationReferenceRows(db, entity_id)
+    // D2/D5: bound-record counts + rows only — never routes/slot_count/
     // unprotected_count, which are schedule-specific and meaningless here.
+    // ref_count is the COMBINED total (the number the count-changed guard
+    // re-checks against); the per-kind counts are a breakdown so the confirm
+    // dialog can say "3 activities, 2 recurring events, 1 event" rather than
+    // burying which things depend on this place behind one number.
     return {
       ok: true,
       entity,
       entity_id,
       name: row.name,
-      ref_count: activities.length,
-      activities,
+      ref_count: totalLocationRefCount(refs),
+      activities: refs.activities,
+      anchor_count: refs.anchors.length,
+      event_count: refs.events.length,
+      special_day_slot_count: refs.special_day_slots.length,
+      event_slot_count: refs.event_slots.length,
     }
   }
 
@@ -315,15 +342,24 @@ function removeDayFromWeek(db, { day_id, slots, author_user_id, device_id }) {
 //
 // Order inside the one transaction is fixed and load-bearing, mirroring the
 // existing contract below: re-count references (abort on drift) -> re-point/
-// clear activities.location_id -> re-point/clear week_location_exclusions
-// -> [merge only] winner capacity -> delete the loser LAST (highest seq,
-// broadcast last, so a peer has already moved every reference off it).
+// clear activities.location_id, anchor_activities.location_id,
+// events.location_id, special_day_slots.location_id, event_slots.location_id
+// -> re-point/clear week_location_exclusions -> [merge only] winner capacity
+// -> delete the loser LAST (highest seq, broadcast last, so a peer has
+// already moved every reference off it).
 //
-// week_location_exclusions.location_id is NOT NULL (schema.sql), unlike
-// activities.location_id — so a plain delete DELETEs those rows rather than
-// nulling a column that cannot hold null; a merge re-points them like
-// activities. A re-point that lands on an exclusion the winner already has is
-// harmless (the engine reads presence, not count) — no dedup needed.
+// NULL is the correct cleared state for all five re-pointed entities, not
+// just activities: anchor_activities.location_id and events.location_id are
+// documented in schema.sql as "NULL = unconstrained, identical to today's
+// behavior" (same convention as activities.location_id); special_day_slots
+// and event_slots are slot-shaped rows, but schema.sql documents their
+// location_id as nullable for "empty cell / no location" — the same "no
+// location" meaning, not a different one. week_location_exclusions.location_id
+// is NOT NULL (schema.sql), unlike the five above — so a plain delete DELETEs
+// those rows rather than nulling a column that cannot hold null; a merge
+// re-points them like the others. A re-point that lands on an exclusion the
+// winner already has is harmless (the engine reads presence, not count) — no
+// dedup needed.
 function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to, winner_capacity, author_user_id, device_id }) {
   if (reassign_to != null) {
     if (typeof reassign_to !== 'string' || reassign_to.length === 0 || reassign_to === entity_id) {
@@ -337,10 +373,12 @@ function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to,
   const name = recordName(db, 'locations', entity_id)
 
   return db.transaction(() => {
-    const { activities, exclusions } = locationReferenceRows(db, entity_id)
+    const refs = locationReferenceRows(db, entity_id)
+    const { activities, exclusions, anchors, events, special_day_slots, event_slots } = refs
+    const ref_count = totalLocationRefCount(refs)
 
-    if (Number.isInteger(expected_ref_count) && activities.length !== expected_ref_count) {
-      return { error: 'count-changed', ref_count: activities.length }
+    if (Number.isInteger(expected_ref_count) && ref_count !== expected_ref_count) {
+      return { error: 'count-changed', ref_count }
     }
 
     const ops = []
@@ -349,6 +387,18 @@ function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to,
 
     for (const activity of activities) {
       push('activities', activity.id, 'location_id', reassign_to ?? null)
+    }
+    for (const anchor of anchors) {
+      push('anchor_activities', anchor.id, 'location_id', reassign_to ?? null)
+    }
+    for (const event of events) {
+      push('events', event.id, 'location_id', reassign_to ?? null)
+    }
+    for (const slot of special_day_slots) {
+      push('special_day_slots', slot.id, 'location_id', reassign_to ?? null)
+    }
+    for (const slot of event_slots) {
+      push('event_slots', slot.id, 'location_id', reassign_to ?? null)
     }
 
     for (const exclusion of exclusions) {
@@ -375,7 +425,7 @@ function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to,
       entity: 'locations',
       entity_id,
       name,
-      cleared: activities.length,
+      cleared: ref_count,
       reassigned_activity_ids: reassign_to ? activities.map((a) => a.id) : [],
       ops,
     }
