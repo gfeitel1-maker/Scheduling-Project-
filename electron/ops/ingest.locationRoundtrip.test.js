@@ -302,18 +302,10 @@ describe('T119 — location capacity provenance on create', () => {
     expect(op.source).toBe('import')
   })
 
-  it('the D1c resolve-or-create path also writes a capacity op with source=import', () => {
-    const base = deriveLocationId(campId, 'Range')
-    commitIngest(db, {
-      approved: { activities: [{ name: 'Archery', fields: { location: 'Range' } }] },
-      camp_id: campId, device_id: deviceId,
-    })
-    const op = db.prepare(
-      "SELECT value, source FROM operations WHERE entity='locations' AND entity_id=? AND field='capacity' ORDER BY seq DESC LIMIT 1"
-    ).get(base)
-    expect(op).toBeTruthy()
-    expect(op.source).toBe('import')
-  })
+  // The D1c mint path that this test used to cover no longer exists: an
+  // activity can no longer create a location, so there is no mint-path
+  // capacity op to assert. An approved location's capacity op is covered by
+  // the buildPlan fieldsFor test above. See the location approval gate.
 })
 
 describe('Invariant 2 — ordering-before-location_id', () => {

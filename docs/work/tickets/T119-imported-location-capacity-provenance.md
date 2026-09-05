@@ -390,3 +390,14 @@ mechanisms, on the two constrained surfaces (Locations screen, Roots attention l
    Maker ships it, consistent with this project's no-coming-soon-controls and no-banner history of
    being particular about exactly this kind of small, frequently-seen copy.
 3. **Should this ship before or alongside the location-contention ADR** (`2026-09-05-generated-route-render-time-location-contention.md`)? That ADR's own Open Question 3 asks for real-data validation of flag noise — an unconfirmed-capacity signal shipping first would let a director triage "is this flag real or is this room's capacity just wrong" before the flag itself goes live on both routes, which may reduce exactly the noise that ADR is worried about. Sequencing recommendation: ship this ticket first or in the same release, not after.
+
+## Post-merge correction (2026-09-05)
+
+The location approval gate landed after this ticket was written and **removed the D1c mint path
+entirely** — an activity can no longer create a location, so a declined location stays declined.
+That makes this ticket's `resolveOrCreateLocationId` capacity write dead code; it was dropped when
+rebasing, along with the test asserting it.
+
+Nothing else changes. Imported locations still get an explicit `capacity` op with `source: 'import'`
+via `buildPlan.js`'s `fieldsFor('locations', ...)` — which is now the *only* way an import creates a
+location, so provenance coverage is if anything more complete than when this was designed.
