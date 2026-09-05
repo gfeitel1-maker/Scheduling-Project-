@@ -3,7 +3,7 @@ title: "ADR: Projection failures must be detected as a distinct, queryable ledge
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: proposed
+implementation_state: implemented
 date: 2026-09-04
 deciders: [product-owner]
 task_class: database-sync
@@ -17,7 +17,10 @@ affects: []
 
 # ADR: Projection failures must be detected as a distinct, queryable ledger and recoverable by entity-scoped replay from the op-log
 
-**Status: ACCEPTED — design only, no code written yet.**
+**Status: ACCEPTED — implemented in `e17abbb` (b2be8b3), with a same-field-supersession correction to
+the repair semantics below landed subsequently (see the "Corrected repair semantics" note in Recover
+below — the original pseudocode's single-slot last-failure tracking falsely marked unrepaired entities
+as resolved whenever any later op on a different field succeeded).**
 
 ## Context
 
@@ -125,13 +128,32 @@ camp's log is old enough to matter, not from a number picked now. Named as a fol
 
 Recovery primitive:
 
+**Corrected repair semantics (post-implementation fix).** The first cut of this pseudocode tracked a
+single "last failure" slot for the whole replay pass: any later op succeeding — on ANY field —
+cleared it, so op #3 failing on field A followed by op #7 succeeding on field B reported `{ok: true}`
+and marked the entity resolved, even though field A's write was still missing from the projected row.
+`checkProjectionHealth()` then reported the entity clean while it was still silently drifted — worse
+than no ledger at all, because it affirmatively lied. The fix tracks outstanding failures **keyed by
+`field`**, not a single slot: a success only supersedes a prior failure on that *same* field
+(legitimate field-level last-write-wins), never a failure on a different field. `DELETE_FIELD` (the
+`'__deleted__'` sentinel) falls out of this for free — every delete op for an entity carries that exact
+same field value, which never collides with a real column name, so a failed delete is only superseded
+by a later delete that succeeds, never by an ordinary field write. Only when zero fields remain
+outstanding at the end of the pass does the wholesale `entity`/`entity_id` resolve fire, and each
+still-outstanding failure is individually recorded (not just the last one seen).
+
 ```js
-// electron/ops/projections.js (or a new electron/ops/projectionRepair.js)
+// electron/ops/projectionRepair.js
 export function repairProjectionForEntity(db, entity, entity_id) {
   const ops = db
     .prepare('SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq ASC')
     .all(entity, entity_id)
-  let lastError = null
+
+  // Outstanding failures keyed by field, not a single "last" slot — a
+  // success on one field must never supersede a failure recorded for a
+  // different field.
+  const outstanding = new Map() // field -> { op, error }
+
   for (const op of ops) {
     try {
       if (isBulkReplaceOp(op)) {
@@ -139,19 +161,27 @@ export function repairProjectionForEntity(db, entity, entity_id) {
       } else {
         db.transaction(() => applyProjection(db, op))()
       }
-      lastError = null
+      outstanding.delete(op.field) // supersedes a prior failure on this SAME field only
     } catch (err) {
-      lastError = err // keep replaying later ops for this entity; don't abort the pass
+      outstanding.set(op.field, { op, error: err }) // keep replaying other fields; don't abort the pass
     }
   }
-  if (lastError) {
-    db.prepare(
-      `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(op_id) DO UPDATE SET error_message = excluded.error_message, failed_at = excluded.failed_at`
-    ).run(/* the op that failed last, for this entity */ ...)
-    return { ok: false, reason: lastError.message }
+
+  if (outstanding.size > 0) {
+    const now = new Date().toISOString()
+    for (const { op, error } of outstanding.values()) {
+      db.prepare(
+        `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(op_id) DO UPDATE SET error_message = excluded.error_message, failed_at = excluded.failed_at`
+      ).run(op.id, op.entity, op.entity_id, op.field, error.message, now)
+    }
+    return { ok: false, reason: /* joined messages from outstanding.values() */ '...' }
   }
+
+  // Every field's history for this entity replayed cleanly — a full, clean
+  // rebuild of the entity's projected state, which genuinely supersedes
+  // every previously-recorded failure for it.
   db.prepare('UPDATE projection_failures SET resolved_at = ? WHERE entity = ? AND entity_id = ? AND resolved_at IS NULL')
     .run(new Date().toISOString(), entity, entity_id)
   return { ok: true }
@@ -159,20 +189,32 @@ export function repairProjectionForEntity(db, entity, entity_id) {
 ```
 
 Each op is applied in its own transaction (matching the existing `projectOnce` pattern at
-`syncClient.js:591`), so a failing op mid-replay doesn't roll back the ops that succeeded before it
-in the same pass — the loop keeps going and reports the *last* failure, mirroring the FK-delete
-scenario the existing catch comment describes (something still refers to a row this device can't yet
-delete; a later repair, run after that referrer is itself resolved, succeeds).
+`syncClient.js:591`), so a failing op mid-replay doesn't roll back ops on other fields that succeeded
+elsewhere in the same pass — the loop keeps going, and every field still outstanding at the end is
+individually recorded, mirroring the FK-delete scenario the existing catch comment describes (something
+still refers to a row this device can't yet delete; a later repair, run after that referrer is itself
+resolved, succeeds).
 
-**Trigger points — decided.** `repairProjectionForEntity` runs automatically once a
-`sendMissedOps` catch-up batch finishes applying (`syncClient.js`), scoped to just the entities that
-had a row written during that batch. This is the moment a previously-blocked FK dependency is most
-likely to have just arrived, and it needs no user action or new UI. It is **not** a director-facing
-action in v1 (see Open Questions, now resolved below) — the only other caller is the Machine Access
-Program's MCP surface, for support/debugging use, gated the same way `ingest_commit` already is
-(`--allow-write`). Immediate retry inside the same `applyRemoteOp` catch block is still not proposed
-— the blocking condition (missing parent, concurrent delete) won't have changed one line later within
-the same batch.
+**Trigger points — decided (revised post-implementation).** `scheduleProjectionRepairSweep()`
+(`syncClient.js`) debounces a sweep of every currently-unresolved `projection_failures` row —
+`checkProjectionHealth()` is a cheap indexed read, so a sweep with an empty ledger is a no-op — and
+fires from three points, not one:
+
+1. After an `op_applied` message (the original trigger): a reconnect catch-up burst is many
+   `op_applied` messages arriving back-to-back, so the debounce only fires once traffic goes quiet.
+2. **After a `full_sync` message completes** (added — the original implementation only wired this
+   trigger in, missing exactly the ADR's own named scenario: when the unblocking referencer arrives
+   via a `full_sync` snapshot rather than a live op, no `op_applied` message ever fires and the sweep
+   never ran).
+3. **On WebSocket connection open** (added — a failure recorded in a prior session otherwise sat
+   unretried until some live op happened to arrive after the next reconnect; firing on open also
+   covers the moment right before a catch-up burst is about to land).
+
+This needs no user action or new UI. It is **not** a director-facing action in v1 (see Open Questions,
+now resolved below) — the only other caller is the Machine Access Program's MCP surface, for
+support/debugging use, gated the same way `ingest_commit` already is (`--allow-write`). Immediate retry
+inside the same `applyRemoteOp` catch block is still not proposed — the blocking condition (missing
+parent, concurrent delete) won't have changed one line later within the same batch.
 
 ### 3. Interface-contract checklist (`org-interface-contracts`)
 

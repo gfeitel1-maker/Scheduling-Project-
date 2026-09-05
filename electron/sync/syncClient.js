@@ -712,6 +712,12 @@ export function createSyncClient(
       connected = true
       connectedResolve()
       announceConnection()
+      // Defect 2 fix: a failure recorded in a prior session must not sit
+      // unretried until some live op happens to arrive. Firing on every
+      // (re)connect — not just app boot — also retries after a dropped
+      // connection is restored, which is exactly when a catch-up burst (via
+      // full_sync or a run of op_applied messages) is about to land anyway.
+      scheduleProjectionRepairSweep()
     })
 
     ws.on('message', (data) => {
@@ -744,6 +750,13 @@ export function createSyncClient(
             if (ws && ws.readyState === ws.OPEN) {
               ws.send(JSON.stringify({ type: 'full_sync_applied' }))
             }
+            // Defect 2 fix: the ADR's own named scenario — the unblocking
+            // referencer arrives via a full_sync snapshot, not a live op —
+            // previously never triggered a sweep at all, since the only
+            // trigger was the op_applied handler. checkProjectionHealth is a
+            // cheap indexed no-op when the ledger is empty, so this is safe
+            // to call after every full_sync.
+            scheduleProjectionRepairSweep()
           } catch {
             // Apply failed (bad batch, genuine DB error) or the ack send
             // itself failed (connection already going bad) — either way, no ack.

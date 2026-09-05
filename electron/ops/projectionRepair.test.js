@@ -119,6 +119,112 @@ describe('repairProjectionForEntity', () => {
     expect(resolvedRow.resolved_at).not.toBeNull()
   })
 
+  it('does NOT resolve the entity when an earlier op fails on field A and a later op succeeds on field B', () => {
+    // groups has UNIQUE(camp_id, name) (schema.sql) — a real, deterministic
+    // way to make a plain field-level UPDATE genuinely throw on replay.
+    const otherGroupId = randomUUID()
+    applyOp({ entity: 'groups', entity_id: otherGroupId, field: 'camp_id', value: campId })
+    applyOp({ entity: 'groups', entity_id: otherGroupId, field: 'name', value: 'Taken' })
+
+    const groupId = randomUUID()
+    applyOp({ entity: 'groups', entity_id: groupId, field: 'camp_id', value: campId })
+
+    // Insert the "name" op-log row DIRECTLY (not via appendOp, which would
+    // apply-and-roll-back the whole insert in one transaction on this exact
+    // constraint violation) — this mirrors how applyRemoteOp persists an
+    // op-log row independently of whether projection application succeeds.
+    // Its value collides with otherGroupId's name, so replaying it will
+    // genuinely throw a UNIQUE constraint violation.
+    const nameOpId = randomUUID()
+    const t1 = new Date(Date.now() - 1000).toISOString()
+    db.prepare(
+      `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
+       VALUES (?, 'groups', ?, 'name', 'Taken', NULL, ?, ?, NULL)`
+    ).run(nameOpId, groupId, deviceId, t1)
+
+    // A LATER op on a DIFFERENT field ("availability") succeeds.
+    applyOp({ entity: 'groups', entity_id: groupId, field: 'availability', value: 'full' })
+
+    const result = repairProjectionForEntity(db, 'groups', groupId)
+
+    expect(result.ok).toBe(false)
+    expect(db.prepare('SELECT availability FROM groups WHERE id = ?').get(groupId).availability).toBe('full')
+    const failureRow = db.prepare('SELECT * FROM projection_failures WHERE op_id = ?').get(nameOpId)
+    expect(failureRow).toBeTruthy()
+    expect(failureRow.field).toBe('name')
+    expect(failureRow.resolved_at).toBeNull()
+  })
+
+  it('resolves when a later op succeeds on the SAME field a prior op failed on (supersession)', () => {
+    const groupId = randomUUID()
+    applyOp({ entity: 'groups', entity_id: groupId, field: 'camp_id', value: campId })
+
+    // A stale, already-recorded failure for field "name" against an earlier op.
+    const staleOpId = randomUUID()
+    const t1 = new Date(Date.now() - 1000).toISOString()
+    db.prepare(
+      `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
+       VALUES (?, 'groups', ?, 'name', 'Stale', NULL, ?, ?, NULL)`
+    ).run(staleOpId, groupId, deviceId, t1)
+    db.prepare(
+      `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at)
+       VALUES (?, 'groups', ?, 'name', 'boom', ?)`
+    ).run(staleOpId, groupId, t1)
+
+    // A LATER op on the SAME field ("name") succeeds.
+    applyOp({ entity: 'groups', entity_id: groupId, field: 'name', value: 'Bears' })
+
+    const result = repairProjectionForEntity(db, 'groups', groupId)
+
+    expect(result.ok).toBe(true)
+    expect(db.prepare('SELECT name FROM groups WHERE id = ?').get(groupId).name).toBe('Bears')
+    const resolvedRow = db.prepare('SELECT * FROM projection_failures WHERE op_id = ?').get(staleOpId)
+    expect(resolvedRow.resolved_at).not.toBeNull()
+  })
+
+  it('records BOTH failed ops in projection_failures when two different ops fail on two different fields', () => {
+    const otherGroupId = randomUUID()
+    applyOp({ entity: 'groups', entity_id: otherGroupId, field: 'camp_id', value: campId })
+    applyOp({ entity: 'groups', entity_id: otherGroupId, field: 'name', value: 'Taken' })
+
+    const groupId = randomUUID()
+    applyOp({ entity: 'groups', entity_id: groupId, field: 'camp_id', value: campId })
+
+    // Field "name" fails (unique collision) — inserted directly, as above,
+    // so the constraint violation is only hit on replay, not at setup time.
+    const nameOpId = randomUUID()
+    const t1 = new Date(Date.now() - 1000).toISOString()
+    db.prepare(
+      `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
+       VALUES (?, 'groups', ?, 'name', 'Taken', NULL, ?, ?, NULL)`
+    ).run(nameOpId, groupId, deviceId, t1)
+
+    // Field "__deleted__" (a blocked delete) ALSO fails, on a different field.
+    const slotId = randomUUID()
+    db.prepare('INSERT INTO template_slots (id, template_id, group_id) VALUES (?, ?, ?)').run(
+      slotId,
+      randomUUID(),
+      groupId
+    )
+    const deleteOpId = randomUUID()
+    db.prepare(
+      `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
+       VALUES (?, 'groups', ?, ?, 1, NULL, ?, ?, NULL)`
+    ).run(deleteOpId, groupId, DELETE_FIELD, deviceId, new Date().toISOString())
+
+    const result = repairProjectionForEntity(db, 'groups', groupId)
+
+    expect(result.ok).toBe(false)
+    const nameFailure = db.prepare('SELECT * FROM projection_failures WHERE op_id = ?').get(nameOpId)
+    const deleteFailure = db.prepare('SELECT * FROM projection_failures WHERE op_id = ?').get(deleteOpId)
+    expect(nameFailure).toBeTruthy()
+    expect(nameFailure.resolved_at).toBeNull()
+    expect(deleteFailure).toBeTruthy()
+    expect(deleteFailure.resolved_at).toBeNull()
+    // The row must still be present — the delete never actually took effect.
+    expect(db.prepare('SELECT * FROM groups WHERE id = ?').get(groupId)).toBeTruthy()
+  })
+
   it('is idempotent — replaying the same fully-succeeded op sequence twice reproduces the same end state', () => {
     const groupId = randomUUID()
     applyOp({ entity: 'groups', entity_id: groupId, field: 'camp_id', value: campId })
