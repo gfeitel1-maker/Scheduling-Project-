@@ -57,8 +57,15 @@ export function computeOverlaps({ slots, activities, locations, electiveSetActiv
   const actBuckets = new Map()   // "dayId|blockId|activityId" → { actId, rows }
 
   for (const s of slots) {
-    if (s.is_anchor) continue
-
+    // Anchors are immovable declared truth about where a group is — they are
+    // never themselves flagged, but they still occupy the place (and, if
+    // capped, the activity slot), constraining what else can go there. A
+    // bucket made ENTIRELY of anchors (e.g. every group's Flagpole, all at
+    // capacity-1 Flagpole) must stay silent no matter how many anchors share
+    // it — that is correct by construction, not an overbooking. A MIXED
+    // bucket (an anchor plus a director-placed group) flags only the
+    // non-anchor rows, because the anchor can't move and the placement can.
+    // See buckets below for where anchor rows are excluded from `reasons`.
     if (s.activity_id) {
       const locId = actMap.get(s.activity_id)?.location_id ?? null
       if (locId != null) {
@@ -114,22 +121,41 @@ export function computeOverlaps({ slots, activities, locations, electiveSetActiv
     // placeBlocked and useSlotMutations' locationFull, closing the blind
     // spot where the three place-capacity consumers disagreed on this case.
     if (!loc) continue
+    const nonAnchorRows = rows.filter(r => !r.is_anchor)
+    // All-anchor bucket (Flagpole: every group, same place, every day) is
+    // correct by construction — never flag it, regardless of count vs
+    // capacity. Only a bucket with at least one non-anchor row can be an
+    // overbooking a director can actually act on.
+    if (nonAnchorRows.length === 0) continue
     const capacity = loc.capacity ?? 1
+    // The anchor still physically occupies the place, so it counts toward
+    // the capacity total — an anchor already filling a capacity-1 place
+    // means ANY additional non-anchor booking there is over capacity. Only
+    // the non-anchor rows go into `reasons`; the anchor itself is never
+    // flagged.
     const groupCount = new Set(rows.map(r => r.group_id)).size
     if (groupCount <= capacity) continue
     const where = loc.name || 'this location'
-    const reason = `${groupCount} groups booked into ${where} — it holds ${capacity}`
-    for (const r of rows) add(r.id, reason)
+    const heldByAnchor = nonAnchorRows.length < rows.length
+    const reason = heldByAnchor
+      ? `${groupCount} groups booked into ${where} — it holds ${capacity} (held by an anchor that cannot be moved)`
+      : `${groupCount} groups booked into ${where} — it holds ${capacity}`
+    for (const r of nonAnchorRows) add(r.id, reason)
   }
 
   for (const { actId, rows } of actBuckets.values()) {
     const cap = actMap.get(actId)?.max_groups_per_slot
     if (!(cap > 0)) continue // null/0 = no per-activity cap
+    const nonAnchorRows = rows.filter(r => !r.is_anchor)
+    if (nonAnchorRows.length === 0) continue // all-anchor bucket, never flag
     const groupCount = new Set(rows.map(r => r.group_id)).size
     if (groupCount <= cap) continue
     const name = actMap.get(actId)?.name || 'this activity'
-    const reason = `${groupCount} groups booked for ${name} — its limit is ${cap} per slot`
-    for (const r of rows) add(r.id, reason)
+    const heldByAnchor = nonAnchorRows.length < rows.length
+    const reason = heldByAnchor
+      ? `${groupCount} groups booked for ${name} — its limit is ${cap} per slot (held by an anchor that cannot be moved)`
+      : `${groupCount} groups booked for ${name} — its limit is ${cap} per slot`
+    for (const r of nonAnchorRows) add(r.id, reason)
   }
 
   const overlapping = new Map() // slot id → reason (both limits joined when tripped)
