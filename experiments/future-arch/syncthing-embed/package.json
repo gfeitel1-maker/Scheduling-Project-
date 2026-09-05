@@ -1,0 +1,16 @@
+{
+  "name": "syncthing-embed-prototype",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Throwaway prototype: Electron shell that embeds and invisibly controls Syncthing for LAN/WAN sync.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}

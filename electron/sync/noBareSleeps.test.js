@@ -16,7 +16,10 @@
 // that simply looks for raw `setTimeout(` in test source already leaves it
 // alone without needing a second, separate comment convention.
 //
-// Scope: electron/sync/*.test.js only, not repo-wide. Two reasons: (1) this
+// Scope: electron/sync/**/*.test.js — RECURSIVE, so subdirectories like
+// electron/sync/transport/ are covered too (they were silently missed while
+// this scanned only the top level, which let the S1.2 transport adapter's test
+// land two bare sleeps unseen). Still not repo-wide. Two reasons: (1) this
 // is where T44's pattern actually recurred and where the fix pattern
 // (f81013f) was established, so a scoped guard directly protects the thing
 // that broke twice; (2) a repo-wide sweep turned up bare sleeps in
@@ -68,6 +71,27 @@ const GRANDFATHERED_MAX = {
 
 const SYNC_DIR = __dirname
 
+// Recursively enumerate *.test.js under electron/sync (excluding this guard
+// file), returning forward-slash paths relative to SYNC_DIR so subdirectory
+// tests (e.g. transport/foo.test.js) are covered and readably named. Switched
+// from a flat readdirSync so a test tucked in a subdirectory can no longer slip
+// past the guard.
+function listSyncTestFiles() {
+  const out = []
+  const walk = (dir, rel) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        walk(path.join(dir, entry.name), relPath)
+      } else if (entry.name.endsWith('.test.js') && entry.name !== 'noBareSleeps.test.js') {
+        out.push(relPath)
+      }
+    }
+  }
+  walk(SYNC_DIR, '')
+  return out
+}
+
 describe('findBareSleeps matcher (fixtures, independent of real files)', () => {
   it('flags a raw setTimeout-as-sleep', () => {
     const hits = findBareSleeps("  await new Promise((r) => setTimeout(r, 50))\n")
@@ -101,21 +125,22 @@ describe('findBareSleeps matcher (fixtures, independent of real files)', () => {
 })
 
 describe('no new bare setTimeout sleeps in electron/sync/*.test.js', () => {
-  const files = fs
-    .readdirSync(SYNC_DIR)
-    .filter((f) => f.endsWith('.test.js') && f !== 'noBareSleeps.test.js')
+  const files = listSyncTestFiles()
 
   // Floor: catches the glob/readdir silently finding nothing (wrong cwd,
   // directory renamed) rather than the guard quietly passing on zero files.
   it('found the expected sync test files (floor against a silently-empty scan)', () => {
     expect(files.length).toBeGreaterThanOrEqual(6)
     expect(files).toContain('syncClient.test.js')
+    // Anti-vacuity for the recursion itself: a subdirectory test must be in the
+    // list, or a regression back to a flat scan would silently stop covering it.
+    expect(files.some((f) => f.startsWith('transport/'))).toBe(true)
   })
 
   it.each(files)('%s has no more bare setTimeout sleeps than its grandfathered baseline', (file) => {
     const source = fs.readFileSync(path.join(SYNC_DIR, file), 'utf8')
     const hits = findBareSleeps(source)
-    const max = GRANDFATHERED_MAX[file] ?? 0
+    const max = GRANDFATHERED_MAX[path.basename(file)] ?? 0
 
     if (hits.length > max) {
       const where = hits.map((h) => `  line ${h.line}: ${h.text}`).join('\n')
@@ -307,9 +332,7 @@ describe('findUnjustifiedMarkers matcher (fixtures, independent of real files)',
 })
 
 describe('every sleepBecauseTimeIsUnderTest site in electron/sync/*.test.js is justified', () => {
-  const files = fs
-    .readdirSync(SYNC_DIR)
-    .filter((f) => f.endsWith('.test.js') && f !== 'noBareSleeps.test.js')
+  const files = listSyncTestFiles()
 
   // Floor: the it.each loop below only asserts "no violations" per file — if
   // findMarkerSites' substring match on `sleepBecauseTimeIsUnderTest(` broke,

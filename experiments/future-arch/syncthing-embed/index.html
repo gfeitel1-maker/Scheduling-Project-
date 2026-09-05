@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Syncthing Embed Prototype</title>
+<style>
+  body { font-family: -apple-system, sans-serif; padding: 20px; background: #1e1e1e; color: #eee; }
+  h1 { font-size: 16px; margin-bottom: 16px; }
+  .row { margin-bottom: 14px; }
+  label { display: block; font-size: 12px; color: #999; margin-bottom: 4px; }
+  #myId { font-family: monospace; font-size: 12px; word-break: break-all; background: #2a2a2a; padding: 8px; border-radius: 4px; cursor: pointer; }
+  #status { font-size: 14px; }
+  .connected { color: #4caf50; }
+  .disconnected { color: #f44336; }
+  input, select { width: 100%; box-sizing: border-box; padding: 6px; font-family: monospace; font-size: 12px; }
+  button { margin-top: 6px; padding: 6px 12px; cursor: pointer; }
+  #error { color: #f44336; font-size: 12px; }
+  hr { border-color: #333; margin: 18px 0; }
+  .editRow { display: flex; gap: 6px; margin-bottom: 6px; }
+  .editRow input, .editRow select { flex: 1; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #333; }
+  #hash { font-family: monospace; font-size: 11px; word-break: break-all; background: #2a2a2a; padding: 8px; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <h1>Syncthing Embed Prototype</h1>
+
+  <div class="row">
+    <label>My device ID (click to copy)</label>
+    <div id="myId">loading…</div>
+  </div>
+
+  <div class="row">
+    <label>Peer status</label>
+    <div id="status">no peer configured</div>
+  </div>
+
+  <div class="row">
+    <label>Folder sync</label>
+    <div id="completion">—</div>
+  </div>
+
+  <div class="row">
+    <label>Add peer device ID</label>
+    <input id="peerInput" placeholder="paste peer device id" />
+    <button id="addPeerBtn">Add peer</button>
+  </div>
+
+  <div id="error"></div>
+
+  <hr />
+  <h1>Operation flow (P3)</h1>
+
+  <div class="row">
+    <label>Make an edit</label>
+    <div class="editRow">
+      <input id="entityIdInput" value="archery" placeholder="entity id" />
+      <select id="fieldSelect">
+        <option value="name">name</option>
+        <option value="location">location</option>
+      </select>
+      <input id="valueInput" placeholder="value" />
+    </div>
+    <button id="applyEditBtn">Apply edit</button>
+  </div>
+
+  <div class="row">
+    <label>Entities</label>
+    <table>
+      <thead><tr><th>id</th><th>name</th><th>location</th></tr></thead>
+      <tbody id="entitiesBody"></tbody>
+    </table>
+  </div>
+
+  <div class="row">
+    <label>State hash (convergence check)</label>
+    <div id="hash">—</div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
