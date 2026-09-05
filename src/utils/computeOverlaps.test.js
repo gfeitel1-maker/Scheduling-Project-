@@ -225,4 +225,76 @@ describe('OVERLAP', () => {
     const electiveSetActivities = [{ elective_set_id: 'set-1', activity_id: 'swim' }]
     expect(computeOverlaps({ slots, activities: [swim], locations: [pool], electiveSetActivities }).size).toBe(0)
   })
+
+  // Anchor semantics — an anchor is immovable declared truth about where a
+  // group is and is never itself flagged, but it still occupies the place
+  // and constrains what else can go there.
+  describe('anchors', () => {
+    const flagpole = { id: 'flag', name: 'Flagpole', location_id: 'flagL' }
+    const flagpoleL = { id: 'flagL', camp_id: 'c', name: 'Flagpole', capacity: 1 }
+
+    it('never flags a bucket made entirely of anchors, no matter how many share a capacity-1 place', () => {
+      // Every group's Flagpole anchor, all at the same capacity-1 location —
+      // this is correct by construction and must stay silent.
+      const slots = [
+        slot('s1', 'g1', { activity_id: 'flag', is_anchor: true }),
+        slot('s2', 'g2', { activity_id: 'flag', is_anchor: true }),
+        slot('s3', 'g3', { activity_id: 'flag', is_anchor: true }),
+      ]
+      expect(computeOverlaps({ slots, activities: [flagpole], locations: [flagpoleL] }).size).toBe(0)
+    })
+
+    it('flags only the non-anchor row when a placed group shares a full anchor place', () => {
+      // Flagpole (capacity 1) already holds g1's anchor. g2 is a regular
+      // (non-anchor) placement into the same location at the same time —
+      // over capacity, and only g2's row should be flagged.
+      const otherAtFlagL = { id: 'otherAct', name: 'Assembly', location_id: 'flagL' }
+      const slots = [
+        slot('s1', 'g1', { activity_id: 'flag', is_anchor: true }),
+        slot('s2', 'g2', { activity_id: 'otherAct' }),
+      ]
+      const result = computeOverlaps({ slots, activities: [flagpole, otherAtFlagL], locations: [flagpoleL] })
+      expect([...result.keys()]).toEqual(['s2'])
+      expect(result.get('s2')).toContain('held by an anchor')
+    })
+
+    it('does not flag a non-anchor group when the anchor place still has room', () => {
+      const roomyL = { id: 'roomyL', camp_id: 'c', name: 'Field', capacity: 2 }
+      const anchorAct = { id: 'flag2', name: 'Flagpole', location_id: 'roomyL' }
+      const otherAct = { id: 'otherAct', name: 'Drill', location_id: 'roomyL' }
+      const slots = [
+        slot('s1', 'g1', { activity_id: 'flag2', is_anchor: true }),
+        slot('s2', 'g2', { activity_id: 'otherAct' }),
+      ]
+      expect(computeOverlaps({ slots, activities: [anchorAct, otherAct], locations: [roomyL] }).size).toBe(0)
+    })
+
+    it('never treats anchor-vs-anchor as a conflict, even past capacity', () => {
+      const slots = [
+        slot('s1', 'g1', { activity_id: 'flag', is_anchor: true }),
+        slot('s2', 'g2', { activity_id: 'flag', is_anchor: true }),
+      ]
+      expect(computeOverlaps({ slots, activities: [flagpole], locations: [flagpoleL] }).size).toBe(0)
+    })
+
+    it('anchor plus elective: flags only the elective row when the anchor already fills the place', () => {
+      const electiveOffering = { id: 'craft', name: 'Crafts', location_id: 'flagL' }
+      const slots = [
+        slot('s1', 'g1', { activity_id: 'flag', is_anchor: true }),
+        electiveSlot('s2', 'g2', 'set-1'),
+      ]
+      const electiveSetActivities = [{ elective_set_id: 'set-1', activity_id: 'craft' }]
+      const result = computeOverlaps({
+        slots, activities: [flagpole, electiveOffering], locations: [flagpoleL], electiveSetActivities,
+      })
+      expect([...result.keys()]).toEqual(['s2'])
+    })
+
+    it('leaves pure non-anchor overbooking behavior unchanged (regression)', () => {
+      const slots = [slot('s1', 'g1'), slot('s2', 'g2'), slot('s3', 'g3')]
+      const result = computeOverlaps({ slots, activities: [swim], locations: [pool] })
+      expect([...result.keys()].sort()).toEqual(['s1', 's2', 's3'])
+      expect(result.get('s1')).toBe('3 groups booked into Pool — it holds 2')
+    })
+  })
 })
