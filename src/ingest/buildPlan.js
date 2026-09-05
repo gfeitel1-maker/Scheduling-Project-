@@ -150,13 +150,18 @@ export function fieldsFor(entity, name, campId, index, cohortId) {
     }
     case 'activities':
       return { camp_id: campId, name }
-    // M4 §D1a: capacity/notes/sort_order/map_geometry are left to the schema's
-    // own defaults, matching every other bare-minimum entity create (cohorts).
+    // M4 §D1a: notes/sort_order/map_geometry are left to the schema's own
+    // defaults, matching every other bare-minimum entity create (cohorts).
+    // capacity IS written explicitly (T119) even though `1` is also the schema
+    // default: an op-log row with source='import' is the only way
+    // lastKnownFieldSources can later distinguish "nobody has said what this
+    // room holds" from "a director confirmed it holds one group" — the schema
+    // default alone leaves no operations row to read back.
     // The id itself is NOT derived here — buildPlan is pure/DB-agnostic and
     // deriveLocationId lives in electron/ops/locationId.js; commitCreate mints
     // it at commit time (§D1a).
     case 'locations':
-      return { camp_id: campId, name }
+      return { camp_id: campId, name, capacity: 1 }
     default:
       throw new Error(`ingest: ${entity} is not an ingestible entity`)
   }

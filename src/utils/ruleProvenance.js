@@ -54,3 +54,42 @@ export function deriveActivityProvenance(fieldSources, evidenceByField) {
 export function hasAnyEvidence(evidenceByField) {
   return RULE_FIELDS.some((rf) => Boolean(evidenceByField?.[rf.evidenceField]))
 }
+
+// T119 (docs/work/tickets/T119-imported-location-capacity-provenance.md):
+// the tier vocabulary (label, dot color, dot shape) below is shared between
+// Activities' RuleProvenanceDot and Locations' capacity provenance dot so
+// the meaning of each tier can never drift between the two screens. Moved
+// here (out of ActivitiesScreen.jsx, which owned it first) rather than
+// copy-pasted, because it is pure and carries WCAG-driven decisions (the
+// contrast guard on the dot color, and shape-not-just-hue distinguishability)
+// that a second hand-copied version would risk silently diverging from.
+export const TIER_LABEL = { confirmed: 'Confirmed', observed: 'Observed', inferred: 'Inferred' }
+// Contrast guard: --accent (#B8833A) on --surface (#FCFBF8) at 11px text
+// measures ~3.2:1, under the 4.5:1 AA floor for small text. The tier TEXT
+// label always renders in --text; only the dot itself carries the tier hue
+// (WCAG 1.4.1 — the dot is never the only signal, the label always
+// accompanies it).
+export const TIER_DOT_COLOR = { confirmed: 'var(--secondary)', observed: 'var(--primary)', inferred: 'var(--accent)' }
+
+// WCAG 1.4.1 — tier must be distinguishable by dot SHAPE, not hue alone:
+// confirmed = filled solid, observed = ring (no fill), inferred =
+// outlined-fill (a filled dot plus a --surface gap ring, so it reads
+// distinct from confirmed's plain fill at 6px). Color is unchanged; this
+// only adds shape on top of it.
+export function tierShapeStyle(tier) {
+  if (tier === 'observed') {
+    return { background: 'transparent', border: `1.5px solid ${TIER_DOT_COLOR.observed}`, boxShadow: 'none' }
+  }
+  if (tier === 'inferred') {
+    return { background: TIER_DOT_COLOR.inferred, border: 'none', boxShadow: `0 0 0 1.5px var(--surface), 0 0 0 2.5px ${TIER_DOT_COLOR.inferred}` }
+  }
+  return { background: TIER_DOT_COLOR.confirmed, border: 'none', boxShadow: 'none' }
+}
+
+// locationCapacityProvenanceHandler (electron/main.js) returns a binary
+// 'confirmed'|'unconfirmed' — capacity has no import_evidence record (unlike
+// the activity rule fields), so tierForField's three-way tier collapses to
+// two cases. This maps that binary onto the shared 3-tier vocabulary above.
+export function tierForCapacitySource(capacitySource) {
+  return capacitySource === 'unconfirmed' ? 'inferred' : 'confirmed'
+}

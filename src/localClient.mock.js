@@ -1375,6 +1375,20 @@ export const mockShoresh = {
   async listImportEvidence() {
     return { evidence: [], fieldSources: {} }
   },
+  // T119 — mirrors locationCapacityProvenanceHandler's shape (electron/main.js),
+  // but the mock has no op-log source per field (same additive-degradation
+  // discipline as listImportEvidence above): every location reads as
+  // confirmed, so the provenance marker never renders in browser-dev — real
+  // fidelity for this feature is `electron:dev`, per this file's own header
+  // discipline.
+  async locationCapacityProvenance() {
+    const state = loadState()
+    const result = {}
+    for (const location of state.locations || []) {
+      result[location.id] = 'confirmed'
+    }
+    return result
+  },
   async getDeviceId() {
     return 'mock-device'
   },

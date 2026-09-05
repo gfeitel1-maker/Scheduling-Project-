@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { TIER_LABEL, tierShapeStyle, tierForCapacitySource } from '../utils/ruleProvenance.js'
 import * as XLSX from 'xlsx'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
@@ -175,7 +176,102 @@ function CapacityAdvisoryStrip({ items, locations, onAccept, busyId }) {
 // docs/work/specs/2026-08-16-m6-map-design.md.
 // ---------------------------------------------------------------------------
 
-function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
+// T119 (redirect) — mirrors ActivitiesScreen's RuleProvenanceDot/
+// ProvenancePopover pattern instead of a bare tooltip dot, reusing the same
+// shared tier vocabulary (TIER_LABEL/tierShapeStyle, ../utils/ruleProvenance.js)
+// so "Confirmed"/"Observed"/"Inferred" mean the same thing on both screens.
+// Kept as its own small component here rather than sharing
+// RuleProvenanceDot/ProvenancePopover directly: those are built around N
+// field rows with per-field import-evidence disclosure text and a "Change"
+// action that opens ActivityModal — capacity is a single field with no
+// evidence record (locationCapacityProvenanceHandler collapses tierForField
+// to a binary, see electron/main.js) and this row already has its own Edit
+// affordance, so a mirrored one-row popover is simpler than bending the
+// activities component to a shape it wasn't built for.
+function useCapacityPopover(open, onClose) {
+  const popRef = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    popRef.current?.querySelector('button:not([disabled])')?.focus()
+    function onKeyDown(e) { if (e.key === 'Escape') onClose() }
+    function onPointerDown(e) {
+      if (popRef.current && !popRef.current.contains(e.target)) onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onPointerDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onPointerDown)
+    }
+  }, [open, onClose])
+  return popRef
+}
+
+function CapacityProvenanceDot({ location, onConfirm }) {
+  const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  const btnRef = useRef(null)
+  const close = () => { setOpen(false); btnRef.current?.focus() }
+  const popRef = useCapacityPopover(open, close)
+  const reduced = prefersReducedMotion()
+  const shape = tierShapeStyle('inferred')
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }} onClick={(e) => e.stopPropagation()}>
+      <button
+        ref={btnRef}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="Capacity provenance: inferred, needs review"
+        onClick={() => setOpen((v) => !v)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
+        style={{
+          ...capacityDotStyles.dot,
+          ...shape,
+          boxShadow: hovered ? '0 0 0 3px color-mix(in srgb, var(--text) 10%, transparent)' : shape.boxShadow,
+          transition: reduced ? 'none' : 'background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out)',
+        }}
+      />
+      {open && (
+        <div ref={popRef} role="dialog" aria-label={`Capacity provenance for ${location.name}`} tabIndex={-1} style={capacityDotStyles.popover}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ ...capacityDotStyles.rowDot, ...shape }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Capacity</span>
+            <span style={capacityDotStyles.tierLabel}>{TIER_LABEL.inferred}</span>
+          </div>
+          <div style={capacityDotStyles.rowSentence}>Imported — no one has confirmed how many groups fit here.</div>
+          <div style={capacityDotStyles.rowActions}>
+            <button
+              type="button"
+              className="press-97"
+              onClick={() => { close(); onConfirm(location) }}
+              style={capacityDotStyles.confirmBtn}
+            >Confirm</button>
+          </div>
+        </div>
+      )}
+    </span>
+  )
+}
+
+const capacityDotStyles = {
+  dot: { display: 'inline-block', width: 6, height: 6, borderRadius: '50%', border: 'none', padding: 0, cursor: 'pointer', verticalAlign: 'middle' },
+  popover: {
+    position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 40, minWidth: 240, padding: 12,
+    background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+  },
+  rowDot: { display: 'inline-block', width: 6, height: 6, borderRadius: '50%', flexShrink: 0 },
+  tierLabel: { fontSize: 11, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' },
+  rowSentence: { fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 },
+  rowActions: { display: 'flex', justifyContent: 'flex-end', marginTop: 6 },
+  confirmBtn: { background: 'none', border: 'none', color: 'var(--primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: 'inherit' },
+}
+
+function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnconfirmed, onConfirmCapacity, justConfirmed }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(location.name)
   const [capacity, setCapacity] = useState(location.capacity)
@@ -187,7 +283,18 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
     if (!name.trim()) return
     setSaving(true)
     try {
-      await onSave(location.id, { name: name.trim(), capacity: Number(capacity), notes: notes.trim() || null, kind: kind || null })
+      // T119: capacity is included only when it actually changed. Always
+      // sending it (even unchanged) would re-write it as source='human' on
+      // every save, silently confirming an unconfirmed imported value the
+      // moment a director edits the NAME or NOTES of a room without ever
+      // touching capacity — provenance must flip only on an actual change.
+      const capacityChanged = Number(capacity) !== Number(location.capacity)
+      await onSave(location.id, {
+        name: name.trim(),
+        ...(capacityChanged ? { capacity: Number(capacity) } : {}),
+        notes: notes.trim() || null,
+        kind: kind || null,
+      })
       setEditing(false)
     } catch {
       // onSave already surfaced the error; stay in edit mode so nothing is lost.
@@ -225,12 +332,19 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
   const kindInfo = KIND_OPTIONS.find((k) => k.value === location.kind)
 
   return (
-    <tr style={{ borderBottom: '1px solid var(--border)' }}
-      onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg)'}
-      onMouseLeave={(e) => e.currentTarget.style.background = ''}
+    <tr style={{
+        borderBottom: '1px solid var(--border)',
+        background: justConfirmed ? 'color-mix(in srgb, var(--secondary) 10%, transparent)' : 'transparent',
+        transition: (justConfirmed && !prefersReducedMotion()) ? 'background-color var(--motion-settle) var(--ease-out)' : 'none',
+      }}
+      onMouseEnter={(e) => { if (!justConfirmed) e.currentTarget.style.background = 'var(--bg)' }}
+      onMouseLeave={(e) => { if (!justConfirmed) e.currentTarget.style.background = '' }}
     >
       <td style={{ ...S.td, fontWeight: 500 }}>{location.name}</td>
-      <td style={{ ...S.td, fontVariantNumeric: 'tabular-nums' }}>{capacityWord(location.capacity)}</td>
+      <td style={{ ...S.td, fontVariantNumeric: 'tabular-nums' }}>
+        {capacityWord(location.capacity)}
+        {capacityUnconfirmed && <CapacityProvenanceDot location={location} onConfirm={onConfirmCapacity} />}
+      </td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }} title={kindInfo?.label}>{kindInfo ? `${kindInfo.icon} ${kindInfo.label}` : '—'}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{location.notes || '—'}</td>
       {weekToggle}
@@ -312,6 +426,42 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   const [importing, setImporting] = useState(false)
   const fileRef = useRef()
   const enter = useEnterTransition('liftFade')
+  // T119 — { [locationId]: 'confirmed'|'unconfirmed' }, feeding the per-row
+  // capacity provenance dot below.
+  const [capacitySources, setCapacitySources] = useState({})
+  // Mirrors ActivitiesScreen's justConfirmed — a single-shot row settle
+  // highlight after Confirm, self-clears after 700ms.
+  const [justConfirmedId, setJustConfirmedId] = useState(null)
+
+  async function refreshCapacitySources() {
+    const sources = await localClient.locationCapacityProvenance().catch(() => ({}))
+    setCapacitySources(sources || {})
+  }
+
+  // The IIFE wrapper is required by this repo's react-hooks/set-state-in-effect
+  // lint rule — same reason as loadExclusions' mount effect below: it flags a
+  // direct call to a named, in-scope function it can trace back to setState,
+  // but not the same call wrapped this way.
+  useEffect(() => {
+    ;(async () => { await refreshCapacitySources() })()
+  }, [campId])
+
+  // Silent re-write of the SAME current value through the existing write
+  // path (source defaults to null = human/confirmed) — mirrors
+  // ActivitiesScreen's confirmProvenanceField. `save` already surfaces write
+  // failures via describeWriteFailure/setError (useCrudScreen).
+  async function confirmCapacity(location) {
+    try {
+      // Sequential, not Promise.all: refreshCapacitySources must observe
+      // the write's effect, so it can only run after save() resolves.
+      await save(location.id, { capacity: location.capacity })
+      await refreshCapacitySources()
+      setJustConfirmedId(location.id)
+      setTimeout(() => setJustConfirmedId(null), 700)
+    } catch {
+      // save() already surfaced the error.
+    }
+  }
 
 
   async function loadExclusions() {
@@ -664,6 +814,9 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                         role={role}
                         onSave={save}
                         onDelete={deleteLocation}
+                        capacityUnconfirmed={tierForCapacitySource(capacitySources[location.id]) === 'inferred'}
+                        onConfirmCapacity={confirmCapacity}
+                        justConfirmed={justConfirmedId === location.id}
                         weekToggle={weekId ? (
                           <td style={{ ...S.td, textAlign: 'center' }}>
                             <WeekToggle

@@ -115,5 +115,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   listDurableElectiveSets: (token) => ipcRenderer.invoke('shoresh:list-durable-elective-sets', { token }),
   // Slice D — read-only, mirrors listDurableElectiveSets's shape.
   listImportEvidence: (token) => ipcRenderer.invoke('shoresh:list-import-evidence', { token }),
+  // T119 — read-only, mirrors listImportEvidence's shape.
+  locationCapacityProvenance: (token) => ipcRenderer.invoke('shoresh:location-capacity-provenance', { token }),
   // Tile World viewer — opens a standalone Phaser window served over local HTTP+WS.
 })

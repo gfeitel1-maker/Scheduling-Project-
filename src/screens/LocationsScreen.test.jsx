@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { deriveLocationId } from '../../electron/ops/locationId'
 
@@ -15,6 +15,7 @@ vi.mock('../localClient', () => ({
     mergeLocation: vi.fn(),
     listMigrationReviews: vi.fn(),
     dismissMigrationReviews: vi.fn(),
+    locationCapacityProvenance: vi.fn(),
   },
 }))
 
@@ -88,6 +89,7 @@ beforeEach(() => {
   localClient.mergeLocation.mockReset().mockResolvedValue({ ok: true, cleared: 0, reassigned_activity_ids: [] })
   localClient.listMigrationReviews.mockReset().mockResolvedValue([])
   localClient.dismissMigrationReviews.mockReset().mockResolvedValue({ ok: true, dismissed: 0 })
+  localClient.locationCapacityProvenance.mockReset().mockResolvedValue({})
   XLSX.utils.sheet_to_json.mockReset().mockReturnValue([])
   XLSX.read.mockReset().mockReturnValue({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })
 })
@@ -240,8 +242,11 @@ describe('LocationsScreen', () => {
   })
 
   it('the stepper never goes below 1, even via direct typed input', async () => {
+    // T119: starts at 3 (not 1) so the clamped-to-1 result is a genuine
+    // change and a capacity op is actually written — save() now omits
+    // capacity from the payload entirely when it hasn't changed.
     localClient.list.mockImplementation((entity) => {
-      if (entity === 'locations') return Promise.resolve([location({ capacity: 1 })])
+      if (entity === 'locations') return Promise.resolve([location({ capacity: 3 })])
       return Promise.resolve([])
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
@@ -250,12 +255,107 @@ describe('LocationsScreen', () => {
     fireEvent.click(screen.getByText('Edit'))
     const input = screen.getAllByLabelText('Groups at once')[0]
     fireEvent.change(input, { target: { value: '0' } })
+    fireEvent.blur(input) // CapacityStepper only commits (and clamps) on blur/Enter/+-click
     fireEvent.click(screen.getByText('Save'))
 
     await waitFor(() => {
       const capacityCall = localClient.write.mock.calls.find((c) => c[3] === 'capacity')
       expect(capacityCall).toBeTruthy()
       expect(capacityCall[4]).toBe(1)
+    })
+  })
+
+  // T119 — a quiet per-row marker on the capacity cell for a location whose
+  // capacity was never director-confirmed (still the importer's default).
+  // T119 (redirect) — mirrors ActivitiesScreen's RuleProvenanceDot pattern
+  // instead of a bare tooltip dot: a button with a "Provenance:" aria-label,
+  // shown only for a location whose capacity is unconfirmed (quiet by
+  // default for a confirmed value, same as Activities hides the dot
+  // entirely for a hand-created row with no import evidence).
+  it('shows a capacity provenance dot for an unconfirmed location, not for a confirmed one', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') {
+        return Promise.resolve([
+          location({ id: 'loc-1', name: 'Pool' }),
+          location({ id: 'loc-2', name: 'Gym' }),
+        ])
+      }
+      return Promise.resolve([])
+    })
+    localClient.locationCapacityProvenance.mockResolvedValue({ 'loc-1': 'unconfirmed', 'loc-2': 'confirmed' })
+
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Capacity provenance: inferred/i })).not.toBeNull())
+    // Only one dot — Gym's capacity is confirmed, so it stays quiet.
+    expect(screen.getAllByRole('button', { name: /Capacity provenance:/i })).toHaveLength(1)
+  })
+
+  it('opens a popover with the Confirmed/Observed/Inferred vocabulary and a Confirm action, which re-writes capacity and clears the dot', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool', capacity: 3 })])
+      return Promise.resolve([])
+    })
+    localClient.locationCapacityProvenance.mockResolvedValue({ 'loc-1': 'unconfirmed' })
+
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: /Capacity provenance:/i }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByText('Inferred')).not.toBeNull()
+
+    // After confirming, the next provenance read reports it confirmed.
+    localClient.locationCapacityProvenance.mockResolvedValue({ 'loc-1': 'confirmed' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', 'loc-1', 'capacity', 3))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Capacity provenance:/i })).toBeNull())
+  })
+
+  // T119 — save() must not re-write capacity when the director never touched
+  // it: opening the row to edit an unrelated field (name) and saving would
+  // otherwise silently stamp capacity as source='human', laundering an
+  // unconfirmed imported value the instant a director edits anything else on
+  // the row.
+  it('editing only the name and saving does not write capacity at all', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') return Promise.resolve([location({ capacity: 1 })])
+      return Promise.resolve([])
+    })
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Edit'))
+    const nameInputs = screen.getAllByDisplayValue('Pool')
+    fireEvent.change(nameInputs[0], { target: { value: 'Pool Building' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    const capacityCall = localClient.write.mock.calls.find((c) => c[3] === 'capacity')
+    expect(capacityCall).toBeUndefined()
+    const nameCall = localClient.write.mock.calls.find((c) => c[3] === 'name')
+    expect(nameCall[4]).toBe('Pool Building')
+  })
+
+  it('changing the capacity value and saving DOES write capacity', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') return Promise.resolve([location({ capacity: 1 })])
+      return Promise.resolve([])
+    })
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Edit'))
+    const increase = screen.getAllByLabelText('Increase')[0]
+    fireEvent.click(increase)
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() => {
+      const capacityCall = localClient.write.mock.calls.find((c) => c[3] === 'capacity')
+      expect(capacityCall).toBeTruthy()
+      expect(capacityCall[4]).toBe(2)
     })
   })
 

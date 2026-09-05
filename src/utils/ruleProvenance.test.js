@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { RULE_FIELDS, tierForField, worstTier, deriveActivityProvenance } from './ruleProvenance.js'
+import {
+  RULE_FIELDS,
+  tierForField,
+  worstTier,
+  deriveActivityProvenance,
+  TIER_LABEL,
+  TIER_DOT_COLOR,
+  tierShapeStyle,
+  tierForCapacitySource,
+} from './ruleProvenance.js'
 
 describe('tierForField', () => {
   it('is confirmed when source is null (hand-created, never imported)', () => {
@@ -69,5 +78,53 @@ describe('deriveActivityProvenance', () => {
     const rows = deriveActivityProvenance(fieldSources, {})
     expect(rows.every((r) => r.evidence === null)).toBe(true)
     expect(rows.every((r) => r.tier === 'confirmed')).toBe(true)
+  })
+})
+
+// T119 (locations capacity provenance, mirroring Activities' pattern) — the
+// tier vocabulary is shared across both screens so the color/shape/label
+// meaning of "confirmed"/"observed"/"inferred" can never drift between them.
+describe('shared tier vocabulary (TIER_LABEL, TIER_DOT_COLOR, tierShapeStyle)', () => {
+  it('has a label for every tier', () => {
+    expect(TIER_LABEL).toEqual({ confirmed: 'Confirmed', observed: 'Observed', inferred: 'Inferred' })
+  })
+
+  it('has a dot color for every tier', () => {
+    expect(Object.keys(TIER_DOT_COLOR).sort()).toEqual(['confirmed', 'inferred', 'observed'])
+  })
+
+  it('gives confirmed a plain filled dot', () => {
+    expect(tierShapeStyle('confirmed')).toEqual({ background: TIER_DOT_COLOR.confirmed, border: 'none', boxShadow: 'none' })
+  })
+
+  it('gives observed a ring (no fill) so it is distinguishable by shape, not just hue', () => {
+    const style = tierShapeStyle('observed')
+    expect(style.background).toBe('transparent')
+    expect(style.border).toContain(TIER_DOT_COLOR.observed)
+  })
+
+  it('gives inferred a filled dot with a surface gap ring', () => {
+    const style = tierShapeStyle('inferred')
+    expect(style.background).toBe(TIER_DOT_COLOR.inferred)
+    expect(style.boxShadow).toContain(TIER_DOT_COLOR.inferred)
+  })
+})
+
+// T119 — locationCapacityProvenanceHandler (electron/main.js) returns a
+// binary 'confirmed'|'unconfirmed' (capacity has no import_evidence record,
+// unlike the activity rule fields, so there is no separate 'observed' case).
+// This maps that binary onto the shared 3-tier vocabulary for the dot/popover.
+describe('tierForCapacitySource', () => {
+  it('maps confirmed to confirmed', () => {
+    expect(tierForCapacitySource('confirmed')).toBe('confirmed')
+  })
+
+  it('maps unconfirmed to inferred', () => {
+    expect(tierForCapacitySource('unconfirmed')).toBe('inferred')
+  })
+
+  it('defaults missing/unknown values to confirmed (no data means nothing to flag)', () => {
+    expect(tierForCapacitySource(undefined)).toBe('confirmed')
+    expect(tierForCapacitySource(null)).toBe('confirmed')
   })
 })
