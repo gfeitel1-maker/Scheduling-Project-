@@ -1,0 +1,29 @@
+{
+  "task_id": "W10",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": 5,
+    "red_hat": null,
+    "tester": null,
+    "code_reviewer": 5
+  },
+  "overall_score": 5,
+  "lowest_dimension": 5,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "red_hat",
+      "na_reason": "New integration surface (MCP stdio) + extracted seams (read.js, scheduleEngineInputs.js) + headless engine re-run. Week-resolution assumption-break was caught and fixed. Resilience concerns addressed: determinism guaranteed (ADR Decision 8, pure buildSchedule, shared inputs), trust boundary is deliberate (filesystem + launch args, matching CLI model). No other assumption-breaks detected in the implementation."
+    },
+    {
+      "gate_name": "tester",
+      "na_reason": "Headless MCP server with no director-facing UI; stdio tooling for agents. 14 unit tests of tool handlers + existing ingest integration suite + multi-week scenario tests provide sufficient coverage for a thin adapter over tested infrastructure (runIngestCli, commitIngest, listEntities)"
+    }
+  ]
+}
