@@ -1287,13 +1287,23 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // own doc comment for why) — an unapproved name resolves to null and
       // location_id is left unset.
       if (rule?.location != null && rule.location !== '') {
-        const locationId = resolveApprovedLocationId(locationIdByName, rule.location)
+        // A director's "Use instead ->" / "Not a place" answer, bound above
+        // (the location_unresolved create-path branch) before this item ever
+        // reached toCreate — takes precedence over the ordinary by-name
+        // lookup, exactly like decideFieldItem's update-path counterpart.
+        const locationId = item._resolvedLocationId !== undefined
+          ? item._resolvedLocationId
+          : resolveApprovedLocationId(locationIdByName, rule.location)
         if (locationId) {
           fields.location_id = locationId
           // Registry row 24 (Governor: ship in M4) — the captured/typed text
           // this activity's place came from, so a future "why?" panel can
-          // answer it the same way eligible_group_names/min_per_week already can.
-          writeEvidence(db, {
+          // answer it the same way eligible_group_names/min_per_week already
+          // can. Skipped when the director bound this to an EXISTING location
+          // by hand ("Use instead ->") — that pick is not the file observing
+          // this activity at that place, and writing 'observed' evidence for
+          // it would be exactly the provenance lie 34c4a72 already fixed once.
+          if (item._resolvedLocationId === undefined) writeEvidence(db, {
             camp_id, entity_type: 'activities', entity_id: entityId, field: 'location',
             tag: 'observed', confidence: 'high', support: { location: rule.location },
             import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
@@ -1631,7 +1641,18 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // an independent reason to hold, not a competing one.
           if (item.entity === 'activities' && item._rule?.location != null && item._rule.location !== '') {
             const locationName = String(item._rule.location).trim()
-            if (locationName && !approvedLocationNames.has(locationName) && !isWordDeclinedAsPlace(db, { campId: camp_id, rawWord: locationName })) {
+            // A director's answer to the "Is <word> a place?" card reaches a
+            // brand-new activity's location too — the update-path's 'existing'
+            // binding (decideFieldItem, above) has no create-path counterpart
+            // without this: a create item never consults `resolutions` here,
+            // so "Use instead ->" on a new activity would re-hold forever.
+            const res = resolutionFor(item.entity, item._name, 'location')
+            if (res?.reason === 'location_unresolved' && res.choice === 'existing' && res.location_id) {
+              item._resolvedLocationId = res.location_id
+            } else if (res?.reason === 'location_unresolved' && res.choice === 'not_a_place') {
+              recordNotAPlace(db, { campId: camp_id, rawWord: locationName, confirmedBy: author_user_id })
+              item._resolvedLocationId = null
+            } else if (locationName && !approvedLocationNames.has(locationName) && !isWordDeclinedAsPlace(db, { campId: camp_id, rawWord: locationName })) {
               conflicts.push(makeFieldConflict(
                 item, 'location_unresolved', 'location',
                 { from: null, to: item._rule.location },

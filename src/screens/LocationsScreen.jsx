@@ -22,6 +22,7 @@ import {
   wasUnlimitedCopy,
   variantList,
 } from './locationMigrationReview'
+import { duplicateSiblingsById } from './locationDuplicates.js'
 
 // M3a — the Locations setup screen. docs/work/specs/2026-08-15-m3-locations-design.md Part 1.
 // M3c — the first-run migration review region (Part 3) + the delete path's
@@ -271,7 +272,70 @@ const capacityDotStyles = {
   confirmBtn: { background: 'none', border: 'none', color: 'var(--primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: 'inherit' },
 }
 
-function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnconfirmed, onConfirmCapacity, justConfirmed }) {
+// Piece B of the duplicate-catcher ticket — a quiet, derived-at-render-time
+// marker (never persisted, the computeOverlaps precedent) for a location
+// whose name normalizes the same as another live location's ("Gym"/"gym").
+// Mirrors CapacityProvenanceDot's dot+popover shape exactly, so a director
+// who already knows that pattern reads this the same way. Offers the SAME
+// merge primitive (localClient.mergeLocation, via onMerge) LocationsScreen's
+// migration-review gate already uses — no second merge implementation.
+function DuplicateLocationDot({ location, siblings, onMerge, busy }) {
+  const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  const btnRef = useRef(null)
+  const close = () => { setOpen(false); btnRef.current?.focus() }
+  const popRef = useCapacityPopover(open, close)
+  const reduced = prefersReducedMotion()
+  const shape = tierShapeStyle('inferred')
+  const other = siblings[0]
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }} onClick={(e) => e.stopPropagation()}>
+      <button
+        ref={btnRef}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`Possible duplicate of ${other.name}`}
+        onClick={() => setOpen((v) => !v)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
+        style={{
+          ...capacityDotStyles.dot,
+          ...shape,
+          boxShadow: hovered ? '0 0 0 3px color-mix(in srgb, var(--text) 10%, transparent)' : shape.boxShadow,
+          transition: reduced ? 'none' : 'background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out)',
+        }}
+      />
+      {open && (
+        <div ref={popRef} role="dialog" aria-label={`Possible duplicate for ${location.name}`} tabIndex={-1} style={capacityDotStyles.popover}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ ...capacityDotStyles.rowDot, ...shape }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Possible duplicate</span>
+          </div>
+          <div style={capacityDotStyles.rowSentence}>
+            {siblings.length === 1
+              ? `This looks like the same place as "${other.name}".`
+              : `This looks like the same place as ${siblings.length} other location${siblings.length === 1 ? '' : 's'} (e.g. "${other.name}").`}
+          </div>
+          <div style={capacityDotStyles.rowActions}>
+            <button
+              type="button"
+              className="press-97"
+              disabled={busy}
+              onClick={() => { close(); onMerge(location, other) }}
+              style={capacityDotStyles.confirmBtn}
+            >{busy ? 'Merging…' : `Merge into "${other.name}"`}</button>
+          </div>
+        </div>
+      )}
+    </span>
+  )
+}
+
+function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnconfirmed, onConfirmCapacity, justConfirmed, duplicateSiblings, onMergeDuplicate, duplicateMergeBusy }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(location.name)
   const [capacity, setCapacity] = useState(location.capacity)
@@ -340,7 +404,12 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnc
       onMouseEnter={(e) => { if (!justConfirmed) e.currentTarget.style.background = 'var(--bg)' }}
       onMouseLeave={(e) => { if (!justConfirmed) e.currentTarget.style.background = '' }}
     >
-      <td style={{ ...S.td, fontWeight: 500 }}>{location.name}</td>
+      <td style={{ ...S.td, fontWeight: 500 }}>
+        {location.name}
+        {duplicateSiblings?.length > 0 && (
+          <DuplicateLocationDot location={location} siblings={duplicateSiblings} onMerge={onMergeDuplicate} busy={duplicateMergeBusy} />
+        )}
+      </td>
       <td style={{ ...S.td, fontVariantNumeric: 'tabular-nums' }}>
         {capacityWord(location.capacity)}
         {capacityUnconfirmed && <CapacityProvenanceDot location={location} onConfirm={onConfirmCapacity} />}
@@ -414,6 +483,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
       partialDeleteAllText: (succeeded, total, failed) => `Deleted ${succeeded} of ${total} locations (${failed} failed — see console).`,
     })
   const locations = [...unsortedLocations].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name ?? '').localeCompare(String(b.name ?? '')))
+  const duplicateSiblings = duplicateSiblingsById(locations)
 
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
@@ -624,6 +694,32 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     }
   }
 
+  // Piece B of the duplicate-catcher ticket — the quiet marker's own action.
+  // Reuses the SAME merge primitive as the migration-review gate above
+  // (localClient.mergeLocation); expected_ref_count is omitted rather than
+  // guessed, since this path has no eagerly-loaded activity count the way
+  // the migration gate does — mergeLocation's optimistic-concurrency guard
+  // only runs when a caller actually supplies that check.
+  const [duplicateMergeBusy, setDuplicateMergeBusy] = useState(false)
+  async function handleMergeDuplicate(loser, winner) {
+    setDuplicateMergeBusy(true)
+    setGateError(null)
+    try {
+      const result = await localClient.mergeLocation({
+        loser_id: loser.id,
+        winner_id: winner.id,
+        winner_capacity: Math.max(loser.capacity ?? 1, winner.capacity ?? 1),
+      })
+      if (result?.error && result.error !== 'no-record') throw new Error(result.error)
+      await reload()
+      await refreshReviewData()
+    } catch {
+      setGateError('That merge could not be completed — someone may have changed these locations. Try again.')
+    } finally {
+      setDuplicateMergeBusy(false)
+    }
+  }
+
   // The inline blank-row add (last row of the table) — name + capacity + kind.
   // Notes are edited in-row after creation. Wired to the same create path
   // (`add`) as the card form, so validation + describeWriteFailure are shared.
@@ -817,6 +913,9 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                         capacityUnconfirmed={tierForCapacitySource(capacitySources[location.id]) === 'inferred'}
                         onConfirmCapacity={confirmCapacity}
                         justConfirmed={justConfirmedId === location.id}
+                        duplicateSiblings={duplicateSiblings.get(location.id)}
+                        onMergeDuplicate={handleMergeDuplicate}
+                        duplicateMergeBusy={duplicateMergeBusy}
                         weekToggle={weekId ? (
                           <td style={{ ...S.td, textAlign: 'center' }}>
                             <WeekToggle

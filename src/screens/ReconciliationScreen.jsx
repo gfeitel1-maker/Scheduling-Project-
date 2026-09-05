@@ -370,6 +370,7 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
             onToggleEvidence={toggleEvidence}
             onNavigate={onNavigate}
             onClearSelection={clearSelection}
+            locations={censusSnapshot.locations}
           />
         </div>
       </div>
