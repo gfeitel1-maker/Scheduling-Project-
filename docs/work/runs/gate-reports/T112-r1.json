@@ -1,0 +1,25 @@
+{
+  "task_id": "T112",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": null,
+    "red_hat": 5,
+    "tester": 4,
+    "code_reviewer": 4
+  },
+  "overall_score": 4.333333333333333,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "security",
+      "na_reason": "Pure client-side UI event-handler and CSS change; no auth, IPC, or secret surface."
+    }
+  ]
+}

@@ -49,3 +49,7 @@ electron/build-info.json
 
 # graphify knowledge-graph artifact (regenerated locally; never committed)
 graphify-out/
+
+# Agent scratch dumps at the repo root — never project assets.
+# Real sample data belongs in docs/work/specs/samples/.
+scratchpad_*
