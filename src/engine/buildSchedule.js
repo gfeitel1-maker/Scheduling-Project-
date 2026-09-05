@@ -1,5 +1,6 @@
 import { assertIdListShape } from './assertIdListShape.js'
 import { isActivityEligibleForGroup } from './eligibility.js'
+import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
 
 // Pure function — zero React dependencies, zero Supabase calls.
 //
@@ -268,14 +269,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
           // within it), not two groups. Dedup by location before
           // registering, or a colocated set would phantom-consume extra
           // capacity at its own location for a single group's presence.
-          const offeringLocationLabels = new Map() // locationId → label (first offering's name at that location)
-          for (const offeringActId of (electiveOfferingsBySetId.get(electiveSetId) || [])) {
-            const offeringAct = activityById.get(offeringActId)
-            const locId = offeringAct?.location_id
-            if (locId != null && !offeringLocationLabels.has(locId)) {
-              offeringLocationLabels.set(locId, offeringAct.name || 'an elective offering')
-            }
-          }
+          const offeringLocationLabels = resolveElectiveOfferingLocations(electiveOfferingsBySetId.get(electiveSetId), activityById)
           for (const [locId, label] of offeringLocationLabels) {
             registerOverlayOccupancy(locId, group.id, day.id, block.id, group.tier_id ?? null, label)
           }

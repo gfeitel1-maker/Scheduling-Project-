@@ -164,4 +164,65 @@ describe('OVERLAP', () => {
     expect(decorated[0].flags.OVERLAP).toBe(true)
     expect(slots[0].flags).toBeUndefined()
   })
+
+  // Electives are "a schedule within a schedule": an offering consumes a
+  // real location via activities.location_id, and the two independent
+  // checks (this one, and useSlotMutations' write-time check) were both
+  // blind to it because elective slots carry elective_set_id with
+  // activity_id: null and got skipped entirely.
+  function electiveSlot(id, groupId, electiveSetId, extra = {}) {
+    return { id, group_id: groupId, day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: electiveSetId, is_anchor: false, ...extra }
+  }
+
+  it('flags an elective occupying a location where a regular group slot also sits', () => {
+    // Pool holds 2. One regular swimmer + one elective (also resolving to
+    // the pool) = 2 groups, within capacity — bump to a 3rd to trip it.
+    const slots = [
+      slot('s1', 'g1', { activity_id: 'swim' }),
+      electiveSlot('s2', 'g2', 'set-1'),
+      electiveSlot('s3', 'g3', 'set-1'),
+    ]
+    const electiveSetActivities = [{ elective_set_id: 'set-1', activity_id: 'swim' }]
+    const result = computeOverlaps({ slots, activities: [swim], locations: [pool], electiveSetActivities })
+    expect([...result.keys()].sort()).toEqual(['s1', 's2', 's3'])
+    expect(result.get('s1')).toBe('3 groups booked into Pool — it holds 2')
+  })
+
+  it('handles a multi-location elective set — a distinct location per offering, each contending separately', () => {
+    const gymL = { id: 'gymL', camp_id: 'c', name: 'Gym', capacity: 1 }
+    const basketball = { id: 'bball', name: 'Basketball', location_id: 'gymL' }
+    // set-1 offers both swim (pool) and basketball (gym). g1's elective slot
+    // occupies BOTH places at once. A second group also at the gym (via a
+    // regular bball booking) trips the gym's capacity-1 limit, while the
+    // pool (capacity 2, only g1's elective there) stays silent.
+    const slots = [
+      electiveSlot('s1', 'g1', 'set-1'),
+      slot('s2', 'g2', { activity_id: 'bball' }),
+    ]
+    const electiveSetActivities = [
+      { elective_set_id: 'set-1', activity_id: 'swim' },
+      { elective_set_id: 'set-1', activity_id: 'bball' },
+    ]
+    const result = computeOverlaps({ slots, activities: [swim, basketball], locations: [pool, gymL], electiveSetActivities })
+    expect([...result.keys()].sort()).toEqual(['s1', 's2'])
+    expect(result.get('s1')).toBe('2 groups booked into Gym — it holds 1')
+  })
+
+  it('does not crash or false-positive on an elective whose offering has no location_id', () => {
+    const placelessAct = { id: 'craft', name: 'Crafts', location_id: null }
+    const slots = [electiveSlot('s1', 'g1', 'set-1'), electiveSlot('s2', 'g2', 'set-1')]
+    const electiveSetActivities = [{ elective_set_id: 'set-1', activity_id: 'craft' }]
+    expect(computeOverlaps({ slots, activities: [placelessAct], locations: [pool], electiveSetActivities }).size).toBe(0)
+  })
+
+  it('does not crash or false-positive on a dangling elective_set_id (no matching electiveSetActivities row)', () => {
+    const slots = [electiveSlot('s1', 'g1', 'set-gone'), electiveSlot('s2', 'g2', 'set-gone')]
+    expect(computeOverlaps({ slots, activities: [swim], locations: [pool], electiveSetActivities: [] }).size).toBe(0)
+  })
+
+  it('does not false-positive on a non-clashing elective (place has slack)', () => {
+    const slots = [electiveSlot('s1', 'g1', 'set-1')]
+    const electiveSetActivities = [{ elective_set_id: 'set-1', activity_id: 'swim' }]
+    expect(computeOverlaps({ slots, activities: [swim], locations: [pool], electiveSetActivities }).size).toBe(0)
+  })
 })

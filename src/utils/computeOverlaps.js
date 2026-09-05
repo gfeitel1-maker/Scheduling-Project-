@@ -41,29 +41,61 @@
 // Rows carry the persisted snake_case shape (group_id/day_id/time_block_id/
 // activity_id), the same shape computeFindings() reads.
 
-export function computeOverlaps({ slots, activities, locations }) {
+import { resolveElectiveOfferingLocations } from '../engine/electiveOccupancy.js'
+
+export function computeOverlaps({ slots, activities, locations, electiveSetActivities }) {
   if (!slots || !activities) return new Map()
 
   const actMap = new Map(activities.map(a => [a.id, a]))
   const locMap = new Map((locations || []).map(l => [l.id, l]))
+  const offeringsBySetId = new Map() // electiveSetId → [activityId, ...]
+  for (const m of (electiveSetActivities || [])) {
+    if (!offeringsBySetId.has(m.elective_set_id)) offeringsBySetId.set(m.elective_set_id, [])
+    offeringsBySetId.get(m.elective_set_id).push(m.activity_id)
+  }
   const placeBuckets = new Map() // "dayId|blockId|locationId" → { locId, rows }
   const actBuckets = new Map()   // "dayId|blockId|activityId" → { actId, rows }
 
   for (const s of slots) {
-    if (s.is_anchor || !s.activity_id) continue
-    const locId = actMap.get(s.activity_id)?.location_id ?? null
-    if (locId != null) {
-      const key = `${s.day_id}|${s.time_block_id}|${locId}`
-      let bucket = placeBuckets.get(key)
-      if (!bucket) { bucket = { locId, rows: [] }; placeBuckets.set(key, bucket) }
-      bucket.rows.push(s)
+    if (s.is_anchor) continue
+
+    if (s.activity_id) {
+      const locId = actMap.get(s.activity_id)?.location_id ?? null
+      if (locId != null) {
+        const key = `${s.day_id}|${s.time_block_id}|${locId}`
+        let bucket = placeBuckets.get(key)
+        if (!bucket) { bucket = { locId, rows: [] }; placeBuckets.set(key, bucket) }
+        bucket.rows.push(s)
+      }
+      // Activity cap runs even with no location_id — that is the point of
+      // keeping it: it warns before M3 assigns the activity a place.
+      const aKey = `${s.day_id}|${s.time_block_id}|${s.activity_id}`
+      let aBucket = actBuckets.get(aKey)
+      if (!aBucket) { aBucket = { actId: s.activity_id, rows: [] }; actBuckets.set(aKey, aBucket) }
+      aBucket.rows.push(s)
+      continue
     }
-    // Activity cap runs even with no location_id — that is the point of keeping
-    // it: it warns before M3 assigns the activity a place.
-    const aKey = `${s.day_id}|${s.time_block_id}|${s.activity_id}`
-    let aBucket = actBuckets.get(aKey)
-    if (!aBucket) { aBucket = { actId: s.activity_id, rows: [] }; actBuckets.set(aKey, aBucket) }
-    aBucket.rows.push(s)
+
+    // Electives are "a schedule within a schedule": an elective slot carries
+    // elective_set_id with activity_id: null, so it fell through the
+    // activity_id branch above and never entered placeBuckets — an
+    // elective-vs-regular place clash produced no OVERLAP flag. Resolve the
+    // set's offerings to real locations the same way buildSchedule.js does
+    // (shared via resolveElectiveOfferingLocations, deduped by location —
+    // one elective slot may occupy several locations at once, and a
+    // colocated pair of offerings is one group's presence, not two). No
+    // activity-cap bucket here: max_groups_per_slot is a single activity's
+    // instructor/equipment cap, and an elective set has no one activity_id
+    // to key that by — only the PLACE limit applies.
+    if (s.elective_set_id != null) {
+      const offeringLocations = resolveElectiveOfferingLocations(offeringsBySetId.get(s.elective_set_id), actMap)
+      for (const locId of offeringLocations.keys()) {
+        const key = `${s.day_id}|${s.time_block_id}|${locId}`
+        let bucket = placeBuckets.get(key)
+        if (!bucket) { bucket = { locId, rows: [] }; placeBuckets.set(key, bucket) }
+        bucket.rows.push(s)
+      }
+    }
   }
 
   const reasons = new Map() // slot id → [reason, ...]
@@ -107,8 +139,8 @@ export function computeOverlaps({ slots, activities, locations }) {
 
 // Merges the derived marker into the flags each cell renders from, leaving the
 // persisted rows untouched.
-export function withOverlapFlags(slots, activities, locations) {
-  const overlapping = computeOverlaps({ slots, activities, locations })
+export function withOverlapFlags(slots, activities, locations, electiveSetActivities) {
+  const overlapping = computeOverlaps({ slots, activities, locations, electiveSetActivities })
   if (overlapping.size === 0) return slots
   return slots.map(s =>
     overlapping.has(s.id)
