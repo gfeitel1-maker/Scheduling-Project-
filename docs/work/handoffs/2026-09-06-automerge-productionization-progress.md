@@ -30,6 +30,37 @@ or `electron/sync/automerge/**` yet, so current behavior is untouched.
 
 Full `npm run verify` is green on main (333 files / 4807 tests / 27-27 integration).
 
+## UPDATE — Stage 5 wiring begun (8 PRs merged)
+
+Since the table above, two more slices merged, both behind the default-off `SHORESH_SYNC_ENGINE` flag:
+- **#301 — Stage 5 design + 5a:** the flag (`electron/sync/automerge/syncEngineFlag.js`, default
+  `'oplog'`, fail-safe) + Automerge doc disk persistence (`docStore.js`, atomic temp+rename). Design
+  doc: `docs/work/plans/2026-09-06-stage5-live-wiring-design.md`.
+- **#302 — 5b write-path dual-write:** `electron/ops/operations.js`'s `appendOp` mirrors each
+  modeled-entity write into the Automerge doc via `electron/sync/automerge/liveDoc.js`, ONLY when the
+  flag is on (flag-off early-returns with zero new work — proven a full-suite no-op). Op-log stays the
+  source of truth; a doc-mirror failure can't touch the committed op-log write.
+
+**Two tracked items before the flag can be enabled for real (Red Hat, 5b):**
+1. `liveDoc.recordLocalWrite` does a full `A.save`+fsync **per field-op** — must be debounced/batched
+   (or use `A.saveIncremental`) before any real bulk import runs with the flag on, or it will stall
+   the main process.
+2. `liveDoc` is **gracefully inert until Stage 5e wires `setUserDataDirGetter` into `main.js`** at
+   startup — so flag-on is a shadow no-op in the real app *today*. 5e does the real wiring + seeding.
+
+## Where this pauses, and why (pacing, not stopping short)
+
+The reversible engine + write-path work is done and merged. What remains — 5c (read/receive path +
+push-event synthesis from `A.diff`), 5d (membership: Ed25519→libp2p PeerId, its own sub-ADR +
+Security), 5e (startup wiring of `syncNode`+`liveDoc` into `main.js` + seed-on-first-enable), 5f
+(packaged + real two-machine smoke), **Stage 6 the irreversible cutover** (~7k lines removed, app
+rewired onto the Automerge engine), Stage 7 WAN — is deeply interdependent, edits the live app's core,
+and ends in an irreversible step. That work is best done with **fresh review context**: the Governor's
+core value is competently reviewing each diff, and the irreversible cutover in particular must not be
+reviewed from a saturated context. This is how a large migration is paced responsibly — solid reviewed
+increments, clean handoffs — not one marathon that risks the irreversible step. Everything below is
+teed up to continue at the same bar.
+
 ## Why the autonomous build stopped here (a judgment call, not a blocker)
 
 Everything above is **reversible and additive**. The remaining work is not, and it crosses two lines
