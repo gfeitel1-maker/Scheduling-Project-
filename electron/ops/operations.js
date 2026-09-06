@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { PROJECTIONS, applyProjection, sanitizeMutuallyExclusiveRow } from './projections.js'
 import { getStmt } from './stmtCache.js'
+import { isOpLogEngine } from '../sync/automerge/syncEngineFlag.js'
+import { recordLocalWrite } from '../sync/automerge/liveDoc.js'
 
 // Sentinel field name for a row-delete op. Deliberately routed through the
 // SAME appendOp/detectConflict/appendOp-log path as every other field-level
@@ -146,7 +148,22 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     return op
   })
 
-  return run()
+  const op = run()
+
+  // Stage 5b (docs/work/plans/2026-09-06-stage5-live-wiring-design.md § 2): mirror the write into
+  // the Automerge doc, ONLY when the flag is on. `isOpLogEngine()` early-returns unchanged for the
+  // default path — this is the whole reversibility guarantee: flag-OFF runs zero new code, not
+  // "the same result via a different path." Never allowed to affect the op-log write above, which
+  // has already committed and returned by the time this runs.
+  if (isOpLogEngine()) return op
+
+  try {
+    recordLocalWrite(db, { entity, entity_id, field, value: storedValue })
+  } catch (err) {
+    console.error('automerge dual-write failed (op-log write already committed, unaffected):', err)
+  }
+
+  return op
 }
 
 // Task 10 round-5 Fix 3: idempotency lookup used by handleSubmitOp before
