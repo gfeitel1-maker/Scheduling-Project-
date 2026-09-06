@@ -42,8 +42,8 @@ import { PROJECTIONS } from './ops/projections.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { getDocIfLoaded } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc } from './sync/automerge/docStore.js'
-import { createEmptyDoc } from './automerge/campDocument.js'
 import { projectAll as projectAutomergeDoc } from './automerge/projector.js'
+import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import {
   getCurrentProjectPath,
   setCurrentProjectPath,
@@ -2110,6 +2110,7 @@ if (isElectronEntryPoint()) {
   let automergeSyncNode = null
   async function startAutomergeSyncNodeIfEnabled() {
     if (!isAutomergeEngine()) return
+    if (automergeSyncNode) return // idempotency guard: never leak a second libp2p node
     try {
       const campId = db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
       if (!campId) {
@@ -2117,22 +2118,46 @@ if (isElectronEntryPoint()) {
         return
       }
 
-      // Prefer whatever liveDoc (the 5b write-path mirror) already holds in memory for this camp —
-      // reading a second, possibly-stale copy from disk when an authoritative in-memory one exists
-      // would let the sync node diverge from what 5b's dual-write is mirroring. Falls back to the
-      // persisted file (§5), then to a fresh empty doc if neither exists yet (first flag-on, before
-      // Stage 5e's seeding lands).
-      const doc = getDocIfLoaded(db) ?? loadAutomergeDoc(userDataPath, campId) ?? createEmptyDoc()
+      // Finding 1 (review round on Stage 5c, CRITICAL — data destruction): projectAll's
+      // delete-reconcile treats the doc as an authoritative superset of SQLite (projector.js's own
+      // CAUTION comment). Before Stage 5e wires seedAllFromSqlite, there is no guarantee any doc
+      // exists yet for an existing camp — falling back to a freshly createEmptyDoc() here and then
+      // projecting it would delete every row for every modeled entity (confirmed empirically, see
+      // projector.test.js's regression test). resolveStartupDoc (startupGuard.js) resolves ONLY a
+      // doc that is known to already exist and NEVER fabricates one. No persisted doc yet means this
+      // camp has never been seeded (Stage 5e's job): refuse to start the node and refuse to project
+      // anything, rather than run projectAll against a doc with nothing in it.
+      const doc = resolveStartupDoc({
+        liveDoc: getDocIfLoaded(db),
+        persistedDoc: loadAutomergeDoc(userDataPath, campId),
+      })
+      if (!doc) {
+        console.warn(
+          'automerge sync: no persisted document exists yet for this camp — sync node not started ' +
+            'this run. Stage 5e (seedAllFromSqlite) must run once before this camp\'s Automerge ' +
+            'path can be trusted as a superset of SQLite; starting anyway would risk deleting live ' +
+            'data via projectAll\'s delete-reconcile.'
+        )
+        return
+      }
 
       // One-time initial projection of whatever doc we're starting from, so SQLite reflects it
       // before the renderer can observe a "connected but nothing loaded" state. Mirrors syncNode's
-      // own projection-failure handling: never throws, SQLite stays at last-good on failure.
+      // own projection-failure handling in spirit, but — unlike a mid-sync projection failure, where
+      // SQLite staying at last-good while the node keeps running is the right tradeoff — a failure
+      // in this INITIAL projection means the node would start with SQLite in an unknown state
+      // relative to the doc it's about to sync. Finding 4: do not proceed to start the node in that
+      // case; log clearly and return instead.
       try {
         projectAutomergeDoc(db, doc)
-        if (mainWindow) mainWindow.webContents.send('shoresh:full-sync-applied')
       } catch (err) {
-        console.error(`automerge sync: initial projection failed (non-fatal, SQLite left at last-good): ${err?.message ?? err}`)
+        console.error(
+          `automerge sync: initial projection failed — sync node not started this run, SQLite left ` +
+            `at last-good: ${err?.message ?? err}`
+        )
+        return
       }
+      if (mainWindow) mainWindow.webContents.send('shoresh:full-sync-applied')
 
       const { startSyncNode } = await import('./sync/automerge/syncNode.js')
       automergeSyncNode = await startSyncNode({
@@ -2141,9 +2166,11 @@ if (isElectronEntryPoint()) {
         doc,
         onRemoteOps: (events) => {
           if (!mainWindow) return
-          for (const event of events) {
-            mainWindow.webContents.send('shoresh:op-applied', sanitizeOpForIpc(event))
-          }
+          dispatchRemoteOps(events, {
+            send: (channel, payload) => mainWindow.webContents.send(channel, payload),
+            sanitizeOpForIpc,
+            threshold: REMOTE_OPS_COALESCE_THRESHOLD,
+          })
         },
       })
     } catch (err) {

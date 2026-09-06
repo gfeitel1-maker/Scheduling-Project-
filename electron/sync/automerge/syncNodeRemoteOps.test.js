@@ -6,7 +6,7 @@
 // same consumers' expectations as a hand-built op-log fixture would be, and are sanitized through
 // main.js's REAL sanitizeOpForIpc (reused verbatim, not reimplemented) before anything resembling
 // an IPC send would happen.
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -14,7 +14,26 @@ import * as A from '@automerge/automerge'
 import { openLocalDb } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import { startSyncNode } from './syncNode.js'
-import { sanitizeOpForIpc } from '../../main.js'
+
+// Finding 3 (Stage 5c review round): main.js statically imports the real `electron` package.
+// Without this mock, importing `sanitizeOpForIpc` from main.js in a test resolves the real
+// `electron` module — on a clean CI image without node_modules/electron/path.txt already present,
+// that resolution can trigger a binary download via spawnSync. Mock it exactly as
+// electron/main.test.js does; only the bits main.js touches at module load time are needed here.
+vi.mock('electron', () => ({
+  app: {
+    getPath: vi.fn(() => os.tmpdir()),
+    whenReady: vi.fn(() => Promise.resolve()),
+    on: vi.fn(),
+  },
+  BrowserWindow: vi.fn(),
+  ipcMain: { handle: vi.fn() },
+  contextBridge: { exposeInMainWorld: vi.fn() },
+  ipcRenderer: { invoke: vi.fn(), on: vi.fn() },
+  dialog: { showErrorBox: vi.fn() },
+}))
+
+const { sanitizeOpForIpc } = await import('../../main.js')
 
 let files = []
 function freshDb(tag) {

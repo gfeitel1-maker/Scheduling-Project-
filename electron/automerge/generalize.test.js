@@ -204,12 +204,22 @@ describe('Automerge generalization slice — delete-reconcile runs in REVERSE FK
     db.prepare("INSERT INTO cohorts (id, camp_id, name) VALUES ('c1', 'camp-1', 'Session A')").run()
     db.prepare("INSERT INTO tiers (id, camp_id, cohort_id, name) VALUES ('t1', 'camp-1', 'c1', 'Senior')").run()
 
-    // The document is empty for both entities — it represents "both were
-    // deleted", coherently, in the same replay. Before the fix, projectAll's
-    // per-entity interleaved upsert+delete ran cohorts (delete c1) BEFORE
-    // tiers (delete t1), and deleting c1 while t1.cohort_id still pointed at
-    // it threw under foreign_keys=ON.
-    const doc = createEmptyDoc()
+    // The document omits both entities — it represents "both were deleted",
+    // coherently, in the same replay. Before the fix, projectAll's per-entity
+    // interleaved upsert+delete ran cohorts (delete c1) BEFORE tiers (delete
+    // t1), and deleting c1 while t1.cohort_id still pointed at it threw under
+    // foreign_keys=ON.
+    //
+    // The doc carries one unrelated row (an activity) rather than being
+    // completely empty. That is deliberate and load-bearing: projectAll now
+    // refuses a wholly-empty doc against a non-empty SQLite, because that shape
+    // is indistinguishable from "never seeded" and silently wiped live camps
+    // (Stage 5c review, Finding 1). This test is about delete-reconcile's FK
+    // ORDER, not about the never-seeded guard, so it uses the smallest doc that
+    // still exercises the parent+child delete while being a legitimate,
+    // seeded-looking document.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'keep-1', field: 'camp_id', value: 'camp-1' })
 
     expect(() => projectAll(db, doc)).not.toThrow()
     expect(db.prepare('SELECT * FROM cohorts WHERE id = ?').get('c1')).toBeUndefined()
