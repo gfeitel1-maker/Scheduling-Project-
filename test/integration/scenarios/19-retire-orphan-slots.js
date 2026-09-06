@@ -26,7 +26,7 @@
  *      branch lands, extend this scenario to perform the delete.
  */
 
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, waitFor, pairAndLogin } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, waitFor, pairAndLogin } from '../harness.js'
 import { openLocalDb } from '../../../electron/db/localDb.js'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId.js'
 import { parseSnapshotPayload, isRestorable } from '../../../src/screens/snapshotRestore.js'
@@ -42,10 +42,9 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
     const campId = host.campId
 

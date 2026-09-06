@@ -692,10 +692,25 @@ export function startSyncServer(db, { port, onPairingRequest, now = Date.now } =
   // Map of device_id -> timestamp for per-device pairing_request rate limiting
   const lastPairingRequestTime = new Map()
 
-  wss.on('error', () => {
+  // `ready` resolves with the actually-bound port once listening (the real
+  // port when `port: 0` was requested — see T121, ADR'd against the old
+  // getFreePort()-then-bind TOCTOU) or rejects with the bind error. It is
+  // pre-.catch()'d so a caller that never awaits it (the production default)
+  // doesn't produce an unhandled rejection warning.
+  let resolveReady, rejectReady
+  const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
+  ready.catch(() => {})
+
+  wss.on('listening', () => {
+    resolveReady(wss.address().port)
+  })
+
+  wss.on('error', (err) => {
     // defense-in-depth: swallow bind failures (e.g. EADDRINUSE) so an
     // underlying port collision cannot crash the whole process via Node's
-    // default "throw on unhandled EventEmitter error" behavior.
+    // default "throw on unhandled EventEmitter error" behavior. Callers that
+    // need to know about the failure (tests) use `ready` instead.
+    rejectReady(err)
   })
 
   wss.on('connection', (ws) => {
@@ -876,6 +891,7 @@ export function startSyncServer(db, { port, onPairingRequest, now = Date.now } =
 
   return {
     wss,
+    ready,
     close() {
       clearInterval(expiryInterval)
       wss.close()

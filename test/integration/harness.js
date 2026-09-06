@@ -30,7 +30,14 @@ import { listPendingRestores } from '../../electron/sync/pendingRestores.js'
 // Utilities
 // ---------------------------------------------------------------------------
 
-/** Find a free TCP port on 127.0.0.1. */
+/**
+ * Find a free TCP port on 127.0.0.1.
+ *
+ * Has an inherent check-then-bind race (see T121) — prefer `Host.start()`
+ * with no argument, which binds port 0 directly and has no such gap. Only
+ * still used where a scenario needs a *stable, reusable* port up front,
+ * e.g. restarting a Host on the same address to simulate a process restart.
+ */
 export function getFreePort() {
   return new Promise((resolve, reject) => {
     const srv = net.createServer()
@@ -98,8 +105,12 @@ export class Host {
     this._pairingWaiters = []
   }
 
-  /** Open the DB and start the WS server on `port`. */
-  async start(port) {
+  /**
+   * Open the DB and start the WS server. `port` defaults to 0 (OS-assigned,
+   * race-free — see T121); pass an explicit port only when a scenario needs
+   * a stable, reusable address (e.g. restarting a Host on the same port).
+   */
+  async start(port = 0) {
     this.db = openLocalDb(this.dbPath)
     this.deviceId = getOrCreateDeviceId(this.db)
     // Ensure a devices row so the host can authorize itself later.
@@ -114,8 +125,10 @@ export class Host {
         else this._pairingQueue.push({ deviceId, deviceName })
       },
     })
-    this.port = port
-    this.serverUrl = `ws://127.0.0.1:${port}`
+    // Fails loudly (throws here, inside the scenario's own try/catch) instead
+    // of silently continuing with a dead server — see T121.
+    this.port = await this.server.ready
+    this.serverUrl = `ws://127.0.0.1:${this.port}`
   }
 
   /**

@@ -37,7 +37,7 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Sync/WS tests fail under concurrent load, making a red gate uninformative](../../docs/work/tickets/T121-sync-test-load-fragility.md) | open | — |
+| [Sync/WS tests fail under concurrent load, making a red gate uninformative](../../docs/work/tickets/T121-sync-test-load-fragility.md) | in-progress | — |
 
 ### ui-ux-design
 

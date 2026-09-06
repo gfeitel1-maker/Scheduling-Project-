@@ -29,7 +29,7 @@
  *      WS/authorize() path, not just the permissions.js unit-level registry.
  */
 
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
 import { createSyncClient } from '../../../electron/sync/syncClient.js'
 import { createUser } from '../../../electron/auth/localAuth.js'
 
@@ -51,7 +51,7 @@ export async function run() {
     // -----------------------------------------------------------------
     const host = new Host(`${tmpDir}/host.db`)
     toClose.push(host)
-    await host.start(await getFreePort())
+    await host.start()
     await host.bootstrap({ campName: 'Camp With A Map' })
 
     const localWriter = createSyncClient(host.db, { device_id: host.deviceId, author_user_id: host.adminUserId })

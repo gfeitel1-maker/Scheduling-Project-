@@ -26,7 +26,6 @@ import { createUser, issueCampToken, ensureHostSigningKey } from '../auth/localA
 import { appendOp } from '../ops/operations.js'
 import { startSyncServer } from './syncServer.js'
 import { createSyncClient } from './syncClient.js'
-import { getFreePort } from '../../test/integration/harness.js'
 
 let PORT
 let hostDb, hostFile, clientDb, clientFile, server, campId, userId, deviceId, token, templateId
@@ -90,8 +89,8 @@ beforeEach(async () => {
 
   token = issueCampToken(hostDb, userId, deviceId)
 
-  PORT = await getFreePort()
-  server = startSyncServer(hostDb, { port: PORT })
+  server = startSyncServer(hostDb, { port: 0 })
+  PORT = await server.ready
 })
 
 afterEach(() => {

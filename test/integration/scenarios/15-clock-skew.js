@@ -27,7 +27,7 @@
 
 import { randomUUID } from 'node:crypto'
 import {
-  Host, Client, getFreePort, makeTmpDir, cleanupDirs, pairAndLogin, waitFor,
+  Host, Client, makeTmpDir, cleanupDirs, pairAndLogin, waitFor,
 } from '../harness.js'
 
 export async function run() {
@@ -36,10 +36,9 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
 
     // --- Client A: pair and login as admin ---

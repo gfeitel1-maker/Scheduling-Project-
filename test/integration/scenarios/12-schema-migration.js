@@ -10,7 +10,7 @@
 
 import fs from 'node:fs'
 import Database from 'better-sqlite3'
-import { Host, getFreePort, makeTmpDir, cleanupDirs } from '../harness.js'
+import { Host, makeTmpDir, cleanupDirs } from '../harness.js'
 import { openLocalDb, getSchemaVersion, CURRENT_SCHEMA_VERSION } from '../../../electron/db/localDb.js'
 
 export async function run() {
@@ -19,11 +19,10 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     // Bootstrap to get a fully migrated DB.
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
 
     // Record op count before migration — bootstrap creates ops (admin user creation).

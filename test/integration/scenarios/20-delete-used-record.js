@@ -29,7 +29,7 @@
  *   i. a failed save aborts the delete and destroys nothing.
  */
 
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, waitFor, pairAndLogin } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, waitFor, pairAndLogin } from '../harness.js'
 import { appendOp, DELETE_FIELD } from '../../../electron/ops/operations.js'
 import { previewDelete, deleteRecord } from '../../../electron/ops/deleteRecord.js'
 
@@ -42,10 +42,9 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
 
     const session = { author_user_id: host.adminUserId, device_id: host.deviceId }

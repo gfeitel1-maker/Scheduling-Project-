@@ -10,7 +10,7 @@
  *   6. Assert the client WS received close code 4404.
  */
 
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, pairAndLogin } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, pairAndLogin } from '../harness.js'
 
 export async function run() {
   const dirs = []
@@ -18,10 +18,9 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
 
     client = new Client(`${tmpDir}/client.db`)

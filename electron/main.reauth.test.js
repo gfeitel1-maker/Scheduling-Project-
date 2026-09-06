@@ -38,7 +38,7 @@ vi.mock('electron', () => ({
 const { makeHandlers } = await import('./main.js')
 const { createSyncClient } = await import('./sync/syncClient.js')
 const { openLocalDb, getOrCreateDeviceId } = await import('./db/localDb.js')
-const { Host, getFreePort, makeTmpDir, cleanupDirs, waitFor } = await import('../test/integration/harness.js')
+const { Host, makeTmpDir, cleanupDirs, waitFor } = await import('../test/integration/harness.js')
 
 describe('T87: a returning Client re-authenticates after a simulated process restart', () => {
   it('reaches an authenticated, live-broadcast-receiving connection through the real chooseMode/verifySession path', async () => {
@@ -46,10 +46,10 @@ describe('T87: a returning Client re-authenticates after a simulated process res
     let host, clientDb1, clientDb2
     try {
       const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-      const port = await getFreePort()
 
       host = new Host(`${tmpDir}/host.db`)
-      await host.start(port)
+      await host.start()
+      const port = host.port
       await host.bootstrap()
 
       const clientDbPath = `${tmpDir}/client.db`

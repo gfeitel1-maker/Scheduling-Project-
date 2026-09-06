@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
 import { createSyncClient } from '../../../electron/sync/syncClient.js'
 
 const N = 50  // use 50 so the test finishes quickly; still exercises the loop
@@ -22,10 +22,9 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
 
     client = new Client(`${tmpDir}/client.db`)
