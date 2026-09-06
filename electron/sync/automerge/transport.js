@@ -106,10 +106,24 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
     await sendFramed(stream.sink, docBytes)
   }
 
+  // Security review, Stage 5d-1 (CRITICAL): the admission gate must be
+  // SYMMETRIC. Gating only the inbound PROTO handler stops an unauthenticated
+  // peer's bytes from reaching A.merge, but does nothing to stop THIS node's
+  // bytes reaching an unauthenticated peer — and node.getPeers() returns every
+  // libp2p-connected peer, including one that merely completed a noise
+  // handshake and never dialed AUTH_PROTO at all. Without this filter, any
+  // stranger on the LAN who opens a connection receives the full serialized
+  // camp document (roster, schedule, everything) on every local write and every
+  // relayed merge. Noise proves a secure channel, not camp membership.
+  //
+  // Filtering here (rather than inside sendDocTo) keeps the direct-send path
+  // usable by the adversarial-input tests, which deliberately send to a peer
+  // that has NOT authenticated in order to prove the inbound gate rejects it.
   async function broadcastDoc(docBytes, { exceptPeerId } = {}) {
     const peers = node.getPeers()
     await Promise.all(
       peers
+        .filter((p) => authenticatedPeers.has(p.toString()))
         .filter((p) => !exceptPeerId || p.toString() !== exceptPeerId)
         .map((p) => sendDocTo(p, docBytes).catch(() => {
           // Best-effort: a peer that has gone away since getPeers() shouldn't

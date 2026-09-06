@@ -126,3 +126,67 @@ describe('authGate — admission gate mechanics (fake authenticator)', () => {
     expect(b.isPeerAuthenticated(a.peerId)).toBe(false)
   })
 })
+
+// Security review, Stage 5d-1 (CRITICAL): the gate was originally INBOUND ONLY.
+// broadcastDoc iterated node.getPeers() — every libp2p-connected peer — filtered
+// only by exceptPeerId, so a stranger who merely completed a noise handshake and
+// never dialed AUTH_PROTO still received the full serialized camp document on
+// every local write. These assert the gate is symmetric: an unauthenticated peer
+// receives NOTHING outbound, and an authenticated one still does.
+describe('authGate — broadcast is gated outbound, not just inbound', () => {
+  it('does NOT broadcast the document to a connected but unauthenticated peer', async () => {
+    const eavesdropped = []
+    // `a` is a plain connected peer that never authenticates to `b`, but happily
+    // accepts doc frames — i.e. exactly what a stranger's node on the camp LAN is.
+    const a = await startTransport({
+      deviceId: 'device-a',
+      onDocReceived: (bytes) => eavesdropped.push(bytes),
+    })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onAuthenticate: () => ({ ok: true }),
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => b.getPeers().length > 0)
+    expect(b.isPeerAuthenticated(a.peerId.toString())).toBe(false)
+
+    await b.broadcastDoc(new Uint8Array([1, 2, 3, 4]))
+
+    // Give any in-flight frame a chance to land before asserting absence.
+    await new Promise((r) => setTimeout(r, 300))
+    expect(eavesdropped).toEqual([])
+  })
+
+  // NOTE (design fact, learned the hard way here): admission is ONE-DIRECTIONAL.
+  // `a` authenticating to `b` only populates B's set, so B will now send to A —
+  // but A's own INBOUND gate still rejects B's frames until B has authenticated
+  // to A as well. Ongoing two-way sync therefore requires MUTUAL authentication,
+  // which is a real constraint on 5d-2's production wiring: a Client that
+  // authenticates to the Host and stops there will send successfully and receive
+  // nothing, silently. Asserted explicitly below so the requirement is pinned.
+  it('DOES broadcast to a peer that completed the auth handshake (mutual)', async () => {
+    const received = []
+    const a = await startTransport({
+      deviceId: 'device-a',
+      onDocReceived: (bytes) => received.push(bytes),
+      onAuthenticate: () => ({ ok: true }),
+    })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onAuthenticate: () => ({ ok: true }),
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => b.getPeers().length > 0)
+    await a.authenticateWith(b.peerId.toString(), { type: 'authenticate', token: 't', device_id: 'device-a' })
+    await b.authenticateWith(a.peerId.toString(), { type: 'authenticate', token: 't', device_id: 'device-b' })
+    await waitFor(() => b.isPeerAuthenticated(a.peerId.toString()) && a.isPeerAuthenticated(b.peerId.toString()))
+
+    await b.broadcastDoc(new Uint8Array([1, 2, 3, 4]))
+    await waitFor(() => received.length > 0)
+    expect(received.length).toBe(1)
+  })
+})
