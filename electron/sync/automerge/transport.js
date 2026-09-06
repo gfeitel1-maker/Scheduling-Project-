@@ -31,6 +31,10 @@ function toDialTarget(peerIdOrMultiaddr) {
 
 const DEFAULT_LISTEN = ['/ip4/127.0.0.1/tcp/0']
 
+// Connection-flood DoS backstop (Security review). A camp LAN is a few devices;
+// this ceiling is deliberately generous and only caps a flood.
+const MAX_CONNECTIONS = 200
+
 // Start a libp2p node. mDNS discovery is deliberately NOT wired in here (that
 // is discovery.js, slice 4d) — tests and in-process callers dial directly.
 //
@@ -47,6 +51,13 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
     transports: [tcp()],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
+    // Security review backstop: bound how many peer connections this node will
+    // hold at once. A camp LAN is a handful of devices; this generous ceiling
+    // only exists to cap a connection-flood DoS, not to constrain normal use.
+    // (Per-peer frame-RATE limiting — a token bucket ahead of A.merge — is a
+    // Stage-5 pre-wiring item per the Security review; the frame-SIZE cap lives
+    // in wireProtocol.js's MAX_FRAME_BYTES.)
+    connectionManager: { maxConnections: MAX_CONNECTIONS },
     services: { identify: identify() },
   })
 
