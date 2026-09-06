@@ -167,4 +167,47 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await waitFor(() => activityRow(dbB, 'x')?.name === 'X')
     expect(activityRow(dbB, 'x').name).toBe('X')
   })
+
+  it('a VALID-merging but projector-incompatible peer doc does not crash or poison node B', async () => {
+    // Red Hat blocker: a doc that A.load/A.merge accept but whose merged shape
+    // violates a projector invariant (a child referencing a missing parent ->
+    // real FK violation) must not become an unhandled rejection / process crash,
+    // and must not silently poison the node. Expected: surfaced + SQLite
+    // last-good + doc kept as CRDT truth + sync continues.
+    const genesis = createEmptyDoc()
+    const projErrors = []
+    const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
+    const b = await startSyncNode({
+      deviceId: 'device-b',
+      db: dbB,
+      doc: A.clone(genesis),
+      onProjectionError: (err, _doc, fromPeerId) => projErrors.push({ err, fromPeerId }),
+    })
+    nodes.push(a, b)
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    // Merges cleanly, but the anchor references a cohort that doesn't exist ->
+    // projectAll (foreign_keys=ON) throws atomically.
+    let bad = A.clone(genesis)
+    bad = applyWrite(bad, { entity: 'anchor_activities', entity_id: 'anc-1', field: 'name', value: 'Flagpole' })
+    bad = applyWrite(bad, { entity: 'anchor_activities', entity_id: 'anc-1', field: 'cohort_id', value: 'ghost-cohort' })
+    await a.sendDocTo(b.peerId, A.save(bad))
+
+    // Failure is surfaced, not swallowed or crashed.
+    await waitFor(() => projErrors.length > 0)
+    expect(projErrors[0].err).toBeInstanceOf(Error)
+    // SQLite left at last-good: the bad anchor never partially materialized.
+    expect(dbB.prepare('SELECT COUNT(*) AS c FROM anchor_activities').get().c).toBe(0)
+    // The merged doc is kept as CRDT truth (the merge was NOT reverted).
+    expect(b.getDoc().anchor_activities['anc-1']).toBeTruthy()
+
+    // NOT poisoned: node B still receives + merges further syncs. A subsequent
+    // valid edit still converges into B's DOC (SQLite stays blocked on the
+    // unresolved anchor until the Stage-2 rules layer repairs it — documented).
+    const good = applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'act-ok', field: 'name', value: 'Swim' })
+    await a.applyLocal(good)
+    await waitFor(() => b.getDoc().activities?.['act-ok']?.name === 'Swim')
+    expect(b.getDoc().activities['act-ok'].name).toBe('Swim')
+  })
 })

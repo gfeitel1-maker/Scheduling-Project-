@@ -52,7 +52,16 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
 
   await node.handle(PROTO, ({ stream, connection }) => {
     receiveFramed(stream.source, (bytes) => {
-      onDocReceived?.(bytes, { fromPeerId: connection.remotePeer.toString() })
+      // onDocReceived is async and invoked fire-and-forget here; a rejection
+      // from it (e.g. the consumer's projection/merge throwing) must never
+      // become an unhandled promise rejection — which in Electron's main
+      // process could crash the app. Isolate it per-frame. The consumer
+      // (syncNode) also guards internally; this is defense in depth.
+      Promise.resolve(onDocReceived?.(bytes, { fromPeerId: connection.remotePeer.toString() })).catch(
+        (err) => {
+          console.error(`transport: onDocReceived handler rejected — isolated: ${err?.message ?? err}`)
+        }
+      )
     }).catch(() => {
       // A malformed/adversarial peer closing or corrupting the stream must not
       // crash this node — see design doc's "what must NOT be trusted" section.
