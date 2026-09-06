@@ -39,6 +39,11 @@ import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
 import { campHasSetupData } from './ops/campHasSetupData.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
+import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
+import { getDocIfLoaded } from './sync/automerge/liveDoc.js'
+import { loadDoc as loadAutomergeDoc } from './sync/automerge/docStore.js'
+import { createEmptyDoc } from './automerge/campDocument.js'
+import { projectAll as projectAutomergeDoc } from './automerge/projector.js'
 import {
   getCurrentProjectPath,
   setCurrentProjectPath,
@@ -117,7 +122,7 @@ function requireAuthorized(db, { token, action, resourceId }) {
   return result
 }
 
-function sanitizeOpForIpc(op) {
+export function sanitizeOpForIpc(op) {
   if (!op) return op
   if (op.entity === 'users' && IPC_PIN_FIELDS.has(op.field)) {
     const { value: _value, ...rest } = op
@@ -2090,15 +2095,82 @@ if (isElectronEntryPoint()) {
     }
   }
 
+  // Stage 5c (docs/work/plans/2026-09-06-stage5-live-wiring-design.md § 2, § 3, § 5): read/receive-
+  // path wiring for the flagged (SHORESH_SYNC_ENGINE=automerge) sync engine. Entirely inert when the
+  // flag is off (isAutomergeEngine() is the ONLY gate — no branch below runs a single line of
+  // libp2p/Automerge work otherwise). `startSyncNode` (electron/sync/automerge/syncNode.js) is
+  // reached via a dynamic import() rather than a static one: it's the one module in this chain that
+  // pulls in transport.js's libp2p dependency graph, which is all-ESM and heavy — a static import
+  // would load it into every process regardless of the flag, defeating the point of gating.
+  //
+  // Deliberately NOT wired here (owner-gated, later slices per the design doc): liveDoc's
+  // setUserDataDirGetter and seedAllFromSqlite (Stage 5e) — this function only ever LOADS an
+  // existing on-disk doc or starts from an empty one; it never seeds from SQLite. Membership/auth-
+  // over-libp2p (Stage 5d) is untouched.
+  let automergeSyncNode = null
+  async function startAutomergeSyncNodeIfEnabled() {
+    if (!isAutomergeEngine()) return
+    try {
+      const campId = db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
+      if (!campId) {
+        console.warn('automerge sync: no camp bootstrapped yet — sync node not started this run')
+        return
+      }
+
+      // Prefer whatever liveDoc (the 5b write-path mirror) already holds in memory for this camp —
+      // reading a second, possibly-stale copy from disk when an authoritative in-memory one exists
+      // would let the sync node diverge from what 5b's dual-write is mirroring. Falls back to the
+      // persisted file (§5), then to a fresh empty doc if neither exists yet (first flag-on, before
+      // Stage 5e's seeding lands).
+      const doc = getDocIfLoaded(db) ?? loadAutomergeDoc(userDataPath, campId) ?? createEmptyDoc()
+
+      // One-time initial projection of whatever doc we're starting from, so SQLite reflects it
+      // before the renderer can observe a "connected but nothing loaded" state. Mirrors syncNode's
+      // own projection-failure handling: never throws, SQLite stays at last-good on failure.
+      try {
+        projectAutomergeDoc(db, doc)
+        if (mainWindow) mainWindow.webContents.send('shoresh:full-sync-applied')
+      } catch (err) {
+        console.error(`automerge sync: initial projection failed (non-fatal, SQLite left at last-good): ${err?.message ?? err}`)
+      }
+
+      const { startSyncNode } = await import('./sync/automerge/syncNode.js')
+      automergeSyncNode = await startSyncNode({
+        deviceId,
+        db,
+        doc,
+        onRemoteOps: (events) => {
+          if (!mainWindow) return
+          for (const event of events) {
+            mainWindow.webContents.send('shoresh:op-applied', sanitizeOpForIpc(event))
+          }
+        },
+      })
+    } catch (err) {
+      // A transport/libp2p startup failure (port in use, WASM/ESM load failure, etc.) must never
+      // prevent the app from starting — the flag is default-off precisely so this path can fail
+      // safely while the op-log path keeps working.
+      console.error(`automerge sync: failed to start (non-fatal, app continues on op-log): ${err?.message ?? err}`)
+    }
+  }
+
   app.whenReady().then(() => {
     try {
       createWindow()
     } catch (err) {
       reportStartupFailure(err)
     }
+    startAutomergeSyncNodeIfEnabled()
   })
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
+  })
+  app.on('will-quit', async () => {
+    if (automergeSyncNode) {
+      try {
+        await automergeSyncNode.stop()
+      } catch { /* shutting down anyway */ }
+    }
   })
   } catch (err) {
     reportStartupFailure(err)

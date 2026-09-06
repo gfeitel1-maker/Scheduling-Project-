@@ -12,6 +12,7 @@
 import * as A from '@automerge/automerge'
 import { startTransport } from './transport.js'
 import { projectAll } from '../../automerge/projector.js'
+import { synthesizeOpEvents } from './docDiffEvents.js'
 
 // Starts a transport node and wires it to `doc`/`db`. Returns a handle that
 // exposes the current doc and the same lifecycle/broadcast surface as
@@ -20,7 +21,19 @@ import { projectAll } from '../../automerge/projector.js'
 // `doc` is the caller's starting Automerge document (e.g. from
 // createEmptyDoc() or loadDoc(savedBytes)); this module owns mutating it from
 // here on via the internal `state.doc` reference.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError } = {}) {
+//
+// `onRemoteOps` (Stage 5c, docs/work/plans/2026-09-06-stage5-live-wiring-design.md § 3): fired
+// with (events, { fromPeerId }) once per received frame that actually advanced the doc AND
+// projected successfully — deliberately AFTER projectAll, never before and never on a projection
+// failure. Firing before projectAll would race the renderer's reload against SQLite still being
+// mid-write; firing on a projection failure would tell the renderer "reload, fresh data is here"
+// while SQLite is actually stuck at last-good, which is worse than saying nothing. `events` is
+// whatever synthesizeOpEvents (docDiffEvents.js) computed between the pre-merge and post-merge
+// heads — the caller (main.js) is responsible for sanitizing/forwarding them over IPC; this module
+// only computes and hands them off. Wrapped in try/catch so a consumer's own throw can never break
+// sync or escape as an unhandled rejection — sync must keep converging regardless of what a push-
+// event listener does with what it's handed.
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps } = {}) {
   const state = { doc }
 
   async function handleReceived(bytes, { fromPeerId }) {
@@ -49,6 +62,16 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     try {
       projectAll(db, state.doc)
       onProjected?.(state.doc)
+      // Only synthesize/fire push events once SQLite actually reflects the merged doc — the
+      // renderer re-reads SQLite on these events, so they must never lead the projection.
+      if (onRemoteOps) {
+        try {
+          const events = synthesizeOpEvents(state.doc, before, A.getHeads(state.doc), { deviceId: fromPeerId ?? null })
+          if (events.length > 0) onRemoteOps(events, { fromPeerId })
+        } catch (err) {
+          console.error(`syncNode: onRemoteOps consumer threw (non-fatal, sync continues): ${err?.message ?? err}`)
+        }
+      }
     } catch (err) {
       onProjectionError?.(err, state.doc, fromPeerId)
       console.error(
