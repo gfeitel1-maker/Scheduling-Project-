@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 56
+export const CURRENT_SCHEMA_VERSION = 57
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2210,6 +2210,57 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (56, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v57 — devices.libp2p_peer_id, per
+  // docs/adr/2026-09-06-libp2p-membership-mapping.md §4 (Stage 5d-2a).
+  //
+  // Nullable: a devices row exists (from pairing_request or self-registration)
+  // before any libp2p connection ever completes for it, exactly as it exists
+  // today before any WS connection completes for it. Set once, at the moment
+  // a peer successfully completes `authenticate` or `login` over
+  // /shoresh/auth/1.0.0 — not written by this slice (that is Stage 5d-2b).
+  //
+  // EXPLICITLY NOT A TRUST SIGNAL. This column is a routing convenience only
+  // (lets the Host recognize a reconnecting known device's PeerId), exactly
+  // analogous to a WS connection's remote IP being visible but playing no
+  // role in deviceTrustStatus/authorize(). A PeerId is a locally-generated
+  // keypair identity, not something Shoresh issues or vouches for — trusting
+  // a stored libp2p_peer_id as a login/admission bypass would let anyone who
+  // observes a trusted device's old PeerId (e.g. from an mDNS broadcast, which
+  // is unencrypted metadata) spoof admission without ever presenting a token.
+  // Nothing may authorize based on this column. See the ADR §4 for the full
+  // reasoning — this is the one invariant a future "nice fast-path" edit here
+  // is most likely to accidentally violate.
+  //
+  // Both-places DDL, following the client_write_id/v8 precedent
+  // (schema.sql's INDEX PLACEMENT RULE comment): the COLUMN is declared both
+  // here and in schema.sql's CREATE TABLE devices (both guarded by
+  // IF-NOT-EXISTS-equivalent logic, so a fresh install and a migrated db
+  // agree on PRAGMA table_info(devices)). The partial UNIQUE INDEX lives only
+  // here, not schema.sql — re-executing schema.sql against a pre-migration db
+  // (one that hasn't run this ALTER yet) would hit "no such column" if the
+  // index were declared unconditionally in schema.sql.
+  if (getSchemaVersion(db) >= 56 && getSchemaVersion(db) < 57) {
+    db.transaction(() => {
+      const hasLibp2pPeerId = db
+        .pragma('table_info(devices)')
+        .some((col) => col.name === 'libp2p_peer_id')
+      if (!hasLibp2pPeerId) {
+        db.exec('ALTER TABLE devices ADD COLUMN libp2p_peer_id TEXT')
+      }
+
+      // Unique among non-NULL values only — prevents a confused-deputy
+      // scenario where two devices claim the same PeerId, while leaving every
+      // never-yet-seen-over-libp2p device (the common case) as NULL.
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_libp2p_peer_id ON devices(libp2p_peer_id) WHERE libp2p_peer_id IS NOT NULL'
+      )
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (57, ?)').run(
       new Date().toISOString()
     )
   }

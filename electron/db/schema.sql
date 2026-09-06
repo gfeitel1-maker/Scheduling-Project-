@@ -84,8 +84,17 @@ CREATE TABLE IF NOT EXISTS devices (
   -- the raw value to compute/verify an HMAC with it. Doubles as the
   -- HMAC key for this device's own 'local' token type (see localAuth.js).
   device_secret_identifier TEXT,
-  pairing_status TEXT NOT NULL DEFAULT 'pending'
+  pairing_status TEXT NOT NULL DEFAULT 'pending',
   -- 'pending' | 'authorized' | 'denied' | 'revoked'
+  -- Set once, at a successful authenticate/login over /shoresh/auth/1.0.0
+  -- (docs/adr/2026-09-06-libp2p-membership-mapping.md §4, Stage 5d-2a).
+  -- ROUTING CONVENIENCE ONLY, NEVER A TRUST SIGNAL — see localDb.js's v57
+  -- migration comment for why nothing may authorize based on this column.
+  -- The partial UNIQUE index enforcing "unique among non-NULL values" lives
+  -- in localDb.js's v57 block, not here — see this file's INDEX PLACEMENT
+  -- RULE comment above (a column added by ALTER TABLE cannot have its index
+  -- declared here without breaking re-execution against a pre-migration db).
+  libp2p_peer_id TEXT
 );
 
 -- Host-only singleton. NEVER included in any full-sync SELECT/payload (see

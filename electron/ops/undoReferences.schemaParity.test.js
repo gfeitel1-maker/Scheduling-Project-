@@ -99,6 +99,7 @@ const ACCEPTED_NON_REFERENCES = [
   // -- pointers at non-U2-deletable entities (users, devices, templates, etc.) --
   { table: 'devices', column: 'authorized_by_user_id', reason: 'points at users, not a U2-deletable entity' },
   { table: 'devices', column: 'revoked_by_user_id', reason: 'points at users, not a U2-deletable entity' },
+  { table: 'devices', column: 'libp2p_peer_id', reason: 'a locally-generated libp2p keypair identity string, not a foreign key to any entity — routing convenience only, per docs/adr/2026-09-06-libp2p-membership-mapping.md §4' },
   { table: 'operations', column: 'author_user_id', reason: 'points at users, not a U2-deletable entity' },
   { table: 'operations', column: 'device_id', reason: 'points at devices, not a U2-deletable entity' },
   { table: 'operations', column: 'parent_op_id', reason: 'points at operations, not a U2-deletable entity' },
