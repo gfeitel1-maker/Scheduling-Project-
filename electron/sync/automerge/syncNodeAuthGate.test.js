@@ -69,6 +69,16 @@ function authorizeDeviceOnHost(deviceId) {
   return hostKey
 }
 
+// The outbound broadcast filter (Security review, 5d-1) means a sender only
+// transmits to peers that proved membership to IT — so two-way doc flow needs
+// BOTH directions authenticated. This authorizes a device on the Client's db so
+// the Host can authenticate back to it, exercising the real symmetric path.
+function authorizeDeviceOnClient(deviceId) {
+  dbA.prepare(
+    "INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status) VALUES (?, ?, ?, ?, 'authorized')"
+  ).run(deviceId, 'Host Device', new Date().toISOString(), randomBytes(32).toString('hex'))
+}
+
 function db_updateSigningKey(db, publicKey) {
   db.prepare('UPDATE camps SET signing_public_key = ?').run(publicKey)
 }
@@ -113,6 +123,15 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
 
     const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })
     expect(resp).toEqual({ type: 'auth_ok' })
+
+    // Reverse direction, required for A's outbound filter to admit B (see
+    // authorizeDeviceOnClient's comment): the Host proves membership to the
+    // Client with a token minted from the same host signing key.
+    const hostDeviceId = randomUUID()
+    authorizeDeviceOnClient(hostDeviceId)
+    const hostToken = issueCampToken(dbB, randomUUID(), hostDeviceId)
+    const reverse = await b.authenticateWith(a.peerId, { type: 'authenticate', token: hostToken, device_id: hostDeviceId })
+    expect(reverse).toEqual({ type: 'auth_ok' })
 
     const changed = applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'archery', field: 'name', value: 'Archery' })
     await a.applyLocal(changed)

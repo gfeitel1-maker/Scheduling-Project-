@@ -200,8 +200,8 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA } = setupAuthorizedDevicePair(dbA, dbB)
-    await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a' })
+    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
+    await authenticateBothWays(a, b, tokenA, tokenB)
 
     // Send garbage bytes directly through the underlying transport's protocol,
     // bypassing A.save — simulates a malformed/adversarial peer.
@@ -234,8 +234,8 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    const { tokenA } = setupAuthorizedDevicePair(dbA, dbB)
-    await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a' })
+    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
+    await authenticateBothWays(a, b, tokenA, tokenB)
 
     // Merges cleanly, but the anchor references a cohort that doesn't exist ->
     // projectAll (foreign_keys=ON) throws atomically.

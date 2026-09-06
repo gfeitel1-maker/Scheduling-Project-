@@ -77,16 +77,25 @@ async function waitFor(predicate, { timeout = 3000, interval = 20 } = {}) {
 // only that one handshake is needed. dbA plays the Host (mints the token);
 // both dbs get the same signing_public_key and an authorized device-a row,
 // mirroring what a real full-sync would already have replicated.
+// Both directions are authenticated, not just a -> b: since the Stage 5d-1
+// security fix, the SENDER also filters its broadcast by its own admission set,
+// so a.applyLocal only reaches b if a has admitted b as well. dbA plays the Host
+// (mints both tokens); both dbs get the same signing_public_key and authorized
+// rows for both devices, mirroring what a real full-sync would have replicated.
 async function authenticateAtoB(a, b, dbA, dbB) {
   const hostKey = ensureHostSigningKey(dbA)
   for (const db of [dbA, dbB]) {
     db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
-    db.prepare(
-      "INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
-    ).run('device-a', 'Device A', new Date().toISOString())
+    for (const deviceId of ['device-a', 'device-b']) {
+      db.prepare(
+        "INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
+      ).run(deviceId, `Device ${deviceId.slice(-1).toUpperCase()}`, new Date().toISOString())
+    }
   }
-  const token = issueCampToken(dbA, 'user-a', 'device-a')
-  await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: 'device-a' })
+  const tokenA = issueCampToken(dbA, 'user-a', 'device-a')
+  const tokenB = issueCampToken(dbA, 'user-b', 'device-b')
+  await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a' })
+  await b.authenticateWith(a.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b' })
 }
 
 describe('syncNode onRemoteOps — Stage 5c read-path parity', () => {

@@ -40,8 +40,13 @@ async function waitFor(predicate, { timeout = 3000, interval = 20 } = {}) {
 }
 
 describe('transport — libp2p node lifecycle', () => {
+  // Stage 5d-1: every node here needs an authenticator, because the gate now
+  // denies by default in BOTH directions — a node with no onAuthenticate admits
+  // nobody, so it neither accepts nor broadcasts doc frames.
+  const alwaysAdmit = () => ({ ok: true })
+
   it('two nodes connect via direct dial', async () => {
-    const a = await startTransport({ deviceId: 'device-a' })
+    const a = await startTransport({ deviceId: 'device-a', onAuthenticate: alwaysAdmit })
     const b = await startTransport({ deviceId: 'device-b' })
     handles.push(a, b)
 
@@ -52,11 +57,9 @@ describe('transport — libp2p node lifecycle', () => {
     expect(a.peerId).not.toBe(b.peerId)
   })
 
-  const alwaysAdmit = () => ({ ok: true })
-
   it('broadcastDoc delivers byte-identical bytes to onDocReceived', async () => {
     const received = []
-    const a = await startTransport({ deviceId: 'device-a' })
+    const a = await startTransport({ deviceId: 'device-a', onAuthenticate: alwaysAdmit })
     const b = await startTransport({
       deviceId: 'device-b',
       onDocReceived: (bytes, meta) => received.push({ bytes, meta }),
@@ -71,6 +74,7 @@ describe('transport — libp2p node lifecycle', () => {
     // (Stage 5d-1 admission gate) — b's authenticatedPeers set is keyed by
     // the dialer's own peer id, i.e. a.peerId.
     await a.authenticateWith(b.peerId, { type: 'authenticate' })
+    await b.authenticateWith(a.peerId, { type: 'authenticate' })
 
     const payload = new Uint8Array([9, 8, 7, 6, 5])
     await a.broadcastDoc(payload)
@@ -83,7 +87,7 @@ describe('transport — libp2p node lifecycle', () => {
   it('sendDocTo reaches only the targeted peer, not a third bystander', async () => {
     const receivedB = []
     const receivedC = []
-    const a = await startTransport({ deviceId: 'device-a' })
+    const a = await startTransport({ deviceId: 'device-a', onAuthenticate: alwaysAdmit })
     const b = await startTransport({
       deviceId: 'device-b',
       onDocReceived: (bytes) => receivedB.push(bytes),
@@ -101,6 +105,7 @@ describe('transport — libp2p node lifecycle', () => {
     await waitFor(() => a.getPeers().length === 2)
 
     await a.authenticateWith(b.peerId, { type: 'authenticate' })
+    await b.authenticateWith(a.peerId, { type: 'authenticate' })
 
     await a.sendDocTo(b.peerId, new Uint8Array([1, 2, 3]))
     await waitFor(() => receivedB.length > 0)
@@ -136,7 +141,7 @@ describe('transport — libp2p node lifecycle', () => {
   })
 
   it('stop() closes the node (no further peers reachable)', async () => {
-    const a = await startTransport({ deviceId: 'device-a' })
+    const a = await startTransport({ deviceId: 'device-a', onAuthenticate: alwaysAdmit })
     const peerId = a.peerId
     await a.stop()
     handles = handles.filter((h) => h !== a)
