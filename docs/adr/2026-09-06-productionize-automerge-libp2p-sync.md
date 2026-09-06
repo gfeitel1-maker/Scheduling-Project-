@@ -8,7 +8,10 @@ date: 2026-09-06
 decided: 2026-09-06
 deciders: [product-owner]
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
-supersedes: [docs/adr/2026-08-17-shared-project-multi-transport-sync.md]
+# NOTE: the superseded ADR (2026-08-17-shared-project-multi-transport-sync.md) lives on the
+# sibling `claude/shoresh-future-architecture-364e03` branch, not on the main line — so this is
+# left empty here to avoid a dangling reference; the supersession is recorded in prose below.
+supersedes: []
 extends: []
 depends_on_external: ["@automerge/automerge@3.4.1", "libp2p@2.10.0 (pinned — v3 broke the stream API)"]
 related_discovery:
@@ -34,6 +37,12 @@ program: shoresh-future-architecture
 > has already demonstrated the claim, headless, on this machine.
 
 ## Supersedes
+
+> **Branch note:** the superseded ADR (`docs/adr/2026-08-17-shared-project-multi-transport-sync.md`)
+> was authored on the sibling `claude/shoresh-future-architecture-364e03` branch and does **not**
+> exist on the main line, so the `supersedes:` frontmatter field here is intentionally empty to
+> avoid a dangling reference. The supersession relationship is recorded in prose immediately below;
+> if that ADR is ever brought to `main`, restore the frontmatter link.
 
 This ADR **supersedes** `docs/adr/2026-08-17-shared-project-multi-transport-sync.md` ("Shared-project
 model over a multi-transport, referee-less sync engine"), which recommended embedding **Syncthing**

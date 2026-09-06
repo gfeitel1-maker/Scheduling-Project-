@@ -1,3 +1,13 @@
+---
+title: Automerge + libp2p productionization — Stage 1 handoff
+document_type: handoff
+status: active
+created: 2026-09-06
+task: docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md
+archive_when: Stage 1 is merged and Stage 2 (rules layer) is underway
+worktree: .claude/worktrees/automerge-stage1 (branch: claude/productionize-automerge-stage1)
+---
+
 # Handoff — Automerge + libp2p productionization, Stage 1
 
 **Date:** 2026-09-06
