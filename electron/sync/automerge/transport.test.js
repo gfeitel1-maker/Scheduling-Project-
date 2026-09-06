@@ -5,6 +5,18 @@
 // Proves transport.js's own API contract: connect, broadcast, receive,
 // protocol-gating, clean stop. No Automerge/SQLite here — see syncNode.test.js
 // for the merge-then-project acceptance test (Stage 4c).
+//
+// Stage 5d-1 update (docs/adr/2026-09-06-libp2p-membership-mapping.md §3):
+// transport.js's doc-sync handler now refuses any peer that hasn't completed
+// the auth handshake on the SAME connection first. The tests below that
+// actually exercise doc delivery (broadcastDoc/sendDocTo reaching
+// onDocReceived) now call `authenticateWith` with an always-admit fake
+// authenticator before doing so — this module has no opinion on what
+// "authenticated" means (that's syncNode.js's job), so tests supply the
+// simplest possible `onAuthenticate` that says yes. The real, security-
+// relevant admission logic (token verify/reject-local/trust-check, admission
+// removed on disconnect) is covered by authGate.test.js and
+// syncNode.authGate.test.js, not here.
 import { describe, it, expect, afterEach } from 'vitest'
 import { createLibp2p } from 'libp2p'
 import { tcp } from '@libp2p/tcp'
@@ -40,17 +52,25 @@ describe('transport — libp2p node lifecycle', () => {
     expect(a.peerId).not.toBe(b.peerId)
   })
 
+  const alwaysAdmit = () => ({ ok: true })
+
   it('broadcastDoc delivers byte-identical bytes to onDocReceived', async () => {
     const received = []
     const a = await startTransport({ deviceId: 'device-a' })
     const b = await startTransport({
       deviceId: 'device-b',
       onDocReceived: (bytes, meta) => received.push({ bytes, meta }),
+      onAuthenticate: alwaysAdmit,
     })
     handles.push(a, b)
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
+
+    // a must authenticate to b before b will accept doc-sync frames from it
+    // (Stage 5d-1 admission gate) — b's authenticatedPeers set is keyed by
+    // the dialer's own peer id, i.e. a.peerId.
+    await a.authenticateWith(b.peerId, { type: 'authenticate' })
 
     const payload = new Uint8Array([9, 8, 7, 6, 5])
     await a.broadcastDoc(payload)
@@ -67,16 +87,20 @@ describe('transport — libp2p node lifecycle', () => {
     const b = await startTransport({
       deviceId: 'device-b',
       onDocReceived: (bytes) => receivedB.push(bytes),
+      onAuthenticate: alwaysAdmit,
     })
     const c = await startTransport({
       deviceId: 'device-c',
       onDocReceived: (bytes) => receivedC.push(bytes),
+      onAuthenticate: alwaysAdmit,
     })
     handles.push(a, b, c)
 
     await a.dial(b.getMultiaddrs()[0])
     await a.dial(c.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length === 2)
+
+    await a.authenticateWith(b.peerId, { type: 'authenticate' })
 
     await a.sendDocTo(b.peerId, new Uint8Array([1, 2, 3]))
     await waitFor(() => receivedB.length > 0)

@@ -4,6 +4,13 @@
 // full edit -> transport -> merge -> SQLite path, across two SEPARATE SQLite
 // databases, each behind its own libp2p node. This is Stage 4's mechanical
 // equivalent of the WS protocol's scheduleE2E.sync.test.js parity proof.
+//
+// Stage 5d-1 update (docs/adr/2026-09-06-libp2p-membership-mapping.md §3):
+// startSyncNode now gates doc-sync behind the auth-over-libp2p handshake, so
+// every test below that exchanges doc bytes must authenticate first —
+// setupAuthorizedDevicePair/authenticateBothWays do that using the SAME
+// evaluateAuthenticate logic (via startSyncNode's real onAuthenticate wiring)
+// production code uses, not a test-only bypass.
 import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -11,6 +18,7 @@ import path from 'node:path'
 import * as A from '@automerge/automerge'
 import { openLocalDb } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
+import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
 
 let files = []
@@ -19,8 +27,37 @@ function freshDb(tag) {
   files.push(f)
   const db = openLocalDb(f)
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
-  db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Device One')
   return db
+}
+
+// dbA plays the Host (holds host_signing_key, mints camp tokens); BOTH dbs
+// get the same signing_public_key and BOTH devices marked authorized —
+// mirroring what a real full-sync of camps/devices would already have
+// replicated to a genuinely paired Client before this handshake runs.
+function setupAuthorizedDevicePair(dbA, dbB) {
+  const hostKey = ensureHostSigningKey(dbA)
+  for (const db of [dbA, dbB]) {
+    db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
+    db.prepare(
+      "INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
+    ).run('device-a', 'Device A', new Date().toISOString())
+    db.prepare(
+      "INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
+    ).run('device-b', 'Device B', new Date().toISOString())
+  }
+  return {
+    tokenA: issueCampToken(dbA, 'user-a', 'device-a'),
+    tokenB: issueCampToken(dbA, 'user-b', 'device-b'),
+  }
+}
+
+// Each side must authenticate TO THE OTHER before that other side's doc-sync
+// handler will accept frames from it — admission is one-directional per
+// receiving node (transport.js's authenticatedPeers set), so a two-way
+// broadcast relationship needs both handshakes.
+async function authenticateBothWays(a, b, tokenA, tokenB) {
+  await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a' })
+  await b.authenticateWith(a.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b' })
 }
 
 let dbA, dbB
@@ -63,6 +100,9 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
+    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
+    await authenticateBothWays(a, b, tokenA, tokenB)
+
     const changed = applyWrite(a.getDoc(), {
       entity: 'activities',
       entity_id: 'archery',
@@ -100,6 +140,10 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
+
+    const { tokenA, tokenB } = setupAuthorizedDevicePair(dbA, dbB)
+    await authenticateBothWays(a, b, tokenA, tokenB)
+
     // Let the initial connection settle before diverging concurrently.
     await new Promise((r) => setTimeout(r, 100))
 
@@ -156,6 +200,9 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
+    const { tokenA } = setupAuthorizedDevicePair(dbA, dbB)
+    await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a' })
+
     // Send garbage bytes directly through the underlying transport's protocol,
     // bypassing A.save — simulates a malformed/adversarial peer.
     await a.sendDocTo(b.peerId, new Uint8Array([0xff, 0x00, 0x13, 0x37]))
@@ -186,6 +233,9 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     nodes.push(a, b)
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
+
+    const { tokenA } = setupAuthorizedDevicePair(dbA, dbB)
+    await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a' })
 
     // Merges cleanly, but the anchor references a cohort that doesn't exist ->
     // projectAll (foreign_keys=ON) throws atomically.

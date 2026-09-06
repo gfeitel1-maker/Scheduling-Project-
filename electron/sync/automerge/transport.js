@@ -8,17 +8,26 @@
 // consequences — merge-then-project — reviewable without libp2p internals.
 //
 // Every libp2p peer here is symmetric: no Host/Client distinction, no camp-
-// membership check. Protocol-gating (node.handle(PROTO, ...) below) is
-// necessary but not sufficient as camp isolation — see the design doc's
-// "Security surface" section. Stage 5 maps privileged roles onto peer ids;
-// this module does not.
+// membership check beyond the auth admission gate below. Protocol-gating
+// (node.handle(PROTO, ...) below) is necessary but not sufficient as camp
+// isolation on its own — see the design doc's "Security surface" section.
+//
+// Stage 5d-1 (docs/adr/2026-09-06-libp2p-membership-mapping.md §3) closes the
+// gap that comment used to describe: the doc-sync protocol handler now
+// refuses any peer that has not completed the auth handshake
+// (electron/sync/automerge/authGate.js) ON THIS SAME libp2p connection. This
+// module still knows nothing about tokens/PIN/device-trust semantics —
+// `onAuthenticate` is injected by the caller (syncNode.js) exactly the way
+// `onDocReceived` already is, keeping this module testable with a fake
+// authenticator.
 import { createLibp2p } from 'libp2p'
 import { tcp } from '@libp2p/tcp'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify } from '@libp2p/identify'
 import { peerIdFromString } from '@libp2p/peer-id'
-import { PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
+import { PROTO, AUTH_PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
+import { registerAuthGate } from './authGate.js'
 
 // Accept either a PeerId/Multiaddr object (as returned by getPeers()'s
 // underlying node, or by getMultiaddrs()) or transport.js's own stringified
@@ -45,7 +54,7 @@ const MAX_CONNECTIONS = 200
 // for Stage 5/6, which will need it once Host-privileged-role mapping onto
 // libp2p PeerIds is designed — see the design doc's "Host stays privileged"
 // section. Every libp2p peer here is symmetric today.
-export async function startTransport({ deviceId: _deviceId, onDocReceived, listen } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, listen, onAuthenticate } = {}) {
   const node = await createLibp2p({
     addresses: { listen: listen ?? DEFAULT_LISTEN },
     transports: [tcp()],
@@ -61,14 +70,27 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
     services: { identify: identify() },
   })
 
+  const { authenticatedPeers } = registerAuthGate(node, { onAuthenticate })
+
   await node.handle(PROTO, ({ stream, connection }) => {
+    const fromPeerId = connection.remotePeer.toString()
+    // Stage 5d-1 admission gate (ADR §3, threat #1/#4): a peer that has not
+    // completed the auth handshake on THIS connection never reaches
+    // receiveFramed — its bytes never reach A.load/A.merge at all. This is a
+    // coarse connection-admission check, not a re-derivation of
+    // authorize()-style per-action permissions; see the ADR for why the two
+    // don't collapse into one gate.
+    if (!authenticatedPeers.has(fromPeerId)) {
+      stream.abort(new Error('unauthenticated'))
+      return
+    }
     receiveFramed(stream.source, (bytes) => {
       // onDocReceived is async and invoked fire-and-forget here; a rejection
       // from it (e.g. the consumer's projection/merge throwing) must never
       // become an unhandled promise rejection — which in Electron's main
       // process could crash the app. Isolate it per-frame. The consumer
       // (syncNode) also guards internally; this is defense in depth.
-      Promise.resolve(onDocReceived?.(bytes, { fromPeerId: connection.remotePeer.toString() })).catch(
+      Promise.resolve(onDocReceived?.(bytes, { fromPeerId })).catch(
         (err) => {
           console.error(`transport: onDocReceived handler rejected — isolated: ${err?.message ?? err}`)
         }
@@ -102,6 +124,39 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
     return node.dial(toDialTarget(multiaddrOrPeerId), { runOnLimitedConnection: true })
   }
 
+  // Dials the target peer's auth protocol and sends `msg` (e.g.
+  // {type:'authenticate', token, device_id} — ADR §1's "reconnect" flow),
+  // resolving with the peer's `auth_ok`/`auth_failed` response frame. Does
+  // NOT itself admit anything on THIS node — admission is one-directional,
+  // decided by whichever side ran onAuthenticate and populated its own
+  // authenticatedPeers set.
+  async function authenticateWith(peerId, msg) {
+    const stream = await node.dialProtocol(toDialTarget(peerId), AUTH_PROTO, { runOnLimitedConnection: true })
+    return new Promise((resolve, reject) => {
+      let settled = false
+      receiveFramed(stream.source, (bytes) => {
+        if (settled) return
+        settled = true
+        try {
+          resolve(JSON.parse(new TextDecoder().decode(bytes)))
+        } catch (err) {
+          reject(err)
+        }
+      }).catch((err) => {
+        if (!settled) {
+          settled = true
+          reject(err)
+        }
+      })
+      sendFramed(stream.sink, new TextEncoder().encode(JSON.stringify(msg))).catch((err) => {
+        if (!settled) {
+          settled = true
+          reject(err)
+        }
+      })
+    })
+  }
+
   return {
     peerId: node.peerId.toString(),
     getPeers: () => node.getPeers().map((p) => p.toString()),
@@ -109,6 +164,8 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
     broadcastDoc,
     sendDocTo,
     dial,
+    authenticateWith,
+    isPeerAuthenticated: (peerId) => authenticatedPeers.has(peerId),
     stop: () => node.stop(),
   }
 }

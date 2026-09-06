@@ -14,6 +14,7 @@ import {
 } from '../ops/operations.js'
 import { authorize } from '../auth/authorize.js'
 import { deviceTrustStatus, deviceTrustReason } from '../auth/deviceTrust.js'
+import { evaluateAuthenticate } from '../auth/connectionAuth.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from '../auth/deriveWriteAction.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { restoreEntity } from '../ops/restore.js'
@@ -39,66 +40,22 @@ function isNonEmptyString(v) {
 }
 
 function handleAuthenticate(db, ws, msg) {
-  const verified = verifySessionToken(db, msg.token)
-  if (!verified || verified.deviceId !== msg.device_id) {
-    // 4401: custom app-level close code (WS custom range is 4000-4999) so a
+  // The verify/reject-local/self-register/trust-check decision is shared
+  // with the libp2p auth-over-libp2p handshake (electron/auth/connectionAuth.js,
+  // Stage 5d-1) — this is the one place that logic lives; do not re-add it
+  // here. `result.code` is the same 4401/4402/4403/4404 convention this WS
+  // handler has always used.
+  const result = evaluateAuthenticate(db, { token: msg.token, device_id: msg.device_id })
+  if (!result.ok) {
+    // Custom app-level close codes (WS custom range is 4000-4999) so a
     // client-side close handler CAN distinguish this from an ordinary
     // network drop. T87 (docs/adr/2026-08-16-client-reauth-on-restart.md) is
-    // that client-side work — syncClient.js's close handler now branches on
-    // this and the other app-level codes (4402/4403/4404) and surfaces them
-    // to the renderer via onAuthRejected.
-    ws.close(4401, 'invalid_token')
+    // that client-side work — syncClient.js's close handler branches on
+    // these codes and surfaces them to the renderer via onAuthRejected.
+    ws.close(result.code, result.reason)
     return
   }
-
-  // A 'local' token is this-device-only by design (HMAC'd with a device's
-  // own device_secret_identifier — see localAuth.js's issueLocalToken /
-  // verifySessionToken) and must never be accepted as proof of network
-  // trust, per docs/adr/2026-07-25-device-trust-revocation.md §3. Rejected
-  // outright here rather than relying on signature mismatch alone, since a
-  // 'local' token from THIS SAME device (or one whose secret it somehow
-  // knows) would otherwise verify successfully.
-  if (verified.type !== 'camp') {
-    ws.close(4402, 'local_token_not_valid_for_network')
-    return
-  }
-
-  // Self-registration is allowed regardless of authorization status (a
-  // brand-new device must get a `devices` row to exist at all before it can
-  // ever be authorized), but connection ACCEPTANCE is gated on
-  // authorized_at/revoked_at, re-checked fresh here rather than cached —
-  // same revocation-enforcement rule authorize() applies on every IPC call.
-  // Self-register this device on the Host if it has never been seen before.
-  // Without this, a genuinely new device connecting for the first time has no
-  // `devices` row, sendFullSyncIfFirstPairing's lookup returns undefined, and
-  // the first-pairing full_sync silently never fires. INSERT OR IGNORE makes
-  // this a safe no-op for an already-known device (own-machine registration
-  // via ensureDeviceRow in main.js, or a returning peer). pairing_status
-  // defaults to 'pending' — a device row existing no longer implies it may
-  // log in (docs/superpowers/specs/2026-07-25-device-trust-revocation-design.md).
-  db.prepare(
-    "INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')"
-  ).run(verified.deviceId, `Device ${verified.deviceId.slice(0, 8)}`)
-
-  const trust = deviceTrustStatus(db, verified.deviceId)
-  if (!trust.found || !trust.authorized || trust.revoked) {
-    const reason = deviceTrustReason(trust)
-    recordAuditEvent(db, {
-      actorUserId: verified.userId,
-      deviceId: verified.deviceId,
-      action: 'auth.authenticate',
-      outcome: 'deny',
-      reason,
-      metadata: verified.jti ? { jti: verified.jti } : null,
-    })
-    // For the not-found case — unreachable here, since the synchronous
-    // INSERT OR IGNORE self-registration immediately above guarantees
-    // trust.found — this close reason TEXT is now 'device_not_found' (was
-    // hardcoded 'device_not_authorized' pre-C3). The close CODE is
-    // unaffected either way (4403).
-    ws.close(reason === 'device_revoked' ? 4404 : 4403, reason)
-    return
-  }
+  const { verified } = result
 
   // T85 Risk 1 fix (docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md):
   // a re-authenticate on an ALREADY-authenticated socket (shift change —

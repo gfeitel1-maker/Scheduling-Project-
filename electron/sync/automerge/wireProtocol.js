@@ -12,6 +12,14 @@ import { encode, decode } from 'it-length-prefixed'
 
 export const PROTO = '/shoresh/automerge/1.0.0'
 
+// Stage 5d-1 (docs/adr/2026-09-06-libp2p-membership-mapping.md §1): a SEPARATE
+// protocol id for the auth handshake, not a message-type branch inside PROTO
+// — see the ADR for why two protocol ids (short-lived handshake vs.
+// long-lived doc-sync) is the cleaner primitive than parse-and-branch on one
+// stream. Reuses this file's own sendFramed/receiveFramed verbatim; only the
+// protocol string differs.
+export const AUTH_PROTO = '/shoresh/auth/1.0.0'
+
 // Hard cap on a single inbound frame (Security review: bound a hostile peer's
 // per-frame memory footprint explicitly rather than relying on
 // it-length-prefixed's 4 MiB default). Stage 4 uses whole-document exchange, so
