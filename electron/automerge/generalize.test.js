@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// Stage 3 (docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md):
+// Automerge generalization slice (docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md):
 // generalizes campDocument.js/projector.js/seed.js from ONE entity
 // (days_of_operation, Stage 1/2) to every entity in DIRECT_CAMP_ENTITIES —
 // the simple, id-keyed, per-field camp-scoped entities. These tests prove
@@ -15,7 +15,7 @@ import { openLocalDb } from '../db/localDb.js'
 import { appendOp } from '../ops/operations.js'
 import { DIRECT_CAMP_ENTITIES } from '../ops/campScopedEntities.js'
 import { PROJECTIONS } from '../ops/projections.js'
-import { createEmptyDoc, applyWrite } from './campDocument.js'
+import { createEmptyDoc, applyWrite, MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
 import { projectEntity, projectAll, rebuildFromDoc } from './projector.js'
 import { seedDocFromSqlite, seedAllFromSqlite } from './seed.js'
 
@@ -48,14 +48,20 @@ afterEach(() => {
   files = []
 })
 
-describe('Stage 3 — modeled entity set is pinned to DIRECT_CAMP_ENTITIES', () => {
-  it('the modeled set (createEmptyDoc keys) equals DIRECT_CAMP_ENTITIES exactly', () => {
+describe('Automerge generalization slice — modeled entity set is pinned to DIRECT_CAMP_ENTITIES minus DEFERRED_ENTITIES', () => {
+  it('the modeled set (createEmptyDoc keys) equals DIRECT_CAMP_ENTITIES \\ DEFERRED_ENTITIES exactly', () => {
     const doc = createEmptyDoc()
-    expect(Object.keys(doc).sort()).toEqual([...DIRECT_CAMP_ENTITIES].sort())
+    const expected = [...DIRECT_CAMP_ENTITIES].filter((e) => !DEFERRED_ENTITIES.has(e))
+    expect(Object.keys(doc).sort()).toEqual(expected.sort())
+    expect([...MODELED_ENTITIES].sort()).toEqual(expected.sort())
+  })
+
+  it('DEFERRED_ENTITIES is exactly {day_overrides}', () => {
+    expect([...DEFERRED_ENTITIES]).toEqual(['day_overrides'])
   })
 })
 
-describe('Stage 3 — scope guard: refuses non-DIRECT_CAMP entities', () => {
+describe('Automerge generalization slice — scope guard: refuses non-DIRECT_CAMP entities', () => {
   it('applyWrite throws for compound_cell_decisions (host-only)', () => {
     const doc = createEmptyDoc()
     expect(() =>
@@ -91,7 +97,25 @@ describe('Stage 3 — scope guard: refuses non-DIRECT_CAMP entities', () => {
   })
 })
 
-describe('Stage 3 — multi-entity parity with the op-log (load-bearing)', () => {
+describe('Automerge generalization slice — day_overrides is refused at all three entry points (deferred, op-log-coupled)', () => {
+  it('applyWrite throws for day_overrides', () => {
+    const doc = createEmptyDoc()
+    expect(() =>
+      applyWrite(doc, { entity: 'day_overrides', entity_id: 'x', field: 'schedule_week_id', value: 'w-1' })
+    ).toThrow(/deferred/)
+  })
+
+  it('projectEntity throws for day_overrides', () => {
+    const doc = createEmptyDoc()
+    expect(() => projectEntity(db, doc, 'day_overrides')).toThrow(/deferred/)
+  })
+
+  it('seedDocFromSqlite throws for day_overrides', () => {
+    expect(() => seedDocFromSqlite(db, undefined, 'day_overrides')).toThrow(/deferred/)
+  })
+})
+
+describe('Automerge generalization slice — multi-entity parity with the op-log (load-bearing)', () => {
   it('a mixed write stream across several entities projects byte-identically via op-log vs. Automerge', () => {
     const dbA = freshDb('parity-oplog') // Path A: real op-log
     const dbB = freshDb('parity-doc') // Path B: Automerge doc -> projector
@@ -141,7 +165,7 @@ describe('Stage 3 — multi-entity parity with the op-log (load-bearing)', () =>
   })
 })
 
-describe('Stage 3 — FK-safe projectAll ordering', () => {
+describe('Automerge generalization slice — FK-safe projectAll ordering', () => {
   it('projects an entity that references another (anchor_activities -> cohorts/days_of_operation) without an FK error', () => {
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'cohorts', entity_id: 'cohort-1', field: 'camp_id', value: 'camp-1' })
@@ -173,7 +197,53 @@ describe('Stage 3 — FK-safe projectAll ordering', () => {
   })
 })
 
-describe('Stage 3 — full-camp rebuildFromDoc round-trip (SQLite is disposable)', () => {
+describe('Automerge generalization slice — delete-reconcile runs in REVERSE FK order (BLOCKER fix)', () => {
+  it('projectAll deletes a parent (cohort) and its child (tier) together without an FK violation', () => {
+    // SQLite already has a cohort and a tier that references it, written
+    // directly (bypassing the op-log/doc entirely, like real pre-existing data).
+    db.prepare("INSERT INTO cohorts (id, camp_id, name) VALUES ('c1', 'camp-1', 'Session A')").run()
+    db.prepare("INSERT INTO tiers (id, camp_id, cohort_id, name) VALUES ('t1', 'camp-1', 'c1', 'Senior')").run()
+
+    // The document is empty for both entities — it represents "both were
+    // deleted", coherently, in the same replay. Before the fix, projectAll's
+    // per-entity interleaved upsert+delete ran cohorts (delete c1) BEFORE
+    // tiers (delete t1), and deleting c1 while t1.cohort_id still pointed at
+    // it threw under foreign_keys=ON.
+    const doc = createEmptyDoc()
+
+    expect(() => projectAll(db, doc)).not.toThrow()
+    expect(db.prepare('SELECT * FROM cohorts WHERE id = ?').get('c1')).toBeUndefined()
+    expect(db.prepare('SELECT * FROM tiers WHERE id = ?').get('t1')).toBeUndefined()
+  })
+})
+
+describe('Automerge generalization slice — inconsistent doc is a rules-layer boundary, not a projector bug', () => {
+  it('a doc whose tier references a cohort the doc never created throws, and leaves SQLite byte-identical to before the call (atomic rollback)', () => {
+    // This doc is DOMAIN-INVARIANT-BROKEN by construction: doc.tiers.t1
+    // references cohort_id 'c1', but doc.cohorts has no 'c1' entry at all.
+    // Real writes can never produce this shape through applyWrite (a director
+    // cannot reference a cohort that was never created) — this is a synthetic
+    // doc standing in for what a buggy Stage-2 rules layer or a corrupted
+    // sync payload could hand the projector. The projector CANNOT resolve
+    // this (there is no cohort row to project), so it throws — that is
+    // correct, not a defect. Guarding against ever PRODUCING such a doc is
+    // the Stage-2 rules layer's job, not this projector's.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'tiers', entity_id: 't1', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'tiers', entity_id: 't1', field: 'cohort_id', value: 'c1' })
+    doc = applyWrite(doc, { entity: 'tiers', entity_id: 't1', field: 'name', value: 'Senior' })
+
+    const before = snapshotAll(db)
+    expect(() => projectAll(db, doc)).toThrow()
+    // Atomicity proof: better-sqlite3 nests projectEntity's/upsertEntity's
+    // inner transactions as savepoints under projectAll's outer transaction,
+    // so a throw partway through unwinds ALL of it, not just the entity that
+    // threw — SQLite is left exactly as it was before projectAll was called.
+    expect(snapshotAll(db)).toEqual(before)
+  })
+})
+
+describe('Automerge generalization slice — full-camp rebuildFromDoc round-trip (SQLite is disposable)', () => {
   it('seedAllFromSqlite -> corrupt SQLite -> rebuildFromDoc(db, doc) restores every modeled table identically', () => {
     // Seed a mini-camp across several tables via the REAL op-log.
     const stream = [
@@ -196,6 +266,27 @@ describe('Stage 3 — full-camp rebuildFromDoc round-trip (SQLite is disposable)
       { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'cohort_id', value: 'cohort-1' },
       { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'day_id', value: 'day-1' },
       { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'name', value: 'Flag' },
+      // Code Reviewer LOW: broaden coverage beyond the original 8 entities to
+      // every remaining op-log-INDEPENDENT ensureExists (day_overrides is the
+      // only op-log-coupled one, and it's deferred — see campDocument.js).
+      { entity: 'camp_maps', entity_id: 'map-1', field: 'camp_id', value: 'camp-1' },
+      { entity: 'camp_maps', entity_id: 'map-1', field: 'kind', value: 'outdoor' },
+      { entity: 'schedule_weeks', entity_id: 'week-1', field: 'camp_id', value: 'camp-1' },
+      { entity: 'schedule_weeks', entity_id: 'week-1', field: 'name', value: 'Week 1' },
+      // WRITE-ORDERING CONTRACT (projections.js schedule_templates comment):
+      // `kind` must be the FIRST field written for a new row, or the
+      // ensureExists stub materializes with the NOT NULL DEFAULT 'generated'
+      // and a later 'manual' kind write can collide under UNIQUE(week_id, kind).
+      { entity: 'schedule_templates', entity_id: 'tpl-1', field: 'kind', value: 'manual' },
+      { entity: 'schedule_templates', entity_id: 'tpl-1', field: 'camp_id', value: 'camp-1' },
+      { entity: 'schedule_templates', entity_id: 'tpl-1', field: 'week_id', value: 'week-1' },
+      { entity: 'schedule_templates', entity_id: 'tpl-1', field: 'name', value: 'Manual v1' },
+      { entity: 'special_days', entity_id: 'sd-1', field: 'camp_id', value: 'camp-1' },
+      { entity: 'special_days', entity_id: 'sd-1', field: 'name', value: 'Color War' },
+      { entity: 'elective_sets', entity_id: 'es-1', field: 'camp_id', value: 'camp-1' },
+      { entity: 'elective_sets', entity_id: 'es-1', field: 'name', value: 'Afternoon Electives' },
+      { entity: 'events', entity_id: 'ev-1', field: 'camp_id', value: 'camp-1' },
+      { entity: 'events', entity_id: 'ev-1', field: 'name', value: 'Visiting Day' },
     ]
     for (const w of stream) appendOp(db, { ...w, device_id: 'device-1' })
 
@@ -206,6 +297,11 @@ describe('Stage 3 — full-camp rebuildFromDoc round-trip (SQLite is disposable)
     db.prepare("INSERT INTO groups (id, camp_id, name) VALUES ('junk-group', 'camp-1', 'GARBAGE')").run()
     db.prepare("UPDATE activities SET name = 'WRONG' WHERE id = 'act-1'").run()
     db.prepare("DELETE FROM anchor_activities WHERE id = 'anchor-1'").run()
+    db.prepare("UPDATE schedule_templates SET name = 'WRONG' WHERE id = 'tpl-1'").run()
+    db.prepare("DELETE FROM camp_maps WHERE id = 'map-1'").run()
+    db.prepare("UPDATE special_days SET name = 'WRONG' WHERE id = 'sd-1'").run()
+    db.prepare("UPDATE elective_sets SET name = 'WRONG' WHERE id = 'es-1'").run()
+    db.prepare("UPDATE events SET name = 'WRONG' WHERE id = 'ev-1'").run()
 
     rebuildFromDoc(db, doc) // no entity arg -> full-camp rebuild
 

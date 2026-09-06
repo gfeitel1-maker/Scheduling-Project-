@@ -1,4 +1,4 @@
-// Stage 3 (docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md):
+// Automerge generalization slice (docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md):
 // generalizes Stage 1/2's single-entity (`days_of_operation`) Automerge
 // document layer to every entity in DIRECT_CAMP_ENTITIES — the simple,
 // id-keyed, per-field camp-scoped entities (electron/ops/campScopedEntities.js).
@@ -27,10 +27,35 @@ import { PROJECTIONS } from '../ops/projections.js'
 export const STAGE1_ENTITY = 'days_of_operation'
 export const STAGE1_FIELDS = PROJECTIONS[STAGE1_ENTITY].fields
 
+// day_overrides.ensureExists (electron/ops/projections.js) reconstructs its
+// four NOT-NULL FK columns by reading PRIOR field values out of the
+// `operations` table (see readField there). The doc-replay path never writes
+// `operations` — a doc-native replay of day_overrides would call
+// ensureExists with none of that history available, and the row's NOT-NULL
+// FKs would never be satisfiable, so its rows would silently never
+// materialize. day_overrides is therefore deferred out of this document
+// layer's modeled set until a doc-native row-construction (independent of
+// the op-log) is designed as its own future slice. It is the ONLY one of the
+// 15 DIRECT_CAMP_ENTITIES with this op-log coupling.
+export const DEFERRED_ENTITIES = new Set(['day_overrides'])
+
+// The entities this document layer actually models: every DIRECT_CAMP_ENTITY
+// except the deferred ones above. Every module in electron/automerge/*
+// iterates or is scoped against THIS set, not DIRECT_CAMP_ENTITIES directly.
+export const MODELED_ENTITIES = new Set(
+  [...DIRECT_CAMP_ENTITIES].filter((entity) => !DEFERRED_ENTITIES.has(entity))
+)
+
 function assertModeled(entity) {
-  if (!DIRECT_CAMP_ENTITIES.has(entity)) {
+  if (DEFERRED_ENTITIES.has(entity)) {
     throw new Error(
-      `campDocument: '${entity}' is not a modeled camp-scoped entity (see DIRECT_CAMP_ENTITIES) — ` +
+      `campDocument: '${entity}' is deferred (see DEFERRED_ENTITIES) — its ensureExists reads the ` +
+        `op-log, which the doc-replay path never writes; needs its own doc-native row-construction slice`
+    )
+  }
+  if (!MODELED_ENTITIES.has(entity)) {
+    throw new Error(
+      `campDocument: '${entity}' is not a modeled camp-scoped entity (see MODELED_ENTITIES) — ` +
         `host-only, parent-scoped, and bulk-replace entities are out of scope for this document layer`
     )
   }
@@ -39,7 +64,7 @@ function assertModeled(entity) {
 // A fresh, empty camp document with every modeled entity's collection present.
 export function createEmptyDoc() {
   const shape = {}
-  for (const entity of DIRECT_CAMP_ENTITIES) shape[entity] = {}
+  for (const entity of MODELED_ENTITIES) shape[entity] = {}
   return A.from(shape)
 }
 

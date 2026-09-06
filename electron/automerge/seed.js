@@ -1,4 +1,4 @@
-// Stage 3 seeding: safe SQLite -> Automerge document seeding for every
+// Automerge generalization slice seeding: safe SQLite -> Automerge document seeding for every
 // entity in DIRECT_CAMP_ENTITIES (docs/adr/2026-09-06-productionize-
 // automerge-libp2p-sync.md).
 //
@@ -14,14 +14,19 @@
 //
 // Scoped to DIRECT_CAMP_ENTITIES only, same boundary as campDocument.js/
 // projector.js.
-import { DIRECT_CAMP_ENTITIES } from '../ops/campScopedEntities.js'
 import { PROJECTIONS } from '../ops/projections.js'
-import { STAGE1_ENTITY, createEmptyDoc, applyWrite } from './campDocument.js'
+import { STAGE1_ENTITY, MODELED_ENTITIES, DEFERRED_ENTITIES, createEmptyDoc, applyWrite } from './campDocument.js'
 
 function assertModeled(entity) {
-  if (!DIRECT_CAMP_ENTITIES.has(entity)) {
+  if (DEFERRED_ENTITIES.has(entity)) {
     throw new Error(
-      `seedDocFromSqlite: '${entity}' is not a modeled camp-scoped entity (see DIRECT_CAMP_ENTITIES)`
+      `seedDocFromSqlite: '${entity}' is deferred (see DEFERRED_ENTITIES) — its ensureExists reads the ` +
+        `op-log, which the doc-replay path never writes; needs its own doc-native row-construction slice`
+    )
+  }
+  if (!MODELED_ENTITIES.has(entity)) {
+    throw new Error(
+      `seedDocFromSqlite: '${entity}' is not a modeled camp-scoped entity (see MODELED_ENTITIES)`
     )
   }
 }
@@ -50,7 +55,7 @@ export function seedDocFromSqlite(db, doc = createEmptyDoc(), entity = STAGE1_EN
 // unlike projectAll, which must respect DOMAIN_SNAPSHOT_ORDER.
 export function seedAllFromSqlite(db, doc = createEmptyDoc()) {
   let d = doc
-  for (const entity of DIRECT_CAMP_ENTITIES) {
+  for (const entity of MODELED_ENTITIES) {
     d = seedDocFromSqlite(db, d, entity)
   }
   return d
