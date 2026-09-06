@@ -41,12 +41,29 @@ Since the table above, two more slices merged, both behind the default-off `SHOR
   flag is on (flag-off early-returns with zero new work — proven a full-suite no-op). Op-log stays the
   source of truth; a doc-mirror failure can't touch the committed op-log write.
 
-**Two tracked items before the flag can be enabled for real (Red Hat, 5b):**
-1. `liveDoc.recordLocalWrite` does a full `A.save`+fsync **per field-op** — must be debounced/batched
-   (or use `A.saveIncremental`) before any real bulk import runs with the flag on, or it will stall
-   the main process.
-2. `liveDoc` is **gracefully inert until Stage 5e wires `setUserDataDirGetter` into `main.js`** at
+**⚠️ HARD GATES before the flag may be enabled for ANY real camp — FOUR items (corrected by the 5c
+review; the earlier "two items" was dangerously incomplete):**
+1. **Seed the doc from SQLite BEFORE any `projectAll` against live data — CRITICAL, verified.**
+   `projectAll(db, createEmptyDoc())` on a live camp db does **not** throw — it *succeeds* and
+   delete-reconciles the entire camp (setup + both schedules) to zero. First flag-on starts from an
+   empty doc (5b mirrors writes forward-only; 5e seeding unwired), so it would **wipe the camp**. The
+   hazard is at BOTH `projectAll` call sites: startup AND `syncNode.handleReceived` on every remote
+   merge — a startup-only fix leaves the remote path open. (5c's fix: guard inside `projectAll`
+   covering both sites + refuse to start unseeded.)
+2. **Stage 5d auth gate on the doc-sync protocol handler (`transport.js`).** It registers with **zero
+   auth** — any libp2p peer speaking the protocol gets bytes merged → `projectAll`. Protocol-gating is
+   NOT authorization. Combined with #1, this is an **unauthenticated remote path to wiping a camp db**.
+   So Stage 5d is a hard prerequisite for enabling the flag *at all*, not merely for Stage 6.
+3. `liveDoc.recordLocalWrite` does a full `A.save`+fsync **per field-op** — must be debounced/batched
+   (or use `A.saveIncremental`) before any real bulk import runs flag-on, or it stalls the main process.
+4. `liveDoc` is **gracefully inert until Stage 5e wires `setUserDataDirGetter` into `main.js`** at
    startup — so flag-on is a shadow no-op in the real app *today*. 5e does the real wiring + seeding.
+
+**Two Automerge-integration inheritances to respect (5c):** (a) Automerge strings are `Text` — a
+string edit emits a `put value:""` plus `splice` patches, so reading `patch.value` silently writes
+empty strings into synced text fields; identify fields by patch *path* and read values from the
+after-doc. (b) Never use a literal NUL byte as a delimiter — it makes the file binary to git (no
+reviewable diff); use the repo's `\x00`-escape convention.
 
 ## Where this pauses, and why (pacing, not stopping short)
 
