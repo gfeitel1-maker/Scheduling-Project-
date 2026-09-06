@@ -59,9 +59,11 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     expect(doc[STAGE1_ENTITY]['day-1'].day_of_week).toBe('1')
   })
 
-  it('refuses any entity other than the Stage 1 entity (explicit scope)', () => {
+  it('refuses an entity outside DIRECT_CAMP_ENTITIES (explicit scope — Automerge generalization slice widened to all direct camp entities, not just days_of_operation)', () => {
     const doc = createEmptyDoc()
-    expect(() => applyWrite(doc, { entity: 'groups', entity_id: 'g-1', field: 'name', value: 'x' })).toThrow()
+    expect(() =>
+      applyWrite(doc, { entity: 'week_activity_exclusions', entity_id: 'x-1', field: 'week_id', value: 'w-1' })
+    ).toThrow()
   })
 
   it('save/load round-trips the document byte-for-byte in content', () => {

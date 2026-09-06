@@ -1,34 +1,71 @@
-// Stage 1 of the Automerge+libp2p productionization
-// (docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md).
+// Automerge generalization slice (docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md):
+// generalizes Stage 1/2's single-entity (`days_of_operation`) Automerge
+// document layer to every entity in DIRECT_CAMP_ENTITIES — the simple,
+// id-keyed, per-field camp-scoped entities (electron/ops/campScopedEntities.js).
+// Deliberately excludes host-only tables (e.g. compound_cell_decisions),
+// parent-scoped tables (e.g. week_activity_exclusions), and the one
+// bulk-replace entity (template_slots) — those are out of scope for this
+// slice and applyWrite/etc. throw rather than silently modeling them.
 //
-// The Automerge document layer for ONE entity — `days_of_operation` — as the
-// first vertical slice. The document shape deliberately MIRRORS the op-log's
-// (entity, entity_id, field, value) semantics so that the projector (projector.js)
-// can replay each field through the EXISTING applyProjection. SQLite projected
-// from this document is therefore byte-identical to SQLite projected op-by-op
-// today — structurally, because the projector reuses applyProjection rather
-// than re-implementing it; regression-proven in projector.test.js's parity test.
+// The document shape mirrors the op-log's (entity, entity_id, field, value)
+// semantics per entity, exactly as Stage 1 did for one entity, so the
+// projector (projector.js) can replay each field through the EXISTING
+// applyProjection — SQLite projected from this document is byte-identical to
+// SQLite projected op-by-op today, structurally, not by re-proving parity for
+// every input (regression-proven in projector.test.js).
 //
-// This module is PURE: no SQLite, no IPC, no Electron. It does not touch the
-// live app in any way — nothing imports it outside these Stage 1 files yet.
+// This module is PURE: no SQLite, no IPC, no Electron. Nothing imports it
+// outside these automerge/* files yet.
 import * as A from '@automerge/automerge'
 import { coerceOpValue, DELETE_FIELD } from '../ops/operations.js'
+import { DIRECT_CAMP_ENTITIES } from '../ops/campScopedEntities.js'
+import { PROJECTIONS } from '../ops/projections.js'
 
-// The single entity modeled in this slice. Widening to more entities is a
-// later stage; until then applyWrite refuses anything else, loudly, so the
-// scope boundary can't be crossed by accident.
+// Back-compat: Stage 1 code and tests reference these two names for the
+// original single-entity slice. STAGE1_FIELDS is derived from PROJECTIONS so
+// it cannot silently drift from the op-log's field list.
 export const STAGE1_ENTITY = 'days_of_operation'
+export const STAGE1_FIELDS = PROJECTIONS[STAGE1_ENTITY].fields
 
-// The projected field set — the SAME list, in the SAME order, as
-// PROJECTIONS.days_of_operation.fields (electron/ops/projections.js). Held as
-// a local copy on purpose: importing PROJECTIONS would drag the SQLite-coupled
-// projection module into this pure layer. campDocument.test.js asserts the two
-// stay identical, so they cannot silently drift.
-export const STAGE1_FIELDS = ['camp_id', 'label', 'day_of_week', 'sort_order']
+// day_overrides.ensureExists (electron/ops/projections.js) reconstructs its
+// four NOT-NULL FK columns by reading PRIOR field values out of the
+// `operations` table (see readField there). The doc-replay path never writes
+// `operations` — a doc-native replay of day_overrides would call
+// ensureExists with none of that history available, and the row's NOT-NULL
+// FKs would never be satisfiable, so its rows would silently never
+// materialize. day_overrides is therefore deferred out of this document
+// layer's modeled set until a doc-native row-construction (independent of
+// the op-log) is designed as its own future slice. It is the ONLY one of the
+// 15 DIRECT_CAMP_ENTITIES with this op-log coupling.
+export const DEFERRED_ENTITIES = new Set(['day_overrides'])
 
-// A fresh, empty camp document with the entity collection present.
+// The entities this document layer actually models: every DIRECT_CAMP_ENTITY
+// except the deferred ones above. Every module in electron/automerge/*
+// iterates or is scoped against THIS set, not DIRECT_CAMP_ENTITIES directly.
+export const MODELED_ENTITIES = new Set(
+  [...DIRECT_CAMP_ENTITIES].filter((entity) => !DEFERRED_ENTITIES.has(entity))
+)
+
+function assertModeled(entity) {
+  if (DEFERRED_ENTITIES.has(entity)) {
+    throw new Error(
+      `campDocument: '${entity}' is deferred (see DEFERRED_ENTITIES) — its ensureExists reads the ` +
+        `op-log, which the doc-replay path never writes; needs its own doc-native row-construction slice`
+    )
+  }
+  if (!MODELED_ENTITIES.has(entity)) {
+    throw new Error(
+      `campDocument: '${entity}' is not a modeled camp-scoped entity (see MODELED_ENTITIES) — ` +
+        `host-only, parent-scoped, and bulk-replace entities are out of scope for this document layer`
+    )
+  }
+}
+
+// A fresh, empty camp document with every modeled entity's collection present.
 export function createEmptyDoc() {
-  return A.from({ [STAGE1_ENTITY]: {} })
+  const shape = {}
+  for (const entity of MODELED_ENTITIES) shape[entity] = {}
+  return A.from(shape)
 }
 
 // Persist / restore the document (append-only binary — this is the thing that
@@ -43,23 +80,21 @@ export function loadDoc(bytes) {
 // Apply one op-shaped write, returning a NEW document (Automerge is immutable
 // at this boundary). Semantics intentionally match applyProjection
 // (electron/ops/projections.js):
+//   - entity must be in DIRECT_CAMP_ENTITIES -> else throw (explicit scope)
 //   - field === DELETE_FIELD -> remove the whole entity row
-//   - a field not in STAGE1_FIELDS -> silent no-op
+//   - a field not registered in PROJECTIONS[entity].fields -> silent no-op
 //   - value is coerced with the op-log's coerceOpValue, so booleans/objects
 //     land in the document exactly as they land in the operations table.
 export function applyWrite(doc, { entity, entity_id, field, value }) {
-  if (entity !== STAGE1_ENTITY) {
-    throw new Error(
-      `campDocument (Stage 1): only '${STAGE1_ENTITY}' is modeled in this slice, got '${entity}'`
-    )
-  }
+  assertModeled(entity)
+  const fields = PROJECTIONS[entity].fields
   return A.change(doc, (d) => {
     const coll = d[entity]
     if (field === DELETE_FIELD) {
       delete coll[entity_id]
       return
     }
-    if (!STAGE1_FIELDS.includes(field)) return
+    if (!fields.includes(field)) return
     if (!coll[entity_id]) coll[entity_id] = {}
     coll[entity_id][field] = coerceOpValue(value)
   })
