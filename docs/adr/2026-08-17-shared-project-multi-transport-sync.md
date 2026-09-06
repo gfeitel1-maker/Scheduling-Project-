@@ -1,7 +1,7 @@
 ---
 title: "ADR: Shared-project model over a multi-transport, referee-less sync engine"
 document_type: adr
-status: accepted
+status: superseded by docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md
 authority: normative
 implementation_state: in_progress
 date: 2026-08-17
@@ -17,7 +17,13 @@ program: shoresh-future-architecture
 
 # ADR: Shared-project model over a multi-transport, referee-less sync engine
 
-> **Status: ACCEPTED (product-owner, 2026-08-17). Implementation in progress at S1.**
+> **Superseded by `docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md` (2026-09-06).**
+> The owner subsequently chose Automerge + libp2p over the Syncthing-based engine recommended
+> below (see that ADR for the decision and rationale). Syncthing itself is not deleted from
+> consideration — held, not killed, per the owner's optionality principle — but it is no longer
+> the primary route. This document is left intact as the historical record of that evaluation.
+>
+> **Status (as originally accepted): ACCEPTED (product-owner, 2026-08-17). Implementation in progress at S1.**
 > Accepted as the target architecture on the isolated `claude/shoresh-future-architecture-364e03`
 > branch. Owner decisions D1 (integrity-only v1), D2 (person-with-devices identity), and D3
 > (owner-resilience: nudge hard, don't hard-block) are locked. This branch is **not** merged to
