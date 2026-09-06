@@ -220,6 +220,7 @@ either the document is stranded or an edge was never declared.
 - [docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md](../../docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md)
 - [docs/work/handoffs/2026-08-17-force-subagent-skill-invocation.md](../../docs/work/handoffs/2026-08-17-force-subagent-skill-invocation.md)
 - [docs/work/handoffs/2026-08-20-outstanding-work-roadmap.md](../../docs/work/handoffs/2026-08-20-outstanding-work-roadmap.md)
+- [docs/work/handoffs/2026-09-06-automerge-productionization-progress.md](../../docs/work/handoffs/2026-09-06-automerge-productionization-progress.md)
 - [docs/work/handoffs/2026-09-06-automerge-productionization-stage1-handoff.md](../../docs/work/handoffs/2026-09-06-automerge-productionization-stage1-handoff.md)
 - [docs/work/handoffs/slices-2-3-handoff.md](../../docs/work/handoffs/slices-2-3-handoff.md)
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
