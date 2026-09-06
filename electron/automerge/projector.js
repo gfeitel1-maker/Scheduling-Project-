@@ -93,6 +93,47 @@ export function projectEntity(db, doc, entity = STAGE1_ENTITY) {
   run()
 }
 
+// Finding 1 defense-in-depth guard (docs/work/plans/2026-09-06-stage5-live-wiring-design.md §5,
+// review round on Stage 5c): delete-reconcile treats the document as an authoritative superset of
+// SQLite's modeled-entity rows (see rebuildFromDoc's CAUTION comment above). Empirically confirmed:
+// calling projectAll with a freshly createEmptyDoc() against a live camp db silently deletes every
+// row for every modeled entity — no throw, no signal, because "the doc has nothing for this entity"
+// and "the doc legitimately has zero rows for this entity" are indistinguishable to
+// deleteReconcileEntity by design. The only call sites that can produce this are things that resolve
+// "the current doc" without proving it was ever seeded from SQLite (main.js's startup fallback chain
+// before Stage 5e's seeding lands; a from-scratch doc handed to syncNode.handleReceived).
+//
+// Deliberately narrow rule, not a heuristic: refuse ONLY when the doc holds zero rows across EVERY
+// modeled entity while SQLite holds at least one row in some modeled entity's table. This is the one
+// case that is unambiguously always wrong — a document that has never been seeded and is not
+// currently building a legitimately-empty fresh camp. It is intentionally not a size-ratio or
+// per-entity check:
+//   - A per-entity check (doc has 0 rows for entity X, SQLite has rows for X) would misfire on a
+//     real, legitimate state — an entity a camp genuinely has zero rows for while the doc is
+//     otherwise fully seeded and correct.
+//   - A "doc smaller than SQLite by some threshold" heuristic would either be too strict (flags
+//     ordinary partial edits mid-sync) or too loose (misses a doc seeded for only some entities).
+// What this does NOT catch, by design: a PARTIALLY-empty document — seeded for some modeled
+// entities but missing others entirely — will pass this guard (it has SOME rows somewhere) and can
+// still silently delete-reconcile away the SQLite rows for whichever entities it's missing. Closing
+// that gap requires actual seeding-completeness tracking (a real "has this camp's doc ever been
+// fully seeded" fact), which is Stage 5e's job, not a guess bolted on here.
+function assertDocIsSupersetOrEmpty(db, doc) {
+  const docHasAnyRow = MODELED_ORDER.some((entity) => Object.keys(doc[entity] ?? {}).length > 0)
+  if (docHasAnyRow) return
+  const sqliteHasAnyRow = MODELED_ORDER.some(
+    (entity) => db.prepare(`SELECT 1 FROM ${entity} LIMIT 1`).get() !== undefined
+  )
+  if (sqliteHasAnyRow) {
+    throw new Error(
+      'projectAll: refusing to delete-reconcile — the Automerge document is completely empty for ' +
+        'every modeled entity while SQLite already holds rows for at least one of them. This document ' +
+        'has not been seeded from SQLite (see automerge/seed.js) and is not an authoritative superset; ' +
+        'projecting it would delete live camp data. See docs/work/plans/2026-09-06-stage5-live-wiring-design.md §5.'
+    )
+  }
+}
+
 // Project every modeled entity, all inside one transaction.
 //
 // Upserts run in forward MODELED_ORDER (FK-safe: a row is inserted only
@@ -106,6 +147,7 @@ export function projectEntity(db, doc, entity = STAGE1_ENTITY) {
 // succeed: entity-by-entity in forward order would try to delete the cohort
 // while its tiers still exist and hit foreign_keys=ON.
 export function projectAll(db, doc) {
+  assertDocIsSupersetOrEmpty(db, doc)
   const run = db.transaction(() => {
     for (const entity of MODELED_ORDER) upsertEntity(db, doc, entity)
     for (const entity of [...MODELED_ORDER].reverse()) deleteReconcileEntity(db, doc, entity)

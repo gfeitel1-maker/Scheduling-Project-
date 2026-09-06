@@ -13,7 +13,7 @@ import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
 import { appendOp, DELETE_FIELD } from '../ops/operations.js'
 import { STAGE1_ENTITY, createEmptyDoc, applyWrite } from './campDocument.js'
-import { projectEntity, rebuildFromDoc } from './projector.js'
+import { projectEntity, rebuildFromDoc, projectAll } from './projector.js'
 
 let files = []
 function freshDb(tag) {
@@ -130,6 +130,38 @@ describe('projector — a merged (conflict-resolved) document projects cleanly',
     // Whatever Automerge picked as the converged winner is what SQLite shows.
     expect(rows[0].label).toBe(merged[STAGE1_ENTITY]['day-1'].label)
     expect(['Lunes', 'Montag']).toContain(rows[0].label)
+  })
+})
+
+describe('projector — Finding 1 regression: projectAll must never wipe live SQLite from an unseeded doc', () => {
+  it('THROWS instead of deleting every row when doc is completely empty but SQLite has data (the reproduced wipe bug)', () => {
+    // Reproduce the empirically-confirmed bug: a live camp db with real rows (via the REAL op-log
+    // write path, not hand-inserted SQL) + a freshly createEmptyDoc() (exactly what
+    // startAutomergeSyncNodeIfEnabled falls back to before Stage 5e's seeding is wired). Before the
+    // fix, projectAll(db, doc) silently succeeded and deleted every row. It must now throw loudly
+    // and leave every row intact.
+    appendOp(db, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'camp_id', value: 'camp-1', device_id: 'device-1' })
+    appendOp(db, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Monday', device_id: 'device-1' })
+    expect(daysRows(db)).toHaveLength(1)
+
+    const emptyDoc = createEmptyDoc()
+    expect(() => projectAll(db, emptyDoc)).toThrow(/refusing to delete-reconcile/i)
+
+    // The whole point: the live row survived.
+    expect(daysRows(db)).toEqual([{ id: 'day-1', camp_id: 'camp-1', label: 'Monday', day_of_week: null, sort_order: null }])
+  })
+
+  it('does NOT throw when the doc genuinely is a superset (normal projection keeps working)', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Monday' })
+    expect(() => projectAll(db, doc)).not.toThrow()
+    expect(daysRows(db)).toEqual([{ id: 'day-1', camp_id: 'camp-1', label: 'Monday', day_of_week: null, sort_order: null }])
+  })
+
+  it('does NOT throw when both doc and SQLite are empty (legitimate fresh camp, nothing to protect)', () => {
+    expect(() => projectAll(db, createEmptyDoc())).not.toThrow()
+    expect(daysRows(db)).toEqual([])
   })
 })
 

@@ -41,6 +41,17 @@ function getCampId(db) {
   return db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
 }
 
+// Stage 5c (docs/work/plans/2026-09-06-stage5-live-wiring-design.md § 5): read-only lookup for
+// main.js's sync-node startup — "use the doc liveDoc already holds for this camp, if any, rather
+// than loading a second independent copy from disk". Returns null (never creates or loads) when
+// this module hasn't seen a write for the camp yet, which is the common case until Stage 5e wires
+// setUserDataDirGetter — main.js's caller falls back to docStore.loadDoc/createEmptyDoc in that case.
+export function getDocIfLoaded(db) {
+  const campId = getCampId(db)
+  if (campId === null) return null
+  return docsByCamp.get(campId) ?? null
+}
+
 function getDoc(userDataDir, campId) {
   if (docsByCamp.has(campId)) return docsByCamp.get(campId)
   const loaded = loadDoc(userDataDir, campId) ?? createEmptyDoc()
