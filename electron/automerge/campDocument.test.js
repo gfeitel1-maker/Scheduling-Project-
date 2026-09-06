@@ -72,6 +72,23 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     expect(reloaded[STAGE1_ENTITY]).toEqual(doc[STAGE1_ENTITY])
   })
 
+  it('save/load round-trips MULTIPLE entities + fields, and stays writable after reload', () => {
+    // Red Hat coverage gap: the basic round-trip test only covered one field on
+    // one entity. Prove a realistic multi-entity/multi-field doc survives a
+    // save->load and can still take further writes afterward.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Monday' })
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'sort_order', value: 0 })
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-2', field: 'label', value: 'Tuesday' })
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-2', field: 'day_of_week', value: 2 })
+    let reloaded = loadDoc(saveDoc(doc))
+    expect(reloaded[STAGE1_ENTITY]).toEqual(doc[STAGE1_ENTITY])
+    reloaded = applyWrite(reloaded, { entity: STAGE1_ENTITY, entity_id: 'day-3', field: 'label', value: 'Wednesday' })
+    const twice = loadDoc(saveDoc(reloaded))
+    expect(Object.keys(twice[STAGE1_ENTITY]).sort()).toEqual(['day-1', 'day-2', 'day-3'])
+    expect(twice[STAGE1_ENTITY]['day-1']).toEqual({ label: 'Monday', sort_order: 0 })
+  })
+
   it('STAGE1_FIELDS matches PROJECTIONS.days_of_operation.fields exactly (drift guard)', () => {
     // If the op-log projection's field list changes, this fails loudly rather
     // than letting the doc layer silently project a stale column set.

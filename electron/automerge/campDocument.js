@@ -3,9 +3,11 @@
 //
 // The Automerge document layer for ONE entity — `days_of_operation` — as the
 // first vertical slice. The document shape deliberately MIRRORS the op-log's
-// (entity, entity_id, field, value) semantics so that SQLite projected from
-// this document is byte-identical to SQLite projected op-by-op today. That
-// equivalence is proven in projector.test.js's parity test.
+// (entity, entity_id, field, value) semantics so that the projector (projector.js)
+// can replay each field through the EXISTING applyProjection. SQLite projected
+// from this document is therefore byte-identical to SQLite projected op-by-op
+// today — structurally, because the projector reuses applyProjection rather
+// than re-implementing it; regression-proven in projector.test.js's parity test.
 //
 // This module is PURE: no SQLite, no IPC, no Electron. It does not touch the
 // live app in any way — nothing imports it outside these Stage 1 files yet.

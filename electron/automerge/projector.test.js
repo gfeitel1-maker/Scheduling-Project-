@@ -80,6 +80,59 @@ describe('projector — Automerge doc -> SQLite for days_of_operation', () => {
   })
 })
 
+describe('projector — tenant guard parity (foreign camp_id is rejected, not crashed)', () => {
+  it('a foreign camp_id does NOT crash and does NOT write a foreign-camp row (matches op-log)', () => {
+    // Red Hat finding: the op-log's applyProjection rejects a camp_id write
+    // whose value isn't this device's camp. Because the projector now reuses
+    // applyProjection, it inherits that guard: a day whose only field is a
+    // foreign camp_id creates no row (op-log parity), and no FK crash.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'evil-1', field: 'camp_id', value: 'other-camp' })
+    expect(() => projectEntity(db, doc)).not.toThrow()
+    expect(daysRows(db)).toEqual([])
+  })
+
+  it('a valid day with a foreign camp_id write keeps the device camp (guard skips the bad write)', () => {
+    // op-log: label write creates the row (device camp_id via ensureExists),
+    // the foreign camp_id write is rejected -> row keeps the device camp.
+    const dbA = freshDb('guard-oplog')
+    const dbB = freshDb('guard-doc')
+    let doc = createEmptyDoc()
+    const stream = [
+      { entity_id: 'day-1', field: 'label', value: 'Monday' },
+      { entity_id: 'day-1', field: 'camp_id', value: 'other-camp' }, // rejected by the guard
+    ]
+    for (const w of stream) {
+      appendOp(dbA, { ...w, entity: STAGE1_ENTITY, device_id: 'device-1' })
+      doc = applyWrite(doc, { ...w, entity: STAGE1_ENTITY })
+    }
+    projectEntity(dbB, doc)
+    expect(daysRows(dbB)).toEqual(daysRows(dbA))
+    expect(daysRows(dbA)).toEqual([{ id: 'day-1', camp_id: 'camp-1', label: 'Monday', day_of_week: null, sort_order: null }])
+    dbA.close(); dbB.close()
+  })
+})
+
+describe('projector — a merged (conflict-resolved) document projects cleanly', () => {
+  it('projects the converged value of a concurrent same-field edit', async () => {
+    const A = await import('@automerge/automerge')
+    let base = createEmptyDoc()
+    base = applyWrite(base, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'camp_id', value: 'camp-1' })
+    base = applyWrite(base, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Monday' })
+    let a = A.clone(base)
+    let b = A.clone(base)
+    a = applyWrite(a, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Lunes' })
+    b = applyWrite(b, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Montag' })
+    const merged = A.merge(A.clone(a), b)
+    projectEntity(db, merged)
+    const rows = daysRows(db)
+    expect(rows).toHaveLength(1)
+    // Whatever Automerge picked as the converged winner is what SQLite shows.
+    expect(rows[0].label).toBe(merged[STAGE1_ENTITY]['day-1'].label)
+    expect(['Lunes', 'Montag']).toContain(rows[0].label)
+  })
+})
+
 describe('projector — PARITY with the op-log projection (load-bearing)', () => {
   it('the same write stream yields byte-identical SQLite via op-log and via Automerge', () => {
     // Path A: the REAL op-log — appendOp writes + projects into dbA.
