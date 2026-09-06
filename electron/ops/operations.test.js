@@ -17,7 +17,6 @@ import {
   MAX_FIELD_VALUE_LENGTH,
 } from './operations.js'
 import { docPath, loadDoc } from '../sync/automerge/docStore.js'
-import { setUserDataDirGetter, resetForTests } from '../sync/automerge/liveDoc.js'
 import { projectAll } from '../automerge/projector.js'
 import { MODELED_ENTITIES } from '../automerge/campDocument.js'
 

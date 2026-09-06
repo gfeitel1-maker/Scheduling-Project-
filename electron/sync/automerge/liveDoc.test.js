@@ -36,6 +36,16 @@ describe('recordLocalWrite', () => {
     expect(doc.groups.g1.name).toBe('Bunk A')
   })
 
+  it('is gracefully inert (no throw, no file) when userDataDir is not configured (pre-Stage-5e)', () => {
+    // Red Hat 5b finding: before startup wiring exists, a flag-on write must not
+    // throw on every call — it warns once and skips, op-log stays source of truth.
+    resetForTests() // clears the getter set in beforeEach -> unconfigured state
+    expect(() =>
+      recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A' })
+    ).not.toThrow()
+    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
+  })
+
   it('accumulates multiple writes into the same doc', () => {
     recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A' })
     recordLocalWrite(db, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim' })

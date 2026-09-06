@@ -14,9 +14,13 @@
 import { docPath, loadDoc, saveDoc } from './docStore.js'
 import { createEmptyDoc, applyWrite, MODELED_ENTITIES } from '../../automerge/campDocument.js'
 
-let userDataDirGetter = () => {
-  throw new Error('liveDoc: no userDataDir configured — call setUserDataDirGetter first')
-}
+// null until wired: production startup wiring is Stage 5e (main.js will call
+// setUserDataDirGetter with the real userData path); tests call it directly. If
+// the flag is turned on BEFORE 5e wires this, recordLocalWrite is gracefully
+// inert (one warning, never a per-write throw) rather than throwing on every
+// write — see recordLocalWrite. This keeps 5b a pure mechanism slice.
+let userDataDirGetter = null
+let warnedUnconfigured = false
 
 // campId -> loaded/created Automerge doc. Keyed by campId (not a single slot) so tests that swap
 // camps between cases can't see a stale doc; in production there is exactly one camp per device db
@@ -29,9 +33,8 @@ export function setUserDataDirGetter(getter) {
 
 export function resetForTests() {
   docsByCamp = new Map()
-  userDataDirGetter = () => {
-    throw new Error('liveDoc: no userDataDir configured — call setUserDataDirGetter first')
-  }
+  userDataDirGetter = null
+  warnedUnconfigured = false
 }
 
 function getCampId(db) {
@@ -51,10 +54,23 @@ function getDoc(userDataDir, campId) {
 export function recordLocalWrite(db, { entity, entity_id, field, value }) {
   if (!MODELED_ENTITIES.has(entity)) return
 
+  // Not wired yet (pre-Stage-5e): stay gracefully inert — warn ONCE, never
+  // throw per write. The op-log remains the source of truth regardless.
+  if (!userDataDirGetter) {
+    if (!warnedUnconfigured) {
+      console.warn(
+        'liveDoc: userDataDir not configured — Automerge dual-write is inert until Stage 5e wires it at startup'
+      )
+      warnedUnconfigured = true
+    }
+    return
+  }
+
   const campId = getCampId(db)
   if (!campId) return
 
   const userDataDir = userDataDirGetter()
+  if (!userDataDir) return
   const doc = getDoc(userDataDir, campId)
   const nextDoc = applyWrite(doc, { entity, entity_id, field, value })
   docsByCamp.set(campId, nextDoc)
