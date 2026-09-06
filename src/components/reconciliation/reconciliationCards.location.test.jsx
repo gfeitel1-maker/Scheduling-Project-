@@ -31,6 +31,37 @@ const locations = [
   { id: 'loc-arts', name: 'Arts & Crafts' },
 ]
 
+describe('DecisionCard — location held conflict, "Named by" subtitle', () => {
+  it('names the single naming activity', () => {
+    render(
+      <DecisionCard
+        decision={locationDecision('Barn')}
+        rank="hold"
+        answer={undefined}
+        onAnswer={() => {}}
+        expanded={false}
+        onToggleEvidence={() => {}}
+      />
+    )
+    expect(screen.getByText('Named by Swim')).toBeTruthy()
+  })
+
+  it('aggregates several naming activities into a count phrase', () => {
+    const decision = { ...locationDecision('Barn'), _namingActivities: ['Archery', 'Crafts', 'Yoga'] }
+    render(
+      <DecisionCard
+        decision={decision}
+        rank="hold"
+        answer={undefined}
+        onAnswer={() => {}}
+        expanded={false}
+        onToggleEvidence={() => {}}
+      />
+    )
+    expect(screen.getByText('Named by Archery and 2 other activities')).toBeTruthy()
+  })
+})
+
 describe('DecisionCard — location held conflict, "Use instead ->" picker', () => {
   it('renders a third action offering existing locations when a list is provided', () => {
     render(

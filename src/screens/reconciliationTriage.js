@@ -8,6 +8,7 @@
 import { applyResolutions } from './reconciliationResolutions.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage.js'
 import { ALIAS_COHORT_SCOPED } from './importAliasScope.js'
+import { normalizeWordKey } from '../utils/normalizeWordKey.js'
 
 // Held is NOT an error (a held return wrote nothing), so it never reaches
 // here — this only maps a real thrown commit failure. The main-process
@@ -31,6 +32,16 @@ export function mapCommitError(err) {
 // silently dropped — it lands as ordinary hold-lane cards.
 export function heldConflictsToDecisions(conflicts) {
   const out = []
+  // Import produces one location_unresolved conflict PER naming activity —
+  // several activities can name the same unresolved word in one file. That
+  // must read as ONE question about the word ("Is Barn a place?"), not N
+  // duplicate cards, so location conflicts are bucketed by (entity, field,
+  // word) before a decision is built; every naming activity's name is kept
+  // in `_namingActivities` so the card can say who named it and so
+  // foldTriageInputs can still emit the per-activity resolution each of
+  // them needs (electron/ops/ingest.js indexes resolutions by activity name,
+  // not by word).
+  const locationGroups = new Map()
   for (const c of conflicts ?? []) {
     if (c.reason === 'ambiguous_identity') {
       out.push({
@@ -68,23 +79,16 @@ export function heldConflictsToDecisions(conflicts) {
       // ADR 2026-09-05 §4 — the approved "Is <word> a place?" card. Full
       // three-choice resolution path (create / use existing / not a place),
       // the only one of the four previously-unrendered reasons with an
-      // approved design and a real commit-side resolution (§3).
+      // approved design and a real commit-side resolution (§3). Grouped
+      // below by (entity, field, word) rather than pushed directly.
       for (const field of Object.keys(c.fields ?? {})) {
-        out.push({
-          id: `held:${c.entity}:${c._name}:location:${field}`,
-          kind: 'resolve_conflict',
-          entity: c.entity,
-          entityId: null,
-          entityName: c._name,
-          field: [field],
-          confidence: 'conflict',
-          proposedValue: c.fields[field]?.to ?? null,
-          evidence: null,
-          _held: true,
-          _heldKind: 'location',
-          _word: c.fields[field]?.to ?? null,
-          _delta: c.fields[field],
-        })
+        const delta = c.fields[field]
+        const word = delta?.to ?? null
+        const key = `${c.entity}:${field}:${normalizeWordKey(word)}`
+        if (!locationGroups.has(key)) {
+          locationGroups.set(key, { entity: c.entity, field, word, delta, names: [] })
+        }
+        locationGroups.get(key).names.push(c._name)
       }
     } else if (['validation', 'eligibility_unresolved', 'unit_unresolved'].includes(c.reason)) {
       // ADR §4 — the generic fallback: no bespoke resolution UI exists for
@@ -115,6 +119,24 @@ export function heldConflictsToDecisions(conflicts) {
       // this ticket's four missing cases already did once.
       throw new Error(`heldConflictsToDecisions: held-conflict reason "${c.reason}" has no card — this must be fixed, not silently dropped`)
     }
+  }
+  for (const [key, g] of locationGroups) {
+    out.push({
+      id: `held:location:${key}`,
+      kind: 'resolve_conflict',
+      entity: g.entity,
+      entityId: null,
+      entityName: g.names[0],
+      field: [g.field],
+      confidence: 'conflict',
+      proposedValue: g.delta?.to ?? null,
+      evidence: null,
+      _held: true,
+      _heldKind: 'location',
+      _word: g.word,
+      _delta: g.delta,
+      _namingActivities: g.names,
+    })
   }
   return out
 }
@@ -150,12 +172,20 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
       // shape-symmetry with ambiguous_identity's own create choice, though
       // its commit-side counterpart depends on the (unmerged)
       // claude/location-provenance-honesty create-path fix.
-      if (a.choice === 'existing') {
-        resolutions.push({ entity: d.entity, name: d.entityName, reason: 'location_unresolved', field: d.field[0], choice: 'existing', location_id: a.location_id })
-      } else if (a.choice === 'create') {
-        resolutions.push({ entity: d.entity, name: d.entityName, reason: 'location_unresolved', field: d.field[0], choice: 'create' })
-      } else if (a.choice === 'not_a_place') {
-        resolutions.push({ entity: d.entity, name: d.entityName, reason: 'location_unresolved', field: d.field[0], choice: 'not_a_place' })
+      //
+      // The card is ONE question aggregating every activity that named this
+      // word (see heldConflictsToDecisions), but electron/ops/ingest.js
+      // indexes resolutions per activity name — so one answer here fans out
+      // into one resolution PER naming activity, not just the first.
+      const names = d._namingActivities?.length ? d._namingActivities : [d.entityName]
+      for (const name of names) {
+        if (a.choice === 'existing') {
+          resolutions.push({ entity: d.entity, name, reason: 'location_unresolved', field: d.field[0], choice: 'existing', location_id: a.location_id })
+        } else if (a.choice === 'create') {
+          resolutions.push({ entity: d.entity, name, reason: 'location_unresolved', field: d.field[0], choice: 'create' })
+        } else if (a.choice === 'not_a_place') {
+          resolutions.push({ entity: d.entity, name, reason: 'location_unresolved', field: d.field[0], choice: 'not_a_place' })
+        }
       }
       continue
     }
