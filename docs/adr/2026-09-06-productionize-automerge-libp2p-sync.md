@@ -346,30 +346,35 @@ projection-schema redesign unchanged.
   as SQL's; this needs explicit design before devices on different app versions are expected to
   sync against the same document, and is called out again under Stage 5/6 below.
 
-## Open questions for the owner
+## Open questions for the owner — RESOLVED 2026-09-06
+
+All three were answered by the owner on 2026-09-06. Recorded here as decided; each still gets its
+own design pass at the relevant stage, but the direction is no longer open.
 
 1. **Does "Host" survive as a privileged/signing role once transport is peer-to-peer via libp2p?**
-   Today's Ed25519 `host_signing_key` (never replicates, signs `camp` tokens) maps structurally onto
-   a libp2p peer's own `PeerId` keypair, but libp2p's transport being peer-to-peer does not by
-   itself answer whether the *app's* Host/Client authority model (one device mints camp tokens,
-   others don't) should also become symmetric, or should stay asymmetric with a different mechanism
-   for designating which peer holds signing authority. This is a security-model decision with
-   camp-membership consequences, not an engineering detail — it should get its own design pass
-   (and likely its own ADR) before Stage 5 below starts, not be decided implicitly by whichever
-   libp2p peer happens to bootstrap the camp first.
-2. **Hard cutover vs. dual-write migration window.** Owner's stated preference elsewhere
-   (pre-production, no live users yet, favors clean hard cutovers over back-compat) suggests hard
-   cutover is the fit — but nothing in the current codebase anticipates dual-write, and this ADR
-   does not assume the answer. Confirm: is Stage 6 below ("retire `operations`/`conflicts` and the
-   WS sync files") intended as a flag-day replacement once the projector + libp2p path has full
-   parity, or does the owner want an interim coexistence window for any reason (e.g. staged rollout
-   across already-installed camp devices, if any exist by the time this ships)?
-3. **WAN NAT-traversal priority vs. LAN-only-first.** WAN NAT traversal is the reason libp2p was
-   chosen over continuing with plain WebSocket, and it is already proven to work via relay
-   (cross-network, real hardware). But the staged path below treats LAN-only libp2p (mDNS, no
-   DHT/dcutr) as an earlier, lower-risk stage than the WAN slice. Confirm this sequencing is
-   acceptable, i.e. that shipping a LAN-only libp2p swap first, with WAN deferred to its own later
-   stage, does not undercut the reason this route was chosen in the first place.
+   **DECIDED: yes — Host stays a privileged signing role.** The app's Host/Client authority model
+   (one device holds the Ed25519 `host_signing_key` and mints `camp` tokens; others verify but never
+   mint) is preserved; libp2p's transport becoming peer-to-peer does **not** make the *authority*
+   model symmetric. Stage 5's membership/identity work therefore maps the existing host-signing-key
+   onto the Host peer's identity under libp2p rather than redesigning toward a symmetric/leaderless
+   authority model. The mechanism for designating *which* peer is Host still gets its own design pass
+   (and likely its own ADR) at Stage 5 — but the question of whether the asymmetry survives is
+   settled: it does.
+2. **Hard cutover vs. dual-write migration window.** **DECIDED: hard cutover.** Clarified with the
+   owner that this choice is invisible at the product level — live simultaneous editing of one
+   schedule is guaranteed by Automerge under *either* migration strategy; the choice is purely
+   internal (how the codebase flips from op-log to Automerge). Given pre-production status and no
+   installed camp devices requiring a staged rollout, Stage 6 is a **flag-day replacement**: build
+   the Automerge+libp2p path to full parity behind a flag, prove equivalence with running tests, then
+   retire `operations`/`conflicts` and the WS sync files in one clean move. No dual-write coexistence
+   window.
+3. **WAN NAT-traversal priority vs. LAN-only-first.** **DECIDED: LAN first, then WAN — and this
+   matches the intended product model.** The owner's mental model *is* the prototype's pairing model:
+   two devices pair on the same network first, then can find each other across different networks
+   later (`cr4-dht-node.mjs`: same-Wi-Fi mDNS pairing saves the peer's stable id; the DHT then
+   resolves it cross-network). So LAN-only libp2p (Stage 4) shipping before WAN traversal (Stage 7)
+   is not a compromise on the reason libp2p was chosen — it is the first half of the actual intended
+   flow. WAN remains wanted and in scope, sequenced after LAN.
 
 ## Consequences
 
