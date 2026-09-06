@@ -46,6 +46,37 @@ Round 1 (commit 58cf71a) found, and round 2 (this commit) resolved:
 - Stage 1 proves parity via tests rather than wiring a live flag-gated shadow path. Live-path wiring (touching `electron/main.js`'s write handler) is intentionally NOT done autonomously — it is the next slice and wants owner presence / a dedicated review.
 - `@automerge/automerge` is added to `dependencies` (not devDependencies) ahead of the wiring stage — deliberate, to avoid a second dependency-bump PR; nothing in the shipped app imports it yet.
 
+## STATUS 2026-09-06: Stage 1 MERGED to main (commit 3ffd18b, PR #294)
+Owner directed the merge and granted standing authority to merge parts as they're done+verified.
+Owner instruction: **start Stage 2 when the machine clears** (load was ~180–600 from other tools/
+sessions; `test:integration` is mDNS and flakes above load ~30). A harness-tracked monitor is armed
+to resume when 1-min load < 30. **First action on resume:** run the full `npm run verify` on main
+(covers the `@automerge/automerge` dependency's whole-project effect — the one thing the isolated
+Stage-1 gate could not see), THEN begin Stage 2.
+
+## Stage 2 slice 1 — DONE (safe SQLite→doc seeding), branch `claude/productionize-automerge-stage2`
+`electron/automerge/seed.js` — `seedDocFromSqlite(db, doc, entity)` builds the Automerge doc from the
+entity's current SQLite rows, the REQUIRED on-ramp before `rebuildFromDoc`/`projectEntity` touch live
+data (else delete-reconcile deletes real rows). 6 tests incl. the safety guarantee (seed→rebuild = zero
+loss), the contrast hazard (unseeded rebuild deletes everything), null-skip round-trip, and empty-table.
+Full automerge suite 26/26, lint clean. Closes Red Hat's highest-severity Stage-1 structural gap.
+
+## Stage 2 remaining plan (rules/validation layer — the load-bearing new work)
+Fresh branch off the NEW main (which now contains Stage 1). Design pass first (Architect; likely its
+own ADR per the productionization ADR). Concrete first slices, smallest-first:
+1. **camp_id tenant rule as an explicit domain invariant.** Today it's inherited via applyProjection
+   reuse; Stage 2 makes it a named, tested rule of the doc/projection layer (reject cross-camp/null
+   camp_id, matching the op-log guard) rather than an implicit inheritance.
+2. **Referrer completeness on delete/merge** for days_of_operation's referrers
+   (`anchor_activities.day_id`, `day_overrides`) — the #286 pattern, but for the doc model.
+3. **rebuild-from-doc seed step:** a "seed the Automerge doc from current SQLite" operation with its
+   own tests, REQUIRED before `rebuildFromDoc`/`projectEntity` ever runs against a live camp — else
+   delete-reconcile orphans real rows (`buildSchedule.js:326-339` = dangling ref reads as
+   unconstrained). This is the highest-severity structural item Red Hat named.
+Later Stage-2 catalogue (from RULES_LAYER_SOURCES.md): place capacity + contention (anchors-
+constrain-never-flagged), the location approval gate, host-only never-replicate structural exclusion,
+ingest atomic rollback under Automerge (Stage 0 spike already proved the mechanism).
+
 ## Next stages (from the ADR, skeleton)
 - **Stage 1b (optional):** flag-gated shadow projection in the live write path (default OFF) to prove parity in the running app.
 - **Stage 2:** the rules/validation layer above Automerge (referrer completeness, capacity/contention, approval gate, host-only exclusion, ingest atomicity) — the load-bearing new work.
