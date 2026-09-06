@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -16,6 +16,9 @@ import {
   DELETE_FIELD,
   MAX_FIELD_VALUE_LENGTH,
 } from './operations.js'
+import { docPath, loadDoc } from '../sync/automerge/docStore.js'
+import { projectAll } from '../automerge/projector.js'
+import { MODELED_ENTITIES } from '../automerge/campDocument.js'
 
 let tmpFile
 let db
@@ -1116,4 +1119,162 @@ describe('bulkReplace mutual-exclusion sanitizer (T111)', () => {
     expect(row.elective_set_id).toBeNull()
   })
 
+})
+
+// Stage 5b (docs/work/plans/2026-09-06-stage5-live-wiring-design.md): appendOp's Automerge
+// dual-write, gated by SHORESH_SYNC_ENGINE. `operations.js` reads `isOpLogEngine()` at CALL time
+// (not import time, unlike the flag module itself), so these tests reset modules + re-import
+// `./operations.js` fresh under each env value to exercise the real branch, exactly like
+// syncEngineFlag.test.js does for the flag module itself.
+describe('appendOp — Stage 5b Automerge dual-write', () => {
+  const ENV_KEY = 'SHORESH_SYNC_ENGINE'
+  const originalEnv = process.env[ENV_KEY]
+  let userDataDir
+
+  beforeEach(() => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-appendop-automerge-'))
+  })
+
+  afterEach(async () => {
+    if (originalEnv === undefined) delete process.env[ENV_KEY]
+    else process.env[ENV_KEY] = originalEnv
+    vi.resetModules()
+    const { resetForTests } = await import('../sync/automerge/liveDoc.js')
+    resetForTests()
+    fs.rmSync(userDataDir, { recursive: true, force: true })
+  })
+
+  async function loadOperationsWithEngine(engine) {
+    if (engine === undefined) delete process.env[ENV_KEY]
+    else process.env[ENV_KEY] = engine
+    vi.resetModules()
+    const [ops, liveDoc] = await Promise.all([
+      import('./operations.js'),
+      import('../sync/automerge/liveDoc.js'),
+    ])
+    liveDoc.setUserDataDirGetter(() => userDataDir)
+    return ops
+  }
+
+  it('flag OFF (default/unset): appendOp writes no automerge doc file at all', async () => {
+    const ops = await loadOperationsWithEngine(undefined)
+
+    ops.appendOp(db, {
+      entity: 'groups',
+      entity_id: 'g1',
+      field: 'name',
+      value: 'Bunk A',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+    })
+
+    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
+    expect(db.prepare('SELECT name FROM groups WHERE id = ?').get('g1').name).toBe('Bunk A')
+  })
+
+  it('flag ON: a multi-entity write stream through the real appendOp produces a doc that projects to the same rows as the op-log db', async () => {
+    const ops = await loadOperationsWithEngine('automerge')
+
+    ops.appendOp(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'cohorts', entity_id: 'c1', field: 'name', value: 'Seniors', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'tiers', entity_id: 't1', field: 'name', value: 'Tier 1', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'days_of_operation', entity_id: 'd1', field: 'label', value: 'Monday', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'time_blocks', entity_id: 'tb1', field: 'name', value: '9am', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swimming', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'locations', entity_id: 'l1', field: 'name', value: 'Pool', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'anchor_activities', entity_id: 'aa1', field: 'day_id', value: 'd1', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'activities', entity_id: 'a2', field: 'name', value: 'Delete me', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'activities', entity_id: 'a2', field: DELETE_FIELD, value: 1, author_user_id: 'user-1', device_id: 'device-1' })
+
+    const doc = loadDoc(userDataDir, 'camp-1')
+    expect(doc).not.toBeNull()
+
+    const targetTmpFile = path.join(os.tmpdir(), `shoresh-ops-target-${Date.now()}-${Math.random()}.sqlite`)
+    const targetDb = openLocalDb(targetTmpFile)
+    try {
+      targetDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
+      projectAll(targetDb, doc)
+
+      for (const entity of MODELED_ENTITIES) {
+        const sourceRows = db.prepare(`SELECT * FROM ${entity} ORDER BY id`).all()
+        const targetRows = targetDb.prepare(`SELECT * FROM ${entity} ORDER BY id`).all()
+        expect(targetRows).toEqual(sourceRows)
+      }
+    } finally {
+      targetDb.close()
+      fs.unlinkSync(targetTmpFile)
+    }
+  })
+
+  it('flag ON: an unmodeled entity (day_overrides) still lands in SQLite via the op-log and is absent from the automerge doc', async () => {
+    const ops = await loadOperationsWithEngine('automerge')
+
+    db.prepare('INSERT INTO days_of_operation (id, camp_id, label) VALUES (?, ?, ?)').run('d1', 'camp-1', 'Monday')
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)').run('w1', 'camp-1', 'Week 1')
+    db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run('g1', 'camp-1', 'Bunk A')
+
+    ops.appendOp(db, { entity: 'day_overrides', entity_id: 'do1', field: 'schedule_week_id', value: 'w1', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'day_overrides', entity_id: 'do1', field: 'day_id', value: 'd1', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'day_overrides', entity_id: 'do1', field: 'group_id', value: 'g1', author_user_id: 'user-1', device_id: 'device-1' })
+    const op = ops.appendOp(db, { entity: 'day_overrides', entity_id: 'do1', field: 'time_block_id', value: 'tb1', author_user_id: 'user-1', device_id: 'device-1' })
+
+    expect(op).toBeTruthy()
+    expect(db.prepare('SELECT day_id FROM day_overrides WHERE id = ?').get('do1').day_id).toBe('d1')
+    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
+  })
+
+  it('flag ON: template_slots (bulk-replace only entity) is unaffected — appendOp still rejects direct field writes to it exactly as today', async () => {
+    const ops = await loadOperationsWithEngine('automerge')
+
+    expect(() =>
+      ops.appendOp(db, {
+        entity: 'template_slots',
+        entity_id: 'slot-x',
+        field: 'activity_id',
+        value: 'a1',
+        author_user_id: 'user-1',
+        device_id: 'device-1',
+      })
+    ).not.toThrow()
+    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
+  })
+
+  it('flag ON: a doc-mirror failure (docStore.saveDoc throwing) never breaks the op-log write — appendOp still returns its op and SQLite still has the row', async () => {
+    process.env[ENV_KEY] = 'automerge'
+    vi.resetModules()
+    vi.doMock('../sync/automerge/docStore.js', async () => {
+      const actual = await vi.importActual('../sync/automerge/docStore.js')
+      return {
+        ...actual,
+        saveDoc: () => {
+          throw new Error('boom: simulated docStore.saveDoc failure')
+        },
+      }
+    })
+
+    const [ops, liveDoc] = await Promise.all([
+      import('./operations.js'),
+      import('../sync/automerge/liveDoc.js'),
+    ])
+    liveDoc.setUserDataDirGetter(() => userDataDir)
+
+    let op
+    expect(() => {
+      op = ops.appendOp(db, {
+        entity: 'groups',
+        entity_id: 'g1',
+        field: 'name',
+        value: 'Bunk A',
+        author_user_id: 'user-1',
+        device_id: 'device-1',
+      })
+    }).not.toThrow()
+
+    expect(op).toBeTruthy()
+    expect(op.entity).toBe('groups')
+    expect(db.prepare('SELECT name FROM groups WHERE id = ?').get('g1').name).toBe('Bunk A')
+
+    vi.doUnmock('../sync/automerge/docStore.js')
+  })
 })
