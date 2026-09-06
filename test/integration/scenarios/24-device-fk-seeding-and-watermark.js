@@ -33,7 +33,7 @@
 
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
 import { createSyncClient } from '../../../electron/sync/syncClient.js'
 
 export async function run() {
@@ -56,10 +56,9 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
 
     // --- pair two REAL clients through the ACTUAL pairing flow ------------

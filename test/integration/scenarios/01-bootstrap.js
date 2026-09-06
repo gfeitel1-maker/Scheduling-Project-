@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
 
 export async function run() {
   const dirs = []
@@ -12,11 +12,10 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     // --- Host setup ---
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await host.bootstrap({ campName: 'Camp Test', adminName: 'admin', adminPin: '1234' })
 
     // --- Client setup ---

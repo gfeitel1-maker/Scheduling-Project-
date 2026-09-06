@@ -14,7 +14,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
 import { createSyncClient } from '../../../electron/sync/syncClient.js'
 
 export async function run() {
@@ -26,7 +26,7 @@ export async function run() {
 
     const host = new Host(`${tmpDir}/host.db`)
     toClose.push(host)
-    await host.start(await getFreePort())
+    await host.start()
     await host.bootstrap({ campName: 'Exclusions Camp' })
 
     const localWriter = createSyncClient(host.db, { device_id: host.deviceId, author_user_id: host.adminUserId })

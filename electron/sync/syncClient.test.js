@@ -139,8 +139,8 @@ beforeEach(async () => {
 
   token = issueCampToken(hostDb, userId, deviceId)
 
-  PORT = await getFreePort()
-  server = startSyncServer(hostDb, { port: PORT })
+  server = startSyncServer(hostDb, { port: 0 })
+  PORT = await server.ready
 })
 
 afterEach(() => {
@@ -557,8 +557,8 @@ describe('remote client mode', () => {
   })
 
   it('Task 10 round-5 Fix 3: retrying a queued write after a timeout does not create a duplicate op (idempotent via client_write_id)', async () => {
-    const idemPort = await getFreePort()
-    const idemServer = startSyncServer(hostDb, { port: idemPort })
+    const idemServer = startSyncServer(hostDb, { port: 0 })
+    const idemPort = await idemServer.ready
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
@@ -1011,8 +1011,8 @@ describe('remote client mode', () => {
   })
 
   it('resolves an in-flight write with { status: "disconnected" } when the connection drops', async () => {
-    const dropPort = await getFreePort()
-    const dropServer = startSyncServer(hostDb, { port: dropPort })
+    const dropServer = startSyncServer(hostDb, { port: 0 })
+    const dropPort = await dropServer.ready
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
@@ -1037,8 +1037,8 @@ describe('remote client mode', () => {
   })
 
   it('resolves an in-flight merge request with { status: "disconnected" } immediately when the connection drops, not after the full submit timeout', async () => {
-    const dropPort = await getFreePort()
-    const dropServer = startSyncServer(hostDb, { port: dropPort })
+    const dropServer = startSyncServer(hostDb, { port: 0 })
+    const dropPort = await dropServer.ready
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
@@ -1829,8 +1829,8 @@ describe('remote login (fresh client, no local token yet)', () => {
   beforeEach(async () => {
     freshClientFile = path.join(os.tmpdir(), `shoresh-sc-fresh-${Date.now()}-${Math.random()}.sqlite`)
     freshClientDb = openLocalDb(freshClientFile)
-    REMOTE_LOGIN_PORT = await getFreePort()
-    remoteLoginServer = startSyncServer(hostDb, { port: REMOTE_LOGIN_PORT })
+    remoteLoginServer = startSyncServer(hostDb, { port: 0 })
+    REMOTE_LOGIN_PORT = await remoteLoginServer.ready
   })
 
   afterEach(() => {

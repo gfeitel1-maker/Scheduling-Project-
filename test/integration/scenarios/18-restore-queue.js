@@ -19,7 +19,7 @@
  *   f. `users` is refused over the wire even for an admin.
  */
 
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, waitFor, pairAndLogin } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, waitFor, pairAndLogin } from '../harness.js'
 import { appendOp } from '../../../electron/ops/operations.js'
 
 export async function run() {
@@ -28,10 +28,9 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
     const host0AdminId = host.adminUserId
 
@@ -98,7 +97,7 @@ export async function run() {
 
     // --- d. the Host returns --------------------------------------------------
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await client.connect(host.serverUrl)
 
     await waitFor(() => !!host.db.prepare('SELECT 1 FROM groups WHERE id = ?').get(groupId), 8000)

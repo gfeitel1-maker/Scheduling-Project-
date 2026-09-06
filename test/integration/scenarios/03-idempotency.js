@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
 
 /** Open a raw WS, authenticate, and return the ws + a send-and-wait helper. */
 function openRawWs(serverUrl, token, deviceId) {
@@ -59,10 +59,9 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
 
     client = new Client(`${tmpDir}/client.db`)

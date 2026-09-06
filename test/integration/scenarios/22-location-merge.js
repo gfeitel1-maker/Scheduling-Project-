@@ -17,7 +17,7 @@
  *      changed between preview and confirm, leaving neither half applied.
  */
 
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, waitFor, pairAndLogin } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, waitFor, pairAndLogin } from '../harness.js'
 import { appendOp } from '../../../electron/ops/operations.js'
 import { previewDelete } from '../../../electron/ops/deleteRecord.js'
 import { restoreEntity } from '../../../electron/ops/restore.js'
@@ -28,10 +28,9 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
 
     const session = { author_user_id: host.adminUserId, device_id: host.deviceId }

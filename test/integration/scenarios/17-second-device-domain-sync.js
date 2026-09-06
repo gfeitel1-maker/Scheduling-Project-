@@ -24,7 +24,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
 import { createSyncClient } from '../../../electron/sync/syncClient.js'
 import { appendBulkReplaceOp } from '../../../electron/ops/operations.js'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId.js'
@@ -55,7 +55,7 @@ export async function run() {
     // -----------------------------------------------------------------
     const host = new Host(`${tmpDir}/host.db`)
     toClose.push(host)
-    await host.start(await getFreePort())
+    await host.start()
     await host.bootstrap({ campName: 'Populated Camp' })
 
     const localWriter = createSyncClient(host.db, { device_id: host.deviceId, author_user_id: host.adminUserId })
@@ -123,7 +123,7 @@ export async function run() {
     // -----------------------------------------------------------------
     const host2 = new Host(`${tmpDir}/host2.db`)
     toClose.push(host2)
-    await host2.start(await getFreePort())
+    await host2.start()
     await host2.bootstrap({ campName: 'Empty Camp' })
 
     const client2 = new Client(`${tmpDir}/client2.db`)
@@ -167,7 +167,7 @@ export async function run() {
     // -----------------------------------------------------------------
     const host3 = new Host(`${tmpDir}/host3.db`)
     toClose.push(host3)
-    await host3.start(await getFreePort())
+    await host3.start()
     await host3.bootstrap({ campName: 'Fail Camp' })
 
     const client3 = new Client(`${tmpDir}/client3.db`)

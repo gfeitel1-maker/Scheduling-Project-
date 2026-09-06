@@ -25,7 +25,6 @@ import { appendOp, DELETE_FIELD } from '../ops/operations.js'
 import { startSyncServer } from './syncServer.js'
 import { createSyncClient } from './syncClient.js'
 import { listPendingRestores } from './pendingRestores.js'
-import { getFreePort } from '../../test/integration/harness.js'
 
 let PORT
 let hostDb, clientDb, server, client
@@ -106,8 +105,8 @@ beforeEach(async () => {
   adminToken = issueCampToken(hostDb, adminId, deviceId)
   staffToken = issueCampToken(hostDb, staffId, deviceId)
 
-  PORT = await getFreePort()
-  server = startSyncServer(hostDb, { port: PORT })
+  server = startSyncServer(hostDb, { port: 0 })
+  PORT = await server.ready
 })
 
 afterEach(async () => {

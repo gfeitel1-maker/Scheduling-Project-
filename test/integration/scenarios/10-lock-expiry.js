@@ -9,7 +9,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { Host, Client, getFreePort, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
+import { Host, Client, makeTmpDir, cleanupDirs, pairAndLogin, waitFor } from '../harness.js'
 import { expireLocks } from '../../../electron/sync/lockManager.js'
 
 // ---------------------------------------------------------------------------
@@ -19,8 +19,7 @@ async function scenario10a(tmpDir) {
   const host = new Host(`${tmpDir}/10a-host.db`)
   let client
   try {
-    const port = await getFreePort()
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
 
     client = new Client(`${tmpDir}/10a-client.db`)
@@ -77,8 +76,7 @@ async function scenario10a(tmpDir) {
 async function scenario10b(tmpDir) {
   const host = new Host(`${tmpDir}/10b-host.db`)
   try {
-    const port = await getFreePort()
-    await host.start(port)
+    await host.start()
     await host.bootstrap()
 
     const entityId2 = randomUUID()

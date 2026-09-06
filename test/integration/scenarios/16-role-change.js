@@ -22,7 +22,7 @@
 
 import { randomUUID } from 'node:crypto'
 import {
-  Host, Client, getFreePort, makeTmpDir, cleanupDirs, pairAndLogin, waitFor,
+  Host, Client, makeTmpDir, cleanupDirs, pairAndLogin, waitFor,
 } from '../harness.js'
 import { createUser } from '../../../electron/auth/localAuth.js'
 import { createSyncClient } from '../../../electron/sync/syncClient.js'
@@ -33,10 +33,9 @@ export async function run() {
 
   try {
     const tmpDir = makeTmpDir(); dirs.push(tmpDir)
-    const port = await getFreePort()
 
     host = new Host(`${tmpDir}/host.db`)
-    await host.start(port)
+    await host.start()
 
     // Step 1: Bootstrap with alice as admin, then create bob as staff.
     const { campId } = await host.bootstrap({ adminName: 'alice', adminPin: '1111' })
