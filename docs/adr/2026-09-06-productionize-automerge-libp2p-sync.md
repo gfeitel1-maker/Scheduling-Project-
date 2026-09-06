@@ -1,11 +1,11 @@
 ---
 title: "ADR: Productionize Automerge + libp2p as the sync/data layer; SQLite becomes a rebuildable projection"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
 implementation_state: not_started
 date: 2026-09-06
-decided: pending
+decided: 2026-09-06
 deciders: [product-owner]
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
 supersedes: [docs/adr/2026-08-17-shared-project-multi-transport-sync.md]
@@ -26,7 +26,7 @@ program: shoresh-future-architecture
 
 # ADR: Productionize Automerge + libp2p as the sync/data layer; SQLite becomes a rebuildable projection
 
-> **Status: PROPOSED.** This is a **scoping ADR**. It records the decision and the shape of the
+> **Status: ACCEPTED (2026-09-06).** This is a **scoping ADR**. It records the decision and the shape of the
 > conversion — the seam, the KEEP/REPLACE/REMOVE map, the new rules layer, and a staged path
 > skeleton. It does **not** authorize implementation. Each stage in the staged path is its own
 > future review-loop slice, planned and approved separately. Where this document says "proposed,"
