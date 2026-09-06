@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
-import { PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
+import { PROTO, sendFramed, receiveFramed, MAX_FRAME_BYTES } from './wireProtocol.js'
 
 // A minimal in-memory duplex: sendFramed's frames go into `chunks`;
 // receiveFramed reads them back out of an async iterable built from `chunks`.
@@ -53,6 +53,23 @@ describe('wireProtocol', () => {
 
     expect(received).toHaveLength(1)
     expect(received[0]).toHaveLength(0)
+  })
+
+  it('exports a bounded frame cap (Security review)', () => {
+    expect(typeof MAX_FRAME_BYTES).toBe('number')
+    expect(MAX_FRAME_BYTES).toBeGreaterThan(0)
+  })
+
+  it('rejects an inbound frame larger than maxDataLength, without delivering it', async () => {
+    const { sink, source } = makeDuplex()
+    await sendFramed(sink, new Uint8Array(1000)) // 1000-byte payload
+    const received = []
+    // A hostile/oversized frame must not be handed to the consumer; decode
+    // throws when the declared length exceeds the cap, and receiveFramed rejects.
+    await expect(
+      receiveFramed(source(), (bytes) => received.push(bytes), { maxDataLength: 100 })
+    ).rejects.toBeTruthy()
+    expect(received).toHaveLength(0)
   })
 
   it('handles a large payload (bigger than one frame boundary)', async () => {
