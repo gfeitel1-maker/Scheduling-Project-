@@ -13,6 +13,7 @@ import * as A from '@automerge/automerge'
 import { startTransport } from './transport.js'
 import { projectAll } from '../../automerge/projector.js'
 import { synthesizeOpEvents } from './docDiffEvents.js'
+import { evaluateAuthenticate } from '../../auth/connectionAuth.js'
 
 // Starts a transport node and wires it to `doc`/`db`. Returns a handle that
 // exposes the current doc and the same lifecycle/broadcast surface as
@@ -91,13 +92,26 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     }
   }
 
-  const transport = await startTransport({ deviceId, onDocReceived: handleReceived })
+  // Stage 5d-1 (docs/adr/2026-09-06-libp2p-membership-mapping.md §1/§3): the
+  // admission decision for the auth-over-libp2p `authenticate` message —
+  // implements the ADR's "reconnect" flow only (an already-paired,
+  // already-logged-in device presenting a live token). `pairing_request`/
+  // `login` are 5d-2 and are not handled here; any other message type is
+  // already rejected by authGate.js before this is even called.
+  async function onAuthenticate(msg) {
+    const result = evaluateAuthenticate(db, { token: msg.token, device_id: msg.device_id })
+    return result.ok ? { ok: true } : { ok: false, reason: result.reason }
+  }
+
+  const transport = await startTransport({ deviceId, onDocReceived: handleReceived, onAuthenticate })
 
   return {
     peerId: transport.peerId,
     getPeers: transport.getPeers,
     getMultiaddrs: transport.getMultiaddrs,
     dial: transport.dial,
+    authenticateWith: transport.authenticateWith,
+    isPeerAuthenticated: transport.isPeerAuthenticated,
     // Exposed for adversarial-input tests (sending raw bytes that are not a
     // valid Automerge doc); not part of the normal edit/broadcast flow.
     sendDocTo: transport.sendDocTo,

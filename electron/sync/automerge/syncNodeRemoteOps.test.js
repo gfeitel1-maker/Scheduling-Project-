@@ -13,6 +13,7 @@ import path from 'node:path'
 import * as A from '@automerge/automerge'
 import { openLocalDb } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
+import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
 
 // Finding 3 (Stage 5c review round): main.js statically imports the real `electron` package.
@@ -69,6 +70,34 @@ async function waitFor(predicate, { timeout = 3000, interval = 20 } = {}) {
   }
 }
 
+// Stage 5d-1 (docs/adr/2026-09-06-libp2p-membership-mapping.md §3): startSyncNode
+// now gates doc-sync behind the auth handshake — node A must authenticate to
+// node B before B's doc-sync handler accepts frames from it. All tests below
+// only exercise the a -> b direction (a.applyLocal broadcasting to b), so
+// only that one handshake is needed. dbA plays the Host (mints the token);
+// both dbs get the same signing_public_key and an authorized device-a row,
+// mirroring what a real full-sync would already have replicated.
+// Both directions are authenticated, not just a -> b: since the Stage 5d-1
+// security fix, the SENDER also filters its broadcast by its own admission set,
+// so a.applyLocal only reaches b if a has admitted b as well. dbA plays the Host
+// (mints both tokens); both dbs get the same signing_public_key and authorized
+// rows for both devices, mirroring what a real full-sync would have replicated.
+async function authenticateAtoB(a, b, dbA, dbB) {
+  const hostKey = ensureHostSigningKey(dbA)
+  for (const db of [dbA, dbB]) {
+    db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
+    for (const deviceId of ['device-a', 'device-b']) {
+      db.prepare(
+        "INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
+      ).run(deviceId, `Device ${deviceId.slice(-1).toUpperCase()}`, new Date().toISOString())
+    }
+  }
+  const tokenA = issueCampToken(dbA, 'user-a', 'device-a')
+  const tokenB = issueCampToken(dbA, 'user-b', 'device-b')
+  await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a' })
+  await b.authenticateWith(a.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b' })
+}
+
 describe('syncNode onRemoteOps — Stage 5c read-path parity', () => {
   it('a remote edit synthesizes op_applied-shaped events on the receiving node, AFTER projection', async () => {
     const genesis = createEmptyDoc()
@@ -84,6 +113,7 @@ describe('syncNode onRemoteOps — Stage 5c read-path parity', () => {
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
+    await authenticateAtoB(a, b, dbA, dbB)
 
     let changed = applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'archery', field: 'name', value: 'Archery' })
     changed = applyWrite(changed, { entity: 'activities', entity_id: 'archery', field: 'location', value: 'Field 1' })
@@ -139,6 +169,7 @@ describe('syncNode onRemoteOps — Stage 5c read-path parity', () => {
     nodes.push(a, b)
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
+    await authenticateAtoB(a, b, dbA, dbB)
 
     await a.applyLocal(applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'x', field: 'name', value: 'X' }))
     await waitFor(() => remoteOpsCalls > 0)
@@ -157,6 +188,7 @@ describe('syncNode onRemoteOps — Stage 5c read-path parity', () => {
     nodes.push(a, b)
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
+    await authenticateAtoB(a, b, dbA, dbB)
 
     await a.applyLocal(applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'x', field: 'name', value: 'X' }))
     await waitFor(() => dbB.prepare('SELECT name FROM activities WHERE id = ?').get('x')?.name === 'X')
