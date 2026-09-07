@@ -26,7 +26,7 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify } from '@libp2p/identify'
 import { peerIdFromString } from '@libp2p/peer-id'
-import { PROTO, AUTH_PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
+import { PROTO, AUTH_PROTO, SYNC_PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
 import { registerAuthGate } from './authGate.js'
 
 // Accept either a PeerId/Multiaddr object (as returned by getPeers()'s
@@ -62,7 +62,7 @@ const MAX_CONNECTIONS = 200
 // scoped discovery; omitted by default so tests keep dialing directly over
 // loopback (mDNS needs a real network interface — see discovery.js's own
 // module comment).
-export async function startTransport({ deviceId: _deviceId, onDocReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, peerDiscovery, now } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, peerDiscovery, now } = {}) {
   const node = await createLibp2p({
     addresses: { listen: listen ?? DEFAULT_LISTEN },
     transports: [tcp()],
@@ -116,9 +116,46 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
     })
   })
 
+  // Inbound half of the sync protocol — same admission gate as PROTO's handler above (Stage 5d-1's
+  // ADR §3, threat #1/#4): an unauthenticated peer's bytes never reach A.receiveSyncMessage.
+  await node.handle(SYNC_PROTO, ({ stream, connection }) => {
+    const fromPeerId = connection.remotePeer.toString()
+    if (!authenticatedPeers.has(fromPeerId)) {
+      stream.abort(new Error('unauthenticated'))
+      return
+    }
+    receiveFramed(stream.source, (bytes) => {
+      Promise.resolve(onSyncMessageReceived?.(bytes, { fromPeerId })).catch((err) => {
+        console.error(`transport: onSyncMessageReceived handler rejected — isolated: ${err?.message ?? err}`)
+      })
+    }).catch(() => {
+      // A malformed/adversarial peer closing or corrupting the stream must not crash this node.
+    })
+  })
+
   async function sendDocTo(peerId, docBytes) {
     const stream = await node.dialProtocol(toDialTarget(peerId), PROTO, { runOnLimitedConnection: true })
     await sendFramed(stream.sink, docBytes)
+  }
+
+  // Stage 5f-2: real Automerge sync protocol (initSyncState/generateSyncMessage/
+  // receiveSyncMessage), on its own protocol id — see wireProtocol.js's SYNC_PROTO comment for why
+  // it is not folded into PROTO. Each direction of the exchange is its own short-lived dial+frame,
+  // exactly like sendDocTo/authenticateWith already do — there is no need for a held-open stream,
+  // because the protocol is inherently a back-and-forth of independent messages: receiving one
+  // triggers the caller (syncNode.js) to generate and send the next, until both sides produce null.
+  //
+  // Gated the SAME way broadcastDoc's outbound filter is gated (Security review precedent above):
+  // never send doc-derived bytes to a peer THIS node has not itself admitted, even though the
+  // caller (syncNode.js) only ever calls this for peers it just admitted or just heard from — the
+  // check is enforced here, at the transport boundary, so it can't be bypassed by a future call
+  // site forgetting it.
+  async function sendSyncMessage(peerId, bytes) {
+    const target = peerId.toString()
+    if (!authenticatedPeers.has(target)) return
+    const stream = await node.dialProtocol(toDialTarget(peerId), SYNC_PROTO, { runOnLimitedConnection: true })
+    await sendFramed(stream.sink, bytes)
+    await stream.close().catch(() => {})
   }
 
   // Security review, Stage 5d-1 (CRITICAL): the admission gate must be
@@ -192,6 +229,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
     getMultiaddrs: () => node.getMultiaddrs(),
     broadcastDoc,
     sendDocTo,
+    sendSyncMessage,
     dial,
     authenticateWith,
     isPeerAuthenticated: (peerId) => authenticatedPeers.has(peerId),
@@ -205,6 +243,17 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
     onPeerDiscovery: (cb) => {
       node.addEventListener('peer:discovery', (evt) => {
         cb({ id: evt.detail.id.toString(), multiaddrs: evt.detail.multiaddrs })
+      })
+    },
+    // Stage 5f-2: lets syncNode.js discard a peer's sync state (initSyncState/generateSyncMessage
+    // progress) the moment the underlying connection is gone — mirrors authGate.js's own
+    // `authenticatedPeers.delete` on the SAME event, for the SAME reason: a stale entry surviving
+    // disconnect is meaningless (and, for sync state specifically, just wasted memory — reconnect
+    // starts a fresh exchange either way, which converges correctly, just less efficiently, since
+    // it doesn't know what was already exchanged before the ORIGINAL sync state was discarded).
+    onPeerDisconnected: (cb) => {
+      node.addEventListener('peer:disconnect', (evt) => {
+        cb(evt.detail.toString())
       })
     },
     stop: () => node.stop(),

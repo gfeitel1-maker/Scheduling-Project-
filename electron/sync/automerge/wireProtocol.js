@@ -20,6 +20,19 @@ export const PROTO = '/shoresh/automerge/1.0.0'
 // protocol string differs.
 export const AUTH_PROTO = '/shoresh/auth/1.0.0'
 
+// Stage 5f-2 (real Automerge sync protocol, replacing whole-doc pushes): a THIRD, separate
+// protocol id for A.generateSyncMessage/A.receiveSyncMessage frames, rather than a message-type
+// branch inside PROTO. Same reasoning the ADR already used for AUTH_PROTO vs PROTO applies here,
+// plus one more: a PROTO frame IS a complete Automerge document (A.load(bytes) must succeed) —
+// that invariant is relied on by handleReceived (syncNode.js) and by the adversarial-input tests
+// that deliberately send non-doc bytes at PROTO to prove it's rejected safely. A sync-protocol
+// message is NOT a loadable document (it is an internal Automerge wire format A.load would throw
+// on) — branching on message shape inside one protocol would blur that invariant and make the
+// adversarial tests' "malformed doc bytes" case ambiguous with "valid sync message". A distinct
+// protocol id keeps both wire formats structurally separate and keeps each one's own admission gate
+// and framing simple to reason about independently.
+export const SYNC_PROTO = '/shoresh/automerge-sync/1.0.0'
+
 // Hard cap on a single inbound frame (Security review: bound a hostile peer's
 // per-frame memory footprint explicitly rather than relying on
 // it-length-prefixed's 4 MiB default). Stage 4 uses whole-document exchange, so
