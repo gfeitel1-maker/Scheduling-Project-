@@ -65,6 +65,52 @@ empty strings into synced text fields; identify fields by patch *path* and read 
 after-doc. (b) Never use a literal NUL byte as a delimiter — it makes the file binary to git (no
 reviewable diff); use the repo's `\x00`-escape convention.
 
+## UPDATE 2026-09-07 — Stage 5 COMPLETE through 5e; only 5f (hardware) remains before Stage 6
+
+Merged since the section above: **5c** read/receive-path parity (#305), the **membership sub-ADR**
+(#306, now `accepted`), **5d-1** auth-over-libp2p + symmetric doc-sync admission gate (#307),
+**5d-2a** camp-scoped mDNS discovery + `devices.libp2p_peer_id` schema v57 (#308), **5d-2b**
+pairing/login over libp2p + mutual-auth wiring (#310), and **5e** seeding + doc persistence +
+**unified document ownership** (#312). Full `npm run verify` green at each merge.
+
+**Four defects the review loop caught that gates alone would have shipped** — worth knowing, because
+each was invisible to a green test run:
+
+1. **Empty-doc `projectAll` wipes a camp** (5c). `projectAll(db, createEmptyDoc())` on a live db left
+   0 rows and did NOT throw, so the try/catch caught nothing. Guard now lives inside `projectAll`,
+   covering all three call sites. Verified empirically, not by inspection.
+2. **The admission gate was inbound-only** (5d-1). `broadcastDoc` pushed the full camp document to
+   every connected peer, so any stranger on the LAN who completed a noise handshake received roster
+   and schedule data unprompted. Gating outbound made **mutual authentication** a hard requirement:
+   a node's single `authenticatedPeers` set governs both directions, so one-way auth means nothing
+   flows at all.
+3. **No rate limiting on libp2p pairing/login** (5d-2b), despite the ADR claiming the caps carried
+   forward. Any LAN peer could flood the director's approval UI. Also, the Host's self-issued token
+   used a `null` userId, which `verifySessionToken` rejects — so it could *never* verify. Fixed with
+   a device-level admission token that `authorize()` explicitly denies.
+4. **Two Automerge doc holders that never reconciled** (5e review). `liveDoc` held one and was the
+   only thing that persisted; `syncNode` held another and never persisted at all. `applyLocal` had
+   zero non-test callers, so the engine was receive-only — and a remote-merged row was silently
+   delete-reconciled out of SQLite on the next restart after any unrelated local edit. **Routine
+   two-device operation, not a rare race.** Ownership is now unified and startup projection removed
+   (at startup SQLite is already correct; projecting over it can only destroy).
+
+**Pre-enable gates — status:** #1 seeding is CLOSED (5e). #2 the doc-sync auth gate is CLOSED
+(5d-1/5d-2b). #3 the per-op `A.save`+fsync debounce is CLOSED (5e, 250ms + flush on quit). #4
+`setUserDataDirGetter` wiring is CLOSED (5e).
+
+**What remains, and why it needs the owner:**
+- **Stage 5f is now the blocker, and it cannot be done from CI.** Mutual auth requires mDNS discovery
+  to succeed in **both** directions — strictly stronger than the WS path, where only the Client
+  discovers the Host. On consumer/hotel Wi-Fi with AP client isolation this is a plausible
+  silent-sync-death mode, and no automated test can prove it. Needs two real machines.
+- **Stage 6 (irreversible cutover) must not proceed before 5f passes.** You do not retire the op-log
+  in favour of an engine that has never converged on two real machines in a packaged build.
+- Open, tracked: no operational reseed path exists (a bad seeded doc stays on disk); a crash inside
+  the 250ms debounce window can still lose the doc-side record of a new entity (narrowed by removing
+  startup projection, not eliminated); `day_overrides`, `template_slots`, and parent-scoped entities
+  remain unmodeled by design.
+
 ## Where this pauses, and why (pacing, not stopping short)
 
 The reversible engine + write-path work is done and merged. What remains — 5c (read/receive path +
