@@ -40,7 +40,7 @@ import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 // only computes and hands them off. Wrapped in try/catch so a consumer's own throw can never break
 // sync or escape as an unhandled rejection — sync must keep converging regardless of what a push-
 // event listener does with what it's handed.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, peerDiscovery, onAuthRejected, now } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, peerDiscovery, onAuthRejected, listen, now } = {}) {
   // Stage 5f: this module no longer keeps a private `state.doc` — the doc lives in liveDoc.js's
   // `docRegistry`, keyed by THIS `db`, so that a local write (liveDoc.recordLocalWrite) and a
   // remote merge (handleReceived below) mutate the exact same document instead of two copies that
@@ -157,6 +157,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   }
 
   const transport = await startTransport({
+    listen,
     deviceId,
     onDocReceived: handleReceived,
     // Stage 5f initial sync: the moment a peer is admitted, send it our current document. Without
