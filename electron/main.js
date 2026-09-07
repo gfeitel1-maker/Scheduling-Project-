@@ -40,9 +40,8 @@ import { campHasSetupData } from './ops/campHasSetupData.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
-import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
+import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc } from './sync/automerge/docStore.js'
-import { projectAll as projectAutomergeDoc } from './automerge/projector.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import { createMdnsDiscovery } from './sync/automerge/discovery.js'
 import {
@@ -2260,24 +2259,19 @@ if (isElectronEntryPoint()) {
         return
       }
 
-      // One-time initial projection of whatever doc we're starting from, so SQLite reflects it
-      // before the renderer can observe a "connected but nothing loaded" state. Mirrors syncNode's
-      // own projection-failure handling in spirit, but — unlike a mid-sync projection failure, where
-      // SQLite staying at last-good while the node keeps running is the right tradeoff — a failure
-      // in this INITIAL projection means the node would start with SQLite in an unknown state
-      // relative to the doc it's about to sync. Finding 4: do not proceed to start the node in that
-      // case; log clearly and return instead.
-      try {
-        projectAutomergeDoc(db, doc)
-      } catch (err) {
-        console.error(
-          `automerge sync: initial projection failed — sync node not started this run, SQLite left ` +
-            `at last-good: ${err?.message ?? err}`
-        )
-        return
-      }
-      if (mainWindow) mainWindow.webContents.send('shoresh:full-sync-applied')
-
+      // Stage 5f: NO initial projection here (removed — was `projectAutomergeDoc(db, doc)`, see
+      // docs/work/plans/2026-09-06-stage5-live-wiring-design.md §5's revision). At startup, SQLite
+      // is ALREADY correct: it was built by the op-log (the authoritative record regardless of
+      // this flag) and, for any camp that has already run a session with this flag on, by prior
+      // remote-merge projections that already landed via syncNode.handleReceived. Projecting `doc`
+      // over an already-correct SQLite can only ever be a no-op (doc and SQLite agree) or
+      // destructive (delete-reconcile removes a row SQLite has that `doc` is missing — exactly the
+      // confirmed (c) defect: a persisted doc that lagged a remote merge by up to
+      // SAVE_DEBOUNCE_MS, or across a whole prior session before Stage 5f's unification, silently
+      // deleted live data on the next restart). It can never ADD correct information that SQLite
+      // doesn't already have. Projection is genuinely needed only when a REMOTE merge brings new
+      // state — handleReceived already does that, every time, going forward. So this call was pure
+      // downside risk with no corresponding benefit, and is removed rather than guarded.
       const { startSyncNode } = await import('./sync/automerge/syncNode.js')
       automergeSyncNode = await startSyncNode({
         deviceId,
@@ -2312,6 +2306,13 @@ if (isElectronEntryPoint()) {
           })
         },
       })
+
+      // Stage 5f item 2: a local edit (appendOp -> liveDoc.recordLocalWrite) must reach connected
+      // peers. liveDoc debounces its own field-write bursts (same timer as the doc save) and, for
+      // any window that included a local write, calls whatever broadcaster is wired here — never a
+      // per-field-op broadcast, and never a projectAll (recordLocalWrite only ever updates the
+      // shared in-memory doc; the write already reached this device's own SQLite via appendOp).
+      setAutomergeLocalWriteBroadcaster(automergeSyncNode.broadcastLocalDoc)
 
       // Host case: a device holding host_signing_key can self-issue its own
       // device-admission token on demand (same fact issueDeviceToken itself

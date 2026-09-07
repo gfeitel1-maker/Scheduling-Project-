@@ -16,14 +16,18 @@ import { synthesizeOpEvents } from './docDiffEvents.js'
 import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../../auth/connectionAuth.js'
 import { recordLibp2pPeerId } from './peerIdentity.js'
 import { wireMutualAuth } from './mutualAuth.js'
+import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 
 // Starts a transport node and wires it to `doc`/`db`. Returns a handle that
 // exposes the current doc and the same lifecycle/broadcast surface as
 // transport.js, so callers don't need to reach into the raw transport.
 //
 // `doc` is the caller's starting Automerge document (e.g. from
-// createEmptyDoc() or loadDoc(savedBytes)); this module owns mutating it from
-// here on via the internal `state.doc` reference.
+// createEmptyDoc() or loadDoc(savedBytes)). Stage 5f: the current doc is NOT held in a private
+// closure variable here — it lives in liveDoc.js's `docRegistry`, keyed by `db`, so that this
+// module's remote-merge path and liveDoc.recordLocalWrite's local-write path share exactly one
+// document instead of silently diverging (see liveDoc.js's module comment for the defect this
+// closes). `doc` just seeds that registry on startup via setCurrentDoc.
 //
 // `onRemoteOps` (Stage 5c, docs/work/plans/2026-09-06-stage5-live-wiring-design.md § 3): fired
 // with (events, { fromPeerId }) once per received frame that actually advanced the doc AND
@@ -37,7 +41,15 @@ import { wireMutualAuth } from './mutualAuth.js'
 // sync or escape as an unhandled rejection — sync must keep converging regardless of what a push-
 // event listener does with what it's handed.
 export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, peerDiscovery, onAuthRejected, now } = {}) {
-  const state = { doc }
+  // Stage 5f: this module no longer keeps a private `state.doc` — the doc lives in liveDoc.js's
+  // `docRegistry`, keyed by THIS `db`, so that a local write (liveDoc.recordLocalWrite) and a
+  // remote merge (handleReceived below) mutate the exact same document instead of two copies that
+  // silently diverge (see liveDoc.js's module comment for the defect this closes). Seed the
+  // registry from the caller's starting doc now, in case nothing has set one for this db yet
+  // (production: main.js already seeded it via ensureAutomergeDocSeeded before calling here, so
+  // this is a no-op re-set of the same value; tests that construct a doc directly and hand it to
+  // startSyncNode need this to establish the registry entry in the first place).
+  setCurrentDoc(db, doc)
 
   async function handleReceived(bytes, { fromPeerId }) {
     let incoming
@@ -48,10 +60,11 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       // this node (design doc's "what must NOT be trusted" section).
       return
     }
-    const before = A.getHeads(state.doc)
-    const merged = A.merge(state.doc, incoming)
+    const currentDoc = getCurrentDoc(db)
+    const before = A.getHeads(currentDoc)
+    const merged = A.merge(currentDoc, incoming)
     if (JSON.stringify(before) === JSON.stringify(A.getHeads(merged))) return // nothing new
-    state.doc = merged
+    setCurrentDoc(db, merged)
 
     // Project into SQLite. A merged doc can be valid CRDT state yet violate a
     // domain invariant the projector rejects — e.g. a child entity referencing
@@ -63,20 +76,20 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // surfaced (onProjectionError + logged) for the Stage-2 rules layer to
     // repair, and sync continues. See docs/adr/2026-09-06 rules-layer section.
     try {
-      projectAll(db, state.doc)
-      onProjected?.(state.doc)
+      projectAll(db, merged)
+      onProjected?.(merged)
       // Only synthesize/fire push events once SQLite actually reflects the merged doc — the
       // renderer re-reads SQLite on these events, so they must never lead the projection.
       if (onRemoteOps) {
         try {
-          const events = synthesizeOpEvents(state.doc, before, A.getHeads(state.doc), { deviceId: fromPeerId ?? null })
+          const events = synthesizeOpEvents(merged, before, A.getHeads(merged), { deviceId: fromPeerId ?? null })
           if (events.length > 0) onRemoteOps(events, { fromPeerId })
         } catch (err) {
           console.error(`syncNode: onRemoteOps consumer threw (non-fatal, sync continues): ${err?.message ?? err}`)
         }
       }
     } catch (err) {
-      onProjectionError?.(err, state.doc, fromPeerId)
+      onProjectionError?.(err, merged, fromPeerId)
       console.error(
         `syncNode: projection failed for a merged doc from ${fromPeerId ?? 'unknown peer'} — ` +
           `SQLite left at last-good, doc kept as CRDT truth, rules-layer repair pending: ${err?.message ?? err}`
@@ -88,7 +101,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // dead-end. Guard so a transport error can't escape as an unhandled
     // rejection either.
     try {
-      await transport.broadcastDoc(A.save(state.doc), { exceptPeerId: fromPeerId })
+      await transport.broadcastDoc(A.save(merged), { exceptPeerId: fromPeerId })
     } catch (err) {
       console.error(`syncNode: re-broadcast after receive failed (non-fatal): ${err?.message ?? err}`)
     }
@@ -180,19 +193,36 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // Exposed for adversarial-input tests (sending raw bytes that are not a
     // valid Automerge doc); not part of the normal edit/broadcast flow.
     sendDocTo: transport.sendDocTo,
-    getDoc: () => state.doc,
-    // Apply a local change (via the caller's own A.change/applyWrite), project
-    // it locally, and broadcast the new bytes to every connected peer.
+    getDoc: () => getCurrentDoc(db),
+    // Direct test/adversarial-scenario API: apply an already-changed doc (via the caller's own
+    // A.change/applyWrite), project it locally, and broadcast the new bytes to every connected
+    // peer. NOT the production local-write path — that's liveDoc.recordLocalWrite, which only
+    // updates the shared doc and debounces a broadcast (see broadcastLocalDoc below); calling
+    // projectAll per field-op here would be the "full delete-reconcile on every keystroke"
+    // performance trap Stage 5f deliberately avoids for real local writes.
     applyLocal: async (newDoc) => {
-      state.doc = newDoc
+      setCurrentDoc(db, newDoc)
       try {
-        projectAll(db, state.doc)
-        onProjected?.(state.doc)
+        projectAll(db, newDoc)
+        onProjected?.(newDoc)
       } catch (err) {
-        onProjectionError?.(err, state.doc, null)
+        onProjectionError?.(err, newDoc, null)
         console.error(`syncNode: local projection failed — SQLite left at last-good: ${err?.message ?? err}`)
       }
-      await transport.broadcastDoc(A.save(state.doc))
+      await transport.broadcastDoc(A.save(newDoc))
+    },
+    // Stage 5f item 2: the broadcast half of a REAL local write. liveDoc.recordLocalWrite already
+    // applies the write to the shared doc and debounces a save; main.js wires this function in as
+    // liveDoc's broadcast callback (setLocalWriteBroadcaster) so that debounced window ALSO
+    // broadcasts the resulting bytes to every connected peer — no projectAll involved, since the
+    // op-log write that produced this doc change already landed in this device's own SQLite via
+    // appendOp, before recordLocalWrite ever ran.
+    broadcastLocalDoc: async (doc) => {
+      try {
+        await transport.broadcastDoc(A.save(doc))
+      } catch (err) {
+        console.error(`syncNode: local-write broadcast failed (non-fatal): ${err?.message ?? err}`)
+      }
     },
     stop: transport.stop,
   }
