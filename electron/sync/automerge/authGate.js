@@ -100,7 +100,13 @@ function decodeMessage(bytes) {
 // stream's own close — a stale entry surviving disconnect would let a
 // future, unauthenticated re-connection from the same peer id skip the
 // handshake entirely (the stale-entry hole the brief calls out).
-export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin, now = Date.now } = {}) {
+// `onPeerAdmitted(peerId)` fires the moment a peer is added to authenticatedPeers. Stage 5f found
+// via a real two-machine run that WITHOUT this, two devices that connect never exchange their
+// EXISTING state: every broadcast is triggered by a local write or a received merge, so a peer that
+// joins after a write never learns about it, and two devices that each have prior data both sit
+// showing nothing until somebody happens to make a new edit. Admission is the correct trigger —
+// it is the first moment we are both allowed to send to a peer and know they will accept it.
+export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, now = Date.now } = {}) {
   const authenticatedPeers = new Set()
   // device_id -> PeerId string, for a pairing_request whose director
   // decision hasn't landed yet. See module comment above.
@@ -149,6 +155,10 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
         if (result.ok) {
           authenticatedPeers.add(fromPeerId)
+          // Fire-and-forget: an initial-sync send must never block or fail the admission itself.
+          try {
+            Promise.resolve(onPeerAdmitted?.(fromPeerId)).catch(() => {})
+          } catch { /* a throwing callback must not un-admit a legitimately authenticated peer */ }
           try {
             await sendFramed(stream.sink, encodeMessage({ type: 'auth_ok' }))
           } catch {
