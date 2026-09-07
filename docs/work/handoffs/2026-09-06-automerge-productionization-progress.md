@@ -111,6 +111,69 @@ each was invisible to a green test run:
   startup projection, not eliminated); `day_overrides`, `template_slots`, and parent-scoped entities
   remain unmodeled by design.
 
+## UPDATE 2026-09-07 (later) — Stage 5f PASSED on real hardware; engine is validated
+
+**Two machines (macOS + Windows, real Wi-Fi) converged in both directions.** All five checks green
+on both sides: mDNS discovery, mutual authentication, and document convergence with projection into
+SQLite. Harness: `scripts/stage5f-converge.mjs` (production modules, throwaway temp databases);
+pre-check: `scripts/mdns-probe.mjs` (dependency-free bidirectional multicast probe).
+
+### Six defects the two-machine test found that CI could not
+
+Every one passed a full green gate. This is the record for why hardware validation was worth doing
+before the irreversible cutover.
+
+1. **Loopback-only bind (#316).** `transport.js`'s `DEFAULT_LISTEN` is `/ip4/127.0.0.1/tcp/0` and
+   `main.js` never overrode it — a production node could never accept a connection from another
+   device. Loopback is exactly what the in-process tests want, so no CI test could catch its absence.
+2. **No-op merge left a dead document handle (#315).** `A.merge` CONSUMES its first argument;
+   `handleReceived` returned early on a frame that brought nothing new *without* updating the
+   registry, so the next local write threw "Attempting to change an outdated document" — permanently,
+   until restart. Redundant frames are routine in a mesh, so this bricked local editing in ordinary
+   two-device use.
+3. **`mutualAuth` would not reuse an existing connection (#317).** libp2p connections are
+   bidirectional, but the code always dialed back and gave up if that failed. Against a firewalled
+   Windows peer (which could dial out but not accept), nothing synced in EITHER direction across a
+   working link. One reachable direction must be enough — and this fix was observed firing on real
+   hardware: "dial failed, but an inbound connection exists — authenticating over that instead".
+4. **Independent document roots — the most serious (#318).** `createEmptyDoc()` did `A.from(shape)`,
+   so every device built its own root. Two independent roots produce competing root maps and
+   `A.merge` **silently discards one side's entire entity collection** (visible only via
+   `getConflicts`, which nothing reads). This was a REGRESSION against proven prior art: the
+   validated prototype (`cr4-node.mjs:28`) used `A.clone(A.load(GENESIS))` from a hardcoded shared
+   genesis. Fixed by cloning one frozen genesis on every device.
+5. **Fire-and-forget initial sync (#315, removed in #317, replaced in #318).** A whole-document push
+   is not reliably deliverable: a frame rejected by the peer's admission gate does not throw on the
+   sender. Converged only on timing luck (~1 run in 3 failed). Removed rather than shipped flaky,
+   then solved properly with Automerge's own sync protocol.
+6. **Windows blocks inbound on a "Public" network.** Environmental, not a code bug, but a real
+   deployment requirement — see the Windows section below.
+
+### What #318 changed, and the trap in it
+
+`initSyncState`/`generateSyncMessage`/`receiveSyncMessage` over a distinct `SYNC_PROTO`, with
+per-peer sync state created on admission and discarded on disconnect. **Two devices that connect now
+converge with no further writes** — that never worked before. Convergence verified over 70 loop
+iterations across 7 runs, zero failures.
+
+**The genesis must stay stable forever.** `GENESIS_B64` is a frozen constant pinned to a FROZEN
+entity list, not live `MODELED_ENTITIES` — pinning it to the live set would mean adding one entity in
+a future release moves the root and splits every existing document at upgrade. New entities are
+topped up additively. A frozen-heads test pins it; changing that expectation hides a compatibility
+break rather than fixing one.
+
+### Remaining before Stage 6 (the irreversible cutover)
+
+1. **Packaged-build smoke test.** Everything so far ran under plain Node. A packaged Electron app
+   bundling Automerge's WASM and the all-ESM libp2p graph is a distinct, known failure class in this
+   repo (`reference_packaged_src_bundling`). Mac-only and quick.
+2. **No Windows build target at all.** `build.win` and `build.linux` are null in package.json —
+   only `build.mac` exists. The camp will run a MIX of Macs and Windows machines, so Windows cannot
+   be shipped to today. This is larger than the sync work and independent of it.
+3. **Windows firewall + a visible signal.** A Windows device on a default "Public" network discovers
+   peers and looks healthy while accepting nothing. The installer needs an inbound rule, and the app
+   should surface "peers discovered, zero inbound connections" rather than appearing fine.
+
 ## Where this pauses, and why (pacing, not stopping short)
 
 The reversible engine + write-path work is done and merged. What remains — 5c (read/receive path +
