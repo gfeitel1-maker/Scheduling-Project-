@@ -56,6 +56,18 @@ describe('discovery — @libp2p/mdns wrapper', () => {
 })
 
 describe('campDiscoveryTag — pure, no real mDNS involved', () => {
+  // Wire-compatibility tripwire (see the WIRE COMPATIBILITY note in
+  // campIdHash.js). The hash vector in campIdHash.test.js pins the hash but
+  // NOT the format around it — a changed prefix, separator or truncation
+  // length would leave that test green while silently breaking discovery
+  // against every already-installed copy of the app. This pins the complete
+  // string that actually goes on the wire. If it fails, updating the
+  // expectation hides the breakage rather than fixing it.
+  it('produces its frozen service tag for a known camp id', () => {
+    expect(campDiscoveryTag('shoresh-fixed-test-vector')).toBe('_shoresh-84211277a6a9b47e._udp.local')
+    expect(campDiscoveryTag('camp-1')).toBe('_shoresh-89e6b4f18ea169c7._udp.local')
+  })
+
   it('is deterministic: the same campId always produces the same tag', () => {
     expect(campDiscoveryTag('camp-1')).toBe(campDiscoveryTag('camp-1'))
   })

@@ -5,6 +5,18 @@ import { campIdHash } from './campIdHash.js'
 // This value is broadcast in the clear on the LAN by both discovery paths, so
 // its properties are a privacy contract, not an implementation detail.
 describe('campIdHash', () => {
+  // Wire-compatibility tripwire, not a characterization test. Two devices on
+  // different app versions discover each other only if both derive the SAME
+  // string from the same camp id — and a mismatch fails silently (no error,
+  // just no Host found). This vector is frozen; if it fails, the change under
+  // review breaks LAN discovery against every already-installed copy of the
+  // app, and updating this expectation hides that rather than fixing it. See
+  // the WIRE COMPATIBILITY note in campIdHash.js.
+  it('produces its frozen value for a known input', () => {
+    expect(campIdHash('shoresh-fixed-test-vector')).toBe('84211277a6a9b47e')
+    expect(campIdHash('camp-1')).toBe('89e6b4f18ea169c7')
+  })
+
   it('is deterministic', () => {
     expect(campIdHash('camp-1')).toBe(campIdHash('camp-1'))
   })
