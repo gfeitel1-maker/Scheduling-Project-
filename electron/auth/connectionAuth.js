@@ -42,7 +42,16 @@ export function evaluateAuthenticate(db, { token, device_id }) {
   // trust, per docs/adr/2026-07-25-device-trust-revocation.md §3. This check
   // is byte-for-byte the same as syncServer.js's WS rejection — there is no
   // product reason to relax it for a different transport.
-  if (verified.type !== 'camp') {
+  //
+  // 'device' (Finding 2 fix, Stage 5d-2b re-review) IS accepted here: it is
+  // the Host's own connection-admission-only token (issueDeviceToken,
+  // localAuth.js), Host-signed exactly like 'camp' and used ONLY to let the
+  // Host authenticate itself outward to a peer it dials — it carries no
+  // userId. Admitting it here is safe precisely because "admitted" and
+  // "authorized to act" are different layers: authorize() (electron/auth/
+  // authorize.js) explicitly refuses `type: 'device'` outright, so nothing
+  // this token touches can ever reach a role decision.
+  if (verified.type !== 'camp' && verified.type !== 'device') {
     return { ok: false, code: 4402, reason: 'local_token_not_valid_for_network' }
   }
 

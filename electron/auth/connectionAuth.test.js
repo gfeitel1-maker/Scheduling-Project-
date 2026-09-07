@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomUUID, randomBytes, createPrivateKey, sign as edSign } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
-import { ensureHostSigningKey, issueCampToken, issueLocalToken } from './localAuth.js'
+import { ensureHostSigningKey, issueCampToken, issueLocalToken, issueDeviceToken } from './localAuth.js'
 import { evaluateAuthenticate } from './connectionAuth.js'
 
 let db, tmpFile
@@ -48,6 +48,27 @@ describe('evaluateAuthenticate — shared admission decision', () => {
     expect(result.ok).toBe(true)
     expect(result.verified.deviceId).toBe(deviceId)
     expect(result.verified.type).toBe('camp')
+  })
+
+  // Finding 2 fix (Stage 5d-2b re-review): this is the regression test for
+  // "the Host's self-issued token can never verify." Before this fix, the
+  // Host self-issued issueCampToken(db, null, deviceId), which
+  // verifySessionToken ALWAYS rejected (userId must be a non-empty string) —
+  // evaluateAuthenticate could never reach this far for the Host's own
+  // outbound authenticate. issueDeviceToken's admission-only 'device' type
+  // must be ADMITTED here (the authorize()-side denial is a SEPARATE test in
+  // authorize.test.js — admission and authorization are different layers).
+  it('admits a Host-issued device (admission-only) token for an authorized device', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueDeviceToken(db, deviceId)
+
+    const result = evaluateAuthenticate(db, { token, device_id: deviceId })
+
+    expect(result.ok).toBe(true)
+    expect(result.verified.deviceId).toBe(deviceId)
+    expect(result.verified.type).toBe('device')
+    expect(result.verified.userId).toBeNull()
   })
 
   it('rejects a local-type token even though it is structurally valid', () => {

@@ -23,6 +23,17 @@ export function authorize({ db, token, action, resourceId }) {
     return deny(db, action, undefined, 'invalid_token', null, null, null)
   }
 
+  // Stage 5d-2b fix round (Finding 2): a 'device' token (issueDeviceToken,
+  // localAuth.js) proves connection ADMISSION only — it carries no userId
+  // and therefore no role to look up. Explicit and up front, rather than
+  // relying on the userRow lookup below incidentally returning nothing for
+  // a null userId: admission and authorization are deliberately different
+  // layers here (docs/adr/2026-09-06-libp2p-membership-mapping.md), and this
+  // must never become a bypass just because the SQL happened to fail closed.
+  if (session.type === 'device') {
+    return deny(db, action, undefined, 'device_token_not_valid_for_authorization', session.userId, session.deviceId, session.jti)
+  }
+
   // A malformed action is denied for every role, including admin, before
   // any role/matrix lookup happens — admin's '*' shortcut must never mask
   // a caller bug where `action` wasn't actually passed.

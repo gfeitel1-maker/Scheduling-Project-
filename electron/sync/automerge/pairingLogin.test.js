@@ -14,7 +14,7 @@ import { randomBytes, randomUUID, scryptSync } from 'node:crypto'
 import * as A from '@automerge/automerge'
 import { openLocalDb } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
-import { ensureHostSigningKey, issueCampToken, issueLocalToken } from '../../auth/localAuth.js'
+import { ensureHostSigningKey, issueCampToken, issueLocalToken, issueDeviceToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
 import { wireMutualAuth } from './mutualAuth.js'
 
@@ -147,9 +147,18 @@ describe('pairing_request + login over libp2p (Stage 5d-2b)', () => {
       "INSERT INTO devices (id, name, authorized_at, pairing_status, device_secret_identifier) VALUES (?, ?, ?, 'authorized', ?)"
     ).run('client-device', 'Client', new Date().toISOString(), secret)
 
+    // Stage 5d-2b re-review (HIGH finding fix): authGate.js now rate-limits
+    // 'login' frames on the same connection (LOGIN_MIN_INTERVAL_MS), exactly
+    // like syncServer.js's WS path already did. This test is specifically
+    // about attemptLogin's OWN lockout (a distinct, longer-lived mechanism —
+    // see localAuth.js's LOGIN_MAX_ATTEMPTS/LOGIN_LOCKOUT_MS), so it advances
+    // an injected fake clock well past LOGIN_MIN_INTERVAL_MS between attempts
+    // so the new per-connection throttle never interferes with what it's
+    // actually testing.
+    let t = 1_000_000
     const genesis = createEmptyDoc()
-    const host = await startSyncNode({ deviceId: 'host-device', db: dbA, doc: A.clone(genesis) })
-    const client = await startSyncNode({ deviceId: 'client-device', db: dbB, doc: A.clone(genesis) })
+    const host = await startSyncNode({ deviceId: 'host-device', db: dbA, doc: A.clone(genesis), now: () => t })
+    const client = await startSyncNode({ deviceId: 'client-device', db: dbB, doc: A.clone(genesis), now: () => t })
     nodes.push(host, client)
 
     await client.dial(host.getMultiaddrs()[0])
@@ -157,6 +166,7 @@ describe('pairing_request + login over libp2p (Stage 5d-2b)', () => {
 
     let lastReply
     for (let i = 0; i < 5; i++) {
+      t += 1000
       lastReply = await client.authenticateWith(host.peerId, {
         type: 'login',
         device_id: 'client-device',
@@ -170,6 +180,7 @@ describe('pairing_request + login over libp2p (Stage 5d-2b)', () => {
     // 5th bad attempt should trip the SAME lockout attemptLogin enforces for
     // the WS path (LOGIN_MAX_ATTEMPTS) — proving evaluateLogin really is
     // attemptLogin, not a re-implementation of it.
+    t += 1000
     const lockedReply = await client.authenticateWith(host.peerId, {
       type: 'login',
       device_id: 'client-device',
@@ -236,6 +247,61 @@ describe('mutual authentication over libp2p (Stage 5d-2b production wiring)', ()
     // not just the one the test happened to dial first.
     const docB = applyWrite(b.getDoc(), { entity: 'activities', entity_id: 'act-2', field: 'name', value: 'Archery' })
     await b.applyLocal(docB)
+    await waitFor(() => !!activityRow(dbA, 'act-2'))
+    expect(activityRow(dbA, 'act-2').name).toBe('Archery')
+  })
+
+  // Finding 2 fix, end-to-end proof (Stage 5d-2b re-review): before this fix,
+  // dbA (the Host) could mint issueCampToken(dbA, null, deviceA) but that
+  // token could NEVER verify (verifySessionToken always rejects a null
+  // userId) — so the Host side of mutual auth was silently, permanently
+  // broken; only a Client's real user-backed camp token ever worked. This
+  // reproduces the real production shape: the Host self-issues a device
+  // token (exactly as main.js's chooseMode/startAutomergeSyncNodeIfEnabled
+  // now do via issueDeviceToken) with NO user logged in on that side, while
+  // the Client authenticates with an ordinary user-backed camp token — and
+  // proves convergence works in BOTH directions.
+  it('Host self-issued device token + Client camp token mutually authenticate and converge BOTH ways', async () => {
+    const hostKey = ensureHostSigningKey(dbA)
+    for (const db of [dbA, dbB]) {
+      db.prepare('UPDATE camps SET signing_public_key = ?').run(hostKey.public_key)
+      db.prepare("INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')").run(
+        'host-device', 'Host', new Date().toISOString()
+      )
+      db.prepare("INSERT INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')").run(
+        'client-device', 'Client', new Date().toISOString()
+      )
+    }
+    const hostDeviceToken = issueDeviceToken(dbA, 'host-device')
+    const clientCampToken = issueCampToken(dbA, 'user-client', 'client-device')
+
+    const genesis = createEmptyDoc()
+    const host = await startSyncNode({ deviceId: 'host-device', db: dbA, doc: A.clone(genesis) })
+    const client = await startSyncNode({ deviceId: 'client-device', db: dbB, doc: A.clone(genesis) })
+    nodes.push(host, client)
+
+    const mutualHost = wireMutualAuth(host, { deviceId: 'host-device', getToken: () => hostDeviceToken })
+    const mutualClient = wireMutualAuth(client, { deviceId: 'client-device', getToken: () => clientCampToken })
+
+    await host.dial(client.getMultiaddrs()[0])
+    await waitFor(() => host.getPeers().length > 0)
+    await waitFor(() => client.getPeers().length > 0)
+
+    await mutualHost.tryAuthenticate(client.peerId)
+    await mutualClient.tryAuthenticate(host.peerId)
+
+    await waitFor(() => client.isPeerAuthenticated(host.peerId))
+    await waitFor(() => host.isPeerAuthenticated(client.peerId))
+
+    // Host -> Client direction.
+    const docHost = applyWrite(host.getDoc(), { entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swim' })
+    await host.applyLocal(docHost)
+    await waitFor(() => !!activityRow(dbB, 'act-1'))
+    expect(activityRow(dbB, 'act-1').name).toBe('Swim')
+
+    // Client -> Host direction.
+    const docClient = applyWrite(client.getDoc(), { entity: 'activities', entity_id: 'act-2', field: 'name', value: 'Archery' })
+    await client.applyLocal(docClient)
     await waitFor(() => !!activityRow(dbA, 'act-2'))
     expect(activityRow(dbA, 'act-2').name).toBe('Archery')
   })

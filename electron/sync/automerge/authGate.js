@@ -36,6 +36,48 @@
 // by then.
 import { peerIdFromString } from '@libp2p/peer-id'
 import { AUTH_PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
+import { shouldThrottle, PAIRING_RATE_MS, LOGIN_MIN_INTERVAL_MS } from '../rateLimit.js'
+
+// HIGH finding, Stage 5d-2b re-review: syncServer.js's WS handling of
+// pairing_request/login is rate-limited (shouldThrottle/PAIRING_RATE_MS/
+// LOGIN_MIN_INTERVAL_MS, plus a MAX_PENDING_PAIRING cap) — the libp2p path
+// through this file called straight into evaluatePairingRequest/onLogin with
+// NONE of that, despite the ADR's §6 explicitly claiming both transports
+// "carry these same caps forward unconditionally." This block is what
+// actually makes that claim true. MAX_PENDING_PAIRING is kept as a local
+// constant (not imported from syncServer.js, which doesn't export it) —
+// connectionAuth.js's own doc comments already establish that this cap
+// protects a transport's own connection/PeerId-dial-handle map, which has
+// nothing to drift against a different transport's identical-by-coincidence
+// number.
+const MAX_PENDING_PAIRING = 50
+
+// Throttle keying — the central design decision here, so it is spelled out
+// once. Two Maps, keyed differently, and a frame is throttled if EITHER says
+// "too soon":
+//   - by `fromPeerId`: this connection's real libp2p identity, established
+//     by the noise handshake and NOT client-forgeable without a fresh
+//     connection. Closes "flood by rotating the claimed device_id every
+//     frame on the SAME connection."
+//   - by the claimed `device_id`: attacker-supplied over an unauthenticated
+//     channel and free to change per-frame, but keeping it ALONGSIDE the
+//     peer-keyed limit closes a different case — one peer sending frames for
+//     many DIFFERENT claimed device_ids at the full unthrottled rate, each
+//     still reaching evaluatePairingRequest/evaluateLogin (DB writes,
+//     audit-log inserts) at up to once per PAIRING_RATE_MS/
+//     LOGIN_MIN_INTERVAL_MS for every distinct device_id it invents.
+// Explicit limit this does NOT close: a peer that opens a BRAND NEW libp2p
+// connection (a fresh noise handshake, and on many transports a fresh
+// keypair) for every single frame gets a fresh `fromPeerId` each time and
+// evades the peer-keyed half entirely. That case is bounded elsewhere —
+// transport.js's MAX_CONNECTIONS ceiling and the real per-connection cost of
+// a noise handshake — not by anything in this file; don't overclaim it here.
+// State is intentionally never cleared on peer:disconnect (unlike
+// `authenticatedPeers` below): a peer that disconnects and immediately
+// reconnects with the SAME identity must not get a clean rate-limit slate,
+// and the memory cost of retaining it is bounded by however many distinct
+// peer ids/device ids a peer can cheaply mint, which is exactly the limit
+// just described, not a new one.
 
 function encodeMessage(obj) {
   return new TextEncoder().encode(JSON.stringify(obj))
@@ -58,11 +100,19 @@ function decodeMessage(bytes) {
 // stream's own close — a stale entry surviving disconnect would let a
 // future, unauthenticated re-connection from the same peer id skip the
 // handshake entirely (the stale-entry hole the brief calls out).
-export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin } = {}) {
+export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin, now = Date.now } = {}) {
   const authenticatedPeers = new Set()
   // device_id -> PeerId string, for a pairing_request whose director
   // decision hasn't landed yet. See module comment above.
   const pendingPairingPeers = new Map()
+
+  // Rate-limit bookkeeping (see the module-level comment above for the
+  // keying rationale). `now` is injectable so the throttle tests can drive
+  // time deterministically, exactly like syncServer.js's own `now` option.
+  const lastPairingRequestAtByPeer = new Map()
+  const lastPairingRequestAtByDevice = new Map()
+  const lastLoginAttemptAtByPeer = new Map()
+  const lastLoginAttemptAtByDevice = new Map()
 
   node.addEventListener('peer:disconnect', (evt) => {
     authenticatedPeers.delete(evt.detail.toString())
@@ -123,6 +173,23 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
       }
 
       if (msg.type === 'pairing_request') {
+        const at = now()
+        const throttled =
+          shouldThrottle(lastPairingRequestAtByPeer.get(fromPeerId), at, PAIRING_RATE_MS) ||
+          (typeof msg.device_id === 'string' &&
+            shouldThrottle(lastPairingRequestAtByDevice.get(msg.device_id), at, PAIRING_RATE_MS))
+        if (throttled) {
+          stream.abort(new Error('rate_limited'))
+          return
+        }
+        lastPairingRequestAtByPeer.set(fromPeerId, at)
+        if (typeof msg.device_id === 'string') lastPairingRequestAtByDevice.set(msg.device_id, at)
+
+        if (pendingPairingPeers.size >= MAX_PENDING_PAIRING) {
+          stream.abort(new Error('pending_pairing_full'))
+          return
+        }
+
         let result
         try {
           result = (await onPairingRequest?.(msg, { fromPeerId })) ?? { ok: false }
@@ -153,6 +220,18 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
       }
 
       if (msg.type === 'login') {
+        const at = now()
+        const throttled =
+          shouldThrottle(lastLoginAttemptAtByPeer.get(fromPeerId), at, LOGIN_MIN_INTERVAL_MS) ||
+          (typeof msg.device_id === 'string' &&
+            shouldThrottle(lastLoginAttemptAtByDevice.get(msg.device_id), at, LOGIN_MIN_INTERVAL_MS))
+        if (throttled) {
+          stream.abort(new Error('rate_limited'))
+          return
+        }
+        lastLoginAttemptAtByPeer.set(fromPeerId, at)
+        if (typeof msg.device_id === 'string') lastLoginAttemptAtByDevice.set(msg.device_id, at)
+
         let result
         try {
           result = (await onLogin?.(msg, { fromPeerId })) ?? { ok: false }

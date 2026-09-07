@@ -36,7 +36,7 @@ import { wireMutualAuth } from './mutualAuth.js'
 // only computes and hands them off. Wrapped in try/catch so a consumer's own throw can never break
 // sync or escape as an unhandled rejection — sync must keep converging regardless of what a push-
 // event listener does with what it's handed.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, peerDiscovery, onAuthRejected } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, peerDiscovery, onAuthRejected, now } = {}) {
   const state = { doc }
 
   async function handleReceived(bytes, { fromPeerId }) {
@@ -142,6 +142,10 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     onPairingRequest: onPairingRequestMsg,
     onLogin,
     peerDiscovery,
+    // Threaded through to authGate.js's rate-limit clock (Stage 5d-2b re-
+    // review, HIGH finding fix) — optional, tests only; production never
+    // sets this and gets the real Date.now.
+    ...(now ? { now } : {}),
   })
 
   // Stage 5d-2b production wiring: this is what turns "nothing calls

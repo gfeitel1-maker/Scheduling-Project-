@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
-import { issueLocalToken, issueCampToken, ensureHostSigningKey } from './localAuth.js'
+import { issueLocalToken, issueCampToken, issueDeviceToken, ensureHostSigningKey } from './localAuth.js'
 import { authorize } from './authorize.js'
 
 let tmpFile
@@ -119,6 +119,28 @@ describe('authorize', () => {
     const result = authorize({ db, token, action: 'users.create' })
 
     expect(result).toEqual({ allowed: false, reason: 'device_not_found' })
+  })
+
+  // Finding 2 fix (Stage 5d-2b re-review): the Host's self-issued 'device'
+  // admission token (issueDeviceToken) must NEVER satisfy authorize(),
+  // regardless of action or role table — it carries no userId at all, so
+  // there is no role to grant. This is the regression test for "a device
+  // token confers no authority" — the other half of Finding 2 alongside the
+  // Host-can-now-authenticate proof in pairingLogin.test.js.
+  it('denies a device-admission token for ANY action, even one every role permits', () => {
+    const token = issueDeviceToken(db, 'device-1')
+
+    const result = authorize({ db, token, action: 'groups.write' })
+
+    expect(result).toEqual({ allowed: false, reason: 'device_token_not_valid_for_authorization' })
+  })
+
+  it('denies a device-admission token even for an admin-only action', () => {
+    const token = issueDeviceToken(db, 'device-1')
+
+    const result = authorize({ db, token, action: 'users.create' })
+
+    expect(result).toEqual({ allowed: false, reason: 'device_token_not_valid_for_authorization' })
   })
 
   it('denies (default-deny) for an unknown action string, even for admin', () => {

@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
-import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, issueCampToken } from './auth/localAuth.js'
+import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, issueDeviceToken } from './auth/localAuth.js'
 import { startSyncServer } from './sync/syncServer.js'
 import { createSyncClient } from './sync/syncClient.js'
 import { advertiseHost, discoverHosts } from './sync/discovery.js'
@@ -674,8 +674,14 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // startup, but the Host device row may not have been auto-authorized
       // yet at that point (the UPDATE above just did it, for the FIRST
       // time), so retry here where it's guaranteed to succeed.
+      //
+      // Finding 2 fix: issueDeviceToken, NOT issueCampToken(db, null,
+      // deviceId) — a 'camp' token requires a real userId (verifySessionToken
+      // rejects a null one outright), so the old call always minted a token
+      // that could never verify. issueDeviceToken mints a distinct
+      // admission-only token with no userId — see its doc comment.
       try {
-        getAutomergeNode()?.setAuthToken(issueCampToken(db, null, deviceId))
+        getAutomergeNode()?.setAuthToken(issueDeviceToken(db, deviceId))
       } catch {
         // Still not the Host (no host_signing_key) — unreachable in
         // practice on this branch, but never worth throwing over.
@@ -993,7 +999,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
   function verifySession({ token } = {}) {
     const session = verifySessionToken(db, token)
-    if (!session) return { valid: false }
+    // Finding 2 fix: a 'device' token (issueDeviceToken) proves connection
+    // admission only and carries no userId — reject it explicitly here too,
+    // rather than relying on the userRow lookup below incidentally missing
+    // for a null id. Same reasoning as authorize.js's explicit check.
+    if (!session || session.type === 'device') return { valid: false }
     const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(session.userId)
     if (!user) return { valid: false }
     return { valid: true, userId: user.id, role: user.role }
@@ -2287,12 +2297,14 @@ if (isElectronEntryPoint()) {
       })
 
       // Host case: a device holding host_signing_key can self-issue its own
-      // camp token on demand (same fact issueCampToken itself relies on) —
-      // no login step needed, mirroring chooseMode's existing Host
-      // auto-authorize precedent. A Client has no signing key and gets its
-      // token instead from login()/chooseMode's client branch below.
+      // device-admission token on demand (same fact issueDeviceToken itself
+      // relies on) — no login step needed, mirroring chooseMode's existing
+      // Host auto-authorize precedent. A Client has no signing key and gets
+      // its (camp) token instead from login()/chooseMode's client branch
+      // below. Finding 2 fix: issueDeviceToken, not issueCampToken(db, null,
+      // deviceId) — see the doc comment at the chooseMode call site above.
       try {
-        automergeSyncNode.setAuthToken(issueCampToken(db, null, deviceId))
+        automergeSyncNode.setAuthToken(issueDeviceToken(db, deviceId))
       } catch {
         // Not the Host — no host_signing_key row. Expected for a Client;
         // its token arrives later via login()/chooseMode.

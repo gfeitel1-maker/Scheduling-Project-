@@ -10,6 +10,7 @@ import {
   verifyPin,
   issueCampToken,
   issueLocalToken,
+  issueDeviceToken,
   verifySessionToken,
   attemptLogin,
   ensureHostSigningKey,
@@ -296,6 +297,41 @@ describe('issueCampToken / issueLocalToken / verifySessionToken', () => {
 
     clientDb.close()
     fs.unlinkSync(otherFile)
+  })
+
+  // Finding 2 fix (Stage 5d-2b re-review): the Host's self-issued token for
+  // authenticating outward over libp2p used to be issueCampToken(db, null,
+  // deviceId) — a userId:null 'camp' token that verifySessionToken ALWAYS
+  // rejected (`typeof userId !== 'string'` fails on null), so the Host could
+  // never authenticate to any peer. issueDeviceToken mints a distinct
+  // 'device' type that carries no userId at all and round-trips through
+  // verifySessionToken, closing that dead path.
+  it('round-trips deviceId (and no userId) through a Host-signed device token', () => {
+    const token = issueDeviceToken(db, 'device-1')
+    const payload = verifySessionToken(db, token)
+    expect(payload).toMatchObject({ deviceId: 'device-1', type: 'device', userId: null })
+  })
+
+  it('issueDeviceToken throws when this device has no host_signing_key row (is not the Host)', () => {
+    const otherFile = path.join(os.tmpdir(), `shoresh-localauth-devicetoken-notthehost-${Date.now()}-${Math.random()}.sqlite`)
+    const clientDb = openLocalDb(otherFile)
+    clientDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
+
+    expect(() => issueDeviceToken(clientDb, 'device-1')).toThrow(/not the Host/)
+
+    clientDb.close()
+    fs.unlinkSync(otherFile)
+  })
+
+  it('a device token is verified with the SAME Host signing key as a camp token (Ed25519, not HMAC)', () => {
+    const token = issueDeviceToken(db, 'device-1')
+    const [payloadB64, signature] = token.split('.')
+    // Tamper the payload — a device token, exactly like a camp token, must
+    // fail signature verification on tamper, not merely on missing userId.
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'))
+    payload.deviceId = 'device-2'
+    const forgedPayloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+    expect(verifySessionToken(db, `${forgedPayloadB64}.${signature}`)).toBeNull()
   })
 
   it('issueLocalToken throws when the device has no device_secret_identifier (not paired)', () => {

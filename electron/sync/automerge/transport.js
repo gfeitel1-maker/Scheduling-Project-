@@ -62,7 +62,7 @@ const MAX_CONNECTIONS = 200
 // scoped discovery; omitted by default so tests keep dialing directly over
 // loopback (mDNS needs a real network interface — see discovery.js's own
 // module comment).
-export async function startTransport({ deviceId: _deviceId, onDocReceived, listen, onAuthenticate, onPairingRequest, onLogin, peerDiscovery } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, listen, onAuthenticate, onPairingRequest, onLogin, peerDiscovery, now } = {}) {
   const node = await createLibp2p({
     addresses: { listen: listen ?? DEFAULT_LISTEN },
     transports: [tcp()],
@@ -79,7 +79,12 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
     ...(peerDiscovery ? { peerDiscovery } : {}),
   })
 
-  const { authenticatedPeers, sendPairingApproved, sendPairingDenied } = registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin })
+  const { authenticatedPeers, sendPairingApproved, sendPairingDenied } = registerAuthGate(node, {
+    onAuthenticate,
+    onPairingRequest,
+    onLogin,
+    ...(now ? { now } : {}),
+  })
 
   await node.handle(PROTO, ({ stream, connection }) => {
     const fromPeerId = connection.remotePeer.toString()
