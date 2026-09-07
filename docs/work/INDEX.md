@@ -171,8 +171,8 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Projection failures must be detected as a distinct, queryable ledger and recoverable by entity-scoped replay from the op-log](../../docs/adr/2026-09-04-projection-failure-detection-and-recovery.md) | accepted | implemented | [2026-09-06-productionize-automerge-libp2p-sync](../../docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md) |
 | [Generated route gains render-time location-contention detection (extends OVERLAP, does not touch UNFILLABLE)](../../docs/adr/2026-09-05-generated-route-render-time-location-contention.md) | proposed | proposed | — |
 | [ADR: An unresolved-location decision is remembered per camp via a compound_cell_decisions-shaped table, and every held-conflict reason gets a triage card](../../docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-conflict-triage-coverage.md) | proposed | implemented | — |
-| [ADR: Membership and identity mapping for Automerge/libp2p sync (Stage 5d)](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) | proposed | not_started | — |
-| [ADR: Productionize Automerge + libp2p as the sync/data layer; SQLite becomes a rebuildable projection](../../docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md) | accepted | not_started | [2026-09-06-libp2p-membership-mapping](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) |
+| [ADR: Membership and identity mapping for Automerge/libp2p sync (Stage 5d)](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) | accepted | in_progress | — |
+| [ADR: Productionize Automerge + libp2p as the sync/data layer; SQLite becomes a rebuildable projection](../../docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md) | accepted | in_progress | [2026-09-06-libp2p-membership-mapping](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) |
 
 ## Runs
 

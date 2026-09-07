@@ -1,11 +1,11 @@
 ---
 title: "ADR: Membership and identity mapping for Automerge/libp2p sync (Stage 5d)"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: in_progress
 date: 2026-09-06
-decided: null
+decided: 2026-09-06
 deciders: [product-owner]
 task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
@@ -24,7 +24,15 @@ program: shoresh-future-architecture
 
 # ADR: Membership and identity mapping for Automerge/libp2p sync (Stage 5d)
 
-> **Status: PROPOSED.** This is Stage 5d's own sub-ADR, called for explicitly by
+> **Status: ACCEPTED (2026-09-06).** The product owner accepted this ADR in-session, authorizing
+> the Stage 5d implementation, and separately decided its one open product question (§1's "how a
+> Client finds the Host's PeerId"): **mDNS service metadata carrying a camp identifier** — not a
+> QR/pairing code, not dial-everything. That decision is implemented in Stage 5d-2a (PR #308) as an
+> opaque, one-way-hashed camp service tag. `implementation_state: in_progress` — 5d-1 (auth handshake
+> + admission gate, PR #307) and 5d-2a (discovery + schema v57, PR #308) have merged; 5d-2b (pairing/
+> login + mutual-auth wiring) is in review.
+>
+> This is Stage 5d's own sub-ADR, called for explicitly by
 > `docs/work/plans/2026-09-06-stage5-live-wiring-design.md` §4 and by the parent ADR's Stage 5
 > description ("Membership/identity redesign ... scoped as its own design pass ... because it is
 > security-consequential and not obviously reversible"). It requires product-owner acceptance before
