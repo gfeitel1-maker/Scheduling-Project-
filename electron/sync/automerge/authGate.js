@@ -12,9 +12,29 @@
 // frame of {type:'authenticate', ...} arrived; call the injected decision
 // function; admit or reject based on its answer."
 //
-// 5d-1 implements the `authenticate` message only (an already-paired,
+// 5d-1 implemented the `authenticate` message only (an already-paired,
 // already-logged-in device reconnecting with a live token — the ADR's
-// "Order — reconnect" flow). `pairing_request`/`login` are 5d-2.
+// "Order — reconnect" flow). Stage 5d-2b adds `pairing_request` and `login`
+// (the ADR's "Order — first pairing" flow), mirroring syncServer.js's WS
+// handling of the same two message types via the SAME shared decision
+// functions (electron/auth/connectionAuth.js's evaluatePairingRequest /
+// evaluateLogin) — see those functions' doc comments for what stays
+// transport-specific (rate limiting) vs. shared (the actual decision).
+//
+// `pairing_request` cannot be answered synchronously the way `authenticate`
+// is: approval is a human (the director) making a decision in the
+// renderer, which can take arbitrarily long — far longer than it is
+// reasonable to hold one libp2p stream open. So this handler replies
+// immediately (`pairing_approved` if already-approved — the idempotent
+// re-delivery case — or `pairing_pending` otherwise) and closes the
+// stream, remembering the requesting peer's id in `pendingPairingPeers`
+// keyed by device_id. When the director's decision lands later (main.js
+// calling the returned `sendPairingApproved`/`sendPairingDenied`), a NEW
+// stream is dialed back to that remembered peer id — mirroring
+// syncServer.js's `pendingPairingConnections` map, just PeerId-addressed
+// instead of ws-object-addressed, because the original stream is long gone
+// by then.
+import { peerIdFromString } from '@libp2p/peer-id'
 import { AUTH_PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
 
 function encodeMessage(obj) {
@@ -38,8 +58,11 @@ function decodeMessage(bytes) {
 // stream's own close — a stale entry surviving disconnect would let a
 // future, unauthenticated re-connection from the same peer id skip the
 // handshake entirely (the stale-entry hole the brief calls out).
-export function registerAuthGate(node, { onAuthenticate } = {}) {
+export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin } = {}) {
   const authenticatedPeers = new Set()
+  // device_id -> PeerId string, for a pairing_request whose director
+  // decision hasn't landed yet. See module comment above.
+  const pendingPairingPeers = new Map()
 
   node.addEventListener('peer:disconnect', (evt) => {
     authenticatedPeers.delete(evt.detail.toString())
@@ -53,53 +76,142 @@ export function registerAuthGate(node, { onAuthenticate } = {}) {
       try {
         msg = decodeMessage(bytes)
       } catch {
-        // Malformed frame: never reaches onAuthenticate, never admitted.
-        // Abort rather than silently ignore — a peer sending junk to the
-        // auth protocol gets no free retry loop on this stream.
+        // Malformed frame: never reaches any handler below. Abort rather
+        // than silently ignore — a peer sending junk to the auth protocol
+        // gets no free retry loop on this stream.
         stream.abort(new Error('malformed_auth_frame'))
         return
       }
 
-      if (!msg || msg.type !== 'authenticate') {
+      if (!msg || typeof msg.type !== 'string') {
         stream.abort(new Error('unsupported_auth_message'))
         return
       }
 
-      let result
-      try {
-        result = (await onAuthenticate?.(msg, { fromPeerId })) ?? { ok: false, reason: 'no_authenticator' }
-      } catch (err) {
-        console.error(`authGate: onAuthenticate threw — treating as denied: ${err?.message ?? err}`)
-        result = { ok: false, reason: 'authenticator_error' }
+      if (msg.type === 'authenticate') {
+        let result
+        try {
+          result = (await onAuthenticate?.(msg, { fromPeerId })) ?? { ok: false, reason: 'no_authenticator' }
+        } catch (err) {
+          console.error(`authGate: onAuthenticate threw — treating as denied: ${err?.message ?? err}`)
+          result = { ok: false, reason: 'authenticator_error' }
+        }
+
+        if (result.ok) {
+          authenticatedPeers.add(fromPeerId)
+          try {
+            await sendFramed(stream.sink, encodeMessage({ type: 'auth_ok' }))
+          } catch {
+            // Peer went away right after being admitted; admission still
+            // stands — peer:disconnect will clean it up once libp2p notices.
+          }
+          await stream.close().catch(() => {})
+        } else {
+          // Mirrors the WS 4401/4402/4403/4404 close-code convention
+          // (syncServer.js's handleAuthenticate / connectionAuth.js) as a
+          // `reason` string on the frame, then hard-closes — libp2p streams
+          // don't have numeric close codes, so the reason travels in-band
+          // before the abort.
+          try {
+            await sendFramed(stream.sink, encodeMessage({ type: 'auth_failed', reason: result.reason }))
+          } catch {
+            // ignore — aborting regardless
+          }
+          stream.abort(new Error(result.reason || 'auth_failed'))
+        }
+        return
       }
 
-      if (result.ok) {
-        authenticatedPeers.add(fromPeerId)
+      if (msg.type === 'pairing_request') {
+        let result
         try {
-          await sendFramed(stream.sink, encodeMessage({ type: 'auth_ok' }))
+          result = (await onPairingRequest?.(msg, { fromPeerId })) ?? { ok: false }
+        } catch (err) {
+          console.error(`authGate: onPairingRequest threw — treating as denied: ${err?.message ?? err}`)
+          result = { ok: false }
+        }
+
+        try {
+          if (result.ok && result.alreadyApproved) {
+            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_approved', device_secret_identifier: result.device_secret_identifier }))
+          } else if (result.ok) {
+            // Remember this peer id so a later director decision can dial
+            // back to it — the ORIGINAL stream is about to close and cannot
+            // be held open for an arbitrarily long human decision.
+            if (typeof msg.device_id === 'string') pendingPairingPeers.set(msg.device_id, fromPeerId)
+            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_pending' }))
+          } else {
+            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_denied' }))
+          }
         } catch {
-          // Peer went away right after being admitted; admission still
-          // stands — peer:disconnect will clean it up once libp2p notices.
+          // Peer went away before the reply landed — the caller's own
+          // reconnect-and-resend (mirroring syncClient.js's pattern) is the
+          // recovery path, same as the WS transport.
         }
         await stream.close().catch(() => {})
-      } else {
-        // Mirrors the WS 4401/4402/4403/4404 close-code convention
-        // (syncServer.js's handleAuthenticate / connectionAuth.js) as a
-        // `reason` string on the frame, then hard-closes — libp2p streams
-        // don't have numeric close codes, so the reason travels in-band
-        // before the abort.
-        try {
-          await sendFramed(stream.sink, encodeMessage({ type: 'auth_failed', reason: result.reason }))
-        } catch {
-          // ignore — aborting regardless
-        }
-        stream.abort(new Error(result.reason || 'auth_failed'))
+        return
       }
+
+      if (msg.type === 'login') {
+        let result
+        try {
+          result = (await onLogin?.(msg, { fromPeerId })) ?? { ok: false }
+        } catch (err) {
+          console.error(`authGate: onLogin threw — treating as denied: ${err?.message ?? err}`)
+          result = { ok: false }
+        }
+
+        try {
+          if (result.ok) {
+            await sendFramed(stream.sink, encodeMessage({ type: 'login_ok', token: result.token, userId: result.userId, role: result.role }))
+          } else {
+            await sendFramed(
+              stream.sink,
+              encodeMessage(
+                result.locked
+                  ? { type: 'login_failed', locked: true, retryAfterMs: result.retryAfterMs }
+                  : { type: 'login_failed' }
+              )
+            )
+          }
+        } catch {
+          // ignore — closing regardless
+        }
+        await stream.close().catch(() => {})
+        return
+      }
+
+      stream.abort(new Error('unsupported_auth_message'))
     }).catch(() => {
       // A peer closing/corrupting the stream mid-frame must not crash this
       // node — same defensive posture as transport.js's doc-sync handler.
     })
   })
 
-  return { authenticatedPeers }
+  // Dials `deviceId`'s remembered PeerId (set by a prior pairing_request on
+  // this node) on a NEW stream and delivers the director's decision.
+  // Returns false (no-op) if this node has no pending pairing recorded for
+  // that device — e.g. it was handled by a different transport (WS), or the
+  // peer never asked THIS node.
+  async function deliverPairingDecision(deviceId, frame) {
+    const peerId = pendingPairingPeers.get(deviceId)
+    if (!peerId) return false
+    pendingPairingPeers.delete(deviceId)
+    try {
+      const stream = await node.dialProtocol(peerIdFromString(peerId), AUTH_PROTO, { runOnLimitedConnection: true })
+      await sendFramed(stream.sink, encodeMessage(frame))
+      await stream.close().catch(() => {})
+      return true
+    } catch (err) {
+      console.error(`authGate: failed to deliver pairing decision to ${deviceId} — ${err?.message ?? err}`)
+      return false
+    }
+  }
+
+  return {
+    authenticatedPeers,
+    sendPairingApproved: (deviceId, deviceSecretIdentifier) =>
+      deliverPairingDecision(deviceId, { type: 'pairing_approved', device_secret_identifier: deviceSecretIdentifier }),
+    sendPairingDenied: (deviceId) => deliverPairingDecision(deviceId, { type: 'pairing_denied' }),
+  }
 }

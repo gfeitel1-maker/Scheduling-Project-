@@ -13,7 +13,9 @@ import * as A from '@automerge/automerge'
 import { startTransport } from './transport.js'
 import { projectAll } from '../../automerge/projector.js'
 import { synthesizeOpEvents } from './docDiffEvents.js'
-import { evaluateAuthenticate } from '../../auth/connectionAuth.js'
+import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../../auth/connectionAuth.js'
+import { recordLibp2pPeerId } from './peerIdentity.js'
+import { wireMutualAuth } from './mutualAuth.js'
 
 // Starts a transport node and wires it to `doc`/`db`. Returns a handle that
 // exposes the current doc and the same lifecycle/broadcast surface as
@@ -34,7 +36,7 @@ import { evaluateAuthenticate } from '../../auth/connectionAuth.js'
 // only computes and hands them off. Wrapped in try/catch so a consumer's own throw can never break
 // sync or escape as an unhandled rejection — sync must keep converging regardless of what a push-
 // event listener does with what it's handed.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, peerDiscovery, onAuthRejected } = {}) {
   const state = { doc }
 
   async function handleReceived(bytes, { fromPeerId }) {
@@ -98,12 +100,62 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // already-logged-in device presenting a live token). `pairing_request`/
   // `login` are 5d-2 and are not handled here; any other message type is
   // already rejected by authGate.js before this is even called.
-  async function onAuthenticate(msg) {
+  async function onAuthenticate(msg, { fromPeerId }) {
     const result = evaluateAuthenticate(db, { token: msg.token, device_id: msg.device_id })
+    if (result.ok) recordLibp2pPeerId(db, msg.device_id, fromPeerId)
     return result.ok ? { ok: true } : { ok: false, reason: result.reason }
   }
 
-  const transport = await startTransport({ deviceId, onDocReceived: handleReceived, onAuthenticate })
+  // Stage 5d-2b (ADR §1's "first pairing" flow). `onPairingRequest` is
+  // injected by the caller (main.js) — the SAME director-approval callback
+  // already wired to the WS transport's `onPairingRequest`
+  // (startSyncServer's option), since the approval decision itself
+  // (director looks at a name, clicks approve/deny) is transport-
+  // independent; only the decision function that runs FIRST
+  // (evaluatePairingRequest, shared with syncServer.js) is this module's own
+  // concern.
+  async function onPairingRequestMsg(msg) {
+    const result = evaluatePairingRequest(db, { device_id: msg.device_id, device_name: msg.device_name })
+    if (result.ok && !result.alreadyApproved && typeof onPairingRequest === 'function') {
+      onPairingRequest(msg.device_id, msg.device_name)
+    }
+    return result
+  }
+
+  // Stage 5d-2b: device-secret + PIN/lockout, shared with syncServer.js's
+  // `login` handling via evaluateLogin (electron/auth/connectionAuth.js).
+  async function onLogin(msg, { fromPeerId }) {
+    const result = evaluateLogin(db, {
+      device_id: msg.device_id,
+      device_secret_identifier: msg.device_secret_identifier,
+      name: msg.name,
+      pin: msg.pin,
+    })
+    if (result.ok) recordLibp2pPeerId(db, msg.device_id, fromPeerId)
+    return result
+  }
+
+  const transport = await startTransport({
+    deviceId,
+    onDocReceived: handleReceived,
+    onAuthenticate,
+    onPairingRequest: onPairingRequestMsg,
+    onLogin,
+    peerDiscovery,
+  })
+
+  // Stage 5d-2b production wiring: this is what turns "nothing calls
+  // authenticateWith outside tests" into a real running node. Only fires at
+  // all once a token exists (`setAuthToken` below) — until then a
+  // discovered peer is simply not dialed, matching mutualAuth.js's own
+  // documented behavior for the not-logged-in-yet case. `peerDiscovery`
+  // being unset (every existing test, and any caller that dials directly)
+  // means `onPeerDiscovery` never fires, so this is a pure no-op for them.
+  let authToken = null
+  wireMutualAuth(
+    { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
+    { deviceId, getToken: () => authToken, onRejected: onAuthRejected }
+  )
 
   return {
     peerId: transport.peerId,
@@ -112,6 +164,15 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     dial: transport.dial,
     authenticateWith: transport.authenticateWith,
     isPeerAuthenticated: transport.isPeerAuthenticated,
+    sendPairingApproved: transport.sendPairingApproved,
+    sendPairingDenied: transport.sendPairingDenied,
+    onPeerDiscovery: transport.onPeerDiscovery,
+    // Caller (main.js) supplies this device's own current valid session
+    // token whenever it obtains or renews one (self-issued for a Host,
+    // received from login/pairing for a Client) — see mutualAuth.js's own
+    // doc comment for why a missing token just means "not dialed yet,"
+    // never an error.
+    setAuthToken: (token) => { authToken = token },
     // Exposed for adversarial-input tests (sending raw bytes that are not a
     // valid Automerge doc); not part of the normal edit/broadcast flow.
     sendDocTo: transport.sendDocTo,

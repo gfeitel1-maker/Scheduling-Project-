@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
-import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey } from './auth/localAuth.js'
+import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, issueCampToken } from './auth/localAuth.js'
 import { startSyncServer } from './sync/syncServer.js'
 import { createSyncClient } from './sync/syncClient.js'
 import { advertiseHost, discoverHosts } from './sync/discovery.js'
@@ -44,6 +44,7 @@ import { getDocIfLoaded } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc } from './sync/automerge/docStore.js'
 import { projectAll as projectAutomergeDoc } from './automerge/projector.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
+import { createMdnsDiscovery } from './sync/automerge/discovery.js'
 import {
   getCurrentProjectPath,
   setCurrentProjectPath,
@@ -190,7 +191,12 @@ function resolveClientServerUrl({ hostAddress, host, port }) {
   return `ws://${host}:${port}`
 }
 
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, notifyPairingRequest } = {}) {
+  // Both default to safe no-ops so every existing caller/test that doesn't
+  // pass them (there are many) is unaffected — Stage 5d-2b additions only,
+  // never a behavior change for a caller that stays silent about them.
+  const getAutomergeNode = getAutomergeSyncNode || (() => null)
+  const forwardPairingRequest = notifyPairingRequest || (() => {})
   // Alias to avoid shadowing the import; callers pass userDataPath as an option
   // so backups from within makeHandlers (bulkReplace) land in the same
   // {userData}/backups/ directory as user-initiated backups.
@@ -642,10 +648,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (requestedMode === 'host') {
       syncServer = startSyncServer(db, {
         port,
-        onPairingRequest: (deviceId_req, deviceName_req) => {
-          const mainWindow = getMainWindow ? getMainWindow() : null
-          if (mainWindow) mainWindow.webContents.send('shoresh:pairing-request', { deviceId: deviceId_req, deviceName: deviceName_req })
-        },
+        onPairingRequest: forwardPairingRequest,
       })
       // PRIVACY (electron/sync/discovery.js): the mDNS broadcast carries an
       // opaque hash of the camp id, never `campName`. That means the camp row
@@ -665,6 +668,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       syncClient = createSyncClient(db, { device_id: deviceId, author_user_id: null, wss: syncServer.wss })
       wireOpApplied()
       wireSyncStatus()
+      // Stage 5d-2b: the automerge/libp2p node (if running) also needs this
+      // Host's own token to authenticate itself to any Client it discovers
+      // — startAutomergeSyncNodeIfEnabled already tries to self-issue one at
+      // startup, but the Host device row may not have been auto-authorized
+      // yet at that point (the UPDATE above just did it, for the FIRST
+      // time), so retry here where it's guaranteed to succeed.
+      try {
+        getAutomergeNode()?.setAuthToken(issueCampToken(db, null, deviceId))
+      } catch {
+        // Still not the Host (no host_signing_key) — unreachable in
+        // practice on this branch, but never worth throwing over.
+      }
     } else {
       pendingServerUrl = resolveClientServerUrl(args)
       const deviceRow = db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)
@@ -683,6 +698,14 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       wireOpApplied()
       wirePairingCallbacks()
       wireSyncStatus()
+      // Stage 5d-2b: a returning Client that already has a stored WS token
+      // hands the SAME token to the automerge/libp2p node, so it can
+      // authenticate itself to the Host over libp2p too, without waiting
+      // for a fresh login(). A brand-new Client with no token yet gets one
+      // from login() below instead.
+      if (isNonEmptyString(token)) {
+        getAutomergeNode()?.setAuthToken(token)
+      }
     }
 
     mode = requestedMode
@@ -725,6 +748,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
       const remoteResult = await syncClient.loginRemote({ name, pin })
       if (remoteResult.status === 'ok') {
+        // Stage 5d-2b: this Client now has a fresh, valid camp token — hand
+        // it to the automerge/libp2p node (if running) so it can start
+        // authenticating itself to discovered peers, the same token the WS
+        // transport just verified.
+        getAutomergeNode()?.setAuthToken(remoteResult.token)
         return { token: remoteResult.token, userId: remoteResult.userId, role: remoteResult.role }
       }
       if (remoteResult.status === 'failed') {
@@ -898,6 +926,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'allow' })
 
     if (syncServer) syncServer.sendPairingApproved(targetDeviceId, secret)
+    // Stage 5d-2b: a device that requested pairing over libp2p (not WS)
+    // has its pending stream tracked in the automerge node instead —
+    // deliver the SAME decision there too. A device that paired over WS
+    // simply has no pending libp2p entry, so this is a harmless no-op
+    // for it (authGate.js's sendPairingApproved resolves false).
+    getAutomergeNode()?.sendPairingApproved(targetDeviceId, secret)
 
     return { deviceId: targetDeviceId, authorized: true }
   }
@@ -918,6 +952,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.deny', outcome: 'allow' })
 
     if (syncServer) syncServer.sendPairingDenied(targetDeviceId)
+    getAutomergeNode()?.sendPairingDenied(targetDeviceId)
 
     return { deviceId: targetDeviceId, denied: true }
   }
@@ -2062,7 +2097,28 @@ if (isElectronEntryPoint()) {
   // Initial handler registration and window creation.
   // ---------------------------------------------------------------------------
 
-  const initialHandlers = makeHandlers(db, deviceId, { getMainWindow: () => mainWindow, dbPath, userDataPath })
+  // Declared here (ahead of automergeSyncNode's own definition further down)
+  // so makeHandlers' chooseMode/login closures can reach whatever node is
+  // running by the time THEY run, without makeHandlers needing to know
+  // anything about libp2p/Automerge itself — same "handed a getter, not the
+  // implementation" shape as getMainWindow above.
+  let automergeSyncNode = null
+  // Transport-independent: a director approving/denying a pairing request
+  // doesn't know or care which transport (WS or libp2p) asked. Defined once
+  // here so both startSyncServer's onPairingRequest (via makeHandlers'
+  // chooseMode, below) and startSyncNode's onPairingRequest (above,
+  // startAutomergeSyncNodeIfEnabled) forward to the SAME renderer IPC event
+  // instead of each carrying its own copy.
+  function notifyPairingRequest(deviceId_req, deviceName_req) {
+    if (mainWindow) mainWindow.webContents.send('shoresh:pairing-request', { deviceId: deviceId_req, deviceName: deviceName_req })
+  }
+  const initialHandlers = makeHandlers(db, deviceId, {
+    getMainWindow: () => mainWindow,
+    dbPath,
+    userDataPath,
+    getAutomergeSyncNode: () => automergeSyncNode,
+    notifyPairingRequest,
+  })
   registerHandlers(initialHandlers, db)
 
   // Deploy smoke-test heartbeat (scripts/deploy-local.sh). The RENDERER invokes
@@ -2133,9 +2189,17 @@ if (isElectronEntryPoint()) {
   //
   // Deliberately NOT wired here (owner-gated, later slices per the design doc): liveDoc's
   // setUserDataDirGetter and seedAllFromSqlite (Stage 5e) — this function only ever LOADS an
-  // existing on-disk doc or starts from an empty one; it never seeds from SQLite. Membership/auth-
-  // over-libp2p (Stage 5d) is untouched.
-  let automergeSyncNode = null
+  // existing on-disk doc or starts from an empty one; it never seeds from SQLite.
+  //
+  // Stage 5d-2b (docs/adr/2026-09-06-libp2p-membership-mapping.md §3): `peerDiscovery`
+  // (camp-scoped mDNS, Stage 5d-2a's createMdnsDiscovery) and `onPairingRequest` (the SAME
+  // director-approval IPC forwarder chooseMode's host branch already wires into the WS
+  // transport's startSyncServer) are threaded through so the node actually authenticates on a
+  // real LAN, instead of sitting there with authenticateWith wired up but nothing ever calling
+  // it — the exact silent-failure gap this slice closes. `onAuthRejected` routes a legitimately-
+  // paired device's rejected authenticate onto the SAME audit log evaluateAuthenticate's own
+  // deny path already writes to (Red Hat finding on 5d-1: a console.error alone is not a
+  // sufficiently surfaced signal) — see auditLog usage below.
   async function startAutomergeSyncNodeIfEnabled() {
     if (!isAutomergeEngine()) return
     if (automergeSyncNode) return // idempotency guard: never leak a second libp2p node
@@ -2200,7 +2264,39 @@ if (isElectronEntryPoint()) {
             threshold: REMOTE_OPS_COALESCE_THRESHOLD,
           })
         },
+        // Camp-scoped mDNS (Stage 5d-2a) — a peer advertising a different
+        // camp's tag is structurally never surfaced by @libp2p/mdns at all
+        // (see discovery.js's own module comment), so it is never dialed.
+        peerDiscovery: [createMdnsDiscovery({ campId })],
+        // The SAME director-approval forwarder the WS transport already
+        // uses (defined in chooseMode's host branch, threaded here via the
+        // module-scoped `notifyPairingRequest` below) — approving/denying a
+        // device is transport-independent, so one callback serves both.
+        onPairingRequest: notifyPairingRequest,
+        onAuthRejected: (peerId, reply) => {
+          console.error(`automerge sync: peer ${peerId} rejected our authenticate: ${JSON.stringify(reply)}`)
+          recordAuditEvent(db, {
+            actorUserId: null,
+            deviceId: null,
+            action: 'automerge.authenticate_rejected',
+            outcome: 'deny',
+            reason: reply?.reason ?? 'unknown',
+            metadata: { peerId },
+          })
+        },
       })
+
+      // Host case: a device holding host_signing_key can self-issue its own
+      // camp token on demand (same fact issueCampToken itself relies on) —
+      // no login step needed, mirroring chooseMode's existing Host
+      // auto-authorize precedent. A Client has no signing key and gets its
+      // token instead from login()/chooseMode's client branch below.
+      try {
+        automergeSyncNode.setAuthToken(issueCampToken(db, null, deviceId))
+      } catch {
+        // Not the Host — no host_signing_key row. Expected for a Client;
+        // its token arrives later via login()/chooseMode.
+      }
     } catch (err) {
       // A transport/libp2p startup failure (port in use, WASM/ESM load failure, etc.) must never
       // prevent the app from starting — the flag is default-off precisely so this path can fail

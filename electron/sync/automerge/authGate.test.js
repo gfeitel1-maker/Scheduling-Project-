@@ -119,11 +119,97 @@ describe('authGate — admission gate mechanics (fake authenticator)', () => {
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    // 5d-1 implements `authenticate` only — pairing_request/login are 5d-2.
+    // Stage 5d-2b implements pairing_request/login too now — use a message
+    // type that is genuinely unsupported by any flow.
     await expect(
-      a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-a', device_name: 'A' })
+      a.authenticateWith(b.peerId, { type: 'bogus_message_type', device_id: 'device-a' })
     ).rejects.toThrow()
     expect(b.isPeerAuthenticated(a.peerId)).toBe(false)
+  })
+})
+
+describe('authGate — pairing_request/login mechanics (fake decision functions, Stage 5d-2b)', () => {
+  it('an already-approved device gets pairing_approved immediately, on the SAME stream', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onPairingRequest: () => ({ ok: true, alreadyApproved: true, device_secret_identifier: 'secret-xyz' }),
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const reply = await a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-a', device_name: 'A' })
+    expect(reply).toEqual({ type: 'pairing_approved', device_secret_identifier: 'secret-xyz' })
+  })
+
+  it('a fresh device gets pairing_pending, then the director decision arrives later on a NEW stream', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    let sendPairingApproved
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onPairingRequest: () => ({ ok: true, alreadyApproved: false }),
+    })
+    sendPairingApproved = b.sendPairingApproved
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const pending = await a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-a', device_name: 'A' })
+    expect(pending).toEqual({ type: 'pairing_pending' })
+
+    // The director's decision, delivered well after the original pairing_request
+    // stream has already closed — proves it travels over a freshly-dialed stream.
+    const delivered = await sendPairingApproved('device-a', 'secret-abc')
+    expect(delivered).toBe(true)
+  })
+
+  it('a denied device gets pairing_denied', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onPairingRequest: () => ({ ok: false }),
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const reply = await a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-a', device_name: 'A' })
+    expect(reply).toEqual({ type: 'pairing_denied' })
+  })
+
+  it('login success returns login_ok with the decision function\'s token/userId/role', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onLogin: () => ({ ok: true, token: 'tok-1', userId: 'u1', role: 'director' }),
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const reply = await a.authenticateWith(b.peerId, { type: 'login', device_id: 'device-a', name: 'Bob', pin: '1234' })
+    expect(reply).toEqual({ type: 'login_ok', token: 'tok-1', userId: 'u1', role: 'director' })
+  })
+
+  it('login failure (including lockout) returns login_failed, opaque reason not leaked', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onLogin: () => ({ ok: false, reason: 'locked', locked: true, retryAfterMs: 5000 }),
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const reply = await a.authenticateWith(b.peerId, { type: 'login', device_id: 'device-a', name: 'Bob', pin: 'wrong' })
+    expect(reply).toEqual({ type: 'login_failed', locked: true, retryAfterMs: 5000 })
+    expect(reply.reason).toBeUndefined()
   })
 })
 
