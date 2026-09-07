@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decide } from './ensure-abi.js'
+import { decide, npmBinaryFor } from './ensure-abi.js'
 
 // T44. ensure-abi decided whether to rebuild purely by comparing .abi-target's
 // contents against the wanted signature — it never checked that the compiled
@@ -62,5 +62,20 @@ describe('decide', () => {
     const result = decide({ target: 'electron', want: 'electron:33.0.0', have: 'node:127', binaryClass: 'electron' })
     expect(result.rebuild).toBe(true)
     expect(result.reason).toBe('marker-stale')
+  })
+})
+
+// execFileSync('npm', ...) with no shell option cannot find npm on Windows —
+// npm resolves to npm.cmd there, and CreateProcess can't launch a .cmd file
+// without going through a shell. `npm.cmd` is the correct binary name on
+// win32; plain `npm` elsewhere.
+describe('npmBinaryFor', () => {
+  it('uses npm.cmd on win32', () => {
+    expect(npmBinaryFor('win32')).toBe('npm.cmd')
+  })
+
+  it('uses plain npm on darwin and linux', () => {
+    expect(npmBinaryFor('darwin')).toBe('npm')
+    expect(npmBinaryFor('linux')).toBe('npm')
   })
 })

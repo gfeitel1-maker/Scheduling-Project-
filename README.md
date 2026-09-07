@@ -88,6 +88,27 @@ rebuild (a rare, self-resolving race — not a broken environment), recover with
 rm -rf node_modules/better-sqlite3/build && npm rebuild better-sqlite3
 ```
 
+## Windows build
+
+The camp runs a mix of macOS and Windows machines, so the app also builds a Windows target. **This must be built on an actual Windows machine** — electron-builder can only cross-compile Windows targets from macOS via Wine, and that path is unreliable; it is not supported here.
+
+```bash
+npm install
+npx electron-rebuild -f -w better-sqlite3   # rebuilds better-sqlite3 for Electron's ABI
+npm run electron:build                      # produces an NSIS installer under release/
+```
+
+`preelectron:build` (via `scripts/ensure-abi.js`) rebuilds the native module automatically before packaging, the same way it does on macOS — this is what fixes the "installs fine, opens no window" failure that a Node-ABI `better-sqlite3` binary causes.
+
+**Installer format:** a per-user NSIS installer (`nsis`, `perMachine: false`). Camp machines are shared, staff are non-technical, and the machine used to validate this had no admin rights on Windows at all — a per-machine install (Program Files, elevation prompt) would have failed outright. A per-user NSIS install runs without elevation and installs to the current user's `%LOCALAPPDATA%`, at the cost of every login/user account on a shared machine needing its own install. `asar` stays `false` on Windows too, matching macOS — same native-module (`better-sqlite3`) and inspectability reasoning applies to both platforms.
+
+**Firewall (read before deploying to a real camp room):** Windows classifies a new network as "Public" by default, which drops unsolicited inbound TCP connections. The Host device's WebSocket server will start, mDNS discovery will still find it, and everything will *look* healthy — the Host just silently accepts no connections. This was confirmed on real hardware. Fixing this requires a firewall exception, and creating one requires admin rights — which conflicts directly with the no-admin, per-user install this app ships. Rather than bundle an NSIS script that would silently fail on a no-admin machine (or force a per-machine/elevated install to make it work), this is a **manual step**, to be done once per Windows machine that will act as Host:
+
+1. Set the Wi-Fi/network connection to **Private**, not Public (Settings → Network & Internet → the connection → Network profile type), **or**
+2. If it must stay Public, add an inbound firewall rule for the app manually (Windows Defender Firewall → Advanced Settings → Inbound Rules → New Rule → allow the Shoresh executable, or the LAN sync port), which does require an admin.
+
+If neither is done, sync will silently fail to connect on that Host — check the network profile type first when troubleshooting "peers found but not syncing" on Windows.
+
 ## Tests
 
 ```bash
