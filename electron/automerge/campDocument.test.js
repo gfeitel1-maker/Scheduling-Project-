@@ -59,10 +59,10 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     expect(doc[STAGE1_ENTITY]['day-1'].day_of_week).toBe('1')
   })
 
-  it('refuses an entity outside DIRECT_CAMP_ENTITIES (explicit scope — Automerge generalization slice widened to all direct camp entities, not just days_of_operation)', () => {
+  it('refuses an entity outside the modeled scope (explicit scope — week_activity_exclusions is now modeled too, since the parent-scoped entities slice; see parentScoped.test.js)', () => {
     const doc = createEmptyDoc()
     expect(() =>
-      applyWrite(doc, { entity: 'week_activity_exclusions', entity_id: 'x-1', field: 'week_id', value: 'w-1' })
+      applyWrite(doc, { entity: 'compound_cell_decisions', entity_id: 'x-1', field: 'anything', value: 1 })
     ).toThrow()
   })
 
@@ -125,22 +125,39 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
   })
 
   // Shared genesis (see campDocument.js's GENESIS_B64 comment): every device must clone the SAME
-  // root, not mint its own via A.from(). Two tests below prove this pins the actual wire bytes AND
+  // root, not mint its own via A.from(). Tests below prove this pins the actual wire bytes AND
   // that it fixes the regression it exists to close.
+  //
+  // Parent-scoped entities slice fix (Governor review round): an earlier revision of this file had
+  // createEmptyDoc() TOP UP any entity beyond a smaller, frozen GENESIS_ENTITIES list at runtime
+  // (`d[entity] = {}` inside an A.change). That reintroduced the exact bug this whole mechanism
+  // exists to close, one level down: two devices each independently creating the SAME missing
+  // collection is a concurrent map-key create, and Automerge keeps only ONE side's contents,
+  // discarding the other silently (visible only via A.getConflicts, which nothing reads).
+  // GENESIS_B64 now encodes EVERY collection this document layer can ever write to — see
+  // campDocument.js's comment for the full reasoning and the subset guard that makes a future
+  // instance of this mistake fail loudly at import time instead of silently at merge time.
+  // createEmptyDoc() is therefore back to being a pure clone with no runtime top-up, and its heads
+  // are pinned directly again (no `_genesisDocForTests` escape hatch needed — that only existed
+  // because top-up made createEmptyDoc()'s output diverge from the untouched root).
   describe('shared genesis', () => {
     // Wire/document-compatibility tripwire, not a characterization test — mirrors
     // electron/sync/campIdHash.test.js's frozen-vector pattern. createEmptyDoc() must always clone
     // the SAME pinned root bytes; if this ever needs its expectation changed to pass, that means
     // the genesis bytes changed, which means every already-running device's persisted doc no
     // longer shares a root with a fresh one from this build — THAT is the break being hidden, not
-    // fixed, by updating the expectation.
+    // fixed, by updating the expectation. (This value WAS deliberately changed once, in the
+    // parent-scoped entities slice, to fix the runtime-top-up bug above — that regeneration is
+    // explained and accepted in campDocument.js's GENESIS_B64 comment. Any FUTURE change to this
+    // pinned value needs the same explicit justification, not a silent edit.)
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        '4cc5d6448adf6c400bb589870f41d3c8cc7336c0d05bdfd247e0d896d6ab4f41',
+        'dc405bb1e356dfebb432fee8ccfab1b3061b8c7608e91b19e4133cab93df73b4',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
-      // call (e.g. one deriving fresh randomness or a timestamp) would defeat the whole point.
+      // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole
+      // point. This is the exact assertion that caught the runtime-top-up regression above.
       expect(A.getHeads(createEmptyDoc())).toEqual(A.getHeads(doc))
     })
 
@@ -161,6 +178,45 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
       expect(merged[STAGE1_ENTITY]['b-row'].label).toBe('From B')
       // The bug's signature: a split root shows up as a root-level conflict (A.getConflicts on the
       // top-level document) once merged — a shared genesis has none.
+      expect(Object.keys(A.getConflicts(merged) ?? {})).toHaveLength(0)
+    })
+
+    // Governor review round regression test: the SAME "concurrent map-key create discards one
+    // side" hazard, reproduced for a PARENT-SCOPED entity (week_activity_exclusions) rather than
+    // the original days_of_operation. This is the exact scenario that was broken before the
+    // GENESIS_B64 regeneration — proves the fix generalizes to every newly-modeled collection, not
+    // just the one this describe block happened to already cover.
+    it('two independently-created docs each writing a row to a PARENT-SCOPED entity converge: both rows present, zero conflicts on the collection key', () => {
+      let a = createEmptyDoc()
+      let b = createEmptyDoc()
+      a = applyWrite(a, { entity: 'week_activity_exclusions', entity_id: 'wae-a', field: 'week_id', value: 'week-1' })
+      b = applyWrite(b, { entity: 'week_activity_exclusions', entity_id: 'wae-b', field: 'week_id', value: 'week-1' })
+
+      const merged = A.merge(A.clone(a), b)
+
+      expect(Object.keys(merged.week_activity_exclusions).sort()).toEqual(['wae-a', 'wae-b'])
+      expect(merged.week_activity_exclusions['wae-a'].week_id).toBe('week-1')
+      expect(merged.week_activity_exclusions['wae-b'].week_id).toBe('week-1')
+      expect(Object.keys(A.getConflicts(merged) ?? {})).toHaveLength(0)
+    })
+
+    // Same regression, for the bulk-replace scope collection (template_slots_scopes) — the
+    // third distinct collection SHAPE this document layer has (flat camp-scoped, flat
+    // parent-scoped, and bulk-replace scope), each independently exercised here because each is a
+    // SEPARATE top-level key in GENESIS_ENTITIES that could individually have been left out.
+    it('two independently-created docs each bulk-replacing a DIFFERENT template converge: both scopes present, zero conflicts', () => {
+      let a = createEmptyDoc()
+      let b = createEmptyDoc()
+      a = A.change(a, (d) => {
+        d.template_slots_scopes['tpl-a'] = JSON.stringify([{ id: 'slot-a', template_id: 'tpl-a' }])
+      })
+      b = A.change(b, (d) => {
+        d.template_slots_scopes['tpl-b'] = JSON.stringify([{ id: 'slot-b', template_id: 'tpl-b' }])
+      })
+
+      const merged = A.merge(A.clone(a), b)
+
+      expect(Object.keys(merged.template_slots_scopes).sort()).toEqual(['tpl-a', 'tpl-b'])
       expect(Object.keys(A.getConflicts(merged) ?? {})).toHaveLength(0)
     })
   })

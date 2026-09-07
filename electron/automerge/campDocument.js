@@ -18,8 +18,11 @@
 // outside these automerge/* files yet.
 import * as A from '@automerge/automerge'
 import { coerceOpValue, DELETE_FIELD } from '../ops/operations.js'
-import { DIRECT_CAMP_ENTITIES } from '../ops/campScopedEntities.js'
-import { PROJECTIONS } from '../ops/projections.js'
+// BULK_REPLACE_ENTITIES/validateBulkReplaceRows come from campScopedEntities.js, NOT operations.js
+// (which re-exports them) — see that file's comment: importing them via operations.js here would be
+// a circular module dependency (operations.js imports liveDoc.js, which imports this file).
+import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES, BULK_REPLACE_ENTITIES, validateBulkReplaceRows } from '../ops/campScopedEntities.js'
+import { PROJECTIONS, sanitizeMutuallyExclusiveRow } from '../ops/projections.js'
 
 // Back-compat: Stage 1 code and tests reference these two names for the
 // original single-entity slice. STAGE1_FIELDS is derived from PROJECTIONS so
@@ -39,12 +42,37 @@ export const STAGE1_FIELDS = PROJECTIONS[STAGE1_ENTITY].fields
 // 15 DIRECT_CAMP_ENTITIES with this op-log coupling.
 export const DEFERRED_ENTITIES = new Set(['day_overrides'])
 
-// The entities this document layer actually models: every DIRECT_CAMP_ENTITY
-// except the deferred ones above. Every module in electron/automerge/*
-// iterates or is scoped against THIS set, not DIRECT_CAMP_ENTITIES directly.
+// Parent-scoped entities slice (docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md, Stage 5
+// continuation): the document layer now ALSO models every PARENT_SCOPED_ENTITIES key
+// (campScopedEntities.js) — the 10 join/child tables reached through a parent id (week_id,
+// special_day_id, elective_set_id, event_id) use the EXACT SAME flat doc[entity][row_id] shape as
+// the direct camp-scoped entities; the parent key is just an ordinary field in PROJECTIONS[entity].
+// fields, so applyWrite/applyProjection/delete-reconcile all work unchanged.
+//
+// template_slots is the 11th key and is special: it is included here too (individual per-cell field
+// edits use this SAME flat shape, exactly like ScheduleScreen's writeFields() already does today via
+// the op-log), but it is ALSO registered in BULK_REPLACE_MODELED_ENTITIES below for the SEPARATE
+// wholesale-regenerate primitive — mirroring operations.js's own two-primitive design for this one
+// table (appendOp/applyProjection for a single cell vs. appendBulkReplaceOp/
+// applyBulkReplaceProjection for "replace every row for this template"). See applyBulkReplace below.
 export const MODELED_ENTITIES = new Set(
-  [...DIRECT_CAMP_ENTITIES].filter((entity) => !DEFERRED_ENTITIES.has(entity))
+  [...DIRECT_CAMP_ENTITIES, ...Object.keys(PARENT_SCOPED_ENTITIES)].filter(
+    (entity) => !DEFERRED_ENTITIES.has(entity)
+  )
 )
+
+// The one entity that ALSO has a wholesale-replace primitive, alongside its ordinary flat
+// per-field shape above. Derived from operations.js's own registry (not a separately hand-
+// maintained set) so this can never silently drift from what appendBulkReplaceOp actually allows.
+export const BULK_REPLACE_MODELED_ENTITIES = new Set(Object.keys(BULK_REPLACE_ENTITIES))
+
+// The doc collection name a bulk-replace entity's scope-level rows live under —
+// `template_slots_scopes` for `template_slots`. A distinct top-level collection from the entity's
+// own flat collection (`template_slots`), never the same key, so the two primitives can never
+// collide on a single document field.
+function bulkReplaceCollectionName(entity) {
+  return `${entity}_scopes`
+}
 
 function assertModeled(entity) {
   if (DEFERRED_ENTITIES.has(entity)) {
@@ -56,7 +84,7 @@ function assertModeled(entity) {
   if (!MODELED_ENTITIES.has(entity)) {
     throw new Error(
       `campDocument: '${entity}' is not a modeled camp-scoped entity (see MODELED_ENTITIES) — ` +
-        `host-only, parent-scoped, and bulk-replace entities are out of scope for this document layer`
+        `host-only and bulk-replace-ONLY entities are out of scope for this document layer`
     )
   }
 }
@@ -73,7 +101,7 @@ function assertModeled(entity) {
 //
 // The bytes must therefore never be regenerated at runtime — GENESIS_B64 below is a FROZEN
 // constant, computed once and pinned, the same way campIdHash.test.js pins a wire-compatibility
-// vector. Two failure modes this guards against:
+// vector. This guards against:
 //   - Deriving genesis from `A.from(shape)` at every app startup would reintroduce the split this
 //     fix exists to close — the SAME reasoning above, just moved from "two devices" to "two
 //     versions/builds/machines of the app", which is the actual deployment shape (every install
@@ -83,41 +111,71 @@ function assertModeled(entity) {
 //     is not a documented stable-forever function of its input, so nothing guarantees a future
 //     Automerge version encodes the same shape to the same bytes. A hardcoded constant sidesteps
 //     that entirely: it is what it is, forever, regardless of library internals.
-//   - MODELED_ENTITIES can gain entries over time (a new camp-scoped entity is added to
-//     campScopedEntities.js and un-deferred here). If genesis were derived FROM the current
-//     MODELED_ENTITIES, adding an entity would change the genesis root's content and therefore its
-//     hash/heads — every device upgrading to that version would mint a NEW incompatible root
-//     relative to any device still on the old version (or any not-yet-upgraded persisted doc file),
-//     splitting the mesh exactly like the bug this fix closes, just moved from "day 1" to "next
-//     entity we add". GENESIS_B64 is pinned to a fixed, frozen entity list (GENESIS_ENTITIES,
-//     immediately below) that is NEVER read from — nothing derives it from MODELED_ENTITIES at
-//     runtime. createEmptyDoc() clones this fixed root and then TOPS UP any entity in the CURRENT
-//     MODELED_ENTITIES that genesis doesn't already contain (a plain A.change, additive-only, never
-//     touching the shared root) — so the root itself never moves, only per-entity collections are
-//     added on top of it, and every device converges on the same root regardless of which entities
-//     its particular app version knows about. applyWrite (below) also lazily creates a missing
-//     collection the same way, so an already-persisted document from BEFORE an entity existed keeps
-//     working once that entity is added — the root is not read as an oracle of what exists.
 //
-// GENESIS_ENTITIES is a frozen snapshot of MODELED_ENTITIES as of this slice, sorted for
-// determinism. It exists ONLY as documentation of what GENESIS_B64 encodes — changing it does
-// nothing at runtime, since GENESIS_B64 is the actual constant used. Do not "fix" this list to
-// match a future MODELED_ENTITIES; that would defeat the entire point above.
+// PARENT-SCOPED ENTITIES SLICE — GENESIS MUST CONTAIN EVERY MODELED COLLECTION, NOT JUST SOME OF
+// THEM (CRITICAL FIX). An earlier revision of this file topped up createEmptyDoc() at RUNTIME with
+// `d[entity] = {}` for any entity beyond the (smaller, Stage-1-era) GENESIS_ENTITIES list. That is
+// the exact same bug class the shared-genesis mechanism above exists to close, reproduced one level
+// down: when two devices EACH independently run `d[entity] = {}` for a collection the frozen root
+// doesn't already contain, that is a CONCURRENT CREATE of the same map key from two different
+// actors. Automerge does not merge the two maps' contents — it keeps ONE side's map deterministically
+// and records the other as a conflict, visible only via `A.getConflicts`, which nothing in this
+// codebase reads. Confirmed empirically: two devices, each `createEmptyDoc()`, each writing one
+// `template_slots` row under DIFFERENT ids, merged to ONE row — the other device's row silently
+// gone, structurally identical to the root-split bug this whole GENESIS mechanism exists to close.
+//
+// The fix: GENESIS_B64 now encodes EVERY collection this document layer models — every entry in
+// GENESIS_ENTITIES below (all of MODELED_ENTITIES, flat AND parent-scoped) plus the bulk-replace
+// scope collection(s) (BULK_REPLACE_MODELED_ENTITIES, mapped through bulkReplaceCollectionName) —
+// so every device's very first document already has an identical, shared, non-empty-map-creating
+// collection for each. No device ever creates a collection independently; there is nothing left to
+// top up. createEmptyDoc() below is now just `genesisDoc()` — no runtime A.change at all.
+//
+// This intentionally, explicitly REGENERATES GENESIS_B64 and changes its root hash relative to the
+// prior revision. That invalidates any already-persisted `.automerge` file from a build with the
+// smaller genesis (its root no longer matches; a merge against a fresh doc from this build would
+// split exactly as described above). This project is pre-production with no live users/camps on
+// this sync engine yet (see the parent-scoped entities slice's own task brief), so that is
+// accepted and deliberate, not an oversight — existing `.automerge` files may be discarded. A
+// FUTURE regeneration of GENESIS_B64, once real camp documents exist, would NOT be free the same
+// way; that is exactly why GENESIS_ENTITIES is a frozen, hand-maintained list going forward rather
+// than something derived from MODELED_ENTITIES at build or run time (see the subset guard below).
+//
+// GENESIS_ENTITIES is a frozen snapshot of every collection GENESIS_B64 encodes, sorted for
+// determinism: MODELED_ENTITIES (flat entities) plus BULK_REPLACE_MODELED_ENTITIES's scope
+// collection name(s). It exists so the assertion below can catch, at import time, in every
+// environment, the exact mistake that caused this bug: an entity added to MODELED_ENTITIES (or a
+// new bulk-replace entity) without a matching addition to GENESIS_ENTITIES + a regenerated
+// GENESIS_B64. Do NOT "fix" a failure of that assertion by editing GENESIS_ENTITIES alone — the
+// bytes below must be regenerated to match, or the exact bug described above reappears for
+// whatever entity was added.
 const GENESIS_ENTITIES = [
   'activities',
   'anchor_activities',
   'camp_maps',
   'cohorts',
   'days_of_operation',
+  'elective_set_activities',
   'elective_sets',
+  'event_groups',
+  'event_slots',
+  'event_time_blocks',
   'events',
   'groups',
   'locations',
+  'schedule_snapshots',
   'schedule_templates',
   'schedule_weeks',
+  'special_day_slots',
+  'special_day_time_blocks',
   'special_days',
+  'template_slots',
+  'template_slots_scopes',
   'tiers',
   'time_blocks',
+  'week_activity_exclusions',
+  'week_group_exclusions',
+  'week_location_exclusions',
 ]
 
 // Frozen base64 of A.save(A.from(shape)) for GENESIS_ENTITIES above, each mapped to `{}`. See
@@ -125,23 +183,46 @@ const GENESIS_ENTITIES = [
 // pass, that is a wire/document-compatibility break being HIDDEN, not fixed; see that test's own
 // comment.
 const GENESIS_B64 =
-  'hW9Kg5l+Ra8AlgIBEPkJfDcRJBbQf0Ur+OyD0y0BTMXWRIrfbEALtYmHD0HTyMxzNsDQW9/SR+DYltarT0EGAQIDAhMCIwZAAlYCBxWpASECIwI0AUICVgKAAQJ/AH8Bfw5/wcj71AZ/AH8HcgphY3Rpdml0aWVzEWFuY2hvcl9hY3Rpdml0aWVzCWNhbXBfbWFwcwdjb2hvcnRzEWRheXNfb2Zfb3BlcmF0aW9uDWVsZWN0aXZlX3NldHMGZXZlbnRzBmdyb3Vwcwlsb2NhdGlvbnMSc2NoZWR1bGVfdGVtcGxhdGVzDnNjaGVkdWxlX3dlZWtzDHNwZWNpYWxfZGF5cwV0aWVycwt0aW1lX2Jsb2Nrcw4ADgEODgAOAA4AAA=='
+  'hW9Kg9rb0dUArwIBEFQkEgb/6S/Z/ZwLvo69Rw0B3EBbseNW3+u0Mv7ozPqxswYbjHYI6RsZ5BM8q5Pfc7QGAQIDAhMCIwZAAlYCBx3CASECIwI0AUICVgKAAQJ/AH8Bfxp/qZb81AZ/AH8HVZDdbsMwCIWv1qk/q5RKVft2iBG6WHWC5UO65e2rxErn3sEHhwPcdiweHsGDouFBOsv0T7bCfaKeEz7FOsuOpuUJZDeypJk92HDRqLNACeqV9qvmOOhDB6efbGPCviSI5mhK7KFX+o4md2wWgk3p3UaTxQcnSKftGJUwcEJnXiHXPkV2xfGFflXvaJBUAkdqeSqGl5pUtoeK47jOK5rze0oQS4oPD5qxr2ZcZ8/1BxPpn8QR8+7npbBcVNHSvh5YFZ4aABoBGhoAGgAaAAA='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))
 }
 
-// A fresh camp document, cloned from the one shared genesis root (see above) so that every device
-// merges without a split root, then topped up with an empty collection for any entity in the
-// CURRENT MODELED_ENTITIES that the frozen genesis doesn't already carry (additive-only; never
-// touches the genesis root itself).
+// Subset guard (the fix Governor asked for): every collection this document layer can ever write to
+// MUST already be a key in the frozen genesis. If this throws, it means an entity was added to
+// MODELED_ENTITIES or BULK_REPLACE_MODELED_ENTITIES without also adding it to GENESIS_ENTITIES and
+// regenerating GENESIS_B64 — the exact mistake described in the comment above, which otherwise
+// silently reintroduces per-device data loss on merge for that specific collection (a concurrent
+// `d[entity] = {}` from two devices, each keeping only one side). Runs at MODULE LOAD time (not
+// lazily, not only in a test) so it fails loudly in every environment that imports this file, the
+// same way campScopedEntities.js's assertDirectEntityParity does for its own drift class.
+for (const entity of MODELED_ENTITIES) {
+  if (!GENESIS_ENTITIES.includes(entity)) {
+    throw new Error(
+      `campDocument: '${entity}' is in MODELED_ENTITIES but missing from GENESIS_ENTITIES/GENESIS_B64 — ` +
+        `two devices independently creating this collection at runtime would merge destructively ` +
+        `(one device's rows silently discarded, visible only via A.getConflicts). Add '${entity}' to ` +
+        `GENESIS_ENTITIES and regenerate GENESIS_B64 to include it before shipping.`
+    )
+  }
+}
+for (const entity of BULK_REPLACE_MODELED_ENTITIES) {
+  const collectionName = bulkReplaceCollectionName(entity)
+  if (!GENESIS_ENTITIES.includes(collectionName)) {
+    throw new Error(
+      `campDocument: '${collectionName}' (bulk-replace scope collection for '${entity}') is missing ` +
+        `from GENESIS_ENTITIES/GENESIS_B64 — same destructive-merge hazard as the flat-entity case above.`
+    )
+  }
+}
+
+// A fresh camp document: just a clone of the one shared genesis root (see above). No runtime
+// top-up — every collection this document layer can ever write to already exists in the frozen
+// genesis (enforced by the subset guard above), so there is nothing left to create independently
+// per device, and therefore nothing left that could split on merge.
 export function createEmptyDoc() {
-  const missing = [...MODELED_ENTITIES].filter((entity) => !GENESIS_ENTITIES.includes(entity))
-  const doc = genesisDoc()
-  if (missing.length === 0) return doc
-  return A.change(doc, (d) => {
-    for (const entity of missing) d[entity] = {}
-  })
+  return genesisDoc()
 }
 
 // Persist / restore the document (append-only binary — this is the thing that
@@ -179,5 +260,44 @@ export function applyWrite(doc, { entity, entity_id, field, value }) {
     if (!fields.includes(field)) return
     if (!coll[entity_id]) coll[entity_id] = {}
     coll[entity_id][field] = coerceOpValue(value)
+  })
+}
+
+// Apply one wholesale "replace every row for this scope" write — the doc-native counterpart of
+// appendBulkReplaceOp (electron/ops/operations.js). Only template_slots is registered today
+// (BULK_REPLACE_MODELED_ENTITIES, derived from operations.js's own BULK_REPLACE_ENTITIES).
+//
+// Deliberately stored as ONE plain string value (JSON.stringify(sanitizedRows)) under
+// doc[`${entity}_scopes`][scope_id], not as a nested Automerge collection of per-row entries. This
+// is the load-bearing choice for concurrent-regenerate safety: a plain map-key value is a single
+// CRDT register, so two devices concurrently bulk-replacing the SAME scope collide as an ordinary
+// per-key LWW conflict (Automerge's actor-order tie-break picks ONE deterministic winner; both
+// competing full row-sets stay inspectable via A.getConflicts, exactly like the STAGE1 same-field
+// conflict test in campDocument.test.js) — the LOSING generation's rows never reach SQLite. Had this
+// instead been modeled as per-row entries in the entity's ordinary flat collection (each row a
+// separate map key, keyed by its own fresh id), two concurrent regenerates would merge as a UNION of
+// both devices' rows — worse than either single schedule, and the exact hazard this shape avoids.
+// See parentScoped.test.js's "concurrent regenerate" describe block for the explicit proof.
+//
+// validateBulkReplaceRows/sanitizeMutuallyExclusiveRow are the SAME functions appendBulkReplaceOp
+// uses (operations.js/projections.js) — reused, not reimplemented, so a doc-native bulk-replace is
+// shape-validated and mutually-exclusive-field-sanitized identically to an op-log one.
+export function applyBulkReplace(doc, { entity, scope_id, rows }) {
+  if (!BULK_REPLACE_MODELED_ENTITIES.has(entity)) {
+    throw new Error(
+      `campDocument: '${entity}' is not a modeled bulk-replace entity (see BULK_REPLACE_MODELED_ENTITIES)`
+    )
+  }
+  const validation = validateBulkReplaceRows(entity, rows, scope_id)
+  if (!validation.valid) {
+    throw new Error(`campDocument.applyBulkReplace: ${validation.error}`)
+  }
+  const sanitizedRows = rows.map((row) => sanitizeMutuallyExclusiveRow(entity, row))
+  const collectionName = bulkReplaceCollectionName(entity)
+  return A.change(doc, (d) => {
+    // Lazy top-up, same reasoning as applyWrite's above — a document persisted before this
+    // primitive existed has no scope collection yet.
+    if (!d[collectionName]) d[collectionName] = {}
+    d[collectionName][scope_id] = JSON.stringify(sanitizedRows)
   })
 }

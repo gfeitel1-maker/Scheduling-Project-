@@ -3,7 +3,12 @@ import { Buffer } from 'node:buffer'
 import { PROJECTIONS, applyProjection, sanitizeMutuallyExclusiveRow } from './projections.js'
 import { getStmt } from './stmtCache.js'
 import { isOpLogEngine } from '../sync/automerge/syncEngineFlag.js'
-import { recordLocalWrite } from '../sync/automerge/liveDoc.js'
+import { recordLocalWrite, recordLocalBulkReplace } from '../sync/automerge/liveDoc.js'
+// Moved to campScopedEntities.js (parent-scoped entities slice) — see that file's comment for why:
+// campDocument.js needs these too and cannot import them from here without a circular dependency.
+// Re-exported unchanged so every existing importer of these three from operations.js is unaffected.
+export { BULK_REPLACE_ENTITIES, MAX_BULK_REPLACE_ROWS, validateBulkReplaceRows } from './campScopedEntities.js'
+import { BULK_REPLACE_ENTITIES, validateBulkReplaceRows } from './campScopedEntities.js'
 
 // Sentinel field name for a row-delete op. Deliberately routed through the
 // SAME appendOp/detectConflict/appendOp-log path as every other field-level
@@ -239,108 +244,8 @@ export function findOpByClientWriteId(db, client_write_id) {
 // perfectly-precise row-level diff", which is explicitly out of scope.
 export const BULK_REPLACE_FIELD = '__bulk_replace__'
 
-// Hard cap on how many rows a single bulk_replace submission may carry.
-// Rejected (via validateBulkReplaceRows, before any DB access) rather than
-// silently truncated or accepted. A real camp schedule's slot count is
-// realistically in the hundreds (groups × days × time blocks) — 5000 is
-// generous headroom over that, not a tight limit, chosen to block a
-// pathological/malicious payload from ever reaching the DELETE+INSERT
-// transaction.
-export const MAX_BULK_REPLACE_ROWS = 5000
-
-// Registry of entities allowed to use the bulk_replace primitive, and the
-// concrete table/columns each maps to. The primitive itself is generic
-// (entity + scope_id + rows) - it is not template_slots-specific in its
-// plumbing - but only template_slots is a real consumer today (per the
-// design doc, Sub-plan E / ScheduleScreen). A future consumer registers
-// here rather than needing new bulk-replace machinery.
-export const BULK_REPLACE_ENTITIES = {
-  // Column list expanded (Sub-plan E Task 3): the original list only
-  // anticipated id/template_id/group_id/activity_id/day_id/time_block_id.
-  // ScheduleScreen.jsx's generate()/placeAnchors()/restoreSnapshot() rows
-  // also carry anchor_id, is_anchor, is_span_head, and flags — any row key
-  // not listed here is rejected by validateBulkReplaceRows.
-  template_slots: {
-    table: 'template_slots',
-    scopeColumn: 'template_id',
-    columns: [
-      'id',
-      'template_id',
-      'group_id',
-      'activity_id',
-      'day_id',
-      'time_block_id',
-      'anchor_id',
-      'is_anchor',
-      'is_span_head',
-      'flags',
-      // v35 (T41 slice 1, docs/work/specs/2026-08-20-group-electives-design.md)
-      'elective_set_id',
-      // v40 (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
-      // overlay-placement.md) — without this entry every bulk_replace write
-      // (generate/placeAnchors/restoreSnapshot in ScheduleScreen.jsx) that
-      // includes an event_id value is rejected by validateBulkReplaceRows
-      // before it reaches the DB.
-      'event_id',
-    ],
-    requiredColumns: ['id', 'template_id'],
-  },
-}
-
 export function isBulkReplaceOp(op) {
   return !!op && op.field === BULK_REPLACE_FIELD
-}
-
-// Validates a bulk_replace payload's SHAPE before any DB access is
-// attempted - per this project's established, twice-previously-violated
-// IPC/WS lesson: validate type, not just presence, default-deny unrecognized
-// shapes, and do this BEFORE touching the DB, not as a try/catch wrapped
-// around a crash. This checks: entity is a registered bulk-replace entity,
-// rows is an array, each row is a plain object containing only recognized
-// columns, required columns are non-empty strings, and (when scope_id is
-// provided) each row's scope column agrees with the submitted scope_id.
-//
-// Deliberately NOT checked here: cross-row uniqueness of `id` (e.g. two rows
-// sharing the same id) - that is a real DB-level constraint violation, not a
-// shape problem, and is intentionally left to the transaction below so a
-// mid-transaction failure genuinely exercises SQLite's rollback rather than
-// being pre-empted by validation (see the atomicity test).
-export function validateBulkReplaceRows(entity, rows, scope_id) {
-  const config = BULK_REPLACE_ENTITIES[entity]
-  if (!config) return { valid: false, error: 'unknown entity for bulk_replace' }
-  if (!Array.isArray(rows)) return { valid: false, error: 'rows must be an array' }
-  if (rows.length > MAX_BULK_REPLACE_ROWS) {
-    return { valid: false, error: `rows exceeds MAX_BULK_REPLACE_ROWS (${MAX_BULK_REPLACE_ROWS})` }
-  }
-
-  for (const row of rows) {
-    if (row === null || typeof row !== 'object' || Array.isArray(row)) {
-      return { valid: false, error: 'each row must be a plain object' }
-    }
-    for (const col of config.requiredColumns) {
-      if (typeof row[col] !== 'string' || row[col].length === 0) {
-        return { valid: false, error: `row missing required field "${col}"` }
-      }
-    }
-    for (const key of Object.keys(row)) {
-      if (!config.columns.includes(key)) {
-        return { valid: false, error: `row has unrecognized field "${key}"` }
-      }
-      const value = row[key]
-      if (value !== null && typeof value !== 'string') {
-        return { valid: false, error: `row field "${key}" must be a string or null` }
-      }
-    }
-    if (
-      scope_id !== undefined &&
-      config.scopeColumn in row &&
-      row[config.scopeColumn] !== scope_id
-    ) {
-      return { valid: false, error: `row scope column does not match scope_id` }
-    }
-  }
-
-  return { valid: true, config }
 }
 
 // Host-side (and local/no-serverUrl) entry point: validates the payload
@@ -441,7 +346,24 @@ export function appendBulkReplaceOp(db, { entity, scope_id, rows, author_user_id
     return getStmt(db, 'SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
   })
 
-  return run()
+  const op = run()
+
+  // Parent-scoped entities slice: mirror the write into the Automerge doc, same shape and same
+  // "flag-OFF is a provable no-op" guarantee as appendOp's dual-write above — isOpLogEngine() early-
+  // returns unchanged for the default path. This was a documented gap before this slice
+  // (appendBulkReplaceOp had no Automerge branch at all): every OTHER write primitive already
+  // mirrored into the doc, but a full schedule regenerate — the single highest-volume write this
+  // app makes — silently never reached it. Uses sanitizedRows (not the raw `rows` argument) so the
+  // doc and the op-log/operations.value always agree, exactly like the DB insert above.
+  if (isOpLogEngine()) return op
+
+  try {
+    recordLocalBulkReplace(db, { entity, scope_id, rows: sanitizedRows })
+  } catch (err) {
+    console.error('automerge bulk-replace dual-write failed (op-log write already committed, unaffected):', err)
+  }
+
+  return op
 }
 
 // Client-side (or any replaying reader's) application of an ALREADY-CANONICAL

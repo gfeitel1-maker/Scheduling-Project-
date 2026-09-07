@@ -78,7 +78,10 @@ describe('recordLocalWrite', () => {
     expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
   })
 
-  it('does nothing for template_slots (bulk-replace only entity)', () => {
+  // Parent-scoped entities slice: template_slots is now modeled in its flat (individual-cell-edit)
+  // shape, so a field write DOES mirror into the doc — see recordLocalBulkReplace's own tests below
+  // for the separate wholesale-regenerate primitive.
+  it('mirrors a template_slots individual-cell field write into the doc (flat shape)', () => {
     recordLocalWrite(db, {
       entity: 'template_slots',
       entity_id: 's1',
@@ -87,7 +90,9 @@ describe('recordLocalWrite', () => {
     })
     flushPendingWrites()
 
-    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
+    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(true)
+    const doc = loadDoc(userDataDir, 'camp-1')
+    expect(doc.template_slots['s1']).toEqual({ activity_id: 'a1' })
   })
 
   it('does nothing when the db has no camp row yet', () => {
@@ -314,10 +319,16 @@ describe('unmodeled/deferred entities are never touched by seeding or projection
     expect(after).toEqual(before)
   })
 
-  it('template_slots (bulk-replace, parent-scoped, not a DIRECT_CAMP_ENTITY) is never modeled or touched', () => {
-    expect(createEmptyDoc().template_slots).toBeUndefined()
+  // Parent-scoped entities slice: template_slots is now dual-modeled — a flat collection
+  // (individual cell edits, same shape as every other modeled entity) AND a separate
+  // template_slots_scopes collection (the bulk-replace primitive) — see campDocument.js's
+  // applyBulkReplace comment. Neither is unmodeled any more; see parentScoped.test.js for full
+  // coverage of both.
+  it('template_slots is modeled in BOTH its flat and bulk-replace-scope shapes', () => {
+    expect(createEmptyDoc().template_slots).toEqual({})
+    expect(createEmptyDoc().template_slots_scopes).toEqual({})
     expect(() =>
       applyWrite(createEmptyDoc(), { entity: 'template_slots', entity_id: 's1', field: 'activity_id', value: 'a1' })
-    ).toThrow()
+    ).not.toThrow()
   })
 })

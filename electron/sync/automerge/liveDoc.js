@@ -50,7 +50,7 @@
 // there is no window where a local write and a remote merge can interleave mid-update. Both sides
 // always read the latest value and write back synchronously before yielding to the event loop.
 import { docPath, loadDoc, saveDoc } from './docStore.js'
-import { applyWrite, MODELED_ENTITIES } from '../../automerge/campDocument.js'
+import { applyWrite, applyBulkReplace, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../../automerge/campDocument.js'
 import { seedAllFromSqlite } from '../../automerge/seed.js'
 
 // null until wired: production startup wiring is Stage 5e (main.js calls
@@ -253,6 +253,34 @@ export function recordLocalWrite(db, { entity, entity_id, field, value }) {
   if (!userDataDir) return
   const doc = getDoc(db, userDataDir, campId)
   const nextDoc = applyWrite(doc, { entity, entity_id, field, value })
+  docRegistry.set(db, nextDoc)
+  scheduleSave(db, userDataDir, campId, { local: true })
+}
+
+// Mirror one appendBulkReplaceOp write into the held Automerge doc — the bulk-replace counterpart
+// of recordLocalWrite above. Same gating (unmodeled entity / unconfigured / no camp -> inert), same
+// getDoc/docRegistry/scheduleSave plumbing, so a bulk-replace and an ordinary field write on the
+// same db always build on the SAME in-memory doc, never a stale copy of one or the other.
+export function recordLocalBulkReplace(db, { entity, scope_id, rows }) {
+  if (!BULK_REPLACE_MODELED_ENTITIES.has(entity)) return
+
+  if (!userDataDirGetter) {
+    if (!warnedUnconfigured) {
+      console.warn(
+        'liveDoc: userDataDir not configured — Automerge dual-write is inert until Stage 5e wires it at startup'
+      )
+      warnedUnconfigured = true
+    }
+    return
+  }
+
+  const campId = getCampId(db)
+  if (!campId) return
+
+  const userDataDir = userDataDirGetter()
+  if (!userDataDir) return
+  const doc = getDoc(db, userDataDir, campId)
+  const nextDoc = applyBulkReplace(doc, { entity, scope_id, rows })
   docRegistry.set(db, nextDoc)
   scheduleSave(db, userDataDir, campId, { local: true })
 }

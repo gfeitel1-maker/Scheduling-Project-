@@ -167,6 +167,118 @@ export const DOMAIN_PARENT_SCOPED_ENTITIES = DOMAIN_SNAPSHOT_ORDER.filter(
   (entity) => entity in PARENT_SCOPED_ENTITIES
 )
 
+// --- Bulk-replace registry (moved here from electron/ops/operations.js) --------------------------
+//
+// Parent-scoped entities slice: electron/automerge/campDocument.js needs BULK_REPLACE_ENTITIES and
+// validateBulkReplaceRows to implement its own doc-native applyBulkReplace. It cannot import them
+// from operations.js — operations.js imports electron/sync/automerge/liveDoc.js, which imports
+// campDocument.js, so a campDocument.js -> operations.js import would be a circular module
+// dependency (campDocument.js -> operations.js -> liveDoc.js -> campDocument.js), which breaks at
+// load time (BULK_REPLACE_ENTITIES would still be in its temporal-dead-zone when campDocument.js's
+// own top-level `new Set(Object.keys(BULK_REPLACE_ENTITIES))` runs). campScopedEntities.js has no
+// imports of its own and is never imported by liveDoc.js/operations.js, so it is a safe, cycle-free
+// home for this registry. operations.js re-exports these three names unchanged, so every existing
+// importer of them from operations.js (electron/ops/duplicateWeek.js) is unaffected.
+//
+// Registry of entities allowed to use the bulk_replace primitive, and the concrete table/columns
+// each maps to. The primitive itself is generic (entity + scope_id + rows) - it is not
+// template_slots-specific in its plumbing - but only template_slots is a real consumer today (per
+// the design doc, Sub-plan E / ScheduleScreen). A future consumer registers here rather than
+// needing new bulk-replace machinery.
+export const BULK_REPLACE_ENTITIES = {
+  // Column list expanded (Sub-plan E Task 3): the original list only
+  // anticipated id/template_id/group_id/activity_id/day_id/time_block_id.
+  // ScheduleScreen.jsx's generate()/placeAnchors()/restoreSnapshot() rows
+  // also carry anchor_id, is_anchor, is_span_head, and flags — any row key
+  // not listed here is rejected by validateBulkReplaceRows.
+  template_slots: {
+    table: 'template_slots',
+    scopeColumn: 'template_id',
+    columns: [
+      'id',
+      'template_id',
+      'group_id',
+      'activity_id',
+      'day_id',
+      'time_block_id',
+      'anchor_id',
+      'is_anchor',
+      'is_span_head',
+      'flags',
+      // v35 (T41 slice 1, docs/work/specs/2026-08-20-group-electives-design.md)
+      'elective_set_id',
+      // v40 (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
+      // overlay-placement.md) — without this entry every bulk_replace write
+      // (generate/placeAnchors/restoreSnapshot in ScheduleScreen.jsx) that
+      // includes an event_id value is rejected by validateBulkReplaceRows
+      // before it reaches the DB.
+      'event_id',
+    ],
+    requiredColumns: ['id', 'template_id'],
+  },
+}
+
+// Hard cap on how many rows a single bulk_replace submission may carry.
+// Rejected (via validateBulkReplaceRows, before any DB access) rather than
+// silently truncated or accepted. A real camp schedule's slot count is
+// realistically in the hundreds (groups × days × time blocks) — 5000 is
+// generous headroom over that, not a tight limit, chosen to block a
+// pathological/malicious payload from ever reaching the DELETE+INSERT
+// transaction.
+export const MAX_BULK_REPLACE_ROWS = 5000
+
+// Validates a bulk_replace payload's SHAPE before any DB access is
+// attempted - per this project's established, twice-previously-violated
+// IPC/WS lesson: validate type, not just presence, default-deny unrecognized
+// shapes, and do this BEFORE touching the DB, not as a try/catch wrapped
+// around a crash. This checks: entity is a registered bulk-replace entity,
+// rows is an array, each row is a plain object containing only recognized
+// columns, required columns are non-empty strings, and (when scope_id is
+// provided) each row's scope column agrees with the submitted scope_id.
+//
+// Deliberately NOT checked here: cross-row uniqueness of `id` (e.g. two rows
+// sharing the same id) - that is a real DB-level constraint violation, not a
+// shape problem, and is intentionally left to the transaction below so a
+// mid-transaction failure genuinely exercises SQLite's rollback rather than
+// being pre-empted by validation (see the atomicity test).
+export function validateBulkReplaceRows(entity, rows, scope_id) {
+  const config = BULK_REPLACE_ENTITIES[entity]
+  if (!config) return { valid: false, error: 'unknown entity for bulk_replace' }
+  if (!Array.isArray(rows)) return { valid: false, error: 'rows must be an array' }
+  if (rows.length > MAX_BULK_REPLACE_ROWS) {
+    return { valid: false, error: `rows exceeds MAX_BULK_REPLACE_ROWS (${MAX_BULK_REPLACE_ROWS})` }
+  }
+
+  for (const row of rows) {
+    if (row === null || typeof row !== 'object' || Array.isArray(row)) {
+      return { valid: false, error: 'each row must be a plain object' }
+    }
+    for (const col of config.requiredColumns) {
+      if (typeof row[col] !== 'string' || row[col].length === 0) {
+        return { valid: false, error: `row missing required field "${col}"` }
+      }
+    }
+    for (const key of Object.keys(row)) {
+      if (!config.columns.includes(key)) {
+        return { valid: false, error: `row has unrecognized field "${key}"` }
+      }
+      const value = row[key]
+      if (value !== null && typeof value !== 'string') {
+        return { valid: false, error: `row field "${key}" must be a string or null` }
+      }
+    }
+    if (
+      scope_id !== undefined &&
+      config.scopeColumn in row &&
+      row[config.scopeColumn] !== scope_id
+    ) {
+      return { valid: false, error: `row scope column does not match scope_id` }
+    }
+  }
+
+  return { valid: true, config }
+}
+
 // T88 review follow-up (Code Reviewer MEDIUM): syncServer.js's send side
 // still iterates DIRECT_CAMP_ENTITIES directly for the non-parent-scoped
 // half of full_sync, while DOMAIN_SNAPSHOT_ORDER re-types that same set as
