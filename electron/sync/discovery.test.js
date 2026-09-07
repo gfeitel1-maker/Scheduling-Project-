@@ -64,6 +64,18 @@ describe('toValidatedHost (defensive mapping of raw discovered services)', () =>
 // on the LAN. It must be derived from the camp id, and must never contain or
 // reveal the camp's human-readable name.
 describe('campServiceName (what actually goes on the wire)', () => {
+  // Wire-compatibility tripwire (see the WIRE COMPATIBILITY note in
+  // campIdHash.js). The hash vector in campIdHash.test.js pins the hash but
+  // NOT the format around it — a changed prefix, separator or truncation
+  // length would leave that test green while silently breaking discovery
+  // against every already-installed copy of the app. This pins the complete
+  // string that actually goes on the wire. If it fails, updating the
+  // expectation hides the breakage rather than fixing it.
+  it('produces its frozen advertised string for a known camp id', () => {
+    expect(campServiceName('shoresh-fixed-test-vector')).toBe('camp-84211277a6a9b47e')
+    expect(campServiceName('camp-1')).toBe('camp-89e6b4f18ea169c7')
+  })
+
   it('is deterministic for a camp id', () => {
     expect(campServiceName('camp-1')).toBe(campServiceName('camp-1'))
   })
