@@ -123,4 +123,45 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
       expect(Object.values(conflicts).sort()).toEqual(['Lunes', 'Montag'])
     })
   })
+
+  // Shared genesis (see campDocument.js's GENESIS_B64 comment): every device must clone the SAME
+  // root, not mint its own via A.from(). Two tests below prove this pins the actual wire bytes AND
+  // that it fixes the regression it exists to close.
+  describe('shared genesis', () => {
+    // Wire/document-compatibility tripwire, not a characterization test — mirrors
+    // electron/sync/campIdHash.test.js's frozen-vector pattern. createEmptyDoc() must always clone
+    // the SAME pinned root bytes; if this ever needs its expectation changed to pass, that means
+    // the genesis bytes changed, which means every already-running device's persisted doc no
+    // longer shares a root with a fresh one from this build — THAT is the break being hidden, not
+    // fixed, by updating the expectation.
+    it('createEmptyDoc always clones the same frozen genesis root', () => {
+      const doc = createEmptyDoc()
+      expect(A.getHeads(doc)).toEqual([
+        '4cc5d6448adf6c400bb589870f41d3c8cc7336c0d05bdfd247e0d896d6ab4f41',
+      ])
+      // Two independent calls must produce the SAME head every time — a genesis that varied per
+      // call (e.g. one deriving fresh randomness or a timestamp) would defeat the whole point.
+      expect(A.getHeads(createEmptyDoc())).toEqual(A.getHeads(doc))
+    })
+
+    it('two independently-created docs share a root: merge keeps rows from BOTH, zero root conflicts', () => {
+      // Regression test for the confirmed bug: A.from(shape) on each device mints its own root,
+      // and A.merge of two such roots silently drops one side's entire entity collection. Two
+      // createEmptyDoc() calls here simulate two independent devices, each writing a distinct row
+      // before ever meeting the other.
+      let a = createEmptyDoc()
+      let b = createEmptyDoc()
+      a = applyWrite(a, { entity: STAGE1_ENTITY, entity_id: 'a-row', field: 'label', value: 'From A' })
+      b = applyWrite(b, { entity: STAGE1_ENTITY, entity_id: 'b-row', field: 'label', value: 'From B' })
+
+      const merged = A.merge(A.clone(a), b)
+
+      expect(Object.keys(merged[STAGE1_ENTITY]).sort()).toEqual(['a-row', 'b-row'])
+      expect(merged[STAGE1_ENTITY]['a-row'].label).toBe('From A')
+      expect(merged[STAGE1_ENTITY]['b-row'].label).toBe('From B')
+      // The bug's signature: a split root shows up as a root-level conflict (A.getConflicts on the
+      // top-level document) once merged — a shared genesis has none.
+      expect(Object.keys(A.getConflicts(merged) ?? {})).toHaveLength(0)
+    })
+  })
 })
