@@ -39,7 +39,7 @@ if (role !== 'host' && role !== 'client') {
 }
 if (role === 'client' && !blobArg) { console.error('client mode needs --blob <blob from the host>'); process.exit(2) }
 
-const RUN_MS = 90_000
+const RUN_MS = Number(process.env.STAGE5F_RUN_MS || 300_000)
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-5f-'))
 const db = new Database(path.join(tmpDir, 'check.sqlite'))
 initSchema(db)
@@ -103,6 +103,9 @@ console.log(`temp db: ${tmpDir}  (deleted on exit)\n`)
 const node = await startSyncNode({
   deviceId, db, doc: createEmptyDoc(),
   peerDiscovery: [createMdnsDiscovery({ campId })],
+  // Must match production (main.js): the default is loopback-only, which cannot accept a
+  // connection from another machine — the exact bug this harness exists to catch.
+  listen: ['/ip4/0.0.0.0/tcp/0'],
   onAuthRejected: (i) => console.log(`  ⚠️  inbound auth REJECTED: ${JSON.stringify(i)}`),
 })
 setLocalWriteBroadcaster((d) => node.broadcastLocalDoc(d).catch(() => {}))

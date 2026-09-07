@@ -2277,6 +2277,14 @@ if (isElectronEntryPoint()) {
         deviceId,
         db,
         doc,
+        // Stage 5f, found on a real two-machine run: transport.js's DEFAULT_LISTEN is
+        // '/ip4/127.0.0.1/tcp/0' — LOOPBACK ONLY. That default is correct for the in-process tests
+        // it was written for (Stage 4 dialed over loopback deliberately), but it means a production
+        // node can never accept a connection from another device: mDNS discovery succeeds, the peer
+        // dials, and nothing can connect. Production must bind all interfaces. This is the single
+        // line that makes LAN sync possible at all, and no in-process test could ever have caught
+        // its absence, because loopback is exactly what those tests want.
+        listen: ['/ip4/0.0.0.0/tcp/0'],
         onRemoteOps: (events) => {
           if (!mainWindow) return
           dispatchRemoteOps(events, {
