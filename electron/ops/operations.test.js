@@ -1187,6 +1187,11 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
     ops.appendOp(db, { entity: 'activities', entity_id: 'a2', field: 'name', value: 'Delete me', author_user_id: 'user-1', device_id: 'device-1' })
     ops.appendOp(db, { entity: 'activities', entity_id: 'a2', field: DELETE_FIELD, value: 1, author_user_id: 'user-1', device_id: 'device-1' })
 
+    // Stage 5e: saveDoc is debounced (see liveDoc.js's scheduleSave) — flush before reading the
+    // persisted file so this test observes the fully-applied doc, not a mid-debounce snapshot.
+    const { flushPendingWrites } = await import('../sync/automerge/liveDoc.js')
+    flushPendingWrites()
+
     const doc = loadDoc(userDataDir, 'camp-1')
     expect(doc).not.toBeNull()
 
