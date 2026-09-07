@@ -108,7 +108,7 @@ describe('seedDocFromSqlite — safe on-ramp for existing SQLite data', () => {
     db2.close()
   })
 
-  it('refuses an entity outside DIRECT_CAMP_ENTITIES (explicit scope — Automerge generalization slice widened to all direct camp entities, not just days_of_operation)', () => {
-    expect(() => seedDocFromSqlite(db, undefined, 'week_activity_exclusions')).toThrow()
+  it('refuses an entity outside the modeled scope (explicit scope — week_activity_exclusions is now modeled too, since the parent-scoped entities slice; see parentScoped.test.js)', () => {
+    expect(() => seedDocFromSqlite(db, undefined, 'compound_cell_decisions')).toThrow()
   })
 })

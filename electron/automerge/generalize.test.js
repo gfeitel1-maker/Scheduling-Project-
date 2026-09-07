@@ -13,9 +13,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
 import { appendOp } from '../ops/operations.js'
-import { DIRECT_CAMP_ENTITIES } from '../ops/campScopedEntities.js'
+import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
 import { PROJECTIONS } from '../ops/projections.js'
-import { createEmptyDoc, applyWrite, MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
+import {
+  createEmptyDoc,
+  applyWrite,
+  MODELED_ENTITIES,
+  BULK_REPLACE_MODELED_ENTITIES,
+  DEFERRED_ENTITIES,
+} from './campDocument.js'
 import { projectEntity, projectAll, rebuildFromDoc } from './projector.js'
 import { seedDocFromSqlite, seedAllFromSqlite } from './seed.js'
 
@@ -48,20 +54,33 @@ afterEach(() => {
   files = []
 })
 
-describe('Automerge generalization slice — modeled entity set is pinned to DIRECT_CAMP_ENTITIES minus DEFERRED_ENTITIES', () => {
-  it('the modeled set (createEmptyDoc keys) equals DIRECT_CAMP_ENTITIES \\ DEFERRED_ENTITIES exactly', () => {
+describe('Automerge generalization slice — modeled entity set is pinned to DIRECT_CAMP_ENTITIES + PARENT_SCOPED_ENTITIES minus DEFERRED_ENTITIES', () => {
+  it('the modeled set (createEmptyDoc keys) equals DIRECT_CAMP_ENTITIES ∪ PARENT_SCOPED_ENTITIES \\ DEFERRED_ENTITIES, plus the bulk-replace scope collection(s)', () => {
+    // Parent-scoped entities slice: widens MODELED_ENTITIES (and therefore createEmptyDoc's flat
+    // collections) to include every PARENT_SCOPED_ENTITIES key too, not just DIRECT_CAMP_ENTITIES.
+    // createEmptyDoc also carries a SEPARATE top-level key per BULK_REPLACE_MODELED_ENTITIES entity
+    // (`template_slots_scopes`) — see campDocument.js's applyBulkReplace comment for why that is a
+    // distinct collection from the entity's own flat one.
     const doc = createEmptyDoc()
-    const expected = [...DIRECT_CAMP_ENTITIES].filter((e) => !DEFERRED_ENTITIES.has(e))
+    const expectedFlat = [...DIRECT_CAMP_ENTITIES, ...Object.keys(PARENT_SCOPED_ENTITIES)].filter(
+      (e) => !DEFERRED_ENTITIES.has(e)
+    )
+    const expectedScopes = [...BULK_REPLACE_MODELED_ENTITIES].map((e) => `${e}_scopes`)
+    const expected = [...expectedFlat, ...expectedScopes]
     expect(Object.keys(doc).sort()).toEqual(expected.sort())
-    expect([...MODELED_ENTITIES].sort()).toEqual(expected.sort())
+    expect([...MODELED_ENTITIES].sort()).toEqual(expectedFlat.sort())
   })
 
   it('DEFERRED_ENTITIES is exactly {day_overrides}', () => {
     expect([...DEFERRED_ENTITIES]).toEqual(['day_overrides'])
   })
+
+  it('BULK_REPLACE_MODELED_ENTITIES is exactly {template_slots}', () => {
+    expect([...BULK_REPLACE_MODELED_ENTITIES]).toEqual(['template_slots'])
+  })
 })
 
-describe('Automerge generalization slice — scope guard: refuses non-DIRECT_CAMP entities', () => {
+describe('Automerge generalization slice — scope guard: refuses non-DIRECT_CAMP, non-PARENT_SCOPED entities', () => {
   it('applyWrite throws for compound_cell_decisions (host-only)', () => {
     const doc = createEmptyDoc()
     expect(() =>
@@ -69,31 +88,26 @@ describe('Automerge generalization slice — scope guard: refuses non-DIRECT_CAM
     ).toThrow()
   })
 
-  it('applyWrite throws for template_slots (bulk-replace entity)', () => {
+  // template_slots and week_activity_exclusions were refused here before the parent-scoped
+  // entities slice; both are now modeled (see parentScoped.test.js for their coverage). Keeping
+  // compound_cell_decisions above as the still-correct out-of-scope (host-only) example, and adding
+  // a genuinely-never-registered name here so this describe block still proves the guard works.
+  it('applyWrite still throws for a genuinely unregistered entity name', () => {
     const doc = createEmptyDoc()
     expect(() =>
-      applyWrite(doc, { entity: 'template_slots', entity_id: 'x', field: 'activity_id', value: 'a-1' })
+      applyWrite(doc, { entity: 'not_a_real_entity', entity_id: 'x', field: 'anything', value: 1 })
     ).toThrow()
   })
 
-  it('applyWrite throws for week_activity_exclusions (parent-scoped)', () => {
-    const doc = createEmptyDoc()
-    expect(() =>
-      applyWrite(doc, { entity: 'week_activity_exclusions', entity_id: 'x', field: 'week_id', value: 'w-1' })
-    ).toThrow()
-  })
-
-  it('projectEntity throws for the same three out-of-scope entities', () => {
+  it('projectEntity throws for compound_cell_decisions and a genuinely unregistered name', () => {
     const doc = createEmptyDoc()
     expect(() => projectEntity(db, doc, 'compound_cell_decisions')).toThrow()
-    expect(() => projectEntity(db, doc, 'template_slots')).toThrow()
-    expect(() => projectEntity(db, doc, 'week_activity_exclusions')).toThrow()
+    expect(() => projectEntity(db, doc, 'not_a_real_entity')).toThrow()
   })
 
-  it('seedDocFromSqlite throws for the same three out-of-scope entities', () => {
+  it('seedDocFromSqlite throws for compound_cell_decisions and a genuinely unregistered name', () => {
     expect(() => seedDocFromSqlite(db, undefined, 'compound_cell_decisions')).toThrow()
-    expect(() => seedDocFromSqlite(db, undefined, 'template_slots')).toThrow()
-    expect(() => seedDocFromSqlite(db, undefined, 'week_activity_exclusions')).toThrow()
+    expect(() => seedDocFromSqlite(db, undefined, 'not_a_real_entity')).toThrow()
   })
 })
 

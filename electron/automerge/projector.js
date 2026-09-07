@@ -22,11 +22,60 @@
 // rather than guessing (host-only tables, parent-scoped tables, and the one
 // bulk-replace entity, template_slots, are out of scope for this document
 // layer; see campDocument.js).
+import { randomUUID } from 'node:crypto'
 import { applyProjection } from '../ops/projections.js'
-import { DELETE_FIELD } from '../ops/operations.js'
-import { DOMAIN_SNAPSHOT_ORDER } from '../ops/campScopedEntities.js'
+import { DELETE_FIELD, applyBulkReplaceProjection } from '../ops/operations.js'
+import { DOMAIN_SNAPSHOT_ORDER, BULK_REPLACE_ENTITIES } from '../ops/campScopedEntities.js'
 import { PROJECTIONS } from '../ops/projections.js'
-import { STAGE1_ENTITY, MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
+import { getStmt } from '../ops/stmtCache.js'
+import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
+
+// Parent-scoped entities slice: six of the ten new flat entities' PROJECTIONS[...].ensureExists
+// use the "reconstruct sibling fields from the op-log, insert once all are known" pattern
+// (projections.js's ensureWeekJoinRow, and the hand-written equivalents for special_day_slots/
+// elective_set_activities/event_slots) — the SAME pattern day_overrides was deferred for
+// (campDocument.js's DEFERRED_ENTITIES comment). That pattern's `readField` helper queries the
+// `operations` table for a sibling field's most recent value, which is always present for true
+// op-log replay (each field's write really did happen, in order, and is durably logged) but is NOT
+// present when projecting a document that arrived via Automerge sync with no op-log behind it at
+// all — the Stage 6 target state this whole document layer exists for. Confirmed empirically: a
+// pure applyWrite()+projectAll() round-trip for week_activity_exclusions silently produced zero
+// rows before this fix, exactly the day_overrides failure mode, just undiscovered until this slice
+// actually modeled these six entities.
+//
+// Unlike day_overrides, these six do NOT need deferring: unlike op-log replay's true one-field-at-
+// a-time arrival, a document row is ALWAYS fully known at once (every field the doc currently holds
+// for that id, right here in `row`) — so the projector can backfill a synthetic operations row for
+// each of the row's OWN already-known fields before calling applyProjection, and readField finds
+// them regardless of iteration order. This does not make the operations table authoritative again —
+// projectAll/rebuildFromDoc still derive SQLite (including these backfilled rows) from the document
+// every time they run — it only satisfies an existing, shared ensureExists implementation's data
+// dependency, without forking that implementation into an op-log version and a doc version.
+const OP_LOG_BACKED_ENSURE_EXISTS_ENTITIES = new Set([
+  'week_activity_exclusions',
+  'week_group_exclusions',
+  'week_location_exclusions',
+  'special_day_slots',
+  'elective_set_activities',
+  'event_slots',
+])
+
+function backfillOperationsForRow(db, entity, id, row) {
+  const device = getStmt(db, 'SELECT id FROM devices LIMIT 1').get()
+  if (!device) return // No device row to attribute a synthetic op to — ensureExists degrades to its existing (safe) no-op behavior, same as before this fix.
+  const timestamp = new Date().toISOString()
+  for (const [field, value] of Object.entries(row)) {
+    const existing = getStmt(
+      db,
+      'SELECT 1 FROM operations WHERE entity = ? AND entity_id = ? AND field = ? LIMIT 1'
+    ).get(entity, id, field)
+    if (existing) continue
+    getStmt(
+      db,
+      'INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(randomUUID(), entity, id, field, value, device.id, timestamp)
+  }
+}
 
 function assertModeled(entity) {
   if (DEFERRED_ENTITIES.has(entity)) {
@@ -35,29 +84,94 @@ function assertModeled(entity) {
         `op-log, which the doc-replay path never writes; needs its own doc-native row-construction slice`
     )
   }
-  if (!MODELED_ENTITIES.has(entity)) {
+  if (!MODELED_ENTITIES.has(entity) && !BULK_REPLACE_MODELED_ENTITIES.has(entity)) {
     throw new Error(
       `projector: '${entity}' is not a modeled camp-scoped entity (see MODELED_ENTITIES)`
     )
   }
 }
 
-// FK-safe apply order, filtered to just the entities this document layer
-// models (DOMAIN_SNAPSHOT_ORDER also lists parent-scoped and deferred
-// entities, which are out of scope here). `foreign_keys = ON` (openLocalDb)
-// makes this order load-bearing — a table must project after every other
-// table whose id it references.
-const MODELED_ORDER = DOMAIN_SNAPSHOT_ORDER.filter((entity) => MODELED_ENTITIES.has(entity))
+// Parent-scoped entities slice: DOMAIN_SNAPSHOT_ORDER deliberately EXCLUDES schedule_snapshots
+// (campScopedEntities.js's own comment: "unbounded historical growth over a season" — that
+// exclusion is about the first-pairing full_sync WS payload, a completely different concern from
+// this projector's FK-safe apply order). schedule_snapshots.template_id IS a real NOT NULL FK to
+// schedule_templates(id) though, so THIS projector still needs a position for it — immediately
+// after schedule_templates, its only FK target. Do not "fix" this by adding schedule_snapshots to
+// DOMAIN_SNAPSHOT_ORDER itself — that array is shared with syncServer.js/syncClient.js's full_sync
+// payload and changing it would reintroduce the unbounded-growth problem that exclusion exists to
+// avoid.
+const DOMAIN_ORDER_WITH_SNAPSHOTS = (() => {
+  const idx = DOMAIN_SNAPSHOT_ORDER.indexOf('schedule_templates')
+  return [
+    ...DOMAIN_SNAPSHOT_ORDER.slice(0, idx + 1),
+    'schedule_snapshots',
+    ...DOMAIN_SNAPSHOT_ORDER.slice(idx + 1),
+  ]
+})()
+
+// FK-safe apply order, filtered to just the entities this document layer models (DOMAIN_SNAPSHOT_
+// ORDER, extended above, also lists deferred entities, which are out of scope here).
+// `foreign_keys = ON` (openLocalDb) makes this order load-bearing — a table must project after
+// every other table whose id it references. template_slots appears once here (its DOMAIN_SNAPSHOT_
+// ORDER position, after schedule_templates) and is projected via BOTH upsertEntity's flat pass
+// (individual cell edits) AND upsertBulkReplaceEntity's scope pass (whole-schedule regenerate) — see
+// upsertEntity/deleteReconcileEntity below.
+export const MODELED_ORDER = DOMAIN_ORDER_WITH_SNAPSHOTS.filter(
+  (entity) => MODELED_ENTITIES.has(entity) || BULK_REPLACE_MODELED_ENTITIES.has(entity)
+)
+
+// Bulk-replace scope projection: reuses applyBulkReplaceProjection (electron/ops/operations.js)
+// UNCHANGED — same reuse-not-reimplement discipline as the flat path above. Each scope's stored
+// value (doc[`${entity}_scopes`][scopeId], a JSON string — see campDocument.js's applyBulkReplace)
+// is exactly the `op.value` shape applyBulkReplaceProjection already expects, so a synthetic op
+// object `{ entity, entity_id: scopeId, value }` replays through the SAME delete-then-insert-all
+// transaction a real op-log bulk_replace op does.
+function upsertBulkReplaceEntity(db, doc, entity) {
+  const collectionName = `${entity}_scopes`
+  const scopes = doc[collectionName] ?? {}
+  for (const scopeId of Object.keys(scopes)) {
+    applyBulkReplaceProjection(db, { entity, entity_id: scopeId, value: scopes[scopeId] })
+  }
+}
+
+// Delete-reconcile for a bulk-replace entity: any SCOPE (not row) present in SQLite but absent from
+// the document's scope collection is cleared entirely — e.g. a template whose schedule_templates row
+// (and template_slots_scopes entry) were both removed from the doc together. Reuses
+// applyBulkReplaceProjection with an empty row set, rather than a bespoke DELETE, for the same
+// atomicity/validation guarantees a real op-log delete-via-empty-bulk-replace would get.
+function deleteReconcileBulkReplaceEntity(db, doc, entity) {
+  const config = BULK_REPLACE_ENTITIES[entity]
+  const collectionName = `${entity}_scopes`
+  const inDoc = new Set(Object.keys(doc[collectionName] ?? {}))
+  const rows = db.prepare(`SELECT DISTINCT ${config.scopeColumn} AS scope_id FROM ${config.table}`).all()
+  for (const { scope_id } of rows) {
+    if (!inDoc.has(scope_id)) {
+      applyBulkReplaceProjection(db, { entity, entity_id: scope_id, value: '[]' })
+    }
+  }
+}
 
 // Upsert step: replay every field present in the document for this entity
 // through applyProjection. Does NOT delete-reconcile — see deleteReconcile
 // below for why that has to run as a separate, later pass across ALL
 // entities rather than inline here.
+//
+// template_slots is dual-modeled (see campDocument.js's applyBulkReplace comment): the bulk-replace
+// scope pass runs FIRST (it is the authoritative baseline — every row a whole-schedule regenerate
+// produced), then the ordinary flat pass runs SECOND as an OVERLAY of individual per-cell edits onto
+// rows the scope pass already inserted. Order matters and mirrors real usage: a director generates a
+// schedule (bulk-replace), then may tweak individual cells afterward (field-level writes) — never
+// the other way around. The flat pass's per-field UPDATE matches zero rows for any id the scope pass
+// didn't insert (a harmless no-op — see deleteReconcileEntity's skip below for why those can exist).
 function upsertEntity(db, doc, entity) {
+  if (BULK_REPLACE_MODELED_ENTITIES.has(entity)) upsertBulkReplaceEntity(db, doc, entity)
+  if (!MODELED_ENTITIES.has(entity)) return
   const fields = PROJECTIONS[entity].fields
   const coll = doc[entity] ?? {}
+  const needsBackfill = OP_LOG_BACKED_ENSURE_EXISTS_ENTITIES.has(entity)
   for (const id of Object.keys(coll)) {
     const row = coll[id]
+    if (needsBackfill) backfillOperationsForRow(db, entity, id, row)
     for (const field of fields) {
       if (!(field in row)) continue
       applyProjection(db, { entity, entity_id: id, field, value: row[field] })
@@ -68,7 +182,21 @@ function upsertEntity(db, doc, entity) {
 // Delete-reconcile step: any SQLite row for this entity not present in the
 // document is removed, so SQLite converges to exactly the document's
 // contents.
+//
+// template_slots is deliberately EXCLUDED from the flat delete-reconcile below (it only gets the
+// scope-level reconcile above). Its flat collection (doc.template_slots) holds individual-cell-edit
+// overlays, not row existence — a row's existence is owned entirely by which scope's bulk-replace
+// last ran. Running the flat delete-reconcile too would delete every row NOT ALSO present in
+// doc.template_slots (nearly all of them — a real schedule's rows are rarely individually edited),
+// wiping out the bulk-replace baseline this exact same projectAll pass just inserted above. It would
+// also (see the concurrent-regenerate design in campDocument.js) delete the WINNING generation's rows
+// whose per-row flat entries came from the LOSING generation's now-orphaned ids, or vice versa — the
+// scope-level reconcile alone is the correct, complete ownership boundary for this table's existence.
 function deleteReconcileEntity(db, doc, entity) {
+  if (BULK_REPLACE_MODELED_ENTITIES.has(entity)) {
+    deleteReconcileBulkReplaceEntity(db, doc, entity)
+    return
+  }
   const coll = doc[entity] ?? {}
   const inDoc = new Set(Object.keys(coll))
   for (const { id } of db.prepare(`SELECT id FROM ${entity}`).all()) {
@@ -118,8 +246,20 @@ export function projectEntity(db, doc, entity = STAGE1_ENTITY) {
 // still silently delete-reconcile away the SQLite rows for whichever entities it's missing. Closing
 // that gap requires actual seeding-completeness tracking (a real "has this camp's doc ever been
 // fully seeded" fact), which is Stage 5e's job, not a guess bolted on here.
+// Reads the right collection for the guard above's "does this entity have any rows" check: the
+// flat doc[entity] map for an ordinary entity, or the `${entity}_scopes` map for a bulk-replace
+// entity (template_slots) — its OWN flat collection only ever holds individual-cell-edit overlays,
+// which can legitimately be empty even while a bulk-replace baseline exists (see upsertEntity's
+// comment above), so checking doc[entity] alone would misreport a seeded template_slots as unseeded.
+function entityHasAnyDocRow(doc, entity) {
+  if (BULK_REPLACE_MODELED_ENTITIES.has(entity)) {
+    return Object.keys(doc[`${entity}_scopes`] ?? {}).length > 0
+  }
+  return Object.keys(doc[entity] ?? {}).length > 0
+}
+
 function assertDocIsSupersetOrEmpty(db, doc) {
-  const docHasAnyRow = MODELED_ORDER.some((entity) => Object.keys(doc[entity] ?? {}).length > 0)
+  const docHasAnyRow = MODELED_ORDER.some((entity) => entityHasAnyDocRow(doc, entity))
   if (docHasAnyRow) return
   const sqliteHasAnyRow = MODELED_ORDER.some(
     (entity) => db.prepare(`SELECT 1 FROM ${entity} LIMIT 1`).get() !== undefined

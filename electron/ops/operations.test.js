@@ -1229,8 +1229,13 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
     expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
   })
 
-  it('flag ON: template_slots (bulk-replace only entity) is unaffected — appendOp still rejects direct field writes to it exactly as today', async () => {
+  // Parent-scoped entities slice: template_slots is now modeled (its ordinary FLAT per-field shape,
+  // for individual cell edits — see campDocument.js's applyBulkReplace comment for the separate
+  // bulk-replace primitive), so a field-level appendOp on it now mirrors into the doc exactly like
+  // any other modeled entity, replacing the old "unaffected" assumption below.
+  it('flag ON: template_slots individual-cell field write mirrors into the doc (flat shape)', async () => {
     const ops = await loadOperationsWithEngine('automerge')
+    const { flushPendingWrites } = await import('../sync/automerge/liveDoc.js')
 
     expect(() =>
       ops.appendOp(db, {
@@ -1242,7 +1247,10 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
         device_id: 'device-1',
       })
     ).not.toThrow()
-    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
+    flushPendingWrites()
+    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(true)
+    const doc = loadDoc(userDataDir, 'camp-1')
+    expect(doc.template_slots['slot-x']).toEqual({ activity_id: 'a1' })
   })
 
   it('flag ON: a doc-mirror failure (docStore.saveDoc throwing) never breaks the op-log write — appendOp still returns its op and SQLite still has the row', async () => {
