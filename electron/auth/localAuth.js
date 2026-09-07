@@ -162,6 +162,49 @@ export function issueCampToken(db, userId, deviceId) {
   return `${payloadB64}.${signature}`
 }
 
+// Stage 5d-2b fix round (Finding 2): a distinct DEVICE-LEVEL admission token
+// — Host-signed exactly like issueCampToken, but carrying deviceId and no
+// userId at all. Exists because the Host itself needs to authenticate
+// OUTWARD (over libp2p, to a Client it dials) with no logged-in user in the
+// picture — issueCampToken(db, null, deviceId) used to be called for this,
+// but verifySessionToken's `typeof userId !== 'string'` check ALWAYS rejects
+// a null userId, so that call produced a token that could never verify: the
+// Host could mint it but no peer (including a re-check on the Host itself)
+// could ever admit it. That failure was silent — the app kept running,
+// nothing crashed, the Host's own authenticate attempts just always failed
+// closed. See docs/adr/2026-09-06-libp2p-membership-mapping.md §6.
+//
+// Deliberately NOT reused for anything but connection ADMISSION
+// (evaluateAuthenticate/authGate's `authenticate` message): authorize()
+// explicitly denies `type: 'device'` (see authorize.js) because this token
+// has no user and therefore no role to authorize — collapsing "may this peer
+// connect" and "may this actor perform this action" into one token would
+// undo the ADR's deliberate separation of those two layers.
+export function issueDeviceToken(db, deviceId) {
+  const hostKey = getHostSigningKey(db)
+  if (!hostKey) {
+    throw new Error('issueDeviceToken: this device has no host_signing_key row — it is not the Host')
+  }
+
+  const iat = Date.now()
+  const payload = {
+    type: 'device',
+    deviceId,
+    campId: campIdFor(db),
+    iat,
+    exp: iat + TOKEN_TTL_MS,
+    jti: randomUUID(),
+  }
+  const payloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+  const privateKeyObj = createPrivateKey({
+    key: Buffer.from(hostKey.private_key, 'hex'),
+    format: 'der',
+    type: 'pkcs8',
+  })
+  const signature = edSign(null, Buffer.from(payloadB64), privateKeyObj).toString('base64url')
+  return `${payloadB64}.${signature}`
+}
+
 export function issueLocalToken(db, userId, deviceId) {
   const device = db.prepare('SELECT device_secret_identifier FROM devices WHERE id = ?').get(deviceId)
   if (!device || !device.device_secret_identifier) {
@@ -222,8 +265,10 @@ export function verifySessionToken(db, token) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
 
   const { type, userId, deviceId, campId, exp, jti } = payload
-  if (type !== 'camp' && type !== 'local') return null
-  if (typeof userId !== 'string' || userId.length === 0) return null
+  if (type !== 'camp' && type !== 'local' && type !== 'device') return null
+  // A 'device' token deliberately carries no userId (issueDeviceToken) — see
+  // that function's doc comment. 'camp' and 'local' both require one.
+  if (type !== 'device' && (typeof userId !== 'string' || userId.length === 0)) return null
   if (typeof deviceId !== 'string' || deviceId.length === 0) return null
   if (typeof exp !== 'number' || !Number.isFinite(exp)) return null
 
@@ -235,7 +280,7 @@ export function verifySessionToken(db, token) {
   }
 
   let sigOk = false
-  if (type === 'camp') {
+  if (type === 'camp' || type === 'device') {
     const camp = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()
     if (!camp || !camp.signing_public_key) return null
     try {
@@ -263,7 +308,13 @@ export function verifySessionToken(db, token) {
   if (!sigOk) return null
   if (Date.now() > exp) return null
 
-  return { userId, deviceId, campId: typeof campId === 'string' ? campId : null, type, jti: jti ?? null }
+  return {
+    userId: type === 'device' ? null : userId,
+    deviceId,
+    campId: typeof campId === 'string' ? campId : null,
+    type,
+    jti: jti ?? null,
+  }
 }
 
 function attemptsRow(db, name) {

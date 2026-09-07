@@ -1,7 +1,5 @@
 import { WebSocketServer } from 'ws'
-import { timingSafeEqual } from 'node:crypto'
-import { Buffer } from 'node:buffer'
-import { verifySessionToken, attemptLogin, issueCampToken } from '../auth/localAuth.js'
+import { verifySessionToken, issueCampToken } from '../auth/localAuth.js'
 import { acquireLock, expireLocks, releaseLocksForDevice } from './lockManager.js'
 import {
   detectConflict,
@@ -14,9 +12,8 @@ import {
 } from '../ops/operations.js'
 import { authorize } from '../auth/authorize.js'
 import { deviceTrustStatus, deviceTrustReason } from '../auth/deviceTrust.js'
-import { evaluateAuthenticate } from '../auth/connectionAuth.js'
+import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../auth/connectionAuth.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from '../auth/deriveWriteAction.js'
-import { recordAuditEvent } from '../audit/auditLog.js'
 import { restoreEntity } from '../ops/restore.js'
 import { CLEARABLE_ENTITIES, deleteRecord, mergeLocation } from '../ops/deleteRecord.js'
 import { shouldThrottle, LOGIN_MIN_INTERVAL_MS, PAIRING_RATE_MS } from './rateLimit.js'
@@ -132,55 +129,45 @@ function validateAcquireLockMsg(msg) {
 function handleLogin(db, ws, msg, now) {
   if (!validateLoginMsg(msg)) return
 
-  // Sub-task 4: require device to be paired and secret to match BEFORE touching PIN
-  // or the per-connection throttle. This closes "any device on the LAN can
-  // attempt PIN guesses" (§6.3). The two rejection paths intentionally return
-  // the same opaque 'login_failed' response with no reason field — leaking
-  // distinct reasons would create a device-existence/authorization oracle
-  // (Security review finding 4).
-  const trust = deviceTrustStatus(db, msg.device_id)
-  if (!trust.found || !trust.authorized || trust.revoked) {
-    send(ws, { type: 'login_failed' })
-    return
-  }
-  // Constant-time comparison for the 64-char hex device secret to prevent
-  // timing side-channels (Security review finding 3).
-  const storedSecret = trust.row.device_secret_identifier
-  const providedSecret = typeof msg.device_secret_identifier === 'string' ? msg.device_secret_identifier : ''
-  let secretOk = false
-  if (storedSecret && storedSecret.length === providedSecret.length) {
-    try {
-      secretOk = timingSafeEqual(Buffer.from(storedSecret), Buffer.from(providedSecret))
-    } catch {
-      secretOk = false
-    }
-  }
-  if (!secretOk) {
-    send(ws, { type: 'login_failed' })
-    return
-  }
-
   // Throttle: a message arriving faster than LOGIN_MIN_INTERVAL_MS since this
   // connection's last login attempt is dropped silently before it ever
-  // reaches attemptLogin, so it cannot touch the login_attempts lockout
-  // counter. Silent drop (vs. an explicit throttled reply) matches this
-  // file's existing convention for rejecting bad input (see the malformed
-  // message and validateLoginMsg early-returns above) and keeps the
-  // unauthenticated surface from being handed a way to trigger extra replies.
+  // reaches evaluateLogin/attemptLogin, so it cannot touch the login_attempts
+  // lockout counter. Silent drop (vs. an explicit throttled reply) matches
+  // this file's existing convention for rejecting bad input (see the
+  // malformed message and validateLoginMsg early-returns above) and keeps
+  // the unauthenticated surface from being handed a way to trigger extra
+  // replies. This throttle is WS-connection-specific (ws.lastLoginAttemptAt)
+  // and stays here rather than moving into evaluateLogin — see
+  // connectionAuth.js's evaluateLogin doc comment for why.
   const at = now()
   if (shouldThrottle(ws.lastLoginAttemptAt, at, LOGIN_MIN_INTERVAL_MS)) {
     return
   }
   ws.lastLoginAttemptAt = at
 
-  const result = attemptLogin(db, { name: msg.name, pin: msg.pin, deviceId: msg.device_id })
+  // The verify/reject-local/PIN/lockout decision is shared with the libp2p
+  // auth-over-libp2p handshake (electron/auth/connectionAuth.js's
+  // evaluateLogin, Stage 5d-2b) — this is the one place that logic lives;
+  // do not re-add it here. Sub-task 4: evaluateLogin requires device to be
+  // paired and secret to match BEFORE touching PIN, closing "any device on
+  // the LAN can attempt PIN guesses" (§6.3). The two pre-PIN rejection
+  // reasons ('not_paired'/'bad_secret') both map to the same opaque
+  // 'login_failed' response with no reason field — leaking distinct reasons
+  // would create a device-existence/authorization oracle (Security review
+  // finding 4).
+  const result = evaluateLogin(db, {
+    device_id: msg.device_id,
+    device_secret_identifier: msg.device_secret_identifier,
+    name: msg.name,
+    pin: msg.pin,
+  })
 
-  if (!result) {
+  if (!result.ok) {
+    if (result.reason === 'locked') {
+      send(ws, { type: 'login_failed', locked: true, retryAfterMs: result.retryAfterMs })
+      return
+    }
     send(ws, { type: 'login_failed' })
-    return
-  }
-  if (result.locked) {
-    send(ws, { type: 'login_failed', locked: true, retryAfterMs: result.retryAfterMs })
     return
   }
   send(ws, { type: 'login_ok', token: result.token, userId: result.userId, role: result.role })
@@ -707,26 +694,25 @@ export function startSyncServer(db, { port, onPairingRequest, now = Date.now } =
             return
           }
 
-          // RedHat FM3/5/6 recovery: if this device is already authorized on the
-          // Host (e.g. the Client received pairing_approved but failed to persist
-          // it locally, or the WS dropped right after approval), re-deliver
-          // pairing_approved with the stored secret rather than treating this as
-          // a fresh unknown request. This makes the approval idempotent.
-          const existingDevice = db.prepare('SELECT authorized_at, revoked_at, device_secret_identifier FROM devices WHERE id = ?').get(device_id)
-          if (existingDevice && existingDevice.authorized_at && !existingDevice.revoked_at && existingDevice.device_secret_identifier) {
-            send(ws, { type: 'pairing_approved', device_secret_identifier: existingDevice.device_secret_identifier })
+          // The idempotent-re-delivery check + devices upsert + audit event is
+          // shared with the libp2p auth-over-libp2p handshake
+          // (electron/auth/connectionAuth.js's evaluatePairingRequest, Stage
+          // 5d-2b) — this is the one place that decision lives; do not
+          // re-add it here. Rate limiting and MAX_PENDING_PAIRING (above)
+          // stay WS-specific — see evaluatePairingRequest's doc comment for
+          // why they don't move.
+          const result = evaluatePairingRequest(db, { device_id, device_name })
+          if (!result.ok) {
+            sendError(ws)
+            return
+          }
+          if (result.alreadyApproved) {
+            send(ws, { type: 'pairing_approved', device_secret_identifier: result.device_secret_identifier })
             return
           }
 
-          // First-time or pending device: upsert without overwriting the name once
-          // it's set (Security MEDIUM-2: prevents name spoofing on a pending device).
-          db.prepare("INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(device_id, device_name)
-          // Only update pairing_status, not the name — the first-seen name wins.
-          db.prepare("UPDATE devices SET pairing_status = 'pending' WHERE id = ? AND (pairing_status IS NULL OR pairing_status = 'pending')").run(device_id)
-
           pendingPairingConnections.set(device_id, ws)
           ws.pendingDeviceId = device_id
-          recordAuditEvent(db, { deviceId: device_id, actorUserId: null, action: 'device.pairing_request', outcome: 'allow' })
           if (typeof onPairingRequest === 'function') onPairingRequest(device_id, device_name)
           return
         }

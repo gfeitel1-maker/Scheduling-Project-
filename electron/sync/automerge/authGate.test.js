@@ -10,6 +10,7 @@
 // the real evaluateAuthenticate through this same mechanism.
 import { describe, it, expect, afterEach } from 'vitest'
 import { startTransport } from './transport.js'
+import { PAIRING_RATE_MS, LOGIN_MIN_INTERVAL_MS } from '../rateLimit.js'
 
 let handles = []
 afterEach(async () => {
@@ -119,11 +120,275 @@ describe('authGate — admission gate mechanics (fake authenticator)', () => {
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
 
-    // 5d-1 implements `authenticate` only — pairing_request/login are 5d-2.
+    // Stage 5d-2b implements pairing_request/login too now — use a message
+    // type that is genuinely unsupported by any flow.
+    await expect(
+      a.authenticateWith(b.peerId, { type: 'bogus_message_type', device_id: 'device-a' })
+    ).rejects.toThrow()
+    expect(b.isPeerAuthenticated(a.peerId)).toBe(false)
+  })
+})
+
+describe('authGate — pairing_request/login mechanics (fake decision functions, Stage 5d-2b)', () => {
+  it('an already-approved device gets pairing_approved immediately, on the SAME stream', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onPairingRequest: () => ({ ok: true, alreadyApproved: true, device_secret_identifier: 'secret-xyz' }),
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const reply = await a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-a', device_name: 'A' })
+    expect(reply).toEqual({ type: 'pairing_approved', device_secret_identifier: 'secret-xyz' })
+  })
+
+  it('a fresh device gets pairing_pending, then the director decision arrives later on a NEW stream', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    let sendPairingApproved
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onPairingRequest: () => ({ ok: true, alreadyApproved: false }),
+    })
+    sendPairingApproved = b.sendPairingApproved
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const pending = await a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-a', device_name: 'A' })
+    expect(pending).toEqual({ type: 'pairing_pending' })
+
+    // The director's decision, delivered well after the original pairing_request
+    // stream has already closed — proves it travels over a freshly-dialed stream.
+    const delivered = await sendPairingApproved('device-a', 'secret-abc')
+    expect(delivered).toBe(true)
+  })
+
+  it('a denied device gets pairing_denied', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onPairingRequest: () => ({ ok: false }),
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const reply = await a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-a', device_name: 'A' })
+    expect(reply).toEqual({ type: 'pairing_denied' })
+  })
+
+  it('login success returns login_ok with the decision function\'s token/userId/role', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onLogin: () => ({ ok: true, token: 'tok-1', userId: 'u1', role: 'director' }),
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const reply = await a.authenticateWith(b.peerId, { type: 'login', device_id: 'device-a', name: 'Bob', pin: '1234' })
+    expect(reply).toEqual({ type: 'login_ok', token: 'tok-1', userId: 'u1', role: 'director' })
+  })
+
+  it('login failure (including lockout) returns login_failed, opaque reason not leaked', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onLogin: () => ({ ok: false, reason: 'locked', locked: true, retryAfterMs: 5000 }),
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const reply = await a.authenticateWith(b.peerId, { type: 'login', device_id: 'device-a', name: 'Bob', pin: 'wrong' })
+    expect(reply).toEqual({ type: 'login_failed', locked: true, retryAfterMs: 5000 })
+    expect(reply.reason).toBeUndefined()
+  })
+})
+
+// HIGH finding, Stage 5d-2b re-review (ADR §6, docs/adr/2026-09-06-libp2p-membership-mapping.md):
+// syncServer.js's WS handling of pairing_request/login is rate-limited and
+// pending-capped; the libp2p path through authGate.js had NONE of that. These
+// tests use an injectable `now` (mirroring syncServer.js's own `now` option)
+// so the throttle boundary is proven by arithmetic, not by racing a real
+// clock — same rationale as rateLimit.test.js.
+describe('authGate — rate limiting (HIGH finding fix, Stage 5d-2b re-review)', () => {
+  it('a flood of pairing_request frames from one peer is throttled', async () => {
+    let calls = 0
+    let t = 1000
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onPairingRequest: () => {
+        calls++
+        return { ok: true, alreadyApproved: false }
+      },
+      now: () => t,
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const first = await a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-a', device_name: 'A' })
+    expect(first).toEqual({ type: 'pairing_pending' })
+    expect(calls).toBe(1)
+
+    // Same instant (t unchanged), same connection — well inside PAIRING_RATE_MS.
+    // The decision function must never even be called for the throttled frame.
     await expect(
       a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-a', device_name: 'A' })
     ).rejects.toThrow()
-    expect(b.isPeerAuthenticated(a.peerId)).toBe(false)
+    expect(calls).toBe(1)
+  })
+
+  it('rotating device_id on the SAME connection does not evade the throttle', async () => {
+    let calls = 0
+    let t = 1000
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onPairingRequest: () => {
+        calls++
+        return { ok: true, alreadyApproved: false }
+      },
+      now: () => t,
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    await a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-x1', device_name: 'A' })
+    expect(calls).toBe(1)
+
+    // A DIFFERENT claimed device_id, same peer/connection, same instant — the
+    // per-peer half of the throttle must still catch it even though the
+    // per-device map has never seen 'device-x2' before.
+    await expect(
+      a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-x2', device_name: 'A' })
+    ).rejects.toThrow()
+    expect(calls).toBe(1)
+  })
+
+  it('MAX_PENDING_PAIRING caps concurrently pending requests, independent of throttling', async () => {
+    let calls = 0
+    let t = 1000
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onPairingRequest: () => {
+        calls++
+        return { ok: true, alreadyApproved: false }
+      },
+      now: () => t,
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    // 50 distinct device_ids, each well clear of PAIRING_RATE_MS from the
+    // last — none of these are throttled, so the cap being hit below is
+    // proven to be the pending-count cap, not the rate limit.
+    for (let i = 0; i < 50; i++) {
+      t += PAIRING_RATE_MS + 1
+      const reply = await a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: `device-${i}`, device_name: 'A' })
+      expect(reply).toEqual({ type: 'pairing_pending' })
+    }
+    expect(calls).toBe(50)
+
+    t += PAIRING_RATE_MS + 1
+    await expect(
+      a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-overflow', device_name: 'A' })
+    ).rejects.toThrow()
+    expect(calls).toBe(50)
+  })
+
+  it('login attempts are rate-limited on the same connection', async () => {
+    let calls = 0
+    let t = 1000
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onLogin: () => {
+        calls++
+        return { ok: false }
+      },
+      now: () => t,
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    await a.authenticateWith(b.peerId, { type: 'login', device_id: 'device-a', name: 'Bob', pin: '1234' })
+    expect(calls).toBe(1)
+
+    await expect(
+      a.authenticateWith(b.peerId, { type: 'login', device_id: 'device-a', name: 'Bob', pin: '1234' })
+    ).rejects.toThrow()
+    expect(calls).toBe(1)
+  })
+
+  it('a legitimate single pairing_request still succeeds unimpeded, and spaced-out requests both go through', async () => {
+    let calls = 0
+    let t = 1000
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onPairingRequest: () => {
+        calls++
+        return { ok: true, alreadyApproved: false }
+      },
+      now: () => t,
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const first = await a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-a', device_name: 'A' })
+    expect(first).toEqual({ type: 'pairing_pending' })
+
+    t += PAIRING_RATE_MS + 1
+    const second = await a.authenticateWith(b.peerId, { type: 'pairing_request', device_id: 'device-a', device_name: 'A' })
+    expect(second).toEqual({ type: 'pairing_pending' })
+    expect(calls).toBe(2)
+  })
+
+  it('a legitimate single login still succeeds unimpeded, and spaced-out attempts both go through', async () => {
+    let calls = 0
+    let t = 1000
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onLogin: () => {
+        calls++
+        return { ok: true, token: 'tok', userId: 'u1', role: 'staff' }
+      },
+      now: () => t,
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const first = await a.authenticateWith(b.peerId, { type: 'login', device_id: 'device-a', name: 'Bob', pin: '1234' })
+    expect(first.type).toBe('login_ok')
+
+    t += LOGIN_MIN_INTERVAL_MS + 1
+    const second = await a.authenticateWith(b.peerId, { type: 'login', device_id: 'device-a', name: 'Bob', pin: '1234' })
+    expect(second.type).toBe('login_ok')
+    expect(calls).toBe(2)
   })
 })
 

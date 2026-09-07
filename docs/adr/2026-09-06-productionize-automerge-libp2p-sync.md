@@ -3,7 +3,7 @@ title: "ADR: Productionize Automerge + libp2p as the sync/data layer; SQLite bec
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: in_progress
 date: 2026-09-06
 decided: 2026-09-06
 deciders: [product-owner]

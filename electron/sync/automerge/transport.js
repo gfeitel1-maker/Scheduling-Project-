@@ -54,7 +54,15 @@ const MAX_CONNECTIONS = 200
 // for Stage 5/6, which will need it once Host-privileged-role mapping onto
 // libp2p PeerIds is designed — see the design doc's "Host stays privileged"
 // section. Every libp2p peer here is symmetric today.
-export async function startTransport({ deviceId: _deviceId, onDocReceived, listen, onAuthenticate } = {}) {
+// `onPairingRequest`/`onLogin` (Stage 5d-2b) are injected the same way
+// `onAuthenticate` already is — this module stays auth-semantics-free and
+// simply wires whatever the caller (syncNode.js) hands it into
+// registerAuthGate. `peerDiscovery` accepts a libp2p peerDiscovery service
+// array (e.g. createMdnsDiscovery from ./discovery.js) for real-LAN camp-
+// scoped discovery; omitted by default so tests keep dialing directly over
+// loopback (mDNS needs a real network interface — see discovery.js's own
+// module comment).
+export async function startTransport({ deviceId: _deviceId, onDocReceived, listen, onAuthenticate, onPairingRequest, onLogin, peerDiscovery, now } = {}) {
   const node = await createLibp2p({
     addresses: { listen: listen ?? DEFAULT_LISTEN },
     transports: [tcp()],
@@ -68,9 +76,15 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
     // in wireProtocol.js's MAX_FRAME_BYTES.)
     connectionManager: { maxConnections: MAX_CONNECTIONS },
     services: { identify: identify() },
+    ...(peerDiscovery ? { peerDiscovery } : {}),
   })
 
-  const { authenticatedPeers } = registerAuthGate(node, { onAuthenticate })
+  const { authenticatedPeers, sendPairingApproved, sendPairingDenied } = registerAuthGate(node, {
+    onAuthenticate,
+    onPairingRequest,
+    onLogin,
+    ...(now ? { now } : {}),
+  })
 
   await node.handle(PROTO, ({ stream, connection }) => {
     const fromPeerId = connection.remotePeer.toString()
@@ -180,6 +194,18 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, liste
     dial,
     authenticateWith,
     isPeerAuthenticated: (peerId) => authenticatedPeers.has(peerId),
+    sendPairingApproved,
+    sendPairingDenied,
+    // Fires cb({ id, multiaddrs }) for every peer libp2p's discovery
+    // mechanism (e.g. mDNS via createMdnsDiscovery) surfaces. Only relevant
+    // when `peerDiscovery` was passed in above; a caller that never sets it
+    // (every existing test, and any in-process direct-dial caller) simply
+    // never sees this fire.
+    onPeerDiscovery: (cb) => {
+      node.addEventListener('peer:discovery', (evt) => {
+        cb({ id: evt.detail.id.toString(), multiaddrs: evt.detail.multiaddrs })
+      })
+    },
     stop: () => node.stop(),
   }
 }
