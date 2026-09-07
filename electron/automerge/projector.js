@@ -22,60 +22,11 @@
 // rather than guessing (host-only tables, parent-scoped tables, and the one
 // bulk-replace entity, template_slots, are out of scope for this document
 // layer; see campDocument.js).
-import { randomUUID } from 'node:crypto'
 import { applyProjection } from '../ops/projections.js'
 import { DELETE_FIELD, applyBulkReplaceProjection } from '../ops/operations.js'
 import { DOMAIN_SNAPSHOT_ORDER, BULK_REPLACE_ENTITIES } from '../ops/campScopedEntities.js'
 import { PROJECTIONS } from '../ops/projections.js'
-import { getStmt } from '../ops/stmtCache.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
-
-// Parent-scoped entities slice: six of the ten new flat entities' PROJECTIONS[...].ensureExists
-// use the "reconstruct sibling fields from the op-log, insert once all are known" pattern
-// (projections.js's ensureWeekJoinRow, and the hand-written equivalents for special_day_slots/
-// elective_set_activities/event_slots) — the SAME pattern day_overrides was deferred for
-// (campDocument.js's DEFERRED_ENTITIES comment). That pattern's `readField` helper queries the
-// `operations` table for a sibling field's most recent value, which is always present for true
-// op-log replay (each field's write really did happen, in order, and is durably logged) but is NOT
-// present when projecting a document that arrived via Automerge sync with no op-log behind it at
-// all — the Stage 6 target state this whole document layer exists for. Confirmed empirically: a
-// pure applyWrite()+projectAll() round-trip for week_activity_exclusions silently produced zero
-// rows before this fix, exactly the day_overrides failure mode, just undiscovered until this slice
-// actually modeled these six entities.
-//
-// Unlike day_overrides, these six do NOT need deferring: unlike op-log replay's true one-field-at-
-// a-time arrival, a document row is ALWAYS fully known at once (every field the doc currently holds
-// for that id, right here in `row`) — so the projector can backfill a synthetic operations row for
-// each of the row's OWN already-known fields before calling applyProjection, and readField finds
-// them regardless of iteration order. This does not make the operations table authoritative again —
-// projectAll/rebuildFromDoc still derive SQLite (including these backfilled rows) from the document
-// every time they run — it only satisfies an existing, shared ensureExists implementation's data
-// dependency, without forking that implementation into an op-log version and a doc version.
-const OP_LOG_BACKED_ENSURE_EXISTS_ENTITIES = new Set([
-  'week_activity_exclusions',
-  'week_group_exclusions',
-  'week_location_exclusions',
-  'special_day_slots',
-  'elective_set_activities',
-  'event_slots',
-])
-
-function backfillOperationsForRow(db, entity, id, row) {
-  const device = getStmt(db, 'SELECT id FROM devices LIMIT 1').get()
-  if (!device) return // No device row to attribute a synthetic op to — ensureExists degrades to its existing (safe) no-op behavior, same as before this fix.
-  const timestamp = new Date().toISOString()
-  for (const [field, value] of Object.entries(row)) {
-    const existing = getStmt(
-      db,
-      'SELECT 1 FROM operations WHERE entity = ? AND entity_id = ? AND field = ? LIMIT 1'
-    ).get(entity, id, field)
-    if (existing) continue
-    getStmt(
-      db,
-      'INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(randomUUID(), entity, id, field, value, device.id, timestamp)
-  }
-}
 
 function assertModeled(entity) {
   if (DEFERRED_ENTITIES.has(entity)) {
@@ -168,13 +119,17 @@ function upsertEntity(db, doc, entity) {
   if (!MODELED_ENTITIES.has(entity)) return
   const fields = PROJECTIONS[entity].fields
   const coll = doc[entity] ?? {}
-  const needsBackfill = OP_LOG_BACKED_ENSURE_EXISTS_ENTITIES.has(entity)
   for (const id of Object.keys(coll)) {
     const row = coll[id]
-    if (needsBackfill) backfillOperationsForRow(db, entity, id, row)
+    // knownRow = row: every field the document currently holds for this id, all at once — unlike
+    // op-log replay's true one-field-at-a-time arrival. Some entities' ensureExists (projections.js's
+    // ensureWeekJoinRow and its hand-written equivalents for special_day_slots/
+    // elective_set_activities/event_slots/day_overrides) reconstruct sibling NOT-NULL FK columns to
+    // satisfy a multi-column INSERT; passed the full row, they resolve those siblings directly
+    // instead of querying the `operations` table, which the doc-replay path never writes.
     for (const field of fields) {
       if (!(field in row)) continue
-      applyProjection(db, { entity, entity_id: id, field, value: row[field] })
+      applyProjection(db, { entity, entity_id: id, field, value: row[field], knownRow: row })
     }
   }
 }

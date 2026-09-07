@@ -17,20 +17,30 @@ import { getStmt } from './stmtCache.js'
 // table (event_slots etc.): the FK columns point at real tables,
 // so '' or NULL both violate the constraint. Instead, reconstruct BOTH values
 // and insert the complete row only once both are known. The current op supplies
-// one field directly; the sibling is read back from the operations log, where
-// appendOp has already durably inserted it — appendOp writes the op row BEFORE
-// calling applyProjection, and replay (syncClient.applyRemoteOp) does the same
-// in seq order, so the earlier field's op is always present by the time the
-// later field's op projects, on both the writing device and every replica.
-// Whichever field arrives SECOND creates the row; the first is a deliberate
-// no-op. Order-independent and replay-safe, with no new IPC/op primitive.
+// one field directly. For the op-log path, the sibling is read back from the
+// operations log, where appendOp has already durably inserted it — appendOp
+// writes the op row BEFORE calling applyProjection, and replay
+// (syncClient.applyRemoteOp) does the same in seq order, so the earlier
+// field's op is always present by the time the later field's op projects, on
+// both the writing device and every replica. Whichever field arrives SECOND
+// creates the row; the first is a deliberate no-op. Order-independent and
+// replay-safe, with no new IPC/op primitive.
+//
+// `knownRow` (electron/automerge/projector.js) is the doc-native alternative
+// to the operations-log lookup: a document row holds every field it currently
+// has for this id, all at once, so the projector can hand it straight to
+// readField instead of ensureExists having to query a table Stage 6 removes.
+// Checked BEFORE the operations fallback so a doc-native caller never touches
+// `operations` at all; an op-log caller passes no knownRow and this behaves
+// exactly as before.
 //
 // (week_location_exclusions, the third instance of this pattern, now also uses
 // this helper as of slice M5, which added its writer.)
 function ensureWeekJoinRow(table, secondColumn) {
-  return (db, id, field, value) => {
+  return (db, id, field, value, knownRow) => {
     const readField = (wanted) => {
       if (field === wanted) return value
+      if (knownRow && wanted in knownRow) return knownRow[wanted]
       const prior = getStmt(
         db,
         'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
@@ -353,10 +363,13 @@ export const PROJECTIONS = {
     table: 'special_day_slots',
     key: 'id',
     fields: ['special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
-    ensureExists: (db, id, field, value) => {
+    // knownRow: see ensureWeekJoinRow's comment above — the doc-native alternative to the
+    // operations-log lookup, checked first so a doc-native caller never touches `operations`.
+    ensureExists: (db, id, field, value, knownRow) => {
       const table = 'special_day_slots'
       const readField = (wanted) => {
         if (field === wanted) return value
+        if (knownRow && wanted in knownRow) return knownRow[wanted]
         const prior = getStmt(
           db,
           'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
@@ -422,10 +435,12 @@ export const PROJECTIONS = {
     // no ensureExists involvement, since the row must already exist (created
     // by the elective_set_id/activity_id pair) before capacity is editable.
     fields: ['elective_set_id', 'activity_id', 'camper_headcount'],
-    ensureExists: (db, id, field, value) => {
+    // knownRow: see ensureWeekJoinRow's comment above.
+    ensureExists: (db, id, field, value, knownRow) => {
       const table = 'elective_set_activities'
       const readField = (wanted) => {
         if (field === wanted) return value
+        if (knownRow && wanted in knownRow) return knownRow[wanted]
         const prior = getStmt(
           db,
           'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
@@ -500,10 +515,12 @@ export const PROJECTIONS = {
     table: 'event_slots',
     key: 'id',
     fields: ['event_id', 'event_group_id', 'time_block_id', 'activity_id', 'location_id'],
-    ensureExists: (db, id, field, value) => {
+    // knownRow: see ensureWeekJoinRow's comment above.
+    ensureExists: (db, id, field, value, knownRow) => {
       const table = 'event_slots'
       const readField = (wanted) => {
         if (field === wanted) return value
+        if (knownRow && wanted in knownRow) return knownRow[wanted]
         const prior = getStmt(
           db,
           'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
@@ -537,10 +554,14 @@ export const PROJECTIONS = {
     table: 'day_overrides',
     key: 'id',
     fields: ['camp_id', 'schedule_week_id', 'day_id', 'group_id', 'time_block_id', 'activity_id', 'kind', 'note'],
-    ensureExists: (db, id, field, value) => {
+    // knownRow: see ensureWeekJoinRow's comment above — this is the same reconstruct-then-
+    // insert-once pattern day_overrides was DEFERRED from the document layer for (see
+    // campDocument.js's DEFERRED_ENTITIES history); knownRow is what un-defers it.
+    ensureExists: (db, id, field, value, knownRow) => {
       const table = 'day_overrides'
       const readField = (wanted) => {
         if (field === wanted) return value
+        if (knownRow && wanted in knownRow) return knownRow[wanted]
         const prior = getStmt(
           db,
           'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
@@ -872,7 +893,12 @@ export function applyProjection(db, op) {
   // exception: its parent FK column is NOT NULL with no default, so its
   // ensureExists needs the current op's field/value to satisfy the FK on
   // first insert — see that entry below.
-  projection.ensureExists?.(db, op.entity_id, op.field, op.value)
+  //
+  // op.knownRow (electron/automerge/projector.js) is the doc-native row this op was synthesized
+  // from — every field the document currently holds for this id, all at once. The op-log path
+  // (appendOp, syncClient replay) never sets it, so this is a no-op there; ensureExists
+  // implementations that accept it fall back to reading `operations` exactly as before.
+  projection.ensureExists?.(db, op.entity_id, op.field, op.value, op.knownRow)
 
   getStmt(db, `UPDATE ${projection.table} SET ${op.field} = ? WHERE ${projection.key} = ?`).run(
     op.value,

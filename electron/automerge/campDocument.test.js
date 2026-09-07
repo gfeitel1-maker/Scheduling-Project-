@@ -146,14 +146,15 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // the SAME pinned root bytes; if this ever needs its expectation changed to pass, that means
     // the genesis bytes changed, which means every already-running device's persisted doc no
     // longer shares a root with a fresh one from this build — THAT is the break being hidden, not
-    // fixed, by updating the expectation. (This value WAS deliberately changed once, in the
-    // parent-scoped entities slice, to fix the runtime-top-up bug above — that regeneration is
-    // explained and accepted in campDocument.js's GENESIS_B64 comment. Any FUTURE change to this
-    // pinned value needs the same explicit justification, not a silent edit.)
+    // fixed, by updating the expectation. (This value has been deliberately changed twice: in the
+    // parent-scoped entities slice, to fix the runtime-top-up bug above, and again in the doc-native
+    // ensureExists slice, to add day_overrides to GENESIS_ENTITIES when it was un-deferred — both
+    // regenerations are explained and accepted in campDocument.js's GENESIS_B64 comment. Any FUTURE
+    // change to this pinned value needs the same explicit justification, not a silent edit.)
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        'dc405bb1e356dfebb432fee8ccfab1b3061b8c7608e91b19e4133cab93df73b4',
+        '67989aa3bc96d94494f8c9d884cb5f3d375dd0fb35c7b520456f3d8301058bbc',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole

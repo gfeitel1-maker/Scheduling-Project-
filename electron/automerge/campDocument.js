@@ -31,16 +31,17 @@ export const STAGE1_ENTITY = 'days_of_operation'
 export const STAGE1_FIELDS = PROJECTIONS[STAGE1_ENTITY].fields
 
 // day_overrides.ensureExists (electron/ops/projections.js) reconstructs its
-// four NOT-NULL FK columns by reading PRIOR field values out of the
-// `operations` table (see readField there). The doc-replay path never writes
-// `operations` — a doc-native replay of day_overrides would call
-// ensureExists with none of that history available, and the row's NOT-NULL
-// FKs would never be satisfiable, so its rows would silently never
-// materialize. day_overrides is therefore deferred out of this document
-// layer's modeled set until a doc-native row-construction (independent of
-// the op-log) is designed as its own future slice. It is the ONLY one of the
-// 15 DIRECT_CAMP_ENTITIES with this op-log coupling.
-export const DEFERRED_ENTITIES = new Set(['day_overrides'])
+// four NOT-NULL FK columns from sibling fields, the same "reconstruct then
+// insert once all are known" pattern as week_activity_exclusions/
+// special_day_slots/etc. (projections.js's ensureWeekJoinRow and its
+// hand-written equivalents). That pattern now accepts an optional `knownRow`
+// — the full document row for this id, always fully known at once — which
+// the projector (projector.js's upsertEntity) supplies, so it never needs to
+// query the `operations` table at all. day_overrides is therefore no longer
+// deferred; DEFERRED_ENTITIES is kept as an (empty) export so callers that
+// reference it (campDocument.js/projector.js/seed.js's assertModeled guards)
+// don't need a separate code path if a future entity needs deferring again.
+export const DEFERRED_ENTITIES = new Set()
 
 // Parent-scoped entities slice (docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md, Stage 5
 // continuation): the document layer now ALSO models every PARENT_SCOPED_ENTITIES key
@@ -141,6 +142,12 @@ function assertModeled(entity) {
 // way; that is exactly why GENESIS_ENTITIES is a frozen, hand-maintained list going forward rather
 // than something derived from MODELED_ENTITIES at build or run time (see the subset guard below).
 //
+// SECOND REGENERATION (doc-native ensureExists slice): day_overrides moved from DEFERRED_ENTITIES
+// into MODELED_ENTITIES (its ensureExists is now doc-native — see projections.js's `knownRow`
+// parameter), so it needed adding to GENESIS_ENTITIES and GENESIS_B64 needed regenerating again, for
+// the exact same reason as the parent-scoped entities slice above. Same acceptance: still
+// pre-production, no live camps, existing `.automerge` files may be discarded again.
+//
 // GENESIS_ENTITIES is a frozen snapshot of every collection GENESIS_B64 encodes, sorted for
 // determinism: MODELED_ENTITIES (flat entities) plus BULK_REPLACE_MODELED_ENTITIES's scope
 // collection name(s). It exists so the assertion below can catch, at import time, in every
@@ -154,6 +161,7 @@ const GENESIS_ENTITIES = [
   'anchor_activities',
   'camp_maps',
   'cohorts',
+  'day_overrides',
   'days_of_operation',
   'elective_set_activities',
   'elective_sets',
@@ -183,7 +191,7 @@ const GENESIS_ENTITIES = [
 // pass, that is a wire/document-compatibility break being HIDDEN, not fixed; see that test's own
 // comment.
 const GENESIS_B64 =
-  'hW9Kg9rb0dUArwIBEFQkEgb/6S/Z/ZwLvo69Rw0B3EBbseNW3+u0Mv7ozPqxswYbjHYI6RsZ5BM8q5Pfc7QGAQIDAhMCIwZAAlYCBx3CASECIwI0AUICVgKAAQJ/AH8Bfxp/qZb81AZ/AH8HVZDdbsMwCIWv1qk/q5RKVft2iBG6WHWC5UO65e2rxErn3sEHhwPcdiweHsGDouFBOsv0T7bCfaKeEz7FOsuOpuUJZDeypJk92HDRqLNACeqV9qvmOOhDB6efbGPCviSI5mhK7KFX+o4md2wWgk3p3UaTxQcnSKftGJUwcEJnXiHXPkV2xfGFflXvaJBUAkdqeSqGl5pUtoeK47jOK5rze0oQS4oPD5qxr2ZcZ8/1BxPpn8QR8+7npbBcVNHSvh5YFZ4aABoBGhoAGgAaAAA='
+  'hW9Kg27jSSIAuAIBEKVw9R1Sdje0D40atMujw6UBZ5iao7yW2USU+MnYhMtfPTdd0Ps1x7UgRW89gwEFi7wGAQIDAhMCIwZAAlYCBx3LASECIwI0AUICVgKAAQJ/AH8Bfxt/jd381AZ/AH8HVZDbTsQwDESfWLTsRSrSavk7K6QDjTato4xb6N+jJiqEt/jYnvEEL85bWIIFsHOTHzTLHzl6NyYZXeKz10Gz8dK7VXRBzqEHu96tFP0QTcjOgk53RGzrEMIapUvLecaCyeQz65x4qgWjGrv6tjBC3qP6Bw+F8FBnj1F98eEr/YB+jhBOLnFQa5BhTNEZeP1FX8CDHRN8cFG2FMXw3pLG9txwXne9unP7Xwq9JvDJAjJPjcbb5rn/wSr49nHmdvutNEqihtbxPWDT+AEbABsBGxsAGwAbAAA='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))

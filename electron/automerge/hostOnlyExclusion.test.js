@@ -80,10 +80,10 @@ describe('host-only + infrastructure tables are structurally excluded from the A
     for (const t of HOST_ONLY_TABLES) expect(DIRECT_CAMP_ENTITIES.has(t)).toBe(false)
   })
 
-  it('the only deferred entity is day_overrides (a modeling gap, NOT a host-only exclusion)', () => {
+  it('DEFERRED_ENTITIES is empty (day_overrides was un-deferred; a modeling gap, NOT a host-only exclusion, would be the only legitimate reason to add one back)', () => {
     // Guards against someone "deferring" a host-only table through the wrong
     // mechanism — deferral is for modelable-but-not-yet entities only.
-    expect([...DEFERRED_ENTITIES]).toEqual(['day_overrides'])
+    expect([...DEFERRED_ENTITIES]).toEqual([])
     for (const t of excluded) expect(DEFERRED_ENTITIES.has(t)).toBe(false)
   })
 })
