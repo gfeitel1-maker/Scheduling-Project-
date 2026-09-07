@@ -34,9 +34,16 @@ export function recordLibp2pPeerId(db, deviceId, peerId) {
 
   try {
     db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run(peerId, deviceId)
-  } catch {
-    // UNIQUE collision: another row currently claims this PeerId. Clear the
-    // stale claim, then retry — see case 2 above.
+  } catch (err) {
+    // ONLY a UNIQUE collision gets the clear-and-retry treatment (case 2
+    // above). A bare `catch` here would treat any failure — SQLITE_BUSY, a
+    // locked db, disk-full — as if it were a stale claim, and would then
+    // NULL some other device's routing column for a reason that has nothing
+    // to do with a collision. Anything else is re-thrown to the caller, which
+    // is the honest outcome: this is a convenience write, and a real db fault
+    // should surface as a db fault rather than be silently converted into a
+    // successful-looking write against the wrong row.
+    if (!String(err?.code ?? '').startsWith('SQLITE_CONSTRAINT')) throw err
     db.prepare('UPDATE devices SET libp2p_peer_id = NULL WHERE libp2p_peer_id = ? AND id != ?').run(peerId, deviceId)
     db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run(peerId, deviceId)
   }
