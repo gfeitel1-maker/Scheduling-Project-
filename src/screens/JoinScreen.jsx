@@ -66,7 +66,13 @@ export default function JoinScreen({ onBack, onSelectHost }) {
           <>
             <div style={S.authEyebrow}>Join a camp</div>
             <div style={S.authTitle}>Choose a camp to connect to</div>
-            <div style={S.authSubtitle}>Found on your network:</div>
+            {/* Camp names are deliberately never broadcast over the network
+                (electron/sync/discovery.js) — anyone on a shared Wi-Fi can
+                read mDNS traffic. A Host is therefore identified here by its
+                address; the camp's name appears once you have signed in. */}
+            <div style={S.authSubtitle}>
+              Found on your network. Camp names aren't broadcast — you'll see the camp's name once you sign in.
+            </div>
 
             {hosts.map(h => (
               <button
@@ -78,8 +84,10 @@ export default function JoinScreen({ onBack, onSelectHost }) {
               >
                 <div style={S.authHostDot} />
                 <div>
-                  <div style={S.authHostName}>{h.name}</div>
-                  <div style={S.authHostMeta}>{h.host}{h.deviceName ? ` · ${h.deviceName}` : ''}</div>
+                  <div style={S.authHostName}>{h.host}</div>
+                  <div style={S.authHostMeta}>
+                    Port {h.port}{h.campTag ? ` · ${h.campTag}` : ''}{h.deviceName ? ` · ${h.deviceName}` : ''}
+                  </div>
                 </div>
                 <div style={{ marginLeft: 'auto', color: 'var(--text-secondary)' }}>›</div>
               </button>

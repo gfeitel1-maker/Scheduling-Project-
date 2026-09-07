@@ -29,32 +29,25 @@
 // filtering would even run.
 //
 // PRIVACY: mDNS is broadcast in the clear to every device on the LAN,
-// including a stranger's laptop in a shared building. The existing Bonjour
-// path (electron/sync/discovery.js, advertiseHost) broadcasts `campName`
-// verbatim as the plaintext service name — a real, pre-existing leak this
-// module deliberately does NOT copy (flagged separately for Security/Red Hat
-// review; not fixed here, out of this slice's scope, which is net-new
-// libp2p discovery). This module derives the serviceTag from a one-way hash
-// of the camp id, never the camp's human-readable name — an observer on the
-// LAN sees an opaque, non-reversible tag, never "Camp Ohalo" or similar.
-import crypto from 'node:crypto'
+// including a stranger's laptop in a shared building. This module derives
+// the serviceTag from a one-way hash of the camp id, never the camp's
+// human-readable name — an observer on the LAN sees an opaque,
+// non-reversible tag, never "Camp Ohalo" or similar. The Bonjour path
+// (electron/sync/discovery.js) used to broadcast `campName` verbatim; that
+// leak is fixed, and both paths now derive from the same shared campIdHash.
 import { mdns } from '@libp2p/mdns'
+import { campIdHash } from '../campIdHash.js'
 
 const SERVICE_TAG_PREFIX = '_shoresh-'
 const SERVICE_TAG_SUFFIX = '._udp.local'
 
-// Pure function: campId -> opaque mDNS service tag. SHA-256, truncated to 16
-// hex chars — plenty of collision resistance for "how many camps exist on
-// one LAN" while keeping the tag well under DNS's 63-char label limit
-// (prefix + 16 chars + suffix segment is one label, ~30 chars total).
-// One-way: given the tag, the camp id (and certainly the camp name, which
-// this function never even sees) cannot be recovered.
+// Pure function: campId -> opaque mDNS service tag. The hash keeps the tag
+// well under DNS's 63-char label limit (prefix + 16 chars + suffix segment is
+// one label, ~30 chars total) and is one-way: given the tag, the camp id (and
+// certainly the camp name, which this function never even sees) cannot be
+// recovered. See ../campIdHash.js.
 export function campDiscoveryTag(campId) {
-  if (typeof campId !== 'string' || campId.length === 0) {
-    throw new Error('campDiscoveryTag requires a non-empty campId string')
-  }
-  const hash = crypto.createHash('sha256').update(campId).digest('hex').slice(0, 16)
-  return `${SERVICE_TAG_PREFIX}${hash}${SERVICE_TAG_SUFFIX}`
+  return `${SERVICE_TAG_PREFIX}${campIdHash(campId)}${SERVICE_TAG_SUFFIX}`
 }
 
 // Pure function, independently testable without any real mDNS traffic: does

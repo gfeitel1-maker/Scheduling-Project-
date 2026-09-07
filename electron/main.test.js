@@ -33,7 +33,7 @@ vi.mock('./sync/syncServer.js', () => ({
 
 vi.mock('./sync/discovery.js', () => ({
   advertiseHost: vi.fn(() => fakeAdvertised),
-  discoverHosts: vi.fn(() => Promise.resolve([{ name: 'Camp', host: '192.168.1.5', port: 7000 }])),
+  discoverHosts: vi.fn(() => Promise.resolve([{ campTag: 'camp-1a2b3c4d5e6f7a8b', host: '192.168.1.5', port: 7000 }])),
 }))
 
 vi.mock('./sync/syncClient.js', () => ({
@@ -217,11 +217,17 @@ describe('makeHandlers: device row setup', () => {
 
 describe('chooseMode: host path', () => {
   it('starts a sync server, advertises, and creates a local syncClient with author_user_id null', async () => {
+    const { campId } = await seedCampAndUser()
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7100 })
 
     expect(startSyncServer).toHaveBeenCalledWith(db, expect.objectContaining({ port: 7100 }))
-    expect(advertiseHost).toHaveBeenCalledWith({ campName: 'Camp Test', port: 7100 })
+    // PRIVACY (electron/sync/discovery.js): the LAN broadcast carries the
+    // camp id, from which an opaque service name is derived — never campName.
+    // An existing camp is seeded above, so chooseMode advertises immediately;
+    // on a fresh bootstrap there is no camp row yet and bootstrapCamp
+    // advertises instead (covered below).
+    expect(advertiseHost).toHaveBeenCalledWith({ campId, port: 7100 })
     // T85 Part 3 (docs/adr/2026-08-16-device-fk-seeding-and-delivery-
     // watermark.md): the Host's own no-serverUrl client is now constructed
     // with `wss` so its interactive local writes broadcast to connected
@@ -232,6 +238,19 @@ describe('chooseMode: host path', () => {
       wss: fakeSyncServer.wss,
     })
     expect(lastCreatedSyncClient.onOpApplied).toHaveBeenCalled()
+  })
+
+  // On a fresh device the renderer calls chooseMode BEFORE bootstrapCamp, so
+  // there is no camp id to derive an opaque service name from yet. Advertising
+  // must be deferred rather than falling back to broadcasting the camp name.
+  it('does not advertise before a camp exists, then advertises once bootstrap creates one', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7100 })
+    expect(advertiseHost).not.toHaveBeenCalled()
+
+    const result = await handlers.bootstrapCamp({ campName: 'Camp Test', adminName: 'Admin', adminPin: '1234' })
+    expect(advertiseHost).toHaveBeenCalledTimes(1)
+    expect(advertiseHost).toHaveBeenCalledWith({ campId: result.campId, port: 7100 })
   })
 })
 

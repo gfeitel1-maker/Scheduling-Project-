@@ -202,6 +202,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   let modeChosen = false
   let mode = null
   let pendingServerUrl = null
+  let hostAdvertisement = null
+  let hostPort = null
 
   function wireOpApplied() {
     syncClient.onOpApplied((op) => {
@@ -606,9 +608,23 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     })
   }
 
+  // Advertising is split out of chooseMode because the camp id it needs may
+  // not exist yet at mode-selection time (first bootstrap). Idempotent: only
+  // the first successful call publishes, so the extra call from bootstrapCamp
+  // on a fresh camp — and chooseMode's own replay path — cannot double-publish.
+  function startAdvertising() {
+    if (hostAdvertisement || mode === 'client' || hostPort == null) return
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return
+    hostAdvertisement = advertiseHost({ campId: camp.id, port: hostPort })
+  }
+
   // guessing.
   function chooseMode(args) {
-    const { mode: requestedMode, campName, port, token } = args || {}
+    // `campName` is still sent by the renderer (bootstrap passes it through to
+    // bootstrapCamp) but is deliberately NOT read here: the LAN advertisement
+    // derives an opaque name from the camp id instead — see startAdvertising.
+    const { mode: requestedMode, port, token } = args || {}
     if (requestedMode !== 'host' && requestedMode !== 'client') {
       throw new Error('mode must be "host" or "client"')
     }
@@ -631,7 +647,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
           if (mainWindow) mainWindow.webContents.send('shoresh:pairing-request', { deviceId: deviceId_req, deviceName: deviceName_req })
         },
       })
-      advertiseHost({ campName, port })
+      // PRIVACY (electron/sync/discovery.js): the mDNS broadcast carries an
+      // opaque hash of the camp id, never `campName`. That means the camp row
+      // must exist before we can advertise — on a fresh bootstrap the renderer
+      // calls chooseMode BEFORE bootstrapCamp inserts it, so advertising is
+      // deferred to bootstrapCamp's own startAdvertising() call.
+      hostPort = port
+      startAdvertising()
       // Auto-authorize the Host device if its devices row lacks authorized_at.
       // Pre-trust-system DBs were bootstrapped before authorize() existed, so
       // bootstrapCamp never stamped it. Do this at mode-selection time so it
@@ -774,6 +796,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const campId = randomUUID()
     const signingSecret = randomBytes(32).toString('hex')
     db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, campName, signingSecret)
+
+    // The camp id now exists, so this Host can be advertised under its opaque
+    // service name. On every subsequent startup chooseMode does this directly
+    // (the camp row is already there); this call covers the first-bootstrap
+    // ordering only, and startAdvertising is idempotent.
+    startAdvertising()
 
     // Host Ed25519 keypair, generated exactly once per
     // docs/adr/2026-07-25-device-trust-revocation.md — this device becomes

@@ -411,7 +411,9 @@ export const mockShoresh = {
     return { mode: 'host' }
   },
   async discoverHosts() {
-    return [{ name: 'Camp Willowbrook (demo)', host: '192.168.1.42', port: 7000 }]
+    // Matches the real IPC shape: the mDNS broadcast carries an opaque camp
+    // tag, never the camp's name (electron/sync/discovery.js).
+    return [{ campTag: 'camp-1a2b3c4d5e6f7a8b', host: '192.168.1.42', port: 7000 }]
   },
   async login({ name, pin }) {
     const state = loadState()
