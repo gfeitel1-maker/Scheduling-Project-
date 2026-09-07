@@ -75,3 +75,50 @@ describe('wireMutualAuth', () => {
     expect(handle.dial).toHaveBeenCalledTimes(2)
   })
 })
+
+// Stage 5f, from a real Mac<->Windows run: the Windows firewall (Public network profile) dropped
+// unsolicited inbound traffic, so it could dial out but never accept. It dialed the Mac; the Mac's
+// dial back timed out; and mutualAuth returned early on that failure — so the Mac never
+// authenticated over the connection Windows had already opened, and nothing synced in either
+// direction across a working link. One reachable direction must be enough.
+describe('mutualAuth — one reachable direction is enough', () => {
+  it('authenticates over an EXISTING inbound connection without dialing back', async () => {
+    const dials = []
+    const handle = {
+      getPeers: () => ['peer-1'],
+      dial: async (p) => { dials.push(p) },
+      authenticateWith: async () => ({ type: 'auth_ok' }),
+      onPeerDiscovery: () => {},
+    }
+    const m = wireMutualAuth(handle, { deviceId: 'me', getToken: () => 'tok' })
+    await m.tryAuthenticate('peer-1')
+    expect(dials).toEqual([])
+  })
+
+  it('still authenticates when the dial-back FAILS but an inbound connection exists', async () => {
+    let connected = false
+    const authCalls = []
+    const handle = {
+      getPeers: () => (connected ? ['peer-2'] : []),
+      dial: async () => { connected = true; throw new Error('ETIMEDOUT') },
+      authenticateWith: async () => { authCalls.push(1); return { type: 'auth_ok' } },
+      onPeerDiscovery: () => {},
+    }
+    const m = wireMutualAuth(handle, { deviceId: 'me', getToken: () => 'tok' })
+    await m.tryAuthenticate('peer-2')
+    expect(authCalls.length).toBe(1)
+  })
+
+  it('gives up only when the dial fails AND there is no connection to reuse', async () => {
+    const authCalls = []
+    const handle = {
+      getPeers: () => [],
+      dial: async () => { throw new Error('ETIMEDOUT') },
+      authenticateWith: async () => { authCalls.push(1); return { type: 'auth_ok' } },
+      onPeerDiscovery: () => {},
+    }
+    const m = wireMutualAuth(handle, { deviceId: 'me', getToken: () => 'tok' })
+    await m.tryAuthenticate('peer-3')
+    expect(authCalls).toEqual([])
+  })
+})

@@ -160,25 +160,17 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     listen,
     deviceId,
     onDocReceived: handleReceived,
-    // Stage 5f initial sync: the moment a peer is admitted, send it our current document. Without
-    // this, two devices that connect exchange NOTHING until one of them happens to make a new
-    // write — every other send is triggered by a local write or a relayed merge, never by the
-    // connection itself. Found on a real two-machine run, not in CI: in-process tests always wrote
-    // AFTER both sides were connected, so the gap was invisible.
+    // Stage 5f: initial-sync-on-admission was REMOVED after a real two-machine run showed a
+    // whole-document push is not reliably deliverable. It is fire-and-forget: a frame rejected by
+    // the peer's admission gate does not throw on the sending side, and the two ends admit each
+    // other at different moments, so the send lands or is silently dropped depending on timing.
+    // Retries and an anti-entropy reply were both tried and both stayed intermittent — which is a
+    // worse failure than none, because it presents as 'sync is flaky' rather than 'sync is off'.
     //
-    // Sending the whole doc is correct rather than wasteful: Automerge merges are idempotent and
-    // commutative, so a peer that already has this state merges it to a no-op, and a peer that is
-    // behind catches up in one frame. Failure is non-fatal — the peer stays admitted and the next
-    // write or merge will carry the state anyway.
-    onPeerAdmitted: async (peerId) => {
-      try {
-        const doc = getCurrentDoc(db)
-        if (!doc) return
-        await transport.sendDocTo(peerId, A.save(doc))
-      } catch (err) {
-        console.error(`syncNode: initial doc send to newly admitted ${peerId} failed (non-fatal): ${err?.message ?? err}`)
-      }
-    },
+    // The correct mechanism is Automerge's own sync protocol (initSyncState / generateSyncMessage
+    // / receiveSyncMessage): acknowledged, incremental, and built for exactly this. That is its
+    // own slice, not a patch on this one. Until it lands, two devices converge on the next WRITE
+    // after connecting — the pre-existing behavior, and honest about what it does.
     onAuthenticate,
     onPairingRequest: onPairingRequestMsg,
     onLogin,
@@ -207,24 +199,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     getPeers: transport.getPeers,
     getMultiaddrs: transport.getMultiaddrs,
     dial: transport.dial,
-    // Stage 5f initial sync, outbound half. Admission alone is not a sufficient trigger: when we
-    // admit a peer we may not yet have authenticated to THEM, and our doc frame has to clear their
-    // inbound gate too — so the send fired on admission can legitimately be dropped. Sending again
-    // right after WE successfully authenticate to them covers the other ordering: by then they have
-    // admitted us (that is what the auth_ok means) and we have admitted them, so the frame lands.
-    // Both sends are cheap and idempotent — a doc the peer already has merges to a no-op.
-    authenticateWith: async (peerId, msg) => {
-      const res = await transport.authenticateWith(peerId, msg)
-      if (res?.type === 'auth_ok') {
-        try {
-          const doc = getCurrentDoc(db)
-          if (doc) await transport.sendDocTo(peerId, A.save(doc))
-        } catch (err) {
-          console.error(`syncNode: initial doc send after authenticating to ${peerId} failed (non-fatal): ${err?.message ?? err}`)
-        }
-      }
-      return res
-    },
+    authenticateWith: transport.authenticateWith,
     isPeerAuthenticated: transport.isPeerAuthenticated,
     sendPairingApproved: transport.sendPairingApproved,
     sendPairingDenied: transport.sendPairingDenied,
