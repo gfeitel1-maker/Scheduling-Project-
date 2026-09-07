@@ -1212,8 +1212,14 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
     }
   })
 
-  it('flag ON: an unmodeled entity (day_overrides) still lands in SQLite via the op-log and is absent from the automerge doc', async () => {
+  // day_overrides was previously deferred (its ensureExists reconstructed NOT-NULL FK columns from
+  // the operations table, which the doc-replay path never writes) and therefore excluded from the
+  // dual-write here. The doc-native ensureExists slice gave it a `knownRow` fallback instead
+  // (electron/ops/projections.js), so it is now MODELED and mirrors into the doc like any other
+  // entity — replacing the old "unmodeled, doc absent" assumption below.
+  it('flag ON: day_overrides field writes now mirror into the doc (un-deferred, doc-native ensureExists)', async () => {
     const ops = await loadOperationsWithEngine('automerge')
+    const { flushPendingWrites } = await import('../sync/automerge/liveDoc.js')
 
     db.prepare('INSERT INTO days_of_operation (id, camp_id, label) VALUES (?, ?, ?)').run('d1', 'camp-1', 'Monday')
     db.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)').run('w1', 'camp-1', 'Week 1')
@@ -1226,7 +1232,15 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
 
     expect(op).toBeTruthy()
     expect(db.prepare('SELECT day_id FROM day_overrides WHERE id = ?').get('do1').day_id).toBe('d1')
-    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
+    flushPendingWrites()
+    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(true)
+    const doc = loadDoc(userDataDir, 'camp-1')
+    expect(doc.day_overrides['do1']).toEqual({
+      schedule_week_id: 'w1',
+      day_id: 'd1',
+      group_id: 'g1',
+      time_block_id: 'tb1',
+    })
   })
 
   // Parent-scoped entities slice: template_slots is now modeled (its ordinary FLAT per-field shape,

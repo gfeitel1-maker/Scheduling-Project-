@@ -66,16 +66,26 @@ describe('recordLocalWrite', () => {
     expect(doc.activities.a1.name).toBe('Swim')
   })
 
-  it('does nothing for an unmodeled entity (e.g. day_overrides) — no doc file is created', () => {
+  // day_overrides was previously the one unmodeled/deferred entity here (its ensureExists read the
+  // operations table, which the doc-replay path never writes). The doc-native ensureExists slice
+  // gave it a `knownRow` fallback instead (projections.js), so it is now modeled like any other
+  // entity — an unregistered field on it is still a silent no-op (fields.includes check in
+  // applyWrite), same as any modeled entity, but the entity itself is no longer refused.
+  it('day_overrides: a registered field mirrors into the doc; an unregistered field is a silent no-op', () => {
     recordLocalWrite(db, {
       entity: 'day_overrides',
       entity_id: 'd1',
-      field: 'reason',
+      field: 'not_a_real_field',
       value: 'holiday',
     })
     flushPendingWrites()
+    const docAfterNoOp = loadDoc(userDataDir, 'camp-1')
+    expect(docAfterNoOp.day_overrides.d1).toBeUndefined()
 
-    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(false)
+    recordLocalWrite(db, { entity: 'day_overrides', entity_id: 'd1', field: 'kind', value: 'cancel' })
+    flushPendingWrites()
+    const doc = loadDoc(userDataDir, 'camp-1')
+    expect(doc.day_overrides.d1).toEqual({ kind: 'cancel' })
   })
 
   // Parent-scoped entities slice: template_slots is now modeled in its flat (individual-cell-edit)
@@ -292,8 +302,12 @@ describe('seed-on-first-touch — row-for-row superset proof (Stage 5e item 1 co
   })
 })
 
-describe('unmodeled/deferred entities are never touched by seeding or projection', () => {
-  it('day_overrides rows in SQLite survive ensureSeeded + projectAll untouched (deferred, not in the doc at all)', async () => {
+describe('day_overrides is modeled: seeding and projection round-trip it like any other entity', () => {
+  // Was the one deferred entity here (its ensureExists read the operations table, which the
+  // doc-replay path never writes). The doc-native ensureExists slice (projections.js's `knownRow`
+  // parameter) un-deferred it — see docNativeEnsureExists.test.js for the full pure-document
+  // (zero-operations-rows) coverage. This test now proves the op-log path still round-trips too.
+  it('day_overrides rows in SQLite survive ensureSeeded + projectAll unchanged', async () => {
     const { projectAll } = await import('../../automerge/projector.js')
 
     // day_overrides needs all FOUR of its NOT-NULL FKs satisfied before ensureExists inserts the
@@ -312,9 +326,17 @@ describe('unmodeled/deferred entities are never touched by seeding or projection
     expect(before.length).toBeGreaterThan(0)
 
     const doc = ensureSeeded(db)
-    expect(doc.day_overrides).toBeUndefined() // deferred: never modeled in the doc shape at all
+    expect(doc.day_overrides.do1).toEqual({
+      camp_id: 'camp-1',
+      schedule_week_id: 'week-1',
+      day_id: 'day-1',
+      group_id: 'g1',
+      time_block_id: 'tb1',
+      kind: 'swap',
+    })
 
-    projectAll(db, doc) // must not touch day_overrides — it isn't in MODELED_ORDER at all
+    db.prepare('DELETE FROM day_overrides').run()
+    projectAll(db, doc)
     const after = db.prepare('SELECT * FROM day_overrides ORDER BY id').all()
     expect(after).toEqual(before)
   })

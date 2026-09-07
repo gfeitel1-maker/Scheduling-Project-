@@ -71,8 +71,8 @@ describe('Automerge generalization slice — modeled entity set is pinned to DIR
     expect([...MODELED_ENTITIES].sort()).toEqual(expectedFlat.sort())
   })
 
-  it('DEFERRED_ENTITIES is exactly {day_overrides}', () => {
-    expect([...DEFERRED_ENTITIES]).toEqual(['day_overrides'])
+  it('DEFERRED_ENTITIES is empty (day_overrides un-deferred by the doc-native ensureExists slice)', () => {
+    expect([...DEFERRED_ENTITIES]).toEqual([])
   })
 
   it('BULK_REPLACE_MODELED_ENTITIES is exactly {template_slots}', () => {
@@ -111,23 +111,9 @@ describe('Automerge generalization slice — scope guard: refuses non-DIRECT_CAM
   })
 })
 
-describe('Automerge generalization slice — day_overrides is refused at all three entry points (deferred, op-log-coupled)', () => {
-  it('applyWrite throws for day_overrides', () => {
-    const doc = createEmptyDoc()
-    expect(() =>
-      applyWrite(doc, { entity: 'day_overrides', entity_id: 'x', field: 'schedule_week_id', value: 'w-1' })
-    ).toThrow(/deferred/)
-  })
-
-  it('projectEntity throws for day_overrides', () => {
-    const doc = createEmptyDoc()
-    expect(() => projectEntity(db, doc, 'day_overrides')).toThrow(/deferred/)
-  })
-
-  it('seedDocFromSqlite throws for day_overrides', () => {
-    expect(() => seedDocFromSqlite(db, undefined, 'day_overrides')).toThrow(/deferred/)
-  })
-})
+// day_overrides was previously refused at all three entry points (deferred, op-log-coupled) — see
+// electron/automerge/docNativeEnsureExists.test.js for its current, doc-native coverage now that
+// its ensureExists accepts a knownRow and no longer needs deferring.
 
 describe('Automerge generalization slice — multi-entity parity with the op-log (load-bearing)', () => {
   it('a mixed write stream across several entities projects byte-identically via op-log vs. Automerge', () => {
@@ -291,8 +277,9 @@ describe('Automerge generalization slice — full-camp rebuildFromDoc round-trip
       { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'day_id', value: 'day-1' },
       { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'name', value: 'Flag' },
       // Code Reviewer LOW: broaden coverage beyond the original 8 entities to
-      // every remaining op-log-INDEPENDENT ensureExists (day_overrides is the
-      // only op-log-coupled one, and it's deferred — see campDocument.js).
+      // every remaining direct-camp entity. day_overrides is covered separately
+      // in docNativeEnsureExists.test.js (its ensureExists needs sibling parent
+      // rows this stream doesn't set up, plus knownRow-specific assertions).
       { entity: 'camp_maps', entity_id: 'map-1', field: 'camp_id', value: 'camp-1' },
       { entity: 'camp_maps', entity_id: 'map-1', field: 'kind', value: 'outdoor' },
       { entity: 'schedule_weeks', entity_id: 'week-1', field: 'camp_id', value: 'camp-1' },
