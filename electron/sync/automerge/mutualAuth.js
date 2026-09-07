@@ -46,12 +46,31 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, onRejected 
       return
     }
 
-    try {
-      await syncNodeHandle.dial(peerId)
-    } catch (err) {
-      attempted.delete(peerId)
-      console.error(`mutualAuth: dial to ${peerId} failed (will retry on next discovery): ${err?.message ?? err}`)
-      return
+    // A libp2p connection is BIDIRECTIONAL: once either side has dialed, both ends can open streams
+    // on it. So if this peer is already connected — because IT dialed US — we must not try to dial
+    // back, and a failure to dial back must not stop us authenticating.
+    //
+    // Found on a real Mac<->Windows run (Stage 5f): the Windows machine's Wi-Fi was classified as a
+    // Public network, so its firewall dropped all unsolicited inbound traffic — it could dial out
+    // but never accept. It dialed the Mac fine; the Mac's dial back timed out; and because this
+    // function returned early on that failure, the Mac never authenticated over the perfectly good
+    // connection Windows had already opened. Result: nothing synced, in either direction, across a
+    // working link. Exactly one reachable direction is sufficient and must be enough — that is also
+    // what makes this robust on the guest/hotel networks a camp actually runs on.
+    const alreadyConnected = () =>
+      (syncNodeHandle.getPeers?.() ?? []).some((p) => String(p) === String(peerId))
+
+    if (!alreadyConnected()) {
+      try {
+        await syncNodeHandle.dial(peerId)
+      } catch (err) {
+        if (!alreadyConnected()) {
+          attempted.delete(peerId)
+          console.error(`mutualAuth: dial to ${peerId} failed and no existing connection to reuse (will retry on next discovery): ${err?.message ?? err}`)
+          return
+        }
+        console.warn(`mutualAuth: dial to ${peerId} failed, but an inbound connection exists — authenticating over that instead: ${err?.message ?? err}`)
+      }
     }
 
     try {
