@@ -115,8 +115,13 @@ export function getCurrentDoc(db) {
 // the registry from the doc its caller resolved (main.js's already-seeded/resolved doc). Schedules
 // the SAME debounced save recordLocalWrite uses (not local-origin, so it does not trigger a
 // broadcast — syncNode already re-broadcasts a remote merge itself, via its own except-self relay).
-export function setCurrentDoc(db, doc) {
+export function setCurrentDoc(db, doc, { persist = true } = {}) {
   docRegistry.set(db, doc)
+  // persist:false is for a merge that produced NO new heads. The registry still MUST be updated
+  // (A.merge consumes its first argument, so the previously-registered handle is now invalid and
+  // any later A.change on it throws "Attempting to change an outdated document"), but there is
+  // nothing new to write to disk, so scheduling a save would be pure churn.
+  if (!persist) return
   if (!userDataDirGetter) return
   const campId = getCampId(db)
   if (!campId) return
