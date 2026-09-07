@@ -78,11 +78,19 @@ function clearBuildDir() {
   rmSync(buildDir, { recursive: true, force: true })
 }
 
+// execFileSync launches a binary directly (no shell), and on Windows `npm`
+// resolves to `npm.cmd` — a batch file that CreateProcess cannot launch
+// without going through a shell, so plain `npm` fails with ENOENT there.
+// `npm.cmd` is the correct binary name on win32; plain `npm` elsewhere.
+export function npmBinaryFor(platform) {
+  return platform === 'win32' ? 'npm.cmd' : 'npm'
+}
+
 function rebuild(target) {
   clearBuildDir()
   if (target === 'node') {
     // Rebuild against the running Node's ABI.
-    execFileSync('npm', ['rebuild', 'better-sqlite3'], { stdio: 'inherit' })
+    execFileSync(npmBinaryFor(process.platform), ['rebuild', 'better-sqlite3'], { stdio: 'inherit' })
   } else {
     // Rebuild against Electron's ABI. -f forces even if it looks current; -w
     // scopes the work to just this one native module. The CLI is addressed by
