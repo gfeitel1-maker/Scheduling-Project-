@@ -38,6 +38,10 @@ export function useDeviceMode() {
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState(() => localStorage.getItem(MODE_KEY))
   const [joinHost, setJoinHost] = useState(() => readJSON(JOIN_HOST_KEY))
+  // Which join experience to present. Both must work while SHORESH_SYNC_ENGINE
+  // still defaults to `oplog`; this and the branch that reads it go away with
+  // the WS layer in Stage 6c.
+  const [syncEngine, setSyncEngine] = useState(null)
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
   // Persisted alongside the token (same lifecycle: set on login, cleared on
   // logout/invalid-session) rather than re-fetched via verifySession on every
@@ -84,6 +88,16 @@ export function useDeviceMode() {
     let active = true
     async function init() {
       try {
+        // Read before anything else: the Join screen's whole shape depends on
+        // it, and it is a pre-auth constant for the process lifetime. A client
+        // too old to answer is treated as the WS path, which is what it is.
+        try {
+          const engineInfo = await localClient.getSyncEngine()
+          if (active) setSyncEngine(engineInfo?.engine ?? 'oplog')
+        } catch {
+          if (active) setSyncEngine('oplog')
+        }
+
         const c = await refreshCamp()
         if (!active) return
 
@@ -261,7 +275,13 @@ export function useDeviceMode() {
   else if (loading) phase = 'loading'
   else if (!mode) phase = 'mode-select'
   else if (mode === 'host' && !camp) phase = 'bootstrap'
-  else if (mode === 'client' && !joinHost) phase = 'join'
+  // `!camp` matters for the libp2p join flow (docs/adr/2026-09-08-libp2p-join-flow.md):
+  // a device that joined by code has a camp but no `joinHost` — that is a
+  // WS-era concept (an address and port) with no libp2p equivalent. Having a
+  // camp IS having joined, so such a device goes on to sign in rather than
+  // being sent back to the Join screen forever. A WS client is unaffected: it
+  // always has `joinHost` set by the time it has a camp.
+  else if (mode === 'client' && !joinHost && !camp) phase = 'join'
   else if (mode === 'client' && joinHost && pairingStatus === 'pending') phase = 'pairing_pending'
   else if (mode === 'client' && joinHost && pairingStatus === 'denied') phase = 'pairing_denied'
   else if (!token) phase = 'login'
@@ -271,6 +291,7 @@ export function useDeviceMode() {
     phase,
     mode,
     camp,
+    syncEngine,
     campIsEmpty,
     role,
     joinHost,

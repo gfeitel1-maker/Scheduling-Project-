@@ -41,7 +41,7 @@ import { joinCode as joinCodeFor, joinProof, verifyJoinProof } from '../joinCode
 // only computes and hands them off. Wrapped in try/catch so a consumer's own throw can never break
 // sync or escape as an unhandled rejection — sync must keep converging regardless of what a push-
 // event listener does with what it's handed.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, onPairingDecision, peerDiscovery, onAuthRejected, listen, now } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, peerDiscovery, onAuthRejected, listen, now } = {}) {
   // Stage 5f: this module no longer keeps a private `state.doc` — the doc lives in liveDoc.js's
   // `docRegistry`, keyed by THIS `db`, so that a local write (liveDoc.recordLocalWrite) and a
   // remote merge (handleReceived below) mutate the exact same document instead of two copies that
@@ -222,6 +222,17 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // camp-scoped path), which never had a code and is unchanged.
     let joinConfirm = null
     if (typeof msg.join_nonce === 'string') {
+      // The director's Add-a-device window. This is a CONSENT boundary, not
+      // the security boundary — the join-code proof below is what actually
+      // separates the real joining device from a peer that mirrored the
+      // public mDNS tag. It exists so a Host that nobody is standing at does
+      // not put pairing prompts on screen. Hence the fail-open default: a
+      // caller that does not pass it (every test, and any embedding that has
+      // no such window) gets today's behavior, and loses nothing that was
+      // protecting it.
+      if (isJoinWindowOpen && !isJoinWindowOpen()) {
+        return { ok: false, reason: 'join_window_closed' }
+      }
       const campId = db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
       const code = campId ? joinCodeFor(campId) : null
       if (!code || !verifyJoinProof(code, msg.join_nonce, 'joiner', msg.join_proof)) {

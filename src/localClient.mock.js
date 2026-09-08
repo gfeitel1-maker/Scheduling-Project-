@@ -264,6 +264,9 @@ let pairingRequestListeners = []
 let pairingApprovedListeners = []
 let pairingDeniedListeners = []
 let tokenRenewedListeners = []
+// Join-flow mock state (see the join* methods below).
+let mockJoinWindowOpen = false
+let mockJoinStarted = false
 // docs/adr/2026-08-16-client-reauth-on-restart.md (T87 Part 3)
 let authRejectedListeners = []
 let opConflictListeners = []
@@ -1490,6 +1493,55 @@ export const mockShoresh = {
   async listDevices() {
     return (loadState().devices || []).map(({ id, name, pairing_status, authorized_at, revoked_at, last_synced_at }) =>
       ({ id, name, pairing_status, authorized_at, revoked_at, last_synced_at }))
+  },
+  // Join flow (docs/adr/2026-09-08-libp2p-join-flow.md). The browser mock has
+  // no libp2p and no second device, so these model the SHAPE the screens code
+  // against — a plausible Host with a stable code, and a join that reaches
+  // 'pending' and stays there, because in `npm run dev` nobody can approve it.
+  // Deliberately not a fake success path: a screen that only ever sees the
+  // happy case is how the timeout and denial states go unbuilt.
+  // The browser mock deliberately reports the NEW flow: `npm run dev` is
+  // where the join screens get looked at, and the old address picker has
+  // nothing to show there anyway (no mDNS, no hosts).
+  async getSyncEngine() {
+    return { engine: 'automerge' }
+  },
+  async getJoinCode() {
+    const state = loadState()
+    return { code: 'K4P72MRQ', formatted: 'K4P7-2MRQ', campName: state.camp?.name ?? 'Demo Camp', open: mockJoinWindowOpen }
+  },
+  async setJoinWindow(open) {
+    mockJoinWindowOpen = Boolean(open)
+    return { open: mockJoinWindowOpen }
+  },
+  async joinStart({ code } = {}) {
+    // Same structural check the real normalizeJoinCode makes, so the screen's
+    // typo path is exercised in the browser.
+    const cleaned = String(code ?? '').toUpperCase().replace(/[\s-]/g, '')
+    if (cleaned.length !== 8) return { status: 'invalid_code' }
+    mockJoinStarted = true
+    return { status: 'started' }
+  },
+  async joinFindHost() {
+    return { status: mockJoinStarted ? 'found' : 'not_found' }
+  },
+  async joinRequestPairing() {
+    return { status: 'pending' }
+  },
+  async joinAwaitPairingDecision() {
+    // Never resolves in the mock: there is no director to approve. The screen
+    // must stay usable (and cancellable) while this is outstanding.
+    return new Promise(() => {})
+  },
+  async joinLogin() {
+    return { status: 'failed' }
+  },
+  async joinAwaitData() {
+    return { status: 'timeout' }
+  },
+  async joinCancel() {
+    mockJoinStarted = false
+    return { status: 'cancelled' }
   },
   async approveDevice(deviceId) {
     const now = new Date().toISOString()
