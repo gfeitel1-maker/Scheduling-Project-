@@ -111,6 +111,11 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
   // device_id -> PeerId string, for a pairing_request whose director
   // decision hasn't landed yet. See module comment above.
   const pendingPairingPeers = new Map()
+  // device_id -> the Host's half of the join-code proof for THIS attempt, so
+  // the director's decision (delivered later, on a new stream) still carries
+  // it. Without this the joining device would have nothing to verify on the
+  // approval path and would be back to trusting whoever answered.
+  const pendingJoinConfirms = new Map()
 
   // Rate-limit bookkeeping (see the module-level comment above for the
   // keying rationale). `now` is injectable so the throttle tests can drive
@@ -210,13 +215,16 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
         try {
           if (result.ok && result.alreadyApproved) {
-            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_approved', device_secret_identifier: result.device_secret_identifier }))
+            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_approved', device_secret_identifier: result.device_secret_identifier, ...(result.joinConfirm ? { join_confirm: result.joinConfirm } : {}) }))
           } else if (result.ok) {
             // Remember this peer id so a later director decision can dial
             // back to it — the ORIGINAL stream is about to close and cannot
             // be held open for an arbitrarily long human decision.
-            if (typeof msg.device_id === 'string') pendingPairingPeers.set(msg.device_id, fromPeerId)
-            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_pending' }))
+            if (typeof msg.device_id === 'string') {
+              pendingPairingPeers.set(msg.device_id, fromPeerId)
+              if (result.joinConfirm) pendingJoinConfirms.set(msg.device_id, result.joinConfirm)
+            }
+            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_pending', ...(result.joinConfirm ? { join_confirm: result.joinConfirm } : {}) }))
           } else {
             await sendFramed(stream.sink, encodeMessage({ type: 'pairing_denied' }))
           }
@@ -252,7 +260,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
         try {
           if (result.ok) {
-            await sendFramed(stream.sink, encodeMessage({ type: 'login_ok', token: result.token, userId: result.userId, role: result.role, camp: result.camp ?? null }))
+            await sendFramed(stream.sink, encodeMessage({ type: 'login_ok', token: result.token, userId: result.userId, role: result.role, ...(result.camp ? { camp: result.camp } : {}) }))
           } else {
             await sendFramed(
               stream.sink,
@@ -313,9 +321,14 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
     const peerId = pendingPairingPeers.get(deviceId)
     if (!peerId) return false
     pendingPairingPeers.delete(deviceId)
+    const joinConfirm = pendingJoinConfirms.get(deviceId) ?? null
+    pendingJoinConfirms.delete(deviceId)
+    const outgoing = joinConfirm && frame.type === 'pairing_approved'
+      ? { ...frame, join_confirm: joinConfirm }
+      : frame
     try {
       const stream = await node.dialProtocol(peerIdFromString(peerId), AUTH_PROTO, { runOnLimitedConnection: true })
-      await sendFramed(stream.sink, encodeMessage(frame))
+      await sendFramed(stream.sink, encodeMessage(outgoing))
       await stream.close().catch(() => {})
       return true
     } catch (err) {

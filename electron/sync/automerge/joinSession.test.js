@@ -23,8 +23,11 @@ import { seedAllFromSqlite } from '../../automerge/seed.js'
 import { ensureHostSigningKey } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
 import { startJoinSession } from './joinSession.js'
+import { joinCode } from '../joinCode.js'
 
 const HOST_CAMP_ID = 'camp-join-test'
+// The code the director would read off the Host's Add-a-device screen.
+const HOST_JOIN_CODE = joinCode(HOST_CAMP_ID)
 
 function insertUser(db, { camp_id, name, pin, role }) {
   const id = randomUUID()
@@ -81,7 +84,7 @@ async function startHost({ onPairingRequest } = {}) {
   return host
 }
 
-async function startJoiner(host, { code = 'H7KB9WCE' } = {}) {
+async function startJoiner(host, { code = HOST_JOIN_CODE } = {}) {
   const started = await startJoinSession({
     db: joinerDb,
     deviceId: 'joiner-device',
@@ -109,7 +112,7 @@ describe('startJoinSession — refusals that must happen before any node starts'
   it('refuses a device that already belongs to a camp', async () => {
     joinerDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('already-here', 'Other Camp')
     await expect(
-      startJoinSession({ db: joinerDb, deviceId: 'joiner-device', code: 'H7KB9WCE' })
+      startJoinSession({ db: joinerDb, deviceId: 'joiner-device', code: HOST_JOIN_CODE })
     ).rejects.toThrow(/already belongs to a camp/)
   })
 })
@@ -231,7 +234,7 @@ describe('startJoinSession — a camp-less device joins for real', () => {
     const started = await startJoinSession({
       db: joinerDb,
       deviceId: 'joiner-device',
-      code: 'H7KB9WCE',
+      code: HOST_JOIN_CODE,
       knownHost: host.getMultiaddrs()[0],
       documentWaitMs: 150,
     })
@@ -245,10 +248,85 @@ describe('startJoinSession — a camp-less device joins for real', () => {
     const started = await startJoinSession({
       db: joinerDb,
       deviceId: 'joiner-device',
-      code: 'H7KB9WCE',
+      code: HOST_JOIN_CODE,
       discoveryWaitMs: 150,
     })
     sessions.push(started.session)
     expect(await started.session.findHost()).toBeNull()
+  })
+})
+
+// The attack this proof exists to close, caught in review of the first draft.
+// The mDNS service tag is BROADCAST IN THE CLEAR — that is what mDNS is — so an
+// attacker never needs the 40-bit code. They mirror the tag they can see, the
+// joining device finds them, they approve their own pairing request, and the
+// director's approval has protected nothing. Without a proof of code knowledge
+// the joining device would then hand over the user's PIN and adopt the
+// attacker's camp as its permanent trust root.
+describe('startJoinSession — a peer that did not get the code from the director', () => {
+  it('never reaches the director when it cannot prove it holds the code', async () => {
+    let sawDirectorPrompt = false
+    const host = await startHost({ onPairingRequest: () => { sawDirectorPrompt = true } })
+
+    // A joiner with the WRONG code stands in for the reverse case with the same
+    // mechanism: neither side can produce the other's HMAC.
+    const { session } = await startJoiner(host, { code: joinCode('some-other-camp') })
+    await session.findHost()
+    expect((await session.requestPairing()).status).toBe('denied')
+    expect(sawDirectorPrompt).toBe(false)
+  })
+
+  it('refuses to send the PIN to a host that has not proved the code', async () => {
+    insertUser(hostDb, { camp_id: HOST_CAMP_ID, name: 'Director', pin: '1234', role: 'admin' })
+    const host = await startHost({ onPairingRequest: () => {} })
+    const { session } = await startJoiner(host, { code: joinCode('some-other-camp') })
+    await session.findHost()
+    await session.requestPairing()
+
+    // Even handed a valid device secret, the flow stops before the PIN moves.
+    await expect(
+      session.login({ name: 'Director', pin: '1234', deviceSecretIdentifier: randomBytes(32).toString('hex') })
+    ).rejects.toThrow(/has not proved it holds/)
+  })
+
+  // The mirrored-tag impostor itself: a real, separate Host that answers on the
+  // tag but was never told this camp's code. This is the peer the joining
+  // device would otherwise hand its PIN to.
+  it('walks away from an impostor host that answers on the same tag', async () => {
+    const impostorDb = freshDb('impostor')
+    impostorDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('impostor-camp', 'Not Your Camp')
+    ensureHostSigningKey(impostorDb)
+    const impostor = await startSyncNode({
+      deviceId: 'impostor-device',
+      db: impostorDb,
+      doc: seedAllFromSqlite(impostorDb, A.clone(createEmptyDoc())),
+      // An impostor approves everything — the director's approval is not a
+      // defense against a Host the joiner should never have been talking to.
+      onPairingRequest: () => {},
+    })
+    nodes.push(impostor)
+
+    // The joiner holds the REAL camp's code and is pointed at the impostor.
+    const started = await startJoinSession({
+      db: joinerDb,
+      deviceId: 'joiner-device',
+      code: HOST_JOIN_CODE,
+      knownHost: impostor.getMultiaddrs()[0],
+    })
+    sessions.push(started.session)
+    await started.session.findHost()
+
+    // Either outcome is safe, and which one you get says who rejected whom.
+    // An impostor running unmodified Shoresh checks the joiner's proof against
+    // its OWN code and denies ('denied'); one that skipped the check to lure
+    // the device in is caught by the joiner's own gate ('wrong_camp'). What
+    // must never happen is 'approved' or 'pending' — either would put the PIN
+    // one step away.
+    expect(['denied', 'wrong_camp']).toContain((await started.session.requestPairing()).status)
+    await expect(
+      started.session.login({ name: 'Director', pin: '1234', deviceSecretIdentifier: 'x' })
+    ).rejects.toThrow(/has not proved it holds/)
+    expect(joinerDb.prepare('SELECT id FROM camps LIMIT 1').get()).toBeUndefined()
+    impostorDb.close()
   })
 })

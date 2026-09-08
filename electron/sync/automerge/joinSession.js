@@ -24,7 +24,7 @@
 import * as A from '@automerge/automerge'
 
 import { createEmptyDoc } from '../../automerge/campDocument.js'
-import { joinDiscoveryTag, normalizeJoinCode } from '../joinCode.js'
+import { joinDiscoveryTag, normalizeJoinCode, newJoinNonce, joinProof, verifyJoinProof } from '../joinCode.js'
 import { createMdnsDiscovery } from './discovery.js'
 import { startSyncNode } from './syncNode.js'
 
@@ -127,6 +127,15 @@ export async function startJoinSession({
     throw new Error('startJoinSession: this device already belongs to a camp')
   }
 
+  // One nonce per join attempt, so a Host's reply can never be replayed against
+  // a different attempt.
+  const nonce = newJoinNonce()
+  // Set once the Host has proved it holds the code. Everything that matters —
+  // sending the PIN, writing the camps row, admitting the peer — is gated on
+  // this, because the mDNS tag the Host was found by is public (see
+  // joinCode.js's proof section for the mirrored-tag attack this closes).
+  let hostProvedCode = false
+
   const firstPeer = deferred()
   const pairingDecision = deferred()
   const campArrived = deferred()
@@ -155,6 +164,10 @@ export async function startJoinSession({
       // unsolicited frame from any other peer is dropped here, on identity —
       // this is the check the authGate branch's comment defers to.
       if (fromPeerId !== hostPeerId) return
+      if (msg.type === 'pairing_approved' && !checkHostProof(msg)) {
+        pairingDecision.resolve({ type: 'pairing_denied', reason: 'bad_join_proof' })
+        return
+      }
       pairingDecision.resolve(msg)
     },
     onProjected: () => {
@@ -173,6 +186,17 @@ export async function startJoinSession({
       firstPeer.resolve(hostPeerId)
     }
   })
+
+  // Records the Host's half of the proof, and refuses to advance without it.
+  // Returns false for a peer that answered but could not prove it holds the
+  // code — a mirrored-tag impostor — which is treated exactly like a denial.
+  function checkHostProof(msg) {
+    if (verifyJoinProof(normalizedCode, nonce, 'host', msg?.join_confirm)) {
+      hostProvedCode = true
+      return true
+    }
+    return false
+  }
 
   const session = {
     node,
@@ -209,7 +233,16 @@ export async function startJoinSession({
         type: 'pairing_request',
         device_id: deviceId,
         device_name: deviceName || `Device ${deviceId.slice(0, 8)}`,
+        // Our half of the code proof. A peer that merely mirrored the public
+        // mDNS tag cannot produce it, so it never reaches the director.
+        join_nonce: nonce,
+        join_proof: joinProof(normalizedCode, nonce, 'joiner'),
       })
+      // The Host's half. Checked on BOTH pairing replies, because either can be
+      // the last thing we hear before we would otherwise send a PIN.
+      if (reply?.type === 'pairing_approved' || reply?.type === 'pairing_pending') {
+        if (!checkHostProof(reply)) return { status: 'wrong_camp' }
+      }
       if (reply?.type === 'pairing_approved') {
         return { status: 'approved', deviceSecretIdentifier: reply.device_secret_identifier }
       }
@@ -234,6 +267,12 @@ export async function startJoinSession({
      * exactly the way it is wrong everywhere else, including the lockout. */
     async login({ name, pin, deviceSecretIdentifier }) {
       if (hostPeerId === null) throw new Error('login: no host found yet')
+      // The PIN is the thing an impostor most wants, and it is the first
+      // secret this flow would hand over. Never send it to a peer that has not
+      // proved it holds the director's code.
+      if (!hostProvedCode) {
+        throw new Error('login: the host has not proved it holds this camp\'s join code')
+      }
       const reply = await node.authenticateWith(hostPeerId, {
         type: 'login',
         device_id: deviceId,

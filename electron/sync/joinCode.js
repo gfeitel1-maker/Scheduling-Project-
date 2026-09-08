@@ -144,3 +144,75 @@ export function joinDiscoveryTag(code) {
 export function joinDiscoveryTagForCamp(campId) {
   return joinDiscoveryTag(joinCode(campId))
 }
+
+// ---------------------------------------------------------------------------
+// Proof of code knowledge.
+//
+// WHY THIS EXISTS — read it before deciding the join code is "just a routing
+// label", which is what an earlier draft of the ADR called it. The mDNS service
+// tag is BROADCAST IN THE CLEAR; that is what mDNS is. So an attacker on the
+// LAN never has to guess the 40-bit code at all: they watch the Host advertise
+// the tag and advertise the identical tag themselves, which costs nothing and
+// requires no knowledge of the code. A joining device then discovers (or races
+// to) the attacker, and because the attacker approves its own pairing request,
+// the director's approval protects nothing — the joining device sends the
+// user's PIN to the attacker, which answers with its own camp and becomes that
+// device's permanent trust root.
+//
+// That attack is parity with the WS path (an impostor at the right IP could
+// always do the same), but parity is not a reason to ship it forward when the
+// fix is this small. Both legitimate parties already hold the code; nobody who
+// merely mirrored the tag does. So each side proves it holds the code before
+// anything that matters happens:
+//
+//   joiner -> host  : nonce + joinProof(code, nonce, 'joiner')
+//   host   -> joiner: joinProof(code, nonce, 'host')   (on the pairing reply)
+//
+// The joining device verifies the Host's half BEFORE it sends a PIN, and before
+// it writes a camps row or calls admitPeer. An attacker who mirrored the tag
+// can produce neither half.
+//
+// The two roles are separate labels so neither half can be reflected back as
+// the other — the classic mistake when both sides HMAC "the same nonce".
+//
+// This is proof of a SHARED, LOW-ENTROPY, DISPLAYED value, not a key exchange:
+// it establishes "this peer was told the code by the director", which is
+// exactly the human trust anchor the flow is built on, and nothing more. It is
+// not forward-secret and does not authenticate anything after the join.
+const JOIN_PROOF_ROLES = ['joiner', 'host']
+
+export function joinProof(code, nonce, role) {
+  const normalized = normalizeJoinCode(code)
+  if (normalized === null) throw new Error('joinProof requires a valid join code')
+  if (typeof nonce !== 'string' || nonce.length < 16) {
+    throw new Error('joinProof requires a nonce of at least 16 characters')
+  }
+  if (!JOIN_PROOF_ROLES.includes(role)) {
+    throw new Error(`joinProof role must be one of ${JOIN_PROOF_ROLES.join(', ')}`)
+  }
+  return crypto.createHmac('sha256', normalized).update(`${role}|${nonce}`).digest('hex')
+}
+
+/** Timing-safe check. Returns false — never throws — for anything malformed, so
+ * a caller can treat "bad proof" and "no proof" identically at the call site. */
+export function verifyJoinProof(code, nonce, role, provided) {
+  if (typeof provided !== 'string') return false
+  let expected
+  try {
+    expected = joinProof(code, nonce, role)
+  } catch {
+    return false
+  }
+  if (expected.length !== provided.length) return false
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(provided, 'utf8'))
+  } catch {
+    return false
+  }
+}
+
+/** A fresh nonce for one join attempt. 32 hex chars = 128 bits, so a Host's
+ * reply can never be replayed against a different attempt. */
+export function newJoinNonce() {
+  return crypto.randomBytes(16).toString('hex')
+}

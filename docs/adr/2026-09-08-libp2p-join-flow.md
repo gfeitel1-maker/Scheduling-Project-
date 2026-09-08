@@ -104,8 +104,7 @@ Properties that matter:
 
 ### 2. The join tag
 
-While — and only while — the director has the **Add a device** window open, the Host advertises a
-*second* mDNS service tag alongside its normal camp tag:
+The Host advertises a *second* mDNS service tag alongside its normal camp tag:
 
 ```
 joinDiscoveryTag(code) = _shoresh-join-<sha256(code)[0..15]>._udp.local
@@ -115,15 +114,28 @@ The joining device hashes the typed code the same way and discovers on that tag.
 camps advertise two different tags and structurally never see each other's mDNS traffic, exactly as
 `campDiscoveryTag` already establishes.
 
-**The window is the real access control on discoverability.** An idle Host advertises no join tag at
-all, so a stale code discovers nothing. This is what makes a stable, non-secret code safe: it is
-only ever useful in a moment the director deliberately opened.
+**What the Add-a-device window actually gates — corrected from this ADR's first draft.** The first
+version said the Host advertises the join tag *only while the window is open*, and leaned on that
+for the brute-force argument in §5. Two things changed that:
+
+- **It is not cleanly buildable.** libp2p fixes its `peerDiscovery` services at node construction.
+  Starting and stopping one on demand means holding the `@libp2p/mdns` instance and driving its
+  lifecycle by hand — permanent coupling to a library internal, on the upgrade path of a dependency
+  this project has already had to chase.
+- **It buys nothing.** The Host is *already* permanently discoverable under `campDiscoveryTag`. A
+  second opaque, one-way tag alongside it adds no exposure that the first one did not already
+  create.
+
+So the window gates **pairing, not discoverability**: the Host accepts a `pairing_request` on the
+join path only while a director has Add-a-device open. Discoverability rests on the 40-bit code
+space alone (§5), which is where the real resistance was anyway. Stated rather than quietly
+retained, because §5's argument was written leaning on the stronger claim.
 
 ### 3. The mechanism, end to end
 
 | # | Where | What happens |
 |---|---|---|
-| 1 | Host | Director opens **Add a device**. Host displays the camp name and the code, and begins advertising the join tag. |
+| 1 | Host | Director opens **Add a device**. Host displays the camp name and the code, and begins accepting join-path pairing requests (§2). |
 | 2 | Client | Join screen asks for the code (replacing today's IP-address picker). |
 | 3 | Client | Starts a libp2p node with **no campId and no camp document** — a clone of the shared `GENESIS`, never a locally invented one (handoff finding 2). Discovers on the join tag. |
 | 4 | Client → Host | `pairing_request` over `/shoresh/auth/1.0.0` — the existing, tested handler. |
@@ -245,21 +257,49 @@ An attacker on the LAN who learns a code reaches the same place they would reach
 LAN for the WS port today: a pairing prompt on the director's screen, which they must convince a
 human to accept.
 
-**Guessing the tag — stated explicitly, because the window is doing real work here.** The join tag
-is not secret, but it must not be *guessable*, or the Add-a-device window would be discoverable by
-anyone on the LAN who simply enumerated codes. Two things make that infeasible, and the second is
-load-bearing rather than incidental:
+**The code is proved, not just used to find things — and an earlier draft of this ADR got that
+badly wrong.** That draft argued the code's 40-bit space made the join tag infeasible to guess. The
+argument was sound and irrelevant: **the mDNS service tag is broadcast in the clear** — that is what
+mDNS is — so an attacker never has to guess it. They watch the Host advertise the tag and advertise
+the identical tag themselves, at zero cost and with no knowledge of the code whatsoever.
 
-- **The space.** 8 Crockford base32 characters is 32⁸ ≈ 1.1 × 10¹² (40 bits), and every guess costs
-  a distinct mDNS query for a distinct serviceTag — there is no offline attack, because the tag is
-  only useful by asking the network for it. This is why the code is 8 characters and not the 4–6 a
-  shorter code would tempt; the shorter code is where this design would actually go wrong.
-- **The window.** The Host advertises the join tag only while a director has Add-a-device open, and
-  answers only during it. An attacker does not get to grind at leisure against a permanently-open
-  Host; they get the minutes the director is standing at the machine.
+The chain that follows is the real threat, and it is worse than the one that was analysed: the
+joining device discovers (or races to) the attacker; the attacker approves its own pairing request,
+so the director's approval protects nothing; the joining device sends **the user's PIN** to the
+attacker; the attacker answers with its own `camp` and becomes that device's permanent trust root.
 
-Neither is claimed to make the code a credential. Even a correct guess reaches a pairing prompt on
-the director's screen — see the paragraph above.
+That is parity with the WS path — an impostor at the right IP could always do the same — but parity
+is not a reason to carry it forward when the fix is small. Both legitimate parties already hold the
+code. Nobody who merely mirrored the tag does. So each side proves it:
+
+```
+joiner -> host  : join_nonce, join_proof   = HMAC-SHA256(code, "joiner|" + nonce)
+host   -> joiner: join_confirm             = HMAC-SHA256(code, "host|"   + nonce)   (on the pairing reply)
+```
+
+- The Host verifies the joiner's half **before `evaluatePairingRequest`**, so a mirrored-tag peer
+  never reaches the director's screen at all.
+- The joining device verifies the Host's half **before it sends a PIN**, and again before it writes
+  a camps row or calls `admitPeer`. Separate role labels stop either half being reflected as the
+  other.
+- One nonce per attempt, so a captured reply cannot be replayed against a different one.
+- A `pairing_request` carrying no nonce is an already-paired device on the camp-scoped path, which
+  never had a code. That path is unchanged.
+
+So `admitPeer` (§3.2) admits **a peer that proved it holds the director's code**, which is a
+materially better sentence than the one the first draft could write. The code is still not a
+credential and is still displayed on a screen — but it is now something an attacker must actually
+obtain rather than merely observe, which is what the 40-bit space was mistakenly credited with
+already achieving.
+
+The space still matters, just for a smaller claim: 32⁸ ≈ 1.1 × 10¹² makes the HMAC infeasible to
+forge by guessing the code offline from an observed proof. A 4–6 character code is where that would
+stop being true, which is why this one is 8.
+
+**Not closed by this.** A device physically shown the code by the director can still be an attacker;
+the code proves possession, not intent. And nothing here protects sessions *after* the first — a
+trust-on-first-use pin of the Host's PeerId would, and is a sensible follow-on, but it is additive
+and does not change the bootstrap.
 
 **Rate limiting.** `registerAuthGate`'s existing dual-keyed throttle (by `fromPeerId` and by claimed
 `device_id`) and `MAX_PENDING_PAIRING` apply unchanged — the join path uses the same protocol
@@ -301,8 +341,8 @@ merge.
 - **J1 — derivation.** `joinCode` / `joinDiscoveryTag` as pure functions with pinned test vectors,
   in the style of `campIdHash.test.js` (which exists precisely because these outputs are a wire
   surface). No wiring.
-- **J2 — Host side.** Add-a-device window: display, join-tag advertisement while open, teardown on
-  close.
+- **J2 — Host side.** Add-a-device window: display the code, accept join-path pairing requests while
+  open, refuse them when closed.
 - **J3 — Client side, mechanism.** Start a node with no campId on a `GENESIS` clone; discover by
   join tag; route `login` to the libp2p auth protocol when the engine is `automerge`; adopt campId
   on first projection and re-scope discovery. Includes the §"Recovery" bounded-wait state.
