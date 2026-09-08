@@ -2,16 +2,14 @@ import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import WebSocket from 'ws'
 import {
-  appendOp,
   recordConflict,
-  appendBulkReplaceOp,
   applyBulkReplaceProjection,
   isBulkReplaceOp,
   latestScopeOpSeq,
   coerceOpValue,
-  detectUniqueFieldCollision,
   DELETE_FIELD,
 } from '../ops/operations.js'
+import { createLocalWriteClient } from './localWriteClient.js'
 import { PROJECTIONS, applyProjection } from '../ops/projections.js'
 import { repairProjectionForEntity, checkProjectionHealth } from '../ops/projectionRepair.js'
 import { broadcastOps } from './syncServer.js'
@@ -223,96 +221,33 @@ export function createSyncClient(
     for (const listener of opRejectedListeners) listener(msg)
   }
 
-  // Shared shape for the collision payload handed to a caller/listener —
-  // matches D3's wire shape exactly (`existing: { id, name, capacity, notes }`),
-  // used by both the host-local direct-write branch below and the WS
-  // op_rejected case further down, so a caller sees the same shape regardless
-  // of which path produced it.
-  function pickExistingLocation(row) {
-    return { id: row.id, name: row.name, capacity: row.capacity, notes: row.notes }
-  }
-
   function notifyFullSyncApplied() {
     for (const listener of fullSyncAppliedListeners) listener()
   }
 
   if (!serverUrl) {
+    // Stage 6c: this branch's body now lives in electron/sync/localWriteClient.js.
+    // It is unchanged behaviour, moved — a Host's own interactive edit has always
+    // been a plain local append with no socket involved, and that is exactly what
+    // a write becomes on EVERY device once the WebSocket transport is gone.
+    //
+    // Delegating rather than duplicating is deliberate: every existing test in
+    // syncClient.test.js that covers the host-local path now exercises the
+    // extracted module, so the extraction is proved equivalent by the suite that
+    // already existed rather than by new tests written to agree with it.
+    const local = createLocalWriteClient(db, {
+      device_id,
+      author_user_id,
+      // T85 Part 3: the Host's own interactive edit, broadcast to every connected
+      // Client exactly as a submit_op from a peer would be. Without this a
+      // Host-authored edit reached Clients only at their next full_sync. This is
+      // the one genuinely transport-shaped thing the local path does, which is
+      // why it is injected here rather than living in the extracted module — it
+      // goes away with the transport.
+      onOpWritten: wss ? (op) => broadcastOps(wss, [op]) : null,
+    })
     return {
-      // T22: `author_user_id` MUST be a parameter. It used to be absent here,
-      // so the value main.js supplies per call (`:509`, the signed-in user)
-      // was silently discarded and the closure's value — `null`, fixed at
-      // construction before anyone has logged in (`main.js:228`) — was written
-      // instead. Every op through this path recorded no author, which is why
-      // Trash and record history said "Unknown" for almost everything.
-      // The closure value remains the fallback for callers with no user, such
-      // as bootstrap and pairing, which are honestly unattributed.
-      async write({ entity, entity_id, field, value, parent_op_id = null, author_user_id: opAuthor, source = 'human' }) {
-        // D2/D3 (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
-        // check BEFORE appendOp, same as handleSubmitOp's Host-side check —
-        // this is the Host operator's OWN interactive write, so without this
-        // it would hit appendOp's transaction, throw a raw
-        // SQLITE_CONSTRAINT_UNIQUE, and propagate unhandled through main.js's
-        // write() IPC handler straight to the renderer instead of a clean,
-        // typed rejection through the normal IPC promise.
-        const collision = detectUniqueFieldCollision(db, { entity, entity_id, field, value })
-        if (collision) {
-          const rejection = { status: 'rejected', reason: 'unique_field', existing: pickExistingLocation(collision) }
-          notifyOpRejected(rejection)
-          return rejection
-        }
-        const op = appendOp(db, {
-          entity,
-          entity_id,
-          field,
-          value,
-          author_user_id: opAuthor ?? author_user_id,
-          device_id,
-          parent_op_id,
-          // S2a: this is an interactive edit seam — DEFAULTS to human provenance
-          // so a hand-edit is protected on re-import even though NULL would also
-          // decode to human (ADR §2). S2b R1: a `stale`-accept resolution passes
-          // source:'import' so the director's acceptance of an import value is
-          // recorded import-owned and future re-imports update it quietly (§3a).
-          // This is a HOST-LOCAL write (no-serverUrl client), so stamping
-          // 'import' here is legitimate — the Host owns import provenance.
-          source,
-        })
-        notifyOpApplied(op)
-        // T85 Part 3: the Host's own interactive edit, broadcast to every
-        // connected Client exactly like a submit_op from a peer would be —
-        // this no-serverUrl write() otherwise never touches wss.clients at
-        // all, so a Host-authored edit previously reached Clients only at
-        // their next full_sync.
-        if (wss) broadcastOps(wss, [op])
-        return { status: 'applied', op }
-      },
-      // Same omission as write() above, same consequence.
-      async writeBulkReplace({ entity, scope_id, rows, author_user_id: opAuthor }) {
-        const op = appendBulkReplaceOp(db, {
-          entity,
-          scope_id,
-          rows,
-          author_user_id: opAuthor ?? author_user_id,
-          device_id,
-          client_write_id: randomUUID(),
-        })
-        notifyOpApplied(op)
-        // T85 Part 3: same reasoning as write() above.
-        if (wss) broadcastOps(wss, [op])
-        return { status: 'applied', op }
-      },
-      onOpApplied(callback) {
-        opAppliedListeners.push(callback)
-      },
-      onOpConflict(callback) {
-        opConflictListeners.push(callback)
-      },
-      onOpRejected(callback) {
-        opRejectedListeners.push(callback)
-      },
-      onFullSyncApplied(callback) {
-        fullSyncAppliedListeners.push(callback)
-      },
+      ...local,
       // T27. This is the offline/no-op client (no serverUrl), so it is never
       // connected to anything and never will be — say so plainly rather than
       // leaving the renderer to infer it.
@@ -322,17 +257,6 @@ export function createSyncClient(
       onConnectionChange() {
         return () => {}
       },
-      getQueuedOps() {
-        return []
-      },
-      // A Host never queues a restore: it performs one directly (main.js's
-      // restoreEntity handler), so there is no hop to fail. The table exists
-      // on every device and stays empty here.
-      getPendingRestores() {
-        return []
-      },
-      async drainPendingRestores() {},
-      async flushQueue() {},
       async waitUntilConnected() {},
       close() {},
     }
