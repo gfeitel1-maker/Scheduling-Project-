@@ -64,8 +64,10 @@ A.merge(A.clone(a), b)
 // getConflicts: 2 entries, one of them holding {"name":"Archery"}
 ```
 
-**Which side loses is ARBITRARY.** Over 200 runs of the snippet above: the `name` write survived 99
-times, the `location` write 101, and **both survived 0 times**. The winner follows Automerge's random
+**Which side loses is ARBITRARY, and one side ALWAYS loses.** Measured independently by two
+sessions: 99/101/0 and 88/112/0 (name-wins / location-wins / both-survive). **Across 400 combined
+merges, not one preserved both fields.** So there is no rare-interleaving case to tolerate — the
+"0" is the load-bearing number, not the coin toss. The winner follows Automerge's random
 actor ids, not write order — so this is not last-write-wins, which a director could at least learn
 the shape of. It is a coin toss, both devices agree on the same arbitrary answer, and one device's
 edit is always destroyed.
@@ -94,6 +96,20 @@ test in this repo had ever had two independent devices create the same record at
 Rebuilding the harness around a real join is what made the failure deterministic. This generalises
 well past this bug: treat any fixture that sequences two peers as hiding something until proven
 otherwise.
+
+### A design constraint on whatever fix is chosen — decide this BEFORE writing it
+
+State this before implementation so it is not retrofitted. The requirement is **not** "the reconciler
+handles conflicts." It is: **the system cannot be in a state where a conflict went unhandled.**
+
+Those are different, and the weaker one is the easy one to build. A reconciler wired into one call
+site is a check somebody has to remember to call — correct at the merge point today, and silently
+bypassed tomorrow by any path that writes the document without going through it. That failure is
+invisible, because the symptom is identical to the bug it was meant to fix: a field quietly gone,
+with the evidence sitting in `getConflicts` that nothing reads.
+
+The module-load subset guard is the shape to beat. Its strength was never its logic — it was that
+module load gives it **no path around it**. Aim for that property, not for correct conflict-reading.
 
 ### A requirement on whatever fix is chosen
 
