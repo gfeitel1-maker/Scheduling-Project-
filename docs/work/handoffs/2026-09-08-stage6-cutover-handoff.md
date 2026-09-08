@@ -57,8 +57,16 @@ join step that makes it start. That is simultaneously the owner's stated constra
 After that, resume the plan's sequence: finish 6a to 27/27 → 6b flip default → 6c remove WS →
 6d remove op-log → 6e conflict UI (a product question for the owner, not yours).
 
-Stage 6a's partial work is on `main` and is **gate-inert** (additive files, not wired into any npm
-script): `test/integration/harnessAutomerge.js`, `run.automerge.js`, three ported scenarios. Its
+**CORRECTION (2026-09-08, caught by the incoming session):** Stage 6a's partial work is **NOT on
+`main`** — an earlier revision of this document said it was, and that was wrong. It lives on branch
+`claude/am-stage6a-harness` (`5dd3d11`, 5 files, +570), now pushed to the remote (it had existed only
+on one machine). It is additive and wired into no npm script, so merging it cannot affect the gate —
+but **do not merge it as-is**: `harnessAutomerge.js`'s header asserts as an "ARCHITECTURAL FACT" that
+`camps`/`users` are never modeled in the document, which #325 made false. Some scenarios it retired
+on that basis may now be revivable. Fix the comment before merging, or supersede the file.
+
+That branch contains `test/integration/harnessAutomerge.js`, `run.automerge.js`, and three ported
+scenarios. Its
 report documents every retired scenario with a reason — several are genuinely obsolete under a CRDT
 (client_write_id idempotency, the lock manager, host_seq ordering, full_sync manifests). One ported
 scenario (08) flakes ~50% in sequence; root cause unknown, suspected libp2p stream teardown between
@@ -107,6 +115,29 @@ participants merged or two real machines talked.
   the FOREGROUND, and be ready to take the gate over.
 - Never delete a test to make a red go away. One flaky feature was removed instead — that is the
   right trade.
+
+## The join blocker, decomposed (incoming session's analysis, confirmed)
+
+A fresh Client cannot join over libp2p for **three stacked reasons**, not one:
+
+- `startAutomergeSyncNodeIfEnabled` returns early when there is no `camps` row, so no node starts.
+- `createMdnsDiscovery`'s serviceTag derives from `campIdHash(campId)`, so a device with no campId
+  structurally cannot discover its Host.
+- `login` for `mode=client` routes to `syncClient.loginRemote` over WebSocket; the libp2p `login`
+  handler exists and is tested (`pairingLogin.test.js`) but nothing in `main.js` reaches it.
+
+**Direction agreed: "join with a camp code."** While the director has an explicit *Add a device*
+window open, the Host advertises a second mDNS tag derived from `hash(joinCode)`. The Client's Join
+screen asks for that code, derives the tag, starts a node on a clone of the shared genesis (no
+campId, no doc yet), does `pairing_request` → director approves → PIN login over the libp2p auth
+protocol. Document sync then delivers `camps`/`users` (possible only because of #325), the Client
+projects, learns its campId, and re-scopes to the camp tag for every later session. The recognition
+moment lands at the end — "You've joined Camp X" — over the authenticated channel.
+
+Rejected: having the Host broadcast the camp NAME in the clear during a consented, time-boxed
+window. Simpler for humans, but it reintroduces exactly the plaintext-name mDNS leak that PR #309
+deliberately removed, and a typed code shown on the Host is already the canonical recognizable
+pairing idiom (Apple TV, Chromecast, Signal).
 
 ## Known-open, tracked
 
