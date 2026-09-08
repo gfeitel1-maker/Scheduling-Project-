@@ -174,28 +174,100 @@ claim.
 
 ## Implementation status (2026-09-08)
 
-**R1–R4 built and green.** Scenario 08 — the measured concurrent-create loss — went from failing
-~80% of runs to passing 5/5 over real libp2p. `npm run verify`: 358 files, 5088 passed, exit 0.
+**Complete for the owner's case.** Scenario 08 (concurrent-create data loss): ~80% failing → passing.
+Scenario 28 (two directors disagree about one slot; both see it; one chooses; everyone converges):
+~50% failing → **12/12 across three runs**.
 
-**R5 is partially proven, and the remaining gap is stated rather than smoothed over.** Scenario 28
-asserts four things in order; the first three pass on every run:
+### The rejected fix, and why it stays rejected
 
-1. two devices set one slot to different activities; ✅
-2. **all three devices surface the disagreement** — the owner's "a choice that both need to see"; ✅
-3. no device invents a third answer; ✅
-4. one director chooses and everyone converges. ⚠️ **fails ~50% of runs.**
+An earlier revision resolved a contested record by **reassigning the record key** to the union of
+every version with the choice applied. It made scenario 28 green and it was wrong — caught in review
+before merge, then reproduced against the real implementation:
 
-What is known about (4), so it is not re-derived:
+```
+resolution:      s1 = { activity_id: 'archery' }     (key reassignment)
+concurrent edit: s1.flags = 'bring-sunscreen'        (ordinary field write)
+merged:          { activity_id: 'archery' }          -- flags GONE
+getConflicts:    0                                   -- nothing to surface, ever
+```
 
-- **Resolving is not the broken step.** Every strategy — plain re-assign, delete-then-set in one
-  change, delete then set in two — clears the conflict in-process, *including* the shape that
-  correlates with the failure, where the resolver's own value had already won locally. Measured
-  directly rather than assumed.
-- The failure correlates with the resolving device already displaying the value it chooses, which is
-  also **the most likely thing a director does** ("keep what I'm looking at"). `resolveConflictInDoc`
-  exists to make that write unconditional, and is correct in isolation.
-- What remains is convergence *after* a resolution over the network, not the write that performs it.
+A counselor adding a note while the director settles that cell loses it **with no trace**: the
+reassignment creates a new container, so a concurrent write into the old one is discarded. Unlike the
+bug it was meant to fix, this one is invisible. **Loud-and-annoying is a bad trade for
+silent-and-invisible**, and that is the whole axis this ADR exists on. Pinned by a test that asserts
+the reassignment loses the concurrent edit, so it cannot come back.
 
-Scenario 28 stays in `run.automerge.js`, red about half the time, with this written beside it. That
-runner is not wired into `npm run verify`, so an honest red costs the gate nothing — and reporting
-4/4 against a case a director will hit would be worse than a visible red.
+### The limitation this leaves, stated rather than discovered
+
+Resolution is a field write, which cannot dominate two competing record *versions*. So a disagreement
+between two devices that **concurrently created the same record** stays surfaced after a choice,
+rather than clearing. It is annoying; nothing is lost.
+
+Where this can happen in practice: a schedule's slots arrive as a bulk-replace *scope*, and the flat
+per-cell record is created by the first per-cell edit. Two people editing the same never-yet-edited
+cell at the same moment therefore hit the contested-record path. Everything after that first edit is
+an ordinary field disagreement and resolves normally.
+
+**This is the second independent piece of evidence for the deferred "flatten the record shape"
+option.** Records-as-containers caused the original silent loss, and now bounds what resolution can
+do. Still the owner's call, still not to be bundled with the cutover.
+
+### A third option, so this is not a two-way choice
+
+Raised in review and worth the owner seeing before they choose between "keep records, live with the
+annoyance" and "flatten everything": **record the resolution instead of trying to make Automerge
+clear it.**
+
+When a human chooses, write an ordinary document field holding the sorted set of Automerge conflict
+keys they settled. The reconciler then suppresses reporting when a contested record's current key set
+matches a recorded resolution. It is *derived-plus-recorded*, not stored resolution state — so it
+keeps this ADR's central property (every device converges on the same marker by the same mechanism,
+and "both see it cleared" stays free), needs no key reassignment, and therefore cannot lose a
+concurrent edit.
+
+Preconditions, measured here rather than assumed:
+
+| | |
+|---|---|
+| Conflict keys identical on both devices | ✅ `['30@265b…','30@784f…']` on each |
+| Stable across `A.save`/`A.load` | ✅ |
+| A genuinely new disagreement carries different keys | ✅ `36@…` then `55@…` |
+
+The third needs stating carefully, and the reason is worth keeping. It was first demonstrated by a
+test that compared **record-level** keys for the first conflict against **field-level** keys for a
+later one — different levels, so "the keys differ" was guaranteed by construction and demonstrated
+nothing. The claim happens to be true, which is what makes that shape dangerous: a passing check that
+agrees with the conclusion while testing something else.
+
+Measured at the level a marker would actually key on, it holds — field-level `36@…` then `55@…`.
+Measured naively it appears to **fail**: compare record-level keys before and after a field-level
+disagreement and they are unchanged, because the record-level contest genuinely is the same one and
+is a one-time event that cannot recur once the record exists.
+
+So `"conflict keys change for a new disagreement"` is **not safe as a one-liner**. It is true only
+when the marker keys on the same level it suppresses. Someone implementing from the short version
+would key at the wrong level and build a marker that either suppresses for ever or never matches —
+and running the obvious check would show them a refutation of a sound design. Both measurements are
+recorded here for that reason.
+
+Open questions, none of them answered:
+
+1. **Where the marker lives.** It must be in the document to converge, so: a new collection and a
+   genesis regeneration. Cheap now, not cheap once real camps exist — the same care the subset guard
+   exists to enforce.
+2. **Growth and pruning.** Markers accumulate with no obvious collection point.
+3. **Whether it is worth building at all**, given the limitation only bites on the first-ever edit of
+   a never-yet-edited cell.
+
+Listed as an option, deliberately not as a recommendation.
+
+### Two things worth keeping from how this was found
+
+- The first diagnosis was wrong (a plausible story about Automerge eliding a no-op assignment), and
+  the second attempt was **worse than the bug** — it stopped over-reporting by making genuine
+  disagreements go silent. Caught on one probe, on a count reading 0 where it should have read 1.
+- Scenario 28's residual flakiness was a **test race, not a product fault**: it waited on the
+  projected SQLite row, which a bulk-replace scope satisfies before the flat record has arrived — so
+  both clients still created the record and it became a contested-record test by accident. Waiting on
+  the document fixed it. Third time today that the scaffolding around the thing under test was the
+  thing that mattered.
