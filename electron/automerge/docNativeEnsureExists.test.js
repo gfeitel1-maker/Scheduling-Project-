@@ -23,7 +23,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
 import { PROJECTIONS } from '../ops/projections.js'
-import { createEmptyDoc, applyWrite, DEFERRED_ENTITIES, MODELED_ENTITIES } from './campDocument.js'
+import { createEmptyDoc, applyWrite, DEFERRED_ENTITIES, MODELED_ENTITIES, readRecord, listRecordIds } from './campDocument.js'
 import { projectAll, rebuildFromDoc } from './projector.js'
 import { seedAllFromSqlite } from './seed.js'
 
@@ -214,9 +214,9 @@ describe('day_overrides — two devices converge', () => {
     b = applyWrite(b, { entity: 'day_overrides', entity_id: 'do-b', field: 'time_block_id', value: 'tb-1' })
 
     const merged = A.merge(A.clone(a), b)
-    expect(Object.keys(merged.day_overrides).sort()).toEqual(['do-a', 'do-b'])
-    expect(merged.day_overrides['do-a'].group_id).toBe('g1')
-    expect(merged.day_overrides['do-b'].group_id).toBe('g2')
+    expect(listRecordIds(merged, 'day_overrides')).toEqual(['do-a', 'do-b'])
+    expect(readRecord(merged, 'day_overrides', 'do-a').group_id).toBe('g1')
+    expect(readRecord(merged, 'day_overrides', 'do-b').group_id).toBe('g2')
 
     expect(() => projectAll(db, merged)).not.toThrow()
     const rows = rowsOf(db, 'day_overrides')

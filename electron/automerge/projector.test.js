@@ -12,7 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
 import { appendOp, DELETE_FIELD } from '../ops/operations.js'
-import { STAGE1_ENTITY, createEmptyDoc, applyWrite } from './campDocument.js'
+import { STAGE1_ENTITY, createEmptyDoc, applyWrite, readRecord } from './campDocument.js'
 import { projectEntity, rebuildFromDoc, projectAll } from './projector.js'
 import { reconcile } from './reconcile.js'
 import { recordConflicts } from './conflictStore.js'
@@ -145,7 +145,7 @@ describe('projector — a merged (conflict-resolved) document projects cleanly',
     projectEntity(db, merged)
     const rows = daysRows(db)
     expect(rows).toHaveLength(1)
-    expect(rows[0].label).toBe(merged[STAGE1_ENTITY]['day-1'].label)
+    expect(rows[0].label).toBe(readRecord(merged, STAGE1_ENTITY, 'day-1').label)
     expect(['Lunes', 'Montag']).toContain(rows[0].label)
   })
 })

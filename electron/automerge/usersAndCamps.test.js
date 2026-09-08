@@ -25,8 +25,7 @@ import {
   applyWrite,
   MODELED_ENTITIES,
   saveDoc,
-  loadDoc,
-} from './campDocument.js'
+  loadDoc, readRecord } from './campDocument.js'
 import { projectAll } from './projector.js'
 import { synthesizeOpEvents } from '../sync/automerge/docDiffEvents.js'
 import { sanitizeOpForIpc } from '../main.js'
@@ -157,12 +156,12 @@ describe('users/camps modeled in the Automerge document (Stage 6 prep)', () => {
     // (applyWrite's "field not registered" rule) — never land as a document key.
     doc = applyWrite(doc, { entity: 'camps', entity_id: 'camp-1', field: 'signing_secret', value: 'sneaky' })
 
-    expect(Object.keys(doc.camps['camp-1'])).toEqual(['name'])
-    expect(doc.camps['camp-1'].signing_secret).toBeUndefined()
+    expect(Object.keys(readRecord(doc, 'camps', 'camp-1'))).toEqual(['name'])
+    expect(readRecord(doc, 'camps', 'camp-1').signing_secret).toBeUndefined()
 
     // And round-tripped through real save/load bytes, not just the in-memory object.
     const reloaded = loadDoc(saveDoc(doc))
-    expect(Object.keys(reloaded.camps['camp-1'])).toEqual(['name'])
+    expect(Object.keys(readRecord(reloaded, 'camps', 'camp-1'))).toEqual(['name'])
   })
 
   describe('camps singleton convergence: two different camp ids merged into one document', () => {

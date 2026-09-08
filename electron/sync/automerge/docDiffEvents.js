@@ -20,7 +20,7 @@
 // owns when to call this and what to do with the result.
 import * as A from '@automerge/automerge'
 import { DELETE_FIELD } from '../../ops/operations.js'
-import { MODELED_ENTITIES } from '../../automerge/campDocument.js'
+import { MODELED_ENTITIES, readRecord, splitRecordKey } from '../../automerge/campDocument.js'
 import { PROJECTIONS } from '../../ops/projections.js'
 
 // `deviceId` is the REMOTE peer the doc changes came from (or null if unknown) — never the local
@@ -36,24 +36,29 @@ export function synthesizeOpEvents(doc, beforeHeads, afterHeads, { deviceId = nu
 
   for (const patch of patches) {
     const entity = patch.path[0]
-    const entity_id = patch.path[1]
     if (entity === undefined || !MODELED_ENTITIES.has(entity)) continue
 
-    // Whole-row delete: path is exactly [entity, entity_id].
-    if (patch.action === 'del' && patch.path.length === 2) {
+    // A patch path is now [entity, "<id>\u0000<field>"] — two segments, not
+    // three, because a field is its own document key
+    // (docs/adr/2026-09-08-flat-record-shape.md). Anything shorter carries no
+    // record information; anything longer is inside a value we do not model.
+    if (patch.path.length < 2) continue
+    const parsed = splitRecordKey(String(patch.path[1]))
+    if (!parsed) continue
+    const { entityId: entity_id, field } = parsed
+
+    // Whole-record delete vs. a single field going away. Under the flat shape a
+    // record delete is N separate `del` patches, one per field key, so the
+    // patch alone cannot tell them apart. Ask the resulting document instead:
+    // if nothing is left of the record, it was deleted. That is a stronger test
+    // than counting patches and does not depend on how Automerge batches them.
+    if (patch.action === 'del' && readRecord(afterDoc, entity, entity_id) === null) {
       const key = `${entity}\u0000${entity_id}\u0000${DELETE_FIELD}`
       if (seen.has(key)) continue
       seen.add(key)
       events.push({ entity, entity_id, field: DELETE_FIELD, device_id: deviceId, author_user_id: null })
       continue
     }
-
-    // A field-level change (put, splice, or a nested del) always has path length >= 3:
-    // [entity, entity_id, field, ...]. Anything shorter here (e.g. the `put` that creates the row's
-    // empty object shell) carries no field information and is not itself a field change — the real
-    // field patches for that same write are the length->=3 patches, so this is not lost data.
-    if (patch.path.length < 3) continue
-    const field = patch.path[2]
 
     // Mirrors applyWrite's silent no-op rule (electron/automerge/campDocument.js): a field not
     // registered in PROJECTIONS[entity].fields never reaches SQLite, so no event should be
@@ -65,7 +70,7 @@ export function synthesizeOpEvents(doc, beforeHeads, afterHeads, { deviceId = nu
     if (seen.has(key)) continue
     seen.add(key)
 
-    const value = afterDoc[entity]?.[entity_id]?.[field]
+    const value = readRecord(afterDoc, entity, entity_id)?.[field]
     events.push({ entity, entity_id, field, value, device_id: deviceId, author_user_id: null })
   }
 

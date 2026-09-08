@@ -22,6 +22,7 @@
 // below for the explicit, asserted proof of what that produces.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import * as A from '@automerge/automerge'
+import { DELETE_FIELD } from '../ops/operations.js'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -34,8 +35,7 @@ import {
   applyWrite,
   applyBulkReplace,
   MODELED_ENTITIES,
-  BULK_REPLACE_MODELED_ENTITIES,
-} from './campDocument.js'
+  BULK_REPLACE_MODELED_ENTITIES, readRecord, listRecordIds } from './campDocument.js'
 import { projectEntity, projectAll, rebuildFromDoc } from './projector.js'
 import { seedDocFromSqlite, seedAllFromSqlite } from './seed.js'
 
@@ -224,9 +224,9 @@ describe('parent-scoped entities — two nodes converging on parent-scoped rows'
     b = applyWrite(b, { entity: 'week_group_exclusions', entity_id: 'wge-b', field: 'group_id', value: 'g2' })
 
     const merged = A.merge(A.clone(a), b)
-    expect(Object.keys(merged.week_group_exclusions).sort()).toEqual(['wge-a', 'wge-b'])
-    expect(merged.week_group_exclusions['wge-a'].group_id).toBe('g1')
-    expect(merged.week_group_exclusions['wge-b'].group_id).toBe('g2')
+    expect(listRecordIds(merged, 'week_group_exclusions')).toEqual(['wge-a', 'wge-b'])
+    expect(readRecord(merged, 'week_group_exclusions', 'wge-a').group_id).toBe('g1')
+    expect(readRecord(merged, 'week_group_exclusions', 'wge-b').group_id).toBe('g2')
   })
 })
 
@@ -235,7 +235,7 @@ describe('template_slots bulk-replace — field-level edits still use the ordina
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'template_slots', entity_id: 'slot-1', field: 'template_id', value: 'tpl-1' })
     doc = applyWrite(doc, { entity: 'template_slots', entity_id: 'slot-1', field: 'activity_id', value: 'act-1' })
-    expect(doc.template_slots['slot-1']).toEqual({ template_id: 'tpl-1', activity_id: 'act-1' })
+    expect(readRecord(doc, 'template_slots', 'slot-1')).toEqual({ template_id: 'tpl-1', activity_id: 'act-1' })
   })
 })
 
@@ -296,8 +296,11 @@ describe('template_slots bulk-replace — the wholesale-regenerate primitive', (
     // Carries one unrelated row so it isn't a WHOLLY empty doc (assertDocIsSupersetOrEmpty guard —
     // see the analogous "keep-1" activity in generalize.test.js's parent+child delete test).
     doc = applyWrite(doc, { entity: 'activities', entity_id: 'keep-1', field: 'camp_id', value: 'camp-1' })
+    // Deleting a record is applyWrite's DELETE_FIELD path — under one key per
+    // field there is no single container to `delete`, so the record's field
+    // keys are removed together. The scope entry is still a plain key.
+    doc = applyWrite(doc, { entity: 'schedule_templates', entity_id: 'tpl-1', field: DELETE_FIELD, value: 1 })
     doc = A.change(doc, (d) => {
-      delete d.schedule_templates['tpl-1']
       delete d.template_slots_scopes['tpl-1']
     })
     expect(() => projectAll(db, doc)).not.toThrow()

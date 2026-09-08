@@ -26,6 +26,7 @@ import { applyProjection } from '../ops/projections.js'
 import { DELETE_FIELD, applyBulkReplaceProjection } from '../ops/operations.js'
 import { DOMAIN_SNAPSHOT_ORDER, BULK_REPLACE_ENTITIES } from '../ops/campScopedEntities.js'
 import { assertNoUnrecordedConflicts } from './reconcile.js'
+import { listRecordIds, readRecord, hasAnyRecord } from './campDocument.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
 
@@ -153,10 +154,10 @@ function deleteReconcileBulkReplaceEntity(db, doc, entity) {
 // document's `camps` collection is permanently ignored (skipped, logged, never inserted, never
 // allowed to overwrite the local identity row) rather than crashing the batch.
 function upsertCampsEntity(db, doc) {
-  const coll = doc.camps ?? {}
   const fields = PROJECTIONS.camps.fields
-  for (const id of Object.keys(coll)) {
-    const row = coll[id]
+  for (const id of listRecordIds(doc, 'camps')) {
+    const row = readRecord(doc, 'camps', id)
+    if (!row) continue
     for (const field of fields) {
       if (!(field in row)) continue
       try {
@@ -180,9 +181,9 @@ function upsertEntity(db, doc, entity) {
     return
   }
   const fields = PROJECTIONS[entity].fields
-  const coll = doc[entity] ?? {}
-  for (const id of Object.keys(coll)) {
-    const row = coll[id]
+  for (const id of listRecordIds(doc, entity)) {
+    const row = readRecord(doc, entity, id)
+    if (!row) continue
     // knownRow = row: every field the document currently holds for this id, all at once — unlike
     // op-log replay's true one-field-at-a-time arrival. Some entities' ensureExists (projections.js's
     // ensureWeekJoinRow and its hand-written equivalents for special_day_slots/
@@ -223,8 +224,7 @@ function deleteReconcileEntity(db, doc, entity) {
   // app — instantly breaking the entire device, not a graceful degradation. There is no product
   // flow that deletes a camp; skip entirely.
   if (entity === 'camps') return
-  const coll = doc[entity] ?? {}
-  const inDoc = new Set(Object.keys(coll))
+  const inDoc = new Set(listRecordIds(doc, entity))
   for (const { id } of db.prepare(`SELECT id FROM ${entity}`).all()) {
     if (!inDoc.has(id)) applyProjection(db, { entity, entity_id: id, field: DELETE_FIELD, value: 1 })
   }
@@ -310,7 +310,7 @@ function entityHasAnyDocRow(doc, entity) {
   if (BULK_REPLACE_MODELED_ENTITIES.has(entity)) {
     return Object.keys(doc[`${entity}_scopes`] ?? {}).length > 0
   }
-  return Object.keys(doc[entity] ?? {}).length > 0
+  return hasAnyRecord(doc, entity)
 }
 
 // `camps` is excluded from this guard's "does SQLite/the doc have any real data" signal (see

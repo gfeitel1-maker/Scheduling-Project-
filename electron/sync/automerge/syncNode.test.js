@@ -1,3 +1,4 @@
+import { readRecord, recordKey } from '../../automerge/campDocument.js'
 // @vitest-environment node
 //
 // Stage 4c acceptance test (design doc's Test strategy points 3, 4, 6): the
@@ -164,12 +165,14 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     // one side's doc can observe it mid-way through the other side's still-
     // in-flight merge, which is what made this assertion flaky).
     const hasConflict = (doc) => {
-      const conflicts = A.getConflicts(doc.activities.archery, 'location')
+      // Conflicts live on the field's own document key (flat record shape).
+      const conflicts = A.getConflicts(doc.activities, recordKey('archery', 'location'))
       return conflicts && Object.keys(conflicts).length >= 2
     }
     await waitFor(() => hasConflict(a.getDoc()) && hasConflict(b.getDoc()))
 
-    const conflicts = A.getConflicts(a.getDoc().activities.archery, 'location')
+    // Conflicts live on the field's own document key now (flat record shape).
+    const conflicts = A.getConflicts(a.getDoc().activities, recordKey('archery', 'location'))
     expect(conflicts && Object.keys(conflicts).length).toBeGreaterThanOrEqual(2)
 
     const rowA = activityRow(dbA, 'archery')
@@ -250,14 +253,14 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     // SQLite left at last-good: the bad anchor never partially materialized.
     expect(dbB.prepare('SELECT COUNT(*) AS c FROM anchor_activities').get().c).toBe(0)
     // The merged doc is kept as CRDT truth (the merge was NOT reverted).
-    expect(b.getDoc().anchor_activities['anc-1']).toBeTruthy()
+    expect(readRecord(b.getDoc(), 'anchor_activities', 'anc-1')).toBeTruthy()
 
     // NOT poisoned: node B still receives + merges further syncs. A subsequent
     // valid edit still converges into B's DOC (SQLite stays blocked on the
     // unresolved anchor until the Stage-2 rules layer repairs it — documented).
     const good = applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'act-ok', field: 'name', value: 'Swim' })
     await a.applyLocal(good)
-    await waitFor(() => b.getDoc().activities?.['act-ok']?.name === 'Swim')
-    expect(b.getDoc().activities['act-ok'].name).toBe('Swim')
+    await waitFor(() => readRecord(b.getDoc(), 'activities', 'act-ok')?.name === 'Swim')
+    expect(readRecord(b.getDoc(), 'activities', 'act-ok')?.name).toBe('Swim')
   })
 })

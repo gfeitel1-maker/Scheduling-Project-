@@ -13,8 +13,7 @@ import {
   createEmptyDoc,
   applyWrite,
   saveDoc,
-  loadDoc,
-} from './campDocument.js'
+  loadDoc, readRecord, listRecordIds, recordKey } from './campDocument.js'
 import { DELETE_FIELD } from '../ops/operations.js'
 import { PROJECTIONS } from '../ops/projections.js'
 
@@ -27,7 +26,7 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
   it('applies a field write into the entity collection', () => {
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Monday' })
-    expect(doc[STAGE1_ENTITY]['day-1']).toEqual({ label: 'Monday' })
+    expect(readRecord(doc, STAGE1_ENTITY, 'day-1')).toEqual({ label: 'Monday' })
   })
 
   it('accumulates multiple fields and multiple entities', () => {
@@ -35,28 +34,28 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Monday' })
     doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'sort_order', value: 1 })
     doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-2', field: 'label', value: 'Tuesday' })
-    expect(doc[STAGE1_ENTITY]['day-1']).toEqual({ label: 'Monday', sort_order: 1 })
-    expect(doc[STAGE1_ENTITY]['day-2']).toEqual({ label: 'Tuesday' })
+    expect(readRecord(doc, STAGE1_ENTITY, 'day-1')).toEqual({ label: 'Monday', sort_order: 1 })
+    expect(readRecord(doc, STAGE1_ENTITY, 'day-2')).toEqual({ label: 'Tuesday' })
   })
 
   it('DELETE_FIELD sentinel removes the whole entity (mirrors applyProjection)', () => {
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Monday' })
     doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: DELETE_FIELD, value: 1 })
-    expect(doc[STAGE1_ENTITY]['day-1']).toBeUndefined()
+    expect(readRecord(doc, STAGE1_ENTITY, 'day-1')).toBeNull()
   })
 
   it('an unregistered field is a silent no-op (mirrors applyProjection)', () => {
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'not_a_field', value: 'x' })
-    expect(doc[STAGE1_ENTITY]['day-1']).toBeUndefined()
+    expect(readRecord(doc, STAGE1_ENTITY, 'day-1')).toBeNull()
   })
 
   it('coerces booleans the same way the op-log does (true -> "1")', () => {
     let doc = createEmptyDoc()
     // day_of_week is a registered field; use it to prove coercion parity.
     doc = applyWrite(doc, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'day_of_week', value: true })
-    expect(doc[STAGE1_ENTITY]['day-1'].day_of_week).toBe('1')
+    expect(readRecord(doc, STAGE1_ENTITY, 'day-1').day_of_week).toBe('1')
   })
 
   it('refuses an entity outside the modeled scope (explicit scope — week_activity_exclusions is now modeled too, since the parent-scoped entities slice; see parentScoped.test.js)', () => {
@@ -87,8 +86,8 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     expect(reloaded[STAGE1_ENTITY]).toEqual(doc[STAGE1_ENTITY])
     reloaded = applyWrite(reloaded, { entity: STAGE1_ENTITY, entity_id: 'day-3', field: 'label', value: 'Wednesday' })
     const twice = loadDoc(saveDoc(reloaded))
-    expect(Object.keys(twice[STAGE1_ENTITY]).sort()).toEqual(['day-1', 'day-2', 'day-3'])
-    expect(twice[STAGE1_ENTITY]['day-1']).toEqual({ label: 'Monday', sort_order: 0 })
+    expect(listRecordIds(twice, STAGE1_ENTITY).sort()).toEqual(['day-1', 'day-2', 'day-3'])
+    expect(readRecord(twice, STAGE1_ENTITY, 'day-1')).toEqual({ label: 'Monday', sort_order: 0 })
   })
 
   it('STAGE1_FIELDS matches PROJECTIONS.days_of_operation.fields exactly (drift guard)', () => {
@@ -105,7 +104,7 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
       a = applyWrite(a, { entity: STAGE1_ENTITY, entity_id: 'day-2', field: 'label', value: 'Tuesday' })
       b = applyWrite(b, { entity: STAGE1_ENTITY, entity_id: 'day-3', field: 'label', value: 'Wednesday' })
       const merged = A.merge(A.clone(a), b)
-      expect(Object.keys(merged[STAGE1_ENTITY]).sort()).toEqual(['day-1', 'day-2', 'day-3'])
+      expect(listRecordIds(merged, STAGE1_ENTITY).sort()).toEqual(['day-1', 'day-2', 'day-3'])
     })
 
     it('a concurrent same-field edit converges deterministically AND surfaces both values', () => {
@@ -117,9 +116,11 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
       b = applyWrite(b, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Montag' })
       const merged = A.merge(A.clone(a), b)
       // Deterministic single winner...
-      expect(['Lunes', 'Montag']).toContain(merged[STAGE1_ENTITY]['day-1'].label)
+      expect(['Lunes', 'Montag']).toContain(readRecord(merged, STAGE1_ENTITY, 'day-1').label)
       // ...and BOTH competing values remain inspectable for a human to resolve.
-      const conflicts = A.getConflicts(merged[STAGE1_ENTITY]['day-1'], 'label')
+      // Conflicts live on the FIELD's own document key now — a field is its own
+      // key, so there is no record object to ask (see the flat-record-shape ADR).
+      const conflicts = A.getConflicts(merged[STAGE1_ENTITY], recordKey('day-1', 'label'))
       expect(Object.values(conflicts).sort()).toEqual(['Lunes', 'Montag'])
     })
   })
@@ -177,9 +178,9 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
 
       const merged = A.merge(A.clone(a), b)
 
-      expect(Object.keys(merged[STAGE1_ENTITY]).sort()).toEqual(['a-row', 'b-row'])
-      expect(merged[STAGE1_ENTITY]['a-row'].label).toBe('From A')
-      expect(merged[STAGE1_ENTITY]['b-row'].label).toBe('From B')
+      expect(listRecordIds(merged, STAGE1_ENTITY).sort()).toEqual(['a-row', 'b-row'])
+      expect(readRecord(merged, STAGE1_ENTITY, 'a-row').label).toBe('From A')
+      expect(readRecord(merged, STAGE1_ENTITY, 'b-row').label).toBe('From B')
       // The bug's signature: a split root shows up as a root-level conflict (A.getConflicts on the
       // top-level document) once merged — a shared genesis has none.
       expect(Object.keys(A.getConflicts(merged) ?? {})).toHaveLength(0)
@@ -198,9 +199,9 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
 
       const merged = A.merge(A.clone(a), b)
 
-      expect(Object.keys(merged.week_activity_exclusions).sort()).toEqual(['wae-a', 'wae-b'])
-      expect(merged.week_activity_exclusions['wae-a'].week_id).toBe('week-1')
-      expect(merged.week_activity_exclusions['wae-b'].week_id).toBe('week-1')
+      expect(listRecordIds(merged, 'week_activity_exclusions')).toEqual(['wae-a', 'wae-b'])
+      expect(readRecord(merged, 'week_activity_exclusions', 'wae-a').week_id).toBe('week-1')
+      expect(readRecord(merged, 'week_activity_exclusions', 'wae-b').week_id).toBe('week-1')
       expect(Object.keys(A.getConflicts(merged) ?? {})).toHaveLength(0)
     })
 
