@@ -17,6 +17,7 @@ import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../
 import { recordLibp2pPeerId } from './peerIdentity.js'
 import { wireMutualAuth } from './mutualAuth.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
+import { joinCode as joinCodeFor, joinProof, verifyJoinProof } from '../joinCode.js'
 
 // Starts a transport node and wires it to `doc`/`db`. Returns a handle that
 // exposes the current doc and the same lifecycle/broadcast surface as
@@ -40,7 +41,7 @@ import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 // only computes and hands them off. Wrapped in try/catch so a consumer's own throw can never break
 // sync or escape as an unhandled rejection — sync must keep converging regardless of what a push-
 // event listener does with what it's handed.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, peerDiscovery, onAuthRejected, listen, now } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, onPairingDecision, peerDiscovery, onAuthRejected, listen, now } = {}) {
   // Stage 5f: this module no longer keeps a private `state.doc` — the doc lives in liveDoc.js's
   // `docRegistry`, keyed by THIS `db`, so that a local write (liveDoc.recordLocalWrite) and a
   // remote merge (handleReceived below) mutate the exact same document instead of two copies that
@@ -210,11 +211,30 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // (evaluatePairingRequest, shared with syncServer.js) is this module's own
   // concern.
   async function onPairingRequestMsg(msg) {
+    // Join-code proof (docs/adr/2026-09-08-libp2p-join-flow.md §5). A request
+    // carrying a `join_nonce` is a first-join over the join-discovery tag, and
+    // that tag is broadcast in the clear — so the nonce's proof is the only
+    // thing separating the real joining device from anyone who mirrored the
+    // tag. Verified BEFORE evaluatePairingRequest so a mirrored-tag peer never
+    // reaches the director's screen at all.
+    //
+    // A request WITHOUT a nonce is an already-paired device reconnecting (the
+    // camp-scoped path), which never had a code and is unchanged.
+    let joinConfirm = null
+    if (typeof msg.join_nonce === 'string') {
+      const campId = db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
+      const code = campId ? joinCodeFor(campId) : null
+      if (!code || !verifyJoinProof(code, msg.join_nonce, 'joiner', msg.join_proof)) {
+        return { ok: false, reason: 'bad_join_proof' }
+      }
+      joinConfirm = joinProof(code, msg.join_nonce, 'host')
+    }
+
     const result = evaluatePairingRequest(db, { device_id: msg.device_id, device_name: msg.device_name })
     if (result.ok && !result.alreadyApproved && typeof onPairingRequest === 'function') {
       onPairingRequest(msg.device_id, msg.device_name)
     }
-    return result
+    return joinConfirm ? { ...result, joinConfirm } : result
   }
 
   // Stage 5d-2b: device-secret + PIN/lockout, shared with syncServer.js's
@@ -251,6 +271,10 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     onAuthenticate,
     onPairingRequest: onPairingRequestMsg,
     onLogin,
+    // Stage 6 join flow: the joining device's end of the Host's approval
+    // dial-back. Only ever set by joinSession.js; a Host and an
+    // already-paired Client both leave it unset and never receive one.
+    onPairingDecision,
     peerDiscovery,
     // Threaded through to authGate.js's rate-limit clock (Stage 5d-2b re-
     // review, HIGH finding fix) — optional, tests only; production never
@@ -284,6 +308,9 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     dial: transport.dial,
     authenticateWith: transport.authenticateWith,
     isPeerAuthenticated: transport.isPeerAuthenticated,
+    // First-join trust bootstrap — see transport.js's admitPeer comment. Only
+    // joinSession.js calls this, and only right after logging in to that peer.
+    admitPeer: transport.admitPeer,
     sendPairingApproved: transport.sendPairingApproved,
     sendPairingDenied: transport.sendPairingDenied,
     onPeerDiscovery: transport.onPeerDiscovery,

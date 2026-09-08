@@ -106,11 +106,16 @@ function decodeMessage(bytes) {
 // joins after a write never learns about it, and two devices that each have prior data both sit
 // showing nothing until somebody happens to make a new edit. Admission is the correct trigger —
 // it is the first moment we are both allowed to send to a peer and know they will accept it.
-export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, now = Date.now } = {}) {
+export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, now = Date.now } = {}) {
   const authenticatedPeers = new Set()
   // device_id -> PeerId string, for a pairing_request whose director
   // decision hasn't landed yet. See module comment above.
   const pendingPairingPeers = new Map()
+  // device_id -> the Host's half of the join-code proof for THIS attempt, so
+  // the director's decision (delivered later, on a new stream) still carries
+  // it. Without this the joining device would have nothing to verify on the
+  // approval path and would be back to trusting whoever answered.
+  const pendingJoinConfirms = new Map()
 
   // Rate-limit bookkeeping (see the module-level comment above for the
   // keying rationale). `now` is injectable so the throttle tests can drive
@@ -210,13 +215,16 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
         try {
           if (result.ok && result.alreadyApproved) {
-            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_approved', device_secret_identifier: result.device_secret_identifier }))
+            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_approved', device_secret_identifier: result.device_secret_identifier, ...(result.joinConfirm ? { join_confirm: result.joinConfirm } : {}) }))
           } else if (result.ok) {
             // Remember this peer id so a later director decision can dial
             // back to it — the ORIGINAL stream is about to close and cannot
             // be held open for an arbitrarily long human decision.
-            if (typeof msg.device_id === 'string') pendingPairingPeers.set(msg.device_id, fromPeerId)
-            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_pending' }))
+            if (typeof msg.device_id === 'string') {
+              pendingPairingPeers.set(msg.device_id, fromPeerId)
+              if (result.joinConfirm) pendingJoinConfirms.set(msg.device_id, result.joinConfirm)
+            }
+            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_pending', ...(result.joinConfirm ? { join_confirm: result.joinConfirm } : {}) }))
           } else {
             await sendFramed(stream.sink, encodeMessage({ type: 'pairing_denied' }))
           }
@@ -252,7 +260,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
         try {
           if (result.ok) {
-            await sendFramed(stream.sink, encodeMessage({ type: 'login_ok', token: result.token, userId: result.userId, role: result.role }))
+            await sendFramed(stream.sink, encodeMessage({ type: 'login_ok', token: result.token, userId: result.userId, role: result.role, ...(result.camp ? { camp: result.camp } : {}) }))
           } else {
             await sendFramed(
               stream.sink,
@@ -265,6 +273,33 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
           }
         } catch {
           // ignore — closing regardless
+        }
+        await stream.close().catch(() => {})
+        return
+      }
+
+      // The RECEIVING half of deliverPairingDecision below — this is the
+      // joining device's end of the dial-back, not the Host's.
+      //
+      // Stage 6 join flow (docs/adr/2026-09-08-libp2p-join-flow.md): before
+      // this branch existed, a Host that approved a device dialed back, wrote
+      // its `pairing_approved` frame, and the joining device fell through to
+      // the `unsupported_auth_message` abort below — the approval was
+      // delivered and thrown away. Under the op-log that did not matter,
+      // because syncClient.js received the same decision over WS; once the
+      // op-log is retired this is the ONLY way a device learns it was let in.
+      //
+      // Deliberately NOT rate-limited, unlike pairing_request/login above.
+      // Those are unauthenticated requests an attacker floods a HOST with;
+      // this only ever arrives, and the callback's job (joinSession.js) is to
+      // match it against a request this device actually made — an unsolicited
+      // frame from a stranger is dropped there, on identity, which a rate
+      // limit would not improve.
+      if (msg.type === 'pairing_approved' || msg.type === 'pairing_denied') {
+        try {
+          await onPairingDecision?.(msg, { fromPeerId })
+        } catch (err) {
+          console.error(`authGate: onPairingDecision threw: ${err?.message ?? err}`)
         }
         await stream.close().catch(() => {})
         return
@@ -286,9 +321,14 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
     const peerId = pendingPairingPeers.get(deviceId)
     if (!peerId) return false
     pendingPairingPeers.delete(deviceId)
+    const joinConfirm = pendingJoinConfirms.get(deviceId) ?? null
+    pendingJoinConfirms.delete(deviceId)
+    const outgoing = joinConfirm && frame.type === 'pairing_approved'
+      ? { ...frame, join_confirm: joinConfirm }
+      : frame
     try {
       const stream = await node.dialProtocol(peerIdFromString(peerId), AUTH_PROTO, { runOnLimitedConnection: true })
-      await sendFramed(stream.sink, encodeMessage(frame))
+      await sendFramed(stream.sink, encodeMessage(outgoing))
       await stream.close().catch(() => {})
       return true
     } catch (err) {
