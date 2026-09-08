@@ -24,27 +24,19 @@ import { run as scenario02 } from './scenarios/02-offline-restart.automerge.js'
 import { run as scenario08 } from './scenarios/08-different-field-merge.automerge.js'
 import { run as scenario28 } from './scenarios/28-conflicting-edit.automerge.js'
 
-// Scenario 08 — the concurrent-create data loss — is FIXED by the reconciler
-// (docs/adr/2026-09-08-crdt-conflict-reconciliation.md) and now passes
-// consistently, having failed roughly 80% of runs before it.
+// Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
+// disagree about one slot) are both FIXED and both pass consistently, having
+// failed ~80% and ~50% of runs respectively before the reconciler
+// (docs/adr/2026-09-08-crdt-conflict-reconciliation.md).
 //
-// Scenario 28 is KNOWN FLAKY, deliberately left in and left red about half the
-// time. It is the owner's own case: two directors disagree about one slot, both
-// see it, one chooses, and everyone converges. The first three assertions pass
-// every run — the disagreement IS surfaced on all three devices, and nobody
-// invents a third answer. What fails intermittently is the last one: after a
-// resolution, the other devices sometimes still show the conflict.
-//
-// What is known, so the next person does not re-derive it: resolving is NOT the
-// broken part. Every resolution strategy (plain re-assign, delete-then-set in
-// one change, delete then set in two) clears the conflict in-process, including
-// the shape that correlates with the failure — where the resolver's own value
-// had already won locally. The remaining gap is convergence over the network
-// after a resolution, not the write that performs it.
-//
-// It is NOT quarantined or skipped, and this runner is not wired into
-// `npm run verify`, so an honest red here costs nothing and hides nothing.
-// Dropping it would report 4/4 against a case a director will hit.
+// Worth keeping, because it cost a long detour: scenario 28's intermittency was
+// never a sync problem. A resolution failed only when the RECORD KEY was
+// contested rather than merely a field — which is exactly what happens when two
+// devices each create the same slot id — and in that shape a field write lands
+// INSIDE the surviving version and leaves the contest standing, so the conflict
+// came straight back on the next projection. Whether that path or the
+// field-level one reported depended on how the two writes interleaved, which is
+// where the ~50% came from. Do not re-derive this by hunting the network.
 const SCENARIOS = [
   { name: '01 bootstrap + first sync (libp2p)', fn: scenario01 },
   { name: '02 offline write survives restart (libp2p)', fn: scenario02 },

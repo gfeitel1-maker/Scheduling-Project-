@@ -124,6 +124,16 @@ export function reconcile(doc) {
           if (disagrees) {
             // Job 2 — a real disagreement inside a concurrently-created record.
             // Recorded, never unioned: unioning would mean choosing.
+            //
+            // These `versions` are IMMUTABLE HISTORY — what each device wrote,
+            // unchanged by anything later. That is why resolving one of these
+            // CANNOT be an ordinary field write: a field write lands inside the
+            // surviving version and leaves the contest between versions
+            // standing, so the conflict returns on the next projection, for
+            // ever. resolveConflictInDoc below assigns the record key instead,
+            // which is the only edit that dominates both versions. Found by
+            // scenario 28, which failed ~50% of runs — exactly the runs where
+            // this path, rather than the field-level one, was reporting.
             conflicts.push({
               entity,
               entityId,
@@ -231,6 +241,36 @@ export function assertNoUnrecordedConflicts(doc, recorded) {
  * be. Both happen in ONE change, so no peer can ever observe the field absent.
  */
 export function resolveConflictInDoc(doc, { entity, entityId, field, value }) {
+  // Delete-then-set rather than a plain assignment, because a director's most
+  // likely choice is the value already on their screen, and that is the one
+  // shape where a plain assignment risks writing nothing at all. Both happen in
+  // ONE change, so no peer ever observes the field absent.
+  //
+  // REJECTED, and it must stay rejected: resolving by reassigning the record
+  // KEY (`d[entity][entityId] = union`). It is tempting because it is the only
+  // edit that dominates two competing record VERSIONS, and it is what an
+  // earlier revision of this function did. It reintroduces silent data loss in
+  // a narrower window, which is the wrong direction on the exact axis this
+  // whole module exists for. Measured:
+  //
+  //     resolution:      s1 = { name: 'archery' }        (key reassignment)
+  //     concurrent edit: s1.notes = 'bring sunscreen'    (ordinary field write)
+  //     merged:          { name: 'archery' }   -- notes GONE
+  //     getConflicts:    0                     -- nothing to surface, ever
+  //
+  // A counselor adding a note while the director settles that cell loses the
+  // note with no trace: the reassignment creates a new container, so a
+  // concurrent write into the old one is discarded, and unlike the bug the
+  // reassignment was meant to fix, this one is invisible. Loud-and-annoying is
+  // a bad trade for silent-and-invisible.
+  //
+  // The consequence is a real, documented limitation rather than a hidden one:
+  // a disagreement between two concurrently-CREATED versions of a record cannot
+  // be cleared by this function, because nothing short of a key reassignment
+  // dominates both versions. It stays surfaced until the record shape itself
+  // changes (see the ADR's deferred "flatten the record shape" option, which
+  // this is now direct evidence for). A conflict that will not clear is
+  // annoying; an edit that vanishes is not recoverable.
   return A.change(doc, `resolve conflict: ${entity}.${field}`, (d) => {
     const record = d[entity]?.[entityId]
     if (!record) return

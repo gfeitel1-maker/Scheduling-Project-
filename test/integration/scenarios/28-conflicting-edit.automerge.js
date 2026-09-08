@@ -72,8 +72,26 @@ export async function run() {
         rows: [{ id: SLOT, template_id: 'tpl-1', activity_id: 'basketball' }],
       })
     )
-    await waitFor(() => clientA.domainRow('template_slots', SLOT)?.activity_id === 'basketball', 6000)
-    await waitFor(() => clientB.domainRow('template_slots', SLOT)?.activity_id === 'basketball', 6000)
+
+    // One flat per-cell write so the slot's RECORD exists on every device
+    // before anyone edits it. Not fixture noise: a bulk replace writes the
+    // template's SCOPE, not the flat record, so without this the two clients
+    // each CREATE the record and the disagreement is between two competing
+    // record VERSIONS rather than two values of one field. Those are different
+    // problems with different resolutions (see the ADR's limitation note).
+    // This scenario is the owner's case: a slot everyone already has, two
+    // people changing it.
+    await host.write({ entity: 'template_slots', entity_id: SLOT, field: 'activity_id', value: 'basketball' })
+
+    // Wait on the DOCUMENT, not the projected row. The projected row shows
+    // 'basketball' as soon as the template's SCOPE arrives, which happens
+    // before the flat per-cell record does — so waiting on SQLite here passes
+    // while each client still has no record of its own to edit, and both then
+    // CREATE it, turning this into a contested-record test by accident. That
+    // race is where this scenario's earlier ~50% came from.
+    const hasSlotRecord = (d) => d.getDoc().template_slots?.[SLOT]?.activity_id === 'basketball'
+    await waitFor(() => hasSlotRecord(clientA), 6000)
+    await waitFor(() => hasSlotRecord(clientB), 6000)
 
     // Two directors, same minute, different decisions.
     await clientA.write({ entity: 'template_slots', entity_id: SLOT, field: 'activity_id', value: 'archery' })

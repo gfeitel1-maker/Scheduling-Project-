@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest'
 import * as A from '@automerge/automerge'
 import { createEmptyDoc, applyWrite } from './campDocument.js'
-import { reconcile, assertNoUnrecordedConflicts } from './reconcile.js'
+import { reconcile, assertNoUnrecordedConflicts, resolveConflictInDoc } from './reconcile.js'
 
 const write = (doc, entity, entity_id, field, value) =>
   applyWrite(doc, { entity, entity_id, field, value })
@@ -218,4 +218,66 @@ describe('assertNoUnrecordedConflicts — no path around it', () => {
   it('passes for an ordinary document with nothing concurrent in it', () => {
     expect(() => assertNoUnrecordedConflicts(base, [])).not.toThrow()
   })
+})
+
+// The bug scenario 28 was actually catching, and the reason it failed ~50% of
+// runs rather than always: it only fires when the RECORD KEY is contested, not
+// merely a field. Two devices writing the same new slot id each create the
+// record, so which path reports depends on how the writes interleave.
+describe('resolveConflictInDoc — a decision has to stick, without costing someone else theirs', () => {
+  const contestedRecord = () => {
+    const { a, b } = diverge(
+      createEmptyDoc(),
+      (d) => write(d, 'template_slots', 's1', 'activity_id', 'archery'),
+      (d) => write(d, 'template_slots', 's1', 'activity_id', 'playground')
+    )
+    return A.merge(A.clone(a), b)
+  }
+
+  it('settles an ordinary field disagreement, including the value already showing', () => {
+    // The owner's case, and the common one: the record exists everywhere and
+    // two people change the same cell. Choosing the value already on screen is
+    // the likeliest thing a person does, and is the shape where a plain
+    // assignment risks writing nothing at all.
+    const base = write(createEmptyDoc(), 'template_slots', 's1', 'activity_id', 'basketball')
+    const { a, b } = diverge(
+      base,
+      (d) => write(d, 'template_slots', 's1', 'activity_id', 'archery'),
+      (d) => write(d, 'template_slots', 's1', 'activity_id', 'playground')
+    )
+    const merged = A.merge(A.clone(a), b)
+    const showing = merged.template_slots.s1.activity_id
+    const resolved = resolveConflictInDoc(merged, {
+      entity: 'template_slots', entityId: 's1', field: 'activity_id', value: showing,
+    })
+    expect(reconcile(resolved).conflicts).toEqual([])
+    expect(resolved.template_slots.s1.activity_id).toBe(showing)
+  })
+
+  // THE REJECTED FIX, pinned so it cannot come back. Reassigning the record key
+  // is the only edit that dominates two competing record VERSIONS, so it is the
+  // obvious way to make a contested record resolvable — and it trades a loud
+  // problem for a silent one, on the exact axis this module exists for.
+  it('never reassigns the record key, because that discards concurrent edits invisibly', () => {
+    const contested = contestedRecord()
+
+    // What a key reassignment does to a colleague working on the same record.
+    const reassigned = A.change(A.clone(contested), (d) => {
+      d.template_slots.s1 = { activity_id: 'archery' }
+    })
+    const colleague = write(A.clone(contested), 'template_slots', 's1', 'flags', 'bring-sunscreen')
+    const lost = A.merge(A.clone(reassigned), colleague)
+    expect(lost.template_slots.s1.flags).toBeUndefined()
+    // And the worst part: nothing to surface. No conflict, no trace, nobody told.
+    expect(A.getConflicts(lost.template_slots, 's1') ?? {}).toEqual({})
+    expect(reconcile(lost).conflicts).toEqual([])
+
+    // What this function actually does instead — the colleague's edit survives.
+    const resolved = resolveConflictInDoc(A.clone(contested), {
+      entity: 'template_slots', entityId: 's1', field: 'activity_id', value: 'archery',
+    })
+    const kept = A.merge(A.clone(resolved), write(A.clone(contested), 'template_slots', 's1', 'flags', 'bring-sunscreen'))
+    expect(kept.template_slots.s1.flags).toBe('bring-sunscreen')
+  })
+
 })
