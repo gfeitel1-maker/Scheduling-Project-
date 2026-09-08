@@ -995,6 +995,19 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       }
     }
 
+    // A revoked device that is still CONNECTED must stop being admitted now, not
+    // when it next happens to drop. Admission is granted once and otherwise only
+    // cleared on peer:disconnect, so without this a revoked laptop keeps
+    // receiving the camp's documents for as long as it stays online. The WS
+    // transport had no equivalent gap — revoking closed the socket. Found by
+    // porting integration scenario 05.
+    try {
+      const peerId = db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(targetDeviceId)?.libp2p_peer_id
+      if (peerId) getAutomergeNode()?.revokePeer(peerId)
+    } catch (err) {
+      console.error(`revokeDevice: failed to evict ${targetDeviceId} from the live admission set: ${err?.message ?? err}`)
+    }
+
     return { deviceId: targetDeviceId, revoked: true }
   }
 

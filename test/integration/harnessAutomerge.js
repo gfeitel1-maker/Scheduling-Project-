@@ -154,6 +154,26 @@ export class AmHost {
   /** Read a domain row projected from the CRDT doc — the equivalent of
    * harness.js's Host.getOps()/dbExec reads, but against the actual
    * projection tables (activities, groups, ...) rather than `operations`. */
+  /** The director revokes a device. Mirrors main.js's revokeDevice: the row is
+   * stamped, and every later admission decision re-reads it — there is no
+   * cached trust to invalidate. */
+  revokeDevice(deviceId, reason = 'test revocation') {
+    this.db.prepare(
+      "UPDATE devices SET revoked_at = ?, revocation_reason = ?, pairing_status = 'revoked' WHERE id = ?"
+    ).run(new Date().toISOString(), reason, deviceId)
+    // Evicting a still-connected peer is part of revoking, not a separate
+    // step — see main.js's revokeDevice and transport.js's revokePeer.
+    const peerId = this.db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(deviceId)?.libp2p_peer_id
+    if (peerId) this.node.revokePeer(peerId)
+  }
+
+  /** Whether this Host currently admits `peerId` to exchange documents. The
+   * libp2p equivalent of "is the socket still open" — admission is the gate
+   * that matters, not the connection. */
+  admits(peerId) {
+    return this.node.isPeerAuthenticated(String(peerId))
+  }
+
   domainRow(table, id) {
     return this.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id)
   }

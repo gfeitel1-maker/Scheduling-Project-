@@ -262,6 +262,46 @@ for (const entity of BULK_REPLACE_MODELED_ENTITIES) {
 // top-up — every collection this document layer can ever write to already exists in the frozen
 // genesis (enforced by the subset guard above), so there is nothing left to create independently
 // per device, and therefore nothing left that could split on merge.
+// SHARED-GENESIS ENFORCEMENT, at runtime rather than only by construction.
+//
+// Every device clones the same frozen GENESIS, so every legitimate document
+// shares one root. A document with a DIFFERENT root is not a peer's view of
+// this camp — merging it is the Stage 5 finding-2 hazard, and it is worse than
+// it sounds: the two roots' collections collide as ordinary map keys, Automerge
+// keeps ONE side deterministically-but-arbitrarily, and the loser's entire
+// collection disappears. Whose survives depends on actor ids, so the same
+// attack loses this device's activities on one run and not the next.
+//
+// The module-load subset guard below protects against OUR code inventing a
+// collection. It cannot see an incoming document, and until this existed
+// nothing did: an admitted peer could send a foreign-genesis document and take
+// the Host's rows with it, which the projector then delete-reconciled out of
+// SQLite. Found by porting integration scenario 14 (corrupt payload) to libp2p.
+//
+// Compared on the FIRST change's hash rather than on content: the root is what
+// makes two documents the same document, and it is fixed for the life of the
+// genesis.
+let cachedGenesisRoot = null
+
+export function genesisRootHash() {
+  if (cachedGenesisRoot === null) {
+    cachedGenesisRoot = A.getHistory(genesisDoc())[0]?.change?.hash ?? null
+  }
+  return cachedGenesisRoot
+}
+
+/** True when `doc` descends from the shared genesis — i.e. it is a view of THIS
+ * camp's document rather than an unrelated one. Never throws: a document so
+ * malformed that its history cannot be read is, for this purpose, not ours. */
+export function sharesGenesis(doc) {
+  try {
+    const root = A.getHistory(doc)[0]?.change?.hash ?? null
+    return root !== null && root === genesisRootHash()
+  } catch {
+    return false
+  }
+}
+
 export function createEmptyDoc() {
   return genesisDoc()
 }

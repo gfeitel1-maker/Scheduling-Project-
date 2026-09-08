@@ -143,13 +143,17 @@ export function getDocIfLoaded(db) {
 // comment and projector.js's assertDocIsSupersetOrEmpty). A freshly seeded doc is saved
 // immediately, synchronously, not debounced: this is a one-time event per camp per process, not a
 // per-field-op hot path, and it must land on disk before any projectAll can run against it.
-function getDoc(db, userDataDir, campId) {
+function getDoc(db, userDataDir, campId, { persistSeed = true } = {}) {
   const cached = getCurrentDoc(db)
   if (cached) return cached
   let doc = loadDoc(userDataDir, campId)
   if (!doc) {
     doc = seedAllFromSqlite(db)
-    saveDoc(userDataDir, campId, doc)
+    // `persistSeed: false` when this seed is happening INSIDE a write — see
+    // recordLocalWrite. Saving the seed there writes a document that is missing
+    // the very write that triggered it, and that partial document is what a
+    // crash inside the debounce window would leave on disk.
+    if (persistSeed) saveDoc(userDataDir, campId, doc)
   }
   docRegistry.set(db, doc)
   return doc
@@ -251,9 +255,28 @@ export function recordLocalWrite(db, { entity, entity_id, field, value }) {
 
   const userDataDir = userDataDirGetter()
   if (!userDataDir) return
-  const doc = getDoc(db, userDataDir, campId)
+  // A write can be the FIRST thing that ever needs a document for this camp —
+  // and with the engine defaulting to automerge (Stage 6b), that is now an
+  // ordinary production path rather than a test-only one.
+  //
+  // The seed must NOT be persisted on its own here. `ensureExists` creates a
+  // row before its fields arrive (`groups.name` is NOT NULL, so the row exists
+  // with ''), so a seed taken mid-write captures placeholder values — and
+  // saving that immediately puts a document on disk that is missing the write
+  // that caused it. A crash inside the debounce window would leave exactly that
+  // partial document, which the next launch would load rather than re-seed, and
+  // then replicate its empty values over the correct ones on other devices.
+  //
+  // So: seed in memory, apply the write, and persist the two together below.
+  const seeding = getCurrentDoc(db) === null || getCurrentDoc(db) === undefined
+  const doc = getDoc(db, userDataDir, campId, { persistSeed: false })
   const nextDoc = applyWrite(doc, { entity, entity_id, field, value })
   docRegistry.set(db, nextDoc)
+  if (seeding) {
+    // One synchronous save, once per camp per process — the same one-time cost
+    // the seed already paid, just moved to after the write instead of before.
+    saveDoc(userDataDir, campId, nextDoc)
+  }
   scheduleSave(db, userDataDir, campId, { local: true })
 }
 

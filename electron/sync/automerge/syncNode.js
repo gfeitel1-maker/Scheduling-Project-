@@ -19,6 +19,7 @@ import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../
 import { recordLibp2pPeerId } from './peerIdentity.js'
 import { wireMutualAuth } from './mutualAuth.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
+import { sharesGenesis } from '../../automerge/campDocument.js'
 import { joinCode as joinCodeFor, joinProof, verifyJoinProof } from '../joinCode.js'
 
 // Starts a transport node and wires it to `doc`/`db`. Returns a handle that
@@ -108,6 +109,23 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       // this node (design doc's "what must NOT be trusted" section).
       return
     }
+    // A document that does not share our genesis is not a peer's view of this
+    // camp, and merging it is destructive rather than merely useless: the two
+    // roots' collections collide as map keys, Automerge keeps one side, and the
+    // loser's ENTIRE collection disappears — nondeterministically, so it takes
+    // this device's rows on some runs and not others. The projector then
+    // delete-reconciles those rows out of SQLite.
+    //
+    // The admission gate cannot catch this: the sender is a legitimately
+    // admitted peer. Found by porting integration scenario 14 to libp2p.
+    if (!sharesGenesis(incoming)) {
+      console.error(
+        `syncNode: refused a document from ${fromPeerId ?? 'an unknown peer'} that does not share ` +
+          `this camp's genesis — merging it could discard this device's own collections`
+      )
+      return
+    }
+
     const currentDoc = getCurrentDoc(db)
     const before = A.getHeads(currentDoc)
     const merged = A.merge(currentDoc, incoming)
@@ -364,6 +382,10 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     isPeerAuthenticated: transport.isPeerAuthenticated,
     // First-join trust bootstrap — see transport.js's admitPeer comment. Only
     // joinSession.js calls this, and only right after logging in to that peer.
+    // Security control — see transport.js. main.js calls this when a director
+    // revokes a device, so a still-connected peer stops being admitted at once
+    // rather than when it next drops.
+    revokePeer: transport.revokePeer,
     admitPeer: transport.admitPeer,
     sendPairingApproved: transport.sendPairingApproved,
     sendPairingDenied: transport.sendPairingDenied,

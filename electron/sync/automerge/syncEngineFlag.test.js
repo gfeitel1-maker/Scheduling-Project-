@@ -19,11 +19,20 @@ async function loadWithEnv(value) {
 }
 
 describe('syncEngineFlag', () => {
-  it('defaults to oplog when SHORESH_SYNC_ENGINE is unset', async () => {
+  // Stage 6b flipped this, deliberately: automerge is the engine now. The old
+  // assertion (unset -> oplog) was correct for Stage 5 and is kept in the
+  // history rather than the file — see the plan's 6b row.
+  it('defaults to automerge when SHORESH_SYNC_ENGINE is unset', async () => {
     const mod = await loadWithEnv(undefined)
+    expect(mod.SYNC_ENGINE).toBe('automerge')
+    expect(mod.isAutomergeEngine()).toBe(true)
+    expect(mod.isOpLogEngine()).toBe(false)
+  })
+
+  it('still lets a device fall back to the op-log, exactly', async () => {
+    const mod = await loadWithEnv('oplog')
     expect(mod.SYNC_ENGINE).toBe('oplog')
     expect(mod.isOpLogEngine()).toBe(true)
-    expect(mod.isAutomergeEngine()).toBe(false)
   })
 
   it('resolves to automerge when SHORESH_SYNC_ENGINE=automerge', async () => {
@@ -33,10 +42,19 @@ describe('syncEngineFlag', () => {
     expect(mod.isOpLogEngine()).toBe(false)
   })
 
-  it('fails safe to oplog on a garbage value', async () => {
+  // The fail-safe DIRECTION is inverted by 6b, and that is worth an explicit
+  // test rather than an implication: a typo no longer silently keeps a device
+  // on the old engine. Selecting the op-log must be exact.
+  it('resolves a garbage value to automerge, not to the op-log', async () => {
     const mod = await loadWithEnv('garbage')
-    expect(mod.SYNC_ENGINE).toBe('oplog')
-    expect(mod.isOpLogEngine()).toBe(true)
-    expect(mod.isAutomergeEngine()).toBe(false)
+    expect(mod.SYNC_ENGINE).toBe('automerge')
+    expect(mod.isAutomergeEngine()).toBe(true)
+  })
+
+  it('does not accept a near-miss like OPLOG or "op-log" as the fallback', async () => {
+    for (const near of ['OPLOG', 'op-log', ' oplog']) {
+      const mod = await loadWithEnv(near)
+      expect(mod.SYNC_ENGINE).toBe('automerge')
+    }
   })
 })
