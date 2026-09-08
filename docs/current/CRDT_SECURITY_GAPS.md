@@ -182,6 +182,25 @@ restore should reconstruct fields or just undelete).
 
 ---
 
+## HARNESS PARITY GAPS
+
+Not product defects, but recorded because each one made a scenario fail while the
+product was fine — and each was a place the harness did LESS than `main.js` does.
+A harness that quietly diverges from production is a source of false confidence in
+both directions.
+
+| Gap | Symptom | Fix |
+|---|---|---|
+| Dual-write never configured | Every domain operation (`deleteRecord`, ingest, merge) applied locally and replicated **nothing**, behind one warning line | `configureDualWrite` |
+| A restarted Host never re-issued its own token | Reconnect timed out with everything else looking healthy — the Host could not authenticate outward, so sync was one-way | `AmHost.start` self-issues when a camp already exists, as `startAutomergeSyncNodeIfEnabled` does |
+| A restarted Host started from an EMPTY document | A Host that came back had forgotten everything; only `assertDocIsSupersetOrEmpty` stood between that and a wiped camp | `AmHost.start` seeds from SQLite, as `ensureAutomergeDocSeeded` does |
+
+The third is the one to remember: it is not a vulnerability, but it is the same
+shape as one — a device rejoining with an empty view of the camp, with a single
+guard preventing that from becoming a deletion.
+
+---
+
 ## Method note
 
 Both FIXED entries were found the same way: by writing an integration scenario in which two real

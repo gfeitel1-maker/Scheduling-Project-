@@ -30,6 +30,12 @@ import { run as scenario17 } from './scenarios/17-joining-device-domain-data.aut
 import { run as scenario07 } from './scenarios/07-pairing-reconnect.automerge.js'
 import { run as scenario15 } from './scenarios/15-clock-skew.automerge.js'
 import { run as scenario20 } from './scenarios/20-delete-used-record.automerge.js'
+import { run as scenario11 } from './scenarios/11-snapshot-restore.automerge.js'
+import { run as scenario22 } from './scenarios/22-location-merge.automerge.js'
+import { run as scenario23 } from './scenarios/23-camp-map-sync.automerge.js'
+import { run as scenario19 } from './scenarios/19-retire-orphan-slots.automerge.js'
+import { run as scenario21 } from './scenarios/21-ingest-prior-year.automerge.js'
+import { run as scenario13 } from './scenarios/13-host-crash-mid-sync.automerge.js'
 
 // Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
 // disagree about one slot) are both FIXED and both pass consistently, having
@@ -56,8 +62,24 @@ const SCENARIOS = [
   { name: '07 pairing survives a mid-flight reconnect (libp2p)', fn: scenario07 },
   { name: '15 a wrong clock does not reorder or hide a conflict (libp2p)', fn: scenario15 },
   { name: '20 deleting a used record replicates (libp2p)', fn: scenario20 },
+  { name: '11 a saved version is not rewritten by later edits (libp2p)', fn: scenario11 },
+  { name: '22 merging near-duplicate locations replicates both halves (libp2p)', fn: scenario22 },
+  { name: '23 a large camp-map image replicates intact (libp2p)', fn: scenario23 },
+  { name: '19 orphaned slots do not replicate (libp2p)', fn: scenario19 },
+  { name: '21 a prior year ingest replicates in full (libp2p)', fn: scenario21 },
+  { name: '13 the Host vanishes mid-exchange and nothing is lost (libp2p)', fn: scenario13 },
 ]
 
+// COVERAGE, so the count above is readable without arithmetic:
+//   20 of the 27 WS originals are covered by the 17 scenarios listed here
+//      (17 collapses 17/25/26/27, and 28 replaces 04).
+//    6 are retired with a stated reason, one section each, in
+//      docs/work/evidence/2026-09-08-retired-ws-scenarios.md — 03, 06, 09, 10,
+//      12, and the watermark half of 24. Retiring is a decision to record, not
+//      a silent deletion; that document is what explains their absence once the
+//      WS files are deleted with the transport in 6c.
+//    1 is DEFERRED, not retired — 18, below.
+//
 // WRITTEN BUT NOT LISTED, deliberately: scenarios/18-restore-queue.automerge.js.
 //
 // It is correct and it fails, on a real gap rather than anything it can fix:
@@ -106,7 +128,7 @@ async function main() {
 
   const total = SCENARIOS.length
   const passed = total - failures
-  console.log(`\n  ${passed}/${total} passed (${total} libp2p scenarios; they cover 14 of the 27 WS originals — 17 collapses 17/25/26/27)\n`)
+  console.log(`\n  ${passed}/${total} passed (${total} libp2p scenarios; they cover 20 of the 27 WS originals — 17 collapses 17/25/26/27)\n`)
 
   if (failures > 0) throw new Error(`${failures} libp2p integration scenario(s) failed`)
 }
