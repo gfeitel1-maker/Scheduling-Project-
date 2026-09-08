@@ -172,8 +172,9 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Generated route gains render-time location-contention detection (extends OVERLAP, does not touch UNFILLABLE)](../../docs/adr/2026-09-05-generated-route-render-time-location-contention.md) | proposed | proposed | — |
 | [ADR: An unresolved-location decision is remembered per camp via a compound_cell_decisions-shaped table, and every held-conflict reason gets a triage card](../../docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-conflict-triage-coverage.md) | proposed | implemented | — |
 | [ADR: Membership and identity mapping for Automerge/libp2p sync (Stage 5d)](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) | accepted | in_progress | [2026-09-08-libp2p-join-flow](../../docs/adr/2026-09-08-libp2p-join-flow.md) |
-| [ADR: Productionize Automerge + libp2p as the sync/data layer; SQLite becomes a rebuildable projection](../../docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md) | accepted | in_progress | [2026-09-06-libp2p-membership-mapping](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) · [2026-09-08-libp2p-join-flow](../../docs/adr/2026-09-08-libp2p-join-flow.md) |
-| [ADR: How a new device joins a camp over libp2p (Stage 6 join flow)](../../docs/adr/2026-09-08-libp2p-join-flow.md) | accepted | in_progress | — |
+| [ADR: Productionize Automerge + libp2p as the sync/data layer; SQLite becomes a rebuildable projection](../../docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md) | accepted | in_progress | [2026-09-06-libp2p-membership-mapping](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) · [2026-09-08-crdt-conflict-reconciliation](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) · [2026-09-08-libp2p-join-flow](../../docs/adr/2026-09-08-libp2p-join-flow.md) |
+| [ADR: Reconciling concurrent edits under the CRDT — union what doesn't overlap, surface what does](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) | accepted | in_progress | — |
+| [ADR: How a new device joins a camp over libp2p (Stage 6 join flow)](../../docs/adr/2026-09-08-libp2p-join-flow.md) | accepted | in_progress | [2026-09-08-crdt-conflict-reconciliation](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) |
 
 ## Runs
 

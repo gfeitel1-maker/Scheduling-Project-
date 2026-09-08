@@ -100,16 +100,61 @@ serialises two participants hides every concurrency defect in the thing under te
 missing join flow, and it silently removed the concurrency from every multi-device scenario. Worth
 carrying past this bug: the next such shortcut will do the same thing.
 
-## Why it matters for a camp
+## Correction: where this actually bites, and where it does not
 
-Two staff adding the same activity on two devices in the same minute is ordinary camp behaviour, not
-an edge case. The result is one of them silently losing their work, with a schedule that looks
-complete on both screens. Article V: *the engine surfaces conflicts; it never resolves them
-silently.* This resolves one silently, in the worst direction.
+An earlier revision of this document said "two staff adding the same activity on two devices in the
+same minute" is the everyday case. **That was asserted, not checked, and it is wrong.** New records
+are minted with `crypto.randomUUID()` (e.g. `ScheduleScreen.jsx`'s
+`placeActivityManual(..., crypto.randomUUID())`), so two devices creating "the same" activity
+generate two different ids and produce **two records** — a duplicate, which is visible and
+recoverable, not a lost field.
 
-It also blocks the cutover as specified: this is data loss that the op-log did **not** have (field-
-level ops from two devices merged additively), so flipping the default (6b) and removing the op-log
-(6d) would be a regression in correctness, not just in mechanism.
+The field-loss defect above requires the two devices to arrive at **the same entity id
+independently**, which happens only where ids are derived rather than random — `deriveScheduleTemplateId`,
+ingest paths that key off source data, and `ensureExists` upserts. That is a real surface and worth
+fixing, but it is narrower than first claimed and it is **not** the everyday schedule-editing case.
+
+## The bigger question, raised by the owner, and confirmed
+
+The owner's framing is the sharper one: *if two people generate the same idea it does not matter; if
+they make **different** decisions about the same slot, those need to be reconciled.* Exactly. And
+that case — two devices setting the **same field** of the **same existing record** to **different
+values** — behaves like this:
+
+```
+base : template_slots.s1.activity_id = 'basketball'
+A    : -> 'archery'          B : -> 'playground'
+merged activity_id: "playground"
+conflicts: {"42@0c96…":"archery","42@b4a6…":"playground"}
+```
+
+Automerge picks one deterministically, both devices agree on it, and the other person's decision is
+discarded into `getConflicts` — **which nothing reads**. The director who chose archery sees their
+change vanish with no notice, on a schedule that looks correct.
+
+Under the op-log this was **not** silent: a genuine conflicting write produced a row in the
+`conflicts` table and required explicit `resolveConflict`. That is precisely Article V — *the engine
+surfaces conflicts; it never resolves them silently* — and precisely what the parent ADR's Stage 6e
+flagged when it said `resolveConflict`/`listPendingConflicts` "have no CRDT analogue."
+
+And the harmless half of the owner's distinction is genuinely harmless: same slot, same value from
+both devices converges on that value with nothing to show a director, which is correct.
+
+So there are **two** defects here, not one, and the second is the more consequential:
+
+| | Concurrent record creation | Concurrent edit of the same field |
+|---|---|---|
+| Trigger | Same derived id on two devices | Two people editing one slot |
+| Frequency | Narrow (derived ids only) | **Ordinary camp behaviour** |
+| Result | One side's fields vanish | One side's *decision* vanishes |
+| Under the op-log | Merged additively | Surfaced as a conflict to resolve |
+
+Both block the cutover as specified, for the same reason: the op-log did not have either failure, so
+flipping the default (6b) and removing the op-log (6d) would be a regression in correctness, not
+just in mechanism. Any reconciler must therefore do two different jobs — **union non-overlapping
+fields silently** (nobody needs to adjudicate "A set the name, B set the location"), and **surface a
+genuine same-field disagreement to a human** rather than picking a winner. Those are not the same
+behaviour and a design that treats them as one will get the second one wrong.
 
 ## Options, with the tradeoffs, for the owner's decision
 

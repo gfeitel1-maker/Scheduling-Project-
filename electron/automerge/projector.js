@@ -25,6 +25,7 @@
 import { applyProjection } from '../ops/projections.js'
 import { DELETE_FIELD, applyBulkReplaceProjection } from '../ops/operations.js'
 import { DOMAIN_SNAPSHOT_ORDER, BULK_REPLACE_ENTITIES } from '../ops/campScopedEntities.js'
+import { assertNoUnrecordedConflicts } from './reconcile.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
 
@@ -237,8 +238,37 @@ function deleteReconcileEntity(db, doc, entity) {
 // Safe as a single-entity, single-pass operation (unlike projectAll below):
 // with only one table in play there is no cross-entity FK ordering for the
 // delete-reconcile half to violate.
+
+// The projection boundary is where an unhandled conflict becomes invisible
+// (docs/adr/2026-09-08-crdt-conflict-reconciliation.md). Two people editing the
+// same slot produce a document where one of their decisions has already been
+// discarded by Automerge into `getConflicts`; if that document projects into
+// SQLite without anyone recording the disagreement, both screens show the same
+// wrong answer and nobody is told. Under the op-log this wrote a `conflicts`
+// row and required an explicit resolution, so leaving it silent is a
+// regression, not a CRDT tradeoff.
+//
+// The requirement is NOT "callers remember to reconcile". It is that the system
+// cannot be in a state where a conflict went unhandled — so the check lives
+// HERE, at the one place a merged document becomes SQLite, and every export
+// below that writes from a document runs it. A future path that merges without
+// reconciling fails loudly at a projection it has to perform anyway. Same shape
+// as campDocument.js's module-load subset guard: the strength is that there is
+// no path around it, not the logic itself.
+//
+// "Recorded" is read from the `conflicts` table rather than passed in, so no
+// caller can satisfy the guard by asserting it complied.
+function assertConflictsRecorded(db, doc) {
+  const recorded = db
+    .prepare("SELECT entity, entity_id, field FROM conflicts WHERE resolved_at IS NULL AND id LIKE 'crdt:%'")
+    .all()
+    .map((r) => ({ entity: r.entity, entityId: r.entity_id, field: r.field }))
+  assertNoUnrecordedConflicts(doc, recorded)
+}
+
 export function projectEntity(db, doc, entity = STAGE1_ENTITY) {
   assertModeled(entity)
+  assertConflictsRecorded(db, doc)
   const run = db.transaction(() => {
     upsertEntity(db, doc, entity)
     deleteReconcileEntity(db, doc, entity)
@@ -321,6 +351,7 @@ function assertDocIsSupersetOrEmpty(db, doc) {
 // succeed: entity-by-entity in forward order would try to delete the cohort
 // while its tiers still exist and hit foreign_keys=ON.
 export function projectAll(db, doc) {
+  assertConflictsRecorded(db, doc)
   assertDocIsSupersetOrEmpty(db, doc)
   const run = db.transaction(() => {
     for (const entity of MODELED_ORDER) upsertEntity(db, doc, entity)
@@ -349,6 +380,7 @@ export function projectAll(db, doc) {
 // referrers (anchor_activities.day_id, day_overrides). Nothing here wires
 // this to live data; it runs only against documents built in-process.
 export function rebuildFromDoc(db, doc, entity) {
+  assertConflictsRecorded(db, doc)
   if (entity !== undefined) {
     assertModeled(entity)
     const run = db.transaction(() => {

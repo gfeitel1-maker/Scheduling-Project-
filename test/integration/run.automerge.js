@@ -22,22 +22,34 @@
 import { run as scenario01 } from './scenarios/01-bootstrap.automerge.js'
 import { run as scenario02 } from './scenarios/02-offline-restart.automerge.js'
 import { run as scenario08 } from './scenarios/08-different-field-merge.automerge.js'
+import { run as scenario28 } from './scenarios/28-conflicting-edit.automerge.js'
 
-// KNOWN FAILING, deliberately left in and left red: scenario 08 fails because
-// two devices that concurrently create the SAME entity lose one side's fields
-// on merge — see docs/work/evidence/2026-09-08-concurrent-entity-creation-loses-fields.md
-// for the no-network reproducer and the options. It is a pre-existing document-
-// model defect that this harness surfaced, not a harness problem and not
-// something the join flow introduced, and fixing it is an ADR-level decision.
+// Scenario 08 — the concurrent-create data loss — is FIXED by the reconciler
+// (docs/adr/2026-09-08-crdt-conflict-reconciliation.md) and now passes
+// consistently, having failed roughly 80% of runs before it.
 //
-// It is NOT quarantined or skipped. This runner is not wired into
-// `npm run verify`, so an honest red here costs nothing and hides nothing,
-// whereas removing the scenario would leave the suite reporting 3/3 against a
-// known data-loss bug. Do not "fix" this by dropping it from the list.
+// Scenario 28 is KNOWN FLAKY, deliberately left in and left red about half the
+// time. It is the owner's own case: two directors disagree about one slot, both
+// see it, one chooses, and everyone converges. The first three assertions pass
+// every run — the disagreement IS surfaced on all three devices, and nobody
+// invents a third answer. What fails intermittently is the last one: after a
+// resolution, the other devices sometimes still show the conflict.
+//
+// What is known, so the next person does not re-derive it: resolving is NOT the
+// broken part. Every resolution strategy (plain re-assign, delete-then-set in
+// one change, delete then set in two) clears the conflict in-process, including
+// the shape that correlates with the failure — where the resolver's own value
+// had already won locally. The remaining gap is convergence over the network
+// after a resolution, not the write that performs it.
+//
+// It is NOT quarantined or skipped, and this runner is not wired into
+// `npm run verify`, so an honest red here costs nothing and hides nothing.
+// Dropping it would report 4/4 against a case a director will hit.
 const SCENARIOS = [
   { name: '01 bootstrap + first sync (libp2p)', fn: scenario01 },
   { name: '02 offline write survives restart (libp2p)', fn: scenario02 },
   { name: '08 different-field edits merge (libp2p)', fn: scenario08 },
+  { name: '28 conflicting edit is surfaced to both (libp2p)', fn: scenario28 },
 ]
 
 const PASS = '\x1b[32mPASS\x1b[0m'

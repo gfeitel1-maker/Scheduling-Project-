@@ -12,6 +12,8 @@
 import * as A from '@automerge/automerge'
 import { startTransport } from './transport.js'
 import { projectAll } from '../../automerge/projector.js'
+import { reconcile } from '../../automerge/reconcile.js'
+import { recordConflicts, clearResolvedConflicts } from '../../automerge/conflictStore.js'
 import { synthesizeOpEvents } from './docDiffEvents.js'
 import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../../auth/connectionAuth.js'
 import { recordLibp2pPeerId } from './peerIdentity.js'
@@ -58,6 +60,24 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // Pulled out so the two paths cannot silently diverge in what "a merge landed" means — same
   // ordering guarantee either way: project BEFORE onRemoteOps fires, never on a projection failure
   // (see this file's header comment for why).
+  // Reconcile BEFORE projecting, and return whatever document reconciliation
+  // produced — the caller must adopt it, or a recovered field would be written
+  // to SQLite and then lost again on the next save
+  // (docs/adr/2026-09-08-crdt-conflict-reconciliation.md).
+  //
+  // Two jobs, deliberately different: fields nobody needs to adjudicate are
+  // unioned silently, and a genuine disagreement between two people is recorded
+  // for a human to settle. `projectAll` then refuses any document carrying a
+  // conflict this did not record — which is what makes "the system cannot be in
+  // a state where a conflict went unhandled" a property of the code rather than
+  // of whoever remembers to call this.
+  function reconcileForProjection(merged) {
+    const { doc: reconciled, conflicts } = reconcile(merged)
+    recordConflicts(db, conflicts)
+    clearResolvedConflicts(db, conflicts)
+    return reconciled
+  }
+
   function projectAndNotify(merged, before, fromPeerId) {
     try {
       projectAll(db, merged)
@@ -102,6 +122,13 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     setCurrentDoc(db, merged, { persist: !nothingNew })
     if (nothingNew) return
 
+    // A.change inside reconcile CONSUMES `merged`, exactly like A.merge above,
+    // so `merged` is a dead handle from here and only `reconciled` may be used
+    // or stored. The registry is re-set because a recovered field written into
+    // SQLite but not into the registry would be lost on the next save.
+    const reconciled = reconcileForProjection(merged)
+    if (reconciled !== merged) setCurrentDoc(db, reconciled, { persist: true })
+
     // Project into SQLite. A merged doc can be valid CRDT state yet violate a
     // domain invariant the projector rejects — e.g. a child entity referencing
     // a parent another peer concurrently deleted (the Stage-2 rules-layer
@@ -111,7 +138,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // doc stays as the CRDT truth we keep and relay, the SQLite divergence is
     // surfaced (onProjectionError + logged) for the Stage-2 rules layer to
     // repair, and sync continues. See docs/adr/2026-09-06 rules-layer section.
-    projectAndNotify(merged, before, fromPeerId)
+    projectAndNotify(reconciled, before, fromPeerId)
 
     // Relay the merged doc regardless of local projection outcome: it is valid
     // CRDT state, and withholding it would make this node a convergence
@@ -177,7 +204,10 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     const nothingNew = JSON.stringify(before) === JSON.stringify(A.getHeads(nextDoc))
     setCurrentDoc(db, nextDoc, { persist: !nothingNew })
     if (!nothingNew) {
-      projectAndNotify(nextDoc, before, fromPeerId)
+      // Same consume-and-adopt contract as handleReceived above.
+      const reconciled = reconcileForProjection(nextDoc)
+      if (reconciled !== nextDoc) setCurrentDoc(db, reconciled, { persist: true })
+      projectAndNotify(reconciled, before, fromPeerId)
       // Relay to every OTHER admitted peer too (mirrors handleReceived's except-self broadcast) —
       // without this, a 3+ peer mesh only converges peer-pairwise with whoever sent the update,
       // not the whole mesh.
@@ -355,12 +385,18 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // projectAll per field-op here would be the "full delete-reconcile on every keystroke"
     // performance trap Stage 5f deliberately avoids for real local writes.
     applyLocal: async (newDoc) => {
-      setCurrentDoc(db, newDoc)
+      // A local write cannot create a conflict on its own, but the document it
+      // is built on may already carry one — and projectAll now refuses a
+      // document with an unrecorded conflict. Reconciling here keeps that
+      // assertion a guard against a missing code path rather than something a
+      // legitimate local edit can trip over.
+      const doc = reconcileForProjection(newDoc)
+      setCurrentDoc(db, doc)
       try {
-        projectAll(db, newDoc)
-        onProjected?.(newDoc)
+        projectAll(db, doc)
+        onProjected?.(doc)
       } catch (err) {
-        onProjectionError?.(err, newDoc, null)
+        onProjectionError?.(err, doc, null)
         console.error(`syncNode: local projection failed — SQLite left at last-good: ${err?.message ?? err}`)
       }
       // Propagate via the SYNC PROTOCOL, not a whole-document push.
