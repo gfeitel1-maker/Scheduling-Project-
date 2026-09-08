@@ -55,16 +55,24 @@ afterEach(() => {
 })
 
 describe('Automerge generalization slice — modeled entity set is pinned to DIRECT_CAMP_ENTITIES + PARENT_SCOPED_ENTITIES minus DEFERRED_ENTITIES', () => {
-  it('the modeled set (createEmptyDoc keys) equals DIRECT_CAMP_ENTITIES ∪ PARENT_SCOPED_ENTITIES \\ DEFERRED_ENTITIES, plus the bulk-replace scope collection(s)', () => {
+  it('the modeled set (createEmptyDoc keys) equals DIRECT_CAMP_ENTITIES ∪ PARENT_SCOPED_ENTITIES ∪ {camps, users} \\ DEFERRED_ENTITIES, plus the bulk-replace scope collection(s)', () => {
     // Parent-scoped entities slice: widens MODELED_ENTITIES (and therefore createEmptyDoc's flat
     // collections) to include every PARENT_SCOPED_ENTITIES key too, not just DIRECT_CAMP_ENTITIES.
     // createEmptyDoc also carries a SEPARATE top-level key per BULK_REPLACE_MODELED_ENTITIES entity
     // (`template_slots_scopes`) — see campDocument.js's applyBulkReplace comment for why that is a
     // distinct collection from the entity's own flat one.
+    //
+    // Stage 6 prep (users/camps modeling slice): `camps` and `users` are ALSO modeled now, but
+    // deliberately added outside DIRECT_CAMP_ENTITIES/PARENT_SCOPED_ENTITIES — see
+    // campDocument.js's EXTRA_MODELED_ENTITIES comment for why they get their own union term here
+    // rather than folding into either shared registry.
     const doc = createEmptyDoc()
-    const expectedFlat = [...DIRECT_CAMP_ENTITIES, ...Object.keys(PARENT_SCOPED_ENTITIES)].filter(
-      (e) => !DEFERRED_ENTITIES.has(e)
-    )
+    const expectedFlat = [
+      ...DIRECT_CAMP_ENTITIES,
+      ...Object.keys(PARENT_SCOPED_ENTITIES),
+      'camps',
+      'users',
+    ].filter((e) => !DEFERRED_ENTITIES.has(e))
     const expectedScopes = [...BULK_REPLACE_MODELED_ENTITIES].map((e) => `${e}_scopes`)
     const expected = [...expectedFlat, ...expectedScopes]
     expect(Object.keys(doc).sort()).toEqual(expected.sort())

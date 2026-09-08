@@ -150,11 +150,14 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // parent-scoped entities slice, to fix the runtime-top-up bug above, and again in the doc-native
     // ensureExists slice, to add day_overrides to GENESIS_ENTITIES when it was un-deferred — both
     // regenerations are explained and accepted in campDocument.js's GENESIS_B64 comment. Any FUTURE
-    // change to this pinned value needs the same explicit justification, not a silent edit.)
+    // change to this pinned value needs the same explicit justification, not a silent edit.
+    //
+    // THIRD REGENERATION (users/camps modeling slice, Stage 6 prep): `camps` and `users` added to
+    // MODELED_ENTITIES/GENESIS_ENTITIES — see campDocument.js's GENESIS_B64 comment.)
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        '67989aa3bc96d94494f8c9d884cb5f3d375dd0fb35c7b520456f3d8301058bbc',
+        '24a5dba6febd3df8f8ffb9e89cc6daf5ef86921bbb0cebee73f0d609f263c26b',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole

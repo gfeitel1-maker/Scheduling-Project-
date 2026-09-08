@@ -56,8 +56,34 @@ export const DEFERRED_ENTITIES = new Set()
 // wholesale-regenerate primitive — mirroring operations.js's own two-primitive design for this one
 // table (appendOp/applyProjection for a single cell vs. appendBulkReplaceOp/
 // applyBulkReplaceProjection for "replace every row for this template"). See applyBulkReplace below.
+// `camps` and `users` (Stage 6 prep, docs/work/plans/2026-09-07-stage6-cutover-plan.md): added
+// EXPLICITLY here, not via DIRECT_CAMP_ENTITIES — they are deliberately NOT in that registry.
+// DIRECT_CAMP_ENTITIES/DOMAIN_SNAPSHOT_ORDER (campScopedEntities.js) drive the legacy WS
+// first-pairing full_sync snapshot and its DIRECT_CAMP_ENTITIES<->DOMAIN_SNAPSHOT_ORDER parity
+// assertion; `camps` and `users` already have their own bespoke handling in that WS path
+// (syncClient.js's isValidFullSyncCamp/INSERT OR REPLACE INTO camps/users) and are not camp_id-
+// scoped "domain" entities in the sense that registry models (camps IS the camp; users is
+// authentication/identity, not schedule data). Folding them into DIRECT_CAMP_ENTITIES would also
+// pull them into assertDirectEntityParity's requirement of a DOMAIN_SNAPSHOT_ORDER position, which
+// is the wrong lever for a security-sensitive, structurally-different pair of tables — see this
+// file's PROJECTIONS.camps/users usage and the camps-singleton-convergence handling in projector.js
+// (upsertEntity/deleteReconcileEntity) for why they need their own reasoning instead of inheriting
+// the generic camp_id-scoped-entity treatment.
+//
+// Why model them at all: the op-log replicates `users` today (localAuth.js's createUser ->
+// write({entity:'users',...})) and would replicate `camps.name` if any code ever wrote it (nothing
+// does yet). Stage 6 retires the op-log/WS entirely, and this document layer is the only thing left
+// that would carry that replication forward. Without this, a counselor added on one device could
+// never log in on any other device post-cutover, and a camp rename (a feature this app doesn't have
+// yet, but the singleton `camps` row itself already needs to sync its `name` field the same way any
+// other camp-scoped record does) would never propagate. See hostOnlyExclusion.test.js for the
+// fields that must NEVER follow (`camps.signing_secret`, `host_signing_key`, and every other
+// genuinely host-only/device-local table) and this file's applyWrite/projector.js for why
+// `camps` gets bespoke merge-safety treatment `users` does not need.
+const EXTRA_MODELED_ENTITIES = ['camps', 'users']
+
 export const MODELED_ENTITIES = new Set(
-  [...DIRECT_CAMP_ENTITIES, ...Object.keys(PARENT_SCOPED_ENTITIES)].filter(
+  [...DIRECT_CAMP_ENTITIES, ...Object.keys(PARENT_SCOPED_ENTITIES), ...EXTRA_MODELED_ENTITIES].filter(
     (entity) => !DEFERRED_ENTITIES.has(entity)
   )
 )
@@ -148,6 +174,11 @@ function assertModeled(entity) {
 // the exact same reason as the parent-scoped entities slice above. Same acceptance: still
 // pre-production, no live camps, existing `.automerge` files may be discarded again.
 //
+// THIRD REGENERATION (users/camps modeling slice, Stage 6 prep): `camps` and `users` added to
+// MODELED_ENTITIES above (see that comment for why), so both need adding here and GENESIS_B64
+// needed regenerating again, same reasoning and same acceptance (pre-production, existing
+// `.automerge` files may be discarded) as the two prior regenerations above.
+//
 // GENESIS_ENTITIES is a frozen snapshot of every collection GENESIS_B64 encodes, sorted for
 // determinism: MODELED_ENTITIES (flat entities) plus BULK_REPLACE_MODELED_ENTITIES's scope
 // collection name(s). It exists so the assertion below can catch, at import time, in every
@@ -160,6 +191,7 @@ const GENESIS_ENTITIES = [
   'activities',
   'anchor_activities',
   'camp_maps',
+  'camps',
   'cohorts',
   'day_overrides',
   'days_of_operation',
@@ -181,6 +213,7 @@ const GENESIS_ENTITIES = [
   'template_slots_scopes',
   'tiers',
   'time_blocks',
+  'users',
   'week_activity_exclusions',
   'week_group_exclusions',
   'week_location_exclusions',
@@ -191,7 +224,7 @@ const GENESIS_ENTITIES = [
 // pass, that is a wire/document-compatibility break being HIDDEN, not fixed; see that test's own
 // comment.
 const GENESIS_B64 =
-  'hW9Kg27jSSIAuAIBEKVw9R1Sdje0D40atMujw6UBZ5iao7yW2USU+MnYhMtfPTdd0Ps1x7UgRW89gwEFi7wGAQIDAhMCIwZAAlYCBx3LASECIwI0AUICVgKAAQJ/AH8Bfxt/jd381AZ/AH8HVZDbTsQwDESfWLTsRSrSavk7K6QDjTato4xb6N+jJiqEt/jYnvEEL85bWIIFsHOTHzTLHzl6NyYZXeKz10Gz8dK7VXRBzqEHu96tFP0QTcjOgk53RGzrEMIapUvLecaCyeQz65x4qgWjGrv6tjBC3qP6Bw+F8FBnj1F98eEr/YB+jhBOLnFQa5BhTNEZeP1FX8CDHRN8cFG2FMXw3pLG9txwXne9unP7Xwq9JvDJAjJPjcbb5rn/wSr49nHmdvutNEqihtbxPWDT+AEbABsBGxsAGwAbAAA='
+  'hW9Kg+AQDgYAvgIBEM8F1/pFtxLq6DHX2sWnGskBJKXbpv69Pfj4/7nonMba9e+Gkhu7DOvuc/DWCfJjwmsGAQIDAhMCIwZAAlYCBx3RASECIwI0AUICVgKAAQJ/AH8Bfx1/lqP91AZ/AH8HVZBtT8MwDIQ/dWjsRSrSNP6dlaUHjZbWUc4t9N+jpiqEb/Zj+05n/+q8hTlYAFs3+l6z/JGjd0OSwSU2a8UXr71m46Vzi+iMnEMHtp1bKPohmpCdBR3viFhFIIRVepea84wZo8ln1inxtDWMamy32sIAeUT1Tx4K4WHbPUb1xYdv9D26KUI4usRerUKGIUVn4PUXfQFPtkzwwUVZUxTDe00q23PFed31tpvb/1boNYGNBWSeKo1mIjLfV+f9E4vg28eJa4JbGZRcFd3W95jV4AcdAB0BHR0AHQAdAAA='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))
