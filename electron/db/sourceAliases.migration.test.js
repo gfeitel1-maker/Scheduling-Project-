@@ -122,21 +122,7 @@ describe('source_aliases is host-local and cannot replicate', () => {
     expect(ENTITIES).not.toContain('source_aliases')
   })
 
-  it('is not shipped in the first-pairing full_sync snapshot', () => {
-    const src = fs.readFileSync(
-      path.join(path.dirname(new URL(import.meta.url).pathname), '../sync/syncClient.js'),
-      'utf8'
-    )
-    expect(src).not.toMatch(/DOMAIN_SNAPSHOT_TABLES[\s\S]{0,600}source_aliases/)
-  })
 
-  it('is not present in syncServer.js\'s full-sync payload builder', () => {
-    const src = fs.readFileSync(
-      path.join(path.dirname(new URL(import.meta.url).pathname), '../sync/syncServer.js'),
-      'utf8'
-    )
-    expect(src).not.toMatch(/source_aliases/)
-  })
 })
 
 describe('rollback v30', () => {

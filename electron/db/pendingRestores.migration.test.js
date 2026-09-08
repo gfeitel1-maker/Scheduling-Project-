@@ -153,13 +153,6 @@ describe('pending_restores is local-only and cannot replicate', () => {
     expect(ENTITIES).not.toContain('pending_restores')
   })
 
-  it('is not shipped in the first-pairing full_sync snapshot', () => {
-    const src = fs.readFileSync(
-      path.join(path.dirname(new URL(import.meta.url).pathname), '../sync/syncClient.js'),
-      'utf8'
-    )
-    expect(src).not.toMatch(/DOMAIN_SNAPSHOT_TABLES[\s\S]{0,600}pending_restores/)
-  })
 })
 
 describe('rollback v25', () => {

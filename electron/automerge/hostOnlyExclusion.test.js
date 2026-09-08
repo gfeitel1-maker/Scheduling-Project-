@@ -31,6 +31,14 @@ const HOST_ONLY_TABLES = [
   'location_word_decisions',
   'declined_two_row_splits',
   'import_evidence',
+  // Stage 6c: these two were guarded by per-migration tests that grepped
+  // syncClient.js/syncServer.js for the table name, proving it never entered
+  // the first-pairing full_sync payload. Those files are gone with the
+  // transport, so the invariant moves here — where it is checked structurally
+  // (never a document field) rather than by grepping a payload builder that no
+  // longer exists.
+  'pending_restores',
+  'open_reconciliation_decisions',
 ]
 
 // Infrastructure / never-replicated-as-document tables. `devices` is the
