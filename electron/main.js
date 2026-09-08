@@ -1610,6 +1610,19 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // closed on every app start by virtue of being process state.
   let joinWindowOpen = false
 
+  // Which join flow the Join screen should present. Pre-auth by construction:
+  // a device deciding how to join has no session yet. Returns only the engine
+  // name — no camp, no device, nothing about this machine's contents.
+  //
+  // This exists because the two flows are genuinely different experiences (an
+  // address picker vs. a typed camp code), not two renderings of one thing,
+  // and BOTH must work while `SHORESH_SYNC_ENGINE` still defaults to `oplog`.
+  // It goes away with the WS layer in Stage 6c, along with the branch in
+  // JoinScreen that reads it.
+  function getSyncEngine() {
+    return { engine: isAutomergeEngine() ? 'automerge' : 'oplog' }
+  }
+
   function getJoinCode({ token } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'devices.approve' })
@@ -1741,6 +1754,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     approveDevice,
     denyDevice,
     revokeDevice,
+    getSyncEngine,
     getJoinCode,
     setJoinWindow,
     joinStart,
@@ -1859,6 +1873,7 @@ if (isElectronEntryPoint()) {
     'shoresh:list-pending-pairing-requests',
     'shoresh:list-devices',
     'shoresh:approve-device',
+    'shoresh:get-sync-engine',
     'shoresh:get-join-code',
     'shoresh:set-join-window',
     'shoresh:join-start',
@@ -1941,6 +1956,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
     ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))
     ipcMain.handle('shoresh:approve-device', (_event, args) => handlers.approveDevice(args))
+    ipcMain.handle('shoresh:get-sync-engine', () => handlers.getSyncEngine())
     ipcMain.handle('shoresh:get-join-code', (_event, args) => handlers.getJoinCode(args))
     ipcMain.handle('shoresh:set-join-window', (_event, args) => handlers.setJoinWindow(args))
     ipcMain.handle('shoresh:join-start', (_event, args) => handlers.joinStart(args))

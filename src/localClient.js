@@ -139,6 +139,7 @@ export const localClient = {
   getDevicePairingStatus: () => shoresh.getDevicePairingStatus(),
   listPendingPairingRequests: () => shoresh.listPendingPairingRequests(currentToken()),
   approveDevice: (deviceId) => shoresh.approveDevice({ token: currentToken(), deviceId }),
+  getSyncEngine: () => shoresh.getSyncEngine(),
   getJoinCode: () => shoresh.getJoinCode({ token: currentToken() }),
   setJoinWindow: (open) => shoresh.setJoinWindow({ token: currentToken(), open }),
   joinStart: (args) => shoresh.joinStart(args),

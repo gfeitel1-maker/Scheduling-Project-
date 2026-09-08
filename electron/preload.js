@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   approveDevice: (args) => ipcRenderer.invoke('shoresh:approve-device', args),
   // Join flow — docs/adr/2026-09-08-libp2p-join-flow.md. The join-* calls are
   // token-free by construction: a device with no camp has no session to pass.
+  getSyncEngine: () => ipcRenderer.invoke('shoresh:get-sync-engine'),
   getJoinCode: (args) => ipcRenderer.invoke('shoresh:get-join-code', args),
   setJoinWindow: (args) => ipcRenderer.invoke('shoresh:set-join-window', args),
   joinStart: (args) => ipcRenderer.invoke('shoresh:join-start', args),

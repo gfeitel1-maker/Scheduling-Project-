@@ -29,8 +29,29 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   const [allDevices, setAllDevices] = useState([])
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState({})
+  // Add a device (docs/adr/2026-09-08-libp2p-join-flow.md §4). Only meaningful
+  // on the Host — a Client has no code to show and cannot approve anyone.
+  const [joinInfo, setJoinInfo] = useState(null)
+  const [joinError, setJoinError] = useState(null)
 
   useEffect(() => { load() }, [campId])
+
+  useEffect(() => {
+    if (!canManage) return
+    localClient.getJoinCode()
+      .then(setJoinInfo)
+      .catch((err) => setJoinError(err?.message || "Couldn't read this camp's code."))
+  }, [canManage])
+
+  async function toggleJoinWindow(next) {
+    setJoinError(null)
+    try {
+      const result = await localClient.setJoinWindow(next)
+      setJoinInfo((info) => (info ? { ...info, open: result.open } : info))
+    } catch (err) {
+      setJoinError(err?.message || "Couldn't change whether new devices can join.")
+    }
+  }
 
   useEffect(() => {
     const interval = setInterval(() => { load() }, 5000)
@@ -105,6 +126,40 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
 
       {error && (
         <div style={styles.errorBanner}>{error}</div>
+      )}
+
+      {canManage && joinInfo && (
+        <section style={styles.section}>
+          <h2 style={styles.sectionTitle}>Add a device</h2>
+          {joinError && <div style={styles.errorBanner}>{joinError}</div>}
+          {joinInfo.open ? (
+            <>
+              <div style={styles.joinInstruction}>
+                On the new device, choose <strong>Join a camp</strong> and enter this code.
+              </div>
+              <div style={styles.joinCode}>{joinInfo.formatted}</div>
+              {/* The code is the same every time, so a director can write it
+                  down once. What changes is whether this computer is listening
+                  — which is what the button below controls, and why the code
+                  is shown alongside it rather than on its own screen. */}
+              <div style={styles.joinNote}>
+                This computer is listening for new devices. Their request will appear below for you to approve.
+              </div>
+              <button style={S.btnSecondary} onClick={() => toggleJoinWindow(false)}>
+                Stop adding devices
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={styles.joinInstruction}>
+                Setting up {joinInfo.campName} on a second computer or tablet? Start here, then enter the code it shows you on the new device.
+              </div>
+              <button className="press-97" style={S.btnPrimary} onClick={() => toggleJoinWindow(true)}>
+                Add a device
+              </button>
+            </>
+          )}
+        </section>
       )}
 
       <section style={styles.section}>
@@ -212,6 +267,30 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
 }
 
 const styles = {
+  joinInstruction: {
+    fontSize: 13.5,
+    color: 'var(--text-secondary)',
+    lineHeight: 1.6,
+    marginBottom: 14,
+    maxWidth: 560,
+  },
+  // Large, monospaced and widely tracked: this is read off a screen from a
+  // few feet away and typed on another device, which is the whole job.
+  joinCode: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 34,
+    fontWeight: 700,
+    letterSpacing: '0.14em',
+    color: 'var(--text)',
+    marginBottom: 14,
+  },
+  joinNote: {
+    fontSize: 12.5,
+    color: 'var(--text-secondary)',
+    lineHeight: 1.6,
+    marginBottom: 14,
+    maxWidth: 560,
+  },
   page: {
     maxWidth: 900,
   },

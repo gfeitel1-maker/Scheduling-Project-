@@ -3,6 +3,7 @@ import { localClient } from './localClient'
 import Shell from './components/layout/Shell'
 import ModeSelectScreen from './screens/ModeSelectScreen'
 import JoinScreen from './screens/JoinScreen'
+import JoinByCodeScreen from './screens/JoinByCodeScreen'
 import CampBootstrapScreen from './screens/CampBootstrapScreen'
 import LoginScreen from './screens/LoginScreen'
 import CampScreen from './screens/CampScreen'
@@ -365,6 +366,14 @@ export default function App() {
   }
 
   if (device.phase === 'join') {
+    // Two genuinely different experiences, not two renderings of one: an
+    // address picker vs. the camp code a director reads off their own Host
+    // (docs/adr/2026-09-08-libp2p-join-flow.md). Both live here while
+    // SHORESH_SYNC_ENGINE still defaults to `oplog`; the branch and the WS
+    // screen go together in Stage 6c.
+    if (device.syncEngine === 'automerge') {
+      return <JoinByCodeScreen onBack={device.backToModeSelect} onJoined={device.retry} />
+    }
     return <JoinScreen onBack={device.backToModeSelect} onSelectHost={device.selectJoinHost} />
   }
 

@@ -1500,6 +1500,12 @@ export const mockShoresh = {
   // 'pending' and stays there, because in `npm run dev` nobody can approve it.
   // Deliberately not a fake success path: a screen that only ever sees the
   // happy case is how the timeout and denial states go unbuilt.
+  // The browser mock deliberately reports the NEW flow: `npm run dev` is
+  // where the join screens get looked at, and the old address picker has
+  // nothing to show there anyway (no mDNS, no hosts).
+  async getSyncEngine() {
+    return { engine: 'automerge' }
+  },
   async getJoinCode() {
     const state = loadState()
     return { code: 'K4P72MRQ', formatted: 'K4P7-2MRQ', campName: state.camp?.name ?? 'Demo Camp', open: mockJoinWindowOpen }
