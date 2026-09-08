@@ -1156,8 +1156,12 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
     return ops
   }
 
-  it('flag OFF (default/unset): appendOp writes no automerge doc file at all', async () => {
-    const ops = await loadOperationsWithEngine(undefined)
+  // Stage 6b flipped the default to automerge, so "unset" no longer means the
+  // op-log — the fallback must now be selected EXPLICITLY. That is the whole
+  // reversibility guarantee for the cutover, so it is asserted by name here
+  // rather than left implied by an unset variable.
+  it('engine=oplog (explicit fallback): appendOp writes no automerge doc file at all', async () => {
+    const ops = await loadOperationsWithEngine('oplog')
 
     ops.appendOp(db, {
       entity: 'groups',

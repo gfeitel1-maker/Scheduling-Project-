@@ -221,9 +221,19 @@ describe('ensureSeeded — Stage 5e item 1 (seed-on-first-enable)', () => {
     expect(readRecord(doc, 'groups', 'g1').name).toBe('Bunk A')
     expect(readRecord(doc, 'activities', 'a1').name).toBe('Swim')
 
-    // Seeding is NOT debounced — it must be on disk immediately, before any caller (e.g. main.js's
-    // sync-node startup) can act on "a doc now exists for this camp".
+    // Seeding is NOT debounced — the file must exist immediately, before any
+    // caller (e.g. main.js's sync-node startup) can act on "a doc now exists
+    // for this camp". That is the assertion; it is unchanged.
     expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(true)
+
+    // Its CONTENTS, though, are subject to the ordinary debounce. Stage 6b made
+    // that visible: with automerge the default engine, appendOp's dual-write is
+    // live, so the first write is what seeds — and it can only capture SQLite as
+    // it stood at that instant (`ensureExists` creates the row before its fields
+    // arrive; `groups.name` is NOT NULL, so it exists as ''). Later writes land
+    // in memory and persist on the next flush, exactly as designed. Flushing
+    // here asserts the end state rather than racing the timer.
+    flushPendingWrites()
     const persisted = loadDoc(userDataDir, 'camp-1')
     expect(readRecord(persisted, 'groups', 'g1').name).toBe('Bunk A')
   })
@@ -236,7 +246,13 @@ describe('ensureSeeded — Stage 5e item 1 (seed-on-first-enable)', () => {
 
     // Mutate SQLite AFTER the doc was persisted — if ensureSeeded re-seeded instead of loading,
     // this new row would appear in the doc. It must not.
-    appendOp(db, { entity: 'groups', entity_id: 'g2', field: 'name', value: 'Bunk B', device_id: 'device-1' })
+    //
+    // Written with raw SQL rather than appendOp, and that matters since Stage 6b:
+    // with automerge the default engine, appendOp ALSO dual-writes into the
+    // document, so using it here would put g2 in the doc by the write path and
+    // the assertion below could no longer tell "re-seeded" from "written". Raw
+    // SQL touches only SQLite, which is what this test needs to distinguish.
+    db.prepare("INSERT INTO groups (id, camp_id, name) VALUES ('g2', 'camp-1', 'Bunk B')").run()
 
     const doc = ensureSeeded(db)
     expect(readRecord(doc, 'groups', 'g1').name).toBe('Bunk A')
@@ -327,15 +343,23 @@ describe('day_overrides is modeled: seeding and projection round-trip it like an
     expect(before.length).toBeGreaterThan(0)
 
     const doc = ensureSeeded(db)
+
+    // The document carries the fields that were explicitly WRITTEN. Since Stage
+    // 6b it is built by appendOp's dual-write rather than by seeding from a
+    // finished SQLite row, so columns that `ensureExists` DERIVES (camp_id from
+    // the parent, kind's default) are not in it — they are reconstructed on
+    // projection from `knownRow` plus the FKs, which is exactly what that
+    // parameter exists for.
     expect(readRecord(doc, 'day_overrides', 'do1')).toEqual({
-      camp_id: 'camp-1',
       schedule_week_id: 'week-1',
       day_id: 'day-1',
       group_id: 'g1',
       time_block_id: 'tb1',
-      kind: 'swap',
     })
 
+    // And this is the assertion that actually matters, unchanged: a round trip
+    // through the document restores the SQLite row IDENTICALLY, derived columns
+    // included. If the derivation were lost, this is where it would show.
     db.prepare('DELETE FROM day_overrides').run()
     projectAll(db, doc)
     const after = db.prepare('SELECT * FROM day_overrides ORDER BY id').all()

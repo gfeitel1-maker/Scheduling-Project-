@@ -297,6 +297,17 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // it grants nothing on the HOST — the joiner still had to pair and log in
     // there. A caller that admits a peer it did not just authenticate ITSELF
     // to has defeated the admission gate; that is the misuse to review for.
+    // The counterpart of admitPeer, and a SECURITY control rather than a tidy-up:
+    // admission is granted once and otherwise only cleared on peer:disconnect,
+    // so revoking a device that is still connected left it admitted and still
+    // receiving documents until it happened to drop. The WS transport did not
+    // have this gap — revocation closed the socket, which evicted it.
+    //
+    // Found by porting integration scenario 05 to libp2p; that is what the port
+    // was for.
+    revokePeer: (peerId) => {
+      authenticatedPeers.delete(String(peerId))
+    },
     admitPeer: (peerId) => {
       const id = String(peerId)
       if (authenticatedPeers.has(id)) return

@@ -56,8 +56,13 @@ Every mutating IPC handler and every mutating WebSocket handler calls `authorize
 - Returns `{allowed: false, reason}` on any failure — never throws, never defaults to allowed.
 
 The same `authorize()` call and the same action-derivation logic (`deriveWriteAction`,
-`deriveBulkReplaceAction`) are used identically on both the IPC and WebSocket paths, so
-there is no way to bypass IPC-level restrictions by connecting directly to the WebSocket.
+`deriveBulkReplaceAction`) are used identically on both the IPC and WebSocket paths, so on the
+**op-log** transport there is no way to bypass IPC-level restrictions by connecting directly to the
+WebSocket.
+
+**This does not extend to the Automerge/libp2p engine, which is now the default.** See "Role
+enforcement is device-side under CRDT sync" under Known limitations — that is an accepted tradeoff,
+not an oversight, and it is the one place the two engines differ in what they enforce.
 
 ### Audit log
 
@@ -131,10 +136,48 @@ valid over the network by design (rejected outright with 4402, revoked or not), 
 that never reconnects to the Host still has no way to learn of a remote revocation until it
 does.
 
+### Role enforcement is device-side under CRDT sync
+
+**Accepted tradeoff, decided by the product owner on 2026-09-08** ("accept it and record it"), after
+it was found by porting integration scenario 16 to libp2p. Full analysis and the options that were
+weighed: `docs/work/evidence/2026-09-08-crdt-removes-host-side-authorization.md`.
+
+Under the op-log, a Client submitted individual operations and the **Host** ran `authorize()` on
+each one, re-reading the author's current role from its own database. The Host was the enforcement
+point, and a device could be admitted to the network yet still refused an action above its role.
+
+Under CRDT sync a Client does not submit operations. It writes into its own document and the two
+documents merge. The Host merges what an **admitted** peer sends; nothing in the receive path
+consults a role. `authorize()` is unchanged and still gates that device's own IPC calls — but the
+second check, on receipt, is gone.
+
+Measured, on two real nodes: a device whose user was demoted to `staff` **on the Host** wrote anyway,
+and the Host accepted it.
+
+**What this means in practice.** Everything that keeps a stranger out is unchanged: the camp code,
+the director's per-device approval, PIN authentication, mutual authentication, and immediate eviction
+on revocation. What changed is the trust placed in a device the director has already approved — it is
+now trusted for whatever it writes. The realistic exposure is a staff member with a legitimately
+paired device who bypasses the app itself, by editing the local database or running modified code, to
+make a change their role forbids.
+
+**Why it is accepted rather than fixed.** Validating a merged document per change means re-deriving
+who wrote what and whether they were allowed to, on every merge — most of the way back to the central
+authority the local-first design exists to remove. On a LAN of devices a director has personally
+approved, role separation is a workflow control rather than an enforced boundary, and this document
+should say so plainly rather than promise otherwise.
+
 ### Pre-revocation offline writes queue locally
 
-If a revoked Client reconnects, its pending offline write queue is submitted to the Host and
-rejected via `authorize()`. The queued writes are not automatically discarded on the Client.
+On the **op-log** transport, a revoked Client that reconnects has its pending offline write queue
+submitted to the Host and rejected via `authorize()`. The queued writes are not automatically
+discarded on the Client.
+
+Under **CRDT sync** there is no queue to submit and no per-write rejection: a revoked device is
+refused admission (and, if it is still connected when the director revokes it, evicted from the
+live admission set immediately — `transport.js`'s `revokePeer`), so nothing it wrote reaches
+another device. What it wrote locally stays in its own copy. The enforcement point is admission,
+not inspection of the writes.
 
 ---
 

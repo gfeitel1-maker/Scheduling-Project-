@@ -23,6 +23,10 @@ import { run as scenario01 } from './scenarios/01-bootstrap.automerge.js'
 import { run as scenario02 } from './scenarios/02-offline-restart.automerge.js'
 import { run as scenario08 } from './scenarios/08-different-field-merge.automerge.js'
 import { run as scenario28 } from './scenarios/28-conflicting-edit.automerge.js'
+import { run as scenario05 } from './scenarios/05-revocation.automerge.js'
+import { run as scenario14 } from './scenarios/14-corrupt-payload.automerge.js'
+import { run as scenario16 } from './scenarios/16-role-change.automerge.js'
+import { run as scenario17 } from './scenarios/17-joining-device-domain-data.automerge.js'
 
 // Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
 // disagree about one slot) are both FIXED and both pass consistently, having
@@ -42,6 +46,10 @@ const SCENARIOS = [
   { name: '02 offline write survives restart (libp2p)', fn: scenario02 },
   { name: '08 different-field edits merge (libp2p)', fn: scenario08 },
   { name: '28 conflicting edit is surfaced to both (libp2p)', fn: scenario28 },
+  { name: '05 a revoked device is refused, and evicted (libp2p)', fn: scenario05 },
+  { name: '14 malformed payloads are rejected safely (libp2p)', fn: scenario14 },
+  { name: '16 role change takes effect with no token re-issue (libp2p)', fn: scenario16 },
+  { name: '17+25+26+27 a joining device receives the whole domain (libp2p)', fn: scenario17 },
 ]
 
 const PASS = '\x1b[32mPASS\x1b[0m'
@@ -75,7 +83,7 @@ async function main() {
 
   const total = SCENARIOS.length
   const passed = total - failures
-  console.log(`\n  ${passed}/${total} passed (${total} of 27 total scenarios ported this slice — see Stage 6a report)\n`)
+  console.log(`\n  ${passed}/${total} passed (${total} libp2p scenarios; they cover 11 of the 27 WS originals — 17 collapses 17/25/26/27)\n`)
 
   if (failures > 0) throw new Error(`${failures} libp2p integration scenario(s) failed`)
 }
