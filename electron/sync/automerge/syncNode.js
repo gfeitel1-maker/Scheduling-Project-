@@ -184,6 +184,18 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // left off.
   const syncStates = new Map()
 
+  // Stage 6c: who this device can currently reach is a question the renderer
+  // asks (main.js's getSyncStatus, for the sidebar's connection copy). Under
+  // the WebSocket transport the answer came from a socket's open/close events;
+  // here it changes exactly when a peer is admitted or drops, so those two
+  // places are the only ones that fire this.
+  const peersChangedListeners = []
+  function notifyPeersChanged() {
+    for (const listener of peersChangedListeners) {
+      try { listener() } catch { /* a listener must never break sync */ }
+    }
+  }
+
   // Generate the next outbound sync message for `peerId` from the CURRENT doc and that peer's held
   // state, and send it if there is one. Called (a) the moment a peer is admitted — this is what
   // gives initial-sync-on-connect reliably, "for free", instead of the old whole-doc push's timing-
@@ -339,6 +351,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     onPeerAdmitted: (peerId) => {
       syncStates.set(peerId, A.initSyncState())
       stepSync(peerId)
+      notifyPeersChanged()
     },
     onAuthenticate,
     onPairingRequest: onPairingRequestMsg,
@@ -358,6 +371,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // comment above for why this is correct rather than merely tidy).
   transport.onPeerDisconnected((peerId) => {
     syncStates.delete(peerId)
+    notifyPeersChanged()
   })
 
   // Stage 5d-2b production wiring: this is what turns "nothing calls
@@ -390,6 +404,9 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     sendPairingApproved: transport.sendPairingApproved,
     sendPairingDenied: transport.sendPairingDenied,
     onPeerDiscovery: transport.onPeerDiscovery,
+    // Fires when this device's reachable-peer set changes (admission or
+    // disconnect). main.js pushes a fresh sync status to the renderer from it.
+    onPeersChanged: (cb) => { peersChangedListeners.push(cb) },
     // Caller (main.js) supplies this device's own current valid session
     // token whenever it obtains or renews one (self-issued for a Host,
     // received from login/pairing for a Client) — see mutualAuth.js's own

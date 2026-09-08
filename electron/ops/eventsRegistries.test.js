@@ -20,13 +20,9 @@
 //   PROJECTIONS              — omission => writes append to the op log and are
 //                              discarded without error
 //   DIRECT_CAMP_ENTITIES /
-//   PARENT_SCOPED_ENTITIES   — omission => list() and the full_sync send side
-//                              never ship the table
-//   DOMAIN_SNAPSHOT_ORDER +
-//   DOMAIN_TABLE_COLUMNS     — omission => first-pairing Clients never receive
-//                              the rows (the second is a private const in
-//                              syncClient.js, so it is read from source, as
-//                              electivesRegistries.test.js does)
+//   PARENT_SCOPED_ENTITIES   — omission => list() never ships the table
+//   DOMAIN_SNAPSHOT_ORDER    — omission => the table is absent from the
+//                              camp-scoped entity order
 //   permissions.ENTITIES     — omission => silently admin-only
 //   RESTORE_DECISIONS        — omission => build-time failure on an unlisted
 //                              projection (restated here per family convention)
@@ -86,8 +82,8 @@ describe('events family — membership is complete', () => {
       'A table in the events family exists in the schema but is not covered by this guard. ' +
         'Add it to EVENT_CHILDREN here, then make the rest of this file pass — that means ' +
         'registering it in PROJECTIONS, PARENT_SCOPED_ENTITIES, DOMAIN_SNAPSHOT_ORDER, ' +
-        "syncClient.js's DOMAIN_TABLE_COLUMNS, permissions.ENTITIES, RESTORE_DECISIONS, " +
-        "MOCK_WRITE_ALLOWLIST, and deleteEvent.js's cascade."
+        "permissions.ENTITIES, RESTORE_DECISIONS, MOCK_WRITE_ALLOWLIST, and " +
+        "deleteEvent.js's cascade."
     ).toEqual([...EVENT_FAMILY].sort())
   })
 })
@@ -102,26 +98,6 @@ describe('events family — every member is in every registry', () => {
 
   it.each(EVENT_FAMILY)('%s is in the first-pairing snapshot order', (table) => {
     expect(DOMAIN_SNAPSHOT_ORDER, `DOMAIN_SNAPSHOT_ORDER is missing '${table}'`).toContain(table)
-  })
-
-  it.each(EVENT_FAMILY)("%s has a column list in syncClient.js's DOMAIN_TABLE_COLUMNS", (table) => {
-    // Private const — read from source, same technique as
-    // electivesRegistries.test.js. (assertColumnCoverage in syncClient.js
-    // already hard-fails at import time on a missing entry; this pins WHICH
-    // columns, so a column added to the projection but not the manifest is
-    // caught too.)
-    const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
-    const match = new RegExp(`\\n\\s*${table}: \\[([^\\]]*)\\]`).exec(src)
-    expect(match, `syncClient.js DOMAIN_TABLE_COLUMNS is missing '${table}'`).toBeTruthy()
-    const columns = match[1]
-      .split(',')
-      .map((c) => c.trim().replace(/^'|'$/g, ''))
-      .filter(Boolean)
-    expect(columns, `${table} snapshot columns must lead with 'id'`).toContain('id')
-    expect(
-      columns,
-      `${table} snapshot columns must cover every projected field, or first-pairing Clients receive partial rows`
-    ).toEqual(expect.arrayContaining(PROJECTIONS[table].fields))
   })
 
   it.each(EVENT_FAMILY)('%s is in permissions.ENTITIES (not silently admin-only)', (table) => {

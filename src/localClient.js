@@ -20,7 +20,6 @@ function currentToken() {
 
 export const localClient = {
   chooseMode: (args) => shoresh.chooseMode(args),
-  discoverHosts: () => shoresh.discoverHosts(),
   login: (name, pin) => shoresh.login({ name, pin }),
   createUser: (args) => shoresh.createUser(args),
   bootstrapCamp: (args) => shoresh.bootstrapCamp(args),

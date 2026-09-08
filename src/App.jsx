@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { localClient } from './localClient'
 import Shell from './components/layout/Shell'
 import ModeSelectScreen from './screens/ModeSelectScreen'
-import JoinScreen from './screens/JoinScreen'
 import JoinByCodeScreen from './screens/JoinByCodeScreen'
 import CampBootstrapScreen from './screens/CampBootstrapScreen'
 import LoginScreen from './screens/LoginScreen'
@@ -366,15 +365,12 @@ export default function App() {
   }
 
   if (device.phase === 'join') {
-    // Two genuinely different experiences, not two renderings of one: an
-    // address picker vs. the camp code a director reads off their own Host
-    // (docs/adr/2026-09-08-libp2p-join-flow.md). Both live here while
-    // SHORESH_SYNC_ENGINE still defaults to `oplog`; the branch and the WS
-    // screen go together in Stage 6c.
-    if (device.syncEngine === 'automerge') {
-      return <JoinByCodeScreen onBack={device.backToModeSelect} onJoined={device.retry} />
-    }
-    return <JoinScreen onBack={device.backToModeSelect} onSelectHost={device.selectJoinHost} />
+    // Stage 6c: joining is the camp code the director reads off their own Host
+    // (docs/adr/2026-09-08-libp2p-join-flow.md). The address picker it replaced
+    // belonged to the WebSocket transport — it asked which machine to connect
+    // to, a question that has no meaning once every device holds the whole
+    // camp document.
+    return <JoinByCodeScreen onBack={device.backToModeSelect} onJoined={device.retry} />
   }
 
   if (device.phase === 'pairing_pending') {

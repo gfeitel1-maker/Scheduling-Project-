@@ -18,122 +18,42 @@ vi.mock('electron', () => ({
   ipcRenderer: { invoke: vi.fn(), on: vi.fn() },
 }))
 
-const fakeSyncServer = {
-  close: vi.fn(),
-  sendPairingApproved: vi.fn(() => true),
-  sendPairingDenied: vi.fn(() => true),
-  wss: { clients: new Set() },
-}
-const fakeAdvertised = { stop: vi.fn() }
 let lastCreatedSyncClient
 
-vi.mock('./sync/syncServer.js', () => ({
-  startSyncServer: vi.fn(() => fakeSyncServer),
-}))
-
-vi.mock('./sync/discovery.js', () => ({
-  advertiseHost: vi.fn(() => fakeAdvertised),
-  discoverHosts: vi.fn(() => Promise.resolve([{ campTag: 'camp-1a2b3c4d5e6f7a8b', host: '192.168.1.5', port: 7000 }])),
-}))
-
-vi.mock('./sync/syncClient.js', () => ({
-  createSyncClient: vi.fn((mockDb, opts) => {
-    // Mirrors real syncClient's "socket not OPEN yet" behavior: while
-    // `connected` is false, loginRemote() returns 'disconnected' synchronously
-    // (just like the real readyState guard does) and waitUntilConnected()'s
-    // promise stays pending until __setConnected(true) is called — letting
-    // tests simulate both "connects shortly after" (call __setConnected(true)
-    // after a short delay) and "never connects" (never call it).
-    let connected = true
-    let resolveConnected = null
-    let connectedPromise = Promise.resolve()
-    // T87 Part 4: distinct from `connected` — mirrors the real syncClient's
-    // own connected/authenticated distinction (see its `authenticated`
-    // comment). Defaults to true so every EXISTING test in this file (none
-    // of which cares about the connecting-vs-authenticated distinction)
-    // keeps seeing 'client-connected', not a new default of 'client-connecting'.
-    let authenticated = true
-    const client = {
-      opts,
-      // Mirrors real local-mode syncClient behavior (appendOp + projection) so
-      // that tests exercising createUser/bootstrapCamp through this mocked
-      // syncClient still end up with a real, queryable users row.
-      write: vi.fn(async ({ entity, entity_id, field, value, author_user_id, parent_op_id = null, source = 'human' }) => {
-        const op = appendOp(mockDb, {
-          entity,
-          entity_id,
-          field,
-          value,
-          author_user_id: author_user_id ?? opts.author_user_id ?? null,
-          device_id: opts.device_id,
-          parent_op_id,
-          // Mirror the real client seam (S2a/S2b R1): default 'human', but honor
-          // an explicit source (a stale-accept passes 'import') and parent_op_id.
-          source,
-        })
-        return { status: 'applied', op }
-      }),
-      writeBulkReplace: vi.fn(async ({ entity, scope_id, rows, author_user_id }) => {
-        const op = appendBulkReplaceOp(mockDb, {
-          entity,
-          scope_id,
-          rows,
-          author_user_id: author_user_id ?? opts.author_user_id ?? null,
-          device_id: opts.device_id,
-        })
-        return { status: 'applied', op }
-      }),
-      onOpApplied: vi.fn(),
-      onOpConflict: vi.fn(),
-      onOpRejected: vi.fn(),
-      onPairingApproved: vi.fn(),
-      onPairingDenied: vi.fn(),
-      onTokenRenewed: vi.fn(),
-      // T87 Part 3
-      onAuthRejected: vi.fn(),
-      loginRemote: vi.fn(async ({ name, pin }) => {
-        if (!connected) return { status: 'disconnected' }
-        const result = attemptLoginRef({ name, pin, deviceId: opts.device_id })
-        if (!result) return { status: 'failed' }
-        if (result.locked) return { status: 'failed', locked: true, retryAfterMs: result.retryAfterMs }
-        return { status: 'ok', token: result.token, userId: result.userId, role: result.role }
-      }),
-      waitUntilConnected: vi.fn(async () => {
-        await connectedPromise
-      }),
-      // test-only: simulate the socket transitioning between CONNECTING and
-      // OPEN. Starting a client "not yet connected" and later flipping it to
-      // connected mirrors a real handshake finishing after login() was called.
-      __setConnected(value) {
-        connected = value
-        if (!value) authenticated = false
-        if (value && resolveConnected) {
-          resolveConnected()
-          resolveConnected = null
-        } else if (!value) {
-          connectedPromise = new Promise((resolve) => {
-            resolveConnected = resolve
-          })
-        }
-      },
-      isConnected: vi.fn(() => connected),
-      // T87 Part 4
-      isAuthenticated: vi.fn(() => authenticated),
-      __setAuthenticated(value) { authenticated = value },
-    }
-    lastCreatedSyncClient = client
-    return client
-  }),
-}))
+// Stage 6c: main.js no longer has a WebSocket server or client to mock. What it
+// has is the device-local write path, which is real, pure and cheap — so this
+// spies on the REAL implementation rather than re-implementing it. The old mock
+// hand-rolled appendOp to make createUser/bootstrapCamp produce queryable rows;
+// wrapping the real module gets that for free and cannot drift from it.
+vi.mock('./sync/localWriteClient.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    createLocalWriteClient: vi.fn((mockDb, opts) => {
+      const real = actual.createLocalWriteClient(mockDb, opts)
+      const client = {
+        opts,
+        write: vi.fn(real.write),
+        writeBulkReplace: vi.fn(real.writeBulkReplace),
+        onOpApplied: vi.fn(real.onOpApplied),
+        onOpConflict: vi.fn(real.onOpConflict),
+        onOpRejected: vi.fn(real.onOpRejected),
+        onFullSyncApplied: vi.fn(real.onFullSyncApplied),
+        getQueuedOps: vi.fn(real.getQueuedOps),
+        getPendingRestores: vi.fn(real.getPendingRestores),
+        drainPendingRestores: vi.fn(real.drainPendingRestores),
+        flushQueue: vi.fn(real.flushQueue),
+      }
+      lastCreatedSyncClient = client
+      return client
+    }),
+  }
+})
 
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
-import { createUser, attemptLogin, ensureHostSigningKey } from './auth/localAuth.js'
-let attemptLoginRef = (args) => attemptLogin(db, args)
-import { appendOp, appendBulkReplaceOp, latestOp } from './ops/operations.js'
+import { createUser, ensureHostSigningKey } from './auth/localAuth.js'
+import { appendOp, latestOp } from './ops/operations.js'
 import { makeHandlers, sanitizeConflictForIpc, sanitizeOpRejectedForIpc } from './main.js'
-import { startSyncServer } from './sync/syncServer.js'
-import { advertiseHost } from './sync/discovery.js'
-import { createSyncClient } from './sync/syncClient.js'
+import { createLocalWriteClient } from './sync/localWriteClient.js'
 
 let tmpFile
 let db
@@ -216,261 +136,138 @@ describe('makeHandlers: device row setup', () => {
 })
 
 describe('chooseMode: host path', () => {
-  it('starts a sync server, advertises, and creates a local syncClient with author_user_id null', async () => {
-    const { campId } = await seedCampAndUser()
+  it('creates a local write client for the Host with author_user_id null', async () => {
+    await seedCampAndUser()
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7100 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
-    expect(startSyncServer).toHaveBeenCalledWith(db, expect.objectContaining({ port: 7100 }))
-    // PRIVACY (electron/sync/discovery.js): the LAN broadcast carries the
-    // camp id, from which an opaque service name is derived — never campName.
-    // An existing camp is seeded above, so chooseMode advertises immediately;
-    // on a fresh bootstrap there is no camp row yet and bootstrapCamp
-    // advertises instead (covered below).
-    expect(advertiseHost).toHaveBeenCalledWith({ campId, port: 7100 })
-    // T85 Part 3 (docs/adr/2026-08-16-device-fk-seeding-and-delivery-
-    // watermark.md): the Host's own no-serverUrl client is now constructed
-    // with `wss` so its interactive local writes broadcast to connected
-    // Clients — startSyncServer's own wss instance must be threaded through.
-    expect(createSyncClient).toHaveBeenCalledWith(db, {
+    // Stage 6c: no WebSocket server is started and no separate mDNS
+    // advertisement is published — the libp2p node does its own camp-scoped
+    // discovery. What chooseMode still owns is the write path.
+    expect(createLocalWriteClient).toHaveBeenCalledWith(db, {
       device_id: deviceId,
       author_user_id: null,
-      wss: fakeSyncServer.wss,
     })
     expect(lastCreatedSyncClient.onOpApplied).toHaveBeenCalled()
-  })
-
-  // On a fresh device the renderer calls chooseMode BEFORE bootstrapCamp, so
-  // there is no camp id to derive an opaque service name from yet. Advertising
-  // must be deferred rather than falling back to broadcasting the camp name.
-  it('does not advertise before a camp exists, then advertises once bootstrap creates one', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7100 })
-    expect(advertiseHost).not.toHaveBeenCalled()
-
-    const result = await handlers.bootstrapCamp({ campName: 'Camp Test', adminName: 'Admin', adminPin: '1234' })
-    expect(advertiseHost).toHaveBeenCalledTimes(1)
-    expect(advertiseHost).toHaveBeenCalledWith({ campId: result.campId, port: 7100 })
   })
 })
 
 describe('chooseMode: client path', () => {
-  it('rejects a malformed port before ever calling createSyncClient', () => {
+  // Stage 6c: a Client is no longer a different kind of device. It gets the
+  // same local write client the Host gets, because under CRDT sync a write is
+  // local everywhere and reaches the camp by document merge rather than by a
+  // server accepting it.
+  //
+  // The host/port validation tests that lived here are retired with the
+  // transport rather than left unguarded: chooseMode no longer takes a host or
+  // a port at all, so there is no address string to validate. Joining happens
+  // through the camp code (docs/adr/2026-09-08-libp2p-join-flow.md), whose own
+  // input handling is covered by joinCode.test.js.
+  it('creates the same local write client a Host gets, with no address', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    expect(() => handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: -1 })).toThrow()
-    expect(createSyncClient).not.toHaveBeenCalled()
-  })
-
-  it('rejects a malformed host before ever calling createSyncClient', () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    expect(() => handlers.chooseMode({ mode: 'client', host: 'evil host; rm -rf', port: 7100 })).toThrow()
-    expect(createSyncClient).not.toHaveBeenCalled()
-  })
-
-  it('validates the host/port and creates a syncClient immediately, without a token', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    const result = await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
+    const result = await handlers.chooseMode({ mode: 'client' })
 
     expect(result).toEqual({ mode: 'client' })
-    expect(createSyncClient).toHaveBeenCalledWith(db, expect.objectContaining({
+    expect(createLocalWriteClient).toHaveBeenCalledWith(db, {
       device_id: deviceId,
       author_user_id: null,
-      serverUrl: 'ws://192.168.1.5:7100',
-    }))
+    })
     expect(lastCreatedSyncClient.onOpApplied).toHaveBeenCalled()
   })
 
-  // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 2): a
-  // returning Client's locally-verified token must reach the transport
-  // layer, so connect()'s existing `if (token) → authenticate` branch
-  // actually fires on startup instead of always falling back to
-  // pairing_request.
-  it('forwards a provided token straight through to createSyncClient (T87 Part 2)', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100, token: 'a-verified-token' })
+  it('hands a returning device\'s token to the libp2p node so it can authenticate to peers', async () => {
+    const setAuthToken = vi.fn()
+    const handlers = makeHandlers(db, deviceId, {
+      getAutomergeSyncNode: () => ({ setAuthToken, getPeers: () => [], isPeerAuthenticated: () => false }),
+    })
+    await handlers.chooseMode({ mode: 'client', token: 'a-verified-token' })
 
-    expect(createSyncClient).toHaveBeenCalledWith(db, expect.objectContaining({
-      device_id: deviceId,
-      serverUrl: 'ws://192.168.1.5:7100',
-      token: 'a-verified-token',
-    }))
-  })
-
-  it('accepts a pre-validated hostAddress string directly and creates a syncClient without a token', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
-
-    expect(createSyncClient).toHaveBeenCalledWith(db, expect.objectContaining({
-      device_id: deviceId,
-      author_user_id: null,
-      serverUrl: 'ws://192.168.1.5:7100',
-    }))
-  })
-
-  it('a fresh client with zero local users can still log in via the syncClient.loginRemote path', async () => {
-    const { user } = await seedCampAndUser({ name: 'Dana', pin: '5555' })
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
-
-    const result = await handlers.login({ name: 'Dana', pin: '5555' })
-
-    expect(result).toBeTruthy()
-    expect(result.token).toEqual(expect.any(String))
-    expect(lastCreatedSyncClient.loginRemote).toHaveBeenCalledWith({ name: 'Dana', pin: '5555' })
-    void user
-  })
-
-  it('returns a distinct offline signal for a fresh device with no local camp and no live connection', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
-
-    lastCreatedSyncClient.loginRemote.mockResolvedValueOnce({ status: 'disconnected' })
-
-    const result = await handlers.login({ name: 'Dana', pin: '5555' })
-    expect(result).toEqual({ offline: true, reason: expect.any(String) })
-  })
-
-  it('succeeds when the socket is still CONNECTING at login() time but opens shortly after (Round 2 Fix)', async () => {
-    const { user } = await seedCampAndUser({ name: 'Dana', pin: '5555' })
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
-
-    // Simulate the natural "connect, then immediately submit PIN" race: the
-    // socket is still CONNECTING when login() is called...
-    lastCreatedSyncClient.__setConnected(false)
-    setTimeout(() => lastCreatedSyncClient.__setConnected(true), 50)
-
-    const result = await handlers.login({ name: 'Dana', pin: '5555' })
-
-    // ...but because it opens well within the bounded wait, login() must
-    // succeed via loginRemote rather than falling back to the false "offline"
-    // signal.
-    expect(result).toBeTruthy()
-    expect(result.token).toEqual(expect.any(String))
-    void user
-  })
-
-  it('falls back to offline after the bounded wait when the Host is genuinely unreachable (Round 2 Fix)', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
-
-    // Socket never opens — a genuinely unreachable Host, not a mid-handshake race.
-    lastCreatedSyncClient.__setConnected(false)
-
-    const result = await handlers.login({ name: 'Dana', pin: '5555' })
-
-    expect(result).toEqual({ offline: true, reason: expect.any(String) })
-  }, 10000)
-
-  it('rejects an unrecognized mode', () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    expect(() => handlers.chooseMode({ mode: 'bogus' })).toThrow()
+    expect(setAuthToken).toHaveBeenCalledWith('a-verified-token')
   })
 })
 
-// T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 4): a socket
-// can be open without being authenticated — 'client-connected' now means
-// transport-open AND authenticated, so the in-between window gets its own
-// distinct 'client-connecting' state instead of overclaiming "linked".
-describe('getSyncStatus: client tri-state (Part 4)', () => {
-  it('reports standalone before any mode is chosen', () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    expect(handlers.getSyncStatus()).toEqual({ mode: null, connected: false, state: 'standalone' })
-  })
-
-  it('reports host unconditionally once host mode is chosen', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7199 })
-    expect(handlers.getSyncStatus()).toEqual({ mode: 'host', connected: true, state: 'host' })
-  })
-
-  it('reports client-disconnected when the transport is not open', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
-    lastCreatedSyncClient.__setConnected(false)
-
-    expect(handlers.getSyncStatus()).toEqual({
-      mode: 'client', connected: false, authenticated: false, state: 'client-disconnected',
+describe('getSyncStatus: client tri-state', () => {
+  // Stage 6c: the tri-state survives the transport change, and it must. T87
+  // introduced it because a socket could be open without being authenticated,
+  // and the sidebar's "linked" copy overclaimed. The same gap exists over
+  // libp2p — getPeers() returns peers that completed a noise handshake and
+  // never authenticated — so 'connecting' still has to be distinguishable from
+  // 'connected'.
+  function handlersWithPeers(peers, authedPeers = []) {
+    return makeHandlers(db, deviceId, {
+      getAutomergeSyncNode: () => ({
+        setAuthToken: vi.fn(),
+        getPeers: () => peers,
+        isPeerAuthenticated: (p) => authedPeers.includes(p),
+      }),
     })
+  }
+
+  it('reports client-disconnected when no peer is reachable', async () => {
+    const handlers = handlersWithPeers([])
+    await handlers.chooseMode({ mode: 'client' })
+    expect(handlers.getSyncStatus()).toMatchObject({ state: 'client-disconnected', connected: false })
   })
 
-  it('reports client-connecting when the transport is open but not yet authenticated', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
-    lastCreatedSyncClient.__setConnected(true)
-    lastCreatedSyncClient.__setAuthenticated(false)
-
-    expect(handlers.getSyncStatus()).toEqual({
-      mode: 'client', connected: true, authenticated: false, state: 'client-connecting',
-    })
+  it('reports client-connecting when a peer is connected but not yet authenticated', async () => {
+    const handlers = handlersWithPeers(['peer-a'])
+    await handlers.chooseMode({ mode: 'client' })
+    expect(handlers.getSyncStatus()).toMatchObject({ state: 'client-connecting', connected: true, authenticated: false })
   })
 
-  it('reports client-connected only once BOTH connected and authenticated are true', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
-    lastCreatedSyncClient.__setConnected(true)
-    lastCreatedSyncClient.__setAuthenticated(true)
-
-    expect(handlers.getSyncStatus()).toEqual({
-      mode: 'client', connected: true, authenticated: true, state: 'client-connected',
-    })
+  it('reports client-connected only once a peer is authenticated', async () => {
+    const handlers = handlersWithPeers(['peer-a'], ['peer-a'])
+    await handlers.chooseMode({ mode: 'client' })
+    expect(handlers.getSyncStatus()).toMatchObject({ state: 'client-connected', connected: true, authenticated: true })
   })
 
-  it('falls back to unauthenticated (never throws) when isAuthenticated is not a function', async () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
-    lastCreatedSyncClient.__setConnected(true)
-    // Simulate a stale/old syncClient shape (Migration guard) — must degrade
-    // to 'client-connecting', never throw.
-    delete lastCreatedSyncClient.isAuthenticated
-
-    expect(() => handlers.getSyncStatus()).not.toThrow()
-    expect(handlers.getSyncStatus()).toEqual({
-      mode: 'client', connected: true, authenticated: false, state: 'client-connecting',
-    })
+  it('reports standalone before a mode is chosen', () => {
+    const handlers = handlersWithPeers([])
+    expect(handlers.getSyncStatus()).toMatchObject({ state: 'standalone', mode: null })
   })
 })
+
 
 describe('chooseMode: idempotency (Fix C)', () => {
   it('throws if chooseMode is called a second time with a genuinely different mode', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7199 })
-    expect(() => handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })).toThrow(
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    expect(() => handlers.chooseMode({ mode: 'client' })).toThrow(
       'mode already chosen for this session'
     )
-    expect(startSyncServer).toHaveBeenCalledTimes(1)
+    expect(createLocalWriteClient).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('chooseMode: same-mode replay is a no-op (Round 2 Fix 1)', () => {
   it('returns successfully without re-starting the sync server when replayed with the same mode/args', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    const first = await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7199 })
-    const second = await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7199 })
+    const first = await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const second = await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
     expect(first).toEqual({ mode: 'host' })
     expect(second).toEqual({ mode: 'host' })
-    expect(startSyncServer).toHaveBeenCalledTimes(1)
+    expect(createLocalWriteClient).toHaveBeenCalledTimes(1)
   })
 
   it('is a no-op when replayed for client mode, without creating a SECOND syncClient', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
-    const result = await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
+    await handlers.chooseMode({ mode: 'client' })
+    const result = await handlers.chooseMode({ mode: 'client' })
 
     expect(result).toEqual({ mode: 'client' })
-    expect(createSyncClient).toHaveBeenCalledTimes(1)
+    expect(createLocalWriteClient).toHaveBeenCalledTimes(1)
   })
 
   it('simulates a renderer reload after mode was chosen: replaying the same mode never throws', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Reload Camp', port: 7198 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Reload Camp' })
 
     // A renderer reload re-runs useDeviceMode's init effect, which re-calls
     // chooseMode with the same persisted mode. This must not throw.
     let result
     expect(() => {
-      result = handlers.chooseMode({ mode: 'host', campName: 'Reload Camp', port: 7198 })
+      result = handlers.chooseMode({ mode: 'host', campName: 'Reload Camp' })
     }).not.toThrow()
     expect(result).toEqual({ mode: 'host' })
   })
@@ -589,7 +386,7 @@ describe('shoresh:verify-session handler (Round 2 Fix 3)', () => {
 describe('bootstrapCamp (Fix A)', () => {
   it('creates the first camp and admin user when no camps exist yet', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh', port: 7200 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
     const result = await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
 
     expect(result.campId).toEqual(expect.any(String))
@@ -601,7 +398,7 @@ describe('bootstrapCamp (Fix A)', () => {
 
   it('refuses to run again once a camp already exists', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh', port: 7201 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
     await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
 
     await expect(
@@ -613,7 +410,7 @@ describe('bootstrapCamp (Fix A)', () => {
 describe('bootstrapCamp: device trust (docs/adr/2026-07-25-device-trust-revocation.md)', () => {
   it('generates a host_signing_key, sets camps.signing_public_key, and authorizes the bootstrapping device — a write() right after bootstrap succeeds without device_not_authorized', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh', port: 7204 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
     const result = await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
 
     const keyRow = db.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()
@@ -641,7 +438,7 @@ describe('bootstrapCamp: device trust (docs/adr/2026-07-25-device-trust-revocati
     const preExisting = ensureHostSigningKey(db)
 
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh', port: 7205 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
     await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
 
     const rows = db.prepare('SELECT * FROM host_signing_key').all()
@@ -691,7 +488,7 @@ describe('createUser handler (Fix A: admin-gated)', () => {
   it('creates a user when an admin session and all fields are valid', async () => {
     const { campId } = await seedCampAndUser({ name: 'AdminPerson2', pin: '1234', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh', port: 7202 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
     const { token } = await handlers.login({ name: 'AdminPerson2', pin: '1234' })
 
     const created = await handlers.createUser({ token, camp_id: campId, name: 'Bob', pin: '1234', role: 'staff' })
@@ -701,7 +498,7 @@ describe('createUser handler (Fix A: admin-gated)', () => {
   it('propagates a clear rejection through the IPC handler when the syncClient write resolves a non-applied status', async () => {
     const { campId } = await seedCampAndUser({ name: 'AdminPerson3', pin: '1234', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh', port: 7203 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
     const { token } = await handlers.login({ name: 'AdminPerson3', pin: '1234' })
 
     lastCreatedSyncClient.write.mockImplementationOnce(async () => ({ status: 'disconnected' }))
@@ -731,7 +528,7 @@ describe('write handler', () => {
 
   it('rejects a malformed/invalid token cleanly without crashing', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7101 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
     expect(() => handlers.write({ token: 'not-a-real-token', entity: 'x', entity_id: 'y', field: 'z', value: 1 })).toThrow()
   })
@@ -744,7 +541,7 @@ describe('write handler', () => {
   it('delegates to syncClient.write with a valid session token', async () => {
     const { user } = await seedCampAndUser({ name: 'Carol', pin: '4321' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7102 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token } = await handlers.login({ name: 'Carol', pin: '4321' })
 
     await handlers.write({ token, entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim' })
@@ -758,7 +555,7 @@ describe('write handler', () => {
     it('rejects a delete write from a non-admin (staff) session', async () => {
       const { campId } = await seedCampAndUser({ name: 'StaffDeleter', pin: '2468', role: 'staff' })
       const handlers = makeHandlers(db, deviceId, {})
-      await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7104 })
+      await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
       const { token } = await handlers.login({ name: 'StaffDeleter', pin: '2468' })
 
       expect(() =>
@@ -771,7 +568,7 @@ describe('write handler', () => {
     it('allows a delete write from an admin session', async () => {
       await seedCampAndUser({ name: 'AdminDeleter', pin: '2468', role: 'admin' })
       const handlers = makeHandlers(db, deviceId, {})
-      await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7105 })
+      await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
       const { token } = await handlers.login({ name: 'AdminDeleter', pin: '2468' })
 
       await handlers.write({ token, entity: 'cohorts', entity_id: 'some-cohort', field: '__deleted__', value: 1 })
@@ -784,7 +581,7 @@ describe('write handler', () => {
     it('does not gate ordinary (non-delete) field writes for a non-admin', async () => {
       const { user } = await seedCampAndUser({ name: 'StaffWriter', pin: '1357', role: 'staff' })
       const handlers = makeHandlers(db, deviceId, {})
-      await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7106 })
+      await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
       const { token } = await handlers.login({ name: 'StaffWriter', pin: '1357' })
 
       await handlers.write({ token, entity: 'cohorts', entity_id: 'some-cohort', field: 'name', value: 'X' })
@@ -806,7 +603,7 @@ describe('bulkReplace handler', () => {
 
   it('rejects a malformed/invalid token cleanly', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7201 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     expect(() =>
       handlers.bulkReplace({ token: 'not-a-real-token', entity: 'template_slots', scope_id: 't1', rows: [] })
     ).toThrow()
@@ -815,7 +612,7 @@ describe('bulkReplace handler', () => {
   it('rejects a bulk_replace from a non-admin (staff) session', async () => {
     await seedCampAndUser({ name: 'StaffBulk', pin: '1111', role: 'staff' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7202 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token } = await handlers.login({ name: 'StaffBulk', pin: '1111' })
 
     expect(() =>
@@ -827,7 +624,7 @@ describe('bulkReplace handler', () => {
   it('delegates to syncClient.writeBulkReplace for an admin session', async () => {
     const { user } = await seedCampAndUser({ name: 'AdminBulk', pin: '2222', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7203 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token } = await handlers.login({ name: 'AdminBulk', pin: '2222' })
 
     const rows = [{ id: 'slot-1', template_id: 't1' }]
@@ -853,7 +650,7 @@ describe('camps.rename authorization (admin-only, distinct from ordinary write)'
   it('rejects a camps.name write from a non-admin (staff) session', async () => {
     await seedCampAndUser({ name: 'StaffRenamer', pin: '1122', role: 'staff' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7107 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token } = await handlers.login({ name: 'StaffRenamer', pin: '1122' })
 
     const campId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
@@ -866,7 +663,7 @@ describe('camps.rename authorization (admin-only, distinct from ordinary write)'
   it('allows a camps.name write from an admin session', async () => {
     await seedCampAndUser({ name: 'AdminRenamer', pin: '1122', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7108 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token } = await handlers.login({ name: 'AdminRenamer', pin: '1122' })
 
     const campId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
@@ -888,7 +685,7 @@ describe('role-change-takes-effect (IPC path, same token reused)', () => {
   it('an admin token is denied for users.create (shoresh:create-user) after being demoted to staff mid-session', async () => {
     const { campId, user } = await seedCampAndUser({ name: 'DemotedAdmin', pin: '9090', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7109 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token } = await handlers.login({ name: 'DemotedAdmin', pin: '9090' })
 
     // Confirm the token starts out genuinely admin-capable.
@@ -908,7 +705,7 @@ describe('role-change-takes-effect (IPC path, same token reused)', () => {
   it('a staff token is denied for shoresh:write with DELETE_FIELD, then allowed on the SAME token after being promoted to admin mid-session', async () => {
     const { user } = await seedCampAndUser({ name: 'PromotedStaff', pin: '4560', role: 'staff' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7110 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token } = await handlers.login({ name: 'PromotedStaff', pin: '4560' })
 
     expect(() =>
@@ -1025,7 +822,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
 
   it('every entity accepts an ordinary (non-delete, non-rename) field write from both a staff and an admin session', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7111 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { staffToken, adminToken } = await seedTwoRoleSessions(handlers, {
       staffName: 'SweepStaffWriter',
       adminName: 'SweepAdminWriter',
@@ -1052,7 +849,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
   // authorize.test.js only bites if the handler actually uses '.delete'.
   it('deletes a week for an admin but denies a staff session (admin-only, .delete-gated)', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7112 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { staffToken, adminToken } = await seedTwoRoleSessions(handlers, {
       staffName: 'WeekDelStaff',
       adminName: 'WeekDelAdmin',
@@ -1079,7 +876,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
   // default-deny).
   it('deletes an elective set and its members for an admin but denies a staff session', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7113 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { staffToken, adminToken } = await seedTwoRoleSessions(handlers, {
       staffName: 'ElectiveDelStaff',
       adminName: 'ElectiveDelAdmin',
@@ -1111,7 +908,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
 
   it('deleteElectiveSet returns not-found for a bogus id rather than throwing', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7114 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { adminToken } = await seedTwoRoleSessions(handlers, {
       staffName: 'ElectiveDelStaff2',
       adminName: 'ElectiveDelAdmin2',
@@ -1131,7 +928,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
   // function," not a re-verification of cascade correctness.
   it('deletes a special day and its scoped rows for an admin but denies a staff session', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7115 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { staffToken, adminToken } = await seedTwoRoleSessions(handlers, {
       staffName: 'SpecialDayDelStaff',
       adminName: 'SpecialDayDelAdmin',
@@ -1172,7 +969,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
 
   it('deleteSpecialDay returns not-found for a bogus id rather than throwing', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7116 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { adminToken } = await seedTwoRoleSessions(handlers, {
       staffName: 'SpecialDayDelStaff2',
       adminName: 'SpecialDayDelAdmin2',
@@ -1237,7 +1034,7 @@ describe('wireOpApplied: op-applied forwarding to renderer (Round 3 Fix 1)', () 
     const sendSpy = vi.fn()
     const fakeWindow = { webContents: { send: sendSpy } }
     const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7160 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
     expect(lastCreatedSyncClient.onOpApplied).toHaveBeenCalled()
     const registeredCallback = lastCreatedSyncClient.onOpApplied.mock.calls[0][0]
@@ -1255,7 +1052,7 @@ describe('wireOpApplied: op-applied forwarding to renderer (Round 3 Fix 1)', () 
     const sendSpy = vi.fn()
     const fakeWindow = { webContents: { send: sendSpy } }
     const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7161 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
     const registeredCallback = lastCreatedSyncClient.onOpApplied.mock.calls[0][0]
     const rawOp = { id: 'op2', entity: 'users', entity_id: 'u1', field: 'pin_salt', value: 'RAW-SALT', device_id: 'dA' }
@@ -1270,7 +1067,7 @@ describe('wireOpApplied: op-applied forwarding to renderer (Round 3 Fix 1)', () 
     const sendSpy = vi.fn()
     const fakeWindow = { webContents: { send: sendSpy } }
     const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7162 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
     const registeredCallback = lastCreatedSyncClient.onOpApplied.mock.calls[0][0]
     const rawOp = { id: 'op3', entity: 'users', entity_id: 'u1', field: 'name', value: 'Alice', device_id: 'dA' }
@@ -1283,32 +1080,12 @@ describe('wireOpApplied: op-applied forwarding to renderer (Round 3 Fix 1)', () 
 
 // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3): mirrors the
 // onPairingDenied forwarding shape exactly.
-describe('wirePairingCallbacks: auth-rejected forwarding to renderer (T87 Part 3)', () => {
-  it('sends the close code to the renderer, and nothing else', async () => {
-    const sendSpy = vi.fn()
-    const fakeWindow = { webContents: { send: sendSpy } }
-    const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
-    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7163 })
-
-    expect(lastCreatedSyncClient.onAuthRejected).toHaveBeenCalled()
-    const registeredCallback = lastCreatedSyncClient.onAuthRejected.mock.calls[0][0]
-
-    registeredCallback(4404)
-
-    expect(sendSpy).toHaveBeenCalledWith('shoresh:auth-rejected', { code: 4404 })
-    // Negative security (Test strategy item 4): the payload carries only the
-    // numeric code — no token, no device_id, nothing else.
-    const payload = sendSpy.mock.calls.find((c) => c[0] === 'shoresh:auth-rejected')[1]
-    expect(Object.keys(payload)).toEqual(['code'])
-  })
-})
-
 describe('wireOpApplied: op-conflict forwarding to renderer (Round 2 Fix 1)', () => {
   it('sends a SANITIZED conflict message via webContents.send — the raw PIN op never crosses the IPC boundary', async () => {
     const sendSpy = vi.fn()
     const fakeWindow = { webContents: { send: sendSpy } }
     const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7150 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
     expect(lastCreatedSyncClient.onOpConflict).toHaveBeenCalled()
     const registeredCallback = lastCreatedSyncClient.onOpConflict.mock.calls[0][0]
@@ -1372,7 +1149,7 @@ describe('wireOpApplied: op-rejected forwarding to renderer (T8 / Finding E)', (
     const sendSpy = vi.fn()
     const fakeWindow = { webContents: { send: sendSpy } }
     const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7151 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
     expect(lastCreatedSyncClient.onOpRejected).toHaveBeenCalled()
     const registeredCallback = lastCreatedSyncClient.onOpRejected.mock.calls[0][0]
@@ -1396,7 +1173,7 @@ describe('wireOpApplied: op-rejected forwarding to renderer (T8 / Finding E)', (
     const sendSpy = vi.fn()
     const fakeWindow = { webContents: { send: sendSpy } }
     const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7152 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
     const registeredCallback = lastCreatedSyncClient.onOpRejected.mock.calls[0][0]
     const rawMsg = {
@@ -1635,7 +1412,7 @@ describe('resolveConflict handler (conflicts.resolve, staff+admin)', () => {
 
   it('rejects a malformed/invalid token cleanly', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7301 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     expect(() =>
       handlers.resolveConflict({
         token: 'not-a-real-token',
@@ -1650,7 +1427,7 @@ describe('resolveConflict handler (conflicts.resolve, staff+admin)', () => {
   it('allows a staff session past authorization (fails later on chosen_op_id, proving it got past the auth gate)', async () => {
     await seedCampAndUser({ name: 'StaffResolver', pin: '1234', role: 'staff' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7302 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token } = await handlers.login({ name: 'StaffResolver', pin: '1234' })
 
     expect(() =>
@@ -1664,7 +1441,7 @@ describe('resolveConflict handler (conflicts.resolve, staff+admin)', () => {
   it('stale_accept:true stamps source=import on the resolution write; default stays human', async () => {
     await seedCampAndUser({ name: 'AdminResolver', pin: '1234', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7305 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token } = await handlers.login({ name: 'AdminResolver', pin: '1234' })
 
     // A group whose name was hand-edited (human), plus an op holding the value
@@ -1703,7 +1480,7 @@ describe('listPendingPairingRequests handler (devices.read, staff+admin)', () =>
   it('returns pending devices for a staff user', async () => {
     await seedCampAndUser({ name: 'StaffLister', pin: '1234', role: 'staff' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7400 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: staffToken } = await handlers.login({ name: 'StaffLister', pin: '1234' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('pending-device-1', 'iPad')
@@ -1717,7 +1494,7 @@ describe('listPendingPairingRequests handler (devices.read, staff+admin)', () =>
   it('does not return already-authorized or revoked devices', async () => {
     await seedCampAndUser({ name: 'AdminLister', pin: '1234', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7401 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: adminToken } = await handlers.login({ name: 'AdminLister', pin: '1234' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('authorized-device', 'Laptop', new Date().toISOString())
@@ -1738,7 +1515,7 @@ describe('listDevices handler (devices.read, staff+admin)', () => {
   it('returns all devices including authorized and pending', async () => {
     await seedCampAndUser({ name: 'DeviceLister', pin: '1234', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7402 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: adminToken } = await handlers.login({ name: 'DeviceLister', pin: '1234' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('ld-pending', 'Tablet')
@@ -1752,7 +1529,7 @@ describe('listDevices handler (devices.read, staff+admin)', () => {
   it('omits pairing_status=\'unknown\' stub rows (T85 Risk 3a: op-log FK-seed phantoms) while keeping real paired devices', async () => {
     await seedCampAndUser({ name: 'DeviceLister2', pin: '1234', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7403 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: adminToken } = await handlers.login({ name: 'DeviceLister2', pin: '1234' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('ld-real-paired', 'Real Laptop', new Date().toISOString())
@@ -1775,7 +1552,7 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
   it('rejects a staff-role caller', async () => {
     await seedCampAndUser({ name: 'StaffApprover', pin: '1234', role: 'staff' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7403 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: staffToken } = await handlers.login({ name: 'StaffApprover', pin: '1234' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-1', 'iPad')
@@ -1786,7 +1563,7 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
   it('authorizes a pending device for an admin caller, minting device_secret_identifier', async () => {
     await seedCampAndUser({ name: 'AdminApprover', pin: '1234', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7404 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: adminToken } = await handlers.login({ name: 'AdminApprover', pin: '1234' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-2', 'Laptop')
@@ -1803,7 +1580,7 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
   it('rejects a nonexistent deviceId', async () => {
     await seedCampAndUser({ name: 'AdminApprover2', pin: '1234', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7405 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: adminToken } = await handlers.login({ name: 'AdminApprover2', pin: '1234' })
 
     expect(() => handlers.approveDevice({ token: adminToken, deviceId: 'does-not-exist' })).toThrow('device not found')
@@ -1817,7 +1594,7 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
     const handlers = makeHandlers(db, deviceId, {})
     const { token: adminToken } = await handlers.login({ name: 'AdminApproverClient', pin: '1234' })
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-client', 'iPad')
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+    await handlers.chooseMode({ mode: 'client' })
 
     expect(() => handlers.approveDevice({ token: adminToken, deviceId: 'approve-target-client' }))
       .toThrow('Device management can only be done on the main computer.')
@@ -1837,7 +1614,7 @@ describe('denyDevice handler (devices.approve, admin-only)', () => {
   it('rejects a staff-role caller', async () => {
     await seedCampAndUser({ name: 'StaffDenier', pin: '1234', role: 'staff' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7406 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: staffToken } = await handlers.login({ name: 'StaffDenier', pin: '1234' })
 
     expect(() => handlers.denyDevice({ token: staffToken, deviceId: 'some-device' })).toThrow()
@@ -1846,7 +1623,7 @@ describe('denyDevice handler (devices.approve, admin-only)', () => {
   it('returns denied=true for an admin caller', async () => {
     await seedCampAndUser({ name: 'AdminDenier', pin: '1234', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7407 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: adminToken } = await handlers.login({ name: 'AdminDenier', pin: '1234' })
 
     const result = handlers.denyDevice({ token: adminToken, deviceId: 'deny-target' })
@@ -1859,7 +1636,7 @@ describe('denyDevice handler (devices.approve, admin-only)', () => {
     const handlers = makeHandlers(db, deviceId, {})
     const { token: adminToken } = await handlers.login({ name: 'AdminDenierClient', pin: '1234' })
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('deny-target-client', 'iPad')
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+    await handlers.chooseMode({ mode: 'client' })
 
     expect(() => handlers.denyDevice({ token: adminToken, deviceId: 'deny-target-client' }))
       .toThrow('Device management can only be done on the main computer.')
@@ -1878,7 +1655,7 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
   it('rejects a staff-role caller', async () => {
     await seedCampAndUser({ name: 'StaffRevoker', pin: '1234', role: 'staff' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7408 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: staffToken } = await handlers.login({ name: 'StaffRevoker', pin: '1234' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('revoke-target-1', 'Tablet', new Date().toISOString())
@@ -1889,7 +1666,7 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
   it('revokes a device and stamps revoked_at for an admin caller', async () => {
     await seedCampAndUser({ name: 'AdminRevoker', pin: '1234', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7409 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: adminToken } = await handlers.login({ name: 'AdminRevoker', pin: '1234' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('revoke-target-2', 'MacBook', new Date().toISOString())
@@ -1906,7 +1683,7 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
   it('rejects a nonexistent deviceId', async () => {
     await seedCampAndUser({ name: 'AdminRevoker2', pin: '1234', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7410 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { token: adminToken } = await handlers.login({ name: 'AdminRevoker2', pin: '1234' })
 
     expect(() => handlers.revokeDevice({ token: adminToken, deviceId: 'no-such-device' })).toThrow('device not found')
@@ -1920,7 +1697,7 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
     const handlers = makeHandlers(db, deviceId, {})
     const { token: adminToken } = await handlers.login({ name: 'AdminRevokerClient', pin: '1234' })
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('revoke-target-client', 'Tablet', new Date().toISOString())
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+    await handlers.chooseMode({ mode: 'client' })
 
     expect(() => handlers.revokeDevice({ token: adminToken, deviceId: 'revoke-target-client' }))
       .toThrow('Device management can only be done on the main computer.')
@@ -1930,27 +1707,34 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
     expect(row.pairing_status).toBe('authorized')
   })
 
-  it('iterates syncServer.wss.clients and calls close(4404) on the revoked device\'s socket', async () => {
-    await seedCampAndUser({ name: 'AdminRevokerWS', pin: '1234', role: 'admin' })
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7411 })
-    const { token: adminToken } = await handlers.login({ name: 'AdminRevokerWS', pin: '1234' })
+  // Stage 6c: the WebSocket original closed the revoked device's socket with
+  // 4404. The control it protected is the one that matters and it survives the
+  // transport: a revoked device must stop receiving camp data AT ONCE, not
+  // whenever it next happens to drop. Over libp2p that is revokePeer(), which
+  // removes the peer from the admitted set.
+  //
+  // Kept rather than retired because this is a security control with a real
+  // history — a revoked device that kept syncing was one of the two
+  // vulnerabilities this migration found (docs/current/CRDT_SECURITY_GAPS.md).
+  it('evicts the revoked device from the libp2p admitted set immediately', async () => {
+    await seedCampAndUser({ name: 'AdminRevokerP2P', pin: '1234', role: 'admin' })
+    const revokePeer = vi.fn()
+    const handlers = makeHandlers(db, deviceId, {
+      getAutomergeSyncNode: () => ({
+        setAuthToken: vi.fn(), getPeers: () => [], isPeerAuthenticated: () => false, revokePeer,
+      }),
+    })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminRevokerP2P', pin: '1234' })
 
     const remoteDeviceId = randomUUID()
     db.prepare(
-      "INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status) VALUES (?, ?, ?, ?, 'authorized')"
-    ).run(remoteDeviceId, 'Remote Device', new Date().toISOString(), randomBytes(32).toString('hex'))
-
-    // Simulate a fake WS client in fakeSyncServer.wss.clients with that deviceId
-    const fakeClose = vi.fn()
-    const fakeClient = { deviceId: remoteDeviceId, close: fakeClose }
-    fakeSyncServer.wss.clients.add(fakeClient)
+      "INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status, libp2p_peer_id) VALUES (?, ?, ?, ?, 'authorized', ?)"
+    ).run(remoteDeviceId, 'Remote Device', new Date().toISOString(), randomBytes(32).toString('hex'), 'peer-revoke-target')
 
     handlers.revokeDevice({ token: adminToken, deviceId: remoteDeviceId })
 
-    expect(fakeClose).toHaveBeenCalledWith(4404, 'device_revoked')
-
-    fakeSyncServer.wss.clients.delete(fakeClient)
+    expect(revokePeer).toHaveBeenCalledWith('peer-revoke-target')
   })
 })
 
@@ -1974,7 +1758,7 @@ describe('ingestCommit: who may import, and from where', () => {
   // loosening ONLY; the mode==='client' device gate below is untouched.
   it('allows a staff token to run an import on the Host (ADR Decision 2a)', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7193 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     await seedCampAndUser({ name: 'Alice', pin: '1234', role: 'staff' })
     const { token } = await handlers.login({ name: 'Alice', pin: '1234' })
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
@@ -2005,7 +1789,7 @@ describe('ingestCommit: who may import, and from where', () => {
     const token = await adminToken(handlers)
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
     db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Swim')
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+    await handlers.chooseMode({ mode: 'client' })
 
     // commitIngest appends straight to THIS device's sqlite; on a Client the
     // Host would never see it and the camp would silently fork.
@@ -2019,7 +1803,7 @@ describe('ingestCommit: who may import, and from where', () => {
   it('refuses an Add on a device in Client mode too, with its own wording', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     const token = await adminToken(handlers)
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+    await handlers.chooseMode({ mode: 'client' })
 
     expect(() => handlers.ingestCommit({ token, approved: { activities: ['Archery'] } }))
       .toThrow('Import can only be run on the main computer.')
@@ -2028,7 +1812,7 @@ describe('ingestCommit: who may import, and from where', () => {
 
   it('runs a Replace on the Host, clearing the old setup and creating the new', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7191 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const token = await adminToken(handlers)
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
     db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Swim')
@@ -2044,7 +1828,7 @@ describe('ingestCommit: who may import, and from where', () => {
     // name; the parameter is renamed on the way in so this cannot regress into
     // "we are the Host, therefore replace".
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7192 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const token = await adminToken(handlers)
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
     db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Swim')
@@ -2059,7 +1843,7 @@ describe('ingestCommit: who may import, and from where', () => {
 describe('ingestCommit: placements materialize a version end-to-end (T117 slice 2)', () => {
   it('resolves outcome.version through the Host-local syncClient.write path', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7194 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
     const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
@@ -2084,7 +1868,7 @@ describe('ingestCommit: placements materialize a version end-to-end (T117 slice 
 
   it('returns the catalog outcome unchanged (no thrown error) when placements do not resolve', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7195 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
     const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
 
@@ -2107,7 +1891,7 @@ describe('ingestCommit: placements materialize a version end-to-end (T117 slice 
 describe('ingestCommit: compound-cell decisions (T118 slice 4)', () => {
   it('writes a compound_cell_decisions row and creates only the anchor activity, not the wrapper', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7401 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
     const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
@@ -2136,7 +1920,7 @@ describe('ingestCommit: compound-cell decisions (T118 slice 4)', () => {
 
   it('does not fail the whole import when one decision write fails (per-item, non-fatal)', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7402 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
     const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
 
@@ -2171,7 +1955,7 @@ describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
 
   it('refuses a staff token, and writes no alias row', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7301 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     await seedCampAndUser({ name: 'Alice', pin: '1234', role: 'staff' })
     const { token } = await handlers.login({ name: 'Alice', pin: '1234' })
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
@@ -2186,7 +1970,7 @@ describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
   it('refuses a device in Client mode', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     const token = await adminToken(handlers)
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+    await handlers.chooseMode({ mode: 'client' })
 
     expect(() =>
       handlers.confirmAlias({ token, entity_type: 'groups', source_label: 'Cabin 1', entity_id: 'g1' })
@@ -2196,7 +1980,7 @@ describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
 
   it('rejects an invalid entity_type before any DB access, for an admin session too', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7302 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const token = await adminToken(handlers)
 
     expect(() =>
@@ -2207,7 +1991,7 @@ describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
 
   it('lets an admin on the Host confirm an alias', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7303 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const token = await adminToken(handlers)
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
     const groupId = makeGroup(campIdHere, 'Bunk One')
@@ -2220,7 +2004,7 @@ describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
 
   it('refuses a confirm onto a locked activity, surfacing rather than silently binding', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7304 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const token = await adminToken(handlers)
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
     const activityId = randomUUID()
@@ -2253,7 +2037,7 @@ describe('listOpenReconciliationDecisions / dismissOpenReconciliationDecisions h
 
   it('refuses a staff token for list', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7501 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     await seedCampAndUser({ name: 'StaffORD', pin: '1234', role: 'staff' })
     const { token } = await handlers.login({ name: 'StaffORD', pin: '1234' })
 
@@ -2263,7 +2047,7 @@ describe('listOpenReconciliationDecisions / dismissOpenReconciliationDecisions h
   it('refuses a device in Client mode for both list and dismiss', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     const token = await adminToken(handlers)
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+    await handlers.chooseMode({ mode: 'client' })
 
     expect(() => handlers.listOpenReconciliationDecisions({ token })).toThrow(
       'Reconciliation decisions can only be read on the main computer.'
@@ -2275,7 +2059,7 @@ describe('listOpenReconciliationDecisions / dismissOpenReconciliationDecisions h
 
   it('lets an admin on the Host list and dismiss rows', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7502 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const token = await adminToken(handlers)
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
     db.prepare(
@@ -2298,7 +2082,7 @@ describe('listOpenReconciliationDecisions / dismissOpenReconciliationDecisions h
 describe('the generic write() path refuses source_aliases (S1b)', () => {
   it('throws rather than silently no-opping', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7305 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const { user } = await seedCampAndUser({ name: 'AdminWriter', pin: '9999', role: 'admin' })
     const { token } = await handlers.login({ name: 'AdminWriter', pin: '9999' })
     void user
@@ -2330,7 +2114,7 @@ describe('mergeLocation handler (locations.delete, admin-only)', () => {
 
   it('refuses a staff token — merging deletes the loser, same gate deleteRecord uses', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7401 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const token = await staffToken(handlers)
 
     await expect(handlers.mergeLocation({ token, loser_id: 'loc-a', winner_id: 'loc-b' })).rejects.toThrow(
@@ -2340,7 +2124,7 @@ describe('mergeLocation handler (locations.delete, admin-only)', () => {
 
   it('lets an admin on the Host merge two locations, re-pointing activities and deleting the loser', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7402 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const token = await adminToken(handlers)
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
     const winnerId = randomUUID()
@@ -2377,7 +2161,7 @@ describe('mergeLocation handler (locations.delete, admin-only)', () => {
   // in one surface from silently not existing on the other.
   it('rejects a non-integer winner_capacity, mirroring the WS validator', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7403 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const token = await adminToken(handlers)
 
     await expect(
@@ -2387,7 +2171,7 @@ describe('mergeLocation handler (locations.delete, admin-only)', () => {
 
   it('rejects a non-integer expected_ref_count, mirroring the WS validator', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7404 })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
     const token = await adminToken(handlers)
 
     await expect(
@@ -2428,7 +2212,7 @@ describe('listMigrationReviews / dismissMigrationReviews handlers — local-only
     await seedCampAndUser({ name: 'ClientJournal', pin: '1234', role: 'staff' })
     const handlers = makeHandlers(db, deviceId, {})
     const { token } = await handlers.login({ name: 'ClientJournal', pin: '1234' })
-    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+    await handlers.chooseMode({ mode: 'client' })
 
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
     const locationId = randomUUID()
