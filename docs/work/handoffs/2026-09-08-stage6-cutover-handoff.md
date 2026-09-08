@@ -46,6 +46,58 @@ both directions, all five checks). PRs #305–#325.
 - Windows: per-user NSIS target added (never built ON Windows — see gaps).
 - **The flag is still default-`oplog`.** Nothing is deleted.
 
+## STOP — 6b and 6d are BLOCKED on an owner decision (2026-09-08)
+
+**Two devices that concurrently create the SAME entity id lose fields.** Each assigns a fresh
+container to that key; Automerge keeps one and discards the other's fields into `getConflicts`,
+which nothing in this codebase reads.
+
+Reproducible with no libp2p, no SQLite, no timing:
+
+```js
+const genesis = createEmptyDoc()
+let a = A.clone(genesis), b = A.clone(genesis)
+a = applyWrite(a, { entity:'activities', entity_id:'x1', field:'name',     value:'Archery'  })
+b = applyWrite(b, { entity:'activities', entity_id:'x1', field:'location', value:'Lakeside' })
+A.merge(A.clone(a), b)
+// => {"location":"Lakeside"}   — "Archery" is gone
+// getConflicts: 2 entries, one of them holding {"name":"Archery"}
+```
+
+**The decisive datum: the op-log does NOT have this failure.** The same shape replayed through
+`applyProjection` yields `{"id":"x1","name":"Archery"}` — both field-writes applied, nothing lost,
+because op-log ops are field-level and merge additively.
+
+So **Stage 6 as specified would trade a correct behaviour for a lossy one.** That makes 6b (flip the
+default) and 6d (remove the op-log) a *correctness regression*, not a mechanism change. It is a
+different decision from the one the plan authorises, and it is the owner's to make. Do not run 6b or
+6d until it is made.
+
+Full analysis, reproducer, and three options:
+`docs/work/evidence/2026-09-08-concurrent-entity-creation-loses-fields.md`. Both sessions that looked
+at this independently prefer **post-merge conflict reconciliation** (~40 lines, one place, and it
+directly answers "nothing reads `getConflicts`") over **flattening the record shape** (touches the
+genesis again and every entity's projection) — but two agents agreeing is a data point, not a
+decision.
+
+### Why ~5,000 green tests missed it
+
+**Test scaffolding that serialises two participants hides every concurrency defect in the thing under
+test.** The old harness's `seedCampIdentity` shortcut effectively serialised the second device, so no
+test in this repo had ever had two independent devices create the same record at the same time.
+Rebuilding the harness around a real join is what made the failure deterministic. This generalises
+well past this bug: treat any fixture that sequences two peers as hiding something until proven
+otherwise.
+
+### A requirement on whatever fix is chosen
+
+The module-load subset guard's value was never that it read conflicts correctly — it was that it
+**converted a silent-data-loss class into a loud failure**. It structurally cannot reach the record
+level (a runtime id can never be in a frozen genesis), so do not strain it. But any reconciler must
+ship with the equivalent: something that makes an unread conflict impossible to ignore, rather than
+something that happens to read `getConflicts` correctly today and gets deleted in two years by
+someone who cannot see what it was for.
+
 ## Next slice, and why it is next
 
 **Resume at the libp2p join flow.** Stage 6a (porting the integration harness) reached only 3/27 and
