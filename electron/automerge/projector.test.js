@@ -14,6 +14,8 @@ import { openLocalDb } from '../db/localDb.js'
 import { appendOp, DELETE_FIELD } from '../ops/operations.js'
 import { STAGE1_ENTITY, createEmptyDoc, applyWrite } from './campDocument.js'
 import { projectEntity, rebuildFromDoc, projectAll } from './projector.js'
+import { reconcile } from './reconcile.js'
+import { recordConflicts } from './conflictStore.js'
 
 let files = []
 function freshDb(tag) {
@@ -124,10 +126,25 @@ describe('projector — a merged (conflict-resolved) document projects cleanly',
     a = applyWrite(a, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Lunes' })
     b = applyWrite(b, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Montag' })
     const merged = A.merge(A.clone(a), b)
+
+    // BEHAVIOUR CHANGE, deliberate (docs/adr/2026-09-08-crdt-conflict-reconciliation.md).
+    // This test used to project straight through and assert that SQLite showed
+    // whichever value Automerge picked. That IS the defect: two people set the
+    // same field to different values, one of them silently loses, and both
+    // screens agree on the same wrong answer. Projecting now REFUSES a document
+    // carrying a conflict nobody was told about.
+    expect(() => projectEntity(db, merged)).toThrow(/never recorded/)
+
+    // Once the disagreement is recorded — which is what puts it in front of a
+    // human — projection proceeds exactly as before, and SQLite still shows the
+    // converged value while the conflict awaits a decision.
+    const { conflicts } = reconcile(merged)
+    expect(conflicts).toHaveLength(1)
+    recordConflicts(db, conflicts)
+
     projectEntity(db, merged)
     const rows = daysRows(db)
     expect(rows).toHaveLength(1)
-    // Whatever Automerge picked as the converged winner is what SQLite shows.
     expect(rows[0].label).toBe(merged[STAGE1_ENTITY]['day-1'].label)
     expect(['Lunes', 'Montag']).toContain(rows[0].label)
   })
