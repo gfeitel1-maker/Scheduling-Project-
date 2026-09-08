@@ -14,7 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
 import { appendOp } from '../ops/operations.js'
-import { STAGE1_ENTITY } from './campDocument.js'
+import { STAGE1_ENTITY, readRecord } from './campDocument.js'
 import { projectEntity, rebuildFromDoc } from './projector.js'
 import { seedDocFromSqlite } from './seed.js'
 
@@ -101,7 +101,7 @@ describe('seedDocFromSqlite — safe on-ramp for existing SQLite data', () => {
     appendOp(db, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'camp_id', value: 'camp-1', device_id: 'device-1' })
     appendOp(db, { entity: STAGE1_ENTITY, entity_id: 'day-1', field: 'label', value: 'Solo', device_id: 'device-1' })
     const doc = seedDocFromSqlite(db)
-    expect(doc[STAGE1_ENTITY]['day-1']).toEqual({ camp_id: 'camp-1', label: 'Solo' })
+    expect(readRecord(doc, STAGE1_ENTITY, 'day-1')).toEqual({ camp_id: 'camp-1', label: 'Solo' })
     const db2 = freshDb('null-roundtrip')
     projectEntity(db2, doc)
     expect(daysRows(db2)).toEqual([{ id: 'day-1', camp_id: 'camp-1', label: 'Solo', day_of_week: null, sort_order: null }])

@@ -18,7 +18,7 @@ import {
 } from './operations.js'
 import { docPath, loadDoc } from '../sync/automerge/docStore.js'
 import { projectAll } from '../automerge/projector.js'
-import { MODELED_ENTITIES } from '../automerge/campDocument.js'
+import { MODELED_ENTITIES, readRecord } from '../automerge/campDocument.js'
 
 let tmpFile
 let db
@@ -1235,7 +1235,7 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
     flushPendingWrites()
     expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(true)
     const doc = loadDoc(userDataDir, 'camp-1')
-    expect(doc.day_overrides['do1']).toEqual({
+    expect(readRecord(doc, 'day_overrides', 'do1')).toEqual({
       schedule_week_id: 'w1',
       day_id: 'd1',
       group_id: 'g1',
@@ -1264,7 +1264,7 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
     flushPendingWrites()
     expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(true)
     const doc = loadDoc(userDataDir, 'camp-1')
-    expect(doc.template_slots['slot-x']).toEqual({ activity_id: 'a1' })
+    expect(readRecord(doc, 'template_slots', 'slot-x')).toEqual({ activity_id: 'a1' })
   })
 
   it('flag ON: a doc-mirror failure (docStore.saveDoc throwing) never breaks the op-log write — appendOp still returns its op and SQLite still has the row', async () => {

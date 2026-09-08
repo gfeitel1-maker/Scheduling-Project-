@@ -22,7 +22,7 @@
  * which is exactly why this scenario exists.
  */
 import { AmHost, AmClient, makeTmpDir, cleanupDirs, waitFor } from '../harnessAutomerge.js'
-import { applyBulkReplace } from '../../../electron/automerge/campDocument.js'
+import { applyBulkReplace, readRecord } from '../../../electron/automerge/campDocument.js'
 import { resolveConflictInDoc } from '../../../electron/automerge/reconcile.js'
 
 const SLOT = 'slot-group1-period2'
@@ -89,7 +89,7 @@ export async function run() {
     // while each client still has no record of its own to edit, and both then
     // CREATE it, turning this into a contested-record test by accident. That
     // race is where this scenario's earlier ~50% came from.
-    const hasSlotRecord = (d) => d.getDoc().template_slots?.[SLOT]?.activity_id === 'basketball'
+    const hasSlotRecord = (d) => readRecord(d.getDoc(), 'template_slots', SLOT)?.activity_id === 'basketball'
     await waitFor(() => hasSlotRecord(clientA), 6000)
     await waitFor(() => hasSlotRecord(clientB), 6000)
 

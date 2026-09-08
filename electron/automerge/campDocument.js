@@ -283,6 +283,104 @@ export function loadDoc(bytes) {
 //   - a field not registered in PROJECTIONS[entity].fields -> silent no-op
 //   - value is coerced with the op-log's coerceOpValue, so booleans/objects
 //     land in the document exactly as they land in the operations table.
+// ---------------------------------------------------------------------------
+// THE RECORD ENCODING — one document key per FIELD, not per record.
+//
+// docs/adr/2026-09-08-flat-record-shape.md, chosen by the product owner over
+// living with the limitation or recording resolutions.
+//
+//   doc.activities["x1\u0000name"]     = "Archery"
+//   doc.activities["x1\u0000location"] = "Lakeside"
+//
+// WHY, in one sentence: a record that is a CONTAINER is a thing two devices can
+// create at the same time, and every concurrency defect this program hit traced
+// back to that. Two devices setting different fields of the same record now
+// write different keys and simply do not collide — there is nothing to merge,
+// nothing to lose, and nothing to reconcile. What remains is two devices
+// setting the SAME field to different values, which is a scalar conflict: the
+// case a human should decide, surfaced by reconcile.js and settled by an
+// ordinary field write that dominates cleanly.
+//
+// The delimiter is U+0000, matching the composite keys docDiffEvents.js already
+// builds. It is safe because the half that must parse unambiguously — the field
+// name — always comes from PROJECTIONS and is a plain identifier. Split on the
+// LAST delimiter, never the first: an entity id is arbitrary text (ingest
+// derives ids from source data), a field name is not.
+//
+// NOTE FOR SEARCHING: a literal NUL in a key means `grep` can silently report
+// zero matches in generated output. Use `grep -a`.
+const FIELD_DELIM = '\u0000'
+
+export function recordKey(entityId, field) {
+  return `${entityId}${FIELD_DELIM}${field}`
+}
+
+export function splitRecordKey(key) {
+  const at = key.lastIndexOf(FIELD_DELIM)
+  if (at === -1) return null
+  return { entityId: key.slice(0, at), field: key.slice(at + 1) }
+}
+
+// ---------------------------------------------------------------------------
+// RECORD ACCESSORS — the only supported way to read a record out of a document.
+//
+// docs/adr/2026-09-08-flat-record-shape.md. These exist so that how a record is
+// STORED can change without touching the dozen places that read one. Today they
+// sit over the nested shape (`doc[entity][id] = { field: value }`); F2 swaps
+// that for one key per field, and every caller below is already speaking
+// through here.
+//
+// The rule for anything new: never index `doc[entity][id]` directly. Doing so
+// re-couples a caller to the storage shape, which is precisely what made the
+// concurrent-creation defects possible in the first place — a record that is a
+// container is a thing two devices can create at once.
+// ---------------------------------------------------------------------------
+
+/** Every record id present in `doc[entity]`. Order is sorted, so two devices
+ * iterate identically — projection order is observable through FK ordering. */
+export function listRecordIds(doc, entity) {
+  const ids = new Set()
+  for (const key of Object.keys(doc[entity] ?? {})) {
+    const parsed = splitRecordKey(key)
+    if (parsed) ids.add(parsed.entityId)
+  }
+  return [...ids].sort()
+}
+
+/** One record as a plain `{ field: value }` object, or null if absent.
+ *
+ * Returns a PLAIN object, never a live Automerge proxy: callers pass it to
+ * applyProjection as `knownRow`, and some entities' ensureExists reconstructs
+ * sibling NOT-NULL FK columns from it. Handing out a proxy would make those
+ * reads depend on the document staying alive across a merge that consumes it. */
+export function readRecord(doc, entity, entityId) {
+  const collection = doc[entity]
+  if (!collection) return null
+  const prefix = `${entityId}${FIELD_DELIM}`
+  let found = false
+  const out = {}
+  for (const key of Object.keys(collection)) {
+    if (!key.startsWith(prefix)) continue
+    const parsed = splitRecordKey(key)
+    if (!parsed || parsed.entityId !== entityId) continue
+    out[parsed.field] = collection[key]
+    found = true
+  }
+  return found ? out : null
+}
+
+/** True when this entity has any record at all — the seeded-vs-unseeded check. */
+export function hasAnyRecord(doc, entity) {
+  return Object.keys(doc[entity] ?? {}).length > 0
+}
+
+/** Every field key belonging to one record — needed by delete, and by anything
+ * that must address the storage keys rather than the logical record. */
+export function recordFieldKeys(doc, entity, entityId) {
+  const prefix = `${entityId}${FIELD_DELIM}`
+  return Object.keys(doc[entity] ?? {}).filter((k) => k.startsWith(prefix) && splitRecordKey(k)?.entityId === entityId)
+}
+
 export function applyWrite(doc, { entity, entity_id, field, value }) {
   assertModeled(entity)
   const fields = PROJECTIONS[entity].fields
@@ -295,12 +393,16 @@ export function applyWrite(doc, { entity, entity_id, field, value }) {
     if (!d[entity]) d[entity] = {}
     const coll = d[entity]
     if (field === DELETE_FIELD) {
-      delete coll[entity_id]
+      // A delete removes every field key for this record. There is no container
+      // to remove — that absence is the point of the shape.
+      const prefix = `${entity_id}${FIELD_DELIM}`
+      for (const key of Object.keys(coll)) {
+        if (key.startsWith(prefix) && splitRecordKey(key)?.entityId === entity_id) delete coll[key]
+      }
       return
     }
     if (!fields.includes(field)) return
-    if (!coll[entity_id]) coll[entity_id] = {}
-    coll[entity_id][field] = coerceOpValue(value)
+    coll[recordKey(entity_id, field)] = coerceOpValue(value)
   })
 }
 

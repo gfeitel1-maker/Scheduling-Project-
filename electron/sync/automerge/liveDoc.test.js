@@ -1,3 +1,4 @@
+import { readRecord, listRecordIds } from '../../automerge/campDocument.js'
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
@@ -43,7 +44,7 @@ describe('recordLocalWrite', () => {
     flushPendingWrites()
 
     const doc = loadDoc(userDataDir, 'camp-1')
-    expect(doc.groups.g1.name).toBe('Bunk A')
+    expect(readRecord(doc, 'groups', 'g1').name).toBe('Bunk A')
   })
 
   it('is gracefully inert (no throw, no file) when userDataDir is not configured (pre-Stage-5e)', () => {
@@ -62,8 +63,8 @@ describe('recordLocalWrite', () => {
     flushPendingWrites()
 
     const doc = loadDoc(userDataDir, 'camp-1')
-    expect(doc.groups.g1.name).toBe('Bunk A')
-    expect(doc.activities.a1.name).toBe('Swim')
+    expect(readRecord(doc, 'groups', 'g1').name).toBe('Bunk A')
+    expect(readRecord(doc, 'activities', 'a1').name).toBe('Swim')
   })
 
   // day_overrides was previously the one unmodeled/deferred entity here (its ensureExists read the
@@ -80,12 +81,12 @@ describe('recordLocalWrite', () => {
     })
     flushPendingWrites()
     const docAfterNoOp = loadDoc(userDataDir, 'camp-1')
-    expect(docAfterNoOp.day_overrides.d1).toBeUndefined()
+    expect(readRecord(docAfterNoOp, 'day_overrides', 'd1')).toBeNull()
 
     recordLocalWrite(db, { entity: 'day_overrides', entity_id: 'd1', field: 'kind', value: 'cancel' })
     flushPendingWrites()
     const doc = loadDoc(userDataDir, 'camp-1')
-    expect(doc.day_overrides.d1).toEqual({ kind: 'cancel' })
+    expect(readRecord(doc, 'day_overrides', 'd1')).toEqual({ kind: 'cancel' })
   })
 
   // Parent-scoped entities slice: template_slots is now modeled in its flat (individual-cell-edit)
@@ -102,7 +103,7 @@ describe('recordLocalWrite', () => {
 
     expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(true)
     const doc = loadDoc(userDataDir, 'camp-1')
-    expect(doc.template_slots['s1']).toEqual({ activity_id: 'a1' })
+    expect(readRecord(doc, 'template_slots', 's1')).toEqual({ activity_id: 'a1' })
   })
 
   it('does nothing when the db has no camp row yet', () => {
@@ -124,7 +125,7 @@ describe('recordLocalWrite', () => {
     flushPendingWrites()
 
     const doc = loadDoc(userDataDir, 'camp-1')
-    expect(doc.groups.g1).toBeUndefined()
+    expect(readRecord(doc, 'groups', 'g1')).toBeNull()
   })
 })
 
@@ -144,7 +145,7 @@ describe('recordLocalWrite — debounced persistence (Stage 5e item 3)', () => {
     // The on-disk file is still the pre-write (seeded-empty) one: the save is debounced.
     expect(fs.statSync(docPath(userDataDir, 'camp-1')).mtimeMs).toBe(mtimeBefore)
     // But the in-memory doc already reflects the write (readable via getDocIfLoaded).
-    expect(getDocIfLoaded(db).groups.g1.name).toBe('Bunk A')
+    expect(readRecord(getDocIfLoaded(db), 'groups', 'g1').name).toBe('Bunk A')
   })
 
   it('batches many rapid writes into a single saveDoc call', () => {
@@ -166,8 +167,8 @@ describe('recordLocalWrite — debounced persistence (Stage 5e item 3)', () => {
     }
 
     const doc = loadDoc(userDataDir, 'camp-1')
-    expect(doc.groups.g49.name).toBe('Bunk 49')
-    expect(Object.keys(doc.groups)).toHaveLength(50)
+    expect(readRecord(doc, 'groups', 'g49').name).toBe('Bunk 49')
+    expect(listRecordIds(doc, 'groups')).toHaveLength(50)
   })
 
   it('flushPendingWrites is a no-op (no throw, no extra write) when nothing is pending', () => {
@@ -184,7 +185,7 @@ describe('recordLocalWrite — debounced persistence (Stage 5e item 3)', () => {
       expect(fs.statSync(docPath(userDataDir, 'camp-1')).mtimeMs).toBe(mtimeBefore)
       await vi.advanceTimersByTimeAsync(1000)
       const doc = loadDoc(userDataDir, 'camp-1')
-      expect(doc.groups.g1.name).toBe('Bunk A')
+      expect(readRecord(doc, 'groups', 'g1').name).toBe('Bunk A')
     } finally {
       vi.useRealTimers()
     }
@@ -217,14 +218,14 @@ describe('ensureSeeded — Stage 5e item 1 (seed-on-first-enable)', () => {
     appendOp(db, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim', device_id: 'device-1' })
 
     const doc = ensureSeeded(db)
-    expect(doc.groups.g1.name).toBe('Bunk A')
-    expect(doc.activities.a1.name).toBe('Swim')
+    expect(readRecord(doc, 'groups', 'g1').name).toBe('Bunk A')
+    expect(readRecord(doc, 'activities', 'a1').name).toBe('Swim')
 
     // Seeding is NOT debounced — it must be on disk immediately, before any caller (e.g. main.js's
     // sync-node startup) can act on "a doc now exists for this camp".
     expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(true)
     const persisted = loadDoc(userDataDir, 'camp-1')
-    expect(persisted.groups.g1.name).toBe('Bunk A')
+    expect(readRecord(persisted, 'groups', 'g1').name).toBe('Bunk A')
   })
 
   it('loads the persisted doc on a second call rather than re-seeding', () => {
@@ -238,8 +239,8 @@ describe('ensureSeeded — Stage 5e item 1 (seed-on-first-enable)', () => {
     appendOp(db, { entity: 'groups', entity_id: 'g2', field: 'name', value: 'Bunk B', device_id: 'device-1' })
 
     const doc = ensureSeeded(db)
-    expect(doc.groups.g1.name).toBe('Bunk A')
-    expect(doc.groups.g2).toBeUndefined() // NOT re-seeded — loaded from the persisted file as-is
+    expect(readRecord(doc, 'groups', 'g1').name).toBe('Bunk A')
+    expect(readRecord(doc, 'groups', 'g2')).toBeNull() // NOT re-seeded — loaded from the persisted file as-is
   })
 
   it('is idempotent within a process — a second call returns the same cached doc without re-reading disk', () => {
@@ -256,8 +257,8 @@ describe('ensureSeeded — Stage 5e item 1 (seed-on-first-enable)', () => {
     flushPendingWrites()
 
     const doc = loadDoc(userDataDir, 'camp-1')
-    expect(doc.groups.g1.name).toBe('Bunk A')
-    expect(doc.activities.a1.name).toBe('Swim')
+    expect(readRecord(doc, 'groups', 'g1').name).toBe('Bunk A')
+    expect(readRecord(doc, 'activities', 'a1').name).toBe('Swim')
   })
 })
 
@@ -326,7 +327,7 @@ describe('day_overrides is modeled: seeding and projection round-trip it like an
     expect(before.length).toBeGreaterThan(0)
 
     const doc = ensureSeeded(db)
-    expect(doc.day_overrides.do1).toEqual({
+    expect(readRecord(doc, 'day_overrides', 'do1')).toEqual({
       camp_id: 'camp-1',
       schedule_week_id: 'week-1',
       day_id: 'day-1',

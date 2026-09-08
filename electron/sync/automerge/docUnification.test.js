@@ -1,3 +1,4 @@
+import { readRecord } from '../../automerge/campDocument.js'
 // Stage 5f (docs/work/plans/2026-09-06-stage5-live-wiring-design.md — unify liveDoc.js's and
 // syncNode.js's independently-diverging document holders): regression coverage for the confirmed
 // defect where a row that arrived via remote merge is silently deleted the next time this device
@@ -138,7 +139,7 @@ describe('doc ownership unification — the (c) data-loss regression', () => {
     flushPendingWrites()
 
     // Sanity: the persisted file now reflects A's local edit.
-    expect(getDocIfLoaded(dbA).groups.g1.name).toBe('Bunk A')
+    expect(readRecord(getDocIfLoaded(dbA), 'groups', 'g1').name).toBe('Bunk A')
 
     // Simulate a restart: drop every in-process cache, reconfigure exactly as main.js does at
     // launch, and re-run main.js's ACTUAL startup sequence (seed-or-load, then project the

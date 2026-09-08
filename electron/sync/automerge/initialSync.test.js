@@ -12,7 +12,7 @@ import * as A from '@automerge/automerge'
 import { randomUUID } from 'node:crypto'
 import { initSchema } from '../../db/localDb.js'
 import { startSyncNode } from './syncNode.js'
-import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
+import { createEmptyDoc, applyWrite, listRecordIds } from '../../automerge/campDocument.js'
 import { getCurrentDoc, setCurrentDoc, resetForTests } from './liveDoc.js'
 
 let nodes = []
@@ -55,6 +55,6 @@ describe('Stage 5f — a no-op merge must not leave a dead doc handle in the reg
     expect(() =>
       setCurrentDoc(db, applyWrite(current, { entity: 'activities', entity_id: 'a2', field: 'name', value: 'Archery' }))
     ).not.toThrow()
-    expect(Object.keys(getCurrentDoc(db).activities).sort()).toEqual(['a1', 'a2'])
+    expect(listRecordIds(getCurrentDoc(db), 'activities')).toEqual(['a1', 'a2'])
   })
 })

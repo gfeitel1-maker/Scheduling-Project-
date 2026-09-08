@@ -12,7 +12,7 @@
 //      here — that is two people disagreeing, and the app does not pick.
 import { describe, it, expect } from 'vitest'
 import * as A from '@automerge/automerge'
-import { createEmptyDoc, applyWrite } from './campDocument.js'
+import { createEmptyDoc, applyWrite, readRecord, recordKey } from './campDocument.js'
 import { reconcile, assertNoUnrecordedConflicts, resolveConflictInDoc } from './reconcile.js'
 
 const write = (doc, entity, entity_id, field, value) =>
@@ -24,47 +24,46 @@ function diverge(base, editA, editB) {
   return { a: editA(A.clone(base)), b: editB(A.clone(base)) }
 }
 
-describe('reconcile — job 1: union what nobody needs to adjudicate', () => {
-  it('recovers a field that would otherwise be silently discarded', () => {
-    // The measured defect: 400 merges, not one preserved both sides.
+describe('the flat record shape removes the job that used to be here', () => {
+  // This block replaces a whole describe() of union tests. Those covered
+  // recovering a field that a merge had silently discarded — measured at 400
+  // merges with ZERO preserving both sides. Under one document key per field
+  // (docs/adr/2026-09-08-flat-record-shape.md) there is nothing to recover:
+  // two devices writing different fields write different keys and never
+  // collide. Their deletion is the evidence the class of bug is gone rather
+  // than handled, which is why this test exists in their place.
+  it('keeps both devices\' fields with no reconciliation at all', () => {
     const { a, b } = diverge(
       createEmptyDoc(),
       (d) => write(d, 'activities', 'x1', 'name', 'Archery'),
       (d) => write(d, 'activities', 'x1', 'location', 'Lakeside')
     )
     const merged = A.merge(A.clone(a), b)
-    expect(Object.keys(merged.activities.x1)).toHaveLength(1) // one side lost
 
-    const { doc, conflicts, unioned } = reconcile(merged)
-    expect(doc.activities.x1).toMatchObject({ name: 'Archery', location: 'Lakeside' })
-    expect(unioned).toHaveLength(1)
-    // Nobody is asked about it. This is the half that must stay silent —
-    // prompting here trains a director to dismiss prompts.
+    // Straight out of the merge — before reconcile is even called.
+    expect(readRecord(merged, 'activities', 'x1')).toEqual({ name: 'Archery', location: 'Lakeside' })
+
+    const { doc, conflicts } = reconcile(merged)
     expect(conflicts).toEqual([])
+    expect(doc).toBe(merged) // nothing written, nothing to write
   })
 
-  it('is idempotent, so two devices do not write unions at each other forever', () => {
+  it('cannot produce a contested record, so a resolution always sticks', () => {
+    // The old shape let two devices each create the record, which no ordinary
+    // write could then resolve. There is no record object to contest now.
     const { a, b } = diverge(
       createEmptyDoc(),
-      (d) => write(d, 'activities', 'x1', 'name', 'Archery'),
-      (d) => write(d, 'activities', 'x1', 'location', 'Lakeside')
+      (d) => write(d, 'template_slots', 's1', 'activity_id', 'archery'),
+      (d) => write(d, 'template_slots', 's1', 'activity_id', 'playground')
     )
-    const once = reconcile(A.merge(A.clone(a), b))
-    const twice = reconcile(once.doc)
-    expect(twice.unioned).toEqual([])
-    expect(twice.doc).toBe(once.doc) // no change written at all
-  })
+    const merged = A.merge(A.clone(a), b)
+    expect(reconcile(merged).conflicts).toHaveLength(1)
 
-  it('does not reassign the record key, so the conflict stays derivable', () => {
-    // Assigning the key would look tidier and lose the evidence — and with it
-    // this module's own guarantee. See reconcile.js's header.
-    const { a, b } = diverge(
-      createEmptyDoc(),
-      (d) => write(d, 'activities', 'x1', 'name', 'Archery'),
-      (d) => write(d, 'activities', 'x1', 'location', 'Lakeside')
-    )
-    const { doc } = reconcile(A.merge(A.clone(a), b))
-    expect(Object.keys(A.getConflicts(doc.activities, 'x1') ?? {}).length).toBe(2)
+    const resolved = resolveConflictInDoc(merged, {
+      entity: 'template_slots', entityId: 's1', field: 'activity_id', value: 'archery',
+    })
+    expect(reconcile(resolved).conflicts).toEqual([])
+    expect(readRecord(resolved, 'template_slots', 's1').activity_id).toBe('archery')
   })
 })
 
@@ -91,10 +90,9 @@ describe('reconcile — job 2: surface a real disagreement, never resolve it', (
       (d) => write(d, 'template_slots', 's1', 'activity_id', 'playground')
     )
     const merged = A.merge(A.clone(a), b)
-    const before = merged.template_slots.s1.activity_id
-    const { doc, unioned } = reconcile(merged)
-    expect(doc.template_slots.s1.activity_id).toBe(before)
-    expect(unioned).toEqual([])
+    const before = readRecord(merged, 'template_slots', 's1').activity_id
+    const { doc } = reconcile(merged)
+    expect(readRecord(doc, 'template_slots', 's1').activity_id).toBe(before)
   })
 
   // Caught in review before implementation, and it is the trap the obvious
@@ -110,23 +108,11 @@ describe('reconcile — job 2: surface a real disagreement, never resolve it', (
     )
     const merged = A.merge(A.clone(a), b)
     // Automerge really does report two conflicting ops here...
-    expect(Object.keys(A.getConflicts(merged.template_slots.s1, 'activity_id')).length).toBe(2)
+    expect(Object.keys(A.getConflicts(merged.template_slots, recordKey('s1', 'activity_id'))).length).toBe(2)
     // ...and this must not become a prompt.
     expect(reconcile(merged).conflicts).toEqual([])
   })
 
-  it('records a disagreement inside a concurrently-created record, rather than unioning it', () => {
-    const { a, b } = diverge(
-      createEmptyDoc(),
-      (d) => write(write(d, 'activities', 'x1', 'name', 'Archery'), 'activities', 'x1', 'location', 'Field'),
-      (d) => write(write(d, 'activities', 'x1', 'name', 'Archery'), 'activities', 'x1', 'location', 'Lake')
-    )
-    const { conflicts, unioned } = reconcile(A.merge(A.clone(a), b))
-    // `name` agrees on both sides, so it is not a conflict and not a union.
-    expect(conflicts).toHaveLength(1)
-    expect(conflicts[0].field).toBe('location')
-    expect(unioned.map((u) => u.field)).not.toContain('location')
-  })
 })
 
 describe('reconcile — the property that makes "both devices see it" free', () => {
@@ -166,7 +152,7 @@ describe('reconcile — the property that makes "both devices see it" free', () 
     // no "resolved" message, no synced resolution state.
     const peer = A.merge(A.clone(A.merge(A.clone(b), a)), resolved)
     expect(reconcile(peer).conflicts).toEqual([])
-    expect(peer.template_slots.s1.activity_id).toBe('archery')
+    expect(readRecord(peer, 'template_slots', 's1').activity_id).toBe('archery')
   })
 
   it('resurfaces when two people resolve the same conflict differently', () => {
@@ -246,38 +232,33 @@ describe('resolveConflictInDoc — a decision has to stick, without costing some
       (d) => write(d, 'template_slots', 's1', 'activity_id', 'playground')
     )
     const merged = A.merge(A.clone(a), b)
-    const showing = merged.template_slots.s1.activity_id
+    const showing = readRecord(merged, 'template_slots', 's1').activity_id
     const resolved = resolveConflictInDoc(merged, {
       entity: 'template_slots', entityId: 's1', field: 'activity_id', value: showing,
     })
     expect(reconcile(resolved).conflicts).toEqual([])
-    expect(resolved.template_slots.s1.activity_id).toBe(showing)
+    expect(readRecord(resolved, 'template_slots', 's1').activity_id).toBe(showing)
   })
 
-  // THE REJECTED FIX, pinned so it cannot come back. Reassigning the record key
-  // is the only edit that dominates two competing record VERSIONS, so it is the
-  // obvious way to make a contested record resolvable — and it trades a loud
-  // problem for a silent one, on the exact axis this module exists for.
-  it('never reassigns the record key, because that discards concurrent edits invisibly', () => {
+  // Carried forward from the shape that made it possible. An earlier design
+  // resolved a contested record by reassigning the whole record, which cleared
+  // the conflict and SILENTLY discarded any concurrent write to a different
+  // field of that record — `getConflicts` returned nothing, so nobody was ever
+  // told. The flat shape makes that particular mistake unavailable, but the
+  // invariant it violated is worth asserting in terms that survive the next
+  // shape change: settling one field must never disturb another.
+  it('leaves a colleague\'s concurrent edit to a different field untouched', () => {
     const contested = contestedRecord()
-
-    // What a key reassignment does to a colleague working on the same record.
-    const reassigned = A.change(A.clone(contested), (d) => {
-      d.template_slots.s1 = { activity_id: 'archery' }
-    })
-    const colleague = write(A.clone(contested), 'template_slots', 's1', 'flags', 'bring-sunscreen')
-    const lost = A.merge(A.clone(reassigned), colleague)
-    expect(lost.template_slots.s1.flags).toBeUndefined()
-    // And the worst part: nothing to surface. No conflict, no trace, nobody told.
-    expect(A.getConflicts(lost.template_slots, 's1') ?? {}).toEqual({})
-    expect(reconcile(lost).conflicts).toEqual([])
-
-    // What this function actually does instead — the colleague's edit survives.
     const resolved = resolveConflictInDoc(A.clone(contested), {
       entity: 'template_slots', entityId: 's1', field: 'activity_id', value: 'archery',
     })
-    const kept = A.merge(A.clone(resolved), write(A.clone(contested), 'template_slots', 's1', 'flags', 'bring-sunscreen'))
-    expect(kept.template_slots.s1.flags).toBe('bring-sunscreen')
+    const colleague = write(A.clone(contested), 'template_slots', 's1', 'flags', 'bring-sunscreen')
+    const merged = A.merge(A.clone(resolved), colleague)
+
+    const row = readRecord(merged, 'template_slots', 's1')
+    expect(row.activity_id).toBe('archery')
+    expect(row.flags).toBe('bring-sunscreen')
+    expect(reconcile(merged).conflicts).toEqual([])
   })
 
 })

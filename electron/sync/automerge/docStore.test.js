@@ -1,3 +1,4 @@
+import { readRecord } from '../../automerge/campDocument.js'
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
@@ -53,8 +54,8 @@ describe('saveDoc / loadDoc round trip', () => {
     saveDoc(userDataDir, CAMP_ID, doc)
     const loaded = loadDoc(userDataDir, CAMP_ID)
 
-    expect(loaded.groups.g1.name).toBe('Bunk A')
-    expect(loaded.activities.a1.name).toBe('Swim')
+    expect(readRecord(loaded, 'groups', 'g1').name).toBe('Bunk A')
+    expect(readRecord(loaded, 'activities', 'a1').name).toBe('Swim')
   })
 
   it('leaves no temp file behind and a valid file after a save', () => {
@@ -75,8 +76,8 @@ describe('saveDoc / loadDoc round trip', () => {
     saveDoc(userDataDir, CAMP_ID, doc2)
 
     const loaded = loadDoc(userDataDir, CAMP_ID)
-    expect(loaded.groups.g1).toBeUndefined()
-    expect(loaded.groups.g2.name).toBe('Bunk B')
+    expect(readRecord(loaded, 'groups', 'g1')).toBeNull()
+    expect(readRecord(loaded, 'groups', 'g2').name).toBe('Bunk B')
 
     const files = fs.readdirSync(path.join(userDataDir, 'automerge'))
     expect(files).toEqual([`${CAMP_ID}.automerge`])
