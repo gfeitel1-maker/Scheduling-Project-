@@ -174,5 +174,22 @@ export function evaluateLogin(db, { device_id, device_secret_identifier, name, p
   if (result.locked) {
     return { ok: false, reason: 'locked', locked: true, retryAfterMs: result.retryAfterMs }
   }
-  return { ok: true, token: result.token, userId: result.userId, role: result.role }
+  // `camp` (Stage 6 join flow, docs/adr/2026-09-08-libp2p-join-flow.md): the
+  // identity a brand-new device needs and has no other way to obtain. Under the
+  // op-log this rode along in syncServer.js's first-pairing `full_sync`
+  // snapshot, which the Client wrote with `INSERT OR REPLACE INTO camps`;
+  // projector.js's own comment names finding a libp2p-native equivalent as
+  // "Stage 6's problem", and this is it.
+  //
+  // `signing_public_key` specifically is what lets the joined device VERIFY the
+  // Host's tokens from its next launch onward, and it is deliberately carried
+  // here rather than modeled as a document field — key material has no business
+  // in shared CRDT history, where there is no payload to grep for it after the
+  // fact (see hostOnlyExclusion.test.js's standing invariant). `signing_secret`
+  // is never read here and never leaves the Host.
+  //
+  // Sent only on the `ok` path, so an unauthenticated or failed attempt learns
+  // nothing about the camp — not its id, not its name.
+  const camp = db.prepare('SELECT id, name, signing_public_key FROM camps LIMIT 1').get() ?? null
+  return { ok: true, token: result.token, userId: result.userId, role: result.role, camp }
 }

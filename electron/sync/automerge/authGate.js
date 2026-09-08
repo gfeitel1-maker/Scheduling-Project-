@@ -106,7 +106,7 @@ function decodeMessage(bytes) {
 // joins after a write never learns about it, and two devices that each have prior data both sit
 // showing nothing until somebody happens to make a new edit. Admission is the correct trigger —
 // it is the first moment we are both allowed to send to a peer and know they will accept it.
-export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, now = Date.now } = {}) {
+export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, now = Date.now } = {}) {
   const authenticatedPeers = new Set()
   // device_id -> PeerId string, for a pairing_request whose director
   // decision hasn't landed yet. See module comment above.
@@ -252,7 +252,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
         try {
           if (result.ok) {
-            await sendFramed(stream.sink, encodeMessage({ type: 'login_ok', token: result.token, userId: result.userId, role: result.role }))
+            await sendFramed(stream.sink, encodeMessage({ type: 'login_ok', token: result.token, userId: result.userId, role: result.role, camp: result.camp ?? null }))
           } else {
             await sendFramed(
               stream.sink,
@@ -265,6 +265,33 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
           }
         } catch {
           // ignore — closing regardless
+        }
+        await stream.close().catch(() => {})
+        return
+      }
+
+      // The RECEIVING half of deliverPairingDecision below — this is the
+      // joining device's end of the dial-back, not the Host's.
+      //
+      // Stage 6 join flow (docs/adr/2026-09-08-libp2p-join-flow.md): before
+      // this branch existed, a Host that approved a device dialed back, wrote
+      // its `pairing_approved` frame, and the joining device fell through to
+      // the `unsupported_auth_message` abort below — the approval was
+      // delivered and thrown away. Under the op-log that did not matter,
+      // because syncClient.js received the same decision over WS; once the
+      // op-log is retired this is the ONLY way a device learns it was let in.
+      //
+      // Deliberately NOT rate-limited, unlike pairing_request/login above.
+      // Those are unauthenticated requests an attacker floods a HOST with;
+      // this only ever arrives, and the callback's job (joinSession.js) is to
+      // match it against a request this device actually made — an unsolicited
+      // frame from a stranger is dropped there, on identity, which a rate
+      // limit would not improve.
+      if (msg.type === 'pairing_approved' || msg.type === 'pairing_denied') {
+        try {
+          await onPairingDecision?.(msg, { fromPeerId })
+        } catch (err) {
+          console.error(`authGate: onPairingDecision threw: ${err?.message ?? err}`)
         }
         await stream.close().catch(() => {})
         return

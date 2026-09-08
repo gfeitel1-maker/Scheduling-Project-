@@ -62,7 +62,7 @@ const MAX_CONNECTIONS = 200
 // scoped discovery; omitted by default so tests keep dialing directly over
 // loopback (mDNS needs a real network interface — see discovery.js's own
 // module comment).
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, peerDiscovery, now } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now } = {}) {
   const node = await createLibp2p({
     addresses: { listen: listen ?? DEFAULT_LISTEN },
     transports: [tcp()],
@@ -84,6 +84,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     onPairingRequest,
     onLogin,
     onPeerAdmitted,
+    onPairingDecision,
     ...(now ? { now } : {}),
   })
 
@@ -233,6 +234,46 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     dial,
     authenticateWith,
     isPeerAuthenticated: (peerId) => authenticatedPeers.has(peerId),
+    // FIRST-JOIN TRUST BOOTSTRAP — the one way into `authenticatedPeers` that
+    // is not an `authenticate` frame, and the only caller is joinSession.js
+    // immediately after a successful `login` to this exact peer. Read the
+    // reasoning before using it anywhere else; it is a deliberate hole with a
+    // narrow, argued shape, and MUST be covered by the security review the
+    // join-flow ADR mandates.
+    //
+    // WHY IT HAS TO EXIST. Admission is mutual (Stage 5 finding 4): a node
+    // only sends to peers that authenticated to IT, so the Host must
+    // authenticate to the joining device before any document can flow. Every
+    // token this codebase issues is Ed25519-signed by the Host's key and
+    // verified against `camps.signing_public_key` — which a joining device
+    // gets FROM the document it has not received yet. The Host therefore
+    // cannot prove itself to a camp-less device by any cryptographic means
+    // available at that moment. This is inherent to first pairing, not an
+    // oversight.
+    //
+    // WHY IT IS ACCEPTABLE. The trust anchor is human, and it is the same
+    // anchor the WS path already relies on: the director typed THIS camp's
+    // join code, the director approved THIS device on the Host's screen, and
+    // the joining device just completed a PIN login against this peer's real
+    // user table. The op-log's `full_sync` handed a Client its identity on
+    // exactly that basis, with no cryptographic proof of the Host either — so
+    // this is parity, not a new exposure. From the next launch onward the
+    // device has `signing_public_key` and every ordinary path verifies.
+    //
+    // WHAT IT IS NOT. It is not a way to skip authentication generally, and
+    // it grants nothing on the HOST — the joiner still had to pair and log in
+    // there. A caller that admits a peer it did not just authenticate ITSELF
+    // to has defeated the admission gate; that is the misuse to review for.
+    admitPeer: (peerId) => {
+      const id = String(peerId)
+      if (authenticatedPeers.has(id)) return
+      authenticatedPeers.add(id)
+      // Same follow-on an inbound `authenticate` gets: admission is what
+      // starts the Automerge sync exchange (syncNode's onPeerAdmitted seeds a
+      // sync state and steps it). Without this the joining device would sit
+      // admitted but silent, waiting for the Host to speak first.
+      onPeerAdmitted?.(id)
+    },
     sendPairingApproved,
     sendPairingDenied,
     // Fires cb({ id, multiaddrs }) for every peer libp2p's discovery

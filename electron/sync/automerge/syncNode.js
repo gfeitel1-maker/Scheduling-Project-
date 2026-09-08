@@ -40,7 +40,7 @@ import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 // only computes and hands them off. Wrapped in try/catch so a consumer's own throw can never break
 // sync or escape as an unhandled rejection — sync must keep converging regardless of what a push-
 // event listener does with what it's handed.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, peerDiscovery, onAuthRejected, listen, now } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, onPairingDecision, peerDiscovery, onAuthRejected, listen, now } = {}) {
   // Stage 5f: this module no longer keeps a private `state.doc` — the doc lives in liveDoc.js's
   // `docRegistry`, keyed by THIS `db`, so that a local write (liveDoc.recordLocalWrite) and a
   // remote merge (handleReceived below) mutate the exact same document instead of two copies that
@@ -251,6 +251,10 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     onAuthenticate,
     onPairingRequest: onPairingRequestMsg,
     onLogin,
+    // Stage 6 join flow: the joining device's end of the Host's approval
+    // dial-back. Only ever set by joinSession.js; a Host and an
+    // already-paired Client both leave it unset and never receive one.
+    onPairingDecision,
     peerDiscovery,
     // Threaded through to authGate.js's rate-limit clock (Stage 5d-2b re-
     // review, HIGH finding fix) — optional, tests only; production never
@@ -284,6 +288,9 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     dial: transport.dial,
     authenticateWith: transport.authenticateWith,
     isPeerAuthenticated: transport.isPeerAuthenticated,
+    // First-join trust bootstrap — see transport.js's admitPeer comment. Only
+    // joinSession.js calls this, and only right after logging in to that peer.
+    admitPeer: transport.admitPeer,
     sendPairingApproved: transport.sendPairingApproved,
     sendPairingDenied: transport.sendPairingDenied,
     onPeerDiscovery: transport.onPeerDiscovery,

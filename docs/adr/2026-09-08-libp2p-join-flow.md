@@ -3,7 +3,7 @@ title: "ADR: How a new device joins a camp over libp2p (Stage 6 join flow)"
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: in_progress
 date: 2026-09-08
 decided: 2026-09-08
 deciders: [product-owner-delegated]
@@ -63,9 +63,9 @@ Established by reading the code, not inferred:
    tested (`electron/sync/automerge/pairingLogin.test.js`), but nothing in `main.js` reaches it.
 
 Under the op-log, step 3 also delivered identity: the Host's `full_sync` shipped the Client its
-`camps` and `users` rows. That path disappears with the op-log. It is replaced by #325, which models
-`camps` and `users` as document entities — so a Client that *reaches* sync now receives identity
-through the CRDT. What is missing is only the human step that makes it start.
+`camps` and `users` rows. That path disappears with the op-log. #325 replaces half of it — `users`
+now reaches a joining device through the CRDT — but only half; see §3.1, which corrects an
+assumption this ADR originally got wrong about the other half.
 
 ### The prior decision this must not contradict
 
@@ -129,11 +129,59 @@ only ever useful in a moment the director deliberately opened.
 | 4 | Client → Host | `pairing_request` over `/shoresh/auth/1.0.0` — the existing, tested handler. |
 | 5 | Host | Director sees the requesting device's name and approves or denies. |
 | 6 | Client | Prompts for name + PIN; `login` over the same protocol; receives a camp token. |
-| 7 | Both | Mutual auth completes; Automerge sync delivers the document, which now carries `camps` and `users` (#325). |
-| 8 | Client | Projects. The `camps` row materialises. **The device now knows its campId** — persists the doc under it, drops the join tag, and switches to `campDiscoveryTag` for every future session. |
-| 9 | Client | Shows **"You've joined <Camp Name>."** |
+| 7 | Client | Writes its `camps` row from the login reply — see §3.1, this is not what the ADR first assumed. |
+| 8 | Both | Mutual admission completes (§3.2) and Automerge sync delivers the document; `users` and all domain data project. |
+| 9 | Client | **Now knows its campId** — persists the doc under it, drops the join tag, and switches to `campDiscoveryTag` for every future session. |
+| 10 | Client | Shows **"You've joined <Camp Name>."** |
 
-Step 9 is the point of the whole design. The camp's name is revealed at the first moment it can be
+### 3.1 Where camp identity actually comes from (corrected during implementation)
+
+This ADR was first written assuming step 7 read "the `camps` row materialises out of the document,
+because #325 models `camps`." **That is wrong, and the code says so in as many words.** From
+`projector.js`:
+
+> this projection path structurally can never be how a device gets its FIRST camps row … That row
+> comes [from `full_sync`'s `INSERT OR REPLACE` in `syncClient.js`]; a libp2p-native equivalent is
+> **Stage 6's problem**
+
+`PROJECTIONS.camps.ensureExists` only ever *matches or refuses* — never creates — because `camps` is
+a singleton whose accidental duplication would break token verification camp-wide. Modeling `camps`
+(#325) converges a camp's **name** across devices that already have the row. It cannot mint one.
+
+So the libp2p-native equivalent is: **the `login_ok` reply carries `{ id, name, signing_public_key }`,
+and the joining device writes its own `camps` row from it, before admission.** Three consequences
+worth stating:
+
+- `signing_public_key` is what lets the device verify the Host's tokens from its next launch onward.
+  It travels on the authenticated login reply and is **deliberately not modeled as a document
+  field** — key material has no business in shared CRDT history, where there is no payload to grep
+  for it afterwards. `signing_secret` never leaves the Host.
+- The camp is sent only on the `ok` path, so a failed or unauthenticated attempt learns nothing —
+  not the camp's id, not its name.
+- The row must be written **before** admission starts the sync exchange: `users.camp_id` is an FK to
+  `camps.id`, so a document projecting first would drop every user on an FK error, and might be the
+  only merge that device ever receives.
+
+### 3.2 The trust bootstrap, stated plainly
+
+Admission is mutual (Stage 5 finding 4: a node only sends to peers that authenticated to *it*), so
+the Host must authenticate to the joining device before anything flows. **It cannot.** Every token
+this codebase issues is Ed25519-signed by the Host's key and verified against
+`camps.signing_public_key` — which the joining device does not have until the exchange it is trying
+to start. This is inherent to first pairing, not an oversight.
+
+The resolution is `transport.js`'s `admitPeer`, called by `joinSession` only, only immediately after
+a successful login to that exact peer. The trust anchor is human and is **the same one the op-log
+already relied on**: the director typed this camp's code, approved this device on the Host's screen,
+and signed in with a PIN against that peer's real user table. `full_sync` handed a Client its
+identity on exactly that basis with no cryptographic proof of the Host either. From the next launch
+onward every ordinary path verifies normally.
+
+This is the single most security-consequential line in the slice and the thing the mandated security
+review should start from. The misuse to review for is any caller that admits a peer it did not just
+authenticate *itself* to.
+
+Step 10 is the point of the whole design. The camp's name is revealed at the first moment it can be
 revealed over an authenticated channel, so recognition is a thing the director *confirms*, not a
 thing they had to take on faith from an IP address.
 
@@ -196,6 +244,22 @@ control is unchanged and still stands in front of any data:
 An attacker on the LAN who learns a code reaches the same place they would reach by scanning the
 LAN for the WS port today: a pairing prompt on the director's screen, which they must convince a
 human to accept.
+
+**Guessing the tag — stated explicitly, because the window is doing real work here.** The join tag
+is not secret, but it must not be *guessable*, or the Add-a-device window would be discoverable by
+anyone on the LAN who simply enumerated codes. Two things make that infeasible, and the second is
+load-bearing rather than incidental:
+
+- **The space.** 8 Crockford base32 characters is 32⁸ ≈ 1.1 × 10¹² (40 bits), and every guess costs
+  a distinct mDNS query for a distinct serviceTag — there is no offline attack, because the tag is
+  only useful by asking the network for it. This is why the code is 8 characters and not the 4–6 a
+  shorter code would tempt; the shorter code is where this design would actually go wrong.
+- **The window.** The Host advertises the join tag only while a director has Add-a-device open, and
+  answers only during it. An attacker does not get to grind at leisure against a permanently-open
+  Host; they get the minutes the director is standing at the machine.
+
+Neither is claimed to make the code a credential. Even a correct guess reaches a pairing prompt on
+the director's screen — see the paragraph above.
 
 **Rate limiting.** `registerAuthGate`'s existing dual-keyed throttle (by `fromPeerId` and by claimed
 `device_id`) and `MAX_PENDING_PAIRING` apply unchanged — the join path uses the same protocol

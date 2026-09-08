@@ -173,7 +173,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: An unresolved-location decision is remembered per camp via a compound_cell_decisions-shaped table, and every held-conflict reason gets a triage card](../../docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-conflict-triage-coverage.md) | proposed | implemented | — |
 | [ADR: Membership and identity mapping for Automerge/libp2p sync (Stage 5d)](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) | accepted | in_progress | [2026-09-08-libp2p-join-flow](../../docs/adr/2026-09-08-libp2p-join-flow.md) |
 | [ADR: Productionize Automerge + libp2p as the sync/data layer; SQLite becomes a rebuildable projection](../../docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md) | accepted | in_progress | [2026-09-06-libp2p-membership-mapping](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) · [2026-09-08-libp2p-join-flow](../../docs/adr/2026-09-08-libp2p-join-flow.md) |
-| [ADR: How a new device joins a camp over libp2p (Stage 6 join flow)](../../docs/adr/2026-09-08-libp2p-join-flow.md) | accepted | not_started | — |
+| [ADR: How a new device joins a camp over libp2p (Stage 6 join flow)](../../docs/adr/2026-09-08-libp2p-join-flow.md) | accepted | in_progress | — |
 
 ## Runs
 
