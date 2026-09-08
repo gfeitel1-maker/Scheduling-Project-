@@ -191,5 +191,6 @@ export function evaluateLogin(db, { device_id, device_secret_identifier, name, p
   // Sent only on the `ok` path, so an unauthenticated or failed attempt learns
   // nothing about the camp — not its id, not its name.
   const camp = db.prepare('SELECT id, name, signing_public_key FROM camps LIMIT 1').get() ?? null
+
   return { ok: true, token: result.token, userId: result.userId, role: result.role, camp }
 }

@@ -151,12 +151,45 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // caller (syncNode.js) only ever calls this for peers it just admitted or just heard from — the
   // check is enforced here, at the transport boundary, so it can't be bypassed by a future call
   // site forgetting it.
+  // ORDER IS PART OF THE PROTOCOL. Automerge's sync protocol is a stateful
+  // conversation per peer: each message is generated against the sync state
+  // left by the previous one, and the receiver advances its own state in the
+  // order messages arrive. Deliver two out of order and the receiver's state
+  // moves past data it never got — it then believes the peer has nothing new
+  // and stops asking. Convergence stalls silently, with both sides healthy and
+  // connected and no error anywhere.
+  //
+  // Each send opens its OWN libp2p stream, so two concurrent sends to the same
+  // peer race and arrive in whichever order the streams happen to settle. That
+  // is routine, not exotic: any two near-simultaneous writes in a three-device
+  // camp trigger it (the Host relays to every other admitted peer on each
+  // merge). Found by the integration harness — scenario 08, two clients each
+  // writing a different field of the same activity, which failed ~80% of runs
+  // with the second field simply never arriving.
+  //
+  // So sends are serialised PER PEER: a chain per peer id, not one global
+  // queue, because ordering only matters within a conversation and a slow or
+  // unreachable peer must not hold up any other. The chain always continues on
+  // failure — a dropped message is recoverable (the next trigger regenerates
+  // from sync state), a wedged chain is not.
+  const sendChains = new Map()
+
   async function sendSyncMessage(peerId, bytes) {
     const target = peerId.toString()
     if (!authenticatedPeers.has(target)) return
-    const stream = await node.dialProtocol(toDialTarget(peerId), SYNC_PROTO, { runOnLimitedConnection: true })
-    await sendFramed(stream.sink, bytes)
-    await stream.close().catch(() => {})
+    const previous = sendChains.get(target) ?? Promise.resolve()
+    const send = previous
+      .catch(() => {})
+      .then(async () => {
+        // Re-checked inside the chain, not only before it: admission can be
+        // lost (peer:disconnect) while this send was queued behind another.
+        if (!authenticatedPeers.has(target)) return
+        const stream = await node.dialProtocol(toDialTarget(peerId), SYNC_PROTO, { runOnLimitedConnection: true })
+        await sendFramed(stream.sink, bytes)
+        await stream.close().catch(() => {})
+      })
+    sendChains.set(target, send)
+    return send
   }
 
   // Security review, Stage 5d-1 (CRITICAL): the admission gate must be
@@ -294,6 +327,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // it doesn't know what was already exchanged before the ORIGINAL sync state was discarded).
     onPeerDisconnected: (cb) => {
       node.addEventListener('peer:disconnect', (evt) => {
+    sendChains.delete(evt.detail.toString())
         cb(evt.detail.toString())
       })
     },
