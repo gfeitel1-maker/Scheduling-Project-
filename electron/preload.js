@@ -62,6 +62,17 @@ contextBridge.exposeInMainWorld('shoresh', {
   getDevicePairingStatus: () => ipcRenderer.invoke('shoresh:get-device-pairing-status'),
   listPendingPairingRequests: (token) => ipcRenderer.invoke('shoresh:list-pending-pairing-requests', { token }),
   approveDevice: (args) => ipcRenderer.invoke('shoresh:approve-device', args),
+  // Join flow — docs/adr/2026-09-08-libp2p-join-flow.md. The join-* calls are
+  // token-free by construction: a device with no camp has no session to pass.
+  getJoinCode: (args) => ipcRenderer.invoke('shoresh:get-join-code', args),
+  setJoinWindow: (args) => ipcRenderer.invoke('shoresh:set-join-window', args),
+  joinStart: (args) => ipcRenderer.invoke('shoresh:join-start', args),
+  joinFindHost: () => ipcRenderer.invoke('shoresh:join-find-host'),
+  joinRequestPairing: () => ipcRenderer.invoke('shoresh:join-request-pairing'),
+  joinAwaitPairingDecision: () => ipcRenderer.invoke('shoresh:join-await-pairing-decision'),
+  joinLogin: (args) => ipcRenderer.invoke('shoresh:join-login', args),
+  joinAwaitData: () => ipcRenderer.invoke('shoresh:join-await-data'),
+  joinCancel: () => ipcRenderer.invoke('shoresh:join-cancel'),
   denyDevice: (args) => ipcRenderer.invoke('shoresh:deny-device', args),
   listDevices: (token) => ipcRenderer.invoke('shoresh:list-devices', { token }),
   revokeDevice: (args) => ipcRenderer.invoke('shoresh:revoke-device', args),

@@ -44,6 +44,8 @@ import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, 
 import { loadDoc as loadAutomergeDoc } from './sync/automerge/docStore.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import { createMdnsDiscovery } from './sync/automerge/discovery.js'
+import { joinCode as joinCodeForCamp, formatJoinCode } from './sync/joinCode.js'
+import { startJoinSession } from './sync/automerge/joinSession.js'
 import {
   getCurrentProjectPath,
   setCurrentProjectPath,
@@ -1591,6 +1593,105 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return result
   }
 
+  // ---------------------------------------------------------------------
+  // Join flow (docs/adr/2026-09-08-libp2p-join-flow.md).
+  //
+  // Two halves that never run on the same device at the same time: the HOST's
+  // Add-a-device window, and the JOINING device's pre-identity session. The
+  // joining half is deliberately token-free — a device with no camp has no
+  // user, no session and nothing to authorize against, exactly like
+  // discoverHosts above. Its safety comes from startJoinSession itself, which
+  // refuses outright if this device already belongs to a camp, and from the
+  // join-code proof both sides exchange.
+  // ---------------------------------------------------------------------
+
+  // The director's Add-a-device window. Consent, not security: it stops a Host
+  // nobody is standing at from putting pairing prompts on screen. Reset to
+  // closed on every app start by virtue of being process state.
+  let joinWindowOpen = false
+
+  function getJoinCode({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'devices.approve' })
+    if (mode === 'client') {
+      throw new Error('Adding a device can only be done on the main computer.')
+    }
+    const camp = db.prepare('SELECT id, name FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp on this device yet')
+    const code = joinCodeForCamp(camp.id)
+    return { code, formatted: formatJoinCode(code), campName: camp.name, open: joinWindowOpen }
+  }
+
+  function setJoinWindow({ token, open } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'devices.approve' })
+    if (mode === 'client') {
+      throw new Error('Adding a device can only be done on the main computer.')
+    }
+    joinWindowOpen = Boolean(open)
+    return { open: joinWindowOpen }
+  }
+
+  // The joining device's live session, for this process only. Never persisted:
+  // an app restart mid-join starts over, which is correct — nothing has been
+  // written yet at any point before login.
+  let activeJoin = null
+
+  async function joinStart({ code, deviceName } = {}) {
+    if (activeJoin) await joinCancel()
+    const started = await startJoinSession({
+      db,
+      deviceId,
+      deviceName: deviceName || db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)?.name,
+      code,
+    })
+    if (started.status !== 'started') return { status: started.status }
+    activeJoin = started.session
+    return { status: 'started' }
+  }
+
+  async function joinFindHost() {
+    if (!activeJoin) throw new Error('no join in progress')
+    const found = await activeJoin.findHost()
+    return { status: found ? 'found' : 'not_found' }
+  }
+
+  async function joinRequestPairing() {
+    if (!activeJoin) throw new Error('no join in progress')
+    return activeJoin.requestPairing()
+  }
+
+  async function joinAwaitPairingDecision() {
+    if (!activeJoin) throw new Error('no join in progress')
+    return activeJoin.waitForPairingDecision()
+  }
+
+  async function joinLogin({ name, pin, deviceSecretIdentifier } = {}) {
+    if (!activeJoin) throw new Error('no join in progress')
+    return activeJoin.login({ name, pin, deviceSecretIdentifier })
+  }
+
+  // The camp's data, as distinct from its identity — see joinSession's own
+  // waitForCamp comment. `timeout` here is a real outcome the screen must
+  // show, never a spinner that hides a dead connection.
+  async function joinAwaitData() {
+    if (!activeJoin) throw new Error('no join in progress')
+    const camp = await activeJoin.waitForCamp()
+    return camp ? { status: 'ok', camp } : { status: 'timeout' }
+  }
+
+  async function joinCancel() {
+    if (!activeJoin) return { status: 'idle' }
+    const session = activeJoin
+    activeJoin = null
+    try {
+      await session.stop()
+    } catch (err) {
+      console.error(`join: stopping the join session failed (non-fatal): ${err?.message ?? err}`)
+    }
+    return { status: 'cancelled' }
+  }
+
   return {
     chooseMode,
     discoverHosts: discoverHostsHandler,
@@ -1640,6 +1741,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     approveDevice,
     denyDevice,
     revokeDevice,
+    getJoinCode,
+    setJoinWindow,
+    joinStart,
+    joinFindHost,
+    joinRequestPairing,
+    joinAwaitPairingDecision,
+    joinLogin,
+    joinAwaitData,
+    joinCancel,
+    isJoinWindowOpen: () => joinWindowOpen,
     getSyncClient: () => syncClient,
   }
 }
@@ -1748,6 +1859,15 @@ if (isElectronEntryPoint()) {
     'shoresh:list-pending-pairing-requests',
     'shoresh:list-devices',
     'shoresh:approve-device',
+    'shoresh:get-join-code',
+    'shoresh:set-join-window',
+    'shoresh:join-start',
+    'shoresh:join-find-host',
+    'shoresh:join-request-pairing',
+    'shoresh:join-await-pairing-decision',
+    'shoresh:join-login',
+    'shoresh:join-await-data',
+    'shoresh:join-cancel',
     'shoresh:deny-device',
     'shoresh:revoke-device',
     'shoresh:duplicate-week',
@@ -1755,6 +1875,12 @@ if (isElectronEntryPoint()) {
   ]
 
   function registerHandlers(handlers, currentDb) {
+    // Whichever handler set is currently registered. Needed because the
+    // automerge sync node (started separately, and surviving a project switch)
+    // has to ask the LIVE handlers whether the director's Add-a-device window
+    // is open — reading a captured `initialHandlers` would silently consult a
+    // stale set after a switch.
+    liveHandlers = handlers
     // Remove existing registrations before re-registering (project switch).
     for (const ch of HANDLER_CHANNELS) ipcMain.removeHandler(ch)
 
@@ -1815,6 +1941,15 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
     ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))
     ipcMain.handle('shoresh:approve-device', (_event, args) => handlers.approveDevice(args))
+    ipcMain.handle('shoresh:get-join-code', (_event, args) => handlers.getJoinCode(args))
+    ipcMain.handle('shoresh:set-join-window', (_event, args) => handlers.setJoinWindow(args))
+    ipcMain.handle('shoresh:join-start', (_event, args) => handlers.joinStart(args))
+    ipcMain.handle('shoresh:join-find-host', () => handlers.joinFindHost())
+    ipcMain.handle('shoresh:join-request-pairing', () => handlers.joinRequestPairing())
+    ipcMain.handle('shoresh:join-await-pairing-decision', () => handlers.joinAwaitPairingDecision())
+    ipcMain.handle('shoresh:join-login', (_event, args) => handlers.joinLogin(args))
+    ipcMain.handle('shoresh:join-await-data', () => handlers.joinAwaitData())
+    ipcMain.handle('shoresh:join-cancel', () => handlers.joinCancel())
     ipcMain.handle('shoresh:deny-device', (_event, args) => handlers.denyDevice(args))
     ipcMain.handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
     ipcMain.handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
@@ -2121,6 +2256,8 @@ if (isElectronEntryPoint()) {
   // anything about libp2p/Automerge itself — same "handed a getter, not the
   // implementation" shape as getMainWindow above.
   let automergeSyncNode = null
+  // Set by registerHandlers; see its comment.
+  let liveHandlers = null
   // Transport-independent: a director approving/denying a pairing request
   // doesn't know or care which transport (WS or libp2p) asked. Defined once
   // here so both startSyncServer's onPairingRequest (via makeHandlers'
@@ -2302,6 +2439,10 @@ if (isElectronEntryPoint()) {
         // module-scoped `notifyPairingRequest` below) — approving/denying a
         // device is transport-independent, so one callback serves both.
         onPairingRequest: notifyPairingRequest,
+        // The director's Add-a-device window (see getJoinCode/setJoinWindow).
+        // Only consulted for a first-join pairing_request; an already-paired
+        // device reconnecting never carries a join nonce and is unaffected.
+        isJoinWindowOpen: () => liveHandlers?.isJoinWindowOpen?.() ?? false,
         onAuthRejected: (peerId, reply) => {
           console.error(`automerge sync: peer ${peerId} rejected our authenticate: ${JSON.stringify(reply)}`)
           recordAuditEvent(db, {
