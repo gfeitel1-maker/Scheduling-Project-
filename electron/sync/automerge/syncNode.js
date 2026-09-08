@@ -251,6 +251,19 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // Stage 5d-2b: device-secret + PIN/lockout, shared with syncServer.js's
   // `login` handling via evaluateLogin (electron/auth/connectionAuth.js).
   async function onLogin(msg, { fromPeerId }) {
+    // `hostDeviceId` is THIS node's own device id — the one it will present in
+    // its `authenticate` frames — so a joining device can record it as trusted
+    // locally. Taken from the node rather than the database because that is
+    // what the peer will actually see.
+    //
+    // Found by the integration harness, and a real defect rather than a
+    // fixture gap: evaluateAuthenticate re-checks the RECEIVING side's own
+    // `devices` row for the peer and admits only an AUTHORIZED one, inserting
+    // a 'pending' row for an unknown peer and then refusing it. A joined
+    // device with no row for its Host therefore syncs for the length of the
+    // join (admitPeer bootstraps that session) and never again after a
+    // restart, in one direction, with nothing logged on either side. Every
+    // earlier test seeded this row by hand, which is why nothing caught it.
     const result = evaluateLogin(db, {
       device_id: msg.device_id,
       device_secret_identifier: msg.device_secret_identifier,
@@ -258,7 +271,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       pin: msg.pin,
     })
     if (result.ok) recordLibp2pPeerId(db, msg.device_id, fromPeerId)
-    return result
+    return result.ok ? { ...result, hostDeviceId: deviceId } : result
   }
 
   const transport = await startTransport({
@@ -350,7 +363,27 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
         onProjectionError?.(err, newDoc, null)
         console.error(`syncNode: local projection failed — SQLite left at last-good: ${err?.message ?? err}`)
       }
-      await transport.broadcastDoc(A.save(newDoc))
+      // Propagate via the SYNC PROTOCOL, not a whole-document push.
+      //
+      // This used to be `transport.broadcastDoc(A.save(newDoc))`, which is the
+      // mechanism Stage 5 already found and documented as not reliably
+      // deliverable: a frame the peer's admission gate rejects does not throw
+      // on the sender, so a push can vanish with nothing observable on either
+      // side. Stage 5f removed it from initial-sync for exactly that reason and
+      // replaced it with generateSyncMessage/receiveSyncMessage — but left it
+      // here, where it stayed invisible because in-process tests wrote from one
+      // device at a time.
+      //
+      // The integration harness made it visible: scenario 08 (two clients each
+      // writing a different field of the same activity) lost the second write
+      // ~80% of the time, with both clients connected, admitted, and healthy.
+      // Using the same acknowledged, incremental exchange the rest of this
+      // module uses makes the two write paths — this one and broadcastLocalDoc
+      // — the same mechanism, which is the point: there is no longer a second,
+      // weaker way for a local write to reach a peer.
+      for (const peerId of transport.getPeers()) {
+        if (transport.isPeerAuthenticated(peerId)) stepSync(peerId)
+      }
     },
     // Stage 5f item 2 (Stage 5f-2: now via the sync protocol, not a whole-doc push). The broadcast
     // half of a REAL local write. liveDoc.recordLocalWrite already applies the write to the shared

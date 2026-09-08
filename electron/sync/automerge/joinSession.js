@@ -320,6 +320,21 @@ export async function startJoinSession({
         ).run(reply.camp.id, reply.camp.name ?? null, reply.camp.signing_public_key ?? null)
       }
 
+      // Trust the Host as a device, locally. Found by the integration harness
+      // (test/integration/harnessAutomerge.js), and a real defect rather than
+      // a fixture gap: evaluateAuthenticate re-checks the RECEIVING side's own
+      // `devices` row for the peer and admits only an AUTHORIZED one, but a
+      // peer with no row gets one inserted as 'pending' and is then refused.
+      // Without this, sync would work for the length of this join (admitPeer
+      // bootstraps this session) and then never again after a restart, in one
+      // direction, with nothing logged on the Host. Every earlier test seeded
+      // this row by hand, which is exactly why nothing caught it.
+      if (reply.host_device_id) {
+        db.prepare(
+          "INSERT OR REPLACE INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
+        ).run(reply.host_device_id, 'Main computer', new Date().toISOString())
+      }
+
       // The other half of mutual admission, and the subtlest step in the flow
       // (Stage 5 finding 4: a node only sends to peers that authenticated to
       // IT, so one-way admission means nothing moves in either direction).

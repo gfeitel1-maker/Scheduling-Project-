@@ -330,3 +330,53 @@ describe('startJoinSession — a peer that did not get the code from the directo
     impostorDb.close()
   })
 })
+
+// Found by the integration harness, not by unit tests — every earlier test in
+// this directory seeded this row by hand, which is exactly why nothing caught
+// it. It is a real defect, not a fixture gap: `evaluateAuthenticate` re-checks
+// the RECEIVING side's own `devices` row for the peer and admits only an
+// AUTHORIZED one, inserting a 'pending' row for an unknown peer and refusing
+// it. So a joined device with no row for its Host syncs fine for the length of
+// the join (admitPeer bootstraps that session) and then never again after a
+// restart, in one direction, with nothing logged on either side.
+describe('startJoinSession — what the device still knows tomorrow', () => {
+  it('records the Host as a trusted device, so it can be authenticated to later', async () => {
+    insertUser(hostDb, { camp_id: HOST_CAMP_ID, name: 'Director', pin: '1234', role: 'admin' })
+    const host = await startHost({ onPairingRequest: () => {} })
+    const { session } = await startJoiner(host)
+    await session.findHost()
+    await session.requestPairing()
+    const secret = randomBytes(32).toString('hex')
+    hostDb.prepare(
+      "UPDATE devices SET authorized_at = ?, pairing_status = 'authorized', device_secret_identifier = ? WHERE id = ?"
+    ).run(new Date().toISOString(), secret, 'joiner-device')
+    await host.sendPairingApproved('joiner-device', secret)
+    await session.login({ name: 'Director', pin: '1234', deviceSecretIdentifier: secret })
+
+    const hostRow = joinerDb.prepare('SELECT pairing_status, authorized_at FROM devices WHERE id = ?').get('host-device')
+    expect(hostRow?.pairing_status).toBe('authorized')
+    expect(hostRow?.authorized_at).toBeTruthy()
+  })
+
+  // The other half of "tomorrow": verifying the Host's tokens needs the camp's
+  // public key locally, and it is deliberately NOT a document field — key
+  // material in append-only CRDT history has no payload to grep afterwards.
+  it('keeps the camp signing key, but never takes the secret', async () => {
+    insertUser(hostDb, { camp_id: HOST_CAMP_ID, name: 'Director', pin: '1234', role: 'admin' })
+    const host = await startHost({ onPairingRequest: () => {} })
+    const { session } = await startJoiner(host)
+    await session.findHost()
+    await session.requestPairing()
+    const secret = randomBytes(32).toString('hex')
+    hostDb.prepare(
+      "UPDATE devices SET authorized_at = ?, pairing_status = 'authorized', device_secret_identifier = ? WHERE id = ?"
+    ).run(new Date().toISOString(), secret, 'joiner-device')
+    await host.sendPairingApproved('joiner-device', secret)
+    await session.login({ name: 'Director', pin: '1234', deviceSecretIdentifier: secret })
+
+    const camp = joinerDb.prepare('SELECT signing_public_key, signing_secret FROM camps LIMIT 1').get()
+    expect(camp.signing_public_key).toBeTruthy()
+    expect(camp.signing_secret).toBeNull()
+    expect(JSON.stringify(session.node.getDoc())).not.toContain(camp.signing_public_key)
+  })
+})
