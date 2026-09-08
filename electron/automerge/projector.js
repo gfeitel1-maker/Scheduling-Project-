@@ -60,6 +60,16 @@ const DOMAIN_ORDER_WITH_SNAPSHOTS = (() => {
   ]
 })()
 
+// `camps` and `users` (Stage 6 prep): same reasoning as campDocument.js's EXTRA_MODELED_ENTITIES —
+// neither is in DOMAIN_SNAPSHOT_ORDER (that array is shared with the WS full_sync payload, which
+// already has its own bespoke camps/users handling — see campDocument.js's comment), so this
+// projector needs its own position for them, not a change to the shared registry. `camps` first:
+// `users.camp_id` is a (nullable) FK to `camps.id`, so camps must exist first for any FK-checked
+// insert to succeed — though in practice `camps` never inserts a new row via this path at all (see
+// PROJECTIONS.camps.ensureExists: it only ever matches or refuses, never creates — the singleton
+// camps row is created exclusively by bootstrapCamp/the pairing flow, never by doc replay).
+const DOMAIN_ORDER_WITH_CAMPS_AND_USERS = ['camps', 'users', ...DOMAIN_ORDER_WITH_SNAPSHOTS]
+
 // FK-safe apply order, filtered to just the entities this document layer models (DOMAIN_SNAPSHOT_
 // ORDER, extended above, also lists deferred entities, which are out of scope here).
 // `foreign_keys = ON` (openLocalDb) makes this order load-bearing — a table must project after
@@ -67,7 +77,7 @@ const DOMAIN_ORDER_WITH_SNAPSHOTS = (() => {
 // ORDER position, after schedule_templates) and is projected via BOTH upsertEntity's flat pass
 // (individual cell edits) AND upsertBulkReplaceEntity's scope pass (whole-schedule regenerate) — see
 // upsertEntity/deleteReconcileEntity below.
-export const MODELED_ORDER = DOMAIN_ORDER_WITH_SNAPSHOTS.filter(
+export const MODELED_ORDER = DOMAIN_ORDER_WITH_CAMPS_AND_USERS.filter(
   (entity) => MODELED_ENTITIES.has(entity) || BULK_REPLACE_MODELED_ENTITIES.has(entity)
 )
 
@@ -114,9 +124,60 @@ function deleteReconcileBulkReplaceEntity(db, doc, entity) {
 // schedule (bulk-replace), then may tweak individual cells afterward (field-level writes) — never
 // the other way around. The flat pass's per-field UPDATE matches zero rows for any id the scope pass
 // didn't insert (a harmless no-op — see deleteReconcileEntity's skip below for why those can exist).
+// `camps` convergence (Stage 6 prep — see docs/work/plans/2026-09-07-stage6-cutover-plan.md's
+// task brief, "the camps singleton problem"): every device already has its OWN local `camps` row
+// before this document layer's `camps` entity is ever projected — liveDoc.js's getCampId(db) is a
+// hard gate ahead of every doc read/write (recordLocalWrite, recordLocalBulkReplace, the sync-node
+// startup path all `return` immediately when `SELECT id FROM camps LIMIT 1` is empty), so this
+// projection path structurally can never be how a device gets its FIRST camps row. That row comes
+// from bootstrapCamp (the Host) or the pairing/join flow (a Client receiving the Host's camp
+// identity by a mechanism outside this document — today the legacy WS full_sync's
+// `INSERT OR REPLACE INTO camps` in syncClient.js; a libp2p-native equivalent is Stage 6's problem,
+// not this slice's).
+//
+// So by the time doc-projection runs, `db`'s camps row already exists and its `id` already matches
+// what the rest of the camp's devices agree on — modeling `camps.name` here is about *subsequent*
+// field changes (e.g. a future camp-rename feature) converging across devices that already share an
+// id, not about creating that shared identity.
+//
+// The failure mode this guards against is a device somehow ending up with a document containing a
+// DIFFERENT camp's row (id mismatch) — never expected in the supported pairing flow, but not
+// impossible (a restored backup from the wrong camp, a bug, a merged `.automerge` file that
+// shouldn't have been). PROJECTIONS.camps.ensureExists already refuses that case by throwing
+// (camps is a true singleton — see its own comment in projections.js). Left uncaught, that throw
+// would propagate out of applyProjection and abort projectAll's ONE shared transaction, rolling
+// back every OTHER entity's legitimate projection along with it — a single stray foreign camps row
+// in the document would then block ALL sync, camp-wide. The deterministic, testable rule
+// implemented here: THIS device's own existing camp id always wins; any other id present in the
+// document's `camps` collection is permanently ignored (skipped, logged, never inserted, never
+// allowed to overwrite the local identity row) rather than crashing the batch.
+function upsertCampsEntity(db, doc) {
+  const coll = doc.camps ?? {}
+  const fields = PROJECTIONS.camps.fields
+  for (const id of Object.keys(coll)) {
+    const row = coll[id]
+    for (const field of fields) {
+      if (!(field in row)) continue
+      try {
+        applyProjection(db, { entity: 'camps', entity_id: id, field, value: row[field], knownRow: row })
+      } catch (err) {
+        // Expected refusal from PROJECTIONS.camps.ensureExists when `id` doesn't match this
+        // device's own camp row (see comment above) — skip just this row, not the whole batch.
+        console.error(
+          `projector: skipping doc 'camps' row '${id}' — does not match this device's own camp (${err.message})`
+        )
+      }
+    }
+  }
+}
+
 function upsertEntity(db, doc, entity) {
   if (BULK_REPLACE_MODELED_ENTITIES.has(entity)) upsertBulkReplaceEntity(db, doc, entity)
   if (!MODELED_ENTITIES.has(entity)) return
+  if (entity === 'camps') {
+    upsertCampsEntity(db, doc)
+    return
+  }
   const fields = PROJECTIONS[entity].fields
   const coll = doc[entity] ?? {}
   for (const id of Object.keys(coll)) {
@@ -152,6 +213,15 @@ function deleteReconcileEntity(db, doc, entity) {
     deleteReconcileBulkReplaceEntity(db, doc, entity)
     return
   }
+  // `camps` is never delete-reconciled: it is a singleton identity row, not a collection of
+  // records the document could legitimately go to zero-of. If this device's own camp id isn't a
+  // key in doc.camps (e.g. the document only ever saw a different camp's row — the exact
+  // divergence upsertCampsEntity above guards against, or simply a doc that predates this slice
+  // and has never had a camps write land in it yet), the generic rule below would delete this
+  // device's OWN camps row out from under every `SELECT ... FROM camps LIMIT 1` lookup in the
+  // app — instantly breaking the entire device, not a graceful degradation. There is no product
+  // flow that deletes a camp; skip entirely.
+  if (entity === 'camps') return
   const coll = doc[entity] ?? {}
   const inDoc = new Set(Object.keys(coll))
   for (const { id } of db.prepare(`SELECT id FROM ${entity}`).all()) {
@@ -213,10 +283,19 @@ function entityHasAnyDocRow(doc, entity) {
   return Object.keys(doc[entity] ?? {}).length > 0
 }
 
+// `camps` is excluded from this guard's "does SQLite/the doc have any real data" signal (see
+// RECONCILABLE_ORDER below). Every device's SQLite ALWAYS has exactly one camps row — it is a
+// structural invariant of this app, not evidence of a seeded/live camp — so including it here would
+// make sqliteHasAnyRow trivially and near-universally true regardless of whether any actual domain
+// data exists, defeating the guard's whole purpose. camps also has its own bespoke never-delete
+// handling (deleteReconcileEntity's early return) and convergence handling (upsertCampsEntity) — see
+// those comments; it doesn't participate in the empty-doc-vs-live-data question this guard asks.
+const RECONCILABLE_ORDER = MODELED_ORDER.filter((entity) => entity !== 'camps')
+
 function assertDocIsSupersetOrEmpty(db, doc) {
-  const docHasAnyRow = MODELED_ORDER.some((entity) => entityHasAnyDocRow(doc, entity))
+  const docHasAnyRow = RECONCILABLE_ORDER.some((entity) => entityHasAnyDocRow(doc, entity))
   if (docHasAnyRow) return
-  const sqliteHasAnyRow = MODELED_ORDER.some(
+  const sqliteHasAnyRow = RECONCILABLE_ORDER.some(
     (entity) => db.prepare(`SELECT 1 FROM ${entity} LIMIT 1`).get() !== undefined
   )
   if (sqliteHasAnyRow) {
@@ -273,13 +352,17 @@ export function rebuildFromDoc(db, doc, entity) {
   if (entity !== undefined) {
     assertModeled(entity)
     const run = db.transaction(() => {
-      db.prepare(`DELETE FROM ${entity}`).run()
+      // `camps` is never wiped — see RECONCILABLE_ORDER's comment above. A raw DELETE here would
+      // remove the device's own singleton identity row, and PROJECTIONS.camps.ensureExists
+      // refuses to ever re-create it (by design — see projections.js), permanently breaking every
+      // `SELECT ... FROM camps LIMIT 1` lookup in the app.
+      if (entity !== 'camps') db.prepare(`DELETE FROM ${entity}`).run()
       projectEntity(db, doc, entity)
     })
     run()
     return
   }
-  const reverseOrder = [...MODELED_ORDER].reverse()
+  const reverseOrder = [...RECONCILABLE_ORDER].reverse()
   const run = db.transaction(() => {
     for (const e of reverseOrder) db.prepare(`DELETE FROM ${e}`).run()
     projectAll(db, doc)

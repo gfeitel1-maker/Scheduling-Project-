@@ -36,9 +36,20 @@ const HOST_ONLY_TABLES = [
 // Infrastructure / never-replicated-as-document tables. `devices` is the
 // special case (never replicated but stub-seeded on receipt, per
 // docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md) — it still
-// must not be a shared document field. camps/users/operations/conflicts are
-// device-local infrastructure, not camp domain data.
-const NON_DOCUMENT_TABLES = ['devices', 'camps', 'users', 'operations', 'conflicts']
+// must not be a shared document field. `operations`/`conflicts` are the
+// op-log's own bookkeeping tables, meaningless as document fields by
+// construction (Stage 6 removes them entirely).
+//
+// DELIBERATE REMOVAL (Stage 6 prep, docs/work/plans/2026-09-07-stage6-cutover-plan.md): `camps`
+// and `users` used to be listed here, but are NOW MODELED (see campDocument.js's
+// EXTRA_MODELED_ENTITIES) — without cross-device replication of `users`, a counselor added on one
+// device could never log in on any other device after the op-log is retired, and `camps.name`
+// would never converge either. This is a deliberate widening, not the drift this test exists to
+// catch: `camps.signing_secret` and every genuinely host-only table below are UNCHANGED and still
+// asserted absent — see usersAndCamps.test.js for the users/camps-specific coverage (a real user
+// created on one device materializing on another, camps-singleton-convergence, and proof
+// signing_secret never enters a real document).
+const NON_DOCUMENT_TABLES = ['devices', 'operations', 'conflicts']
 
 describe('host-only + infrastructure tables are structurally excluded from the Automerge document', () => {
   const excluded = [...HOST_ONLY_TABLES, ...NON_DOCUMENT_TABLES]
