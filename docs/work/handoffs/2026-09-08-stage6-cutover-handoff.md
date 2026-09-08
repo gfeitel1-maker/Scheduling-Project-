@@ -46,7 +46,26 @@ both directions, all five checks). PRs #305–#325.
 - Windows: per-user NSIS target added (never built ON Windows — see gaps).
 - **The flag is still default-`oplog`.** Nothing is deleted.
 
-## STOP — 6b and 6d are BLOCKED on an owner decision (2026-09-08)
+## RESOLVED (2026-09-08) — this stop has been lifted; kept for the reasoning
+
+**The block below is HISTORY. Do not act on it as a current constraint.** The owner decided, and both
+halves shipped:
+
+- **#336 flattened the record shape** — a field is its own document key, records stop being
+  containers. That removes the root cause rather than reconciling around it. Verified on current
+  `main`: two devices concurrently creating the same entity id now merge to
+  `{"x1\u0000name":"Archery","x1\u0000location_id":"Lakeside"}` — **both fields survive**, where
+  this previously kept one at random and destroyed the other 400 times out of 400.
+- **#334 added conflict reconciliation** for the case flattening cannot remove: two people choosing
+  *different values for the same field*. That is surfaced for a human rather than silently resolved,
+  per the owner's instruction — "make it a choice that both need to see."
+- **#337 flipped the default to `automerge`** (6b), which the block below had held.
+
+The original analysis is kept verbatim below because it is why the flatten happened, and because the
+op-log comparison is the argument anyone revisiting the record shape will need. It is no longer a
+constraint on the plan.
+
+## (HISTORICAL) STOP — 6b and 6d were BLOCKED on an owner decision (2026-09-08)
 
 **Two devices that concurrently create the SAME entity id lose fields.** Each assigns a fresh
 container to that key; Automerge keeps one and discards the other's fields into `getConflicts`,
