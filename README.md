@@ -112,7 +112,7 @@ If neither is done, sync will silently fail to connect on that Host — check th
 ## Tests
 
 ```bash
-npm run test                          # Vitest unit tests (348 files, 4,969 cases + 2 skipped, all passing as of 2026-09-07 — see PLATFORM_STATE.md)
+npm run test                          # Vitest unit tests (353 files, 4,999 cases + 2 skipped, as of 2026-09-08 — see PLATFORM_STATE.md)
 node test/integration/run.js          # 27 multi-process integration scenarios
 npm run lint                          # ESLint
 ```
