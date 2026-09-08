@@ -64,6 +64,12 @@ A.merge(A.clone(a), b)
 // getConflicts: 2 entries, one of them holding {"name":"Archery"}
 ```
 
+**Which side loses is ARBITRARY.** Over 200 runs of the snippet above: the `name` write survived 99
+times, the `location` write 101, and **both survived 0 times**. The winner follows Automerge's random
+actor ids, not write order — so this is not last-write-wins, which a director could at least learn
+the shape of. It is a coin toss, both devices agree on the same arbitrary answer, and one device's
+edit is always destroyed.
+
 **The decisive datum: the op-log does NOT have this failure.** The same shape replayed through
 `applyProjection` yields `{"id":"x1","name":"Archery"}` — both field-writes applied, nothing lost,
 because op-log ops are field-level and merge additively.
