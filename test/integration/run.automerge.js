@@ -27,6 +27,9 @@ import { run as scenario05 } from './scenarios/05-revocation.automerge.js'
 import { run as scenario14 } from './scenarios/14-corrupt-payload.automerge.js'
 import { run as scenario16 } from './scenarios/16-role-change.automerge.js'
 import { run as scenario17 } from './scenarios/17-joining-device-domain-data.automerge.js'
+import { run as scenario07 } from './scenarios/07-pairing-reconnect.automerge.js'
+import { run as scenario15 } from './scenarios/15-clock-skew.automerge.js'
+import { run as scenario20 } from './scenarios/20-delete-used-record.automerge.js'
 
 // Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
 // disagree about one slot) are both FIXED and both pass consistently, having
@@ -50,7 +53,27 @@ const SCENARIOS = [
   { name: '14 malformed payloads are rejected safely (libp2p)', fn: scenario14 },
   { name: '16 role change takes effect with no token re-issue (libp2p)', fn: scenario16 },
   { name: '17+25+26+27 a joining device receives the whole domain (libp2p)', fn: scenario17 },
+  { name: '07 pairing survives a mid-flight reconnect (libp2p)', fn: scenario07 },
+  { name: '15 a wrong clock does not reorder or hide a conflict (libp2p)', fn: scenario15 },
+  { name: '20 deleting a used record replicates (libp2p)', fn: scenario20 },
 ]
+
+// WRITTEN BUT NOT LISTED, deliberately: scenarios/18-restore-queue.automerge.js.
+//
+// It is correct and it fails, on a real gap rather than anything it can fix:
+// `trash.js` and `restore.js` answer their questions by querying the
+// `operations` table, so a device that RECEIVED a deletion through document
+// sync has no rows for it and cannot restore it. That is broken today, and
+// removing the op-log would break Trash entirely.
+//
+// The agreed fix (owner, 2026-09-08) is to narrow what "retire the op-log"
+// means: drop it as a SYNC mechanism, keep `operations` as a local-only history
+// ledger fed by both local writes and received merges. Scenario 18 is that
+// slice's exit criterion, and it goes into this list when the ledger exists.
+//
+// It is left out rather than weakened into passing, and left in the tree rather
+// than deleted, because a failing scenario that names a real gap is worth more
+// than either. See docs/current/CRDT_SECURITY_GAPS.md item 7.
 
 const PASS = '\x1b[32mPASS\x1b[0m'
 const FAIL = '\x1b[31mFAIL\x1b[0m'
@@ -83,7 +106,7 @@ async function main() {
 
   const total = SCENARIOS.length
   const passed = total - failures
-  console.log(`\n  ${passed}/${total} passed (${total} libp2p scenarios; they cover 11 of the 27 WS originals — 17 collapses 17/25/26/27)\n`)
+  console.log(`\n  ${passed}/${total} passed (${total} libp2p scenarios; they cover 14 of the 27 WS originals — 17 collapses 17/25/26/27)\n`)
 
   if (failures > 0) throw new Error(`${failures} libp2p integration scenario(s) failed`)
 }

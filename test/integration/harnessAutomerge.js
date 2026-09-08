@@ -37,6 +37,7 @@ import { joinCode } from '../../electron/sync/joinCode.js'
 import { seedAllFromSqlite } from '../../electron/automerge/seed.js'
 import { ensureHostSigningKey, issueDeviceToken } from '../../electron/auth/localAuth.js'
 import { saveDoc, loadDoc } from '../../electron/sync/automerge/docStore.js'
+import { setUserDataDirGetter } from '../../electron/sync/automerge/liveDoc.js'
 
 export { makeTmpDir, cleanupDirs, waitFor } from './harness.js'
 
@@ -59,6 +60,29 @@ function insertUser(db, { camp_id, name, pin, role }) {
  * signing key and the `users`/`camps` rows (device-local infrastructure,
  * never replicated — see header comment).
  */
+/**
+ * Wire the Automerge dual-write, which is what makes DOMAIN operations
+ * (deleteRecord, restoreEntity, mergeLocation, ingest, …) reach the document at
+ * all. Those go through `appendOp`, and `appendOp` mirrors into the document
+ * only via `liveDoc.recordLocalWrite` — which is INERT until a userDataDir is
+ * configured, warning once and returning.
+ *
+ * Production wires this in main.js at startup. A test that forgets it sees
+ * every domain operation apply locally and replicate NOTHING, with one easily
+ * missed warning line — which is exactly what happened when scenario 20 was
+ * first written.
+ *
+ * The getter is process-global and takes no db, so both nodes in a scenario
+ * share one directory. That is fine here and worth knowing why: `startSyncNode`
+ * seeds the in-memory registry for each db, so `getDoc` always hits its cache
+ * and never reads from disk; the only disk contact is the debounced save, whose
+ * file is named by campId. Two nodes in one camp therefore write the same file,
+ * which no scenario reads back. Do not build a persistence assertion on it.
+ */
+export function configureDualWrite(dir) {
+  setUserDataDirGetter(() => dir)
+}
+
 export class AmHost {
   constructor(dbPath) {
     this.dbPath = dbPath
