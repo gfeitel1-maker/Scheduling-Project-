@@ -101,10 +101,22 @@ export class AmHost {
     this.db.prepare('INSERT OR IGNORE INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, ?)').run(
       this.deviceId, 'Host', new Date().toISOString(), 'authorized'
     )
+    // A RESTARTING Host must not start from an empty document. Production seeds
+    // from its own SQLite at startup (main.js's ensureAutomergeDocSeeded) before
+    // the sync node is handed a doc; starting empty here meant a Host that came
+    // back after a crash had forgotten everything it knew, and the only thing
+    // standing between that and a wiped camp was projectAll's
+    // assertDocIsSupersetOrEmpty guard. A first-run Host has nothing to seed and
+    // gets the bare genesis, exactly as before.
+    const alreadyBootstrapped = this.db.prepare('SELECT id FROM camps LIMIT 1').get()
+    const startingDoc = alreadyBootstrapped
+      ? seedAllFromSqlite(this.db, createEmptyDoc())
+      : createEmptyDoc()
+
     this.node = await startSyncNode({
       deviceId: this.deviceId,
       db: this.db,
-      doc: createEmptyDoc(),
+      doc: startingDoc,
       // The director's Add-a-device window (join-flow ADR §2). A Host with it
       // shut turns first-join requests away without troubling the director;
       // bootstrap() opens it, because every scenario models a director who is
@@ -118,6 +130,24 @@ export class AmHost {
     })
     this._pairingQueue = []
     this._pairingWaiters = []
+
+    // A Host that is RESTARTING already has its camp — bootstrap() must not run
+    // again — but it still needs its own admission token, or it cannot
+    // authenticate outward to a returning device and sync stays one-way.
+    // Production does exactly this in startAutomergeSyncNodeIfEnabled; the
+    // harness did not, and the symptom was a reconnect that timed out with
+    // everything else looking healthy.
+    const existingCamp = this.db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (existingCamp) {
+      this.campId = existingCamp.id
+      try {
+        this.adminToken = issueDeviceToken(this.db, this.deviceId)
+        this.node.setAuthToken(this.adminToken)
+      } catch {
+        // No host_signing_key yet — a first-run Host, whose bootstrap() will
+        // mint one in a moment.
+      }
+    }
   }
 
   /** Mirrors Host.bootstrap in harness.js, minus the op-log write path
