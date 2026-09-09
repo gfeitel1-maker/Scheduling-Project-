@@ -235,7 +235,7 @@ export function flushPendingWrites() {
 // This is ALSO the local half of Stage 5f's unification: the doc this reads and writes
 // (getDoc/docRegistry) is the exact same one syncNode.js's remote-merge path reads and writes, so a
 // local edit always builds on top of whatever the last remote merge left behind, never a stale copy.
-export function recordLocalWrite(db, { entity, entity_id, field, value }) {
+export function recordLocalWrite(db, { entity, entity_id, field, value, source }) {
   if (!MODELED_ENTITIES.has(entity)) return
 
   // Not wired yet (pre-Stage-5e): stay gracefully inert — warn ONCE, never
@@ -270,7 +270,7 @@ export function recordLocalWrite(db, { entity, entity_id, field, value }) {
   // So: seed in memory, apply the write, and persist the two together below.
   const seeding = getCurrentDoc(db) === null || getCurrentDoc(db) === undefined
   const doc = getDoc(db, userDataDir, campId, { persistSeed: false })
-  const nextDoc = applyWrite(doc, { entity, entity_id, field, value })
+  const nextDoc = applyWrite(doc, { entity, entity_id, field, value, source })
   docRegistry.set(db, nextDoc)
   if (seeding) {
     // One synchronous save, once per camp per process — the same one-time cost

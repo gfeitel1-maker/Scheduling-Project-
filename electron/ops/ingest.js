@@ -18,6 +18,7 @@
 import { randomUUID, createHash } from 'node:crypto'
 import { appendOp, DELETE_FIELD, latestOp, findOpByClientWriteId } from './operations.js'
 import { latestOpForEntity, lastKnownFields, lastKnownFieldSources } from './restore.js'
+import { isHumanOwned } from './fieldProvenance.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName, recognitionKey } from '../../src/ingest/preview.js'
 import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
@@ -448,8 +449,11 @@ export function buildFieldProvenanceMap(db, planItems) {
     if (item.entity_id == null) continue
     for (const field of Object.keys(item.fields ?? {})) {
       const dbField = dbFieldFor(field)
-      const latest = latestOp(db, item.entity, item.entity_id, dbField)
-      const provenance = !!latest && latest.source !== 'import' ? 'human' : 'import'
+      // Was `latestOp(...).source`, which on a device that RECEIVED this field
+      // by document merge found no op row and evaluated to 'import' — positively
+      // recording a director's own correction as having come from the
+      // spreadsheet. See docs/adr/2026-09-09-field-provenance-in-the-document.md.
+      const provenance = isHumanOwned(db, item.entity, item.entity_id, dbField) ? 'human' : 'import'
       map.set(`${item.entity}:${item.entity_id}:${field}`, provenance)
     }
   }
@@ -475,8 +479,10 @@ export function buildUnknownFieldEvidenceMap(db, camp_id, planItems) {
         .prepare('SELECT tag FROM import_evidence WHERE camp_id = ? AND entity_type = ? AND entity_id = ? AND field = ?')
         .get(camp_id, 'activities', item.entity_id, field)
       if (evidenceRow?.tag !== 'unknown') continue
-      const latest = latestOp(db, item.entity, item.entity_id, field)
-      if (latest && latest.source === 'human') continue
+      // Same correction as buildFieldProvenanceMap above: a hand edit that
+      // arrived by document merge has no op row, and used to read as
+      // never-hand-edited here.
+      if (isHumanOwned(db, item.entity, item.entity_id, field)) continue
       map.set(`${item.entity_id}:${field}`, true)
     }
   }

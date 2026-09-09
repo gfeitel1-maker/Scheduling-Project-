@@ -154,11 +154,22 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // change to this pinned value needs the same explicit justification, not a silent edit.
     //
     // THIRD REGENERATION (users/camps modeling slice, Stage 6 prep): `camps` and `users` added to
-    // MODELED_ENTITIES/GENESIS_ENTITIES — see campDocument.js's GENESIS_B64 comment.)
+    // MODELED_ENTITIES/GENESIS_ENTITIES — see campDocument.js's GENESIS_B64 comment.
+    //
+    // FOURTH REGENERATION (field provenance,
+    // docs/adr/2026-09-09-field-provenance-in-the-document.md): the
+    // `field_provenance` collection was added to GENESIS_ENTITIES. It had to go in
+    // the genesis rather than be created on first use for exactly the reason this
+    // whole mechanism exists — two devices each running `d.field_provenance = {}`
+    // is a concurrent create of the same map key, which Automerge resolves by
+    // keeping one side and discarding the other into A.getConflicts, which nothing
+    // reads. Same acceptance as the three prior regenerations: pre-production, no
+    // live camps on this sync engine, existing `.automerge` files may be
+    // discarded.)
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        '24a5dba6febd3df8f8ffb9e89cc6daf5ef86921bbb0cebee73f0d609f263c26b',
+        '255e0594e6d2aeb79f37f3d4fe42b23b28e1828efdd39ab0e5404e6209d0db1c',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole

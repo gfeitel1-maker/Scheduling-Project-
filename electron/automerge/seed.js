@@ -79,12 +79,42 @@ export function seedDocFromSqlite(db, doc = createEmptyDoc(), entity = STAGE1_EN
   assertModeled(entity)
   const fields = PROJECTIONS[entity].fields
   const rows = db.prepare(`SELECT id, ${fields.join(', ')} FROM ${entity}`).all()
+
+  // Carry each field's EXISTING op-log provenance into the document
+  // (docs/adr/2026-09-09-field-provenance-in-the-document.md).
+  //
+  // Without this, seeding is where a Host's accumulated hand edits would lose
+  // their protection: the rows arrive with no marker, every field reads as
+  // import-owned, and the next re-import overwrites corrections the director
+  // made months ago. That is precisely the failure the ADR exists to prevent,
+  // arriving through the back door at the moment of cutover.
+  //
+  // One query for the whole entity rather than latestOp per field: seeding a
+  // real camp touches thousands of fields, and this runs on the startup path.
+  const humanFields = new Set()
+  for (const row of db.prepare(
+    `SELECT o.entity_id, o.field
+       FROM operations o
+       JOIN (SELECT entity, entity_id, field, MAX(seq) AS mx
+               FROM operations WHERE entity = ? GROUP BY entity, entity_id, field) m
+         ON o.entity = m.entity AND o.entity_id = m.entity_id
+        AND o.field = m.field AND o.seq = m.mx
+      WHERE o.entity = ? AND (o.source IS NULL OR o.source != 'import')`
+  ).all(entity, entity)) {
+    humanFields.add(`${row.entity_id}\u0000${row.field}`)
+  }
+
   let d = doc
   for (const row of rows) {
     for (const field of fields) {
       const value = row[field]
       if (value === null || value === undefined) continue
-      d = applyWrite(d, { entity, entity_id: row.id, field, value })
+      // `source` is passed explicitly for every seeded field so the document's
+      // provenance matches the op-log's exactly — including the op-log's own
+      // rule that a NULL source decodes to human (ADR 2026-08-08-s2a §2), which
+      // the query above encodes as `IS NULL OR != 'import'`.
+      const source = humanFields.has(`${row.id}\u0000${field}`) ? 'human' : 'import'
+      d = applyWrite(d, { entity, entity_id: row.id, field, value, source })
     }
   }
   return d
