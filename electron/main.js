@@ -38,6 +38,7 @@ import { campHasSetupData } from './ops/campHasSetupData.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
+import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc } from './sync/automerge/docStore.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
@@ -957,11 +958,34 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!isNonEmptyString(chosen_op_id)) {
       throw new Error('chosen_op_id is required')
     }
-    const chosenOp = db
-      .prepare('SELECT value FROM operations WHERE id = ? AND entity = ? AND entity_id = ? AND field = ?')
-      .get(chosen_op_id, entity, entity_id, field)
-    if (!chosenOp) {
-      throw new Error('chosen operation not found')
+    // A CRDT conflict's competing values come from the DOCUMENT
+    // (docs/adr/2026-09-08-crdt-conflict-reconciliation.md), not from two ops —
+    // only the winning side ever gets a ledger row, so the losing value has no
+    // `operations` id to look up and this validation would refuse the very
+    // choice the director is being asked to make.
+    const crdtRow = db
+      .prepare(
+        "SELECT id, incoming_op, existing_op FROM conflicts " +
+          "WHERE entity = ? AND entity_id = ? AND field = ? AND resolved_at IS NULL AND id LIKE 'crdt:%'"
+      )
+      .get(entity, entity_id, field)
+
+    let chosenValue
+    if (crdtRow) {
+      const sides = [crdtRow.existing_op, crdtRow.incoming_op].map((s) => {
+        try { return JSON.parse(s) } catch { return null }
+      })
+      const chosen = sides.find((s) => s && s.op_id === chosen_op_id)
+      if (!chosen) throw new Error('chosen conflict side not found')
+      chosenValue = chosen.value
+    } else {
+      const chosenOp = db
+        .prepare('SELECT value FROM operations WHERE id = ? AND entity = ? AND entity_id = ? AND field = ?')
+        .get(chosen_op_id, entity, entity_id, field)
+      if (!chosenOp) {
+        throw new Error('chosen operation not found')
+      }
+      chosenValue = chosenOp.value
     }
     // Pre-resolution snapshot: copy the DB file to a dated backup so the
     // director can restore if they change their mind. Rotated to keep at
@@ -989,15 +1013,66 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // runs host-local, where import ownership is legitimately stamped.
     const source = stale_accept ? 'import' : 'human'
 
-    return syncClient.write({
+    const result = syncClient.write({
       entity,
       entity_id,
       field,
-      value: chosenOp.value,
+      value: chosenValue,
       parent_op_id: parent_op_id ?? null,
       author_user_id: userId,
       source,
     })
+
+    // A CRDT conflict needs one more step, and it is not belt-and-braces.
+    //
+    // The write above reaches the document as a plain assignment. When the
+    // director chooses the value that had ALREADY won locally — their most
+    // likely choice, because it is the one on their screen — that assignment can
+    // write no operation at all, leaving the losing register in place and the
+    // conflict unresolved. Scenario 28 caught exactly this, failing on roughly
+    // half its runs: precisely the runs where the resolver's own value had won.
+    //
+    // `resolveConflictInDoc` deletes the key and sets it in ONE change, so the
+    // new operation dominates every earlier one whatever the chosen value
+    // happens to be, and no peer ever observes the field absent.
+    //
+    // The op-log write is still what happened first, and deliberately so: it is
+    // what gives this resolution a ledger row and the right provenance. This
+    // second step is about the DOCUMENT's registers, not about the record.
+    if (crdtRow) {
+      // `applyLocal` documents itself as NOT the production local-write path,
+      // because projecting the whole document per field-op would be the
+      // per-keystroke performance trap Stage 5f avoids. That reasoning does not
+      // apply here: resolving a conflict is a rare, deliberate act by a
+      // director, and it needs exactly what applyLocal does — reconcile, set,
+      // project and broadcast one already-changed document.
+      const onCollapseFailed = (err) => {
+        // The director's choice IS recorded (the op-log write above returned);
+        // only the document-level collapse failed, so the conflict may resurface
+        // until the next write to this field. Say that, rather than reporting a
+        // failure that would send them to re-decide something already decided.
+        console.error(
+          `resolveConflict: the choice was recorded, but collapsing the document conflict failed — ` +
+            `it may resurface until the next write to this field: ${err?.message ?? err}`
+        )
+      }
+      try {
+        const node = getAutomergeNode()
+        const doc = getDocIfLoaded(db)
+        if (node && doc) {
+          // Async, and deliberately not awaited — resolveConflict is synchronous
+          // for its caller. `.catch` rather than a bare call so a rejection is
+          // surfaced instead of becoming an unhandled promise rejection.
+          Promise.resolve(
+            node.applyLocal(resolveConflictInDoc(doc, { entity, entityId: entity_id, field, value: chosenValue }))
+          ).catch(onCollapseFailed)
+        }
+      } catch (err) {
+        onCollapseFailed(err)
+      }
+    }
+
+    return result
   }
 
   // Never selects pin_hash/pin_salt — this is consumed by UI layers (e.g. the
