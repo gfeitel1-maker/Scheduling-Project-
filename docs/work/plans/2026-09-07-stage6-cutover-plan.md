@@ -1,7 +1,7 @@
 ---
 title: Stage 6 — op-log cutover plan
 document_type: plan
-status: active
+status: complete
 created: 2026-09-07
 task: docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md
 ---
@@ -60,13 +60,42 @@ for one slice. Full gate + a two-machine run. Still reversible.
 wiring in `main.js`. IPC surface (`window.shoresh.*`) must not change — `ipcSurfaceParity.test.js` is
 the gate; the renderer's 36 importers should not notice.
 
-**6d — Remove the op-log.** Delete `appendOp`/`appendBulkReplaceOp` write paths, drop `operations`
-and `conflicts` (schema bump), remove the flag entirely. `ensureExists`'s `operations` fallback goes
-away — the `knownRow` path (#323) becomes the only path.
+**6d — Remove the op-log. NARROWED, with the owner's approval, and this is the most important
+correction in the plan.** The op-log is retired as a SYNC MECHANISM; the `operations` table STAYS as
+a LOCAL history ledger.
 
-**6e — Conflict UI.** `resolveConflict`/`listPendingConflicts` have no CRDT analogue; Automerge
-converges deterministically. Decide: remove the UI, or repurpose it to surface `A.getConflicts` (the
-concurrent-regenerate case from #322 genuinely produces one). **Product decision — ask the owner.**
+Deleting the table would have silently broken Trash, Restore and ingest undo, which answer their
+questions from op rows — a CRDT document holds CURRENT state, and a deleted record is simply absent
+from it, so the history is the only place the old values still exist. The narrowing was found by
+porting scenario 18, not by reading the plan.
+
+Shipped as two slices, in this order for a reason:
+
+- **provenance first** (#343) — the document now carries a per-field human marker. Without it the
+  ledger has no truthful `source` to record for a received merge: 'human' would wrongly protect every
+  imported field, 'import' would drop the protection a director relies on.
+- **then the ledger** (#344) — received merges write op rows
+  (`electron/automerge/historyLedger.js`), called after `projectAll` and deliberately NOT through
+  `appendOp`, which would echo a received change back out as a local one.
+
+`ensureExists`'s `knownRow` path (#323) is the only path, as planned.
+
+**6e — Conflict UI. DECIDED by the owner: repurpose, do not remove.** *"Flag it and make someone
+choose. If they are doing it in real time like that then they are working together not separately, so
+just make it a choice that both need to see."* Same idea twice is no conflict; two different
+decisions about one slot go to a human, visible on both devices.
+
+Implemented via `electron/automerge/reconcile.js` + `conflictStore.js`, which write into the same
+`conflicts` table `ConflictsScreen` already reads.
+
+One gap remained until the very end, found by checking the flow rather than assuming it: a CRDT
+conflict's competing values come from the DOCUMENT, and only the winning side gets a ledger row — so
+`resolveConflict`'s `chosen_op_id` lookup against `operations` REFUSED the losing side with "chosen
+operation not found", which is the only choice worth offering. It now resolves a `crdt:%` conflict
+from the conflict row's stored values, and collapses the document register with
+`resolveConflictInDoc` — which is not belt-and-braces: a plain assignment can write no operation at
+all when the director picks the value already winning locally, exactly the intermittent failure
+scenario 28 caught.
 
 ## Rules for myself
 

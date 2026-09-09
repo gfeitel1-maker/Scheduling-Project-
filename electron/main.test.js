@@ -1402,6 +1402,75 @@ describe('listPendingConflicts handler (conflicts.read, staff+admin)', () => {
   })
 })
 
+describe('resolveConflict — a CRDT conflict, which has no losing op row', () => {
+  // docs/adr/2026-09-08-crdt-conflict-reconciliation.md.
+  //
+  // The owner's rule is that a genuine disagreement is surfaced for a human to
+  // settle. That was unreachable for a CRDT conflict: its competing values come
+  // from the DOCUMENT, and only the winning side ever gets a ledger row, so
+  // validating `chosen_op_id` against `operations` refused the very choice the
+  // director was being asked to make — with "chosen operation not found".
+  it('accepts a choice whose value exists only in the conflicts row', async () => {
+    await seedCampAndUser({ name: 'DirectorC', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { token } = await handlers.login({ name: 'DirectorC', pin: '1234' })
+
+    // Give the field a record to belong to, then record a CRDT conflict the way
+    // the reconciler does: two competing VALUES, no losing op row anywhere.
+    await handlers.write({
+      token, entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swimming',
+    })
+    db.prepare(
+      `INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at)
+       VALUES (?, 'activities', 'act-1', 'name', ?, ?, ?, ?)`
+    ).run(
+      'crdt:activities:act-1:name',
+      JSON.stringify({ value: 'Archery', op_id: 'crdt-side-b' }),
+      JSON.stringify({ value: 'Swimming', op_id: 'crdt-side-a' }),
+      'crdt-side-a',
+      new Date().toISOString()
+    )
+
+    // The director picks the side that has NO operations row.
+    const result = await handlers.resolveConflict({
+      token, entity: 'activities', entity_id: 'act-1', field: 'name', chosen_op_id: 'crdt-side-b',
+    })
+
+    expect(result.status).toBe('applied')
+    expect(db.prepare('SELECT name FROM activities WHERE id = ?').get('act-1').name).toBe('Archery')
+  })
+
+  it('refuses a side that is not in the conflict', async () => {
+    await seedCampAndUser({ name: 'DirectorD', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { token } = await handlers.login({ name: 'DirectorD', pin: '1234' })
+    await handlers.write({
+      token, entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swimming',
+    })
+    db.prepare(
+      `INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at)
+       VALUES (?, 'activities', 'act-1', 'name', ?, ?, ?, ?)`
+    ).run(
+      'crdt:activities:act-1:name',
+      JSON.stringify({ value: 'Archery', op_id: 'crdt-side-b' }),
+      JSON.stringify({ value: 'Swimming', op_id: 'crdt-side-a' }),
+      'crdt-side-a',
+      new Date().toISOString()
+    )
+
+    // Relaxing the op-row check must not mean accepting anything at all.
+    // Throws synchronously (resolveConflict is not async), so this is
+    // `expect(fn).toThrow`, not `.rejects`.
+    expect(() =>
+      handlers.resolveConflict({
+        token, entity: 'activities', entity_id: 'act-1', field: 'name', chosen_op_id: 'not-a-side',
+      })
+    ).toThrow(/chosen conflict side not found/)
+  })
+})
+
 describe('resolveConflict handler (conflicts.resolve, staff+admin)', () => {
   it('rejects with no token', () => {
     const handlers = makeHandlers(db, deviceId, {})

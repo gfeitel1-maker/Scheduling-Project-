@@ -176,7 +176,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Reconciling concurrent edits under the CRDT — union what doesn't overlap, surface what does](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) | accepted | in_progress | [2026-09-08-flat-record-shape](../../docs/adr/2026-09-08-flat-record-shape.md) |
 | [ADR: Flatten the record shape — a field is its own document key](../../docs/adr/2026-09-08-flat-record-shape.md) | accepted | complete | [2026-09-09-field-provenance-in-the-document](../../docs/adr/2026-09-09-field-provenance-in-the-document.md) |
 | [ADR: How a new device joins a camp over libp2p (Stage 6 join flow)](../../docs/adr/2026-09-08-libp2p-join-flow.md) | accepted | in_progress | [2026-09-08-crdt-conflict-reconciliation](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) |
-| [ADR: Carry field provenance in the document — a hand edit says so about itself](../../docs/adr/2026-09-09-field-provenance-in-the-document.md) | accepted | in-progress | — |
+| [ADR: Carry field provenance in the document — a hand edit says so about itself](../../docs/adr/2026-09-09-field-provenance-in-the-document.md) | accepted | complete | — |
 
 ## Runs
 
