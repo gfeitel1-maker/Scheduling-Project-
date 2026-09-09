@@ -25,6 +25,7 @@ import {
   HUMAN_PROVENANCE,
 } from '../automerge/campDocument.js'
 import { seedDocFromSqlite } from '../automerge/seed.js'
+import { setCurrentDoc as setDocForTest } from '../sync/automerge/liveDoc.js'
 
 // The record/provenance key delimiter, built rather than typed. A literal NUL in
 // a source file makes plain `grep` treat it as binary and SILENTLY return zero
@@ -172,6 +173,44 @@ describe('seeding carries existing op-log provenance', () => {
     const doc = seedDocFromSqlite(db, createEmptyDoc(), 'activities')
 
     expect(isHumanEdited(doc, 'activities', 'a1', 'name')).toBe(false)
+  })
+})
+
+describe('the document overrules a stale ledger row — both directions', () => {
+  // Caught by integration scenario 29's last leg, and worth a unit test because
+  // the failure is quiet and durable.
+  //
+  // The history ledger records "this arrived as a human edit" when a merge
+  // brings one in. That row OUTLIVES the edit: if an import later takes the
+  // field back, the marker is cleared but the old row remains. An earlier
+  // version of isHumanOwned consulted the document only to return true and fell
+  // through to the op-log otherwise — so the stale row won, and a field the
+  // director had handed back to the importer stayed frozen against re-import
+  // forever.
+  it('reports not-human when the document has cleared a marker a ledger row still claims', () => {
+    // A ledger row saying 'human' …
+    appendOp(db, { entity: 'activities', entity_id: 'a1', field: 'camp_id', value: campId, author_user_id: null, device_id: 'device-1', source: 'import' })
+    appendOp(db, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swimming', author_user_id: null, device_id: 'device-1', source: 'human' })
+    expect(isHumanOwned(db, 'activities', 'a1', 'name')).toBe(true)
+
+    // … and a document in which an import has since taken the field back.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swimming Pool', source: 'import' })
+    setDocForTest(db, doc, { persist: false })
+
+    expect(isHumanOwned(db, 'activities', 'a1', 'name')).toBe(false)
+  })
+
+  it('still answers from the op-log for a field the document does not hold', () => {
+    // The document is authoritative for what it HOLDS, not for everything. A
+    // field it has never seen must fall through rather than be reported
+    // import-owned by default.
+    appendOp(db, { entity: 'activities', entity_id: 'a1', field: 'camp_id', value: campId, author_user_id: null, device_id: 'device-1', source: 'import' })
+    appendOp(db, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swimming', author_user_id: null, device_id: 'device-1', source: 'human' })
+
+    setDocForTest(db, createEmptyDoc(), { persist: false }) // loaded, but empty
+
+    expect(isHumanOwned(db, 'activities', 'a1', 'name')).toBe(true)
   })
 })
 

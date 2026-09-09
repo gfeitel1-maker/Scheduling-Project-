@@ -3,7 +3,7 @@ title: "ADR: Carry field provenance in the document — a hand edit says so abou
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: in-progress
+implementation_state: complete
 date: 2026-09-09
 decided: 2026-09-09
 deciders: [product-owner]

@@ -17,6 +17,7 @@ import { recordConflicts, clearResolvedConflicts } from '../../automerge/conflic
 import { synthesizeOpEvents } from './docDiffEvents.js'
 import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../../auth/connectionAuth.js'
 import { recordLibp2pPeerId } from './peerIdentity.js'
+import { appendReceivedOps } from '../../automerge/historyLedger.js'
 import { wireMutualAuth } from './mutualAuth.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { sharesGenesis } from '../../automerge/campDocument.js'
@@ -83,12 +84,37 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     try {
       projectAll(db, merged)
       onProjected?.(merged)
-      if (onRemoteOps) {
+      // Synthesized once and used twice: the local history ledger writes rows
+      // for what arrived, and the renderer is notified. Computing the diff
+      // separately for each would be wasted work on the receive path, which a
+      // joining device runs once for an entire camp.
+      let events = null
+      try {
+        events = synthesizeOpEvents(merged, before, A.getHeads(merged), { deviceId: fromPeerId ?? null })
+      } catch (err) {
+        console.error(`syncNode: could not synthesize op events (non-fatal, sync continues): ${err?.message ?? err}`)
+      }
+      if (events && events.length > 0) {
+        // The op-log is retired as a SYNC mechanism, not as a record. Without
+        // this a device could see a record it had no history for and could not
+        // restore — see electron/automerge/historyLedger.js.
+        //
+        // Deliberately inside its own try: a ledger failure must never cost the
+        // data, which is already correctly in SQLite by this point.
         try {
-          const events = synthesizeOpEvents(merged, before, A.getHeads(merged), { deviceId: fromPeerId ?? null })
-          if (events.length > 0) onRemoteOps(events, { fromPeerId })
+          appendReceivedOps(db, events, { fromPeerId, doc: merged })
         } catch (err) {
-          console.error(`syncNode: onRemoteOps consumer threw (non-fatal, sync continues): ${err?.message ?? err}`)
+          console.error(
+            `syncNode: history ledger write failed (non-fatal — data is projected and correct, ` +
+              `only Trash/Restore history for this merge is missing): ${err?.message ?? err}`
+          )
+        }
+        if (onRemoteOps) {
+          try {
+            onRemoteOps(events, { fromPeerId })
+          } catch (err) {
+            console.error(`syncNode: onRemoteOps consumer threw (non-fatal, sync continues): ${err?.message ?? err}`)
+          }
         }
       }
     } catch (err) {
