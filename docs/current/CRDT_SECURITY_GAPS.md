@@ -193,19 +193,29 @@ restore should reconstruct fields or just undelete).
 
 ## 8. Field provenance and authorship do not replicate — OPEN, and it costs a director their work
 
-**Status: OPEN. Live today.** Not a vulnerability in the attacker sense; a silent data-loss defect
-with a security-shaped cause.
+**Status: FIXED — both halves.** Not a vulnerability in the attacker sense; it was a silent
+data-loss defect with a security-shaped cause.
 
-**What replicates.** `applyWrite(doc, { entity, entity_id, field, value })` — field VALUES and
-nothing else. The CRDT document carries no `source`, no `author_user_id`, no `device_id`. Under the
+**What used to replicate.** `applyWrite(doc, { entity, entity_id, field, value })` — field VALUES and
+nothing else. The CRDT document carried no `source`, no `author_user_id`, no `device_id`. Under the
 op-log every one of those travelled with the op.
 
-**Status: FIXED** for the provenance half —
-`docs/adr/2026-09-09-field-provenance-in-the-document.md`, integration scenario 29. The document now
-carries a sparse per-field human marker, and `isHumanOwned` (electron/ops/fieldProvenance.js) is the
-single answer, with the document authoritative in BOTH directions for a field it holds. Author
-attribution (`author_user_id`) is still not carried — record history and Trash show "Unknown" for a
-change that arrived by merge, which is recorded below and not yet fixed.
+**Provenance** (`docs/adr/2026-09-09-field-provenance-in-the-document.md`, scenario 29): the document
+now carries a sparse per-field human marker, and `isHumanOwned` (`electron/ops/fieldProvenance.js`)
+is the single answer — with the document authoritative in BOTH directions for a field it holds, so a
+stale ledger row cannot freeze a field against re-import.
+
+**Authorship** (scenario 30): a `field_author` collection carries who last set each field, plus a
+deliberate tombstone for who DELETED a record — the one marker that has to outlive the record it
+describes, because Trash's "deleted by" column reads exactly that and everything else about a deleted
+record is gone from the document by design. Kept a separate collection from `field_provenance`:
+provenance is deliberately sparse and authorship is not, so folding them together would have
+destroyed that property silently.
+
+`device_id` is deliberately NOT carried in the document. The history ledger attributes a received
+change to the PEER it arrived from, via `devices.libp2p_peer_id` — which is what "which device did
+this reach me from" honestly means, and does not require the document to carry a device identity that
+would be wrong the moment a change is relayed.
 
 **What that broke.** `electron/ops/ingest.js:479` protected a director's hand edits from being
 overwritten by a re-import:

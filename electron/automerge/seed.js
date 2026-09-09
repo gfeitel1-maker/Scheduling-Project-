@@ -92,16 +92,24 @@ export function seedDocFromSqlite(db, doc = createEmptyDoc(), entity = STAGE1_EN
   // One query for the whole entity rather than latestOp per field: seeding a
   // real camp touches thousands of fields, and this runs on the startup path.
   const humanFields = new Set()
+  // …and WHO last wrote each field, from the same latest-op query, so record
+  // history can still name a person after cutover instead of showing "Unknown"
+  // for everything that predates the document.
+  const authors = new Map()
   for (const row of db.prepare(
-    `SELECT o.entity_id, o.field
+    `SELECT o.entity_id, o.field, o.source, o.author_user_id
        FROM operations o
        JOIN (SELECT entity, entity_id, field, MAX(seq) AS mx
                FROM operations WHERE entity = ? GROUP BY entity, entity_id, field) m
          ON o.entity = m.entity AND o.entity_id = m.entity_id
         AND o.field = m.field AND o.seq = m.mx
-      WHERE o.entity = ? AND (o.source IS NULL OR o.source != 'import')`
+      WHERE o.entity = ?`
   ).all(entity, entity)) {
-    humanFields.add(`${row.entity_id}\u0000${row.field}`)
+    const key = `${row.entity_id}\u0000${row.field}`
+    // The op-log's own rule: a NULL source decodes to human (ADR
+    // 2026-08-08-s2a §2). Only an explicit 'import' is import-owned.
+    if (row.source === null || row.source !== 'import') humanFields.add(key)
+    if (row.author_user_id) authors.set(key, row.author_user_id)
   }
 
   let d = doc
@@ -113,8 +121,14 @@ export function seedDocFromSqlite(db, doc = createEmptyDoc(), entity = STAGE1_EN
       // provenance matches the op-log's exactly — including the op-log's own
       // rule that a NULL source decodes to human (ADR 2026-08-08-s2a §2), which
       // the query above encodes as `IS NULL OR != 'import'`.
-      const source = humanFields.has(`${row.id}\u0000${field}`) ? 'human' : 'import'
-      d = applyWrite(d, { entity, entity_id: row.id, field, value, source })
+      const key = `${row.id}\u0000${field}`
+      const source = humanFields.has(key) ? 'human' : 'import'
+      // `?? null` rather than omitted: seeding states what the op-log knows,
+      // including "nobody recorded an author for this", which is honest for
+      // pre-T22 rows.
+      d = applyWrite(d, {
+        entity, entity_id: row.id, field, value, source, author_user_id: authors.get(key) ?? null,
+      })
     }
   }
   return d

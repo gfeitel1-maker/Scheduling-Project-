@@ -166,7 +166,7 @@ describe('local writes broadcast (item 2) without a full projectAll per write', 
     nodes.push(a, b)
 
     // Wire A's broadcaster exactly as main.js does once its sync node has started.
-    setLocalWriteBroadcaster(a.broadcastLocalDoc)
+    setLocalWriteBroadcaster(dbA, a.broadcastLocalDoc)
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
@@ -186,7 +186,7 @@ describe('local writes broadcast (item 2) without a full projectAll per write', 
     nodes.push(a)
 
     let broadcastCount = 0
-    setLocalWriteBroadcaster(async (doc) => {
+    setLocalWriteBroadcaster(dbA, async (doc) => {
       broadcastCount += 1
       await a.broadcastLocalDoc(doc)
     })

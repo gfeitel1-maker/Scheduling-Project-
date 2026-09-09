@@ -174,6 +174,17 @@ function assertModeled(entity) {
 // the exact same reason as the parent-scoped entities slice above. Same acceptance: still
 // pre-production, no live camps, existing `.automerge` files may be discarded again.
 //
+// FIFTH REGENERATION (author attribution): `field_author` added — who last set each field, so
+// record history and Trash can name a person for a change that arrived from another device instead
+// of showing "Unknown" (CRDT_SECURITY_GAPS item 8). Same acceptance as every regeneration below:
+// pre-production, no live camps on this sync engine, existing `.automerge` files may be discarded.
+// Kept a SEPARATE collection from `field_provenance` rather than folding the two together, because
+// provenance is deliberately sparse and authorship is not — see AUTHOR_COLLECTION's own comment.
+//
+// FOURTH REGENERATION (field provenance, docs/adr/2026-09-09-field-provenance-in-the-document.md):
+// `field_provenance` added. It had to be in the genesis rather than created on first write for the
+// concurrent-create reason this whole comment is about.
+//
 // THIRD REGENERATION (users/camps modeling slice, Stage 6 prep): `camps` and `users` added to
 // MODELED_ENTITIES above (see that comment for why), so both need adding here and GENESIS_B64
 // needed regenerating again, same reasoning and same acceptance (pre-production, existing
@@ -201,6 +212,7 @@ const GENESIS_ENTITIES = [
   'event_slots',
   'event_time_blocks',
   'events',
+  'field_author',
   'field_provenance',
   'groups',
   'locations',
@@ -225,7 +237,7 @@ const GENESIS_ENTITIES = [
 // pass, that is a wire/document-compatibility break being HIDDEN, not fixed; see that test's own
 // comment.
 const GENESIS_B64 =
-  'hW9Kg8vUlvsAygIBEOrLOsAdlR3B0+hQ6xPbbRMBJV4FlObSrrefN/PU/kKyOyjhgo7905qw5UBOYgnQ2xwGAQIDAhMCIwZAAlYCBx3dASECIwI0AUICVgKAAQJ/AH8Bfx5/gduC1QZ/AH8HVZDdTsMwDIWvNjT2I4o0jbezsvSMRkvjKMct9O1RWxXCnf3ZPvbx/dV5C2OwADYu+U6L/JGDd32W3mXu5ogvXjstxnPrJtERpYQWbFo3UfQhmlGcBU03RMwiEMIqvXPNecKIZPJZdMg8rgmjGps1ttBD7lH9k/uF8O0REFvJRUcklzz26/Ahql8W852+QztECJPL7NQqZOhzdAZeftEX8GTDDB9clNnWcsGtJtUdp4rzsumtM9f/qdBrBncWUHisNHYDUfgxb95eMwm+fRw4O7guhcVXRdf2zWZV+AEeAB4BHh4AHgAeAAA='
+  'hW9Kg/PWTR0A0AIBECWl3YlnQBZYZHRLlRX3P0UBkx58D5Ov+vhksnAyhJGj2kQStQhUfqYXRyQCb2qr3o0GAQIDAhMCIwZAAlYCBx3jASECIwI0AUICVgKAAQJ/AH8Bfx9/1P6C1QZ/AH8HVZDbbsMwDEOf2qHrBcuAovs7QXPYxagTGaaSrn8/JEE37008smnS+qrB4xQ9go0OobMif2QXtM/Sa+ZmnvgSrLPiPLb6EJtQSmzBptUHxa5iGUU92nBBwmwCIbzyO9acB0wYXL6KjZn7VTCZs1lnjz3kM1m4cbsQHq4RqRUdvbPytopcbMKgQ8B2ddolC0sKvjN0aMcE4aCZnXmFHH1O6uDpF92BGxtmhKhJ5o5LnEtNqlCHivP09FvvnP9LYbAMbjyicF95bEai8GN++flPD8F3SCPnBudlsfSq6Hr8WbNa/AAfAB8BHx8AHwAfAAA='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))
@@ -376,6 +388,32 @@ export function recordKey(entityId, field) {
 // which Automerge resolves by keeping one side and discarding the other into
 // A.getConflicts — the precise bug the shared genesis exists to close. See the
 // GENESIS_B64 comment above.
+// WHO last set each field, so record history and Trash can name a person for a
+// change that arrived from another device rather than showing "Unknown".
+//
+// Separate from PROVENANCE_COLLECTION on purpose. Provenance is SPARSE by
+// design — only hand-edited fields have a key, so it grows with what a director
+// has corrected rather than with the size of the camp
+// (docs/adr/2026-09-09-field-provenance-in-the-document.md). Authorship is not
+// sparse: every write has an author. Folding the two together would have made
+// provenance non-sparse and quietly broken that property.
+//
+// Only the LATEST author per field, because that is all a CRDT can carry: the
+// document holds current state, and a superseded value is gone from it. Older
+// authors accumulate in the local history ledger as merges arrive, which is
+// where per-change history actually lives.
+export const AUTHOR_COLLECTION = 'field_author'
+
+/** Key for one field's author. Same shape as provenanceKey. */
+export function authorKey(entity, entityId, field) {
+  return `${entity}${FIELD_DELIM}${entityId}${FIELD_DELIM}${field}`
+}
+
+/** The user id that last set this field, or null if unrecorded. */
+export function readFieldAuthor(doc, entity, entityId, field) {
+  return doc[AUTHOR_COLLECTION]?.[authorKey(entity, entityId, field)] ?? null
+}
+
 export const PROVENANCE_COLLECTION = 'field_provenance'
 export const HUMAN_PROVENANCE = 'human'
 
@@ -455,7 +493,7 @@ export function recordFieldKeys(doc, entity, entityId) {
   return Object.keys(doc[entity] ?? {}).filter((k) => k.startsWith(prefix) && splitRecordKey(k)?.entityId === entityId)
 }
 
-export function applyWrite(doc, { entity, entity_id, field, value, source }) {
+export function applyWrite(doc, { entity, entity_id, field, value, source, author_user_id }) {
   assertModeled(entity)
   const fields = PROJECTIONS[entity].fields
   return A.change(doc, (d) => {
@@ -476,12 +514,36 @@ export function applyWrite(doc, { entity, entity_id, field, value, source }) {
       // A deleted record's provenance goes with it. Leaving markers behind would
       // let a later record reusing the same id inherit a hand-edited claim it
       // never earned.
-      const provPrefix = `${entity}${FIELD_DELIM}${entity_id}${FIELD_DELIM}`
-      const prov = d[PROVENANCE_COLLECTION]
-      if (prov) {
-        for (const key of Object.keys(prov)) {
-          if (key.startsWith(provPrefix)) delete prov[key]
+      const markerPrefix = `${entity}${FIELD_DELIM}${entity_id}${FIELD_DELIM}`
+      for (const collection of [PROVENANCE_COLLECTION, AUTHOR_COLLECTION]) {
+        const marks = d[collection]
+        if (!marks) continue
+        for (const key of Object.keys(marks)) {
+          if (key.startsWith(markerPrefix)) delete marks[key]
         }
+      }
+      // WHO DELETED IT — a deliberate tombstone, and the one marker that has to
+      // OUTLIVE the record it describes.
+      //
+      // Trash's whole job is "what was deleted, by whom" (trash.js's listDeleted
+      // reads the DELETE op's author). Everything else about a deleted record is
+      // gone from the document by design — that absence IS the delete — so
+      // without this a deletion made on another device shows as "Unknown", which
+      // is the most visible face of the missing-author gap.
+      //
+      // Stored under the delete sentinel in the AUTHOR collection rather than in
+      // a collection of its own: `__deleted__` is not a projected field of any
+      // entity, so it cannot collide with a real field's author, and reusing the
+      // collection avoids a sixth genesis regeneration for one key per deleted
+      // record. Written AFTER the prefix sweep above, which would otherwise
+      // remove it immediately.
+      //
+      // Bounded by deletions rather than by fields, and cleared when the record
+      // comes back (see the write path below), so a restore does not leave a
+      // record permanently marked as deleted-by-someone.
+      if (author_user_id) {
+        const authors = d[AUTHOR_COLLECTION]
+        if (authors) authors[authorKey(entity, entity_id, DELETE_FIELD)] = author_user_id
       }
       return
     }
@@ -513,6 +575,25 @@ export function applyWrite(doc, { entity, entity_id, field, value, source }) {
         else prov[pKey] = HUMAN_PROVENANCE
       }
     }
+    // Authorship, on the same "omitted leaves it unchanged" rule as provenance —
+    // a caller that does not know who is writing must not erase who did.
+    // An explicit null DOES clear it: that is a caller saying "nobody", which is
+    // what bootstrap and pairing honestly are.
+    if (author_user_id !== undefined) {
+      const authors = d[AUTHOR_COLLECTION]
+      if (authors) {
+        const aKey = authorKey(entity, entity_id, field)
+        if (author_user_id === null) delete authors[aKey]
+        else authors[aKey] = author_user_id
+      }
+    }
+    // The record exists again, so any deleted-by tombstone is stale. Cleared on
+    // every write rather than only on a restore: a record can come back by
+    // routes restore.js does not own (a peer's concurrent edit that resurrects
+    // it), and a record listed in Trash while visibly present would be worse
+    // than the "Unknown" this whole change is fixing.
+    const authorsForTombstone = d[AUTHOR_COLLECTION]
+    if (authorsForTombstone) delete authorsForTombstone[authorKey(entity, entity_id, DELETE_FIELD)]
   })
 }
 

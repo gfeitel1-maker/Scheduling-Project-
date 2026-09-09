@@ -23,6 +23,8 @@ import {
   provenanceKey,
   PROVENANCE_COLLECTION,
   HUMAN_PROVENANCE,
+  readFieldAuthor,
+  AUTHOR_COLLECTION,
 } from '../automerge/campDocument.js'
 import { seedDocFromSqlite } from '../automerge/seed.js'
 import { setCurrentDoc as setDocForTest } from '../sync/automerge/liveDoc.js'
@@ -139,6 +141,76 @@ describe('provenance in the document', () => {
   })
 })
 
+describe('author attribution in the document', () => {
+  // CRDT_SECURITY_GAPS item 8's other half. Record history and Trash resolve a
+  // name by joining `users` — which is a modeled entity and replicates — so all
+  // the document needs to carry is the id.
+  it('records who last set a field', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim', author_user_id: 'user-A' })
+
+    expect(readFieldAuthor(doc, 'activities', 'a1', 'name')).toBe('user-A')
+  })
+
+  it('records only the LATEST author, which is all a CRDT can carry', () => {
+    // The document holds current state; a superseded value is gone from it.
+    // Older authors accumulate in the history ledger as merges arrive.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim', author_user_id: 'user-A' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swimming', author_user_id: 'user-B' })
+
+    expect(readFieldAuthor(doc, 'activities', 'a1', 'name')).toBe('user-B')
+  })
+
+  it('leaves the author unchanged when omitted, and clears it on an explicit null', () => {
+    // Omitted means "I do not know" — a caller must not erase who did. An
+    // explicit null is a caller saying "nobody", which bootstrap and pairing
+    // honestly are.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim', author_user_id: 'user-A' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim Team' })
+    expect(readFieldAuthor(doc, 'activities', 'a1', 'name')).toBe('user-A')
+
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'X', author_user_id: null })
+    expect(readFieldAuthor(doc, 'activities', 'a1', 'name')).toBeNull()
+  })
+
+  it('keeps a deleted-by tombstone that OUTLIVES the record', () => {
+    // Trash's whole job is "what was deleted, by whom". Every other trace of a
+    // deleted record is gone from the document by design — that absence IS the
+    // delete — so without this a deletion from another device reads "Unknown".
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim', author_user_id: 'user-A' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: '__deleted__', value: null, author_user_id: 'user-B' })
+
+    expect(readFieldAuthor(doc, 'activities', 'a1', '__deleted__')).toBe('user-B')
+    // …and the record's own field markers are gone with the record.
+    expect(readFieldAuthor(doc, 'activities', 'a1', 'name')).toBeNull()
+  })
+
+  it('clears the tombstone when the record comes back', () => {
+    // A record listed in Trash while visibly present would be worse than the
+    // "Unknown" this change fixes.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim', author_user_id: 'user-A' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: '__deleted__', value: null, author_user_id: 'user-B' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim', author_user_id: 'user-C' })
+
+    expect(readFieldAuthor(doc, 'activities', 'a1', '__deleted__')).toBeNull()
+    expect(readFieldAuthor(doc, 'activities', 'a1', 'name')).toBe('user-C')
+  })
+
+  it('does not put authorship in the provenance collection', () => {
+    // The two are separate so provenance stays SPARSE — it must not gain a key
+    // for every authored field.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim', source: 'import', author_user_id: 'user-A' })
+
+    expect(Object.keys(doc[PROVENANCE_COLLECTION])).toHaveLength(0)
+    expect(Object.keys(doc[AUTHOR_COLLECTION])).toHaveLength(1)
+  })
+})
+
 describe('seeding carries existing op-log provenance', () => {
   it('protects a hand edit that predates the document', () => {
     // Without this, cutover is where a Host's accumulated corrections lose their
@@ -153,6 +225,19 @@ describe('seeding carries existing op-log provenance', () => {
 
     expect(isHumanEdited(doc, 'activities', 'a1', 'name')).toBe(true)
     expect(isHumanEdited(doc, 'activities', 'a2', 'name')).toBe(false)
+  })
+
+  it('carries the op-log author in at seed time', () => {
+    // Without this, cutover is where a Host's record history goes anonymous.
+    const userId = randomUUID()
+    db.prepare("INSERT INTO users (id, camp_id, name, role, pin_hash, pin_salt) VALUES (?, ?, 'Dana', 'admin', ?, ?)")
+      .run(userId, campId, 'h'.repeat(64), 's'.repeat(32))
+    appendOp(db, { entity: 'activities', entity_id: 'a1', field: 'camp_id', value: campId, author_user_id: userId, device_id: 'device-1', source: 'import' })
+    appendOp(db, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim Team', author_user_id: userId, device_id: 'device-1', source: 'human' })
+
+    const doc = seedDocFromSqlite(db, createEmptyDoc(), 'activities')
+
+    expect(readFieldAuthor(doc, 'activities', 'a1', 'name')).toBe(userId)
   })
 
   it('carries a NULL-source op in as human', () => {
