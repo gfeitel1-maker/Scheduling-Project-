@@ -18,7 +18,6 @@ implementation_state: not started
 affects:
   - electron/db/schema.sql
   - electron/db/localDb.js
-  - electron/sync/syncClient.js
   - electron/ops/projections.js
   - electron/ops/campScopedEntities.js
   - electron/ops/ingest.js

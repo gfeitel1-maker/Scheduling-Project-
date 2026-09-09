@@ -17,9 +17,30 @@ affects:
   - electron/ops/ingest.js
   - electron/db/schema.sql
   - electron/db/localDb.js
-  - electron/sync/syncClient.js
-  - electron/sync/syncServer.js
 ---
+
+> **2026-09-08 — this decision's guarantee is currently BROKEN cross-device.** The CRDT migration
+> (Stage 6) replaced the op-log transport, and the shared Automerge document carries field VALUES
+> only — `applyWrite(doc, { entity, entity_id, field, value })`. No `source`, no `author_user_id`.
+>
+> The protection this ADR specifies is implemented by reading the latest op's `source` from the
+> `operations` table (`electron/ops/ingest.js:479`, and the provenance map at `:452`). A device that
+> RECEIVED a hand-edit through a document merge has no op row for it, so the field reads as
+> never-hand-edited — and `:452` goes further, evaluating to `'import'` and positively recording the
+> director's correction as having come from the spreadsheet.
+>
+> Consequence for a director: fix a name on the iPad, re-import next season's spreadsheet on the
+> office computer, and the correction is silently reverted. Silent in both directions — the person
+> who made it sees it replicate, the person who re-imports sees a clean import.
+>
+> `implementation_state: implemented` is left as-is deliberately: the decision WAS implemented, and
+> the code that implements it is unchanged. What changed is the transport beneath it. Flipping the
+> field would misdescribe the history.
+>
+> Tracked as item 8 in [docs/current/CRDT_SECURITY_GAPS.md](../current/CRDT_SECURITY_GAPS.md). The
+> owner has approved carrying per-field provenance in the document; that work restores this ADR's
+> guarantee and is sequenced ahead of the history ledger.
+
 
 # Field provenance: the import-vs-human bit (S2a)
 

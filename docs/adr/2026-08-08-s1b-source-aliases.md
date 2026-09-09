@@ -19,8 +19,6 @@ affects:
   - electron/db/localDb.js
   - electron/ops/projections.js
   - electron/ops/campScopedEntities.js
-  - electron/sync/syncClient.js
-  - electron/sync/syncServer.js
   - electron/ops/operations.js
   - electron/auth/permissions.js
   - src/ingest/buildPlan.js

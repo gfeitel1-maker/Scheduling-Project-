@@ -17,8 +17,6 @@ affects:
   - electron/ops/projections.js
   - electron/ops/campScopedEntities.js
   - electron/ops/operations.js
-  - electron/sync/syncClient.js
-  - electron/sync/syncServer.js
   - electron/auth/permissions.js
   - electron/auth/authorize.js
   - electron/main.js
