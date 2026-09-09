@@ -6,9 +6,7 @@ import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
 import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, issueDeviceToken } from './auth/localAuth.js'
-import { startSyncServer } from './sync/syncServer.js'
-import { createSyncClient } from './sync/syncClient.js'
-import { advertiseHost, discoverHosts } from './sync/discovery.js'
+import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
 import { applyUserDataPath } from './db/userDataPath.js'
@@ -89,13 +87,6 @@ const SCOPED_LIST_ENTITIES = new Set([
   'week_group_exclusions',
   'week_location_exclusions',
 ])
-
-// Bound on how long login() waits for an in-flight WebSocket handshake to
-// finish before falling back to the local/offline login path. Meaningfully
-// shorter than loginRemote's own timeout for a genuinely unreachable host —
-// this window exists only to absorb the sub-second CONNECTING-state race on
-// a healthy LAN connection, not to wait out a dead one.
-const CLIENT_CONNECT_WAIT_MS = 1500
 
 function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0
@@ -180,24 +171,11 @@ export function sanitizeOpRejectedForIpc(msg) {
 function ensureDeviceRow(db, deviceId) {
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
 }
-
-function resolveClientServerUrl({ hostAddress, host, port }) {
-  if (isNonEmptyString(hostAddress)) return hostAddress
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new Error('Invalid port for host connection')
-  }
-  if (!isNonEmptyString(host) || !HOST_PATTERN.test(host)) {
-    throw new Error('Invalid host for host connection')
-  }
-  return `ws://${host}:${port}`
-}
-
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, notifyPairingRequest } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
   const getAutomergeNode = getAutomergeSyncNode || (() => null)
-  const forwardPairingRequest = notifyPairingRequest || (() => {})
   // Alias to avoid shadowing the import; callers pass userDataPath as an option
   // so backups from within makeHandlers (bulkReplace) land in the same
   // {userData}/backups/ directory as user-initiated backups.
@@ -205,12 +183,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   ensureDeviceRow(db, deviceId)
 
   let syncClient = null
-  let syncServer = null  // { wss, close, sendPairingApproved, sendPairingDenied }
   let modeChosen = false
   let mode = null
-  let pendingServerUrl = null
-  let hostAdvertisement = null
-  let hostPort = null
 
   function wireOpApplied() {
     syncClient.onOpApplied((op) => {
@@ -247,35 +221,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       syncClient.onFullSyncApplied(() => {
         const mainWindow = getMainWindow ? getMainWindow() : null
         if (mainWindow) mainWindow.webContents.send('shoresh:full-sync-applied')
-      })
-    }
-  }
-
-  function wirePairingCallbacks() {
-    if (typeof syncClient.onPairingApproved === 'function') {
-      syncClient.onPairingApproved(() => {
-        const w = getMainWindow ? getMainWindow() : null
-        if (w) w.webContents.send('shoresh:pairing-approved')
-      })
-    }
-    if (typeof syncClient.onPairingDenied === 'function') {
-      syncClient.onPairingDenied(() => {
-        const w = getMainWindow ? getMainWindow() : null
-        if (w) w.webContents.send('shoresh:pairing-denied')
-      })
-    }
-    if (typeof syncClient.onTokenRenewed === 'function') {
-      syncClient.onTokenRenewed((newToken) => {
-        const w = getMainWindow ? getMainWindow() : null
-        if (w) w.webContents.send('shoresh:token-renewed', { token: newToken })
-      })
-    }
-    // T87 Part 3 — mirrors onPairingDenied's forwarding exactly. Carries only
-    // the numeric close code, never the rejected token.
-    if (typeof syncClient.onAuthRejected === 'function') {
-      syncClient.onAuthRejected((code) => {
-        const w = getMainWindow ? getMainWindow() : null
-        if (w) w.webContents.send('shoresh:auth-rejected', { code })
       })
     }
   }
@@ -594,44 +539,34 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function getSyncStatus() {
     if (!modeChosen) return { mode: null, connected: false, state: 'standalone' }
     if (mode === 'host') return { mode: 'host', connected: true, state: 'host' }
-    const connected = typeof syncClient?.isConnected === 'function' ? syncClient.isConnected() : false
-    // T87 Part 4 (docs/adr/2026-08-16-client-reauth-on-restart.md): a socket
-    // can be open without being authenticated (fresh connect, or a rejected
-    // token mid-reconnect) — 'client-connected' now means transport-open
-    // AND authenticated, not merely transport-open, so the sidebar's "linked"
-    // copy stops overclaiming.
-    const authed = typeof syncClient?.isAuthenticated === 'function' ? syncClient.isAuthenticated() : false
+    // Stage 6c: the honest source of "can this device reach the camp" is the
+    // libp2p node's peer set, not a socket. `getPeers()` returns every
+    // libp2p-connected peer INCLUDING one that merely completed a noise
+    // handshake and never authenticated (transport.js is explicit about this),
+    // so the two counts below preserve exactly the distinction T87 introduced:
+    // transport-open is not the same as admitted to the camp, and the sidebar's
+    // "linked" copy must not overclaim.
+    const node = getAutomergeNode()
+    const peers = node ? node.getPeers() : []
+    const connected = peers.length > 0
+    const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
     return { mode: 'client', connected, authenticated: authed, state }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
   // poll. Without this the sidebar would show whatever was true at mount.
-  function wireSyncStatus() {
-    if (typeof syncClient?.onConnectionChange !== 'function') return
-    syncClient.onConnectionChange(() => {
-      const mainWindow = getMainWindow ? getMainWindow() : null
-      if (mainWindow) mainWindow.webContents.send('shoresh:sync-status-changed', getSyncStatus())
-    })
+  function pushSyncStatus() {
+    const mainWindow = getMainWindow ? getMainWindow() : null
+    if (mainWindow) mainWindow.webContents.send('shoresh:sync-status-changed', getSyncStatus())
   }
 
-  // Advertising is split out of chooseMode because the camp id it needs may
-  // not exist yet at mode-selection time (first bootstrap). Idempotent: only
-  // the first successful call publishes, so the extra call from bootstrapCamp
-  // on a fresh camp — and chooseMode's own replay path — cannot double-publish.
-  function startAdvertising() {
-    if (hostAdvertisement || mode === 'client' || hostPort == null) return
-    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
-    if (!camp) return
-    hostAdvertisement = advertiseHost({ campId: camp.id, port: hostPort })
-  }
-
-  // guessing.
   function chooseMode(args) {
     // `campName` is still sent by the renderer (bootstrap passes it through to
-    // bootstrapCamp) but is deliberately NOT read here: the LAN advertisement
-    // derives an opaque name from the camp id instead — see startAdvertising.
-    const { mode: requestedMode, port, token } = args || {}
+    // bootstrapCamp) but is deliberately NOT read here: LAN discovery is
+    // camp-scoped by an opaque hash of the camp id and never carries the name
+    // (electron/sync/automerge/discovery.js).
+    const { mode: requestedMode, token } = args || {}
     if (requestedMode !== 'host' && requestedMode !== 'client') {
       throw new Error('mode must be "host" or "client"')
     }
@@ -647,17 +582,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
 
     if (requestedMode === 'host') {
-      syncServer = startSyncServer(db, {
-        port,
-        onPairingRequest: forwardPairingRequest,
-      })
-      // PRIVACY (electron/sync/discovery.js): the mDNS broadcast carries an
-      // opaque hash of the camp id, never `campName`. That means the camp row
-      // must exist before we can advertise — on a fresh bootstrap the renderer
-      // calls chooseMode BEFORE bootstrapCamp inserts it, so advertising is
-      // deferred to bootstrapCamp's own startAdvertising() call.
-      hostPort = port
-      startAdvertising()
+      // Stage 6c: no WebSocket server, and no separate mDNS advertisement. The
+      // libp2p node does its own camp-scoped discovery
+      // (electron/sync/automerge/discovery.js), so a Host no longer runs a
+      // second announcement alongside it.
       // Auto-authorize the Host device if its devices row lacks authorized_at.
       // Pre-trust-system DBs were bootstrapped before authorize() existed, so
       // bootstrapCamp never stamped it. Do this at mode-selection time so it
@@ -666,9 +594,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       db.prepare(
         "UPDATE devices SET authorized_at = COALESCE(authorized_at, ?), pairing_status = 'authorized' WHERE id = ?"
       ).run(new Date().toISOString(), deviceId)
-      syncClient = createSyncClient(db, { device_id: deviceId, author_user_id: null, wss: syncServer.wss })
+      syncClient = createLocalWriteClient(db, { device_id: deviceId, author_user_id: null })
       wireOpApplied()
-      wireSyncStatus()
       // Stage 5d-2b: the automerge/libp2p node (if running) also needs this
       // Host's own token to authenticate itself to any Client it discovers
       // — startAutomergeSyncNodeIfEnabled already tries to self-issue one at
@@ -688,28 +615,17 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         // practice on this branch, but never worth throwing over.
       }
     } else {
-      pendingServerUrl = resolveClientServerUrl(args)
-      const deviceRow = db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)
-      const deviceNameForPairing = deviceRow?.name || `Device ${deviceId.slice(0, 8)}`
-      syncClient = createSyncClient(db, {
-        device_id: deviceId,
-        author_user_id: null,
-        serverUrl: pendingServerUrl,
-        device_name: deviceNameForPairing,
-        // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 2): a
-        // returning Client's locally-verified token, so connect()'s existing
-        // `if (token) → authenticate` branch (syncClient.js) actually fires
-        // on startup instead of always falling back to pairing_request.
-        token,
-      })
+      // Stage 6c: a Client is no longer a different kind of device. It writes
+      // locally exactly as a Host does, and its writes reach the camp because
+      // every device holds the whole document — not because a server accepted
+      // them. There is no serverUrl, no socket, and no pairing callbacks over
+      // WS; joining happens through the camp code
+      // (docs/adr/2026-09-08-libp2p-join-flow.md) and pairing decisions arrive
+      // over libp2p.
+      syncClient = createLocalWriteClient(db, { device_id: deviceId, author_user_id: null })
       wireOpApplied()
-      wirePairingCallbacks()
-      wireSyncStatus()
-      // Stage 5d-2b: a returning Client that already has a stored WS token
-      // hands the SAME token to the automerge/libp2p node, so it can
-      // authenticate itself to the Host over libp2p too, without waiting
-      // for a fresh login(). A brand-new Client with no token yet gets one
-      // from login() below instead.
+      // Stage 5d-2b: a returning device that already holds a token hands it to
+      // the libp2p node so it can authenticate to peers without a fresh login.
       if (isNonEmptyString(token)) {
         getAutomergeNode()?.setAuthToken(token)
       }
@@ -721,57 +637,25 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { mode: requestedMode }
   }
 
-  // Deliberately NOT wrapped in authorize(). Takes zero arguments (see
-  // preload.js: `discoverHosts: () => ipcRenderer.invoke('shoresh:discover-hosts')`)
-  // and is called from the Join screen's mDNS host-picker before a mode is
-  // even chosen, let alone a session established — there is no token to pass
-  // in at this point in the flow, by construction of the handler's own
-  // signature.
-  function discoverHostsHandler() {
-    return discoverHosts({ timeoutMs: 3000 })
-  }
-
   async function login({ name, pin } = {}) {
     if (!isNonEmptyString(name) || !isNonEmptyString(pin)) {
       throw new Error('name and pin are required')
     }
 
-    if (mode === 'client' && syncClient) {
-      // A connect() attempt may still be in the WebSocket CONNECTING state when
-      // the user submits credentials (e.g. "enter host, hit connect, immediately
-      // type PIN" is the natural flow). loginRemote()'s readyState guard returns
-      // 'disconnected' SYNCHRONOUSLY if the socket isn't OPEN yet, which would
-      // falsely tell a fresh device to "connect to the network" moments before
-      // the handshake would have completed. Give the handshake a short, bounded
-      // window to finish first — a LAN WebSocket handshake normally completes in
-      // tens of milliseconds, so this comfortably covers that case while staying
-      // far shorter than loginRemote's own timeout for a genuinely unreachable
-      // host (so an unreachable Host still falls through to the offline/local
-      // path promptly, just not instantly).
-      await Promise.race([
-        syncClient.waitUntilConnected(),
-        new Promise((resolve) => setTimeout(resolve, CLIENT_CONNECT_WAIT_MS)),
-      ])
-
-      const remoteResult = await syncClient.loginRemote({ name, pin })
-      if (remoteResult.status === 'ok') {
-        // Stage 5d-2b: this Client now has a fresh, valid camp token — hand
-        // it to the automerge/libp2p node (if running) so it can start
-        // authenticating itself to discovered peers, the same token the WS
-        // transport just verified.
-        getAutomergeNode()?.setAuthToken(remoteResult.token)
-        return { token: remoteResult.token, userId: remoteResult.userId, role: remoteResult.role }
-      }
-      if (remoteResult.status === 'failed') {
-        return remoteResult.locked ? { locked: true, retryAfterMs: remoteResult.retryAfterMs } : null
-      }
-      // 'disconnected' or 'timeout': fall through to local verification below,
-      // which only succeeds for a device that has already synced once before.
-      // A genuinely fresh, offline device gets a clear, distinct signal
-      // rather than the generic invalid-credentials response.
+    // Stage 6c: login is local on every device. `users` is a modeled document
+    // entity, so a joined device already holds the camp's roster and can verify
+    // a PIN against its own database — there is no Host to ask.
+    //
+    // A device that has NOT joined has no roster to check against, and that is
+    // the join flow's job rather than this handler's: JoinByCodeScreen ->
+    // startJoinSession performs the first login against the Host over libp2p
+    // and writes the camp row (docs/adr/2026-09-08-libp2p-join-flow.md). The
+    // WebSocket loginRemote round-trip this replaces existed only because a
+    // Client had no local roster to check.
+    if (mode === 'client') {
       const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
       if (!camp) {
-        return { offline: true, reason: 'Connect to the camp network to sign in for the first time.' }
+        return { offline: true, reason: 'Join the camp from this device before signing in.' }
       }
     }
 
@@ -831,12 +715,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const campId = randomUUID()
     const signingSecret = randomBytes(32).toString('hex')
     db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, campName, signingSecret)
-
-    // The camp id now exists, so this Host can be advertised under its opaque
-    // service name. On every subsequent startup chooseMode does this directly
-    // (the camp row is already there); this call covers the first-bootstrap
-    // ordering only, and startAdvertising is idempotent.
-    startAdvertising()
 
     // Host Ed25519 keypair, generated exactly once per
     // docs/adr/2026-07-25-device-trust-revocation.md — this device becomes
@@ -932,12 +810,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
     recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'allow' })
 
-    if (syncServer) syncServer.sendPairingApproved(targetDeviceId, secret)
-    // Stage 5d-2b: a device that requested pairing over libp2p (not WS)
-    // has its pending stream tracked in the automerge node instead —
-    // deliver the SAME decision there too. A device that paired over WS
-    // simply has no pending libp2p entry, so this is a harmless no-op
-    // for it (authGate.js's sendPairingApproved resolves false).
+    // The joining device has its pending stream tracked in the libp2p node;
+    // authGate.js resolves false when there is nothing pending for it, so this
+    // is safe to call unconditionally.
     getAutomergeNode()?.sendPairingApproved(targetDeviceId, secret)
 
     return { deviceId: targetDeviceId, authorized: true }
@@ -958,7 +833,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
     recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.deny', outcome: 'allow' })
 
-    if (syncServer) syncServer.sendPairingDenied(targetDeviceId)
     getAutomergeNode()?.sendPairingDenied(targetDeviceId)
 
     return { deviceId: targetDeviceId, denied: true }
@@ -987,13 +861,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       metadata: reason ? { reason } : null,
     })
 
-    if (syncServer) {
-      for (const client of syncServer.wss.clients) {
-        if (client.deviceId === targetDeviceId) {
-          try { client.close(4404, 'device_revoked') } catch { /* ignore */ }
-        }
-      }
-    }
 
     // A revoked device that is still CONNECTED must stop being admitted now, not
     // when it next happens to drop. Admission is granted once and otherwise only
@@ -1241,24 +1108,32 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return getEntityHistory(db, { entity, entity_id })
   }
 
-  // Restore executes on the HOST. A Client does not hold the op history for
-  // records created before it paired (its first full_sync ships materialized
-  // rows and sets last_synced_seq to the then-current max), so restoring from
-  // its own log would produce an empty shell. A Client therefore asks the
-  // Host, and queues the request when the Host is unreachable.
+  // Stage 6c: restore executes locally, on whichever device the director is
+  // using. It reconstructs a deleted record from this device's `operations`
+  // history.
+  //
+  // KNOWN LIMITATION, and it is the honest state rather than an oversight: a
+  // device only has op rows for writes IT made. A record deleted on another
+  // device arrives as a document merge, which writes no op row, so restoring it
+  // here returns a clean `no-history` error rather than the record. The old
+  // transport dodged this by having Clients ask the Host; there is no Host to
+  // ask now.
+  //
+  // The fix is the local history ledger — writing op rows from received merges
+  // — which is the narrowed Stage 6d. Deferred integration scenario 18 is its
+  // exit criterion. See docs/current/CRDT_SECURITY_GAPS.md.
+  //
+  // It fails safe: `restoreEntity` checks for the history it needs
+  // (`if (!fields.has('camp_id')) return { error: 'no-history' }`) before
+  // writing anything, so the failure is a typed error, never a half-restored
+  // record or an empty shell.
   async function restoreEntityHandler({ token, entity, entity_id } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     if (!isNonEmptyString(entity)) throw new Error('Invalid entity')
     const { userId } = requireAuthorized(db, { token, action: `${entity}.restore` })
     if (!isNonEmptyString(entity_id)) throw new Error('entity_id is required')
-    // Refused in the handler, not hidden in the UI — and refused on the Client
-    // too, so a request that could only ever be rejected is never queued.
+    // Refused in the handler, not hidden in the UI.
     if (!RESTORABLE_ENTITIES.has(entity)) return { error: 'not-restorable' }
-
-    if (mode === 'client') {
-      if (!syncClient) throw new Error('sync not initialized — choose a mode first')
-      return syncClient.requestRestore({ entity, entity_id, requested_by: userId })
-    }
 
     const result = restoreEntity(db, { entity, entity_id, author_user_id: userId, device_id: deviceId })
     if (result.error) return result
@@ -1285,22 +1160,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return previewDelete(db, { entity, entity_id })
   }
 
-  // Executes on the HOST, like a restore — a Client cannot express this as one
-  // atomic transaction over submit_op. Unlike a restore it is NEVER QUEUED: a
-  // queued delete would run against a count the director was shown hours
-  // earlier, and a count nobody agreed to is not a count. With no Host, refuse
-  // and say so.
+  // Stage 6c: executes on whichever device the director is using. Under the
+  // op-log a Client could not express this as one atomic transaction over
+  // submit_op, so it asked the Host; now every device holds the whole document
+  // and the transaction is local. The count the director was shown is still
+  // checked against the data at the moment of deletion (expected_slot_count) —
+  // that guard is what made a QUEUED delete unacceptable, and it is unchanged.
   async function deleteRecordHandler({ token, entity, entity_id, expected_slot_count } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     if (!isNonEmptyString(entity)) throw new Error('Invalid entity')
     const { userId } = requireAuthorized(db, { token, action: `${entity}.delete` })
     if (!isNonEmptyString(entity_id)) throw new Error('entity_id is required')
     if (!CLEARABLE_ENTITIES.has(entity)) return { error: 'not-clearable' }
-
-    if (mode === 'client') {
-      if (!syncClient) throw new Error('sync not initialized — choose a mode first')
-      return syncClient.requestDelete({ entity, entity_id, expected_slot_count })
-    }
 
     const result = deleteRecord(db, {
       entity,
@@ -1340,11 +1211,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
     if (expected_ref_count !== undefined && expected_ref_count !== null && !Number.isInteger(expected_ref_count)) {
       throw new Error('Invalid expected_ref_count')
-    }
-
-    if (mode === 'client') {
-      if (!syncClient) throw new Error('sync not initialized — choose a mode first')
-      return syncClient.requestMerge({ loser_id, winner_id, winner_capacity, expected_ref_count })
     }
 
     const result = mergeLocation(db, {
@@ -1612,8 +1478,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // Two halves that never run on the same device at the same time: the HOST's
   // Add-a-device window, and the JOINING device's pre-identity session. The
   // joining half is deliberately token-free — a device with no camp has no
-  // user, no session and nothing to authorize against, exactly like
-  // discoverHosts above. Its safety comes from startJoinSession itself, which
+  // user, no session and nothing to authorize against. Its safety comes from
+  // startJoinSession itself, which
   // refuses outright if this device already belongs to a camp, and from the
   // join-code proof both sides exchange.
   // ---------------------------------------------------------------------
@@ -1719,8 +1585,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   }
 
   return {
+    // Stage 6c: called by the libp2p node when its peer set changes, so the
+    // sidebar reflects reachability instead of showing whatever was true at
+    // mount. Not an IPC channel — it is invoked in-process (see
+    // startAutomergeSyncNodeIfEnabled), so it is deliberately absent from
+    // preload.js and from the IPC surface parity check.
+    pushSyncStatus,
     chooseMode,
-    discoverHosts: discoverHostsHandler,
     previewDelete: previewDeleteHandler,
     deleteRecord: deleteRecordHandler,
     mergeLocation: mergeLocationHandler,
@@ -1913,7 +1784,6 @@ if (isElectronEntryPoint()) {
     for (const ch of HANDLER_CHANNELS) ipcMain.removeHandler(ch)
 
     ipcMain.handle('shoresh:choose-mode', (_event, args) => handlers.chooseMode(args))
-    ipcMain.handle('shoresh:discover-hosts', () => handlers.discoverHosts())
     ipcMain.handle('shoresh:login', (_event, args) => handlers.login(args))
     ipcMain.handle('shoresh:create-user', (_event, args) => handlers.createUser(args))
     ipcMain.handle('shoresh:bootstrap-camp', (_event, args) => handlers.bootstrapCamp(args))
@@ -2287,12 +2157,10 @@ if (isElectronEntryPoint()) {
   let automergeSyncNode = null
   // Set by registerHandlers; see its comment.
   let liveHandlers = null
-  // Transport-independent: a director approving/denying a pairing request
-  // doesn't know or care which transport (WS or libp2p) asked. Defined once
-  // here so both startSyncServer's onPairingRequest (via makeHandlers'
-  // chooseMode, below) and startSyncNode's onPairingRequest (above,
-  // startAutomergeSyncNodeIfEnabled) forward to the SAME renderer IPC event
-  // instead of each carrying its own copy.
+  // A director approving or denying a pairing request doesn't know or care how
+  // the request arrived. startSyncNode's onPairingRequest
+  // (startAutomergeSyncNodeIfEnabled, above) forwards to this one renderer IPC
+  // event.
   function notifyPairingRequest(deviceId_req, deviceName_req) {
     if (mainWindow) mainWindow.webContents.send('shoresh:pairing-request', { deviceId: deviceId_req, deviceName: deviceName_req })
   }
@@ -2301,7 +2169,6 @@ if (isElectronEntryPoint()) {
     dbPath,
     userDataPath,
     getAutomergeSyncNode: () => automergeSyncNode,
-    notifyPairingRequest,
   })
   registerHandlers(initialHandlers, db)
 
@@ -2491,6 +2358,13 @@ if (isElectronEntryPoint()) {
       // per-field-op broadcast, and never a projectAll (recordLocalWrite only ever updates the
       // shared in-memory doc; the write already reached this device's own SQLite via appendOp).
       setAutomergeLocalWriteBroadcaster(automergeSyncNode.broadcastLocalDoc)
+
+      // Stage 6c: the sidebar's connection copy now follows the libp2p peer
+      // set. Pushed on change rather than polled, matching what the WebSocket
+      // client's onConnectionChange used to do.
+      automergeSyncNode.onPeersChanged?.(() => {
+        try { liveHandlers?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
+      })
 
       // Host case: a device holding host_signing_key can self-issue its own
       // device-admission token on demand (same fact issueDeviceToken itself

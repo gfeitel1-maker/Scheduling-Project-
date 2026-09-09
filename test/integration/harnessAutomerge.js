@@ -27,6 +27,9 @@
  * document field (electron/automerge/hostOnlyExclusion.test.js).
  */
 
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { randomUUID, randomBytes, scryptSync } from 'node:crypto'
 
 import { openLocalDb, getOrCreateDeviceId } from '../../electron/db/localDb.js'
@@ -39,7 +42,47 @@ import { ensureHostSigningKey, issueDeviceToken } from '../../electron/auth/loca
 import { saveDoc, loadDoc } from '../../electron/sync/automerge/docStore.js'
 import { setUserDataDirGetter } from '../../electron/sync/automerge/liveDoc.js'
 
-export { makeTmpDir, cleanupDirs, waitFor } from './harness.js'
+// Stage 6c: these three lived in harness.js, which was the op-log/WebSocket
+// harness and went with that transport. They are transport-agnostic — a temp
+// directory and a polling helper — so they move here rather than being lost.
+
+/** A fresh temp directory for one scenario's device databases. */
+export function makeTmpDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-int-'))
+}
+
+/** Remove a list of temp directories created by makeTmpDir. */
+export function cleanupDirs(dirs) {
+  for (const dir of dirs) {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Poll predicate() (sync or async) until it returns truthy or timeout expires.
+ * Resolves on first truthy result, rejects on timeout.
+ *
+ * Wait on the FIELD a scenario later asserts on, not a sibling field of the
+ * same record: fields arrive across several merges, so waiting on one and then
+ * reading another is a race that fails looking like a product bug. That mistake
+ * cost three debugging rounds during the port.
+ */
+export function waitFor(predicate, timeoutMs = 6000, pollMs = 40) {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs
+    async function tick() {
+      try {
+        if (await predicate()) { resolve(); return }
+      } catch { /* keep polling */ }
+      if (Date.now() >= deadline) {
+        reject(new Error(`waitFor timeout after ${timeoutMs}ms`))
+        return
+      }
+      setTimeout(tick, pollMs)
+    }
+    tick()
+  })
+}
 
 /** Insert a user row directly (bypassing localAuth.createUser's op-log write
  * callback, which requires 'users' to be a document entity — it is

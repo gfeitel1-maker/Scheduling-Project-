@@ -20,7 +20,6 @@ affects:
   - electron/db/schema.sql
   - electron/db/localDb.js
   - electron/db/rollback/v46_down.js
-  - electron/sync/syncClient.js
   - electron/ops/projections.js
   - electron/ops/campScopedEntities.js
   - electron/ops/restore.js

@@ -140,8 +140,42 @@ See `docs/current/CRDT_SECURITY_GAPS.md` item 7.
 
 ---
 
+## Four more, found late: the `*.sync.test.js` files
+
+These were not on the original list of 27. They are Vitest files living in `electron/sync/` that
+stood up a real `syncServer` + `syncClient` pair, so they could not survive the transport either.
+
+They were missed by the first dangling-import sweep after the deletion, because its regex required a
+`sync/` path prefix and these files import their siblings as `'./syncServer.js'`. A peer session's
+unrelated warning about `grep` prompted a re-sweep that found them. Recording the miss because the
+lesson is the sweep, not the files: **a negative search result is a claim, and this one was wrong.**
+
+| File | What it proved | Where that lives now |
+|---|---|---|
+| `scheduleE2E.sync.test.js` | a schedule survives a Host→Client round trip | ported scenarios 11, 17, 19 |
+| `bulkReplace.sync.test.js` | a scope replacement replicates atomically | scenarios 11 and 19 both drive `applyBulkReplace` across two devices |
+| `provenance.s2a.test.js` | a Client could not forge `import` provenance | **nowhere — see below** |
+| `restore.sync.test.js` | a restore on a Client matches one on the Host | **nowhere — see below** |
+
+### Two of those four are genuine coverage gaps, not retirements
+
+Saying so plainly rather than letting the table imply otherwise.
+
+**`provenance.s2a.test.js`** tested the op-log's Security V1: the Host FORCED `source: 'human'` on
+every submitted op, so a Client could never inject `import`. There is no CRDT equivalent, and the
+reason is bigger than the test — the document carries no provenance at all. Recorded as item 8 in
+`docs/current/CRDT_SECURITY_GAPS.md`, where the consequence is a director's hand edit being silently
+reverted by a later re-import.
+
+**`restore.sync.test.js`** is the same ground as deferred scenario 18. Restore on a receiving device
+is broken today, and this file was the last thing testing it. Its exit criterion is the history
+ledger, and it should be rewritten against libp2p as part of that slice rather than left implied.
+
+---
+
 ## What retiring these does NOT mean
 
-The WS scenario files themselves are not deleted here. They are still the live safety net for the
-op-log path, which is still selectable (`SHORESH_SYNC_ENGINE=oplog`). They are deleted with the WS
-layer in 6c, and this document is what explains their absence afterwards.
+The WS scenario files were deleted with the transport in 6c, and this document is what explains
+their absence. `SHORESH_SYNC_ENGINE=oplog` is no longer selectable: there is no second engine to
+select. What remains of the op-log is the `operations` table, kept as a LOCAL history ledger for
+Trash and record history — same table, different job, and only the sync mechanism retired.

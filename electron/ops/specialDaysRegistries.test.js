@@ -9,7 +9,6 @@
 // T88 bug class) — these assertions target exactly the silent-failure
 // registries where an omission produces no other test failure.
 import { describe, it, expect } from 'vitest'
-import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PROJECTIONS } from './projections.js'
@@ -30,11 +29,6 @@ describe('v34 registry coverage — special_days', () => {
     expect(DIRECT_CAMP_ENTITIES.has('special_days')).toBe(true)
   })
 
-  it('is in the client first-pairing snapshot (DOMAIN_SNAPSHOT_ORDER + columns)', () => {
-    const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
-    expect(DOMAIN_SNAPSHOT_ORDER).toContain('special_days')
-    expect(src).toMatch(/special_days:\s*\['id', 'camp_id', 'name', 'sort_order', 'notes'\]/)
-  })
 
   it('is in permissions.ENTITIES (not silently admin-only)', () => {
     expect(ENTITIES).toContain('special_days')
@@ -70,13 +64,6 @@ describe('v34 registry coverage — special_day_time_blocks', () => {
     )
   })
 
-  it('is shipped by the server first-pairing snapshot', () => {
-    expect(DOMAIN_SNAPSHOT_ORDER).toContain('special_day_time_blocks')
-    const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
-    expect(src).toMatch(
-      /special_day_time_blocks:\s*\['id', 'special_day_id', 'name', 'sort_order', 'start_time', 'end_time'\]/
-    )
-  })
 })
 
 describe('v34 registry coverage — special_day_slots', () => {
@@ -101,13 +88,6 @@ describe('v34 registry coverage — special_day_slots', () => {
     expect(MOCK_WRITE_ALLOWLIST.special_day_slots).toEqual(PROJECTIONS.special_day_slots.fields)
   })
 
-  it('is shipped by the server first-pairing snapshot', () => {
-    expect(DOMAIN_SNAPSHOT_ORDER).toContain('special_day_slots')
-    const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
-    expect(src).toMatch(
-      /special_day_slots:\s*\['id', 'special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'\]/
-    )
-  })
 })
 
 describe('RESTORE_DECISIONS covers every projected entity (restore.test.js guard, restated)', () => {

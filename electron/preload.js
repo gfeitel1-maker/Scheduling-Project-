@@ -2,7 +2,6 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('shoresh', {
   chooseMode: (args) => ipcRenderer.invoke('shoresh:choose-mode', args),
-  discoverHosts: () => ipcRenderer.invoke('shoresh:discover-hosts'),
   login: (args) => ipcRenderer.invoke('shoresh:login', args),
   createUser: (args) => ipcRenderer.invoke('shoresh:create-user', args),
   bootstrapCamp: (args) => ipcRenderer.invoke('shoresh:bootstrap-camp', args),

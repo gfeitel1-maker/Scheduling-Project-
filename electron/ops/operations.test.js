@@ -454,15 +454,6 @@ describe('appendOp size guard (MAX_FIELD_VALUE_LENGTH, D2)', () => {
     expect(db.prepare('SELECT name FROM users WHERE id = ?').get('user-1').name).toBe(longName)
   })
 
-  it('is enforced on the Host handleSubmitOp path exactly like the local write() path — both call the same appendOp choke point', () => {
-    // syncServer.js's handleSubmitOp calls appendOp(db, incomingOp) directly
-    // with no additional size check of its own (electron/sync/syncServer.js
-    // ~:624) — confirmed by reading the source, asserted here as a structural
-    // fact so a future refactor that adds a SEPARATE, divergent check on that
-    // path (rather than relying on the shared appendOp gate) fails loudly.
-    const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'sync', 'syncServer.js'), 'utf8')
-    expect(src).toMatch(/const op = appendOp\(db, incomingOp\)/)
-  })
 })
 
 describe('appendOp DELETE_FIELD sentinel', () => {

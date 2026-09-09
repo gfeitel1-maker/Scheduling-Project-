@@ -182,6 +182,73 @@ restore should reconstruct fields or just undelete).
 
 ---
 
+## 8. Field provenance and authorship do not replicate — OPEN, and it costs a director their work
+
+**Status: OPEN. Live today.** Not a vulnerability in the attacker sense; a silent data-loss defect
+with a security-shaped cause.
+
+**What replicates.** `applyWrite(doc, { entity, entity_id, field, value })` — field VALUES and
+nothing else. The CRDT document carries no `source`, no `author_user_id`, no `device_id`. Under the
+op-log every one of those travelled with the op.
+
+**What that breaks.** `electron/ops/ingest.js:479` protects a director's hand edits from being
+overwritten by a re-import:
+
+```js
+if (latest && latest.source === 'human') continue
+```
+
+`latest` is read from the `operations` table. A device that RECEIVED a hand-edit through a document
+merge has no op row for it, so `latest` is absent and the field is treated as never hand-edited.
+
+**A second site, same shape.** `ingest.js:452` builds the provenance map the plan is written from:
+
+```js
+const provenance = !!latest && latest.source !== 'import' ? 'human' : 'import'
+```
+
+With no op row `latest` is null, so this does not merely fail to protect the field — it evaluates to
+`'import'`, actively classifying a human correction as imported. Both sites fail the same way for the
+same reason, so a fix at one is not a fix.
+
+**The scenario, in the director's words.** They fix a group name on the iPad. It appears correctly on
+the office computer — the value replicated fine. They re-import next season's spreadsheet on the
+office computer. Their correction is silently reverted, because that machine has no record that a
+human made it. Nothing errors. Nothing is flagged.
+
+**Silent in BOTH directions, which is what makes it costly.** The director who made the correction
+sees it apply locally and replicate — nothing is wrong from where they stand. The director who
+re-imports sees a clean, successful import. Neither is shown anything at any point. The loss is only
+discoverable by noticing, later, that a name went back to what it used to be.
+
+If this is ever surfaced in the UI it belongs in the per-slot flag vocabulary, not in chrome — the
+no-banners convention holds here.
+
+**Also affected:** record history and Trash attribution. A received change has no author, so it shows
+as "Unknown" — the exact symptom T22 was raised to fix, reintroduced by a different route.
+
+**Why it is not merely the missing ledger.** Writing op rows from received merges (the agreed 6d
+narrowing) is necessary but NOT sufficient: the document itself carries no provenance, so a
+synthesized op row would have nothing truthful to record in `source`. Closing this requires the
+DOCUMENT to carry a per-field human/import marker. That is a document-model change, and it should be
+decided deliberately rather than folded into the ledger slice.
+
+**Related:** the op-log's Security V1 control (a Host FORCED `source: 'human'` on every submitted op,
+so a Client could never forge `import` provenance) has no CRDT equivalent — same root cause, same
+place to fix it. Its test, `provenance.s2a.test.js`, was retired with the transport; see
+`docs/work/evidence/2026-09-08-retired-ws-scenarios.md`.
+
+**Independently confirmed** against `origin/main` by a second session, both halves checked separately:
+the guard reads from `latestOp` (the operations table), and `applyWrite` (campDocument.js:424)
+destructures exactly four keys and stores `coerceOpValue(value)` bare at `recordKey(entity_id,
+field)` — no provenance anywhere in the write path.
+
+**Found by:** re-sweeping for dangling imports after deleting the WS layer, using `grep -a` at a
+peer session's prompting. The original sweep used a regex that required a `sync/` path prefix and
+missed four sibling-relative imports inside `electron/sync/` itself.
+
+---
+
 ## HARNESS PARITY GAPS
 
 Not product defects, but recorded because each one made a scenario fail while the
@@ -207,5 +274,6 @@ Both FIXED entries were found the same way: by writing an integration scenario i
 devices do something a person would actually do, and asserting the outcome rather than the mechanism.
 Neither was reachable by unit tests, because both required a real second participant.
 
-Ten WS scenarios remain to port. On the evidence so far they should not be treated as a formality —
-they are the reason the WebSocket layer is still standing.
+All 27 WS scenarios are now accounted for (20 ported, 6 retired, 1 deferred), and the WebSocket layer
+is gone. The porting was not a formality: it produced two vulnerabilities, a cutover blocker, three
+harness gaps, and the finding below — none of which 5,000 passing unit tests had surfaced.

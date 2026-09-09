@@ -15,7 +15,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Database from 'better-sqlite3'
 import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './localDb.js'
-import { applyProjection } from '../ops/projections.js'
+import { applyProjection, PROJECTIONS } from '../ops/projections.js'
+import { MODELED_ENTITIES } from '../automerge/campDocument.js'
 import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
 
 const files = []
@@ -158,16 +159,6 @@ describe('migration v23: schedule_templates.kind', () => {
     peer.close()
   })
 
-  it('ships kind in the first-pairing domain snapshot column list', async () => {
-    // A column missing from that list is silently defaulted on the receiving
-    // device — for `kind` that means the manual candidate materialises as a
-    // second 'generated' row and is absorbed by the unique index.
-    const src = fs.readFileSync(
-      path.join(path.dirname(new URL(import.meta.url).pathname), '../sync/syncClient.js'),
-      'utf8'
-    )
-    expect(src).toMatch(/schedule_templates: \[[^\]]*'kind'/)
-  })
 
   it('gives a fresh db and a migrated db identical schedule_templates columns AND indexes', () => {
     const fresh = freshDb()
@@ -276,6 +267,21 @@ function insertSlots(db, templateId, n, prefix) {
     db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(`${prefix}-${i}`, templateId)
   }
 }
+
+describe('kind replicates to other devices', () => {
+  // Stage 6c: the original asserted `kind` appeared in syncClient.js's
+  // first-pairing snapshot column list. There is no snapshot any more — what
+  // replicates is the document — so the equivalent question is whether `kind`
+  // is a modeled document field. Kept as a POSITIVE assertion rather than
+  // dropped with the transport: a manual candidate schedule that failed to
+  // replicate its kind would materialise as 'generated' on the other device and
+  // collide with the real generated one (see the write-ordering contract in
+  // projections.js).
+  it('is a projected field of a modeled entity, so it reaches every device', () => {
+    expect(MODELED_ENTITIES).toContain('schedule_templates')
+    expect(PROJECTIONS.schedule_templates.fields).toContain('kind')
+  })
+})
 
 describe('migrated database whose generated template has a RANDOM UUID id', () => {
   it('A1: v23 leaves the UUID id in place and stamps kind=generated', () => {

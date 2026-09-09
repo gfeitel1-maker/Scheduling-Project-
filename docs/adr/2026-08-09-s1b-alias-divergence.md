@@ -14,7 +14,6 @@ affects:
   - docs/work/onboarding-reconciliation/MATCH_AND_MERGE_SEMANTICS.md
   - electron/ops/operations.js
   - electron/ops/confirmAlias.js
-  - electron/sync/syncServer.js
   - src/ingest/buildPlan.js
   - electron/ops/ingest.js
   - electron/main.js
