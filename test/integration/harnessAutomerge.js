@@ -40,7 +40,7 @@ import { joinCode } from '../../electron/sync/joinCode.js'
 import { seedAllFromSqlite } from '../../electron/automerge/seed.js'
 import { ensureHostSigningKey, issueDeviceToken } from '../../electron/auth/localAuth.js'
 import { saveDoc, loadDoc } from '../../electron/sync/automerge/docStore.js'
-import { setUserDataDirGetter } from '../../electron/sync/automerge/liveDoc.js'
+import { setUserDataDirGetter, setLocalWriteBroadcaster } from '../../electron/sync/automerge/liveDoc.js'
 
 // Stage 6c: these three lived in harness.js, which was the op-log/WebSocket
 // harness and went with that transport. They are transport-agnostic — a temp
@@ -171,6 +171,14 @@ export class AmHost {
         else (this._pairingQueue ??= []).push({ deviceId, deviceName })
       },
     })
+    // Wire the per-device local-write broadcaster exactly as main.js does once
+    // its node has started. Without this an appendOp-path write (deleteRecord,
+    // ingest, restore) updates this device's document but never PUSHES it, so
+    // it reaches a peer only if some other exchange happens to run — which made
+    // scenario 30 pass alone and fail after other scenarios. Production wires
+    // this; the harness did not, which is the same class of gap as the
+    // dual-write one.
+    setLocalWriteBroadcaster(this.db, this.node.broadcastLocalDoc)
     this._pairingQueue = []
     this._pairingWaiters = []
 
@@ -312,6 +320,14 @@ export class AmClient {
 
   async start() {
     this.node = await startSyncNode({ deviceId: this.deviceId, db: this.db, doc: createEmptyDoc() })
+    // Wire the per-device local-write broadcaster exactly as main.js does once
+    // its node has started. Without this an appendOp-path write (deleteRecord,
+    // ingest, restore) updates this device's document but never PUSHES it, so
+    // it reaches a peer only if some other exchange happens to run — which made
+    // scenario 30 pass alone and fail after other scenarios. Production wires
+    // this; the harness did not, which is the same class of gap as the
+    // dual-write one.
+    setLocalWriteBroadcaster(this.db, this.node.broadcastLocalDoc)
   }
 
   /**
@@ -326,6 +342,14 @@ export class AmClient {
     try { await this.node.stop() } catch { /* ignore */ }
     const doc = loadDoc(docDir, campId) ?? createEmptyDoc()
     this.node = await startSyncNode({ deviceId: this.deviceId, db: this.db, doc })
+    // Wire the per-device local-write broadcaster exactly as main.js does once
+    // its node has started. Without this an appendOp-path write (deleteRecord,
+    // ingest, restore) updates this device's document but never PUSHES it, so
+    // it reaches a peer only if some other exchange happens to run — which made
+    // scenario 30 pass alone and fail after other scenarios. Production wires
+    // this; the harness did not, which is the same class of gap as the
+    // dual-write one.
+    setLocalWriteBroadcaster(this.db, this.node.broadcastLocalDoc)
   }
 
   /** Dial the Host and wait until the transport admits the peer. */

@@ -38,6 +38,7 @@ import { run as scenario21 } from './scenarios/21-ingest-prior-year.automerge.js
 import { run as scenario13 } from './scenarios/13-host-crash-mid-sync.automerge.js'
 import { run as scenario29 } from './scenarios/29-hand-edit-survives-reimport.automerge.js'
 import { run as scenario18 } from './scenarios/18-restore-queue.automerge.js'
+import { run as scenario30 } from './scenarios/30-who-did-that.automerge.js'
 
 // Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
 // disagree about one slot) are both FIXED and both pass consistently, having
@@ -74,6 +75,7 @@ const SCENARIOS = [
   // (docs/adr/2026-09-09-field-provenance-in-the-document.md).
   { name: '29 a hand edit survives a re-import on the other device (libp2p)', fn: scenario29 },
   { name: '18 a device restores a record it only RECEIVED the deletion of (libp2p)', fn: scenario18 },
+  { name: '30 "who changed that?" has an answer on the other device (libp2p)', fn: scenario30 },
 ]
 
 // COVERAGE, so the count above is readable without arithmetic:

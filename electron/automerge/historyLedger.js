@@ -30,7 +30,7 @@
 // Both are the reason this does not simply call `appendOp`, which does both.
 import { randomUUID } from 'node:crypto'
 import { coerceOpValue, DELETE_FIELD } from '../ops/operations.js'
-import { isHumanEdited, readRecord } from './campDocument.js'
+import { isHumanEdited, readRecord, readFieldAuthor } from './campDocument.js'
 import { PROJECTIONS } from '../ops/projections.js'
 
 // Peers whose device row we could not find, warned about once each rather than
@@ -157,10 +157,17 @@ export function appendReceivedOps(db, events, { fromPeerId, doc } = {}) {
         // as appendOp coerces a local write, so a row's shape does not depend on
         // whether it arrived locally or by merge.
         e.field === DELETE_FIELD ? null : coerceOpValue(e.value ?? null),
-        // author_user_id stays NULL: the document carries no author
-        // (CRDT_SECURITY_GAPS item 8), and guessing one would put a name against
-        // an edit that person may not have made.
-        null,
+        // WHO made this change, read from the document — which now carries it.
+        // This is what stops record history and Trash saying "Unknown" for
+        // everything that arrived from another device (CRDT_SECURITY_GAPS item
+        // 8). Still NULL when the document does not know, which is honest: a
+        // guess here would put a name against an edit that person may not have
+        // made, and `users` replicates, so a wrong id would resolve to a real
+        // colleague's name.
+        // A delete's author comes from the tombstone the delete itself wrote
+        // (campDocument.js), which is the only marker that outlives the record —
+        // and the one Trash's "deleted by" column reads.
+        doc ? readFieldAuthor(doc, e.entity, e.entity_id, e.field) : null,
         deviceRow.id,
         now,
         source

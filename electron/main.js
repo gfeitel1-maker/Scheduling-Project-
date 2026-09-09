@@ -2432,7 +2432,7 @@ if (isElectronEntryPoint()) {
       // any window that included a local write, calls whatever broadcaster is wired here — never a
       // per-field-op broadcast, and never a projectAll (recordLocalWrite only ever updates the
       // shared in-memory doc; the write already reached this device's own SQLite via appendOp).
-      setAutomergeLocalWriteBroadcaster(automergeSyncNode.broadcastLocalDoc)
+      setAutomergeLocalWriteBroadcaster(db, automergeSyncNode.broadcastLocalDoc)
 
       // Stage 6c: the sidebar's connection copy now follows the libp2p peer
       // set. Pushed on change rather than polled, matching what the WebSocket

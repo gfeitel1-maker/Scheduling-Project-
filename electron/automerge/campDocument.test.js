@@ -156,6 +156,10 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // THIRD REGENERATION (users/camps modeling slice, Stage 6 prep): `camps` and `users` added to
     // MODELED_ENTITIES/GENESIS_ENTITIES — see campDocument.js's GENESIS_B64 comment.
     //
+    // FIFTH REGENERATION (author attribution): `field_author` added — who last set each field, so
+    // record history and Trash can name a person for a change that arrived from another device.
+    // Same acceptance as every regeneration below.
+    //
     // FOURTH REGENERATION (field provenance,
     // docs/adr/2026-09-09-field-provenance-in-the-document.md): the
     // `field_provenance` collection was added to GENESIS_ENTITIES. It had to go in
@@ -169,7 +173,7 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        '255e0594e6d2aeb79f37f3d4fe42b23b28e1828efdd39ab0e5404e6209d0db1c',
+        '931e7c0f93affaf864b270328491a3da4412b508547ea6174724026f6aabde8d',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole

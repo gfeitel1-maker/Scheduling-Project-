@@ -72,7 +72,15 @@ let docRegistry = new WeakMap()
 // and ONLY for a debounce window that included at least one local write (a window that only ever
 // saw a remote merge is already broadcast by syncNode's own re-broadcast-on-receive). null in every
 // test that doesn't care about broadcast, and in any process before a sync node has started.
-let broadcastCallback = null
+// Keyed by db, not a single module-global. One PROCESS is one device in
+// production, so a global looked equivalent — but it is not, and the difference
+// is not only a test concern: with two nodes in one process the second
+// `setLocalWriteBroadcaster` silently replaced the first, so writes on one
+// device pushed through the other device's node, or through a node that had
+// already stopped. Integration scenario 30 failed on exactly that, and only
+// when other scenarios had run first, which is the signature of shared global
+// state rather than of a bug in the scenario.
+let broadcastCallbacks = new WeakMap()
 
 // Debounce state for saveDoc/broadcast (Stage 5e item 3, extended in 5f to also drive the local-
 // write broadcast off the SAME timer — see module comment). Keyed by campId (the persistence unit),
@@ -86,8 +94,9 @@ export function setUserDataDirGetter(getter) {
   userDataDirGetter = getter
 }
 
-export function setLocalWriteBroadcaster(fn) {
-  broadcastCallback = fn
+export function setLocalWriteBroadcaster(db, fn) {
+  if (!db) throw new Error('setLocalWriteBroadcaster: db is required — the broadcaster is per-device')
+  broadcastCallbacks.set(db, fn)
 }
 
 export function resetForTests() {
@@ -97,7 +106,7 @@ export function resetForTests() {
   docRegistry = new WeakMap()
   userDataDirGetter = null
   warnedUnconfigured = false
-  broadcastCallback = null
+  broadcastCallbacks = new WeakMap()
 }
 
 function getCampId(db) {
@@ -224,7 +233,8 @@ export function flushPendingWrites() {
     const doc = getCurrentDoc(db)
     if (!doc) continue
     saveDoc(userDataDir, campId, doc)
-    if (local && broadcastCallback) broadcastCallback(doc)
+    const broadcast = broadcastCallbacks.get(db)
+    if (local && broadcast) broadcast(doc)
   }
 }
 
@@ -235,7 +245,7 @@ export function flushPendingWrites() {
 // This is ALSO the local half of Stage 5f's unification: the doc this reads and writes
 // (getDoc/docRegistry) is the exact same one syncNode.js's remote-merge path reads and writes, so a
 // local edit always builds on top of whatever the last remote merge left behind, never a stale copy.
-export function recordLocalWrite(db, { entity, entity_id, field, value, source }) {
+export function recordLocalWrite(db, { entity, entity_id, field, value, source, author_user_id }) {
   if (!MODELED_ENTITIES.has(entity)) return
 
   // Not wired yet (pre-Stage-5e): stay gracefully inert — warn ONCE, never
@@ -270,7 +280,7 @@ export function recordLocalWrite(db, { entity, entity_id, field, value, source }
   // So: seed in memory, apply the write, and persist the two together below.
   const seeding = getCurrentDoc(db) === null || getCurrentDoc(db) === undefined
   const doc = getDoc(db, userDataDir, campId, { persistSeed: false })
-  const nextDoc = applyWrite(doc, { entity, entity_id, field, value, source })
+  const nextDoc = applyWrite(doc, { entity, entity_id, field, value, source, author_user_id })
   docRegistry.set(db, nextDoc)
   if (seeding) {
     // One synchronous save, once per camp per process — the same one-time cost

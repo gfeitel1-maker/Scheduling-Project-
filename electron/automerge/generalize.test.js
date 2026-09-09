@@ -22,6 +22,7 @@ import {
   BULK_REPLACE_MODELED_ENTITIES,
   DEFERRED_ENTITIES,
   PROVENANCE_COLLECTION,
+  AUTHOR_COLLECTION,
 } from './campDocument.js'
 import { projectEntity, projectAll, rebuildFromDoc } from './projector.js'
 import { seedDocFromSqlite, seedAllFromSqlite } from './seed.js'
@@ -86,13 +87,17 @@ describe('Automerge generalization slice — modeled entity set is pinned to DIR
     // NEXT accidental collection through silently — which is the drift it exists
     // to catch. It lives in the genesis (not created on first write) for the
     // concurrent-create reason in campDocument.js's GENESIS_B64 comment.
-    const expectedOther = [PROVENANCE_COLLECTION]
+    // AUTHOR_COLLECTION is the same third category as provenance: who last set
+    // each field, kept separate because provenance is deliberately sparse and
+    // authorship is not.
+    const expectedOther = [PROVENANCE_COLLECTION, AUTHOR_COLLECTION]
     const expected = [...expectedFlat, ...expectedScopes, ...expectedOther]
     expect(Object.keys(doc).sort()).toEqual(expected.sort())
     // MODELED_ENTITIES stays exactly the entity set — provenance is not an
     // entity and must never become writable through applyWrite's entity path.
     expect([...MODELED_ENTITIES].sort()).toEqual(expectedFlat.sort())
     expect(MODELED_ENTITIES.has(PROVENANCE_COLLECTION)).toBe(false)
+    expect(MODELED_ENTITIES.has(AUTHOR_COLLECTION)).toBe(false)
   })
 
   it('DEFERRED_ENTITIES is empty (day_overrides un-deferred by the doc-native ensureExists slice)', () => {
