@@ -201,6 +201,7 @@ const GENESIS_ENTITIES = [
   'event_slots',
   'event_time_blocks',
   'events',
+  'field_provenance',
   'groups',
   'locations',
   'schedule_snapshots',
@@ -224,7 +225,7 @@ const GENESIS_ENTITIES = [
 // pass, that is a wire/document-compatibility break being HIDDEN, not fixed; see that test's own
 // comment.
 const GENESIS_B64 =
-  'hW9Kg+AQDgYAvgIBEM8F1/pFtxLq6DHX2sWnGskBJKXbpv69Pfj4/7nonMba9e+Gkhu7DOvuc/DWCfJjwmsGAQIDAhMCIwZAAlYCBx3RASECIwI0AUICVgKAAQJ/AH8Bfx1/lqP91AZ/AH8HVZBtT8MwDIQ/dWjsRSrSNP6dlaUHjZbWUc4t9N+jpiqEb/Zj+05n/+q8hTlYAFs3+l6z/JGjd0OSwSU2a8UXr71m46Vzi+iMnEMHtp1bKPohmpCdBR3viFhFIIRVepea84wZo8ln1inxtDWMamy32sIAeUT1Tx4K4WHbPUb1xYdv9D26KUI4usRerUKGIUVn4PUXfQFPtkzwwUVZUxTDe00q23PFed31tpvb/1boNYGNBWSeKo1mIjLfV+f9E4vg28eJa4JbGZRcFd3W95jV4AcdAB0BHR0AHQAdAAA='
+  'hW9Kg8vUlvsAygIBEOrLOsAdlR3B0+hQ6xPbbRMBJV4FlObSrrefN/PU/kKyOyjhgo7905qw5UBOYgnQ2xwGAQIDAhMCIwZAAlYCBx3dASECIwI0AUICVgKAAQJ/AH8Bfx5/gduC1QZ/AH8HVZDdTsMwDIWvNjT2I4o0jbezsvSMRkvjKMct9O1RWxXCnf3ZPvbx/dV5C2OwADYu+U6L/JGDd32W3mXu5ogvXjstxnPrJtERpYQWbFo3UfQhmlGcBU03RMwiEMIqvXPNecKIZPJZdMg8rgmjGps1ttBD7lH9k/uF8O0REFvJRUcklzz26/Ahql8W852+QztECJPL7NQqZOhzdAZeftEX8GTDDB9clNnWcsGtJtUdp4rzsumtM9f/qdBrBncWUHisNHYDUfgxb95eMwm+fRw4O7guhcVXRdf2zWZV+AEeAB4BHh4AHgAeAAA='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))
@@ -355,6 +356,39 @@ export function recordKey(entityId, field) {
   return `${entityId}${FIELD_DELIM}${field}`
 }
 
+// ---------------------------------------------------------------------------
+// FIELD PROVENANCE — docs/adr/2026-09-09-field-provenance-in-the-document.md.
+//
+// One flat key per field a HUMAN has edited. Absence means "not human-owned",
+// which is the common case: a camp's data is mostly imported, so this collection
+// grows with how much a director has personally corrected rather than with the
+// size of the camp.
+//
+// Why it exists at all: `ingest.js` protects a hand edit from a later re-import
+// by asking whether the field's latest write was human. Under the op-log that
+// answer came from the `operations` table. A field that arrives by document
+// merge has no op row on the receiving device, so the answer was wrong — and at
+// ingest.js's provenance map, actively wrong, recording the director's own
+// correction as having come from the spreadsheet.
+//
+// `field_provenance` is a GENESIS collection, never created at runtime. Creating
+// it lazily would be a concurrent create of the same map key from two actors,
+// which Automerge resolves by keeping one side and discarding the other into
+// A.getConflicts — the precise bug the shared genesis exists to close. See the
+// GENESIS_B64 comment above.
+export const PROVENANCE_COLLECTION = 'field_provenance'
+export const HUMAN_PROVENANCE = 'human'
+
+/** Key for one field's provenance. Same NUL delimiter as recordKey, one more part. */
+export function provenanceKey(entity, entityId, field) {
+  return `${entity}${FIELD_DELIM}${entityId}${FIELD_DELIM}${field}`
+}
+
+/** True when a human is the latest writer of this field. */
+export function isHumanEdited(doc, entity, entityId, field) {
+  return doc[PROVENANCE_COLLECTION]?.[provenanceKey(entity, entityId, field)] === HUMAN_PROVENANCE
+}
+
 export function splitRecordKey(key) {
   const at = key.lastIndexOf(FIELD_DELIM)
   if (at === -1) return null
@@ -421,7 +455,7 @@ export function recordFieldKeys(doc, entity, entityId) {
   return Object.keys(doc[entity] ?? {}).filter((k) => k.startsWith(prefix) && splitRecordKey(k)?.entityId === entityId)
 }
 
-export function applyWrite(doc, { entity, entity_id, field, value }) {
+export function applyWrite(doc, { entity, entity_id, field, value, source }) {
   assertModeled(entity)
   const fields = PROJECTIONS[entity].fields
   return A.change(doc, (d) => {
@@ -439,10 +473,46 @@ export function applyWrite(doc, { entity, entity_id, field, value }) {
       for (const key of Object.keys(coll)) {
         if (key.startsWith(prefix) && splitRecordKey(key)?.entityId === entity_id) delete coll[key]
       }
+      // A deleted record's provenance goes with it. Leaving markers behind would
+      // let a later record reusing the same id inherit a hand-edited claim it
+      // never earned.
+      const provPrefix = `${entity}${FIELD_DELIM}${entity_id}${FIELD_DELIM}`
+      const prov = d[PROVENANCE_COLLECTION]
+      if (prov) {
+        for (const key of Object.keys(prov)) {
+          if (key.startsWith(provPrefix)) delete prov[key]
+        }
+      }
       return
     }
     if (!fields.includes(field)) return
     coll[recordKey(entity_id, field)] = coerceOpValue(value)
+    // Provenance tracks the LATEST write's ownership, so an import write CLEARS
+    // a human marker rather than leaving it. A director accepting an imported
+    // value (S2b's stale-accept passes source:'import') hands ownership back to
+    // the importer. A marker that only ever accumulated would freeze the field
+    // against every future re-import — a different bug that looks the same.
+    //
+    // `source` omitted leaves ownership unchanged: a caller that does not know
+    // must not silently claim either side.
+    if (source !== undefined) {
+      const prov = d[PROVENANCE_COLLECTION]
+      if (prov) {
+        const pKey = provenanceKey(entity, entity_id, field)
+        // NOT `source === 'human'`. The op-log's own rule (ADR
+        // 2026-08-08-s2a §2) is that a NULL source DECODES TO HUMAN — appendOp
+        // defaults `source = null`, and ingest.js's provenance map reads
+        // `latest.source !== 'import' ? 'human' : 'import'`. Only an explicit
+        // 'import' hands ownership to the importer.
+        //
+        // Getting this backwards would have inverted the default for every op
+        // that does not name a source, quietly UNprotecting most hand edits —
+        // the same failure this ADR exists to fix, arriving from the opposite
+        // direction.
+        if (source === 'import') delete prov[pKey]
+        else prov[pKey] = HUMAN_PROVENANCE
+      }
+    }
   })
 }
 

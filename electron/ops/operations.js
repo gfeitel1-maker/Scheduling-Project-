@@ -163,7 +163,12 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
   if (isOpLogEngine()) return op
 
   try {
-    recordLocalWrite(db, { entity, entity_id, field, value: storedValue })
+    // `source` carries the human/import ownership of this write into the shared
+    // document (docs/adr/2026-09-09-field-provenance-in-the-document.md). Read
+    // off the op that was just written rather than the caller's argument, so the
+    // document records exactly what the op-log recorded — including appendOp's
+    // own defaulting — and the two can never disagree.
+    recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: op.source })
   } catch (err) {
     console.error('automerge dual-write failed (op-log write already committed, unaffected):', err)
   }

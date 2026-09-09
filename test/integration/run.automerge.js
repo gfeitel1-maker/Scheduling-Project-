@@ -36,6 +36,7 @@ import { run as scenario23 } from './scenarios/23-camp-map-sync.automerge.js'
 import { run as scenario19 } from './scenarios/19-retire-orphan-slots.automerge.js'
 import { run as scenario21 } from './scenarios/21-ingest-prior-year.automerge.js'
 import { run as scenario13 } from './scenarios/13-host-crash-mid-sync.automerge.js'
+import { run as scenario29 } from './scenarios/29-hand-edit-survives-reimport.automerge.js'
 
 // Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
 // disagree about one slot) are both FIXED and both pass consistently, having
@@ -68,6 +69,9 @@ const SCENARIOS = [
   { name: '19 orphaned slots do not replicate (libp2p)', fn: scenario19 },
   { name: '21 a prior year ingest replicates in full (libp2p)', fn: scenario21 },
   { name: '13 the Host vanishes mid-exchange and nothing is lost (libp2p)', fn: scenario13 },
+  // NOT a port — new coverage for a defect the port work uncovered
+  // (docs/adr/2026-09-09-field-provenance-in-the-document.md).
+  { name: '29 a hand edit survives a re-import on the other device (libp2p)', fn: scenario29 },
 ]
 
 // COVERAGE, so the count above is readable without arithmetic:

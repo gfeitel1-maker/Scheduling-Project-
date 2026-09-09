@@ -21,6 +21,7 @@ import {
   MODELED_ENTITIES,
   BULK_REPLACE_MODELED_ENTITIES,
   DEFERRED_ENTITIES,
+  PROVENANCE_COLLECTION,
 } from './campDocument.js'
 import { projectEntity, projectAll, rebuildFromDoc } from './projector.js'
 import { seedDocFromSqlite, seedAllFromSqlite } from './seed.js'
@@ -74,9 +75,24 @@ describe('Automerge generalization slice — modeled entity set is pinned to DIR
       'users',
     ].filter((e) => !DEFERRED_ENTITIES.has(e))
     const expectedScopes = [...BULK_REPLACE_MODELED_ENTITIES].map((e) => `${e}_scopes`)
-    const expected = [...expectedFlat, ...expectedScopes]
+    // Field provenance (docs/adr/2026-09-09-field-provenance-in-the-document.md)
+    // is a THIRD category: not an entity, not a bulk-replace scope. It records
+    // which fields a human owns, so a hand edit survives a re-import on a device
+    // that did not make it.
+    //
+    // Named explicitly rather than derived, and listed here rather than loosening
+    // the assertion, because this guard's job is to fail when a collection appears
+    // that nobody deliberately added. A `filter` or a prefix rule would let the
+    // NEXT accidental collection through silently — which is the drift it exists
+    // to catch. It lives in the genesis (not created on first write) for the
+    // concurrent-create reason in campDocument.js's GENESIS_B64 comment.
+    const expectedOther = [PROVENANCE_COLLECTION]
+    const expected = [...expectedFlat, ...expectedScopes, ...expectedOther]
     expect(Object.keys(doc).sort()).toEqual(expected.sort())
+    // MODELED_ENTITIES stays exactly the entity set — provenance is not an
+    // entity and must never become writable through applyWrite's entity path.
     expect([...MODELED_ENTITIES].sort()).toEqual(expectedFlat.sort())
+    expect(MODELED_ENTITIES.has(PROVENANCE_COLLECTION)).toBe(false)
   })
 
   it('DEFERRED_ENTITIES is empty (day_overrides un-deferred by the doc-native ensureExists slice)', () => {
