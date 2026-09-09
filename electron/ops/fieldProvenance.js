@@ -25,7 +25,7 @@
 // the document on every local write, and `seedDocFromSqlite` carries existing
 // op-log provenance in at seed time.
 import { latestOp } from './operations.js'
-import { isHumanEdited } from '../automerge/campDocument.js'
+import { isHumanEdited, readRecord } from '../automerge/campDocument.js'
 import { getDocIfLoaded } from '../sync/automerge/liveDoc.js'
 
 /**
@@ -38,8 +38,25 @@ import { getDocIfLoaded } from '../sync/automerge/liveDoc.js'
  * fieldProvenance.test.js rather than left to a reader's care.
  */
 export function isHumanOwned(db, entity, entityId, field) {
+  // The document is authoritative for a field it HOLDS — in both directions.
+  //
+  // An earlier version consulted it only to return true, and fell through to the
+  // op-log otherwise. That is wrong once the history ledger exists: a ledger row
+  // recording "this arrived as a human edit" outlives the edit itself, so a
+  // later import that CLEARED the marker was overruled by the older row, and a
+  // field the director had handed back to the importer stayed frozen against
+  // re-import forever. Caught by integration scenario 29's last leg, which
+  // asserts exactly that hand-back.
+  //
+  // So: if the document holds this field, its answer is the answer. The op-log
+  // is consulted only where the document has no opinion.
   const doc = getDocIfLoaded(db)
-  if (doc && isHumanEdited(doc, entity, entityId, field)) return true
+  if (doc) {
+    const record = readRecord(doc, entity, entityId)
+    if (record && record[field] !== undefined) {
+      return isHumanEdited(doc, entity, entityId, field)
+    }
+  }
 
   const latest = latestOp(db, entity, entityId, field)
   if (!latest) {

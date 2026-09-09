@@ -153,7 +153,16 @@ because losing it would be a silent feature removal rather than a visible one.
 ### 7. Trash and Restore read the op-log, and stop working without it
 
 **Found by** porting integration scenario 18 (restore while the Host is away).
-**Status: OPEN — blocks 6d (removing the op-log).**
+**Status: FIXED** — `electron/automerge/historyLedger.js`, scenario 18 now green and back in the
+runner. The op-log is retired as a SYNC mechanism; the `operations` table stays as a LOCAL history
+ledger, fed by local writes AND by received merges. Two things had to be fixed for it to work, both
+invisible until the ledger needed them:
+
+- a joining device created a `devices` row for the Host and knew the Host's peer id, but nothing
+  connected the two, so every change from the Host was unattributable;
+- `camp_id` can never appear in a merge — doc-native `ensureExists` derives it at projection — yet
+  `restore.js` requires it, so restore failed with `no-history` for records whose every value was
+  already in SQLite.
 
 `electron/ops/trash.js` and `electron/ops/restore.js` answer their questions by
 querying the `operations` table directly — 7 such queries between them:
@@ -191,7 +200,14 @@ with a security-shaped cause.
 nothing else. The CRDT document carries no `source`, no `author_user_id`, no `device_id`. Under the
 op-log every one of those travelled with the op.
 
-**What that breaks.** `electron/ops/ingest.js:479` protects a director's hand edits from being
+**Status: FIXED** for the provenance half —
+`docs/adr/2026-09-09-field-provenance-in-the-document.md`, integration scenario 29. The document now
+carries a sparse per-field human marker, and `isHumanOwned` (electron/ops/fieldProvenance.js) is the
+single answer, with the document authoritative in BOTH directions for a field it holds. Author
+attribution (`author_user_id`) is still not carried — record history and Trash show "Unknown" for a
+change that arrived by merge, which is recorded below and not yet fixed.
+
+**What that broke.** `electron/ops/ingest.js:479` protected a director's hand edits from being
 overwritten by a re-import:
 
 ```js

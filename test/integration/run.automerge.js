@@ -37,6 +37,7 @@ import { run as scenario19 } from './scenarios/19-retire-orphan-slots.automerge.
 import { run as scenario21 } from './scenarios/21-ingest-prior-year.automerge.js'
 import { run as scenario13 } from './scenarios/13-host-crash-mid-sync.automerge.js'
 import { run as scenario29 } from './scenarios/29-hand-edit-survives-reimport.automerge.js'
+import { run as scenario18 } from './scenarios/18-restore-queue.automerge.js'
 
 // Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
 // disagree about one slot) are both FIXED and both pass consistently, having
@@ -72,6 +73,7 @@ const SCENARIOS = [
   // NOT a port — new coverage for a defect the port work uncovered
   // (docs/adr/2026-09-09-field-provenance-in-the-document.md).
   { name: '29 a hand edit survives a re-import on the other device (libp2p)', fn: scenario29 },
+  { name: '18 a device restores a record it only RECEIVED the deletion of (libp2p)', fn: scenario18 },
 ]
 
 // COVERAGE, so the count above is readable without arithmetic:
@@ -84,22 +86,10 @@ const SCENARIOS = [
 //      WS files are deleted with the transport in 6c.
 //    1 is DEFERRED, not retired — 18, below.
 //
-// WRITTEN BUT NOT LISTED, deliberately: scenarios/18-restore-queue.automerge.js.
-//
-// It is correct and it fails, on a real gap rather than anything it can fix:
-// `trash.js` and `restore.js` answer their questions by querying the
-// `operations` table, so a device that RECEIVED a deletion through document
-// sync has no rows for it and cannot restore it. That is broken today, and
-// removing the op-log would break Trash entirely.
-//
-// The agreed fix (owner, 2026-09-08) is to narrow what "retire the op-log"
-// means: drop it as a SYNC mechanism, keep `operations` as a local-only history
-// ledger fed by both local writes and received merges. Scenario 18 is that
-// slice's exit criterion, and it goes into this list when the ledger exists.
-//
-// It is left out rather than weakened into passing, and left in the tree rather
-// than deleted, because a failing scenario that names a real gap is worth more
-// than either. See docs/current/CRDT_SECURITY_GAPS.md item 7.
+// Scenario 18 was written, correct, and DEFERRED — out of this runner because
+// `trash.js`/`restore.js` answer their questions from the `operations` table and
+// a device that RECEIVED a deletion had no rows for it. The local history ledger
+// (electron/automerge/historyLedger.js) closed that, and 18 is now listed above.
 
 const PASS = '\x1b[32mPASS\x1b[0m'
 const FAIL = '\x1b[31mFAIL\x1b[0m'

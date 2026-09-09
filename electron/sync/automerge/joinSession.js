@@ -22,6 +22,7 @@
 // the RECEIVING side of the Host's approval dial-back, which previously landed
 // on `unsupported_auth_message` — see that branch's comment.
 import * as A from '@automerge/automerge'
+import { recordLibp2pPeerId } from './peerIdentity.js'
 
 import { createEmptyDoc } from '../../automerge/campDocument.js'
 import { joinDiscoveryTag, normalizeJoinCode, newJoinNonce, joinProof, verifyJoinProof } from '../joinCode.js'
@@ -333,6 +334,18 @@ export async function startJoinSession({
         db.prepare(
           "INSERT OR REPLACE INTO devices (id, name, authorized_at, pairing_status) VALUES (?, ?, ?, 'authorized')"
         ).run(reply.host_device_id, 'Main computer', new Date().toISOString())
+        // …and record WHICH PEER that device currently is. The Host records the
+        // reverse mapping on a successful login (syncNode.onLogin), but nothing
+        // recorded this direction, so the joining device knew the Host as a
+        // device and as a peer without knowing they were the same thing.
+        //
+        // That gap was invisible until the history ledger needed it: op rows
+        // for a received merge are attributed by looking the peer up in
+        // `devices`, and with no mapping every change from the Host went
+        // unrecorded — a joining device could see the camp but had no history
+        // for any of it, so Restore reported `no-history` for records that had
+        // never been anything but healthy.
+        recordLibp2pPeerId(db, reply.host_device_id, hostPeerId)
       }
 
       // The other half of mutual admission, and the subtlest step in the flow
