@@ -201,10 +201,28 @@ if (latest && latest.source === 'human') continue
 `latest` is read from the `operations` table. A device that RECEIVED a hand-edit through a document
 merge has no op row for it, so `latest` is absent and the field is treated as never hand-edited.
 
+**A second site, same shape.** `ingest.js:452` builds the provenance map the plan is written from:
+
+```js
+const provenance = !!latest && latest.source !== 'import' ? 'human' : 'import'
+```
+
+With no op row `latest` is null, so this does not merely fail to protect the field — it evaluates to
+`'import'`, actively classifying a human correction as imported. Both sites fail the same way for the
+same reason, so a fix at one is not a fix.
+
 **The scenario, in the director's words.** They fix a group name on the iPad. It appears correctly on
 the office computer — the value replicated fine. They re-import next season's spreadsheet on the
 office computer. Their correction is silently reverted, because that machine has no record that a
 human made it. Nothing errors. Nothing is flagged.
+
+**Silent in BOTH directions, which is what makes it costly.** The director who made the correction
+sees it apply locally and replicate — nothing is wrong from where they stand. The director who
+re-imports sees a clean, successful import. Neither is shown anything at any point. The loss is only
+discoverable by noticing, later, that a name went back to what it used to be.
+
+If this is ever surfaced in the UI it belongs in the per-slot flag vocabulary, not in chrome — the
+no-banners convention holds here.
 
 **Also affected:** record history and Trash attribution. A received change has no author, so it shows
 as "Unknown" — the exact symptom T22 was raised to fix, reintroduced by a different route.
@@ -219,6 +237,11 @@ decided deliberately rather than folded into the ledger slice.
 so a Client could never forge `import` provenance) has no CRDT equivalent — same root cause, same
 place to fix it. Its test, `provenance.s2a.test.js`, was retired with the transport; see
 `docs/work/evidence/2026-09-08-retired-ws-scenarios.md`.
+
+**Independently confirmed** against `origin/main` by a second session, both halves checked separately:
+the guard reads from `latestOp` (the operations table), and `applyWrite` (campDocument.js:424)
+destructures exactly four keys and stores `coerceOpValue(value)` bare at `recordKey(entity_id,
+field)` — no provenance anywhere in the write path.
 
 **Found by:** re-sweeping for dangling imports after deleting the WS layer, using `grep -a` at a
 peer session's prompting. The original sweep used a regex that required a `sync/` path prefix and

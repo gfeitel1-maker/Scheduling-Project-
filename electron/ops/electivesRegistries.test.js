@@ -9,7 +9,6 @@
 // T88 bug class) — these assertions target exactly the silent-failure
 // registries where an omission produces no other test failure.
 import { describe, it, expect } from 'vitest'
-import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PROJECTIONS } from './projections.js'
@@ -37,13 +36,6 @@ describe('v35 registry coverage — elective_sets', () => {
     expect(DIRECT_CAMP_ENTITIES.has('elective_sets')).toBe(true)
   })
 
-  it('is in the client first-pairing snapshot (DOMAIN_SNAPSHOT_ORDER + columns)', () => {
-    const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
-    expect(DOMAIN_SNAPSHOT_ORDER).toContain('elective_sets')
-    expect(src).toMatch(
-      /elective_sets:\s*\[\s*'id', 'camp_id', 'name', 'sort_order', 'is_reusable',\s*'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',\s*\]/
-    )
-  })
 
   it('is in permissions.ENTITIES (not silently admin-only)', () => {
     expect(ENTITIES).toContain('elective_sets')
@@ -80,13 +72,6 @@ describe('v35 registry coverage — elective_set_activities', () => {
     )
   })
 
-  it('is shipped by the server first-pairing snapshot', () => {
-    expect(DOMAIN_SNAPSHOT_ORDER).toContain('elective_set_activities')
-    const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
-    expect(src).toMatch(
-      /elective_set_activities:\s*\['id', 'elective_set_id', 'activity_id', 'camper_headcount'\]/
-    )
-  })
 })
 
 describe('v35 registry coverage — template_slots.elective_set_id', () => {
@@ -94,12 +79,6 @@ describe('v35 registry coverage — template_slots.elective_set_id', () => {
     expect(PROJECTIONS.template_slots.fields).toContain('elective_set_id')
   })
 
-  it('is in the client first-pairing snapshot column list', () => {
-    const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
-    expect(src).toMatch(
-      /template_slots:\s*\[[^\]]*'elective_set_id'[^\]]*\]/
-    )
-  })
 })
 
 describe('RESTORE_DECISIONS covers every projected entity (restore.test.js guard, restated)', () => {

@@ -41,17 +41,6 @@ describe('v32 registry coverage — locations', () => {
     expect(DIRECT_CAMP_ENTITIES.has('locations')).toBe(true)
   })
 
-  it('is in the client first-pairing snapshot (DOMAIN_SNAPSHOT_TABLES + columns)', () => {
-    const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
-    // Present in the single-sourced snapshot order (syncClient.js's
-    // DOMAIN_SNAPSHOT_TABLES = DOMAIN_SNAPSHOT_ORDER, imported from
-    // campScopedEntities.js as of T88 — no more literal array to regex).
-    expect(DOMAIN_SNAPSHOT_ORDER).toContain('locations')
-    // ...and has a column list (so applyFullSync knows what to insert).
-    expect(src).toMatch(/locations:\s*\['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'kind', 'grid_x', 'grid_y', 'map_id'\]/)
-    // activities.location_id must also travel in the snapshot (migration side effect, no op).
-    expect(src).toMatch(/activities:[\s\S]*?'location_id'/)
-  })
 
   it('is in permissions.ENTITIES (INV-3 — not silently admin-only)', () => {
     expect(ENTITIES).toContain('locations')

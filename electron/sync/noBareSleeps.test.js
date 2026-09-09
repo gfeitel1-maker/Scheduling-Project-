@@ -60,11 +60,12 @@ function findBareSleeps(source) {
 // Pre-existing bare sleeps outside this ticket's scope, frozen at their
 // current count. Lower this number (or delete the entry) as files are
 // cleaned up — never raise it to make a new violation pass.
-const GRANDFATHERED_MAX = {
-  'bulkReplace.sync.test.js': 7,
-  'restore.sync.test.js': 6,
-  'syncServer.test.js': 20,
-}
+// Stage 6c: the three entries here (bulkReplace.sync 7, restore.sync 6,
+// syncServer.test 20 — 33 grandfathered sleeps in total) were deleted with the
+// WebSocket layer. Every remaining sync test is held to zero, which is the
+// state this guard was always working towards. Do not reintroduce an entry to
+// make a new violation pass.
+const GRANDFATHERED_MAX = {}
 
 const SYNC_DIR = __dirname
 
@@ -108,8 +109,10 @@ describe('no new bare setTimeout sleeps in electron/sync/*.test.js', () => {
   // Floor: catches the glob/readdir silently finding nothing (wrong cwd,
   // directory renamed) rather than the guard quietly passing on zero files.
   it('found the expected sync test files (floor against a silently-empty scan)', () => {
-    expect(files.length).toBeGreaterThanOrEqual(6)
-    expect(files).toContain('syncClient.test.js')
+    // Floor lowered from 6 with the WS deletion — it must track the real file
+    // count, or it stops catching a silently-empty scan, which is its whole job.
+    expect(files.length).toBeGreaterThanOrEqual(4)
+    expect(files).toContain('localWriteClient.test.js')
   })
 
   it.each(files)('%s has no more bare setTimeout sleeps than its grandfathered baseline', (file) => {
@@ -315,15 +318,21 @@ describe('every sleepBecauseTimeIsUnderTest site in electron/sync/*.test.js is j
   // findMarkerSites' substring match on `sleepBecauseTimeIsUnderTest(` broke,
   // or the helper were renamed, every file would yield zero sites and zero
   // violations, and this whole guard would pass silently on nothing rather
-  // than on genuinely-justified call sites. Same reasoning as the pre-existing
-  // "found the expected sync test files" floor above, applied to the marker
-  // scan instead of the file scan: 6 real sites exist today.
-  it('found real sleepBecauseTimeIsUnderTest call sites (floor against a silently-empty matcher)', () => {
+  // than on genuinely-justified call sites.
+  //
+  // Stage 6c: all 6 real sites lived in the WebSocket tests and went with them.
+  // The floor is therefore INVERTED rather than deleted — with zero sites it
+  // could no longer tell "no sites" from "matcher broken," which is exactly the
+  // vacuity it existed to prevent. As an exact-zero tripwire it still fails
+  // loudly the moment a site reappears, at which point restore the
+  // greater-than-zero floor with the real count. Do not relax this to
+  // `toBeGreaterThanOrEqual(0)`; that passes on everything.
+  it('has no sleepBecauseTimeIsUnderTest call sites left (tripwire — restore the floor if one returns)', () => {
     const totalSites = files.reduce((sum, file) => {
       const source = fs.readFileSync(path.join(SYNC_DIR, file), 'utf8')
       return sum + findMarkerSites(source).length
     }, 0)
-    expect(totalSites).toBeGreaterThan(0)
+    expect(totalSites).toBe(0)
   })
 
   it.each(files)('%s has no unjustified sleepBecauseTimeIsUnderTest call', (file) => {

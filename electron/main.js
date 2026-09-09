@@ -88,13 +88,6 @@ const SCOPED_LIST_ENTITIES = new Set([
   'week_location_exclusions',
 ])
 
-// Bound on how long login() waits for an in-flight WebSocket handshake to
-// finish before falling back to the local/offline login path. Meaningfully
-// shorter than loginRemote's own timeout for a genuinely unreachable host —
-// this window exists only to absorb the sub-second CONNECTING-state race on
-// a healthy LAN connection, not to wait out a dead one.
-const CLIENT_CONNECT_WAIT_MS = 1500
-
 function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0
 }
@@ -649,42 +642,20 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       throw new Error('name and pin are required')
     }
 
-    if (mode === 'client' && syncClient) {
-      // A connect() attempt may still be in the WebSocket CONNECTING state when
-      // the user submits credentials (e.g. "enter host, hit connect, immediately
-      // type PIN" is the natural flow). loginRemote()'s readyState guard returns
-      // 'disconnected' SYNCHRONOUSLY if the socket isn't OPEN yet, which would
-      // falsely tell a fresh device to "connect to the network" moments before
-      // the handshake would have completed. Give the handshake a short, bounded
-      // window to finish first — a LAN WebSocket handshake normally completes in
-      // tens of milliseconds, so this comfortably covers that case while staying
-      // far shorter than loginRemote's own timeout for a genuinely unreachable
-      // host (so an unreachable Host still falls through to the offline/local
-      // path promptly, just not instantly).
-      await Promise.race([
-        syncClient.waitUntilConnected(),
-        new Promise((resolve) => setTimeout(resolve, CLIENT_CONNECT_WAIT_MS)),
-      ])
-
-      const remoteResult = await syncClient.loginRemote({ name, pin })
-      if (remoteResult.status === 'ok') {
-        // Stage 5d-2b: this Client now has a fresh, valid camp token — hand
-        // it to the automerge/libp2p node (if running) so it can start
-        // authenticating itself to discovered peers, the same token the WS
-        // transport just verified.
-        getAutomergeNode()?.setAuthToken(remoteResult.token)
-        return { token: remoteResult.token, userId: remoteResult.userId, role: remoteResult.role }
-      }
-      if (remoteResult.status === 'failed') {
-        return remoteResult.locked ? { locked: true, retryAfterMs: remoteResult.retryAfterMs } : null
-      }
-      // 'disconnected' or 'timeout': fall through to local verification below,
-      // which only succeeds for a device that has already synced once before.
-      // A genuinely fresh, offline device gets a clear, distinct signal
-      // rather than the generic invalid-credentials response.
+    // Stage 6c: login is local on every device. `users` is a modeled document
+    // entity, so a joined device already holds the camp's roster and can verify
+    // a PIN against its own database — there is no Host to ask.
+    //
+    // A device that has NOT joined has no roster to check against, and that is
+    // the join flow's job rather than this handler's: JoinByCodeScreen ->
+    // startJoinSession performs the first login against the Host over libp2p
+    // and writes the camp row (docs/adr/2026-09-08-libp2p-join-flow.md). The
+    // WebSocket loginRemote round-trip this replaces existed only because a
+    // Client had no local roster to check.
+    if (mode === 'client') {
       const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
       if (!camp) {
-        return { offline: true, reason: 'Connect to the camp network to sign in for the first time.' }
+        return { offline: true, reason: 'Join the camp from this device before signing in.' }
       }
     }
 
@@ -1137,24 +1108,32 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return getEntityHistory(db, { entity, entity_id })
   }
 
-  // Restore executes on the HOST. A Client does not hold the op history for
-  // records created before it paired (its first full_sync ships materialized
-  // rows and sets last_synced_seq to the then-current max), so restoring from
-  // its own log would produce an empty shell. A Client therefore asks the
-  // Host, and queues the request when the Host is unreachable.
+  // Stage 6c: restore executes locally, on whichever device the director is
+  // using. It reconstructs a deleted record from this device's `operations`
+  // history.
+  //
+  // KNOWN LIMITATION, and it is the honest state rather than an oversight: a
+  // device only has op rows for writes IT made. A record deleted on another
+  // device arrives as a document merge, which writes no op row, so restoring it
+  // here returns a clean `no-history` error rather than the record. The old
+  // transport dodged this by having Clients ask the Host; there is no Host to
+  // ask now.
+  //
+  // The fix is the local history ledger — writing op rows from received merges
+  // — which is the narrowed Stage 6d. Deferred integration scenario 18 is its
+  // exit criterion. See docs/current/CRDT_SECURITY_GAPS.md.
+  //
+  // It fails safe: `restoreEntity` checks for the history it needs
+  // (`if (!fields.has('camp_id')) return { error: 'no-history' }`) before
+  // writing anything, so the failure is a typed error, never a half-restored
+  // record or an empty shell.
   async function restoreEntityHandler({ token, entity, entity_id } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     if (!isNonEmptyString(entity)) throw new Error('Invalid entity')
     const { userId } = requireAuthorized(db, { token, action: `${entity}.restore` })
     if (!isNonEmptyString(entity_id)) throw new Error('entity_id is required')
-    // Refused in the handler, not hidden in the UI — and refused on the Client
-    // too, so a request that could only ever be rejected is never queued.
+    // Refused in the handler, not hidden in the UI.
     if (!RESTORABLE_ENTITIES.has(entity)) return { error: 'not-restorable' }
-
-    if (mode === 'client') {
-      if (!syncClient) throw new Error('sync not initialized — choose a mode first')
-      return syncClient.requestRestore({ entity, entity_id, requested_by: userId })
-    }
 
     const result = restoreEntity(db, { entity, entity_id, author_user_id: userId, device_id: deviceId })
     if (result.error) return result
@@ -1181,22 +1160,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return previewDelete(db, { entity, entity_id })
   }
 
-  // Executes on the HOST, like a restore — a Client cannot express this as one
-  // atomic transaction over submit_op. Unlike a restore it is NEVER QUEUED: a
-  // queued delete would run against a count the director was shown hours
-  // earlier, and a count nobody agreed to is not a count. With no Host, refuse
-  // and say so.
+  // Stage 6c: executes on whichever device the director is using. Under the
+  // op-log a Client could not express this as one atomic transaction over
+  // submit_op, so it asked the Host; now every device holds the whole document
+  // and the transaction is local. The count the director was shown is still
+  // checked against the data at the moment of deletion (expected_slot_count) —
+  // that guard is what made a QUEUED delete unacceptable, and it is unchanged.
   async function deleteRecordHandler({ token, entity, entity_id, expected_slot_count } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     if (!isNonEmptyString(entity)) throw new Error('Invalid entity')
     const { userId } = requireAuthorized(db, { token, action: `${entity}.delete` })
     if (!isNonEmptyString(entity_id)) throw new Error('entity_id is required')
     if (!CLEARABLE_ENTITIES.has(entity)) return { error: 'not-clearable' }
-
-    if (mode === 'client') {
-      if (!syncClient) throw new Error('sync not initialized — choose a mode first')
-      return syncClient.requestDelete({ entity, entity_id, expected_slot_count })
-    }
 
     const result = deleteRecord(db, {
       entity,
@@ -1236,11 +1211,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
     if (expected_ref_count !== undefined && expected_ref_count !== null && !Number.isInteger(expected_ref_count)) {
       throw new Error('Invalid expected_ref_count')
-    }
-
-    if (mode === 'client') {
-      if (!syncClient) throw new Error('sync not initialized — choose a mode first')
-      return syncClient.requestMerge({ loser_id, winner_id, winner_capacity, expected_ref_count })
     }
 
     const result = mergeLocation(db, {
