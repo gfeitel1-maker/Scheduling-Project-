@@ -71,7 +71,9 @@ The Device Manager screen is fully reachable by an admin in **client** mode:
 
 A Client's local `devices` table is seeded only by `ensureDeviceRow` (its own row,
 [electron/main.js:163-165](../../../electron/main.js)); pending peers self-register into the **Host's**
-table over WebSocket ([electron/sync/syncServer.js:361-363](../../../electron/sync/syncServer.js)), not
+table over WebSocket (`electron/sync/syncServer.js:361-363` — that file was deleted in Stage 6c when the
+WebSocket transport was retired; de-linked here rather than rewritten, because this ticket records
+what was true when it was written), not
 the Client's. So today the reachable behavior is a mix — none of it reaches the Host:
 
 | Handler | Client-mode behavior | Effect |

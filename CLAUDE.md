@@ -103,6 +103,7 @@ A graphify knowledge graph of this repo lives in `graphify-out/` **in the main c
 **Honesty rules (these are the point, not decoration)**
 - The graph is a **map, not an oracle.** It narrows where to look; the code settles what is true. Never assert a graph claim you have not confirmed in the file.
 - Edges are labelled `EXTRACTED` (pulled straight from code — trustworthy) or `INFERRED` (an LLM guess — may be wrong). Treat `INFERRED` as a lead to verify, never as fact.
+- **Two things it does not see**, learned by deleting the WS layer in Stage 6c. Methods on a returned object literal (`syncClient.loginRemote`) may not be indexed at all — and a call to a method that no longer exists is invisible to ESLint too, so only a gate catches it. Source files read as STRINGS (`readFileSync('../sync/syncClient.js')`, as several registry and migration tests do) are not import edges and will not appear. Run `graphify affected` for the dependency edges, then a `grep -a` pass for string references, then the gate: three different blind spots, none sufficient alone.
 - Carry the `source_location` (`file:line`) through any answer that cites the graph, so the next reader — human or agent — can click and check.
 
 **Freshness — know whether you're looking at current code**
