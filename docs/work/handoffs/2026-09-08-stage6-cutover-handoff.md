@@ -1,11 +1,27 @@
 ---
 title: Stage 6 cutover — handoff
 document_type: handoff
-status: active
+status: superseded
 created: 2026-09-08
 task: docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md
-archive_when: Stage 6 cutover is merged and the op-log is retired
+archive_when: superseded on 2026-09-09 — Stage 6 is merged; see docs/work/handoffs/2026-09-09-post-stage6-handoff.md
 ---
+
+> **SUPERSEDED — 2026-09-09. Stage 6 is COMPLETE and merged. Do not plan from this document.**
+>
+> Every slice it describes has shipped: 6a ports (#339), 6c WebSocket removal (#342), 6d provenance
+> (#343) and the history ledger (#344), 6e conflict resolution (#345), authorship (#346).
+>
+> It is kept, not deleted, for the reasoning behind decisions the code no longer explains — in
+> particular why the op-log was NARROWED rather than removed, and the hardware findings under
+> "Hard-won findings".
+>
+> **The live handoff is** [`2026-09-09-post-stage6-handoff.md`](2026-09-09-post-stage6-handoff.md).
+>
+> This banner exists because a `status: active` handoff recruits sessions into finished work. That is
+> not hypothetical: on 2026-09-08 a session stopped on this file's own STOP note after the owner had
+> already lifted it, and had to retire the note mid-flight before it could proceed.
+
 
 # Stage 6 cutover — handoff
 
