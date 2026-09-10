@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  checkDoc, checkIndexFreshness, AGENTS,
+  checkDoc, checkIndexFreshness, checkPlatformStateFreshness, PLATFORM_STATE_PATH, AGENTS,
   parseCompletionRefs, resolveIds, isClosed, checkStatusDrift, checkAll,
 } from './check-governance.js'
 
@@ -324,6 +324,48 @@ describe('resolveIds', () => {
     ]
     const matches = resolveIds('S5b', docs)
     expect(matches.map((d) => d.path)).toEqual(['docs/adr/2026-08-01-thing-s5b.md'])
+  })
+})
+
+describe('checkPlatformStateFreshness', () => {
+  // PLATFORM_STATE.md is read cold by future sessions, so a stale one does not
+  // merely lack detail — it makes confident, specific, WRONG claims, and is
+  // trusted because it is specific. The Stage 6 cutover left it asserting the
+  // WebSocket sync layer was live for a day.
+  const at = (state, structural) => (cmd) =>
+    cmd.includes('PLATFORM_STATE') ? `${state}\n` : `${structural}\n`
+
+  it('reports nothing when the state doc is newer than the last structural change', () => {
+    expect(checkPlatformStateFreshness(process.cwd(), at(9_000_000, 1_000_000))).toEqual([])
+  })
+
+  it('reports nothing when they are simultaneous — landed together, which is the goal', () => {
+    expect(checkPlatformStateFreshness(process.cwd(), at(5_000_000, 5_000_000))).toEqual([])
+  })
+
+  it('reports a stale doc, and names the command that fixes it', () => {
+    const [f] = checkPlatformStateFreshness(process.cwd(), at(1_000_000, 9_000_000))
+    expect(f.code).toBe('platform-state-stale')
+    expect(f.message).toContain(PLATFORM_STATE_PATH)
+    expect(f.message).toContain('/update-state')
+  })
+
+  it('says HOW far behind, so a day-old doc reads differently from a season-old one', () => {
+    // Real timestamps, not 0 — an empty `git log` also parses to 0, which the
+    // check deliberately treats as "cannot answer" rather than "1970".
+    const [f] = checkPlatformStateFreshness(process.cwd(), at(1_700_000_000, 1_700_000_000 + 86_400 * 10))
+    expect(f.message).toContain('10 day(s) behind')
+  })
+
+  it('stays SILENT when git history cannot answer, rather than reporting fresh', () => {
+    // A shallow clone or a missing history must not be reported as up to date —
+    // that is precisely the false confidence this check exists to prevent. It is
+    // better to say nothing than to say "current" without knowing.
+    const noHistory = () => ''
+    expect(checkPlatformStateFreshness(process.cwd(), noHistory)).toEqual([])
+
+    const throws = () => { throw new Error('not a git repository') }
+    expect(checkPlatformStateFreshness(process.cwd(), throws)).toEqual([])
   })
 })
 
