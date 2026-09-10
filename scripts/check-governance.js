@@ -207,6 +207,70 @@ export function checkIndexFreshness(committed, generated) {
 }
 
 /**
+ * PLATFORM_STATE.md describes what the platform IS. It is read cold by future
+ * sessions, so a stale one does not merely lack detail — it makes confident,
+ * specific, wrong claims, and it is trusted precisely because it is specific.
+ * The Stage 6 cutover left it saying the WebSocket sync layer was live for a day.
+ *
+ * WHY THIS LIVES IN THE GATE rather than on a timer. A scheduled refresh fires
+ * whether or not anything changed, cannot know it is describing a tree that moved
+ * five minutes later, and — if it commits — writes to trunk unattended. The gate
+ * fires exactly when structural work is landing, which is the moment the
+ * `update-state` skill itself names ("run it at the end of any session where
+ * structural things changed"), and it can only ever report.
+ *
+ * WHAT COUNTS AS STRUCTURAL is deliberately narrow, because a check that fires on
+ * every commit gets silenced:
+ *   - the database schema and its migrations (what the data IS)
+ *   - accepted ADRs (decisions a reader is expected to already know)
+ *   - screens (the surface a director actually touches)
+ * Ordinary feature work, tests, and refactors do not trip it.
+ *
+ * Deliberately a WARNING, not a hard failure. The doc being a day behind must not
+ * block a security fix from landing. It appears in the same list as every other
+ * finding, which is enough to be unmissable without being coercive — the same
+ * reasoning as `index-stale`, which names its own fix command.
+ */
+export const PLATFORM_STATE_PATH = 'docs/current/PLATFORM_STATE.md'
+
+const STRUCTURAL_PATHS = [
+  'electron/db/schema.sql',
+  'electron/db/localDb.js',
+  'docs/adr/',
+  'src/screens/',
+]
+
+/** Last commit date (unix seconds) touching any path, or null if unknowable. */
+function lastTouched(paths, execFn) {
+  try {
+    const out = execFn(`git log -1 --format=%ct -- ${paths.map((p) => `'${p}'`).join(' ')}`)
+    const ts = Number(String(out).trim())
+    return Number.isFinite(ts) && ts > 0 ? ts : null
+  } catch {
+    return null
+  }
+}
+
+export function checkPlatformStateFreshness(root, execFn) {
+  if (!existsSync(join(root, PLATFORM_STATE_PATH))) return []
+
+  const stateAt = lastTouched([PLATFORM_STATE_PATH], execFn)
+  const structuralAt = lastTouched(STRUCTURAL_PATHS, execFn)
+
+  // Unknowable rather than fresh: a shallow clone or a missing git history must
+  // not be reported as "up to date", which is the failure mode this whole check
+  // exists to prevent.
+  if (stateAt === null || structuralAt === null) return []
+  if (stateAt >= structuralAt) return []
+
+  const days = Math.floor((structuralAt - stateAt) / 86400)
+  const behind = days >= 1 ? `${days} day(s) behind` : 'behind'
+  return [finding('platform-state-stale',
+    `${PLATFORM_STATE_PATH} is ${behind} the last structural change ` +
+    `(schema, migrations, ADRs or screens) — run \`/update-state\` and land it with this work`)]
+}
+
+/**
  * WORK_RECORD_STANDARD.md §3.1 — a completion reference is `closes`/`Merge`
  * followed by a ticket (`T\d+`) or slice/ADR/spec id (`S\d+[a-z]?`). Deliberately
  * narrow: a bare mention like "relates to T40" must not match.
@@ -298,6 +362,8 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   const path = join(root, INDEX_PATH)
   const committed = existsSync(path) ? readFileSync(path, 'utf8') : null
   findings.push(...checkIndexFreshness(committed, generate(root)))
+
+  findings.push(...checkPlatformStateFreshness(root, execFn))
 
   const subjects = gatherCompletionSubjects(root, execFn)
   if (subjects !== null) {
