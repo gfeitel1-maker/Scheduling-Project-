@@ -363,7 +363,24 @@ describe('day_overrides is modeled: seeding and projection round-trip it like an
     db.prepare('DELETE FROM day_overrides').run()
     projectAll(db, doc)
     const after = db.prepare('SELECT * FROM day_overrides ORDER BY id').all()
-    expect(after).toEqual(before)
+
+    // `created_at` is EXCLUDED from the comparison, and that is a correction
+    // rather than a concession. It is a SQLite `CURRENT_TIMESTAMP` default, so
+    // the re-projected row gets a fresh one at insert time — the round trip
+    // never promised to preserve it, and cannot. Comparing it made this test
+    // fail whenever a second boundary happened to fall between the two inserts:
+    // a real red on a loaded full-suite run (`14:44:13` vs `14:44:14`), passing
+    // on every isolated re-run, which is the most expensive kind of flake
+    // because it looks like a genuine defect exactly once.
+    //
+    // Asserted as PRESENT rather than dropped, so a column that vanished from
+    // the projection still fails here — which is what excluding it outright
+    // would have hidden.
+    const withoutTimestamp = (rows) => rows.map(({ created_at: _created_at, ...rest }) => rest)
+    for (const row of after) {
+      expect(row.created_at, 'created_at must still be populated by the projection').toBeTruthy()
+    }
+    expect(withoutTimestamp(after)).toEqual(withoutTimestamp(before))
   })
 
   // Parent-scoped entities slice: template_slots is now dual-modeled — a flat collection
