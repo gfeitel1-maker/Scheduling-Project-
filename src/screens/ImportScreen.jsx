@@ -8,6 +8,7 @@ import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { findSuspectRecords } from '../ingest/suspectRecords'
+import { fixedEventKey } from '../ingest/fixedEventKey'
 import { capturePlacements } from '../ingest/capturePlacements'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
@@ -1385,7 +1386,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                   // must render once per name, not once per entry.
                   const suggestedNames = new Set()
                   return fixedEvents.map((fe) => {
-                    const key = `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
+                    const key = fixedEventKey(fe)
                     const scope = fe.scope.is_all_groups ? 'every group' : fe.scope.groups.join(', ')
                     const daysLabel = operatingDayCount > 0 && fe.days.length >= operatingDayCount
                       ? 'every day'

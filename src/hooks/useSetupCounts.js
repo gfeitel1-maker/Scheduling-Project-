@@ -28,13 +28,22 @@ export function useSetupCounts(campId) {
 
   const refreshCounts = useCallback(async () => {
     const areas = Object.keys(AREA_TABLE)
+    // An AREA_TABLE entry is a table name, or { table, kind } when two nav rows
+    // read the same table and must not report each other's rows (T124).
+    const specFor = (area) => {
+      const entry = AREA_TABLE[area]
+      return typeof entry === 'string' ? { table: entry, kind: null } : entry
+    }
     const results = await Promise.all(
-      areas.map((area) => localClient.list(AREA_TABLE[area]).catch(() => []))
+      areas.map((area) => localClient.list(specFor(area).table).catch(() => []))
     )
     const next = {}
     areas.forEach((area, i) => {
+      const { kind } = specFor(area)
       const rows = Array.isArray(results[i]) ? results[i] : []
-      next[area] = campId ? rows.filter((r) => !r.camp_id || r.camp_id === campId).length : rows.length
+      next[area] = rows.filter((r) =>
+        (!campId || !r.camp_id || r.camp_id === campId) && (!kind || r.kind === kind)
+      ).length
     })
 
     const slots = await localClient.list('template_slots').catch(() => [])
