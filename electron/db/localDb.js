@@ -2283,12 +2283,12 @@ export function backfillLocations(db) {
     .prepare('SELECT id, camp_id, location, max_groups_per_slot FROM activities WHERE location IS NOT NULL')
     .all()
 
-  // key: `${camp_id} ${trimmedName}` -> { camp_id, name, activityIds, caps }
+  // key: `${camp_id}\u0000${trimmedName}` -> { camp_id, name, activityIds, caps }
   const places = new Map()
   for (const r of rows) {
     const name = String(r.location).trim()
     if (name === '') continue
-    const key = `${r.camp_id} ${name}`
+    const key = `${r.camp_id}\u0000${name}`
     let place = places.get(key)
     if (!place) {
       place = { camp_id: r.camp_id, name, activityIds: [], caps: [] }
