@@ -1,7 +1,7 @@
 ---
 title: Critique Fix Queue — end-to-end walkthrough findings
 document_type: spec
-status: active
+status: active  # T122-T126, T128, T132, T134-T137 shipped; see Status below
 authority: subordinate-to-constitution
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md]
 owner: Governor (session app-icon-audit-a9a598)
@@ -11,6 +11,50 @@ review_trigger: any item promoted to an ADR; any owner decision on the three def
 ---
 
 # Critique fix queue
+
+## Status, 2026-09-11
+
+| Ticket | State | Note |
+|---|---|---|
+| T122 imported blocks sort by file position | **shipped** | camp-day rule; leading-zero exception removed after campB disproved it |
+| T123 sidebar stale after a local write | **shipped** | new `localClient.onLocalWrite` channel |
+| T124 Fixed/Recurring double-counted | **shipped** | AREA_TABLE entries may carry a `kind` |
+| T125 colliding React keys | **shipped** | scope added to the fixed-event key |
+| T126 no focus ring | **shipped** | one rule in index.css; both `outline:none` deleted |
+| T128 forced re-login | **shipped** | bootstrap routes through the audited `login` |
+| T132 change-overs imported as periods | **shipped** | threshold 10 min, set by the corpus not by taste |
+| T133 activities filed as groups | **CLOSED, not a defect** | the source puts them in the group slot; see below |
+| T134 fragments and column bleed | **shipped** | flagged, never dropped |
+| T135 repeated anchor chips | **shipped** | display fix; the data was right |
+| T136 reconciliation asks about the wrong things | **partly shipped** | suspects surface in the import preview; reconciliation itself untouched |
+| T137 sweep harness crashed on .txt | **shipped** | and immediately caught a real bug in T122/T132 |
+| T127 reconciliation's 240 buttons | open | Batch 4 |
+| T129/T130/T131/T138/T139 | open | Batch 5 |
+
+**T133 is closed as not-a-defect, and two claims in this file were wrong.**
+The three "misclassified groups" come from page titles the source itself shapes
+as `<Tier> - <Group>`: `Maple 3- Cooking/ Baking/ Dance`. The parser handled
+ambiguous input correctly, and a rotation cohort is a plausible group. Separately,
+`"Digital Art/Coding/Coding"` was reported here as a parse artifact — it is not.
+The doubled word is in the camp's own file.
+
+A group-outlier rule WAS written for T134 and then deleted rather than shipped:
+campA titles 30 of its 33 pages "<Bunk> Schedule" and the three exceptions are
+the suspects, which is a real signal — but by the time groups reach the detector
+the tier and trailing word are stripped, so it fired on a synthetic fixture and
+on nothing in the corpus. It belongs at the page-title layer and wants its own
+ticket.
+
+**One new ticket found while fixing T132.** The four bare timestamps in campA
+("11:10", "10:25", "12:30", "11:45") are not stray non-periods — the source wraps
+period labels across two lines:
+
+    9:50- Block
+     10:25   1
+
+so "9:50-10:25, Block 1" is read as two fragments and the real 9:50-10:25 period
+survives ONLY as the orphan "10:25". Dropping bare timestamps would delete it.
+That is a textGrid parsing fix, unstarted.
 
 Derived from the 2026-09-11 fresh-eyes end-to-end run (first launch → create camp →
 import `campA-bunk-schedules.txt`, 79KB of real messy camp grid → reconcile →

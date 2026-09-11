@@ -163,6 +163,43 @@ Decision table: `docs/work/specs/2026-09-11-icon-vocabulary.md`.
 
 ---
 
+## Ingest: what the extractor guarantees
+
+The import path reads human spreadsheets — wrapped cells, merged headers, typos —
+so its contract is about honesty rather than perfection.
+
+- **Time blocks come out in clock order, not file order.** A real camp file does
+  not list its periods chronologically, and `sort_order` is derived from the
+  entity array's index, so `extractEntities` sorts before returning
+  (`src/ingest/orderTimeBlocks.js`). Ordering a bare 12-hour label uses a stated
+  camp-day rule — 1-6 afternoon, 7-12 morning/noon — because a running-clock
+  reading cannot work on a file that is itself out of order. A leading zero means
+  nothing: real camp files zero-pad 12-hour times.
+- **`sort_order` is a dense sequence** for imported blocks. `gridGeometry`
+  finds the next block by array position, so a non-dense column no longer
+  silently disables span-merge (it did for hand-made blocks, which are written
+  as minutes-from-midnight).
+- **Change-overs are not periods.** A span of 10 minutes or less is passing time
+  and is not imported as a schedulable block (`src/ingest/periodSpan.js`). The
+  threshold came from the corpus: change-overs are 5-10 minutes and the shortest
+  real period is 15.
+- **Suspect names are flagged, never dropped.** `src/ingest/suspectRecords.js`
+  marks activity names that begin with a joining word ("and Mitzvah") or with the
+  period column's word ("Block Sports"), and the import preview shows them under
+  "Worth a second look". Nothing is excluded from the import — "Art" trips a
+  short-name heuristic and is a real activity, which is why the rules ask rather
+  than decide.
+- **`npm run ingest:sweep` runs on the committed fixtures** in
+  `docs/work/specs/samples/` as well as on workbooks, and is the regression net
+  for all of the above.
+
+Known gap: the text-grid parser does not join period labels wrapped across two
+lines, so `"9:50- Block" / "10:25  1"` is read as two fragments and that period
+survives only as a bare "10:25". See
+`docs/work/specs/2026-09-11-critique-fix-queue.md`.
+
+---
+
 ## Imagery and brand assets
 
 Artwork appears only on first-impression surfaces. Working screens are art-free,
