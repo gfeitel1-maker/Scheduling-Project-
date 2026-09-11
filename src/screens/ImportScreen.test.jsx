@@ -107,13 +107,15 @@ async function uploadFile() {
 
 // baseProposal has no tiers/groups/time_blocks set up yet, so
 // ReconciliationScreen's readiness gate (F3, docs/adr/2026-08-17-onescreen-
-// reconciliation-merge.md §5) surfaces required_gap cards that must be
-// dismissed (Skip for now) before "Use this setup" enables. Unrelated to what
-// these tests guard (T35 rule inference / commit payload shape), so dismiss
-// whatever appears rather than special-casing every fixture.
+// reconciliation-merge.md §5) surfaces required_gap cards. These are dismissed
+// (Skip for now) because the tests guard the commit payload, not the gaps.
+//
+// They no longer have to be dismissed to REACH the exit: T127 made it always
+// reachable, and its label now carries the state, so the helper matches any of
+// the three rather than the one label the old always-disabled primary used.
 async function goToCommit() {
   await userEvent.click(screen.getByText(/Add \d+ record/))
-  await waitFor(() => expect(screen.getByText(/Use this setup/)).toBeTruthy())
+  await waitFor(() => expect(screen.getByText(/Use this setup|Use what Shoresh understood|Apply \d+ decision/)).toBeTruthy())
   // H1 (docs/work/specs/2026-08-19-roots-reconciliation-audit.md §12 Slice 1)
   // — the default panel view now scopes to unresolved decisions, so
   // dismissing one required_gap removes it from the on-screen list (rather
@@ -126,7 +128,7 @@ async function goToCommit() {
     await userEvent.click(skipButtons[0])
     skipButtons = screen.queryAllByText(/^Skip .* for now/)
   }
-  await userEvent.click(await screen.findByText('Use this setup'))
+  await userEvent.click(await screen.findByText(/Use this setup|Use what Shoresh understood|Apply \d+ decision/))
 }
 
 describe('ImportScreen — residual report (T36)', () => {
