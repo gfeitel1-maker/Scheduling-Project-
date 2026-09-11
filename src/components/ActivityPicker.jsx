@@ -8,16 +8,9 @@
 // this an offering" gesture the spec calls for.
 import { useState } from 'react'
 import { useEnterTransition } from '../styles/shared'
+import { PlusIcon } from './icons'
 
 const ACTIVITY_QUERY_MAXLENGTH = 60
-
-function PlusIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ flexShrink: 0 }}>
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  )
-}
 
 // Split out for the same reason LocationPickerPopover is split out: so
 // useEnterTransition('popFade') runs its mount effect when the popover

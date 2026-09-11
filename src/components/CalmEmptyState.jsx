@@ -5,25 +5,12 @@
 // explainer copy (feedback_no_coming_soon_controls / doc-staleness-adjacent
 // house rule: keep empty states quiet, not chatty).
 import { S } from '../styles/shared'
+import { CalendarIcon } from './icons'
 
 export default function CalmEmptyState({ message, actionLabel, onAction }) {
   return (
     <div style={styles.wrap}>
-      <svg
-        width="24"
-        height="24"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="var(--text-secondary)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        style={styles.icon}
-      >
-        <rect x="4" y="5" width="16" height="15" rx="2" />
-        <path d="M4 9.5h16" />
-        <path d="M8 3v3M16 3v3" />
-      </svg>
+      <CalendarIcon style={styles.icon} />
       <div>{message}</div>
       {actionLabel && onAction && (
         <button className="press-97" onClick={onAction} style={{ ...S.btnPrimary, marginTop: 'var(--space-2)' }}>

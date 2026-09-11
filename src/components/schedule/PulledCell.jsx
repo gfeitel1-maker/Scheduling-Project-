@@ -1,4 +1,5 @@
 import { cellAccessibleName } from './cellLabel'
+import { PullIcon } from '../icons'
 import './scheduleGrid.css'
 
 // T108 Phase 2 (design §5.1, Designer spec §3) — renders a PULL override
@@ -8,17 +9,6 @@ import './scheduleGrid.css'
 // pulled cell) and NOT clickable to edit (pulls are authored only through
 // override-authoring mode's CellInlineEditor "Pull" suggestion, per Designer
 // spec §3.3 — a fait accompli here, not a new edit surface).
-function PullIcon() {
-  // "arrow-out" glyph, same construction as UnfillableIcon/OutdoorIcon in
-  // SlotCell.jsx — 12x12 outline SVG, stroke="currentColor".
-  return (
-    <svg viewBox="0 0 12 12" width={12} height={12} fill="none" style={{ display: 'block' }}>
-      <path d="M4.5 2 L2 2 L2 10 L4.5 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M5 6 L10 6 M10 6 L7.5 3.5 M10 6 L7.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
 export default function PulledCell({
   slot, rowSpan = 1, gridRow, gridColumn, ariaColIndex, cellKey, blockNames, column, collapsed = false,
 }) {

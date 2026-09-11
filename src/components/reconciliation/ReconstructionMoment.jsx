@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { SETTLE_CAP_MS } from './reconstructionMoment.gate.js'
 import { buildDomainRows, buildSummarySentence } from './reconstructionMomentCopy.js'
+import { RootGlyph } from '../icons'
 
 // docs/adr/2026-08-18-roots-reconstruction-moment-gating.md — redone after a
 // product-register critique: the prior Canvas botanical-growth sequence (two
@@ -11,23 +12,6 @@ import { buildDomainRows, buildSummarySentence } from './reconstructionMomentCop
 // Reduced motion is satisfied for free by the global rule in src/index.css
 // that strips any inline `animation: importCardIn ...` style — no new media
 // query here.
-
-// Small static identity glyph — a simple root/tree mark. Not animated: it's
-// identity, not choreography (per the critique, "roots" survives only here).
-function RootGlyph() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M12 3v8M12 11c-2 0-3 1.5-4 4M12 11c2 0 3 1.5 4 4M12 11c-1 2-1 5-2.5 7M12 11c1 2 1 5 2.5 7"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="3" r="1.6" fill="currentColor" />
-    </svg>
-  )
-}
 
 function DomainRow({ row, index }) {
   const isAttention = row.state === 'attention'

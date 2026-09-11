@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { S, useEnterTransition } from '../styles/shared'
+import { LockIcon } from '../components/icons'
 import { usePendingConflicts } from '../hooks/usePendingConflicts'
 import { noticeForStatus } from './conflictsNotice'
 
@@ -60,10 +61,7 @@ function ChoiceBox({ side, label, isPin, isImage, disabled, onKeep }) {
 
       {isPin ? (
         <div style={S.mergePinLock}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ marginBottom: 4 }} aria-hidden="true">
-            <rect x="5" y="11" width="14" height="10" rx="2" stroke="var(--text-secondary)" strokeWidth="2" />
-            <path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+          <LockIcon style={{ marginBottom: 4 }} />
           <div>PIN was changed</div>
         </div>
       ) : isImage ? (

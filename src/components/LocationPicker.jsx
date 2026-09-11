@@ -1,28 +1,12 @@
 import { useState } from 'react'
 import { useEnterTransition } from '../styles/shared'
 import { CapacityStepper } from './CapacityStepper'
+import { MapPinIcon, PlusIcon } from './icons'
 
 const LOCATION_QUERY_MAXLENGTH = 60
 
 function capacityWord(n) {
   return `${n} group${n === 1 ? '' : 's'}`
-}
-
-function MapPinIcon({ color = 'var(--text-secondary)', size = 15 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" style={{ flexShrink: 0 }}>
-      <path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z" />
-      <circle cx="12" cy="11" r="2.2" />
-    </svg>
-  )
-}
-
-function PlusIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ flexShrink: 0 }}>
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  )
 }
 
 // Split out so useEnterTransition('popFade') runs its mount effect when the

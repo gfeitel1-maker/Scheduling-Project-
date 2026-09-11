@@ -6,18 +6,8 @@
 import { useState } from 'react'
 import SlotCell from '../../components/schedule/SlotCell'
 import EmptyCell from '../../components/schedule/EmptyCell'
+import { CellPinIcon } from '../../components/icons'
 
-function LocationPinIcon() {
-  return (
-    <svg viewBox="0 0 10 12" width={10} height={10} fill="none" style={{ display: 'block' }}>
-      <path
-        d="M5 11 C5 11 8.5 7.2 8.5 4.5 C8.5 2.29 6.71 0.5 5 0.5 C3.29 0.5 1.5 2.29 1.5 4.5 C1.5 7.2 5 11 5 11 Z"
-        stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"
-      />
-      <circle cx="5" cy="4.5" r="1.3" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  )
-}
 
 export default function SpecialDayCell({
   slotRow, // { id, activity_id, location_id, group_id, time_block_id } | undefined (empty)
@@ -93,7 +83,7 @@ export default function SpecialDayCell({
           className="cell-location"
           onClick={(e) => { e.stopPropagation(); setEditingLocation(true) }}
         >
-          <span className="cell-location-icon"><LocationPinIcon /></span>
+          <span className="cell-location-icon"><CellPinIcon /></span>
           {locationRemoved ? 'Location (removed)' : location.name}
         </div>
       )}

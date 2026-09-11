@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { localClient } from '../localClient'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
+import { CircleCheckIcon } from '../components/icons'
 import { useCohorts } from '../hooks/useCohorts'
 import { useCurrentStructureCounts } from '../hooks/useCurrentStructureCounts.js'
 import { useOpenReconciliationDecisions } from '../hooks/useOpenReconciliationDecisions.js'
@@ -194,21 +195,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
         <div style={styles.sectionLabel}>Needs your attention</div>
         {attentionRows.length === 0 ? (
           <div style={{ ...styles.emptyState, ...emptyStateEnterStyle }}>
-            <svg
-              data-testid="attention-empty-check"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--success)"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={styles.emptyStateIcon}
-            >
-              <circle cx="12" cy="12" r="9.5" />
-              <path d="M8 12.5l2.5 2.5L16 9.5" />
-            </svg>
+            <CircleCheckIcon data-testid="attention-empty-check" style={styles.emptyStateIcon} />
             <div>Nothing needs you right now.</div>
           </div>
         ) : (
