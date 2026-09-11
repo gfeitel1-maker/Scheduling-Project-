@@ -27,6 +27,7 @@ import { whitespaceInsensitiveName as whitespaceInsensitiveKey } from './preview
 // sits immediately after 'time_blocks' and before 'activities' — the order
 // commitPlan's create loop follows, so a location this same import proposes is
 import { orderTimeBlocks } from './orderTimeBlocks'
+import { isChangeOverSpan } from './periodSpan'
 // already a live row (and in locationIdByName) by the time any activity's
 // location field resolves. Order is normative here, not just set membership —
 // ingest.test.js's set-equality check pairs with this array's own order.
@@ -541,8 +542,11 @@ export function extractEntities(parsed, compoundCellDecisions) {
 
     for (const [rowIndex, row] of page.rows.entries()) {
       // A row label is the period it covers. Rows with no label are banners
-      // ("Opening") rather than periods.
-      if (row.label && /^\d{1,2}[:.]\d{2}/.test(row.label.trim())) {
+      // ("Opening") rather than periods, and a span short enough to be passing
+      // time is a change-over rather than a period — the file names those
+      // explicitly in other rows ("11:10-11:20 Change"), but the ones that
+      // arrive unlabelled used to become schedulable blocks (T132).
+      if (row.label && /^\d{1,2}[:.]\d{2}/.test(row.label.trim()) && !isChangeOverSpan(row.label)) {
         timeBlocks.push(row.label.trim())
       }
       // Slice 3a header-label detector, period form: "Chugim"/"Bechirot" etc.
