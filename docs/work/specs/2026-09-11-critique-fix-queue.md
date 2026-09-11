@@ -1,7 +1,7 @@
 ---
 title: Critique Fix Queue — end-to-end walkthrough findings
 document_type: spec
-status: active  # T122-T126, T128, T132, T134-T137 shipped; see Status below
+status: active
 authority: subordinate-to-constitution
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md]
 owner: Governor (session app-icon-audit-a9a598)

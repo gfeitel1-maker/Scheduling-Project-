@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest'
-import { dedupeChipItems } from './RootsHomeScreen'
+import { dedupeChipItems } from './rootsChips'
 
 // T135 — importing one real camp file produced 112 anchors, and the Roots card
 // rendered its first six as "Indoor Elective, Indoor Elective, Indoor Elective,
