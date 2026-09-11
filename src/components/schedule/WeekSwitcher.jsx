@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { S } from '../../styles/shared'
+import { ChevronIcon } from '../icons'
 
-// Director language only ("Week 1 ▾") — no "template"/"slot"/"kind"/"candidate"
+// Director language only ("Week 1") — no "template"/"slot"/"kind"/"candidate"
 // (CONSTITUTION Art. V). Switching weeks is pure navigation: onSelect just
 // changes what's on screen, no confirm, nothing saved or destroyed
 // (docs/adr/2026-08-02-schedule-weeks-first-class.md).
@@ -45,8 +46,9 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
 
   return (
     <div ref={dropRef} style={{ position: 'relative' }}>
-      <button onClick={() => setIsOpen(o => !o)} style={btnStyle}>
-        {current ? current.name : 'Week'} ▾
+      <button onClick={() => setIsOpen(o => !o)} style={{ ...btnStyle, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        {current ? current.name : 'Week'}
+        <ChevronIcon expanded={isOpen} />
       </button>
 
       {isOpen && (

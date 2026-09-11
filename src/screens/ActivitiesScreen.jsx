@@ -4,6 +4,7 @@ import { whitespaceInsensitiveName } from '../ingest/preview'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
+import { ChevronIcon } from '../components/icons'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
@@ -330,9 +331,10 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
           type="button"
           onClick={() => setShowMore(v => !v)}
           className="press-97"
-          style={{ ...S.btnSecondary, marginBottom: 16, fontSize: 12 }}
+          style={{ ...S.btnSecondary, marginBottom: 16, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
         >
-          {showMore ? 'Hide more options ▲' : 'More options ▼'}
+          {showMore ? 'Hide more options' : 'More options'}
+          <ChevronIcon expanded={showMore} />
         </button>
 
         <div style={{

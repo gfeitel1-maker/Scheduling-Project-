@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 import { localClient } from '../../localClient'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../../styles/shared'
+import { ArrowIcon } from '../../components/icons'
 import { createActivity } from '../schedule/createActivityHelper'
 import { buildRowTracks, columnTracks } from '../schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../schedule/gridPlacement'
@@ -358,8 +359,8 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <button type="button" className="cell-action" title="Move up" onClick={() => moveBlock(block.id, -1)} disabled={blockIndex === 0}>▲</button>
-                          <button type="button" className="cell-action" title="Move down" onClick={() => moveBlock(block.id, 1)} disabled={blockIndex === timeBlocks.length - 1}>▼</button>
+                          <button type="button" className="cell-action" title="Move up" onClick={() => moveBlock(block.id, -1)} disabled={blockIndex === 0}><ArrowIcon direction="up" /></button>
+                          <button type="button" className="cell-action" title="Move down" onClick={() => moveBlock(block.id, 1)} disabled={blockIndex === timeBlocks.length - 1}><ArrowIcon direction="down" /></button>
                         </div>
                         <BlockName block={block} onRename={(name) => renameBlock(block.id, name)} />
                         <button type="button" className="cell-action" title="Remove block" onClick={() => removeBlock(block.id)} style={{ color: 'var(--danger)' }}>×</button>

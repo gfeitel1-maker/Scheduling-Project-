@@ -174,13 +174,19 @@ export function PlusIcon({ style, ...rest }) {
 }
 
 // Disclosure chevron. Points down when collapsed, flips up when expanded —
-// the rotation is the state, so callers pass `expanded` rather than picking
-// a different glyph.
-export function ChevronIcon({ expanded = false, style, ...rest }) {
+// the rotation is the state, so callers pass `expanded` rather than picking a
+// different glyph.
+//
+// A caller whose disclosure reads as a tree rather than a show-more toggle
+// (the sidebar's section folds) overrides `transform` via `style`, which wins
+// because it is spread last. That deliberately keeps the sidebar's
+// right-then-down idiom while still sharing this one shape: the glyph is
+// consolidated, the interaction language is not overwritten.
+export function ChevronIcon({ expanded = false, size = 10, style, ...rest }) {
   return (
     <svg
-      aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none"
-      stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
       style={{
         flexShrink: 0, transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
         transition: 'transform var(--motion-base) var(--ease-standard)',
@@ -189,6 +195,22 @@ export function ChevronIcon({ expanded = false, style, ...rest }) {
       {...rest}
     >
       <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
+// Reorder arrow. Deliberately NOT the chevron, per decision D4: a chevron says
+// "this reveals more", an arrow says "this moves the thing". Both were `▲`/`▼`
+// before, which is exactly the collision worth spending a second glyph on.
+const ARROW_ROTATION = { up: 0, right: 90, down: 180, left: 270 }
+
+export function ArrowIcon({ direction = 'up', size = 10, style, ...rest }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      style={{ display: 'block', transform: `rotate(${ARROW_ROTATION[direction]}deg)`, ...style }} {...rest}>
+      <path d="M12 19V5" />
+      <path d="M5 12l7-7 7 7" />
     </svg>
   )
 }
