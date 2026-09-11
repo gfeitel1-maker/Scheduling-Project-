@@ -27,11 +27,13 @@ import * as XLSX from 'xlsx'
 import { openLocalDb } from '../electron/db/localDb.js'
 import { runIngestCli } from './ingestCli.js'
 import { workbookToPages } from '../src/ingest/sheetGrid.js'
+import { parseTextGrid } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 
 const WORKBOOK_EXT = /\.(xlsx|xlsm|xls)$/i
+const TEXT_GRID_EXT = /\.(txt|csv|tsv)$/i
 const SWEEPABLE_EXT = /\.(xlsx|xlsm|xls|csv|txt)$/i
 const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 const wsKey = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, '')
@@ -77,8 +79,16 @@ function bootstrapThrowawayDb() {
 }
 
 function pagesFor(file) {
+  // Text grids get the same breakdown as workbooks. They used to return null
+  // here ("breakdown is workbook-only") and the caller dereferenced it, so
+  // pointing this tool at the repo's OWN committed fixtures crashed with
+  // `Cannot read properties of null (reading 'entities')` — the pressure-test
+  // harness could not run on the samples shipped beside it (T137).
+  if (TEXT_GRID_EXT.test(file)) {
+    return parseTextGrid(fs.readFileSync(file, 'utf8')).pages
+  }
   const buf = fs.readFileSync(file)
-  if (!WORKBOOK_EXT.test(file)) return null // preview handles text; breakdown is workbook-only
+  if (!WORKBOOK_EXT.test(file)) return null
   const wb = XLSX.read(buf, { type: 'buffer' })
   const sheets = wb.SheetNames.map((name) => ({
     name,
@@ -139,6 +149,8 @@ function main() {
 
     const b = breakdown(full)
     console.log(`\n### ${f}`)
+    // A file kind with no breakdown is reported, not crashed on.
+    if (!b) { console.log('  parsed, but no breakdown for this file type'); continue }
     console.log(`  entities: ${Object.entries(b.entities).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join('  ')}`)
     console.log(`  fixed events (all-camp): ${b.fixed.length}  |  recurring (group-scoped): ${b.recurring.length}`)
     console.log(`  activity weekly-frequency spread (min/wk → count): ${JSON.stringify(b.freq)}`)

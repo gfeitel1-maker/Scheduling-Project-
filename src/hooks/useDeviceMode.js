@@ -233,16 +233,6 @@ export function useDeviceMode() {
     }
   }, [refreshCamp])
 
-  const bootstrapCamp = useCallback(async ({ campName, adminName, adminPin }) => {
-    try {
-      await localClient.chooseMode({ mode: 'host', campName, port: DEFAULT_HOST_PORT })
-      await localClient.bootstrapCamp({ campName, adminName, adminPin })
-      await refreshCamp()
-    } catch (err) {
-      setError(err && err.message ? err.message : String(err))
-    }
-  }, [refreshCamp])
-
   const login = useCallback(async (name, pin) => {
     const result = await localClient.login(name, pin)
     if (result && result.token) {
@@ -258,6 +248,27 @@ export function useDeviceMode() {
     }
     return result
   }, [])
+
+  const bootstrapCamp = useCallback(async ({ campName, adminName, adminPin }) => {
+    try {
+      await localClient.chooseMode({ mode: 'host', campName, port: DEFAULT_HOST_PORT })
+      await localClient.bootstrapCamp({ campName, adminName, adminPin })
+      // Sign them in with the credentials they just chose, rather than handing
+      // them a Sign in screen with an empty Name field thirty seconds after
+      // they typed their name into it. To a director that reads as "it didn't
+      // save" at the exact moment they committed to the product (T128).
+      //
+      // Routed through the ordinary `login` path on purpose: it is the audited
+      // one (attemptLogin, lockout tracking, real token issuance). A bootstrap
+      // that minted its own session would be a second way to become
+      // authenticated, which is not a thing this app should grow.
+      await login(adminName, adminPin)
+      await refreshCamp()
+    } catch (err) {
+      setError(err && err.message ? err.message : String(err))
+    }
+  }, [refreshCamp, login])
+
 
   const logout = useCallback(() => {
     clearSessionState(null)

@@ -7,6 +7,7 @@ import { useCurrentStructureCounts } from '../hooks/useCurrentStructureCounts.js
 import { useOpenReconciliationDecisions } from '../hooks/useOpenReconciliationDecisions.js'
 import { buildAttentionList, buildStructureIssues } from '../ingest/attentionList.js'
 import { INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
+import { dedupeChipItems } from './rootsChips'
 import { downloadWorkbook } from '../utils/exportWorkbook.js'
 import { ACTIVITY_COLORS } from '../components/schedule/slotCellConstants.js'
 import { ScheduleDoor } from '../components/ScheduleDoor'
@@ -87,7 +88,10 @@ function useStaggerEnter(active, stepMs) {
 function ChipRow({ card, collections }) {
   const cap = CHIP_CAP[card.size]
   if (!cap) return null
-  const items = collections?.[card.key] ?? []
+  // Overflow counts distinct names too — the card's own number already says how
+  // many ROWS there are, so "+106 more" beside three chips would be answering a
+  // question the heading has already answered.
+  const items = dedupeChipItems(collections?.[card.key] ?? [])
   if (items.length === 0) return null
   const shown = items.slice(0, cap)
   const overflow = items.length - shown.length

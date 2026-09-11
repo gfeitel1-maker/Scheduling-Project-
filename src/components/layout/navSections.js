@@ -69,7 +69,7 @@ export const NAV_SECTIONS = [
       // readiness.js's OPTIONAL_AREAS entry) is what tells Sidebar.jsx to
       // show a "needs a look" affordance instead of either "optional" or the
       // blocking "needed" — it still does not block building a draft.
-      { key: 'fixedevents',  label: 'Fixed Events',    area: 'anchors', expected: true },
+      { key: 'fixedevents',  label: 'Fixed Events',    area: 'fixedevents', expected: true },
       { key: 'anchors',      label: 'Recurring Events', area: 'anchors', expected: true },
       // Electives Slice 1 (docs/adr/2026-08-22-nested-schedules-electives-
       // and-events.md §2): the "schedule within a schedule" — a director
@@ -165,7 +165,12 @@ export const AREA_TABLE = {
   timeblocks: 'time_blocks',
   activities: 'activities',
   locations: 'locations',
-  anchors: 'anchor_activities',
+  // Both rows read anchor_activities, but they are not the same rows: the two
+  // were deliberately un-conflated (ADR 2026-08-28-fixed-vs-recurring-events)
+  // and the counts did not follow, so the sidebar showed "Fixed Events 112"
+  // beside "Recurring Events 112" — the same 112 rows, reported twice (T124).
+  fixedevents: { table: 'anchor_activities', kind: 'fixed' },
+  anchors: { table: 'anchor_activities', kind: 'recurring' },
   electives: 'elective_sets',
   // No entry for 'specialevents': the merged row spans two tables
   // (special_days + events) and AREA_TABLE only supports a single table per

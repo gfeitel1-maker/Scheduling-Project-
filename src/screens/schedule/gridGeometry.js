@@ -128,7 +128,14 @@ export function decideCell(geometry, groupId, dayId, blockId) {
 // pointer — isMerged is "this row is a span head with >=1 tail", read off
 // the chain, not a head-owned flag.
 export function computeSpanCellProps({ geometry, selectedGroup, day, block, blockIndex, timeBlocks, rowSpan, slot, onSplitSlot, onSpanExtendStart }) {
-  const immediateNextBlock = timeBlocks.find(b => b.sort_order === block.sort_order + 1)
+  // `timeBlocks` arrives already sorted (useScheduleData sorts by sort_order),
+  // so the next block is the next ELEMENT. Reading `sort_order + 1` assumed the
+  // column was a dense 0,1,2… sequence, which the import path now guarantees but
+  // the manual path never did — TimeBlocksScreen writes minutesFromMidnight, so
+  // consecutive hand-made blocks are 555 and 630 and `+1` matches nothing,
+  // silently disabling merge for them. Array position is correct either way, and
+  // matches how `nextBlock` is found three lines below.
+  const immediateNextBlock = timeBlocks[blockIndex + 1] ?? null
   const immediateNextSlot = immediateNextBlock ? geometry.getSlot(selectedGroup, day.id, immediateNextBlock.id) : null
   const isMerged = immediateNextSlot?.is_span_head === false && immediateNextSlot?.activity_id === slot.activity_id
 

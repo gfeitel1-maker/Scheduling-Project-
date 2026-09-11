@@ -18,26 +18,66 @@ function currentToken() {
   return typeof localStorage !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null
 }
 
+
+// T123 — the refresh path for a write made on THIS device.
+//
+// `onOpApplied` is the sync channel: it fires when an op arrives from another
+// device. A director's own write never crossed it, so nothing on this device
+// learned that anything had changed — which is why the sidebar sat on "! Groups
+// needed" while Roots showed "Groups 33", until a page reload.
+//
+// This is deliberately a separate channel rather than a synthetic op pushed
+// through onOpApplied. ScheduleScreen, EventGridEditor and SpecialDayGridEditor
+// all READ the op argument to decide whether to reload; inventing one for them
+// would change three screens that are not broken.
+//
+// It fires only after the underlying call resolves. A write that was refused
+// changed nothing, so there is nothing to re-read.
+const localWriteSubscribers = new Set()
+
+function notifyLocalWrite() {
+  for (const cb of localWriteSubscribers) {
+    // One bad subscriber must not silence the rest — this is a fan-out, and a
+    // screen that throws while re-reading is that screen's problem.
+    try { cb() } catch { /* subscriber's own failure */ }
+  }
+}
+
+// Wrap a mutating call so subscribers hear about it once it has actually landed.
+function announcing(fn) {
+  return async (...args) => {
+    const result = await fn(...args)
+    notifyLocalWrite()
+    return result
+  }
+}
+
 export const localClient = {
   chooseMode: (args) => shoresh.chooseMode(args),
   login: (name, pin) => shoresh.login({ name, pin }),
   createUser: (args) => shoresh.createUser(args),
   bootstrapCamp: (args) => shoresh.bootstrapCamp(args),
-  write: (token, entity, entity_id, field, value, parent_op_id) =>
-    shoresh.write({ token, entity, entity_id, field, value, ...(parent_op_id ? { parent_op_id } : {}) }),
+  write: announcing((token, entity, entity_id, field, value, parent_op_id) =>
+    shoresh.write({ token, entity, entity_id, field, value, ...(parent_op_id ? { parent_op_id } : {}) })),
   // Row delete, routed through the same shoresh.write IPC channel as a field
   // write — see DELETE_FIELD in electron/ops/operations.js. field: '__deleted__'
   // is a reserved sentinel that applyProjection turns into a real DELETE.
-  deleteEntity: (token, entity, entity_id) =>
-    shoresh.write({ token, entity, entity_id, field: '__deleted__', value: 1 }),
-  bulkReplace: (token, entity, scope_id, rows) =>
-    shoresh.bulkReplace({ token, entity, scope_id, rows }),
+  deleteEntity: announcing((token, entity, entity_id) =>
+    shoresh.write({ token, entity, entity_id, field: '__deleted__', value: 1 })),
+  bulkReplace: announcing((token, entity, scope_id, rows) =>
+    shoresh.bulkReplace({ token, entity, scope_id, rows })),
   verifySession: (token) => shoresh.verifySession({ token }),
   // Deploy smoke-test heartbeat — see electron/main.js and App.jsx. Routed
   // through here (not window.shoresh directly) to satisfy the mock-parity
   // invariant; in browser dev it hits the mock's no-op.
   reportSmokeReady: () => shoresh.reportSmokeReady(),
   onOpApplied: (cb) => shoresh.onOpApplied(cb),
+  // Fires after a mutating call made on THIS device resolves. See the note
+  // above `localWriteSubscribers`.
+  onLocalWrite: (cb) => {
+    localWriteSubscribers.add(cb)
+    return () => localWriteSubscribers.delete(cb)
+  },
   // T27 — is this device the main computer, connected to it, or on its own.
   getSyncStatus: () => shoresh.getSyncStatus(),
   // T16 — commit an approved import proposal. The preview is built in the
@@ -54,8 +94,8 @@ export const localClient = {
   // T118 slice 4 — compoundCellDecisions rides alongside placements: the
   // director's freshly-resolved compound-cell-pattern decisions THIS import,
   // written to the per-camp learned table once, at successful commit.
-  ingestCommit: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions } = {}) =>
-    shoresh.ingestCommit({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions }),
+  ingestCommit: announcing(({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions } = {}) =>
+    shoresh.ingestCommit({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions })),
   // D1 — read-only dry run of the same commit pipeline, for the reconciliation
   // summary. Same argument shape as ingestCommit; never writes.
   ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents } = {}) =>

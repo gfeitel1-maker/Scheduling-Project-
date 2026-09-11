@@ -150,6 +150,7 @@ Two token types are minted, verified, and enforced separately — see `electron/
 
 - `src/components/layout/Shell.jsx`, `Sidebar.jsx`, `TopBar.jsx`, `navSections.js` — app chrome, the lifecycle-IA sidebar (Roots fixed row + Germination/Sprouts/Plants collapsible stages + gear admin menu, see Navigation Model), badge counts (e.g. pending conflicts)
 - `src/components/CohortPicker.jsx` — cohort selection widget
+- `src/screens/rootsChips.js` — `dedupeChipItems`, the name-chip sampler behind Roots' bento cards. Chips name the KINDS of thing a card holds, so a name earns one chip however many rows carry it: 112 anchors legitimately repeat a name (one row per activity per day) and used to render as "Indoor Elective, Indoor Elective, Indoor Elective, Instructional, Instructional, Instructional". It matches exact names only — campA carries both "Project" and "Projects", which is a near-duplicate for a human to judge, not a match to merge silently. It lives outside the screen file because exporting a helper from a component breaks fast refresh (`react-refresh/only-export-components`).
 - `src/components/icons/index.jsx` — every inline SVG glyph in the app. Icons used to be declared locally inside whichever component needed one (~14 separate `function SomeIcon()` declarations), so the same concept drew differently on different screens: three location pins with three path data, two byte-identical plus signs, one chevron defined twice in a single file. One module now holds them, and the header records the rule that decides new cases: a glyph in its own element beside text (an **icon slot**) becomes an icon; a glyph inside a sentence or template literal (an **inline text prefix**) stays text. Three glyph families stay deliberately as text and are listed there — the sidebar's `✓`/`!`/`·` state marks (a fixed-width three-mark vocabulary where `·` has no icon form), `ScheduleDoor`'s `→` (an animation target found by `querySelector`), and five literal multiplication signs (`3 groups × 4 blocks`, `2–4×/wk`) that are arithmetic, not close buttons. Disclosure chevrons and reorder arrows are deliberately **different** glyphs — both were `▲`/`▼` before. As of the 2026-09-11 closing pass, **every icon slot in the app holds an
 icon** — the sidebar gear, ModeSelect's host/join marks and card chevrons,
 undo/redo, the login lockout clock, the palette filter's magnifier, and the
@@ -160,6 +161,43 @@ Decision table: `docs/work/specs/2026-09-11-icon-vocabulary.md`.
 - `src/components/ScheduleDoor.jsx`, `src/components/setup/InlineAddRow.jsx`, `SetupScreenShell.jsx` — shared cross-screen primitives from the whole-app design coherence passes (Waves 2/3, B/C, PRs #230–#234/#238/#241): a plain (non-verdict) door to a Plants build surface, and an inline blank-row "add" affordance used across setup screens (Wave C1) including `SpecialEventsScreen`. The colored-pill chip shape and caution/error banner styling were consolidated into shared style tokens (`src/styles/shared.js`) rather than new components.
 - `src/components/schedule/` — schedule-builder-specific. Current set (WS5 rebuild, PRs #221–#229/#236–#238, replaced the pre-WS5 palette/modal set): `ActivityPalette.jsx` (now a filterable **Ledger** — `PaletteLedger` + text filter, replacing the old flat palette), `ManualBuildView`, `ScheduleActivityView`, `ScheduleDayView`, `ScheduleGroupView`, `SlotCell` (carries `data-overridden`, opens `CellInlineEditor.jsx` on double-click), `PulledCell` + `OverrideToggleButton` (day-override "override mode", T108), `CellInlineEditor.jsx` (double-click cell edit, replaced the old separate `EditModal`), `EmptyCell.jsx`, `ErrorBanner.jsx`, `ExclusionConfirmDialog.jsx`, `ExportChooserModal.jsx`, `FindingsRail.jsx`, `IndeterminateBar.jsx`, `ConfirmRegenModal.jsx`, `VersionsDropdown.jsx`, `StatBadge.jsx` (hides when its target is unconfigured), `WeekContextBar.jsx`, `WeekSwitcher.jsx`, `DeleteWeekDialog.jsx`, `ScheduleSkeleton.jsx`. The old `OverlayCell`, `EditModal`, `FieldTripDrawer`, and `FlagDetailModal` components no longer exist (superseded by the events/electives/day_overrides family and the WS5 rebuild).
 - `src/components/reconciliation/` — scoped to the **import-a-file reconcile flow only** (`ReconciliationScreen`, `mode="import"`) as of the Roots-home-is-a-distinct-screen ADR; no longer doubles as the Roots home surface. `RootMap.jsx` (root-and-tree illustration over `src/assets/reconciliation/root-map.png`, node coords hand-placed in `rootMapLayout.js`), `RootMapPanel.jsx` (per-node panel — roster + primary "Manage {Area} →" navigation), `RosterList.jsx` (per-entity census roster, search + Groups-by-Age-Division grouping), `postImportBanner.jsx`, `ReconstructionMoment.jsx`, plus pure helpers `rootMapNav.js` (node → setup-screen routing, `DOMAIN_SCREEN`/`CHILD_SCREEN`), `domainRollup.js`, `reconciliationCards.jsx`. `rootsBanner.jsx` (the old dashboard-verdict banner) still exists in this directory but is no longer imported anywhere outside its own test — `RootsHomeScreen` does not use it (its bento/attention-list are built directly from `useCurrentStructureCounts`/`buildAttentionList`).
+
+---
+
+## Ingest: what the extractor guarantees
+
+The import path reads human spreadsheets — wrapped cells, merged headers, typos —
+so its contract is about honesty rather than perfection.
+
+- **Time blocks come out in clock order, not file order.** A real camp file does
+  not list its periods chronologically, and `sort_order` is derived from the
+  entity array's index, so `extractEntities` sorts before returning
+  (`src/ingest/orderTimeBlocks.js`). Ordering a bare 12-hour label uses a stated
+  camp-day rule — 1-6 afternoon, 7-12 morning/noon — because a running-clock
+  reading cannot work on a file that is itself out of order. A leading zero means
+  nothing: real camp files zero-pad 12-hour times.
+- **`sort_order` is a dense sequence** for imported blocks. `gridGeometry`
+  finds the next block by array position, so a non-dense column no longer
+  silently disables span-merge (it did for hand-made blocks, which are written
+  as minutes-from-midnight).
+- **Change-overs are not periods.** A span of 10 minutes or less is passing time
+  and is not imported as a schedulable block (`src/ingest/periodSpan.js`). The
+  threshold came from the corpus: change-overs are 5-10 minutes and the shortest
+  real period is 15.
+- **Suspect names are flagged, never dropped.** `src/ingest/suspectRecords.js`
+  marks activity names that begin with a joining word ("and Mitzvah") or with the
+  period column's word ("Block Sports"), and the import preview shows them under
+  "Worth a second look". Nothing is excluded from the import — "Art" trips a
+  short-name heuristic and is a real activity, which is why the rules ask rather
+  than decide.
+- **`npm run ingest:sweep` runs on the committed fixtures** in
+  `docs/work/specs/samples/` as well as on workbooks, and is the regression net
+  for all of the above.
+
+Known gap: the text-grid parser does not join period labels wrapped across two
+lines, so `"9:50- Block" / "10:25  1"` is read as two fragments and that period
+survives only as a bare "10:25". See
+`docs/work/specs/2026-09-11-critique-fix-queue.md`.
 
 ---
 

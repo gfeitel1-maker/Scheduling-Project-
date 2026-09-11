@@ -152,3 +152,26 @@ a { text-decoration: none; color: inherit; }
     box-shadow: 0 2px 8px color-mix(in srgb, var(--activity-color) 19%, transparent);
   }
 }
+
+/* Keyboard focus. Every control in the app gets one ring from one rule.
+ *
+ * Before this, S.input and S.authField each set `outline: none` and nothing
+ * replaced it, so a director tabbing through the camp-setup form or the sign-in
+ * screen had no idea where they were — a focused button was pixel-identical to
+ * an unfocused one. The only focus styling anywhere was scoped to the schedule
+ * grid (scheduleGrid.css).
+ *
+ * `:where()` keeps specificity at zero so any component that wants its own
+ * focus treatment still wins without needing !important. It has to be a
+ * stylesheet rule rather than a style object because most of this app's
+ * controls are styled inline, and an inline `outline` would beat any CSS —
+ * which is exactly why the two `outline: none` declarations had to be deleted
+ * rather than overridden.
+ *
+ * :focus-visible, not :focus — a mouse click should not leave a ring behind.
+ */
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

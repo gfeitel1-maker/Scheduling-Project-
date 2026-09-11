@@ -203,6 +203,13 @@ describe('IPC surface parity', () => {
       // src/localClient.js — never shoresh.deleteEntity. mockShoresh.write
       // already covers it; no mockShoresh.deleteEntity should exist.
       'deleteEntity',
+      // onLocalWrite is renderer-local and crosses no IPC boundary at all: it
+      // is a subscription to writes made through localClient itself, fired
+      // after write/deleteEntity/bulkReplace/ingestCommit resolve. There is no
+      // shoresh.onLocalWrite for a mock to implement. Contrast onOpApplied,
+      // which IS a real preload channel (an op arriving from another device)
+      // and does have a mock. See src/localClient.js and T123.
+      'onLocalWrite',
     ]
     const stale = LOCAL_CLIENT_NON_CHANNEL_METHODS.filter((name) => !localClientKeys.includes(name))
     expect(

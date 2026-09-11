@@ -7,6 +7,8 @@ import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
+import { findSuspectRecords } from '../ingest/suspectRecords'
+import { fixedEventKey } from '../ingest/fixedEventKey'
 import { capturePlacements } from '../ingest/capturePlacements'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
@@ -1191,6 +1193,43 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
             )
           })()}
 
+          {/* T136 — records that parsed cleanly but do not look like the others.
+              A sibling of "Not recognised" above, and deliberately shaped the
+              same: this is evidence, not an error. The parser will never be
+              clean on a human spreadsheet with wrapped cells and typos in it,
+              so the honest move is to say which names look wrong and let the
+              director decide. Nothing here is excluded from the import. */}
+          {(() => {
+            const suspects = findSuspectRecords(proposal.entities)
+            if (suspects.length === 0) return null
+            return (
+              <div style={{
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 12, lineHeight: 1.6,
+              }}>
+                <div style={{
+                  fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                  letterSpacing: '0.12em', textTransform: 'uppercase',
+                  color: 'var(--text-secondary)', marginBottom: 8,
+                }}>
+                  Worth a second look
+                </div>
+                <div style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  These will be added like everything else. They just do not read like the
+                  other names, so they may be a cell that got split in an odd place — worth
+                  a glance before you continue.
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {suspects.map((sus) => (
+                    <li key={`${sus.entity}:${sus.name}`}>
+                      "{sus.name}" — <span style={{ color: 'var(--text-secondary)' }}>{sus.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })()}
+
           {INGESTIBLE_ENTITIES.map(entity => {
             const names = proposal.entities[entity] ?? []
             if (names.length === 0) return null
@@ -1347,7 +1386,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                   // must render once per name, not once per entry.
                   const suggestedNames = new Set()
                   return fixedEvents.map((fe) => {
-                    const key = `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
+                    const key = fixedEventKey(fe)
                     const scope = fe.scope.is_all_groups ? 'every group' : fe.scope.groups.join(', ')
                     const daysLabel = operatingDayCount > 0 && fe.days.length >= operatingDayCount
                       ? 'every day'
