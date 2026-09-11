@@ -11,7 +11,6 @@ import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
-import uiClock from '../assets/brand/icons/ui-clock.png'
 import { minutesFromMidnight } from './setup/setupHelpers'
 
 // TimeBlocks' load is cohort-scoped (camp_id AND cohort_id) and guards
@@ -412,7 +411,6 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
               {blocks.length === 0 ? (
                 <tr><td colSpan={5} style={S.emptyState}>
                   <div style={emptyEnter}>
-                    <img src={uiClock} alt="" style={S.emptyStateIcon} />
                     <div style={S.emptyStateTitle}>No time blocks yet</div>
                     <div style={S.emptyStateBody}>Add your first time block below.</div>
                   </div>

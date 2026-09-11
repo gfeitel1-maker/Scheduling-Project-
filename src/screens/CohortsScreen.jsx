@@ -5,7 +5,6 @@ import { S, useEnterTransition } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
-import uiPeople from '../assets/brand/icons/ui-people.png'
 
 // Repository-only migration (not the full useCrudScreen hook): load() is a
 // single camp-scoped list() with a two-key sort, and this screen has no
@@ -292,7 +291,6 @@ export default function CohortsScreen({ campId }) {
               {cohorts.length === 0 ? (
                 <tr><td colSpan={6} style={S.emptyState}>
                   <div style={emptyEnter}>
-                    <img src={uiPeople} alt="" style={S.emptyStateIcon} />
                     <div style={S.emptyStateTitle}>No programs yet</div>
                     <div style={S.emptyStateBody}>Add your first program below.</div>
                   </div>

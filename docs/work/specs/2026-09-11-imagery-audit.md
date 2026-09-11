@@ -12,7 +12,7 @@ review_trigger: any new image added under src/assets/, or a change to build.file
 
 # Imagery audit — every PNG, JPG and SVG in the app
 
-Status: FINDINGS — no decisions taken, nothing deleted
+Status: RESOLVED — owner decided 2026-09-11; all four findings actioned
 Date: 2026-09-11
 Companion to: docs/work/specs/2026-09-11-icon-vocabulary.md (glyph-level)
 
@@ -109,17 +109,46 @@ actually uses.
 one actually used — suggests the JPEG re-encode already happened once and the
 PNG was simply never removed.
 
-## Sequencing, if these are worth acting on
+## What the owner decided, 2026-09-11
 
-1. **Delete the orphans.** ~26MB, no behaviour change, no visual change.
-   Wants one decision from the owner: are `tiles/`+`tileworld/` genuinely
-   finished with in THIS repo, and are the contact sheets archived elsewhere?
-   Artwork is not recoverable from a git history nobody remembers to search.
-2. **Resize forest-circle.png.** Pure win, one file.
-3. **Decide Finding 1/2** — raster or vector for empty states. This is a
-   design decision with real taste in it and should not be made by whoever is
-   next in the file. It is the only item here that changes what a director
-   sees.
+**Finding 1/2 — the empty-state icons go.** Not "pick raster or vector" but
+"neither": the owner's judgement was that a decorated empty state is noise. The
+96x80 tiles on Time Blocks, Age Divisions, Cohorts, Activities and Trash are
+removed; those screens show text alone. `S.emptyStateIcon` went with them, and
+so did `CalmEmptyState.jsx` — a component with an SVG calendar and, as it turned
+out, zero references anywhere (grep and `graphify affected` agree).
+
+Imagery is KEPT on the seven first-impression surfaces: LoginScreen,
+CampBootstrapScreen, PairingPendingScreen, RootMap, ModeSelectScreen, the
+post-import celebration, and SeedScreen. That is the onboarding-chrome half of
+W12b, which stands; the empty-state half of that spec is now marked superseded
+in place so a future reader does not re-add them.
+
+**Findings 3/4 — the weight goes, but the artwork does not get destroyed.**
+`src/assets` is 30M → 1.3M. The split that made that safe:
+
+- **Deleted** — `tiles/` + `tileworld/` (12M of Kenney CC0 tilesets belonging to
+  the camp-map work, which lives in its own repository), the 28 *derived* icon
+  PNGs (regenerable from the contact sheets), and the Vite scaffolding.
+- **Moved to `design/brand-source/`** — the eight full-resolution kit images and
+  the two contact sheets. These are source artwork, not runtime assets, and
+  `design/` is outside `build.files`, so they stop shipping without being lost.
+- **Resized** — `forest-circle.png`, 1200x1098/2.2MB against a 140px maximum
+  use, is now 280x256/144KB.
+
+The move rather than delete was forced by something the first pass missed:
+`scripts/slice-brand-icons.mjs` reads `icons-ui.png` and `icons-decorative.png`
+as file paths and cuts them into the individual icons. A string read by a script
+is invisible to both an import graph and a component-level grep — deleting those
+two "orphans" would have quietly broken the generator. Its `BRAND_DIR` now
+points at `design/brand-source/`.
+
+## Standing rule this leaves behind
+
+`build.files` ships `src/**/*` wholesale (a deliberate fix for a packaged-app
+module-resolution failure, PR #19). So **anything placed under `src/assets/`
+ships, imported or not.** Derivatives go in `src/assets/`, sized at 2x their
+largest display use; sources go in `design/brand-source/`. Both READMEs say so.
 
 ## What this audit did NOT cover
 

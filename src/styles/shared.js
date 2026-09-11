@@ -760,11 +760,4 @@ export const S = {
   // no card, matching DESIGN_STANDARD §5a's "calm, not boxed" rule for
   // emptiness. Proportional to the sliced ui-*.png tiles' 307.2:256 aspect —
   // do not force square.
-  emptyStateIcon: {
-    width: 96,
-    height: 80,
-    display: 'block',
-    margin: '0 auto 14px',
-    objectFit: 'contain',
-  },
 }

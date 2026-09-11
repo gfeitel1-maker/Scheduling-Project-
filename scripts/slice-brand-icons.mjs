@@ -2,7 +2,11 @@ import { PNG } from 'pngjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const BRAND_DIR = path.resolve('src/assets/brand');
+// Sources live OUTSIDE src/ deliberately: package.json's build.files ships
+// `src/**/*` wholesale, so a 2.6MB contact sheet placed there rides into every
+// installer whether or not anything imports it. Artwork sources belong in
+// design/, derivatives belong in src/.
+const BRAND_DIR = path.resolve('design/brand-source');
 const OUT_DIR = path.resolve('src/assets/brand/icons');
 
 function readPng(file) {
