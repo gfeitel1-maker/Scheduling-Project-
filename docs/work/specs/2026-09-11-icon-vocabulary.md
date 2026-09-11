@@ -1,3 +1,15 @@
+---
+title: Icon Vocabulary Decision Table
+document_type: spec
+status: active
+authority: subordinate-to-constitution
+governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md]
+owner: Governor (session app-icon-audit-a9a598)
+created: 2026-09-11
+archive_when: every row is either shipped or explicitly declined, and D5 is resolved
+review_trigger: a new icon is added outside src/components/icons/, or a text glyph is proposed as an icon
+---
+
 # Icon vocabulary — decision table
 
 Status: DRAFT — awaiting owner decisions on D1–D6
