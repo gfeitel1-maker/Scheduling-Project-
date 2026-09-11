@@ -48,6 +48,13 @@ function location(overrides = {}) {
   }
 }
 
+// The inline row's kind <select> renders an <option> for every location kind,
+// so a fixture location NAMED after a kind ("Pool") is matched twice by a bare
+// getByText. These assertions are about the table, not the picker. Until the
+// 2026-09-11 emoji removal the option read "🏊 Pool" and the collision was
+// hidden by accident — the queries were never actually specific.
+const IGNORE_KIND_OPTIONS = { ignore: 'script, style, option' }
+
 function activity(overrides = {}) {
   return { id: 'act-1', camp_id: CAMP_ID, name: 'Free Swim', location_id: 'loc-1', ...overrides }
 }
@@ -125,7 +132,7 @@ describe('LocationsScreen', () => {
 
     await waitFor(() => expect(screen.queryByText('1 location')).not.toBeNull())
     expect(localClient.list).toHaveBeenCalledWith('locations')
-    expect(screen.queryByText('Pool')).not.toBeNull()
+    expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull()
     expect(screen.queryByText('3 groups')).not.toBeNull()
     expect(screen.queryByText('Wrong Camp')).toBeNull()
   })
@@ -192,7 +199,7 @@ describe('LocationsScreen', () => {
       return Promise.resolve([])
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     const file = new File(['dummy'], 'locations.xlsx')
     const fileInput = document.querySelector('input[type="file"]')
@@ -224,7 +231,7 @@ describe('LocationsScreen', () => {
       return Promise.resolve([])
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByText('Edit'))
     // The Add card renders its own stepper too, so scope to the first
@@ -250,7 +257,7 @@ describe('LocationsScreen', () => {
       return Promise.resolve([])
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByText('Edit'))
     const input = screen.getAllByLabelText('Groups at once')[0]
@@ -285,7 +292,7 @@ describe('LocationsScreen', () => {
     localClient.locationCapacityProvenance.mockResolvedValue({ 'loc-1': 'unconfirmed', 'loc-2': 'confirmed' })
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     await waitFor(() => expect(screen.queryByRole('button', { name: /Capacity provenance: inferred/i })).not.toBeNull())
     // Only one dot — Gym's capacity is confirmed, so it stays quiet.
@@ -300,7 +307,7 @@ describe('LocationsScreen', () => {
     localClient.locationCapacityProvenance.mockResolvedValue({ 'loc-1': 'unconfirmed' })
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: /Capacity provenance:/i }))
     const dialog = await screen.findByRole('dialog')
@@ -325,7 +332,7 @@ describe('LocationsScreen', () => {
       return Promise.resolve([])
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByText('Edit'))
     const nameInputs = screen.getAllByDisplayValue('Pool')
@@ -345,7 +352,7 @@ describe('LocationsScreen', () => {
       return Promise.resolve([])
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByText('Edit'))
     const increase = screen.getAllByLabelText('Increase')[0]
@@ -374,7 +381,7 @@ describe('LocationsScreen', () => {
     })
     localClient.deleteRecord.mockResolvedValue({ ok: true, cleared: 2, reassigned_activity_ids: [] })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
 
@@ -398,7 +405,7 @@ describe('LocationsScreen', () => {
       ok: true, entity: 'locations', entity_id: 'loc-1', name: 'Pool', ref_count: 0, activities: [],
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
 
@@ -412,7 +419,7 @@ describe('LocationsScreen', () => {
     })
     localClient.previewDelete.mockRejectedValue(new Error('admin role required'))
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
 
@@ -425,7 +432,7 @@ describe('LocationsScreen', () => {
       return Promise.resolve([])
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
     await waitFor(() => expect(screen.queryByText(/Delete .Pool./)).not.toBeNull())
@@ -441,7 +448,7 @@ describe('LocationsScreen', () => {
       return Promise.resolve([])
     })
     render(<LocationsScreen campId={CAMP_ID} role="staff" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     expect(screen.getByText('Delete').disabled).toBe(true)
     expect(screen.getByText('Delete All').disabled).toBe(true)
@@ -453,7 +460,7 @@ describe('LocationsScreen', () => {
       return Promise.resolve([])
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
 
@@ -475,7 +482,7 @@ describe('LocationsScreen', () => {
       return Promise.resolve([])
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
     await waitFor(() => expect(screen.queryByText('Delete all locations?')).not.toBeNull())
@@ -521,7 +528,7 @@ describe('LocationsScreen: migration review region', () => {
     })
     localClient.listMigrationReviews.mockResolvedValue([])
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     expect(screen.queryByText('These look like the same location')).toBeNull()
     expect(screen.queryByText(/Shoresh set a few capacities/)).toBeNull()
@@ -705,7 +712,7 @@ describe('LocationsScreen: migration review region', () => {
       review({ id: 'r2', location_id: 'loc-pool-lower', name: 'pool', kind: 'near_duplicate', detail: { variants: ['Pool', 'pool'] } }),
     ])
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     expect(screen.queryByText('These look like the same location')).toBeNull()
   })
@@ -862,7 +869,7 @@ describe('LocationsScreen — week availability (M5)', () => {
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={WEEK_ID} weeks={weeks} onSelectWeek={() => {}} />)
 
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
     expect(screen.getByRole('switch')).toBeTruthy()
     expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true')
   })
@@ -874,7 +881,7 @@ describe('LocationsScreen — week availability (M5)', () => {
     })
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={WEEK_ID} weeks={weeks} onSelectWeek={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByRole('switch'))
 
@@ -900,7 +907,7 @@ describe('LocationsScreen — week availability (M5)', () => {
     })
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={WEEK_ID} weeks={weeks} onSelectWeek={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
     fireEvent.click(screen.getByRole('switch'))
 
@@ -926,7 +933,7 @@ describe('LocationsScreen — week availability (M5)', () => {
     })
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={WEEK_ID} weeks={weeks} onSelectWeek={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
     await waitFor(() => expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('false'))
 
     fireEvent.click(screen.getByRole('switch'))

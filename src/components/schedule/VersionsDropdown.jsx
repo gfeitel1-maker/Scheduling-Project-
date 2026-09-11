@@ -49,7 +49,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
   return (
     <div ref={dropRef} style={{ position: 'relative' }}>
       <button onClick={() => { setConfirmingDeleteId(null); onToggle() }} style={{ ...btnStyle, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-        📋 Versions
+        Versions
         <ChevronIcon expanded={isOpen} />
       </button>
 

@@ -378,8 +378,8 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnc
         <td style={S.td}>
           <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ ...S.input, padding: '4px 6px' }}>
             <option value="">— none —</option>
-            {KIND_OPTIONS.map(({ value, icon, label }) => (
-              <option key={value} value={value}>{icon} {label}</option>
+            {KIND_OPTIONS.map(({ value, label }) => (
+              <option key={value} value={value}>{label}</option>
             ))}
           </select>
         </td>
@@ -415,7 +415,7 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnc
         {capacityWord(location.capacity)}
         {capacityUnconfirmed && <CapacityProvenanceDot location={location} onConfirm={onConfirmCapacity} />}
       </td>
-      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }} title={kindInfo?.label}>{kindInfo ? `${kindInfo.icon} ${kindInfo.label}` : '—'}</td>
+      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }} title={kindInfo?.label}>{kindInfo ? kindInfo.label : '—'}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{location.notes || '—'}</td>
       {weekToggle}
       <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
@@ -432,15 +432,15 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnc
 }
 
 const KIND_OPTIONS = [
-  { value: 'building', icon: '🏢', label: 'Building' },
-  { value: 'classroom', icon: '🏫', label: 'Classroom / Group Space' },
-  { value: 'pool', icon: '🏊', label: 'Pool' },
-  { value: 'field', icon: '🌿', label: 'Field' },
-  { value: 'cabin', icon: '🏕️', label: 'Cabin' },
-  { value: 'court', icon: '🏀', label: 'Court' },
-  { value: 'nature', icon: '🌲', label: 'Nature' },
-  { value: 'office', icon: '🗂️', label: 'Office / Admin' },
-  { value: 'generic', icon: '⬜', label: 'Generic' },
+  { value: 'building', label: 'Building' },
+  { value: 'classroom', label: 'Classroom / Group Space' },
+  { value: 'pool', label: 'Pool' },
+  { value: 'field', label: 'Field' },
+  { value: 'cabin', label: 'Cabin' },
+  { value: 'court', label: 'Court' },
+  { value: 'nature', label: 'Nature' },
+  { value: 'office', label: 'Office / Admin' },
+  { value: 'generic', label: 'Generic' },
 ]
 
 export default function LocationsScreen({ campId, role, onNavigate, weekId, weeks = [], onSelectWeek }) {
@@ -936,7 +936,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                         { key: 'capacity', type: 'number', default: 1, width: 90 },
                         { key: 'kind', type: 'select', default: '', options: [
                           { value: '', label: '— none —' },
-                          ...KIND_OPTIONS.map(k => ({ value: k.value, label: `${k.icon} ${k.label}` })),
+                          ...KIND_OPTIONS.map(k => ({ value: k.value, label: k.label })),
                         ] },
                       ]}
                       onAdd={handleInlineAdd}
