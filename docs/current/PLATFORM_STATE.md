@@ -181,6 +181,13 @@ and is positioned off-screen rather than hidden, so it stays focusable.
 **The import preview's commit button is sticky.** That page reached 10,718px on
 one real file.
 
+**Where these live**, since three of them are shared and easy to re-break:
+`src/components/reconciliation/groupIdenticalDecisions.js` (question grouping),
+`src/screens/reconciliationTray.js` (the single exit's label and mode),
+`S.btnRowDanger` vs `S.btnDanger` in `src/styles/shared.js`. Each carries the
+measurement that motivated it in its own header comment, so the reasoning does
+not have to be recovered from git.
+
 **Destructive actions are quiet per row and loud once.** `S.btnRowDanger` is the
 repeated row action; `S.btnDanger` stays for Delete All, Delete Event, revoking
 a device and every confirm dialog. 109 red Delete buttons down one table is
