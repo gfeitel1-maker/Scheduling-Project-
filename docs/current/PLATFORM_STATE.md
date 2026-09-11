@@ -170,6 +170,18 @@ including their empty states.
 | `root-system-celebration.png` | `postImportBanner` |
 | `icons/decorative-sprout.png` | `SeedScreen` mark |
 
+**No colour emoji.** The four that survived the icon consolidation were removed
+2026-09-11: `⛅` on the Weather Mode button, `📋` on Versions, and the nine
+location-kind emoji were decoration whose labels already said the thing;
+Activities' `🌤` outdoor column was a data cell and became the same `OutdoorIcon`
+the schedule grid draws, so table and grid agree. Emoji render in the OS colour
+font and therefore ignore `--text-secondary` and the light/dark theme every
+other glyph follows — that is the reason, and it is why a new one should not be
+added. Monochrome symbol characters are a separate matter and several remain
+deliberately (the sidebar's `✓`/`!`/`·` and `⚙`, ModeSelect's `★`/`↻`, the
+inline `⚠`/`✎` prefixes) — see the icon-slot vs text-prefix rule in
+`src/components/icons/index.jsx`.
+
 **Empty states carry no imagery.** The 96x80 watercolor tiles that Time Blocks,
 Age Divisions, Cohorts, Activities and Trash used to show were removed on
 2026-09-11 (owner: a decorated empty state is noise, not welcome), along with
