@@ -6,7 +6,7 @@ authority: subordinate-to-constitution
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md]
 owner: Governor (session app-icon-audit-a9a598)
 created: 2026-09-11
-archive_when: every row is either shipped or explicitly declined, and D5 is resolved
+archive_when: every row is either shipped or explicitly declined
 review_trigger: a new icon is added outside src/components/icons/, or a text glyph is proposed as an icon
 ---
 
@@ -54,7 +54,7 @@ things. Where that is true it is recorded below as a deliberate split.
 | 11 | Dropdown affordance | `▾` (Versions, WeekSwitcher) | 2 | `<ChevronIcon/>` |
 | 12 | Reorder up/down | `▲`/`▼` buttons (both grid editors) | 4 | **SPLIT — `<ArrowIcon/>`, not chevron. See D4** |
 | 13 | Reorder left/right | `◀`/`▶` buttons (Event grid) | 2 | `<ArrowIcon/>` rotated |
-| 14 | Review-toggle state | `↗` inactive / `▾` active (StatBadge) | 1 | **See D5 — currently incoherent** |
+| 14 | Review-toggle state | `↗` inactive / `▾` active (StatBadge) | 1 | `<ChevronIcon expanded={active}/>` — D5 resolved |
 | 15 | Back navigation | `←` text ×10 | 10 | `<ArrowIcon/>` rotated 180° |
 | 16 | Forward / next | `→` in Next buttons + ScheduleDoor | 3 | **UNCHANGED in ScheduleDoor — see D6** |
 | 17 | Cell span merge/split | SVG chevron, rotated 90° for split | 1 | Already canonical — fold into `<ChevronIcon/>` |
@@ -109,15 +109,28 @@ the collision worth fixing: a chevron means "this reveals more", an arrow means
 legible, not more.
 Confidence: high.
 
-**D5 — StatBadge's `↗` / `▾` pair is incoherent and needs a product answer.**
-It renders `↗` when inactive and `▾` when active, for the same toggle. Those
-are two unrelated metaphors (external-link vs dropdown) standing in for one
-on/off state. Neither reads as "reviewing / not reviewing", which the `title`
-attribute says it means.
-Recommendation: replace both with one `<ChevronIcon/>` that rotates, matching
-every other expand affordance. But this is a behavior-adjacent UX call, not a
-form swap — flagging rather than deciding.
-Confidence: low. Needs your eyes on the running screen.
+**D5 — RESOLVED (owner, 2026-09-11): one rotating chevron.**
+StatBadge rendered `↗` when inactive and `▾` when active for the same toggle —
+two unrelated metaphors (external-link vs dropdown) standing in for one on/off
+state, neither of which read as "reviewing / not reviewing", which is what the
+`title` attribute says it means.
+
+Both are replaced by a single `<ChevronIcon>` that rotates, matching every
+other disclosure in the app. The tile does open a review list, so disclosure
+is the honest metaphor.
+
+Kept rather than dropped, even though the tile already signals state three
+other ways (`aria-pressed`, a coloured border, a faint fill): the glyph's
+second job is separating a clickable tile from a non-clickable one ("Placed",
+and any concern whose count is zero), and that distinction would otherwise
+rest on border colour alone.
+
+Rendered inline (`display: inline-block`, `vertical-align: middle`) rather
+than in a flex row, so a long label — "Spread across the week" — still wraps
+normally with the chevron following the last line. Verified in the running
+app: the chevron's offset from the label's optical centre is 0.75px and
+identical in both states, because the polyline is centred on the viewBox's
+y-axis and so maps onto itself under a 180° rotation.
 
 **D6 — Does ScheduleDoor's `→` become an icon?**
 Recommendation: **NO, leave as text.** It is an animation target — hover finds

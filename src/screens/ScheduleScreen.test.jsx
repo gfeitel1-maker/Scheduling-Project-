@@ -1309,9 +1309,10 @@ describe('T18: one concept has one name on both routes', () => {
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
     await waitFor(() => expect(screen.getByText('Still needed')).toBeTruthy())
 
-    // Both badges have findings here, so the clickable "↗" suffix is appended
-    // to the label as a separate text node — match loosely, as elsewhere in
-    // this file (see the CELL_SELECTOR / "Unfillable" comment above).
+    // Both badges have findings here, so each label is followed by the
+    // clickable disclosure chevron — an <svg> sibling, contributing no text.
+    // Match loosely anyway, as elsewhere in this file (see the CELL_SELECTOR /
+    // "Unfillable" comment above).
     expect(screen.getByText(/Spread across the week/)).toBeTruthy()
     expect(screen.getByText('Placed')).toBeTruthy()
     expect(screen.queryByText('Underserved')).toBeNull()

@@ -1,4 +1,5 @@
 import React from 'react'
+import { ChevronIcon } from '../icons'
 
 // A single concern tile above the grid. On the generated route these are the
 // "track changes" boxes: clicking one lights up the cells that concern touches
@@ -37,8 +38,23 @@ export default function StatBadge({ label, value, color, onClick, active = false
           caps is markedly harder to scan than a short one — the uppercase
           treatment was carrying visual weight that the words should carry.
           Letter-spacing goes with it: it exists to make caps legible. */}
+      {/* The affordance is the app's ordinary disclosure chevron, rotating to
+          show state — because that is what this tile does: it opens a review
+          list. It previously rendered `↗` when idle and `▾` when active, two
+          unrelated metaphors (external-link, dropdown) standing in for one
+          on/off state, neither of which said "reviewing".
+
+          Rendered inline rather than in a flex row so a long label ("Spread
+          across the week") still wraps normally and the chevron stays with the
+          last line. */}
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-        {label}{clickable ? (active ? ' ▾' : ' ↗') : ''}
+        {label}
+        {clickable && (
+          <ChevronIcon
+            expanded={active}
+            style={{ display: 'inline-block', marginLeft: 4, verticalAlign: 'middle' }}
+          />
+        )}
       </div>
     </button>
   )
