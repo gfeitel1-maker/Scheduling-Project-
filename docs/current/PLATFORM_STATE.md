@@ -164,6 +164,31 @@ Decision table: `docs/work/specs/2026-09-11-icon-vocabulary.md`.
 
 ---
 
+## Import and reconciliation: the director-facing contract
+
+**A repeated question is asked once.** Identical decisions — same kind, entity
+and reason sentence — group into one card that says "This came up N times".
+Grouping is DISPLAY only: each decision keeps its own id and staged answer, so
+the commit payload matches a director who clicked through every copy. Only
+UNANSWERED cards group; an answered one keeps its own card because it carries
+its own answer. Measured on one real file: 240 buttons to 32, 15.2 screens to
+2.1. See `src/components/reconciliation/groupIdenticalDecisions.js`.
+
+**The file control is a drop zone**, not a raw browser input, and it states the
+six formats it accepts. The native `<input type=file>` is still the mechanism
+and is positioned off-screen rather than hidden, so it stays focusable.
+
+**The import preview's commit button is sticky.** That page reached 10,718px on
+one real file.
+
+**Destructive actions are quiet per row and loud once.** `S.btnRowDanger` is the
+repeated row action; `S.btnDanger` stays for Delete All, Delete Event, revoking
+a device and every confirm dialog. 109 red Delete buttons down one table is
+wallpaper, not a warning — the stakes live in DeleteRecordDialog, which computes
+the real dependency count.
+
+---
+
 ## Reconciliation and the generated route
 
 **There is one exit from reconciliation and it is never disabled.**
