@@ -1674,7 +1674,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                         fontSize: 12, lineHeight: 1.6, color: 'var(--text)',
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <WarningTriangleIcon />
+                          <WarningTriangleIcon color="var(--danger)" />
                           <span style={{ fontWeight: 600, color: 'var(--danger)' }}>Cannot be undone</span>
                         </div>
                         {irreversibleWarnings.map((w) => (

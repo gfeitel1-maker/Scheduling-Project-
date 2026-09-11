@@ -27,6 +27,21 @@
 //     both (PinIcon), the caller states stroke weight in PIXELS and the
 //     component converts to viewBox units — see the note there for why.
 //
+// When a glyph becomes an icon and when it stays text — the rule that decided
+// every borderline case in this program:
+//
+//   An ICON SLOT becomes an icon. That is a glyph occupying its own element
+//   beside the text it marks — `<span>⚠</span><span>{message}</span>` inside a
+//   flex row. The slot already exists; only the thing filling it changes.
+//
+//   An INLINE TEXT PREFIX stays text. That is a glyph inside a sentence or a
+//   template literal — `` `✓ Kept ${side}'s version` ``. Replacing it means
+//   restructuring a string into JSX and hanging an SVG off a text baseline,
+//   which looks worse than the character it replaced and reads no better.
+//
+// The rule matters more than any individual case, because it is what stops the
+// next person having to re-litigate this file glyph by glyph.
+//
 // Text glyphs that are deliberately NOT here, per the spec's open decisions:
 // the sidebar's ✓/!/· state marks (D1 — a three-glyph vocabulary in a
 // fixed-width column, `·` has no icon form), ScheduleDoor's → (D6 — an
@@ -180,13 +195,27 @@ export function ChevronIcon({ expanded = false, style, ...rest }) {
 
 // Caution triangle. Stroke is a prop because the same shape carries both the
 // warning and the danger reading depending on severity.
-export function WarningTriangleIcon({ color = 'var(--danger)', size = 14, style, ...rest }) {
+export function WarningTriangleIcon({ color = 'currentColor', size = 14, style, ...rest }) {
   return (
     <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
       strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, ...style }} {...rest}>
       <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
       <line x1="12" y1="9" x2="12" y2="13" />
       <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  )
+}
+
+// Info — the notice box's mark. Sibling to WarningTriangleIcon: the two fill
+// the same slot in the same flex box, so they share a size and a stroke
+// weight, and both inherit colour from the box rather than naming one.
+export function InfoIcon({ size = 14, style, ...rest }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, ...style }} {...rest}>
+      <circle cx="12" cy="12" r="9.5" />
+      <path d="M12 11v5" />
+      <path d="M12 7.75v.5" />
     </svg>
   )
 }
