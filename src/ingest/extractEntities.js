@@ -27,6 +27,7 @@ import { whitespaceInsensitiveName as whitespaceInsensitiveKey } from './preview
 // sits immediately after 'time_blocks' and before 'activities' — the order
 // commitPlan's create loop follows, so a location this same import proposes is
 import { orderTimeBlocks } from './orderTimeBlocks.js'
+import { dropRedundantEndpoints } from './dropRedundantEndpoints.js'
 import { isChangeOverSpan } from './periodSpan.js'
 // already a live row (and in locationIdByName) by the time any activity's
 // location field resolves. Order is normative here, not just set membership —
@@ -660,7 +661,11 @@ export function extractEntities(parsed, compoundCellDecisions) {
     // so a day rendered 9:15 -> 11:50 -> 3:15 -> 12:30 unless it is sorted here,
     // at the one point both buildPlan and commitIngest read it. See
     // orderTimeBlocks.js for the camp-day rule this depends on.
-    time_blocks: orderTimeBlocks(dedupe(timeBlocks)),
+    // Ordered, then stripped of one-ended blocks that a range already covers.
+    // Splitting a block into its real periods (T140) recovers periods that were
+    // being lost, and leaves fragments from the wrap shapes it does not model —
+    // every one of campA's was an endpoint of a range the split produces.
+    time_blocks: dropRedundantEndpoints(orderTimeBlocks(dedupe(timeBlocks))),
     // Q8: ranked by how often seen, same treatment activities gets — a place
     // printed once is more likely a misread than a real room. tallyExact, not
     // tally — see its comment above.

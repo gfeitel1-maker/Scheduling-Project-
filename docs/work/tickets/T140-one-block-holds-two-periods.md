@@ -1,7 +1,7 @@
 ---
 title: T140-one-block-holds-two-periods
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-11
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md]
@@ -57,7 +57,37 @@ to fix. Without the data test, a label spread over three lines fragments.
 | campA ranged-period ratio | 69% | **58%** |
 | campB | 100% | 100% (unchanged) |
 
-## Why it is not shipped
+## SHIPPED 2026-09-11 — and the blocker is gone
+
+The ratio did not have to be traded away. Every one of campA's eight fragments
+turned out to be an ENDPOINT of a range the split itself produces:
+
+    9:50, 10:25  ->  9:50-10:25        12:25  ->  11:50-12:25
+    11:10, 11:45 ->  11:10-11:45       12:30  ->  12:30-1:05
+    1:45         ->  1:10-1:45         3:05   ->  2:30-3:05
+
+So a one-ended block whose time matches a range is the same period named by one
+end, and dropping it cannot lose anything (`dropRedundantEndpoints.js`). The rule
+is deliberately narrow: a one-ended block matching NO range is KEPT, because
+there it may be the only trace of a real period — campC keeps "03:25" and
+"04:00" for exactly that reason.
+
+Final, against the definition of done below:
+
+| | before | after |
+|---|---|---|
+| campA blocks | 13 (9 ranged, 69%) | **11, all ranged (100%)** |
+| campA activities | 109 | **64** |
+| campA records committed | 175 | **126** |
+| campB | 12, 100% | 12, 100% — unchanged |
+| campC | 8, 75% | 8, 75% — unchanged |
+
+The generated day now renders 9:15-9:40, 9:50-10:25, 10:30-11:05, 11:10-11:45,
+11:50-12:25, 12:30-1:05, 1:10-1:45, 1:50-2:25, 2:30-3:05, 3:15-3:40, 4:00-4:15 —
+eleven periods in clock order, each with both ends. The 9:50-10:25 period did
+not exist in the output at all before this.
+
+## Original note on why it was held back
 
 That last row. Splitting produces more periods overall — more correct ones AND
 more one-ended fragments on the backcountry/specialist pages (15-18), which use
