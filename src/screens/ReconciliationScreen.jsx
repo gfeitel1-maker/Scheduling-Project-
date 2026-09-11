@@ -143,8 +143,14 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Takes one id or several. Several is how a repeated question is answered:
+  // identical cards are grouped for DISPLAY (groupIdenticalDecisions), but each
+  // decision still gets its own staged answer, so the commit payload matches a
+  // director who clicked through every one of them by hand.
   function stage(decisionId, answer) {
-    const next = { ...answers, [decisionId]: answer }
+    const ids = Array.isArray(decisionId) ? decisionId : [decisionId]
+    const next = { ...answers }
+    for (const id of ids) next[id] = answer
     setAnswers(next)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => runDryRun(next), 250)

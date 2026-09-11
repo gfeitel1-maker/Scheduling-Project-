@@ -92,7 +92,7 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{groupCount}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button onClick={e => { e.stopPropagation(); onDelete(tier.id) }}
-          style={groupCount > 0 || role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
+          style={groupCount > 0 || role !== 'admin' ? { ...S.btnRowDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnRowDanger, marginLeft: 6 }}
           disabled={groupCount > 0 || role !== 'admin'}
           title={groupCount > 0 ? 'Remove groups from this age division first' : role !== 'admin' ? 'Admin only' : ''}
         >Delete</button>

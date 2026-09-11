@@ -266,7 +266,7 @@ describe('ImportScreen — two-rows split suggestion (Slice 2b)', () => {
     expect(localClient.write).not.toHaveBeenCalled()
     // Back on the file-upload antechamber (ledger + proposal cleared) — the
     // staged split decision was dropped along with everything else review-time.
-    expect(await screen.findByText('Choose the file, or all of them')).toBeTruthy()
+    expect(await screen.findByText(/Drop last year's schedule here/)).toBeTruthy()
   })
 
   it('a collision found at review time shows the three-way reuse/rename/cancel, without writing', async () => {

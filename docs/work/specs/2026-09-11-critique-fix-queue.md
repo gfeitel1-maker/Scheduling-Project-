@@ -31,8 +31,12 @@ review_trigger: any item promoted to an ADR; any owner decision on the three def
 | T127 reconciliation's exits | **shipped** | one always-reachable primary; counts name their unit |
 | Generated route opens to the schedule | **shipped** | owner directive; concerns row moved below the grid |
 | T129 sidebar marks | open, **reframed** | make the marks self-evident; a legend is help, and help is out |
-| T130/T131/T138/T139 | open | Batch 5 |
-| T127 bulk actions | open | the 25 identical elective prompts still need a "do this for all N" |
+| T139 first-run continuity | open | background, wordmark, Seed double-title, placeholders |
+| T131 group-list walls | open | activity rows print every group as raw text |
+| T127 bulk actions | **shipped** | identical questions asked once; 240 buttons -> 32, 15.2 screens -> 2.1 |
+| T130 row Delete shouting | **shipped** | quiet row action across 10 sites; Delete All stays loud |
+| T131 import preview | **partly shipped** | commit button is sticky; the group-list walls remain |
+| T138 file input | **shipped** | drop zone, stated formats, styled control |
 
 **T133 is closed as not-a-defect, and two claims in this file were wrong.**
 The three "misclassified groups" come from page titles the source itself shapes

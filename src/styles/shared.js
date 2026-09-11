@@ -78,6 +78,33 @@ export const S = {
     opacity: 0.45,
     cursor: 'not-allowed',
   },
+  // A destructive action that repeats once per ROW.
+  //
+  // Every setup screen put a red-bordered Delete on every row, so importing one
+  // real camp file made "Delete" the highest-contrast repeated element on the
+  // Activities screen — 109 of them running down a 12-screen table, on the
+  // surface a director uses to REVIEW their programme. Alarm that fires on
+  // every row is not a warning, it is wallpaper.
+  //
+  // The danger has not gone anywhere: DeleteRecordDialog still states the real
+  // consequence, computed from a live dependency count ("Willow is used in 12
+  // places in your schedules"). That dialog is where the stakes belong. A row
+  // button is navigation to it.
+  //
+  // btnDanger stays loud and is still correct for the actions that deserve it:
+  // Delete All, Delete Event, revoking a device, and every confirm dialog.
+  // Same geometry as btnDanger so no row's layout shifts.
+  btnRowDanger: {
+    padding: '7px 14px',
+    background: 'none',
+    color: 'var(--text-secondary)',
+    border: '1px solid var(--border)',
+    borderRadius: 7,
+    fontWeight: 600,
+    fontSize: 13,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
   btnDanger: {
     padding: '7px 14px',
     background: 'none',

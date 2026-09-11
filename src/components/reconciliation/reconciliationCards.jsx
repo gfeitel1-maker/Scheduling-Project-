@@ -366,7 +366,7 @@ function useContentCrossfade(dep) {
   }
 }
 
-export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onToggleEvidence, locations }) {
+export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onToggleEvidence, locations, repeatCount = 1 }) {
   const resolved = isDecisionResolvedFor(decision, { [decision.id]: answer })
   const cardStyle = rank === 'hold' ? cardStyles.cardHold : cardStyles.cardStandard
   const question = questionFor(decision)
@@ -376,6 +376,13 @@ export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onTog
   return (
     <div style={{ ...cardStyle, opacity: resolved ? 0.6 : 1, transition: 'opacity var(--motion-fast) var(--ease-out)' }}>
       <div style={{ fontWeight: 600, fontSize: rank === 'hold' ? 14 : 13, color: 'var(--text)' }}>{question}</div>
+      {repeatCount > 1 && (
+        // Said plainly rather than as a badge: it changes what answering DOES,
+        // so it belongs in the sentence the director is reading, not in chrome.
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+          This came up {repeatCount} times. Answering here answers all {repeatCount}.
+        </div>
+      )}
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
         {subtitleFor(decision)}
       </div>
