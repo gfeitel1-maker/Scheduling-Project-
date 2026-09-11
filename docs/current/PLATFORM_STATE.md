@@ -164,6 +164,29 @@ Decision table: `docs/work/specs/2026-09-11-icon-vocabulary.md`.
 
 ---
 
+## First run and the sidebar's marks
+
+**The pre-session screens share one backdrop.** `AuthWatermark` (the faint root
+texture) runs on ModeSelect, CampBootstrap and JoinByCode; LoginScreen has its
+own richer hero panel instead. It is a component rather than a copied style so
+the opacity cannot drift screen to screen.
+
+**The wordmark appears once per screen.** LoginScreen's hero says "Shoresh" in
+the brand display face; the card beside it carries the CAMP's name, not a second
+wordmark in the condensed UI face.
+
+**SeedScreen titles itself** — its `TITLES` entry is deliberately empty, because
+the page puts "Seed your camp." in the display face as the moment it is meant to
+be.
+
+**The sidebar has two marks, not three.** `✓` (with a count) and `!` (with the
+word "needed"). There is no `·`: every unmarked row already carries "needed",
+"optional" or "attention" beside it, and a glyph that needs a legend is a glyph
+to remove — this app does not do help. The expected-but-empty tint sits on that
+WORD, never on a dot alone, so colour is never the sole carrier.
+
+---
+
 ## Import and reconciliation: the director-facing contract
 
 **A repeated question is asked once.** Identical decisions — same kind, entity
