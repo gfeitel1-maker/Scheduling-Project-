@@ -65,10 +65,17 @@ export function useSetupCounts(campId) {
     return () => { cancelled = true; unsub?.() }
   }, [])
 
+  // Two channels, because a count can change for two different reasons.
+  // onOpApplied is an op arriving from ANOTHER device; onLocalWrite is this
+  // director's own write. Only the first was subscribed here, which is why
+  // importing a season left the sidebar reading "! Groups needed" beside a
+  // Roots panel reading "Groups 33" until the app was reloaded (T123).
   useEffect(() => {
-    if (typeof localClient.onOpApplied !== 'function') return
-    const unsub = localClient.onOpApplied(() => { refreshCounts() })
-    return () => { unsub?.() }
+    const unsubs = [
+      localClient.onOpApplied?.(() => { refreshCounts() }),
+      localClient.onLocalWrite?.(() => { refreshCounts() }),
+    ]
+    return () => { for (const unsub of unsubs) unsub?.() }
   }, [refreshCounts])
 
   useEffect(() => {
