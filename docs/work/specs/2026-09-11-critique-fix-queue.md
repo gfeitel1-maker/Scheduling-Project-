@@ -28,8 +28,11 @@ review_trigger: any item promoted to an ADR; any owner decision on the three def
 | T135 repeated anchor chips | **shipped** | display fix; the data was right |
 | T136 reconciliation asks about the wrong things | **partly shipped** | suspects surface in the import preview; reconciliation itself untouched |
 | T137 sweep harness crashed on .txt | **shipped** | and immediately caught a real bug in T122/T132 |
-| T127 reconciliation's 240 buttons | open | Batch 4 |
-| T129/T130/T131/T138/T139 | open | Batch 5 |
+| T127 reconciliation's exits | **shipped** | one always-reachable primary; counts name their unit |
+| Generated route opens to the schedule | **shipped** | owner directive; concerns row moved below the grid |
+| T129 sidebar marks | open, **reframed** | make the marks self-evident; a legend is help, and help is out |
+| T130/T131/T138/T139 | open | Batch 5 |
+| T127 bulk actions | open | the 25 identical elective prompts still need a "do this for all N" |
 
 **T133 is closed as not-a-defect, and two claims in this file were wrong.**
 The three "misclassified groups" come from page titles the source itself shapes
@@ -306,6 +309,31 @@ heading); placeholder convention is inconsistent ("Camp Willowbrook" vs "e.g. Sa
 Cohen").
 
 ---
+
+## Owner decisions, 2026-09-11 (resolved)
+
+**1. The app does not offer help, and that is permanent.** Asked whether Help &
+Documentation scoring 1/4 should be fixed, the owner's answer was: *"the app does
+not help at all. if it needs help, then we have UI wrong."*
+
+This is a standing constraint, not a ticket closure. Help is not a feature this
+product will grow; a screen that needs explaining is a screen to redesign. Two
+consequences:
+
+- Heuristic 10 is permanently **n/a** for this app. Do not re-raise it.
+- **T129 is reframed, not cancelled.** The sidebar's `✓`/`!`/`·` needing a legend
+  is evidence that the MARKS are wrong, so the fix is to make them read without
+  a key — not to add one. A legend would be help, and help is the thing we do
+  not do. Tooltips on disabled controls fall under the same rule, which is why
+  T127's exit carries its state in the label rather than a `title`.
+
+**2. Navigation is changing soon.** Germination / Sprouts / Plants stays untouched
+until that lands. No work against the current labels.
+
+**3. The generated route opens to the schedule.** *"it should open to the
+schedule."* Shipped — the concerns row moved below the grid. The engine has just
+done twenty minutes of the director's work; leading with a row of counts of what
+is still wrong reads as an audit of the result rather than the result.
 
 ## Deliberately NOT queued — these are owner decisions, not defects
 
