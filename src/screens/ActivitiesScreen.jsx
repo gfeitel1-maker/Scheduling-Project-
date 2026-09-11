@@ -4,7 +4,7 @@ import { whitespaceInsensitiveName } from '../ingest/preview'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
-import { ChevronIcon } from '../components/icons'
+import { ChevronIcon, OutdoorIcon } from '../components/icons'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
@@ -1051,7 +1051,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                           />
                         </td>
                         <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{a.location_id ? locMap[a.location_id] || '—' : '—'}</td>
-                        <td style={{ ...S.td, fontSize: 12 }}>{a.is_outdoor ? '🌤' : '—'}</td>
+                        <td style={{ ...S.td, fontSize: 12 }}>{a.is_outdoor ? <OutdoorIcon role="img" aria-label="Outdoor" style={{ display: 'inline-block', verticalAlign: 'middle' }} /> : '—'}</td>
                         <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
                           {a.max_groups_per_slot > 1 ? `Up to ${a.max_groups_per_slot}${a.same_tier_only ? ' (same age division)' : ''}` : '—'}
                         </td>

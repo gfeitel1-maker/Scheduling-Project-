@@ -1026,7 +1026,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onClick={() => setWeatherMode(w => !w)}
                 style={{ padding: '5px 10px', border: `1px solid ${weatherMode ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, background: weatherMode ? 'color-mix(in srgb, var(--accent) 9%, var(--surface))' : 'var(--surface)', color: weatherMode ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
               >
-                ⛅ Weather Mode {weatherMode ? 'ON' : 'OFF'}
+                Weather Mode {weatherMode ? 'ON' : 'OFF'}
               </button>
 
               <VersionsDropdown

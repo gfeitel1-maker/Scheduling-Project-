@@ -208,12 +208,12 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
     fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
     await waitFor(() => expect(screen.getByText('Version History')).toBeTruthy())
 
-    const weatherBtn = screen.getByText('⛅ Weather Mode OFF')
+    const weatherBtn = screen.getByRole('button', { name: /Weather Mode OFF/ })
     fireEvent.mouseDown(weatherBtn)
     fireEvent.click(weatherBtn)
 
     expect(screen.queryByText('Version History')).toBeNull()
-    expect(screen.getByText('⛅ Weather Mode ON')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Weather Mode ON/ })).toBeTruthy()
     expect(screen.getByText('Export to Excel')).toBeTruthy()
   })
 })
