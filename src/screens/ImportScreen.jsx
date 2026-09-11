@@ -526,6 +526,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // gate diffs against is not yet surfaced to the renderer, and its consumer is
   // S4b. Sourcing a real value needs a read-only max-op-seq accessor S4b adds.
   const [exporting, setExporting] = useState(false)
+  const [dragging, setDragging] = useState(false)
   async function downloadWorksheet() {
     setExporting(true)
     setError(null)
@@ -1099,21 +1100,60 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 10, padding: '16px', marginBottom: 20,
       }}>
-        <label style={{ display: 'block', fontSize: 13, marginBottom: 8, color: 'var(--text)' }}>
-          Choose the file, or all of them
-        </label>
-        <input
-          type="file"
-          multiple
-          accept=".xlsx,.xlsm,.xls,.txt,.csv,.tsv"
-          onChange={e => readFiles(e.target.files)}
-          style={{ fontSize: 13 }}
-        />
-        {fileNames.length > 0 && (
-          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
-            {fileNames.join(', ')}
+        {/* "Import last year" is the primary button on SeedScreen, so this is
+            the first real control a director touches — and it used to be a raw
+            browser file input ("Choose Files / No file chosen") sitting in an
+            app where every other control is deliberately styled.
+
+            It also had no drop handler, which is the gesture a director with a
+            spreadsheet on their desktop actually reaches for, and it never said
+            which file types it takes. The native input is still the mechanism —
+            it is what makes this keyboard-accessible and what opens the OS
+            picker — it is just no longer the thing on screen. */}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setDragging(false)
+            if (e.dataTransfer?.files?.length) readFiles(e.dataTransfer.files)
+          }}
+          style={{
+            border: `1.5px dashed ${dragging ? 'var(--primary)' : 'var(--border)'}`,
+            background: dragging ? 'color-mix(in srgb, var(--primary) 6%, var(--surface))' : 'var(--bg)',
+            borderRadius: 9,
+            padding: '18px 16px',
+            textAlign: 'center',
+            transition: 'border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)',
+          }}
+        >
+          <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 10 }}>
+            Drop last year's schedule here
           </div>
-        )}
+          <label
+            className="press-97"
+            style={{ ...S.btnSecondary, display: 'inline-block', cursor: 'pointer' }}
+          >
+            Choose a file
+            <input
+              type="file"
+              multiple
+              accept=".xlsx,.xlsm,.xls,.txt,.csv,.tsv"
+              onChange={e => readFiles(e.target.files)}
+              style={{
+                // Off-screen rather than display:none — a hidden input is not
+                // focusable, and the label is the visible control.
+                position: 'absolute', width: 1, height: 1, padding: 0,
+                margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)', border: 0,
+              }}
+            />
+          </label>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 10 }}>
+            {fileNames.length > 0
+              ? fileNames.join(', ')
+              : 'Excel, CSV or a plain text schedule. Several files at once is fine.'}
+          </div>
+        </div>
         {/* S4a — download a worksheet pre-filled with what the camp already
             knows, to edit and re-import. Read-only; writes nothing. */}
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
@@ -1737,7 +1777,21 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 24, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
+          {/* Sticky, because this preview is long. One real camp file made it
+              10,718px against a 768px viewport — fourteen screens of scrolling
+              to reach a button that was pinned to the bottom. The way out of a
+              review should not be somewhere you have to go and find.
+
+              The reconciliation screen's own tray already works this way; this
+              brings the two halves of the same flow into agreement. */}
+          <div style={{
+            display: 'flex', gap: 10, alignItems: 'center',
+            marginTop: 24, paddingTop: 18, paddingBottom: 14,
+            borderTop: '1px solid var(--border)',
+            position: 'sticky', bottom: 0,
+            background: 'var(--bg)',
+            zIndex: 2,
+          }}>
             <button className="press-97"
               onClick={commit}
               disabled={approvedCount === 0 || !activeCohort}
