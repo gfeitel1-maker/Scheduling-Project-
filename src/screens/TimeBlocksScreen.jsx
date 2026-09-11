@@ -456,7 +456,6 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
           if (c.key === 'start_time') return r.start_time || '—'
           if (c.key === 'end_time') return r.end_time || '—'
           if (c.key === 'part_of_day') return r.part_of_day || '—'
-          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
         }}
       />
 

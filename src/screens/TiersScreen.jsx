@@ -451,7 +451,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         doneSkippedSuffix=" (duplicate or invalid)"
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
-          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
         }}
       />
 

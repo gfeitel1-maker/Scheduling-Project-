@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { S, useEnterTransition } from '../styles/shared'
-import { LockIcon } from '../components/icons'
+import { CircleCheckIcon, LockIcon } from '../components/icons'
 import { usePendingConflicts } from '../hooks/usePendingConflicts'
 import { noticeForStatus } from './conflictsNotice'
 
@@ -237,7 +237,7 @@ export default function ConflictsScreen({ pendingConflicts }) {
         <div style={S.stateLoading}>Loading…</div>
       ) : conflicts.length === 0 ? (
         <div style={S.emptyStateTall}>
-          <div style={{ fontSize: 32, color: 'var(--success)', marginBottom: 10 }}>✓</div>
+          <CircleCheckIcon size={32} style={{ display: 'block', margin: '0 auto 10px' }} />
           {/* color: 'var(--text)' intentional — success state, not an absence */}
           <div style={{ ...S.emptyStateTitle, color: 'var(--text)' }}>
             No conflicts to resolve

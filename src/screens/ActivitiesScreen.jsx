@@ -1145,7 +1145,6 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
             </>
           )
           if (c.key === 'priority') return r.priority
-          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
         }}
       />
 

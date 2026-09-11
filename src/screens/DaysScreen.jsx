@@ -301,7 +301,6 @@ export default function DaysScreen({ campId, role, onNavigate }) {
         renderCell={(r, c) => {
           if (c.key === 'label') return r.label || '—'
           if (c.key === 'day_of_week') return (r.day_of_week !== null && r.day_of_week >= 0 && r.day_of_week <= 6) ? DOW[r.day_of_week] : '—'
-          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
         }}
       />
       {pendingDelete && (
