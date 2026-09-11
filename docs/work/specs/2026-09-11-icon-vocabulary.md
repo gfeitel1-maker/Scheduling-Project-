@@ -12,7 +12,7 @@ review_trigger: a new icon is added outside src/components/icons/, or a text gly
 
 # Icon vocabulary — decision table
 
-Status: DRAFT — awaiting owner decisions on D1–D6
+Status: COMPLETE — every icon slot in the app is an icon; D1–D6 resolved
 Date: 2026-09-11
 Scope: every icon-bearing glyph rendered in `src/`. No behavior change.
 
@@ -76,6 +76,30 @@ things. Where that is true it is recorded below as a deliberate split.
 | 33 | Empty state | SVG calendar (CalmEmptyState) | 1 | Keep; rename to shared module |
 | 34 | Paste pending | `⊡` (Schedule) | 1 | `<ClipboardIcon/>` |
 | 35 | Indent / push | `⇥` (ScheduleGroupView) | 1 | Keep as text — no icon equivalent. **See D3** |
+
+## Closing pass, 2026-09-11
+
+Three rounds landed: the SVG consolidation and glyph decisions (#350), the
+colour emoji (#351), and the symbol characters that remained in icon slots.
+
+That last round converted `⚙` (sidebar Settings), `★` and `↻` and the two `›`
+card chevrons (ModeSelect), `↩`/`↪` (undo/redo), `⏱` (login lockout), `⌕`
+(palette filter) and `⇥` (pull the whole day). Six new glyphs were authored —
+GearIcon, StarIcon, SyncIcon, UndoIcon, ClockIcon, SearchIcon — and two call
+sites reuse glyphs that already existed rather than drawing new ones: the card
+chevrons are `ChevronIcon` rotated, and the whole-day pull button is the same
+`PullIcon` a pulled *cell* already draws, because it is the same concept.
+
+Redo is UndoIcon mirrored (`scaleX(-1)`) rather than a second hand-drawn
+arrow, so the pair cannot drift. GearIcon is deliberately a six-tooth cog with
+a hub rather than the four-ray sun of OutdoorIcon — the two never appear
+together, but two similar radial glyphs in one vocabulary is a trap worth
+spending a few path segments to avoid.
+
+**The invariant now holds with nothing left over.** Every glyph still rendered
+as text is one the rule says should be: inline prefixes (`← Back`, `✓ Saved`,
+`⚠ ${pasteError}`, `● `/`○ ` radio marks) and the sidebar's fixed-width
+`✓`/`!`/`·` state vocabulary. There is no third category.
 
 ## Open decisions (owner)
 

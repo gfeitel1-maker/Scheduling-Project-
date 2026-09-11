@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { activityColor } from './slotCellConstants'
+import { SearchIcon } from '../icons'
 
 function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable, showTarget }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -190,10 +191,10 @@ export default function ActivityPalette({
               left: 8,
               top: '50%',
               transform: 'translateY(-50%)',
-              fontSize: 11,
               color: 'var(--text-secondary)',
               pointerEvents: 'none',
-            }}>⌕</span>
+              display: 'flex',
+            }}><SearchIcon /></span>
             <input
               type="text"
               value={filter}

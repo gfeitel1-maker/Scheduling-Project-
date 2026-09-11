@@ -1,6 +1,7 @@
 import SlotCell from '../schedule/SlotCell'
 import EmptyCell from './EmptyCell'
 import PulledCell from './PulledCell'
+import { PullIcon } from '../icons'
 import OverrideToggleButton from './OverrideToggleButton'
 import { decideCell } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
@@ -108,7 +109,7 @@ export default function ScheduleGroupView({
                                 title={`Pull ${groups.find(g => g.id === selectedGroup)?.name ?? 'group'} for the whole day`}
                                 aria-label={`Pull ${groups.find(g => g.id === selectedGroup)?.name ?? 'group'} for the whole day`}
                                 onClick={e => { e.stopPropagation(); onPullOverrideDay(selectedGroup, d.id) }}
-                              >⇥</button>
+                              ><PullIcon /></button>
                             )}
                             <OverrideToggleButton
                               active={overrideModeDayId === d.id}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { S, useEnterTransition } from '../styles/shared'
-import { WarningTriangleIcon, InfoIcon } from '../components/icons'
+import { WarningTriangleIcon, InfoIcon, ClockIcon } from '../components/icons'
 import treeArt from '../assets/brand/tree-full-wide-login.png'
 
 function formatMMSS(ms) {
@@ -158,7 +158,7 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
 
           {status === 'locked' && (
             <div style={S.authLockoutBox}>
-              <div style={{ fontSize: 20, marginBottom: 8 }}>⏱</div>
+              <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'center' }}><ClockIcon /></div>
               <div style={S.authLockoutTitle}>Just a moment</div>
               <div style={S.authLockoutDesc}>
                 Too many attempts. For security, sign-in is paused briefly. It'll unlock automatically —
