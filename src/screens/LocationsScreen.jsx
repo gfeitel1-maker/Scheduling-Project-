@@ -424,7 +424,7 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnc
           onClick={() => onDelete(location)}
           disabled={role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
-          style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
+          style={role !== 'admin' ? { ...S.btnRowDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnRowDanger, marginLeft: 6 }}
         >Delete</button>
       </td>
     </tr>

@@ -127,7 +127,7 @@ function CohortRow({ cohort, onSave, onDelete }) {
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{cohort.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
-        <button onClick={() => onDelete(cohort.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
+        <button onClick={() => onDelete(cohort.id)} style={{ ...S.btnRowDanger, marginLeft: 6 }}>Delete</button>
       </td>
     </tr>
   )

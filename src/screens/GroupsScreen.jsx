@@ -100,7 +100,7 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle 
           onClick={e => { e.stopPropagation(); onDelete(group.id) }}
           disabled={role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
-          style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
+          style={role !== 'admin' ? { ...S.btnRowDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnRowDanger, marginLeft: 6 }}
         >Delete</button>
       </td>
     </tr>

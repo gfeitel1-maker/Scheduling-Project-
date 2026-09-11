@@ -131,7 +131,7 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
           onClick={() => onDelete(offering)}
           disabled={role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
-          style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+          style={role !== 'admin' ? { ...S.btnRowDanger, ...S.buttonDisabled } : S.btnRowDanger}
         >
           Remove
         </button>
