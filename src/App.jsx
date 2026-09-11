@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { localClient } from './localClient'
 import Shell from './components/layout/Shell'
+import { CloseIcon } from './components/icons'
 import ModeSelectScreen from './screens/ModeSelectScreen'
 import JoinByCodeScreen from './screens/JoinByCodeScreen'
 import CampBootstrapScreen from './screens/CampBootstrapScreen'
@@ -262,7 +263,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
             onClick={() => setOpRejectedNotice(null)}
             aria-label="Dismiss"
             style={opRejectedNoticeStyles.dismissBtn}
-          >×</button>
+          ><CloseIcon /></button>
         </div>
       )}
       <Shell

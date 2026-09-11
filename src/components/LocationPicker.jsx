@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useEnterTransition } from '../styles/shared'
 import { CapacityStepper } from './CapacityStepper'
-import { PinIcon, PlusIcon } from './icons'
+import { PinIcon, PlusIcon, CloseIcon } from './icons'
 
 const LOCATION_QUERY_MAXLENGTH = 60
 
@@ -126,7 +126,7 @@ export function LocationPicker({ value, locations, onChange, onCreate, onUpdateC
           ) : (
             <span style={pickerStyles.selectedMeta}>· {capacityWord(selected.capacity)} at once</span>
           )}
-          <button type="button" onClick={clear} aria-label="Clear" style={pickerStyles.clearBtn}>×</button>
+          <button type="button" onClick={clear} aria-label="Clear" style={pickerStyles.clearBtn}><CloseIcon /></button>
         </div>
         <div style={pickerStyles.hint}>
           {capacityFeedback || (justCreated

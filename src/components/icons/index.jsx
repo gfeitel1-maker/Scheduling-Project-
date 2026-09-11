@@ -242,6 +242,22 @@ export function InfoIcon({ size = 14, style, ...rest }) {
   )
 }
 
+// Close / clear / dismiss.
+//
+// The character this replaces, `×`, is still in the codebase in five places
+// and must stay there: "3 groups × 4 blocks", "2–4×/wk", "Add Anchor (×3)"
+// are arithmetic, not buttons. That overloading is why this glyph was
+// converted by hand, one call site at a time, and why no sweep should ever
+// treat `×` as a close mark on sight.
+export function CloseIcon({ size = 12, style, ...rest }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" style={{ display: 'block', ...style }} {...rest}>
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  )
+}
+
 // Padlock — the conflict screen's "a PIN was changed" marker, where the
 // changed value itself must never be rendered.
 export function LockIcon({ size = 18, style, ...rest }) {

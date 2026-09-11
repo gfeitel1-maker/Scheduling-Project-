@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from 'react'
 import { localClient } from '../../localClient'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../../styles/shared'
-import { ArrowIcon } from '../../components/icons'
+import { ArrowIcon, CloseIcon } from '../../components/icons'
 import { createActivity } from '../schedule/createActivityHelper'
 import { buildRowTracks, columnTracks } from '../schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../schedule/gridPlacement'
@@ -363,7 +363,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
                           <button type="button" className="cell-action" title="Move down" onClick={() => moveBlock(block.id, 1)} disabled={blockIndex === timeBlocks.length - 1}><ArrowIcon direction="down" /></button>
                         </div>
                         <BlockName block={block} onRename={(name) => renameBlock(block.id, name)} />
-                        <button type="button" className="cell-action" title="Remove block" onClick={() => removeBlock(block.id)} style={{ color: 'var(--danger)' }}>×</button>
+                        <button type="button" className="cell-action" title="Remove block" onClick={() => removeBlock(block.id)} style={{ color: 'var(--danger)' }}><CloseIcon size={10} /></button>
                       </div>
                     </div>
                   </div>
