@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useEnterTransition } from '../styles/shared'
 import { CapacityStepper } from './CapacityStepper'
-import { MapPinIcon, PlusIcon } from './icons'
+import { PinIcon, PlusIcon } from './icons'
 
 const LOCATION_QUERY_MAXLENGTH = 60
 
@@ -119,7 +119,7 @@ export function LocationPicker({ value, locations, onChange, onCreate, onUpdateC
     return (
       <div>
         <div style={pickerStyles.selected}>
-          <MapPinIcon color="var(--secondary)" />
+          <PinIcon color="var(--secondary)" />
           <span style={pickerStyles.selectedName}>{selected.name}</span>
           {justCreated ? (
             <CapacityStepper value={selected.capacity} onChange={changeCapacity} />
@@ -143,7 +143,7 @@ export function LocationPicker({ value, locations, onChange, onCreate, onUpdateC
         <div style={pickerStyles.danglingWarning}>The location set here no longer exists — pick a new one.</div>
       )}
       <div style={{ ...pickerStyles.field, ...(focused ? pickerStyles.fieldFocus : {}) }}>
-        <MapPinIcon />
+        <PinIcon />
         <input
           value={query}
           maxLength={LOCATION_QUERY_MAXLENGTH}

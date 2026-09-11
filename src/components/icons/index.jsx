@@ -22,10 +22,10 @@
 //     call site can pass `data-testid`, `aria-hidden`, or a one-off margin
 //     without the icon needing to know about it.
 //   - Two size families, reflecting where they are used: 10–12px glyphs for
-//     the dense schedule grid (viewBox "0 0 12 12", geometry authored at that
-//     size), and 14–24px glyphs for ordinary chrome (viewBox "0 0 24 24").
-//     Keep a new icon in whichever family its neighbours use; mixing viewBox
-//     scales inside one row is what made the old pins visibly mismatched.
+//     the dense schedule grid, and 14–24px glyphs for ordinary chrome. Keep a
+//     new icon in whichever family its neighbours use. Where one shape serves
+//     both (PinIcon), the caller states stroke weight in PIXELS and the
+//     component converts to viewBox units — see the note there for why.
 //
 // Text glyphs that are deliberately NOT here, per the spec's open decisions:
 // the sidebar's ✓/!/· state marks (D1 — a three-glyph vocabulary in a
@@ -110,35 +110,42 @@ export function PencilIcon({ style, ...rest }) {
   )
 }
 
-// The grid-cell location pin. Authored at 10x12 for the dense cell footprint,
-// which is why it is a separate glyph from MapPinIcon below rather than the
-// same one scaled down — PR 2 of the icon program reconciles the two.
-export function CellPinIcon({ style, ...rest }) {
-  return (
-    <svg viewBox="0 0 10 12" width={10} height={10} fill="none" style={{ display: 'block', ...style }} {...rest}>
-      <path
-        d="M5 11 C5 11 8.5 7.2 8.5 4.5 C8.5 2.29 6.71 0.5 5 0.5 C3.29 0.5 1.5 2.29 1.5 4.5 C1.5 7.2 5 11 5 11 Z"
-        stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"
-      />
-      <circle cx="5" cy="4.5" r="1.3" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Chrome family — 14–24px, for ordinary screen furniture.
 // ---------------------------------------------------------------------------
 
-// The picker's location pin. Takes an explicit colour because the pickers use
-// it both as a quiet affordance and as a filled-in value indicator.
-export function MapPinIcon({ color = 'var(--text-secondary)', size = 15, style, ...rest }) {
+// The location pin — one shape, used at two sizes.
+//
+// Both call sites previously drew their own pin with different path data: a
+// 24-viewBox one in the pickers and a squashed 10x12 one in the grid cells.
+// Merging them is not just a matter of picking a path, because stroke width is
+// expressed in viewBox units: the same `strokeWidth` renders thinner the
+// smaller the icon is drawn. A naive merge would have made the grid pin render
+// a 0.67px stroke against the picker's 1.0px, which reads as faded rather than
+// small.
+//
+// So the caller states the stroke weight it wants in PIXELS and the component
+// converts. That keeps a 10px pin and a 15px pin looking like the same object
+// at two distances, which is the whole point of sharing the glyph.
+export function PinIcon({ color = 'var(--text-secondary)', size = 15, strokePx = 1, style, ...rest }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6"
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
+      strokeWidth={strokePx * 24 / size} strokeLinejoin="round"
       style={{ flexShrink: 0, ...style }} {...rest}>
       <path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z" />
       <circle cx="12" cy="11" r="2.2" />
     </svg>
   )
+}
+
+// The grid-cell preset: smaller, and a touch heavier in stroke so it holds up
+// against the dense cell background. `display: block` matches the other
+// grid-family glyphs so it sits on the text baseline the same way.
+// Colour is inherited (`currentColor`) rather than named, because the cell's
+// own CSS owns it — .cell-location-icon sets it today and any future hover
+// state on the cell should carry the pin with it.
+export function CellPinIcon({ style, ...rest }) {
+  return <PinIcon size={10} strokePx={1.2} color="currentColor" style={{ display: 'block', ...style }} {...rest} />
 }
 
 // "Add a new one" inside the pickers.
