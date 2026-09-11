@@ -1,12 +1,12 @@
 import { S, useEnterTransition } from '../styles/shared'
-import rootPattern from '../assets/brand/root-pattern-bg.jpg'
+import AuthWatermark from '../components/AuthWatermark'
 import { StarIcon, SyncIcon, ChevronIcon } from '../components/icons'
 
 export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
   const enterStyle = useEnterTransition('liftFade')
   return (
     <div style={{ ...S.authPage, position: 'relative', overflow: 'hidden' }}>
-      <div style={modeSelectStyles.watermark} aria-hidden="true" />
+      <AuthWatermark />
       <div style={{ ...S.authCard, position: 'relative', zIndex: 1, ...enterStyle }}>
         <div style={S.authLogoBlock}>
           <div style={S.authLogo}>Shoresh</div>
@@ -56,18 +56,4 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
       </div>
     </div>
   )
-}
-
-const modeSelectStyles = {
-  watermark: {
-    position: 'absolute',
-    inset: 0,
-    backgroundImage: `url(${rootPattern})`,
-    backgroundSize: 'cover',
-    backgroundPosition: 'center',
-    backgroundRepeat: 'no-repeat',
-    opacity: 0.06,
-    pointerEvents: 'none',
-    zIndex: 0,
-  },
 }

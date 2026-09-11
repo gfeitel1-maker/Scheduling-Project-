@@ -15,6 +15,7 @@
 // over-inclusion is recoverable and silent omission is the failure to avoid.
 // Where the two trade off, this errs toward including too much.
 
+
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
 // A run of two or more spaces separates columns; a single space is inside a
@@ -408,7 +409,23 @@ export function parseTextGrid(text) {
       const periodLabel = label.join(' ')
 
       if (valueRows.length === 0) {
-        if (periodLabel) rows.push({ label: periodLabel, cells: Array(columns.length).fill('') })
+        if (!periodLabel) return
+        // A blank line can land INSIDE a wrapped label, which splits one period
+        // in half: Camp A's backcountry pages print "11:10-Block" over its data,
+        // then a blank, then " 11:45  3". The tail arrives here as a label with
+        // no data, and left alone both halves become bare one-ended periods
+        // ("11:10" and "11:45") instead of one "11:10-11:45".
+        //
+        // It is a tail, not an empty period, when it carries a single time AND
+        // the row before it is still missing its end — a period that genuinely
+        // has no activities follows a COMPLETE label and is pushed as before.
+        const previous = rows[rows.length - 1]
+        const timesIn = (text) => (String(text ?? '').match(/\d{1,2}[:.]\d{2}/g) ?? []).length
+        if (previous && timesIn(periodLabel) === 1 && timesIn(previous.label) % 2 === 1) {
+          previous.label = `${previous.label} ${periodLabel}`
+          return
+        }
+        rows.push({ label: periodLabel, cells: Array(columns.length).fill('') })
         return
       }
 

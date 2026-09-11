@@ -8,7 +8,8 @@ import { ChevronIcon, GearIcon } from '../icons'
 
 // Marks are fixed-width whether or not one is present, so labels stay aligned
 // as ticks appear. Colour is never the only carrier: `!` is a distinct glyph
-// AND carries the word "needed"; `✓` carries a count.
+// AND carries the word "needed"; `✓` carries a count; every unmarked row
+// carries "needed", "optional" or "attention" beside it.
 // Counts are keyed by area; getSetupGaps wants collections and only inspects
 // length, so a count becomes an array of that length.
 function countGaps(counts) {
@@ -22,10 +23,11 @@ function countGaps(counts) {
   })
 }
 
-const MARK_COLOR = { '✓': 'var(--success)', '!': 'var(--danger)', '·': 'var(--text-secondary)' }
-// The dot an `expected`-but-empty row uses (Recurring Events) instead of the
-// plain grey "not started" dot — a distinct tint, not a distinct glyph, so it
-// reads as "worth a look" without borrowing '!''s blocking weight.
+const MARK_COLOR = { '✓': 'var(--success)', '!': 'var(--danger)' }
+// The tint an `expected`-but-empty row's word carries (Recurring Events), so it
+// reads as "worth a look" without borrowing '!''s blocking weight. It sits on
+// the word rather than a dot: as a re-tinted dot it was colour acting as the
+// sole carrier, which the note above says never to do.
 const EXPECTED_EMPTY_DOT_COLOR = 'var(--warning)'
 const TONE_COLOR = {
   danger: 'var(--danger)', success: 'var(--success)',
@@ -107,10 +109,19 @@ export default function Sidebar({
     const count = item.area ? counts?.[item.area] : undefined
     const isBlocking = item.area ? gapAreas.has(item.area) : false
     const isExpectedEmpty = item.area && item.expected && !isBlocking && !(count > 0)
-    const mark = !item.area ? null : isBlocking ? '!' : (count > 0 ? '✓' : '·')
-    const markColor = mark
-      ? (isExpectedEmpty ? EXPECTED_EMPTY_DOT_COLOR : MARK_COLOR[mark])
-      : null
+    // Two marks, not three. `✓` and `!` are universal — nobody has to be told
+    // what a tick or an exclamation mark means. `·` was the one a director
+    // would have had to LEARN, and it said nothing the row was not already
+    // saying: every row with no tick carries the word "needed", "optional" or
+    // "attention" right beside it. A glyph that needs a legend is a glyph to
+    // remove, not to explain (T129).
+    //
+    // The expected-but-empty tint moves onto that WORD. It was previously the
+    // only thing separating "attention" from "optional" — a re-tinted `·`,
+    // colour as sole carrier, which this file's own header comment says never
+    // to do. On the word it is reinforcement: "attention" already says it.
+    const mark = !item.area ? null : isBlocking ? '!' : (count > 0 ? '✓' : null)
+    const markColor = mark ? MARK_COLOR[mark] : null
     const meta = !item.area
       ? null
       : count > 0 ? String(count)
@@ -137,10 +148,11 @@ export default function Sidebar({
       >
         {/* Fixed width whether or not a mark is present, so labels
             do not shift as ticks appear. */}
+        {/* Fixed width whether or not a mark is present, so labels do not
+            shift as ticks appear. */}
         <span style={{
           width: 13, flexShrink: 0, fontSize: 11, fontWeight: 700,
           color: mark ? markColor : 'transparent',
-          opacity: mark === '·' && !isExpectedEmpty ? 0.5 : 1,
         }}>{mark ?? ''}</span>
         <span style={{ flex: 1, minWidth: 0, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {item.label}
@@ -154,7 +166,9 @@ export default function Sidebar({
         {meta && (
           <span style={{
             fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
-            color: isBlocking ? 'var(--danger)' : 'var(--text-secondary)',
+            color: isBlocking
+              ? 'var(--danger)'
+              : isExpectedEmpty ? EXPECTED_EMPTY_DOT_COLOR : 'var(--text-secondary)',
           }}>{meta}</span>
         )}
         {Boolean(badges[item.key]) && (

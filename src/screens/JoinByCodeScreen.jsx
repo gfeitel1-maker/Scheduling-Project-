@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import AuthWatermark from '../components/AuthWatermark'
 import { S, useEnterTransition } from '../styles/shared'
 import { localClient } from '../localClient'
 
@@ -162,7 +163,8 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
   }, [name, pin])
 
   return (
-    <div style={S.authPage}>
+    <div style={{ ...S.authPage, position: 'relative', overflow: 'hidden' }}>
+      <AuthWatermark />
       <div style={{ ...S.authCard, ...enter }}>
         {step !== STEP.joined && (
           <div style={S.authBackRow}>

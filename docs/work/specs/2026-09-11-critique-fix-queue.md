@@ -30,9 +30,10 @@ review_trigger: any item promoted to an ADR; any owner decision on the three def
 | T137 sweep harness crashed on .txt | **shipped** | and immediately caught a real bug in T122/T132 |
 | T127 reconciliation's exits | **shipped** | one always-reachable primary; counts name their unit |
 | Generated route opens to the schedule | **shipped** | owner directive; concerns row moved below the grid |
-| T129 sidebar marks | open, **reframed** | make the marks self-evident; a legend is help, and help is out |
-| T139 first-run continuity | open | background, wordmark, Seed double-title, placeholders |
-| T131 group-list walls | open | activity rows print every group as raw text |
+| T129 sidebar marks | **shipped** | `·` removed — two universal marks, the word carries the rest |
+| T139 first-run continuity | **shipped** | shared watermark, one wordmark on Login, Seed titles itself, placeholder |
+| T131 group-list walls | **shipped** | exceptions named, then a count; short lists still listed |
+| T140 two periods in one block | **open, filed** | built and measured; 109→64 activities but drops the ranged ratio |
 | T127 bulk actions | **shipped** | identical questions asked once; 240 buttons -> 32, 15.2 screens -> 2.1 |
 | T130 row Delete shouting | **shipped** | quiet row action across 10 sites; Delete All stays loud |
 | T131 import preview | **partly shipped** | commit button is sticky; the group-list walls remain |

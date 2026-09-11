@@ -86,8 +86,11 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
 
       <div style={loginStyles.formPanel}>
         <div style={S.authCard}>
+          {/* The hero panel beside this already says "Shoresh", in the brand
+              display face. Repeating it here in the condensed UI face put the
+              wordmark on screen twice, in two different typefaces, a few inches
+              apart. The camp's own name is what this block is for. */}
           <div style={S.authLogoBlock}>
-            <div style={S.authLogo}>Shoresh</div>
             <div style={S.authLogoSub}>{campName || 'Camp activity scheduling'}</div>
           </div>
 
