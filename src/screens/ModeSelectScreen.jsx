@@ -1,5 +1,6 @@
 import { S, useEnterTransition } from '../styles/shared'
 import rootPattern from '../assets/brand/root-pattern-bg.jpg'
+import { StarIcon, SyncIcon, ChevronIcon } from '../components/icons'
 
 export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
   const enterStyle = useEnterTransition('liftFade')
@@ -25,7 +26,7 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
           onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.boxShadow = '0 2px 10px rgba(0,0,0,0.06)' }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none' }}
         >
-          <div style={S.authChoiceIcon}>★</div>
+          <div style={S.authChoiceIcon}><StarIcon /></div>
           <div style={{ flex: 1 }}>
             <div style={S.authChoiceTitle}>Host this camp's schedule</div>
             <div style={S.authChoiceDesc}>
@@ -33,7 +34,7 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
               connect to it. Choose this on the camp office computer, or the one that stays on.
             </div>
           </div>
-          <div style={S.authChoiceChevron}>›</div>
+          <div style={S.authChoiceChevron}><ChevronIcon size={14} style={{ transform: 'rotate(-90deg)' }} /></div>
         </button>
 
         <button
@@ -42,7 +43,7 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
           onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.boxShadow = '0 2px 10px rgba(0,0,0,0.06)' }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none' }}
         >
-          <div style={S.authChoiceIcon}>↻</div>
+          <div style={S.authChoiceIcon}><SyncIcon /></div>
           <div style={{ flex: 1 }}>
             <div style={S.authChoiceTitle}>Join a camp already set up</div>
             <div style={S.authChoiceDesc}>
@@ -50,7 +51,7 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
               counselor stations, or anything besides the main office computer.
             </div>
           </div>
-          <div style={S.authChoiceChevron}>›</div>
+          <div style={S.authChoiceChevron}><ChevronIcon size={14} style={{ transform: 'rotate(-90deg)' }} /></div>
         </button>
       </div>
     </div>

@@ -258,6 +258,88 @@ export function CloseIcon({ size = 12, style, ...rest }) {
   )
 }
 
+// Settings. A cog rather than a sun: six teeth (not the OutdoorIcon's four
+// rays) and a solid hub, so the two radial glyphs do not read alike. They never
+// appear together — this one lives in the sidebar beside the word "Settings" —
+// but distinguishing them is cheap and the alternative is a glyph that means
+// "outdoors" sitting on the settings button.
+const COG_TEETH = [
+  'M12 2.5v2.4', 'M12 19.1v2.4',
+  'M20.23 7.25l-2.08 1.2', 'M5.85 15.55l-2.08 1.2',
+  'M20.23 16.75l-2.08-1.2', 'M5.85 8.45l-2.08-1.2',
+]
+
+export function GearIcon({ size = 14, style, ...rest }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinecap="round" style={{ flexShrink: 0, ...style }} {...rest}>
+      <circle cx="12" cy="12" r="7.1" />
+      <circle cx="12" cy="12" r="2.6" />
+      {COG_TEETH.map((d) => <path key={d} d={d} />)}
+    </svg>
+  )
+}
+
+// Star — "this computer is the source of truth" on the mode-select card.
+export function StarIcon({ size = 18, style, ...rest }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinejoin="round" style={{ flexShrink: 0, ...style }} {...rest}>
+      <path d="M12 3.5l2.6 5.27 5.82.85-4.21 4.1.99 5.79L12 16.77l-5.2 2.74.99-5.79-4.21-4.1 5.82-.85Z" />
+    </svg>
+  )
+}
+
+// Two arcs chasing each other — "join a camp already running", i.e. sync with
+// another device. Each arrowhead is drawn as a corner AT its arc's endpoint,
+// which is what makes it read as a head rather than a stray tick.
+export function SyncIcon({ size = 18, style, ...rest }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, ...style }} {...rest}>
+      <path d="M3.5 12a8.5 8.5 0 0 1 14.5-6" />
+      <path d="M18 2.5V6h-3.5" />
+      <path d="M20.5 12a8.5 8.5 0 0 1-14.5 6" />
+      <path d="M6 21.5V18h3.5" />
+    </svg>
+  )
+}
+
+// Undo. Redo is the same glyph mirrored rather than a second drawing, so the
+// pair cannot drift apart the way two hand-authored arrows would.
+export function UndoIcon({ direction = 'undo', size = 14, style, ...rest }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
+      style={{ display: 'block', transform: direction === 'redo' ? 'scaleX(-1)' : undefined, ...style }} {...rest}>
+      <path d="M9 14.5 4 9.5 9 4.5" />
+      <path d="M4 9.5h9.5a5.5 5.5 0 0 1 0 11H8.5" />
+    </svg>
+  )
+}
+
+// Clock — the login lockout's "wait a moment".
+export function ClockIcon({ size = 20, style, ...rest }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, ...style }} {...rest}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 6.75v5.55l3.6 2.1" />
+    </svg>
+  )
+}
+
+// Magnifier — the activity palette's filter field.
+export function SearchIcon({ size = 11, style, ...rest }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0, ...style }} {...rest}>
+      <circle cx="10.5" cy="10.5" r="6.75" />
+      <path d="M15.5 15.5 21 21" />
+    </svg>
+  )
+}
+
 // Padlock — the conflict screen's "a PIN was changed" marker, where the
 // changed value itself must never be rendered.
 export function LockIcon({ size = 18, style, ...rest }) {

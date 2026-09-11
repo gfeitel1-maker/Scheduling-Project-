@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { localClient } from '../localClient'
+import { UndoIcon } from '../components/icons'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
 import { S, useEnterTransition } from '../styles/shared'
@@ -997,13 +998,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               disabled={undoStack.length === 0}
               title={undoStack.length > 0 ? `Undo: ${undoStack[undoStack.length - 1].description}` : 'Nothing to undo'}
               style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: undoStack.length === 0 ? 'not-allowed' : 'pointer', opacity: undoStack.length === 0 ? 0.35 : 1, fontSize: 14, fontFamily: 'inherit' }}
-            >↩</button>
+            ><UndoIcon /></button>
             <button
               onClick={() => { bumpFlagAckResync(); handleRedo() }}
               disabled={redoStack.length === 0}
               title={redoStack.length > 0 ? `Redo: ${redoStack[redoStack.length - 1].description}` : 'Nothing to redo'}
               style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: redoStack.length === 0 ? 'not-allowed' : 'pointer', opacity: redoStack.length === 0 ? 0.35 : 1, fontSize: 14, fontFamily: 'inherit' }}
-            >↪</button>
+            ><UndoIcon direction="redo" /></button>
 
             <div style={{ flex: 1 }} />
 
