@@ -1,4 +1,4 @@
-import { startMinutesForOrdering } from './orderTimeBlocks'
+import { startMinutesForOrdering } from './orderTimeBlocks.js'
 
 // A gap between periods is not a period.
 //

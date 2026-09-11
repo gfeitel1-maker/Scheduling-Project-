@@ -26,8 +26,8 @@ import { whitespaceInsensitiveName as whitespaceInsensitiveKey } from './preview
 // M4 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D2): 'locations'
 // sits immediately after 'time_blocks' and before 'activities' — the order
 // commitPlan's create loop follows, so a location this same import proposes is
-import { orderTimeBlocks } from './orderTimeBlocks'
-import { isChangeOverSpan } from './periodSpan'
+import { orderTimeBlocks } from './orderTimeBlocks.js'
+import { isChangeOverSpan } from './periodSpan.js'
 // already a live row (and in locationIdByName) by the time any activity's
 // location field resolves. Order is normative here, not just set membership —
 // ingest.test.js's set-equality check pairs with this array's own order.
