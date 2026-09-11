@@ -26,6 +26,7 @@ import { whitespaceInsensitiveName as whitespaceInsensitiveKey } from './preview
 // M4 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D2): 'locations'
 // sits immediately after 'time_blocks' and before 'activities' — the order
 // commitPlan's create loop follows, so a location this same import proposes is
+import { orderTimeBlocks } from './orderTimeBlocks'
 // already a live row (and in locationIdByName) by the time any activity's
 // location field resolves. Order is normative here, not just set membership —
 // ingest.test.js's set-equality check pairs with this array's own order.
@@ -650,7 +651,12 @@ export function extractEntities(parsed, compoundCellDecisions) {
   const entities = {
     groups: dedupe(groupNames),
     days_of_operation: dedupe(days),
-    time_blocks: dedupe(timeBlocks),
+    // Chronological, not file order. A real camp file lists its periods out of
+    // order, and `sort_order` is derived downstream from this array's index —
+    // so a day rendered 9:15 -> 11:50 -> 3:15 -> 12:30 unless it is sorted here,
+    // at the one point both buildPlan and commitIngest read it. See
+    // orderTimeBlocks.js for the camp-day rule this depends on.
+    time_blocks: orderTimeBlocks(dedupe(timeBlocks)),
     // Q8: ranked by how often seen, same treatment activities gets — a place
     // printed once is more likely a misread than a real room. tallyExact, not
     // tally — see its comment above.
