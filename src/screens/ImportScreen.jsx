@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { localClient } from '../localClient'
 import { useCohorts } from '../hooks/useCohorts'
 import { S, useEnterTransition } from '../styles/shared'
+import { WarningTriangleIcon, ChevronIcon } from '../components/icons'
 import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
@@ -1673,11 +1674,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                         fontSize: 12, lineHeight: 1.6, color: 'var(--text)',
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
-                            <line x1="12" y1="9" x2="12" y2="13" />
-                            <line x1="12" y1="17" x2="12.01" y2="17" />
-                          </svg>
+                          <WarningTriangleIcon color="var(--danger)" />
                           <span style={{ fontWeight: 600, color: 'var(--danger)' }}>Cannot be undone</span>
                         </div>
                         {irreversibleWarnings.map((w) => (
@@ -1742,18 +1739,7 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
     : 'Not set'
   const prioritySummary = PRIORITY_LABEL[rule?.priority ?? 'low']
 
-  const chevron = (
-    <svg
-      aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none"
-      stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-      style={{
-        flexShrink: 0, transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-        transition: 'transform var(--motion-base) var(--ease-standard)',
-      }}
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  )
+  const chevron = <ChevronIcon expanded={expanded} />
 
   const adjustButton = (
     <button
@@ -1906,18 +1892,7 @@ function TwoRowSplitSuggestion({ name, decision, preview, onChangeSuffix, onTogg
     )
   }
 
-  const chevron = (
-    <svg
-      aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none"
-      stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-      style={{
-        flexShrink: 0, transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-        transition: 'transform var(--motion-base) var(--ease-standard)',
-      }}
-    >
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  )
+  const chevron = <ChevronIcon expanded={expanded} />
 
   if (!expanded) {
     return (

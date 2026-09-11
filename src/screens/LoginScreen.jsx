@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { S, useEnterTransition } from '../styles/shared'
+import { WarningTriangleIcon, InfoIcon } from '../components/icons'
 import treeArt from '../assets/brand/tree-full-wide-login.png'
 
 function formatMMSS(ms) {
@@ -94,21 +95,21 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
 
         {notice && (
           <div style={S.authNoticeBox}>
-            <span>ⓘ</span>
+            <InfoIcon style={{ marginTop: 2 }} />
             <span>{notice}</span>
           </div>
         )}
 
         {status === 'error' && (
           <div style={S.authErrorBox}>
-            <span>⚠</span>
+            <WarningTriangleIcon style={{ marginTop: 2 }} />
             <span>That PIN doesn't match {name.trim() || 'that name'}. Try again — you have a few attempts left.</span>
           </div>
         )}
 
         {status === 'connection-error' && (
           <div style={S.authErrorBox}>
-            <span>⚠</span>
+            <WarningTriangleIcon style={{ marginTop: 2 }} />
             <span>Couldn't reach the app right now. Check your connection and try again.</span>
           </div>
         )}

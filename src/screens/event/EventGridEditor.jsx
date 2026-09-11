@@ -17,6 +17,7 @@ import * as XLSX from 'xlsx'
 import { localClient } from '../../localClient'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../../styles/shared'
+import { ArrowIcon, CloseIcon } from '../../components/icons'
 import { createActivity } from '../schedule/createActivityHelper'
 import { buildRowTracks, columnTracks } from '../schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../schedule/gridPlacement'
@@ -539,10 +540,10 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%' }}>
                       <EventGroupName group={g} onRename={(name) => renameEventGroup(g.id, name)} />
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <button type="button" className="cell-action" title="Move left" onClick={() => moveEventGroup(g.id, -1)} disabled={groupIndex === 0}>◀</button>
-                        <button type="button" className="cell-action" title="Move right" onClick={() => moveEventGroup(g.id, 1)} disabled={groupIndex === eventGroups.length - 1}>▶</button>
+                        <button type="button" className="cell-action" title="Move left" onClick={() => moveEventGroup(g.id, -1)} disabled={groupIndex === 0}><ArrowIcon direction="left" /></button>
+                        <button type="button" className="cell-action" title="Move right" onClick={() => moveEventGroup(g.id, 1)} disabled={groupIndex === eventGroups.length - 1}><ArrowIcon direction="right" /></button>
                       </div>
-                      <button type="button" className="cell-action" title="Remove group" onClick={() => removeEventGroup(g.id)} style={{ color: 'var(--danger)' }}>×</button>
+                      <button type="button" className="cell-action" title="Remove group" onClick={() => removeEventGroup(g.id)} style={{ color: 'var(--danger)' }}><CloseIcon size={10} /></button>
                     </div>
                   </div>
                 ))}
@@ -556,11 +557,11 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <button type="button" className="cell-action" title="Move up" onClick={() => moveBlock(block.id, -1)} disabled={blockIndex === 0}>▲</button>
-                          <button type="button" className="cell-action" title="Move down" onClick={() => moveBlock(block.id, 1)} disabled={blockIndex === timeBlocks.length - 1}>▼</button>
+                          <button type="button" className="cell-action" title="Move up" onClick={() => moveBlock(block.id, -1)} disabled={blockIndex === 0}><ArrowIcon direction="up" /></button>
+                          <button type="button" className="cell-action" title="Move down" onClick={() => moveBlock(block.id, 1)} disabled={blockIndex === timeBlocks.length - 1}><ArrowIcon direction="down" /></button>
                         </div>
                         <BlockName block={block} onRename={(name) => renameBlock(block.id, name)} />
-                        <button type="button" className="cell-action" title="Remove block" onClick={() => removeBlock(block.id)} style={{ color: 'var(--danger)' }}>×</button>
+                        <button type="button" className="cell-action" title="Remove block" onClick={() => removeBlock(block.id)} style={{ color: 'var(--danger)' }}><CloseIcon size={10} /></button>
                       </div>
                     </div>
                   </div>

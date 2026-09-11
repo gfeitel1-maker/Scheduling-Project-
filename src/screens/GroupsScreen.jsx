@@ -486,7 +486,6 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
           if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
           if (c.key === 'tier') return r.tierName || '—'
           if (c.key === 'availability') return AVAIL_OPTIONS.find(o => o.value === r.availability)?.label ?? '—'
-          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
         }}
       />
 

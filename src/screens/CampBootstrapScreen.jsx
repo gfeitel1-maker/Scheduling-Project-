@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { S, useEnterTransition } from '../styles/shared'
+import { WarningTriangleIcon } from '../components/icons'
 import forestCircle from '../assets/brand/forest-circle.png'
 
 export default function CampBootstrapScreen({ onBack, onSubmit }) {
@@ -56,7 +57,7 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
           once you're in.
         </div>
 
-        {error && <div style={S.authErrorBox}><span>⚠</span><span>{error}</span></div>}
+        {error && <div style={S.authErrorBox}><WarningTriangleIcon style={{ marginTop: 2 }} /><span>{error}</span></div>}
 
         <form onSubmit={handleSubmit}>
           <label style={{ ...S.authLabel, marginTop: 0 }}>Camp name</label>

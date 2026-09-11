@@ -3,7 +3,6 @@ import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import RecordHistory from '../components/RecordHistory'
 import { entityLabel, formatMoment, restoreCaveat } from './recordLabels'
-import uiTrash from '../assets/brand/icons/ui-trash.png'
 
 // What was deleted, by whom, when — and a way to get it back. All of it has
 // been in the op log since the first delete; none of it was ever shown.
@@ -218,7 +217,6 @@ export default function TrashScreen({ role }) {
       ) : rows.length === 0 ? (
         <div style={S.emptyStateTall}>
           <div style={emptyEnter}>
-            <img src={uiTrash} alt="" style={S.emptyStateIcon} />
             <div style={S.emptyStateTitle}>Nothing deleted</div>
             <div style={S.emptyStateBody}>Deleted records appear here and can be restored.</div>
           </div>

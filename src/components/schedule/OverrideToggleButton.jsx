@@ -3,13 +3,7 @@
 // 16x16 outline-pencil icon button. Used in three places: the day-column
 // header (group/manual views), and the toolbar (day view) — one component so
 // all three read as the same control.
-function PencilIcon() {
-  return (
-    <svg viewBox="0 0 12 12" width={12} height={12} fill="none" style={{ display: 'block' }}>
-      <path d="M8 2 L10 4 L4 10 L2 10 L2 8 Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
+import { PencilIcon } from '../icons'
 
 export default function OverrideToggleButton({ active, onClick, showLabel = false }) {
   return (

@@ -23,7 +23,6 @@ related:
 implementation_state: implemented
 affects:
   - src/screens/SpecialEventsScreen.jsx
-  - src/components/CalmEmptyState.jsx
   - src/App.jsx
   - src/screenKeys.js
   - src/components/layout/navSections.js
@@ -35,6 +34,10 @@ affects:
 # not listed under `affects` because the path-existence check requires live
 # files. SpecialSchedulesScreen.jsx (Plants build surface) is intentionally
 # UNCHANGED.
+# CalmEmptyState.jsx, created by this change, was DELETED on 2026-09-11 (see
+# docs/work/specs/2026-09-11-imagery-audit.md) and is delisted for the same
+# reason. It never had an importer — SpecialEventsScreen renders its empty
+# state inline — so removing it changed no rendered output.
 ---
 
 # Unify Events, Special Days, and Special Schedules into one Special Events screen
@@ -98,8 +101,11 @@ reasoning — see "What this does not change" below).
    - both add flows — "+ Special Day" / "+ Event" — calling the exact same
      `special_days`/`events` writes the two retired screens called today
      (including the special-day seed-from-time-blocks prompt, kept inline),
-   - the calm empty state (`CalmEmptyState.jsx`, created in this change —
-     outline icon + one quiet line, no illustration/explainer),
+   - the calm empty state — one quiet line, no illustration or explainer.
+     (A `CalmEmptyState.jsx` component was created here for it but never
+     imported; the screen renders the empty state inline. The unused component
+     was deleted 2026-09-11 along with the app's other decorative empty-state
+     icons. The *behaviour* this point specifies is unchanged.)
    - **on card click, a detail view** (editable name + notes, commit-on-blur,
      reusing `EventScreen`'s `EventDetail` pattern for both entity kinds —
      both `special_days` and `events` already carry a `notes` column) that

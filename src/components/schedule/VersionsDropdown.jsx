@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { S } from '../../styles/shared'
+import { ChevronIcon } from '../icons'
 
 function formatTime(isoString) {
   const d = new Date(isoString)
@@ -47,8 +48,9 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
 
   return (
     <div ref={dropRef} style={{ position: 'relative' }}>
-      <button onClick={() => { setConfirmingDeleteId(null); onToggle() }} style={btnStyle}>
-        📋 Versions ▾
+      <button onClick={() => { setConfirmingDeleteId(null); onToggle() }} style={{ ...btnStyle, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        📋 Versions
+        <ChevronIcon expanded={isOpen} />
       </button>
 
       {isOpen && (

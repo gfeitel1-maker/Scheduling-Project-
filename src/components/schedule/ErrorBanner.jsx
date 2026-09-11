@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { S, useEnterTransition, prefersReducedMotion } from '../../styles/shared'
+import { CloseIcon } from '../icons'
 
 // The shared enter-transition implementation the spec called for (§ SPEC 1) —
 // keyed to THIS component's mount, not ScheduleScreen's, so it actually plays
@@ -27,7 +28,7 @@ export default function ErrorBanner({ children, onDismiss, style }) {
     <div style={{ ...S.errorBanner, ...style, ...enter, ...(dismissing ? { opacity: 0, transition: 'opacity var(--motion-fast) var(--ease-out)' } : {}) }}>
       {children}
       {onDismiss && (
-        <button onClick={handleDismiss} type="button" aria-label="Dismiss" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 16, lineHeight: 1 }}>×</button>
+        <button onClick={handleDismiss} type="button" aria-label="Dismiss" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', alignItems: 'center', padding: 0 }}><CloseIcon size={14} /></button>
       )}
     </div>
   )

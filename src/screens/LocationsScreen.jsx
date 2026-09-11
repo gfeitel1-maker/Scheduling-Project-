@@ -991,7 +991,6 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
           if (c.key === 'capacity') return r.capacity
           if (c.key === 'kind') return KIND_OPTIONS.find(k => k.value === r.kind)?.label ?? '—'
-          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
         }}
       />
 

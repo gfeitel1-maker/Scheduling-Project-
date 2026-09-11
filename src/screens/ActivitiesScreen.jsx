@@ -4,6 +4,7 @@ import { whitespaceInsensitiveName } from '../ingest/preview'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
+import { ChevronIcon } from '../components/icons'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
@@ -18,7 +19,6 @@ import { CapacityStepper } from '../components/CapacityStepper'
 import { resolveLocationCandidateId } from '../../electron/ops/locationId.js'
 import { CONFIDENCE_COPY, plainEvidenceSentence } from '../components/reconciliation/reconciliationCards.jsx'
 import { deriveActivityProvenance, hasAnyEvidence, worstTier, TIER_LABEL, TIER_DOT_COLOR, tierShapeStyle } from '../utils/ruleProvenance.js'
-import uiClipboard from '../assets/brand/icons/ui-clipboard.png'
 import { DOW, parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
 import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
 
@@ -330,9 +330,10 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
           type="button"
           onClick={() => setShowMore(v => !v)}
           className="press-97"
-          style={{ ...S.btnSecondary, marginBottom: 16, fontSize: 12 }}
+          style={{ ...S.btnSecondary, marginBottom: 16, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
         >
-          {showMore ? 'Hide more options ▲' : 'More options ▼'}
+          {showMore ? 'Hide more options' : 'More options'}
+          <ChevronIcon expanded={showMore} />
         </button>
 
         <div style={{
@@ -988,7 +989,6 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         // padding 40px 24px intentional — wider horizontal padding than other empty states
         <div style={{ ...S.emptyState, padding: '40px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
           <div style={emptyEnter}>
-            <img src={uiClipboard} alt="" style={S.emptyStateIcon} />
             <div style={S.emptyStateTitle}>No activities yet</div>
             <div style={S.emptyStateBody}>Add your first activity or import from Excel.</div>
           </div>
@@ -1145,7 +1145,6 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
             </>
           )
           if (c.key === 'priority') return r.priority
-          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
         }}
       />
 

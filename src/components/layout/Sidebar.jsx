@@ -4,6 +4,7 @@ import { NAV_SECTIONS, ROOTS_ITEM, ADMIN_MENU_ITEMS, ADMIN_ONLY_MENU_ITEMS } fro
 import { getSetupGaps } from '../../engine/readiness'
 import { loadSidebarState, saveSidebarState, sectionRollup, nextFoldStateAfterAnswer, syncStatusLabel } from './sidebarState'
 import { useEnterTransition } from '../../styles/shared'
+import { ChevronIcon } from '../icons'
 
 // Marks are fixed-width whether or not one is present, so labels stay aligned
 // as ticks appear. Colour is never the only carrier: `!` is a distinct glyph
@@ -239,12 +240,13 @@ export default function Sidebar({
                       color: 'var(--text-secondary)', textAlign: 'left',
                     }}
                   >
-                    <span style={{
-                      display: 'inline-block', width: 10, flexShrink: 0,
-                      opacity: 0.75, fontSize: 9,
-                      transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
-                      transition: 'transform var(--motion-base, 0.15s) var(--ease-out, ease)',
-                    }}>▶</span>
+                    <ChevronIcon
+                      style={{
+                        opacity: 0.75,
+                        transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
+                        transition: 'transform var(--motion-base, 0.15s) var(--ease-out, ease)',
+                      }}
+                    />
                     {section.title}
                   </button>
                 )}

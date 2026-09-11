@@ -810,7 +810,6 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
           if (c.key === 'day') return r._dayLabel || '—'
           if (c.key === 'block') return r._blockName || '—'
           if (c.key === 'tiers') return r._tierNames
-          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
         }}
       />
 

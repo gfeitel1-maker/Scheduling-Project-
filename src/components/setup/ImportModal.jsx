@@ -4,6 +4,23 @@ import { S, useEnterTransition } from '../../styles/shared'
 // Shared import overlay for the Roots setup screens. Previously each screen
 // hand-rolled this ~50-line block; here it also gains focus management the
 // per-screen copies lacked (focus-trap + Escape + initial focus).
+// Every setup screen's import preview had the same `if (c.key === 'status')`
+// line pasted into its renderCell — seven identical copies of one span. The
+// column is not screen-specific: a row either carries a warning or it is
+// ready. So the modal renders it, and a screen only writes a renderCell case
+// for a column that genuinely differs.
+//
+// The fallback triggers on `undefined` specifically, not on any falsy value:
+// a caller that deliberately returns null for a cell still gets an empty one.
+function statusFallback(rendered, row, column) {
+  if (rendered !== undefined || column.key !== 'status') return rendered
+  return (
+    <span style={row.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+      {row.warning || '\u2713 Ready'}
+    </span>
+  )
+}
+
 export default function ImportModal({
   step, title, width = 520, columns, rows, readyCount, warnCount, result,
   importing, onConfirm, onCancel, renderCell,
@@ -69,7 +86,7 @@ export default function ImportModal({
                   <tr key={i} style={{ ...(r.warning ? S.importWarnRow : null), borderBottom: '1px solid var(--border)' }}>
                     {columns.map(c => (
                       <td key={c.key} style={{ ...S.td, ...(c.mono ? { fontFamily: 'var(--font-mono)', fontSize: 12 } : null) }}>
-                        {renderCell(r, c)}
+                        {statusFallback(renderCell(r, c), r, c)}
                       </td>
                     ))}
                   </tr>

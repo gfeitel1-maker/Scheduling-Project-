@@ -13,7 +13,7 @@ describe('WeekSwitcher create loading state', () => {
     const onCreate = vi.fn(() => new Promise(resolve => { resolveCreate = resolve }))
     render(<WeekSwitcher weeks={weeks} weekId="w1" onSelect={() => {}} onCreate={onCreate} />)
 
-    fireEvent.click(screen.getByText('Week 1 ▾'))
+    fireEvent.click(screen.getByRole('button', { name: /Week 1/ }))
     fireEvent.click(screen.getByText('+ New Week'))
 
     const input = screen.getByPlaceholderText('Week name…')

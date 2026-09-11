@@ -11,7 +11,6 @@ import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
-import uiPeople from '../assets/brand/icons/ui-people.png'
 
 // Tiers' load is cohort-scoped (camp_id AND cohort_id), fetches groups
 // alongside tiers for groupCounts, and guards against a stale response
@@ -400,7 +399,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
               {tiers.length === 0 ? (
                 <tr><td colSpan={3} style={S.emptyState}>
                   <div style={emptyEnter}>
-                    <img src={uiPeople} alt="" style={S.emptyStateIcon} />
                     <div style={S.emptyStateTitle}>No age divisions yet</div>
                     <div style={S.emptyStateBody}>Add your first age division below or import from Excel.</div>
                   </div>
@@ -451,7 +449,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         doneSkippedSuffix=" (duplicate or invalid)"
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
-          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
         }}
       />
 

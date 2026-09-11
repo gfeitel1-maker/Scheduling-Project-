@@ -165,7 +165,7 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
     expect(screen.getByText(/Weather Mode/)).toBeTruthy()
-    expect(screen.getByText('📋 Versions ▾')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Versions/ })).toBeTruthy()
     expect(screen.getByText('Export to Excel')).toBeTruthy()
     expect(screen.getByText('Export data (JSON)')).toBeTruthy()
     expect(screen.getByText('Rebuild this schedule')).toBeTruthy()
@@ -205,7 +205,7 @@ describe('WS5 S2a/S3 — toolbar slims: Field Trips removed, route label removed
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
     await waitFor(() => expect(screen.getByText('Version History')).toBeTruthy())
 
     const weatherBtn = screen.getByText('⛅ Weather Mode OFF')
@@ -458,7 +458,7 @@ describe('snapshot CRUD ported to localClient', () => {
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
     const nameInput = screen.getByPlaceholderText('Name current version…')
     fireEvent.change(nameInput, { target: { value: 'My Version' } })
     fireEvent.click(screen.getByText('Save as named version'))
@@ -487,7 +487,7 @@ describe('snapshot CRUD ported to localClient', () => {
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
     await waitFor(() => expect(screen.getByText('rename')).toBeTruthy())
     fireEvent.click(screen.getByText('rename'))
 
@@ -517,8 +517,8 @@ describe('snapshot CRUD ported to localClient', () => {
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
-    await waitFor(() => expect(screen.getByText('📋 Versions ▾')).toBeTruthy())
-    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Versions/ })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
     await waitFor(() => expect(screen.getByText('Restore')).toBeTruthy())
 
     // After restore, the refetch of template_slots reflects
@@ -545,8 +545,8 @@ describe('snapshot CRUD ported to localClient', () => {
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
-    await waitFor(() => expect(screen.getByText('📋 Versions ▾')).toBeTruthy())
-    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Versions/ })).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
     await waitFor(() => expect(screen.getByText('Restore')).toBeTruthy())
     fireEvent.click(screen.getByText('Restore'))
 
@@ -567,7 +567,7 @@ describe('snapshot CRUD ported to localClient', () => {
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    fireEvent.click(screen.getByRole('button', { name: /Versions/ }))
     await waitFor(() => expect(screen.getByText('rename')).toBeTruthy())
     fireEvent.click(screen.getByText('rename'))
 
@@ -1309,9 +1309,10 @@ describe('T18: one concept has one name on both routes', () => {
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
     await waitFor(() => expect(screen.getByText('Still needed')).toBeTruthy())
 
-    // Both badges have findings here, so the clickable "↗" suffix is appended
-    // to the label as a separate text node — match loosely, as elsewhere in
-    // this file (see the CELL_SELECTOR / "Unfillable" comment above).
+    // Both badges have findings here, so each label is followed by the
+    // clickable disclosure chevron — an <svg> sibling, contributing no text.
+    // Match loosely anyway, as elsewhere in this file (see the CELL_SELECTOR /
+    // "Unfillable" comment above).
     expect(screen.getByText(/Spread across the week/)).toBeTruthy()
     expect(screen.getByText('Placed')).toBeTruthy()
     expect(screen.queryByText('Underserved')).toBeNull()

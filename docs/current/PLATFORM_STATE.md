@@ -150,9 +150,48 @@ Two token types are minted, verified, and enforced separately — see `electron/
 
 - `src/components/layout/Shell.jsx`, `Sidebar.jsx`, `TopBar.jsx`, `navSections.js` — app chrome, the lifecycle-IA sidebar (Roots fixed row + Germination/Sprouts/Plants collapsible stages + gear admin menu, see Navigation Model), badge counts (e.g. pending conflicts)
 - `src/components/CohortPicker.jsx` — cohort selection widget
+- `src/components/icons/index.jsx` — every inline SVG glyph in the app. Icons used to be declared locally inside whichever component needed one (~14 separate `function SomeIcon()` declarations), so the same concept drew differently on different screens: three location pins with three path data, two byte-identical plus signs, one chevron defined twice in a single file. One module now holds them, and the header records the rule that decides new cases: a glyph in its own element beside text (an **icon slot**) becomes an icon; a glyph inside a sentence or template literal (an **inline text prefix**) stays text. Three glyph families stay deliberately as text and are listed there — the sidebar's `✓`/`!`/`·` state marks (a fixed-width three-mark vocabulary where `·` has no icon form), `ScheduleDoor`'s `→` (an animation target found by `querySelector`), and five literal multiplication signs (`3 groups × 4 blocks`, `2–4×/wk`) that are arithmetic, not close buttons. Disclosure chevrons and reorder arrows are deliberately **different** glyphs — both were `▲`/`▼` before. Decision table: `docs/work/specs/2026-09-11-icon-vocabulary.md`.
 - `src/components/ScheduleDoor.jsx`, `src/components/setup/InlineAddRow.jsx`, `SetupScreenShell.jsx` — shared cross-screen primitives from the whole-app design coherence passes (Waves 2/3, B/C, PRs #230–#234/#238/#241): a plain (non-verdict) door to a Plants build surface, and an inline blank-row "add" affordance used across setup screens (Wave C1) including `SpecialEventsScreen`. The colored-pill chip shape and caution/error banner styling were consolidated into shared style tokens (`src/styles/shared.js`) rather than new components.
 - `src/components/schedule/` — schedule-builder-specific. Current set (WS5 rebuild, PRs #221–#229/#236–#238, replaced the pre-WS5 palette/modal set): `ActivityPalette.jsx` (now a filterable **Ledger** — `PaletteLedger` + text filter, replacing the old flat palette), `ManualBuildView`, `ScheduleActivityView`, `ScheduleDayView`, `ScheduleGroupView`, `SlotCell` (carries `data-overridden`, opens `CellInlineEditor.jsx` on double-click), `PulledCell` + `OverrideToggleButton` (day-override "override mode", T108), `CellInlineEditor.jsx` (double-click cell edit, replaced the old separate `EditModal`), `EmptyCell.jsx`, `ErrorBanner.jsx`, `ExclusionConfirmDialog.jsx`, `ExportChooserModal.jsx`, `FindingsRail.jsx`, `IndeterminateBar.jsx`, `ConfirmRegenModal.jsx`, `VersionsDropdown.jsx`, `StatBadge.jsx` (hides when its target is unconfigured), `WeekContextBar.jsx`, `WeekSwitcher.jsx`, `DeleteWeekDialog.jsx`, `ScheduleSkeleton.jsx`. The old `OverlayCell`, `EditModal`, `FieldTripDrawer`, and `FlagDetailModal` components no longer exist (superseded by the events/electives/day_overrides family and the WS5 rebuild).
 - `src/components/reconciliation/` — scoped to the **import-a-file reconcile flow only** (`ReconciliationScreen`, `mode="import"`) as of the Roots-home-is-a-distinct-screen ADR; no longer doubles as the Roots home surface. `RootMap.jsx` (root-and-tree illustration over `src/assets/reconciliation/root-map.png`, node coords hand-placed in `rootMapLayout.js`), `RootMapPanel.jsx` (per-node panel — roster + primary "Manage {Area} →" navigation), `RosterList.jsx` (per-entity census roster, search + Groups-by-Age-Division grouping), `postImportBanner.jsx`, `ReconstructionMoment.jsx`, plus pure helpers `rootMapNav.js` (node → setup-screen routing, `DOMAIN_SCREEN`/`CHILD_SCREEN`), `domainRollup.js`, `reconciliationCards.jsx`. `rootsBanner.jsx` (the old dashboard-verdict banner) still exists in this directory but is no longer imported anywhere outside its own test — `RootsHomeScreen` does not use it (its bento/attention-list are built directly from `useCurrentStructureCounts`/`buildAttentionList`).
+
+---
+
+## Imagery and brand assets
+
+Artwork appears only on first-impression surfaces. Working screens are art-free,
+including their empty states.
+
+| Asset (`src/assets/brand/`) | Rendered by |
+|---|---|
+| `tree-full-wide-login.png` | `LoginScreen` hero |
+| `forest-circle.png` | `CampBootstrapScreen`, `PairingPendingScreen`, `RootMap` empty state |
+| `root-pattern-bg.jpg` | `ModeSelectScreen` background |
+| `root-system-celebration.png` | `postImportBanner` |
+| `icons/decorative-sprout.png` | `SeedScreen` mark |
+
+**Empty states carry no imagery.** The 96x80 watercolor tiles that Time Blocks,
+Age Divisions, Cohorts, Activities and Trash used to show were removed on
+2026-09-11 (owner: a decorated empty state is noise, not welcome), along with
+`S.emptyStateIcon` and the never-imported `CalmEmptyState.jsx`. This partially
+supersedes W12b (`docs/work/specs/2026-08-22-brand-placement-round2.md`), whose
+onboarding-chrome half still stands. `RootsHomeScreen`'s "nothing needs you"
+circle-check is a *success* mark, not an empty-content mark, and stays.
+
+**`src/assets/` ships in full; `design/brand-source/` does not.** `build.files`
+includes `src/**/*` — deliberate, it fixes a packaged-app module-resolution
+failure (PR #19) — so any file under `src/assets/` rides into every installer
+whether or not a screen imports it. Before 2026-09-11 that was ~26MB of unused
+artwork and third-party game tilesets; `src/assets` is now 1.3MB. The full
+watercolor kit and the two icon contact sheets live in `design/brand-source/`,
+outside the shipped tree. `scripts/slice-brand-icons.mjs` (hand-run) cuts the
+contact sheets into individual PNGs and reads from there.
+
+The standing rule, stated in both directories' READMEs: **derivatives in
+`src/assets/`, sized at 2x their largest display use; sources in
+`design/brand-source/`.** Icons are vector first — see
+`src/components/icons/index.jsx`; a watercolor PNG cannot follow the light/dark
+theme and degrades under ~48px.
 
 ---
 

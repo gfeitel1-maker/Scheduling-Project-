@@ -10,6 +10,19 @@ parent_spec: [docs/work/specs/camp-setup-ingestion-program.md]
 scope: onboarding/first-run chrome + empty states only. Populated Operate screens (Roots/Schedule/Setup) stay art-free.
 ---
 
+> **Partially superseded, 2026-09-11 (owner).** The **empty-state** half of this
+> spec no longer holds. The 96x80 watercolor icon tiles on Time Blocks, Age
+> Divisions, Cohorts, Activities and Trash were removed — the owner's judgement
+> was that a decorated empty state is noise, not welcome. Those five screens now
+> show text alone.
+>
+> The **onboarding/first-run chrome** half stands unchanged and is still live:
+> LoginScreen, CampBootstrapScreen, PairingPendingScreen, ModeSelectScreen,
+> SeedScreen, RootMap's empty state, and the post-import celebration all keep
+> their artwork.
+>
+> See `docs/work/specs/2026-09-11-imagery-audit.md`.
+
 # DESIGN SPEC — Brand Placement Round 2 (W12b)
 
 Companion to `src/assets/brand/README.md` and `docs/governance/standards/DESIGN_STANDARD.md`. Palette

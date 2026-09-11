@@ -4,63 +4,8 @@ import { S, prefersReducedMotion } from '../../styles/shared'
 import { ANCHOR_COLOR, FLAG_COLORS, activityColor } from './slotCellConstants'
 import { cellAccessibleName } from './cellLabel'
 import CellInlineEditor from './CellInlineEditor'
+import { CellSpanChevron, UnfillableIcon, OpenElectiveIcon, OutdoorIcon } from '../icons'
 import './scheduleGrid.css'
-
-// T92. The merge/split affordance's glyph. Replaces the bare `↕` text node —
-// ambiguous and font-dependent — with a small outline SVG, same construction
-// as UnfillableIcon/OutdoorIcon below. `currentColor` lets the button's own
-// idle/hover/split CSS `color` rules drive it with no extra inline style. The
-// split reading is the same chevron rotated 90°, not a second glyph — one icon
-// vocabulary for "this control changes the cell's block span".
-function ExpandGlyph({ direction = 'merge' }) {
-  return (
-    <svg viewBox="0 0 12 12" width={12} height={12} fill="none"
-      style={{ display: 'block', transform: direction === 'split' ? 'rotate(90deg)' : undefined }}>
-      <path d="M3 4.5 L6 7.2 L9 4.5" stroke="currentColor" strokeWidth="1.5"
-        strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-// Outline "alert" glyph — deliberately a shape (not a dot), per the design
-// spec's "unambiguous even before color registers" instruction for the one
-// per-cell flag mark that survives the decolorization pass.
-function UnfillableIcon() {
-  return (
-    <svg viewBox="0 0 12 12" width={12} height={12} fill="none" style={{ display: 'block' }}>
-      <circle cx="6" cy="6" r="5.25" stroke="var(--danger)" strokeWidth="1.5" />
-      <line x1="6" y1="3.25" x2="6" y2="6.5" stroke="var(--danger)" strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="6" cy="8.5" r="0.75" fill="var(--danger)" />
-    </svg>
-  )
-}
-
-// Outline "open in new" glyph for the elective drill-in button (Slice 2).
-// Same construction as the other per-cell glyphs above — `currentColor` so
-// the button's own idle/hover CSS drives it, no inline colour.
-function OpenElectiveIcon() {
-  return (
-    <svg viewBox="0 0 12 12" width={12} height={12} fill="none" style={{ display: 'block' }}>
-      <path d="M4.5 3H9v4.5M9 3 3 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-// Small outline "sun" glyph for outdoor activities — replaces the deleted
-// WEATHER_RISK flag. Informational, not a caution state.
-function OutdoorIcon() {
-  return (
-    <svg viewBox="0 0 10 10" width={10} height={10} fill="none" style={{ display: 'block' }}>
-      <circle cx="5" cy="5" r="2.1" stroke="var(--text-secondary)" strokeWidth="1.5" />
-      <g stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round">
-        <line x1="5" y1="0.6" x2="5" y2="1.6" />
-        <line x1="5" y1="8.4" x2="5" y2="9.4" />
-        <line x1="0.6" y1="5" x2="1.6" y2="5" />
-        <line x1="8.4" y1="5" x2="9.4" y2="5" />
-      </g>
-    </svg>
-  )
-}
 
 export default function SlotCell({
   slot, activity, anchor, actColorIdx, weatherMode,
@@ -412,7 +357,7 @@ export default function SlotCell({
             aria-label="Let this activity run into the next period"
             data-merge-hint={showMergeHint ? '' : undefined}
             onClick={e => { e.stopPropagation(); onMergeDown?.() }}
-          ><ExpandGlyph direction="merge" /></button>
+          ><CellSpanChevron direction="merge" /></button>
         )}
         {/* Split button (T4) — the keyboard-accessible equivalent of the
             interior-band click below (spec Interactions §4); not removed. */}
@@ -422,7 +367,7 @@ export default function SlotCell({
             title="Split this back into two periods"
             aria-label="Split this back into two periods"
             onClick={e => { e.stopPropagation(); onSplitSlot?.() }}
-          ><ExpandGlyph direction="split" /></button>
+          ><CellSpanChevron direction="split" /></button>
         )}
         {/* T107 item 2 — interior-split bands. Band 1 is this cell's own head
             block and is never a split target (kept out of the DOM entirely,
