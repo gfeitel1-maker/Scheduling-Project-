@@ -164,6 +164,35 @@ Decision table: `docs/work/specs/2026-09-11-icon-vocabulary.md`.
 
 ---
 
+## Reconciliation and the generated route
+
+**There is one exit from reconciliation and it is never disabled.**
+`src/screens/reconciliationTray.js` decides its label from how far the director
+got: "Use this setup" when nothing is outstanding, "Apply N decisions" when some
+are, "Use what Shoresh understood" when none have been answered. The screen
+previously ended in two buttons where the navy PRIMARY stayed locked until every
+item was resolved (79, on one real file) and the only reachable exit was the
+secondary beside it — so a director who missed that had no way forward at all.
+The two modes fold identical answers once everything is resolved, so collapsing
+them costs no behaviour.
+
+**The label carries the state, never a tooltip.** A tooltip explaining a
+disabled control is help, and this app does not do help (owner, 2026-09-11: "if
+it needs help, then we have UI wrong"). A screen that needs explaining is a
+screen to redesign. There is no help affordance anywhere in `src/` and none
+should be added.
+
+**The counters name their unit.** The census tiles count ENTITIES; the progress
+counter counts QUESTIONS. Read side by side without units, "1 Needs attention"
+and "0 of 79 done" looked like a contradiction.
+
+**The generated route opens to the schedule.** The concerns row (Placed /
+Unfillable / Still needed) sits BELOW the grid. The engine has just done twenty
+minutes of the director's work, and leading with counts of what is still wrong
+reads as an audit of the result rather than the result.
+
+---
+
 ## Ingest: what the extractor guarantees
 
 The import path reads human spreadsheets — wrapped cells, merged headers, typos —
