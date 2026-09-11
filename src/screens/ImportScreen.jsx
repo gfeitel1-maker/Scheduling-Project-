@@ -8,6 +8,7 @@ import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { findSuspectRecords } from '../ingest/suspectRecords'
+import { formatEligibility } from './importEligibility'
 import { fixedEventKey } from '../ingest/fixedEventKey'
 import { capturePlacements } from '../ingest/capturePlacements'
 import { inferFixedEvents } from '../ingest/fixedEvents'
@@ -90,13 +91,7 @@ const PRIORITY_LABEL = { high: 'High', low: 'Low' }
 // this screen and ReconciliationLedger share ONE camp-language map (design §7.3).
 
 
-// An empty selection and "all groups" (null) both write the same thing — no
-// restriction (T35 Fix 3) — so they must say the same thing, or unticking
-// every chip would silently lie about what gets committed. One formatter so
-// the collapsed summary and the expanded editor can't drift apart (round 2
-// review).
-const formatEligibility = (groupNames) =>
-  groupNames == null || groupNames.length === 0 ? 'All groups' : `Groups: ${groupNames.join(', ')}`
+
 
 // Slice 2b (docs/work/specs/2026-08-23-two-rows-slice2-affordance.md) —
 // twoRowSplit.js's createActivity call needs a `writeActivityFields(id,
@@ -1826,7 +1821,7 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
   // a thing worth the director's attention, not a confident default.
   const eligibilityUnknown = rule != null && rule.eligibility_known === false
 
-  const eligibilitySummary = formatEligibility(groupNames)
+  const eligibilitySummary = formatEligibility(groupNames, allGroups)
   const frequencySummary = rule?.min_per_week != null && rule?.max_per_week != null
     ? `${rule.min_per_week}–${rule.max_per_week}×/wk`
     : 'Not set'
@@ -1928,7 +1923,7 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
             is left open. Worth checking.
           </span>
         ) : (
-          <span style={{ color: textColor }}>{formatEligibility(groupNames)}</span>
+          <span style={{ color: textColor }}>{formatEligibility(groupNames, allGroups)}</span>
         )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>

@@ -6,7 +6,11 @@ import { CHILD_SCREEN, DOMAIN_SCREEN } from '../reconciliation/rootMapNav'
 // were all doing that.
 const TITLES = {
   import:       'Import last year',
-  seed:         'Seed your camp',
+  // Deliberately empty. SeedScreen puts "Seed your camp." on the page itself,
+  // in the brand display face, as the moment it is meant to be — and the bar
+  // repeating the same three words directly above it made the screen say them
+  // twice. It is the one screen that titles itself.
+  seed:         '',
   roots:        'Roots',
   cohorts:      'Programs',
   tiers:        'Age Divisions',
@@ -63,7 +67,7 @@ export default function TopBar({ screen, onNavigate, onLogout }) {
           fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18,
           letterSpacing: '-0.2px', color: 'var(--text)',
         }}>
-          {TITLES[screen] || 'Shoresh'}
+          {TITLES[screen] ?? 'Shoresh'}
         </h1>
       </div>
       {onLogout && (

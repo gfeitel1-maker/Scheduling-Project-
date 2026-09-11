@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AuthWatermark from '../components/AuthWatermark'
 import { S, useEnterTransition } from '../styles/shared'
 import { WarningTriangleIcon } from '../components/icons'
 import forestCircle from '../assets/brand/forest-circle.png'
@@ -27,7 +28,8 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
   }
 
   return (
-    <div style={S.authPage}>
+    <div style={{ ...S.authPage, position: 'relative', overflow: 'hidden' }}>
+      <AuthWatermark />
       <div style={S.authCard}>
         <div style={S.authBackRow}>
           <button
@@ -64,7 +66,7 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
           <input
             style={S.authField}
             type="text"
-            placeholder="Camp Willowbrook"
+            placeholder="e.g. Camp Willowbrook"
             value={campName}
             onChange={e => setCampName(e.target.value)}
             autoFocus
