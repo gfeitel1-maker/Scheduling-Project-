@@ -157,6 +157,44 @@ Two token types are minted, verified, and enforced separately — see `electron/
 
 ---
 
+## Imagery and brand assets
+
+Artwork appears only on first-impression surfaces. Working screens are art-free,
+including their empty states.
+
+| Asset (`src/assets/brand/`) | Rendered by |
+|---|---|
+| `tree-full-wide-login.png` | `LoginScreen` hero |
+| `forest-circle.png` | `CampBootstrapScreen`, `PairingPendingScreen`, `RootMap` empty state |
+| `root-pattern-bg.jpg` | `ModeSelectScreen` background |
+| `root-system-celebration.png` | `postImportBanner` |
+| `icons/decorative-sprout.png` | `SeedScreen` mark |
+
+**Empty states carry no imagery.** The 96x80 watercolor tiles that Time Blocks,
+Age Divisions, Cohorts, Activities and Trash used to show were removed on
+2026-09-11 (owner: a decorated empty state is noise, not welcome), along with
+`S.emptyStateIcon` and the never-imported `CalmEmptyState.jsx`. This partially
+supersedes W12b (`docs/work/specs/2026-08-22-brand-placement-round2.md`), whose
+onboarding-chrome half still stands. `RootsHomeScreen`'s "nothing needs you"
+circle-check is a *success* mark, not an empty-content mark, and stays.
+
+**`src/assets/` ships in full; `design/brand-source/` does not.** `build.files`
+includes `src/**/*` — deliberate, it fixes a packaged-app module-resolution
+failure (PR #19) — so any file under `src/assets/` rides into every installer
+whether or not a screen imports it. Before 2026-09-11 that was ~26MB of unused
+artwork and third-party game tilesets; `src/assets` is now 1.3MB. The full
+watercolor kit and the two icon contact sheets live in `design/brand-source/`,
+outside the shipped tree. `scripts/slice-brand-icons.mjs` (hand-run) cuts the
+contact sheets into individual PNGs and reads from there.
+
+The standing rule, stated in both directories' READMEs: **derivatives in
+`src/assets/`, sized at 2x their largest display use; sources in
+`design/brand-source/`.** Icons are vector first — see
+`src/components/icons/index.jsx`; a watercolor PNG cannot follow the light/dark
+theme and degrades under ~48px.
+
+---
+
 ## Database Tables
 
 (SQLite, one file per device — `electron/db/schema.sql`, schema **v57** as of this writing)
