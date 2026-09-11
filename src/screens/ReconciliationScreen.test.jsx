@@ -80,7 +80,7 @@ describe('understood vs. needs-attention', () => {
     localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByText(/0 of 0 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/0 of 0 question/)).toBeTruthy())
     expect(screen.queryByText(/Use the file's value/)).toBeNull()
     expect(screen.getByText(/1 rows read cleanly/)).toBeTruthy()
   })
@@ -89,7 +89,7 @@ describe('understood vs. needs-attention', () => {
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/0 of 1 question/)).toBeTruthy())
   })
 })
 
@@ -97,27 +97,36 @@ describe('resolving a decision', () => {
   it('updates the done count and stages a confirmed decision, without writing anything (read-only reconciliation)', async () => {
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    await screen.findByText(/0 of 1 question/)
 
     await userEvent.click(screen.getByText('Use this value'))
-    await waitFor(() => expect(screen.getByText(/1 of 1 done/)).toBeTruthy())
-    expect(screen.getByText(/1 decisions staged/)).toBeTruthy()
+    await waitFor(() => expect(screen.getByText(/1 of 1 question/)).toBeTruthy())
+    expect(screen.getByText(/All 1 decided/)).toBeTruthy()
     expect(localClient.ingestCommit).not.toHaveBeenCalled()
   })
 
-  it('leaving a decision unresolved and applying only confirmed changes never touches it, per the two truthful buttons', async () => {
+  it('always offers a way out, and leaves an unresolved decision behind rather than blocking on it (T127)', async () => {
+    // This replaces a test that asserted BOTH exits were disabled with nothing
+    // resolved. That was the defect: on one real file it left a director on a
+    // 15-screen page with 240 buttons and no reachable way forward, while the
+    // button that LOOKED like the exit was the locked one.
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
     localClient.ingestCommit.mockResolvedValue({ total: 1 })
-    const onCommitted = vi.fn()
-    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={onCommitted} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
 
-    const applyConfirmedOnly = screen.getByText('Apply confirmed changes and keep the rest for review')
-    expect(applyConfirmedOnly.disabled).toBe(true)
+    const exit = screen.getByRole('button', { name: /Use what Shoresh understood/ })
+    expect(exit.disabled).toBe(false)
+    // Still read-only until the director actually presses it.
+    expect(localClient.ingestCommit).not.toHaveBeenCalled()
 
-    const useThisSetup = screen.getByText('Use this setup')
-    expect(useThisSetup.disabled).toBe(true)
+    // And it says what it will do with the question nobody answered.
+    expect(screen.getByText(/1 question is still open/)).toBeTruthy()
+
+    await userEvent.click(exit)
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalledTimes(1))
   })
+
 })
 
 describe('evidence disclosure (FIX 2, design spec §4)', () => {
@@ -133,7 +142,7 @@ describe('evidence disclosure (FIX 2, design spec §4)', () => {
       evidenceSupport: { activities: { a1: { matched_groups: ['Bunk 1', 'Bunk 2'], appearances: 2, eligible_group_count: 2 } } },
     })
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    await screen.findByText(/0 of 1 question/)
 
     await userEvent.click(screen.getByText('Why?'))
 
@@ -149,7 +158,7 @@ describe('evidence disclosure (FIX 2, design spec §4)', () => {
   it('degrades to the plain collapsed line, never an empty table or JSON, when evidence has no locator or editor identity', async () => {
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    await screen.findByText(/0 of 1 question/)
 
     await userEvent.click(screen.getByText('Why?'))
 
@@ -168,7 +177,7 @@ describe('root-map selection (replaces the old chip-row filter)', () => {
   it('a root node click shows only that node\'s decisions; clicking a different node replaces, never appends', async () => {
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    await screen.findByText(/0 of 1 question/)
 
     // Default view shows the one decision unfiltered.
     expect(screen.getByText('Keep current')).toBeTruthy()
@@ -204,7 +213,7 @@ describe('root-map selection (replaces the old chip-row filter)', () => {
     // panel's heading reverting to the default "Needs your attention" one.
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    await screen.findByText(/0 of 1 question/)
 
     const attentionTile = screen.getByText('Needs attention').closest('button')
     await userEvent.click(attentionTile)
@@ -228,7 +237,7 @@ describe('RootMapPanel placement', () => {
   it('never switches to absolute positioning, even at a wide measured width', async () => {
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    await screen.findByText(/0 of 1 question/)
 
     const panelWrapper = screen.getByLabelText('Needs your attention').parentElement
     expect(panelWrapper.style.position).not.toBe('absolute')
@@ -250,7 +259,7 @@ describe('last-issued-wins guard (ADR Risk #3)', () => {
         .mockImplementationOnce(() => gen3) // second debounced re-issue — resolves LAST but was issued LAST
 
       render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-      await vi.waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
+      await vi.waitFor(() => expect(screen.getByText(/0 of 1 question/)).toBeTruthy())
 
       // First triage action: schedules the debounced re-issue (gen 2).
       await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByText('Use this value'))
@@ -271,13 +280,13 @@ describe('last-issued-wins guard (ADR Risk #3)', () => {
 
       // Resolve them OUT OF ORDER: gen 3 (newer) lands first, then gen 2 (stale) lands late.
       resolveGen3(understoodOnlyResult())
-      await vi.waitFor(() => expect(screen.getByText(/0 of 0 done/)).toBeTruthy())
+      await vi.waitFor(() => expect(screen.getByText(/0 of 0 question/)).toBeTruthy())
 
       resolveGen2(oneChangedResult())
       await vi.advanceTimersByTimeAsync(0)
       // The stale gen-2 response must have been dropped — the newer gen-3
       // result (0 of 0, understood-only) must still be what's rendered.
-      expect(screen.getByText(/0 of 0 done/)).toBeTruthy()
+      expect(screen.getByText(/0 of 0 question/)).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }
@@ -288,15 +297,15 @@ describe('held-identity: skip this row', () => {
   it('offers a "leave unset for now" option that leaves the row pending and writes nothing', async () => {
     localClient.ingestReconcile.mockResolvedValue(ambiguousIdentityHeld())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    await screen.findByText(/0 of 1 question/)
 
     await userEvent.click(screen.getByText('Leave unset for now'))
 
-    // Skipping is not a resolution — the count stays unresolved and the
-    // "apply confirmed only" path (the only one that would write anything)
-    // stays disabled, so nothing is ever sent to ingestCommit.
-    await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
-    expect(screen.getByText('Apply confirmed changes and keep the rest for review').disabled).toBe(true)
+    // Skipping is not a resolution — the count stays unresolved, and the exit
+    // still describes the question as open rather than treating a skip as an
+    // answer. Nothing is written until the director presses it.
+    await waitFor(() => expect(screen.getByText(/0 of 1 question/)).toBeTruthy())
+    expect(screen.getByText(/1 question is still open/)).toBeTruthy()
     expect(localClient.ingestCommit).not.toHaveBeenCalled()
   })
 })
@@ -305,7 +314,7 @@ describe('held-identity: remember this alias (confirmAlias)', () => {
   it('shows a default-checked "remember" checkbox only after choosing an existing candidate', async () => {
     localClient.ingestReconcile.mockResolvedValue(ambiguousIdentityHeld())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    await screen.findByText(/0 of 1 question/)
 
     expect(screen.queryByRole('checkbox')).toBeNull()
     await userEvent.click(screen.getByText('Use "Chipmunks"'))
@@ -323,10 +332,10 @@ describe('held-identity: remember this alias (confirmAlias)', () => {
     localClient.ingestCommit.mockResolvedValue({ held: false, total: 1 })
     const onCommitted = vi.fn()
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={onCommitted} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    await screen.findByText(/0 of 1 question/)
 
     await userEvent.click(screen.getByText('Use "Chipmunks"'))
-    await waitFor(() => expect(screen.getByText(/1 of 1 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/1 of 1 question/)).toBeTruthy())
     await userEvent.click(screen.getByText('Use this setup'))
 
     await waitFor(() => expect(localClient.confirmAlias).toHaveBeenCalledTimes(1))
@@ -340,7 +349,7 @@ describe('held-identity: remember this alias (confirmAlias)', () => {
     localClient.ingestReconcile.mockResolvedValue(ambiguousIdentityHeld())
     localClient.ingestCommit.mockResolvedValue({ held: false, total: 1 })
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    await screen.findByText(/0 of 1 question/)
 
     await userEvent.click(screen.getByText('Use "Chipmunks"'))
     // H1 — reveal the resolved decision to reach its checkbox (see the
@@ -361,10 +370,10 @@ describe('held-identity: remember this alias (confirmAlias)', () => {
     localClient.confirmAlias.mockRejectedValueOnce(new Error('confirmAlias: target_locked'))
     const onCommitted = vi.fn()
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={onCommitted} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await screen.findByText(/0 of 1 done/)
+    await screen.findByText(/0 of 1 question/)
 
     await userEvent.click(screen.getByText('Use "Chipmunks"'))
-    await waitFor(() => expect(screen.getByText(/1 of 1 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/1 of 1 question/)).toBeTruthy())
     await userEvent.click(screen.getByText('Use this setup'))
 
     await waitFor(() => expect(onCommitted).toHaveBeenCalled())
@@ -381,7 +390,7 @@ describe('done state', () => {
     // end state must NOT show. Post-F3, those gaps render as required_gap
     // hold-lane cards, so the spine denominator is no longer 0 — the "0 of 0"
     // contradiction this finding fixes.
-    await waitFor(() => expect(screen.getByText(/0 of 5 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/0 of 5 question/)).toBeTruthy())
     expect(screen.queryByText('Nothing left to reconcile.')).toBeNull()
   })
 })
@@ -408,7 +417,7 @@ describe('review_legacy_priority — batch decision rendering (R7)', () => {
     localClient.ingestReconcile.mockResolvedValue(legacyPriorityResult())
     localClient.ingestCommit.mockResolvedValue({ total: 1 })
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/0 of 1 question/)).toBeTruthy())
 
     expect(screen.getByText(/Review priority for 2 activities carried over from an earlier import/)).toBeTruthy()
     expect(screen.queryByText(/Review activity priority for "this record"/)).toBeNull()
@@ -421,7 +430,7 @@ describe('review_legacy_priority — batch decision rendering (R7)', () => {
     expect(screen.getByText('Archery')).toBeTruthy()
 
     await userEvent.click(screen.getByText('Acknowledge'))
-    await waitFor(() => expect(screen.getByText(/1 of 1 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/1 of 1 question/)).toBeTruthy())
 
     await userEvent.click(screen.getByText('Use this setup'))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
@@ -436,7 +445,7 @@ describe('F3 — required readiness gap card', () => {
     localClient.list.mockImplementation((table) => Promise.resolve(table === 'tiers' ? [] : [{ id: 'x' }]))
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/0 of 1 question/)).toBeTruthy())
     expect(screen.getByText('READY TO BUILD?')).toBeTruthy()
     expect(screen.getByText(/Age Divisions aren't set up yet/)).toBeTruthy()
     expect(screen.getByText('Set up Age Divisions')).toBeTruthy()
@@ -447,11 +456,11 @@ describe('F3 — required readiness gap card', () => {
     localClient.ingestCommit.mockResolvedValue({ total: 1 })
     localClient.list.mockImplementation((table) => Promise.resolve(table === 'tiers' ? [] : [{ id: 'x' }]))
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/0 of 1 question/)).toBeTruthy())
 
     await userEvent.click(screen.getByText(/Skip Age Divisions for now/))
 
-    await waitFor(() => expect(screen.getByText(/1 of 1 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/1 of 1 question/)).toBeTruthy())
     // H1 (docs/work/specs/2026-08-19-roots-reconciliation-audit.md §12
     // Slice 1) — dismissing the gap resolves it (isDecisionResolvedFor),
     // which moves it behind the default view's "N resolved · Show all"
@@ -491,7 +500,7 @@ describe('required-gap summary card (§22 compression)', () => {
     localClient.list.mockImplementation(missingAreas('tiers', 'groups', 'days_of_operation'))
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByText(/0 of 3 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/0 of 3 question/)).toBeTruthy())
     expect(screen.getAllByText('READY TO BUILD?')).toHaveLength(1)
     expect(screen.getByText(/Age Divisions, Groups, Days/)).toBeTruthy()
     expect(screen.getByText('Set up Age Divisions')).toBeTruthy()
@@ -504,7 +513,7 @@ describe('required-gap summary card (§22 compression)', () => {
     localClient.list.mockImplementation(missingAreas('tiers'))
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
 
-    await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/0 of 1 question/)).toBeTruthy())
     expect(screen.getAllByText('READY TO BUILD?')).toHaveLength(1)
     expect(screen.getByText(/Age Divisions aren't set up yet/)).toBeTruthy()
   })
@@ -513,11 +522,11 @@ describe('required-gap summary card (§22 compression)', () => {
     localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
     localClient.list.mockImplementation(missingAreas('tiers', 'groups'))
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
-    await waitFor(() => expect(screen.getByText(/0 of 2 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/0 of 2 question/)).toBeTruthy())
 
     await userEvent.click(screen.getByText(/Skip Age Divisions for now/))
 
-    await waitFor(() => expect(screen.getByText(/1 of 2 done/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/1 of 2 question/)).toBeTruthy())
     expect(screen.getByText('Set up Groups')).toBeTruthy()
   })
 

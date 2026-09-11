@@ -1086,93 +1086,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         {anyRouteStarted && generating && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>Generating…</span>}
       </div>
 
-      {/* Concern boxes — the generated schedule's "track changes" review. Each
-          box clicks to light up the cells its concern touches and opens the
-          list filtered to it; clicking the active box turns it off. On the
-          manual route the boxes stay a plain count that opens the same list —
-          manual owns no engine concerns to review cell-by-cell, so it is left
-          as it was. docs/work/specs/2026-08-01-generated-flag-review.md */}
-      {hasSchedule && stats && (
-        <div style={{ marginBottom: 20 }}>
-        <div style={{ position: 'relative', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* T18: one concept, one name. "Placed" is a plain progress count on
-              both routes — not a concern, so it never toggles anything. */}
-          <StatBadge
-            label="Placed"
-            value={`${stats.filled} of ${stats.open}`}
-            color={isManual ? 'var(--text-secondary)' : 'var(--success)'}
-          />
-          {isManual ? (
-            <StatBadge
-              label="Overlapping"
-              value={overlapSlots.length}
-              color={overlapSlots.length > 0 ? 'var(--accent)' : 'var(--text-secondary)'}
-              onClick={() => toggleRail('ALL')}
-            />
-          ) : (
-            <StatBadge
-              label="Unfillable"
-              value={unfillableSlots.length}
-              color={unfillableSlots.length > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
-              active={railView === 'UNFILLABLE'}
-              onClick={() => toggleRail('UNFILLABLE')}
-            />
-          )}
-          {hasCoverageTargets && (
-            <StatBadge
-              label="Still needed"
-              value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
-              color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
-              active={!isManual && railView === 'UNDERSERVED'}
-              onClick={() => toggleRail(isManual ? 'ALL' : 'UNDERSERVED')}
-            />
-          )}
-          {hasSpreadTargets && (
-            <StatBadge
-              label="Spread across the week"
-              value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
-              color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--secondary)' : 'var(--text-secondary)'}
-              active={!isManual && railView === 'DISTRIBUTION'}
-              onClick={() => toggleRail(isManual ? 'ALL' : 'DISTRIBUTION')}
-            />
-          )}
-          {/* Read the whole list without picking a concern first — opens the
-              list showing everything and leaves the grid calm. */}
-          {!isManual && findingsRows.length > 0 && (
-            <button
-              onClick={() => setRailView(v => (v === 'ALL' ? null : 'ALL'))}
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
-                fontFamily: 'inherit', fontSize: 12,
-                color: railView === 'ALL' ? 'var(--text)' : 'var(--text-secondary)',
-                textDecoration: 'underline', textUnderlineOffset: 3,
-              }}
-            >{railView === 'ALL' ? 'Hide list' : 'Review all'}</button>
-          )}
-          {findingsRailOpen && (
-            <FindingsRail
-              rows={railRows}
-              onDismiss={dismissFindingsRow}
-              onLocate={locateFindingsRow}
-              onClose={() => setRailView(null)}
-              intro={{ title: 'What this week still needs', sub: "Nothing here is a mistake. It's what's left to place." }}
-              emptyText="Everything on your list is placed."
-            />
-          )}
-        </div>
-        {/* Off-view honesty: a concern's count is camp-wide, but the grid only
-            lights the current view. Say so rather than silently showing fewer. */}
-        {highlightedKind && (view === 'group' || view === 'day') && (
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
-            {highlightedIds.length === 0
-              ? 'Nothing to light up here — this concern is about time that isn’t placed yet. See the list.'
-              : visibleHighlighted < highlightedIds.length
-                ? `Showing ${visibleHighlighted} of ${highlightedIds.length} here — open the list to reach the rest.`
-                : `${highlightedIds.length} lit on the grid.`}
-          </div>
-        )}
-        </div>
-      )}
 
       {/* Paste mode status line */}
       {pasteMode && clipboardItems.length > 0 && (
@@ -1447,6 +1360,99 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           onConfirm={regenFromScratch}
           onCancel={() => setConfirmRegen(false)}
         />
+      )}
+
+      {/* The concerns row sits BELOW the grid, not above it (owner, 2026-09-11).
+          The generated route should open to the SCHEDULE: the engine has just
+          done twenty minutes of the director's work, and leading with a row of
+          counts of what is still wrong reads as an audit of the result rather
+          than the result itself. Same controls, same behaviour, read second. */}
+      {/* Concern boxes — the generated schedule's "track changes" review. Each
+          box clicks to light up the cells its concern touches and opens the
+          list filtered to it; clicking the active box turns it off. On the
+          manual route the boxes stay a plain count that opens the same list —
+          manual owns no engine concerns to review cell-by-cell, so it is left
+          as it was. docs/work/specs/2026-08-01-generated-flag-review.md */}
+      {hasSchedule && stats && (
+        <div style={{ marginBottom: 20 }}>
+        <div style={{ position: 'relative', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* T18: one concept, one name. "Placed" is a plain progress count on
+              both routes — not a concern, so it never toggles anything. */}
+          <StatBadge
+            label="Placed"
+            value={`${stats.filled} of ${stats.open}`}
+            color={isManual ? 'var(--text-secondary)' : 'var(--success)'}
+          />
+          {isManual ? (
+            <StatBadge
+              label="Overlapping"
+              value={overlapSlots.length}
+              color={overlapSlots.length > 0 ? 'var(--accent)' : 'var(--text-secondary)'}
+              onClick={() => toggleRail('ALL')}
+            />
+          ) : (
+            <StatBadge
+              label="Unfillable"
+              value={unfillableSlots.length}
+              color={unfillableSlots.length > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
+              active={railView === 'UNFILLABLE'}
+              onClick={() => toggleRail('UNFILLABLE')}
+            />
+          )}
+          {hasCoverageTargets && (
+            <StatBadge
+              label="Still needed"
+              value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
+              color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
+              active={!isManual && railView === 'UNDERSERVED'}
+              onClick={() => toggleRail(isManual ? 'ALL' : 'UNDERSERVED')}
+            />
+          )}
+          {hasSpreadTargets && (
+            <StatBadge
+              label="Spread across the week"
+              value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
+              color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--secondary)' : 'var(--text-secondary)'}
+              active={!isManual && railView === 'DISTRIBUTION'}
+              onClick={() => toggleRail(isManual ? 'ALL' : 'DISTRIBUTION')}
+            />
+          )}
+          {/* Read the whole list without picking a concern first — opens the
+              list showing everything and leaves the grid calm. */}
+          {!isManual && findingsRows.length > 0 && (
+            <button
+              onClick={() => setRailView(v => (v === 'ALL' ? null : 'ALL'))}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
+                fontFamily: 'inherit', fontSize: 12,
+                color: railView === 'ALL' ? 'var(--text)' : 'var(--text-secondary)',
+                textDecoration: 'underline', textUnderlineOffset: 3,
+              }}
+            >{railView === 'ALL' ? 'Hide list' : 'Review all'}</button>
+          )}
+          {findingsRailOpen && (
+            <FindingsRail
+              rows={railRows}
+              onDismiss={dismissFindingsRow}
+              onLocate={locateFindingsRow}
+              onClose={() => setRailView(null)}
+              intro={{ title: 'What this week still needs', sub: "Nothing here is a mistake. It's what's left to place." }}
+              emptyText="Everything on your list is placed."
+            />
+          )}
+        </div>
+        {/* Off-view honesty: a concern's count is camp-wide, but the grid only
+            lights the current view. Say so rather than silently showing fewer. */}
+        {highlightedKind && (view === 'group' || view === 'day') && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
+            {highlightedIds.length === 0
+              ? 'Nothing to light up here — this concern is about time that isn’t placed yet. See the list.'
+              : visibleHighlighted < highlightedIds.length
+                ? `Showing ${visibleHighlighted} of ${highlightedIds.length} here — open the list to reach the rest.`
+                : `${highlightedIds.length} lit on the grid.`}
+          </div>
+        )}
+        </div>
       )}
 
       {/* Grid legend — always on the manual route (identity + overlap dots),

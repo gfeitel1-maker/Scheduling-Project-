@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { localClient } from '../localClient'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
+import { applyTrayState } from './reconciliationTray'
 import { buildBlastRadiusIndex } from '../ingest/blastRadius.js'
 import { reportToLanes } from '../ingest/reportToLanes.js'
 import { getReadiness } from '../engine/readiness.js'
@@ -278,6 +279,7 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   // high-confidence, is still an UNCOMMITTED write until one of them runs.
   // Reaching the end state any other way (decisions resolved, or nothing to
   // decide but something to commit) goes through the real apply -> Receipt.
+  const tray = applyTrayState({ totalCount, doneCount, confirmedCount })
   const isGenuinelyEmpty = totalCount === 0 && understoodCount === 0 && notInSourceCount === 0 && lanes.readinessGreen
 
   // Interaction spec §1 — tile click toggles (re-clicking the active tile
@@ -326,7 +328,13 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
-            {doneCount} of {totalCount} done
+            {/* Says "questions", because the census tiles above count
+                ENTITIES. On one real import the tiles read "1 Needs attention"
+                beside this counter reading "0 of 3 done" — both true, one
+                counting things in the camp and the other counting questions
+                asked about them, and side by side they read as a contradiction.
+                Naming the unit costs a word and removes it. */}
+            {doneCount} of {totalCount} {totalCount === 1 ? 'question' : 'questions'} answered
           </div>
           <div style={styles.progressTrack}>
             <div style={{ ...styles.progressFill, width: `${pct}%` }} />
@@ -385,27 +393,15 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
       )}
 
       <div style={styles.tray}>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-          {confirmedCount > 0 ? `${confirmedCount} decisions staged` : 'Resolve at least one item, or apply what’s understood as-is.'}
-        </div>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tray.hint}</div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button
             className="press-97"
-            disabled={confirmedCount === 0 || applying}
-            onClick={() => apply('confirmedOnly')}
-            style={confirmedCount === 0 ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
-            title={confirmedCount === 0 ? 'Resolve at least one item first.' : undefined}
+            disabled={applying}
+            onClick={() => apply(tray.mode)}
+            style={applying ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
           >
-            Apply confirmed changes and keep the rest for review
-          </button>
-          <button
-            className="press-97"
-            disabled={doneCount < totalCount || applying}
-            onClick={() => apply('all')}
-            style={doneCount < totalCount ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
-            title={doneCount < totalCount ? `Resolve the ${totalCount - doneCount} items marked for your attention first.` : undefined}
-          >
-            Use this setup
+            {applying ? 'Applying…' : tray.label}
           </button>
         </div>
       </div>
