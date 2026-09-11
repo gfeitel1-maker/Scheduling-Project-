@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { groupIdenticalDecisions } from './groupIdenticalDecisions'
 import { DecisionCard, RequiredGapCard, RequiredGapSummaryCard } from './reconciliationCards.jsx'
 import { DOMAIN_LABELS, understoodRosterByDomain } from './domainRollup.js'
 import { screenForNode, SCREEN_LABEL } from './rootMapNav.js'
@@ -275,7 +276,26 @@ export default function RootMapPanel({
               />
             ))
           )}
-          {rest.map((d) => (
+          {/* A question the file raised twenty-five times is asked once. One
+              real import put 240 buttons on this screen, most of them the same
+              card repeated with nothing on screen telling the copies apart, so
+              a director answering the twenty-fifth could not have answered it
+              differently from the first. Grouping is DISPLAY only — every id in
+              the group still gets its own staged answer. */}
+          {groupIdenticalDecisions(rest.filter((d) => answers[d.id] === undefined)).map(({ decision: d, ids, count }) => (
+            <DecisionCard
+              key={d.id}
+              decision={d}
+              repeatCount={count}
+              rank={lanes.hold.includes(d) ? 'hold' : 'standard'}
+              answer={answers[d.id]}
+              onAnswer={(a) => onAnswer(ids, a)}
+              expanded={expandedEvidence.has(d.id)}
+              onToggleEvidence={() => onToggleEvidence(d.id)}
+              locations={locations}
+            />
+          ))}
+          {rest.filter((d) => answers[d.id] !== undefined).map((d) => (
             <DecisionCard
               key={d.id}
               decision={d}
