@@ -18,8 +18,11 @@ const LABELS = {
   notStarted: 'Not started',
   partiallyFilled: 'Partially filled',
   complete: 'Complete',
-  // Matches SpecialDaysScreen's own deletedElsewhere copy — a live delete on
-  // another device surfaces here the same way it used to inside that screen.
+  // Must match the `deletedElsewhere` copy in the two grid editors this screen
+  // opens — SpecialDayGridEditor.jsx and EventGridEditor.jsx — so a live delete
+  // on another device reads the same whether you are on the picker or already
+  // inside the editor. (This used to point at SpecialDaysScreen, which the
+  // Special Events unification deleted; the sibling copy moved to the editors.)
   dayDeletedElsewhere: 'This special day was deleted.',
   eventDeletedElsewhere: 'This event was deleted.',
 }
