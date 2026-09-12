@@ -1,4 +1,4 @@
-import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD, UNIQUE_FIELD_ENTITIES, detectUniqueFieldCollision } from './operations.js'
+import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD, UNIQUE_FIELD_ENTITIES, detectUniqueFieldCollision, runAtomic } from './operations.js'
 import { PROJECTIONS } from './projections.js'
 import { resolveLocationCandidateId } from './locationId.js'
 
@@ -284,7 +284,7 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
     }
   }
 
-  const ops = db.transaction(() => {
+  const ops = runAtomic(db, () => {
     const emitted = ordered.map(([field, value]) =>
       appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, source: sources.get(field) ?? null })
     )
@@ -296,7 +296,7 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
       )
     }
     return emitted
-  })()
+  })
 
   return {
     ok: true,

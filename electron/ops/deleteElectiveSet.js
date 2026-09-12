@@ -1,4 +1,4 @@
-import { appendOp, DELETE_FIELD } from './operations.js'
+import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 
 // Permanently delete an elective set and every row scoped to it, in one
 // transaction, children before parent, every delete routed through the
@@ -36,7 +36,7 @@ export function deleteElectiveSet(db, { electiveSetId }, { author_user_id, devic
   const del = (entity, entity_id) =>
     appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
 
-  const outcome = db.transaction(() => {
+  const outcome = runAtomic(db, () => {
     const ops = []
 
     const members = db
@@ -47,7 +47,7 @@ export function deleteElectiveSet(db, { electiveSetId }, { author_user_id, devic
     ops.push(del('elective_sets', electiveSetId))
 
     return { ok: true, ops }
-  })()
+  })
 
   return outcome
 }

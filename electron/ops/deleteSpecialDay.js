@@ -1,4 +1,4 @@
-import { appendOp, DELETE_FIELD } from './operations.js'
+import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 
 // Permanently delete a special day and every row scoped to it, in one
 // transaction, children before parent, every delete routed through the
@@ -33,7 +33,7 @@ export function deleteSpecialDay(db, { specialDayId }, { author_user_id, device_
   const del = (entity, entity_id) =>
     appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
 
-  const outcome = db.transaction(() => {
+  const outcome = runAtomic(db, () => {
     const ops = []
 
     const slots = db
@@ -49,7 +49,7 @@ export function deleteSpecialDay(db, { specialDayId }, { author_user_id, device_
     ops.push(del('special_days', specialDayId))
 
     return { ok: true, ops }
-  })()
+  })
 
   return outcome
 }

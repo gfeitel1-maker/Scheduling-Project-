@@ -16,7 +16,7 @@
 //     provided every write goes through this one function.
 
 import { randomUUID, createHash } from 'node:crypto'
-import { appendOp, DELETE_FIELD, latestOp, findOpByClientWriteId } from './operations.js'
+import { appendOp, DELETE_FIELD, latestOp, findOpByClientWriteId, runAtomic } from './operations.js'
 import { latestOpForEntity, lastKnownFields, lastKnownFieldSources } from './restore.js'
 import { isHumanOwned } from './fieldProvenance.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
@@ -1441,7 +1441,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // One transaction for the whole import. Any throw below rolls back every op
   // and every projected row together, so the camp is either fully imported or
   // untouched (ADR §4).
-  const run = db.transaction(() => {
+  const run = () => runAtomic(db, () => {
     // T61. Replace-mode teardown runs FIRST and inside this transaction —
     // better-sqlite3 nests as savepoints, so the one outer transaction stays
     // the rollback boundary for teardown and create alike. Deletes precede
@@ -2356,7 +2356,7 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], author_us
     return row ? row.name : null
   }
 
-  const run = db.transaction(() => {
+  const run = () => runAtomic(db, () => {
     // --- U1: field-update inversion, unchanged ---------------------------
     for (const entry of invertibleOps) {
       const { entity, entity_id, field, seq, priorValue, prior_source } = entry

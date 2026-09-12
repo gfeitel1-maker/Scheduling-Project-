@@ -1,4 +1,4 @@
-import { appendOp, DELETE_FIELD } from './operations.js'
+import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 import { clearSlotOccupant } from './slotOccupants.js'
 
 // Permanently delete an event and every row scoped to it, in one
@@ -48,7 +48,7 @@ export function deleteEvent(db, { eventId }, { author_user_id, device_id } = {})
   const del = (entity, entity_id) =>
     appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
 
-  const outcome = db.transaction(() => {
+  const outcome = runAtomic(db, () => {
     const ops = []
 
     const slots = db.prepare('SELECT id FROM event_slots WHERE event_id = ?').all(eventId)
@@ -72,7 +72,7 @@ export function deleteEvent(db, { eventId }, { author_user_id, device_id } = {})
     ops.push(del('events', eventId))
 
     return { ok: true, ops }
-  })()
+  })
 
   return outcome
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appendOp, appendBulkReplaceOp, BULK_REPLACE_ENTITIES } from './operations.js'
+import { appendOp, appendBulkReplaceOp, BULK_REPLACE_ENTITIES, runAtomic } from './operations.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 
 // Pick only the columns the bulk_replace entity accepts, replacing the id and
@@ -58,7 +58,7 @@ export function duplicateWeek(db, { sourceWeekId, campId }, { author_user_id, de
   const ROUTES = ['generated', 'manual']
 
   let outcome
-  outcome = db.transaction(() => {
+  outcome = runAtomic(db, () => {
     const ops = []
 
     const cwid = (entity, n) =>
@@ -222,7 +222,7 @@ export function duplicateWeek(db, { sourceWeekId, campId }, { author_user_id, de
     }))
 
     return { ok: true, newWeekId, newName, ops }
-  })()
+  })
 
   return outcome
 }
