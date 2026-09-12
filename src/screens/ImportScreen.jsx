@@ -14,6 +14,7 @@ import { capturePlacements } from '../ingest/capturePlacements'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
 import { findNameVariantCandidates } from '../ingest/nearDuplicateNames'
+import { findMovedPlacements } from '../ingest/movedPlacements'
 import { detectCompoundCellPatterns } from '../ingest/compoundCellPatterns'
 import { inferActivityRules } from '../ingest/activityRules'
 import { normalizeName } from '../ingest/preview'
@@ -193,6 +194,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // unlike compound-cell decisions there is no per-camp persistence yet, so an
   // unanswered card simply contributes nothing, same as every other decision
   // on this screen.
+  // A pinned slot that is absent on one day, with something else filling exactly
+  // that gap, is an EXCEPTION to the pinning rather than a new activity — the
+  // owner's Wednesday lunch. Told, never asked: no decision is attached and
+  // nothing is withheld if it is ignored (owner, 2026-09-12).
+  const [movedPlacements, setMovedPlacements] = useState([])
   const [nameVariantCandidates, setNameVariantCandidates] = useState([])
   const [nameVariantDecisions, setNameVariantDecisions] = useState({})
   const [compoundCellDecisions, setCompoundCellDecisions] = useState({})
@@ -281,6 +287,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     setMultiBlockCandidates([])
     setMultiBlockDecisions({})
     setCompoundCellCandidates([])
+    setMovedPlacements([])
     setNameVariantCandidates([])
     setNameVariantDecisions({})
     setCompoundCellDecisions({})
@@ -427,6 +434,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       const knownTimeBlockNames = (existingAll.time_blocks ?? []).map((t) => t.name)
       const { fixedEvents: inferred, dualUseNames: dualUseNamesRaw = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
       setFixedEvents(inferred)
+      setMovedPlacements(findMovedPlacements({ pages }, proposal, inferred))
       setOperatingDayCount(proposal.entities.days_of_operation.length)
 
       // Slice B — merges Slice A reconstructed as row.blockSpans, surfaced
@@ -1206,6 +1214,39 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               {proposal.orientation.confident
                 ? `Read as one page per ${proposal.orientation.pages === 'groups' ? 'group, with the days across the top' : 'day, with the groups across the top'}.`
                 : 'Could not tell how this file is laid out, so some of the list below may be wrong. Worth checking closely.'}
+            </div>
+          )}
+
+          {/* A pinned slot that moved on one day. Non-blocking by design: the
+              owner asked to be TOLD and to be able to move past it, so this
+              carries no buttons and withholds nothing. Filing the Wednesday
+              cell as a brand-new activity — which is what happened before —
+              threw away the one fact that makes it comprehensible. */}
+          {movedPlacements.length > 0 && (
+            <div style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 12, lineHeight: 1.6,
+            }}>
+              <div style={{
+                fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: 'var(--text-secondary)', marginBottom: 8,
+              }}>
+                Something moved for a day
+              </div>
+              <div style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
+                These look like a regular slot that shifted on one day, not new activities.
+                Nothing is being held up — this is just so you know.
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--text)' }}>
+                {movedPlacements.map((m) => (
+                  <li key={`${m.pinned}|${m.moved}|${m.days.join(',')}`} style={{ marginBottom: 4 }}>
+                    <strong>{m.pinned}</strong> ({m.pinned_block}) looks like it moved to{' '}
+                    <strong>{m.moved}</strong> ({m.moved_block}) on {m.days.join(', ')}
+                    <span style={{ color: 'var(--text-secondary)' }}> · {m.groups.join(', ')}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
