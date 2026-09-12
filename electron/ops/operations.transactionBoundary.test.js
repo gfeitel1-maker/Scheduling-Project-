@@ -140,6 +140,41 @@ describe('appendOp inside an outer transaction — the rollback boundary', () =>
     expect(readRecord(getDocIfLoaded(db), 'groups', 'g5')).toBeNull()
   })
 
+  it('buffers per database, never process-wide', () => {
+    // The same discipline docRegistry/broadcastCallbacks already use in
+    // liveDoc.js, for the reason documented there: integration scenarios run
+    // two devices in ONE process, and shared global state made one device's
+    // node serve the other's writes (scenario 30). A global depth counter would
+    // repeat it — device A's rollback discarding device B's buffer.
+    const otherFile = path.join(os.tmpdir(), `shoresh-txn-other-${Date.now()}-${Math.random()}.sqlite`)
+    const other = openLocalDb(otherFile)
+    try {
+      other.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-2', 'Device Two')
+      other.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-2', 'Camp Two')
+
+      // Device B commits a write while device A is mid-transaction and failing.
+      expect(() => runAtomic(db, () => {
+        writeGroup('gA', 'Device A, doomed')
+        runAtomic(other, () => {
+          appendOp(other, {
+            entity: 'groups', entity_id: 'gB', field: 'name', value: 'Device B, fine',
+            author_user_id: null, device_id: 'device-2', parent_op_id: null, client_write_id: null,
+          })
+        })
+        throw new Error('device A rolls back')
+      })).toThrow('device A rolls back')
+      flushPendingWrites()
+
+      // A rolled back; B did not, and B's document write survived A's failure.
+      expect(db.prepare('SELECT id FROM groups').all()).toEqual([])
+      expect(other.prepare('SELECT id FROM groups').all().map((r) => r.id)).toEqual(['gB'])
+      expect(readRecord(getDocIfLoaded(other), 'groups', 'gB').name).toBe('Device B, fine')
+    } finally {
+      other.close()
+      if (fs.existsSync(otherFile)) fs.unlinkSync(otherFile)
+    }
+  })
+
   it('a top-level write is unaffected — it was always correct', () => {
     writeGroup('g4', 'Bunk D')
     flushPendingWrites()
@@ -150,28 +185,43 @@ describe('appendOp inside an outer transaction — the rollback boundary', () =>
 
 // Structural guard. The fix is only as good as its adoption: a future
 // multi-write path that reaches for `db.transaction` directly gets the old
-// behaviour back, silently, and no behavioural test would catch it because the
+// behaviour back silently, and no behavioural test would catch it because that
 // path would look correct in isolation.
-describe('no op path opens its own transaction around appendOp', () => {
+//
+// WHAT THIS DOES NOT CATCH, stated plainly rather than implied (Red Hat):
+//   - a file that opens a bare transaction around a HELPER which itself calls
+//     appendOp (slotOccupants.js's clearSlotOccupant is such a helper today);
+//     the new file's own source would contain no `appendOp(` to match on.
+//   - a transaction built indirectly, or through a wrapper under another name.
+// It is a textual check over three directories, not a call-graph proof. It
+// catches the copy-paste case, which is the likely one.
+describe('no write path opens its own transaction around an op append', () => {
   it('every multi-write module uses runAtomic', async () => {
     const { readFileSync, readdirSync } = await import('node:fs')
-    const dir = new URL('.', import.meta.url).pathname
-    // These legitimately own a bare transaction: operations.js defines
-    // runAtomic and appendOp's own inner transaction; the rest write ONLY
-    // host-local tables that never reach the document, so there is nothing to
-    // keep in step.
+    const opsDir = new URL('.', import.meta.url).pathname
+    // Widened past electron/ops/ (Red Hat): a new multi-write module placed
+    // under automerge/ or sync/ would previously not have been scanned at all.
+    const dirs = [opsDir, opsDir + '../automerge/', opsDir + '../sync/automerge/']
+    // These legitimately own a bare transaction: operations.js defines runAtomic
+    // and appendOp's own inner transaction; the rest write ONLY host-local
+    // tables that never reach the document, so there is nothing to keep in step.
     const ALLOWED = new Set([
       'operations.js', 'confirmAlias.js', 'confirmCompoundCellPattern.js',
       'migrationReviews.js', 'openReconciliationDecisions.js', 'projectionRepair.js',
     ])
     const offenders = []
-    for (const file of readdirSync(dir)) {
-      if (!file.endsWith('.js') || file.includes('.test.') || ALLOWED.has(file)) continue
-      const src = readFileSync(dir + file, 'utf8')
-      if (!src.includes('appendOp(')) continue
-      for (const [i, line] of src.split('\n').entries()) {
-        if (line.includes('db.transaction(') && !line.trim().startsWith('//') && !line.trim().startsWith('*')) {
-          offenders.push(`${file}:${i + 1}`)
+    for (const dir of dirs) {
+      for (const file of readdirSync(dir)) {
+        if (!file.endsWith('.js') || file.includes('.test.') || ALLOWED.has(file)) continue
+        const src = readFileSync(dir + file, 'utf8')
+        // `appendBulkReplaceOp` too (Red Hat): a file using only the bulk
+        // primitive would have slipped the old `appendOp(`-only filter.
+        if (!src.includes('appendOp(') && !src.includes('appendBulkReplaceOp(')) continue
+        for (const [i, line] of src.split('\n').entries()) {
+          const t = line.trim()
+          if (line.includes('db.transaction(') && !t.startsWith('//') && !t.startsWith('*')) {
+            offenders.push(`${file}:${i + 1}`)
+          }
         }
       }
     }

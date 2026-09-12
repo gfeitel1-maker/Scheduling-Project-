@@ -99,8 +99,22 @@ export function setLocalWriteBroadcaster(db, fn) {
   broadcastCallbacks.set(db, fn)
 }
 
-let deferDepth = 0
-let deferredDocWrites = []
+// Keyed by `db`, NOT module-global — the same discipline docRegistry and
+// broadcastCallbacks above already use, for the reason documented there:
+// integration scenarios run two devices in ONE process, and shared global state
+// made one device's node serve the other's writes (scenario 30). A global depth
+// counter here would be the same mistake: device A's rollback would discard
+// device B's already-committed buffer.
+let deferStates = new WeakMap() // db -> { depth, queue }
+
+function deferStateFor(db) {
+  let state = deferStates.get(db)
+  if (!state) {
+    state = { depth: 0, queue: [] }
+    deferStates.set(db, state)
+  }
+  return state
+}
 
 export function resetForTests() {
   if (pendingTimer) clearTimeout(pendingTimer)
@@ -110,10 +124,9 @@ export function resetForTests() {
   userDataDirGetter = null
   warnedUnconfigured = false
   broadcastCallbacks = new WeakMap()
-  // Without this, a test whose transaction throws leaves deferDepth > 0 and
-  // every subsequent test silently buffers its document writes forever.
-  deferDepth = 0
-  deferredDocWrites = []
+  // Without this, a test whose transaction throws leaves a depth > 0 and every
+  // subsequent test silently buffers its document writes forever.
+  deferStates = new WeakMap()
 }
 
 function getCampId(db) {
@@ -352,40 +365,66 @@ function applyLocalBulkReplaceNow(db, { entity, scope_id, rows }) {
 // The gating each apply does (unmodeled entity, unconfigured userDataDir, no
 // camp row) deliberately runs at APPLY time, not queue time, so a buffered
 // write behaves identically to an unbuffered one.
-export function beginDeferredDocWrites() {
-  deferDepth += 1
+export function beginDeferredDocWrites(db) {
+  deferStateFor(db).depth += 1
 }
 
-export function commitDeferredDocWrites() {
-  if (deferDepth === 0) return
-  deferDepth -= 1
-  if (deferDepth > 0) return
-  const queued = deferredDocWrites
-  deferredDocWrites = []
+export function commitDeferredDocWrites(db) {
+  const state = deferStateFor(db)
+  if (state.depth === 0) return
+  state.depth -= 1
+  if (state.depth > 0) return
+  const queued = state.queue
+  state.queue = []
   for (const item of queued) {
-    if (item.kind === 'bulk') applyLocalBulkReplaceNow(item.db, item.args)
-    else applyLocalWriteNow(item.db, item.args)
+    // EACH item independently, and a failure never escapes.
+    //
+    // By the time this runs, SQLite and the op-log have COMMITTED — that is the
+    // whole point of flushing after the transaction. So a throw here must not
+    // propagate: it would reach commitPlan's catch, which re-throws anything
+    // that is not its HELD/DRY_RUN sentinel, and the director would be told the
+    // import failed while SQLite says it succeeded. That is the mirror of the
+    // bug this deferral exists to fix.
+    //
+    // Nor may one failure truncate the rest: the remaining writes are unrelated
+    // and each is independently applicable, exactly as they were before
+    // deferral, when appendOp wrapped every single recordLocalWrite in its own
+    // try/catch. Deferral changes WHEN a write applies, never whether its
+    // failure is contained.
+    //
+    // A failure still leaves the document behind SQLite for that field — the
+    // second, separate hole (a document write failing on its own), which this
+    // change does not claim to close.
+    try {
+      if (item.kind === 'bulk') applyLocalBulkReplaceNow(item.db, item.args)
+      else applyLocalWriteNow(item.db, item.args)
+    } catch (err) {
+      console.error('deferred document write failed (SQLite already committed, unaffected):', err)
+    }
   }
 }
 
-export function discardDeferredDocWrites() {
-  if (deferDepth === 0) return
-  deferDepth -= 1
-  if (deferDepth > 0) return
-  deferredDocWrites = []
+export function discardDeferredDocWrites(db) {
+  const state = deferStateFor(db)
+  if (state.depth === 0) return
+  state.depth -= 1
+  if (state.depth > 0) return
+  state.queue = []
 }
 
 export function recordLocalWrite(db, args) {
-  if (deferDepth > 0) {
-    deferredDocWrites.push({ kind: 'write', db, args })
+  const state = deferStates.get(db)
+  if (state && state.depth > 0) {
+    state.queue.push({ kind: 'write', db, args })
     return
   }
   applyLocalWriteNow(db, args)
 }
 
 export function recordLocalBulkReplace(db, args) {
-  if (deferDepth > 0) {
-    deferredDocWrites.push({ kind: 'bulk', db, args })
+  const state = deferStates.get(db)
+  if (state && state.depth > 0) {
+    state.queue.push({ kind: 'bulk', db, args })
     return
   }
   applyLocalBulkReplaceNow(db, args)

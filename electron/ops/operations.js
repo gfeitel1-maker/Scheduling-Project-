@@ -135,17 +135,19 @@ export const MAX_FIELD_VALUE_LENGTH = {
 // The SQLite transaction is still the inner boundary, unchanged — this only
 // adds the document to the same boundary.
 export function runAtomic(db, fn) {
-  beginDeferredDocWrites()
+  beginDeferredDocWrites(db)
   let result
   try {
     result = db.transaction(fn)()
   } catch (err) {
-    discardDeferredDocWrites()
+    discardDeferredDocWrites(db)
     throw err
   }
-  // Deliberately AFTER the transaction has committed, and deliberately not in
-  // a `finally`: a throw must discard, and only a clean commit may flush.
-  commitDeferredDocWrites()
+  // Deliberately AFTER the transaction has committed, and deliberately not in a
+  // `finally`: a throw must discard, and only a clean commit may flush.
+  // commitDeferredDocWrites contains its own failures — see the note there on
+  // why a throw at flush time must never reach this caller.
+  commitDeferredDocWrites(db)
   return result
 }
 
