@@ -16,6 +16,8 @@
 // Where the two trade off, this errs toward including too much.
 
 
+import { splitPeriodBlocks } from './splitPeriodBlocks.js'
+
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
 // A run of two or more spaces separates columns; a single space is inside a
@@ -336,7 +338,17 @@ export function parseTextGrid(text) {
       return filled.size >= Math.max(2, Math.ceil(columns.length * 0.5))
     }
 
+    // One blank-line block can hold more than one period (T140) — campA does it
+    // twice. Each is handed to the existing per-block logic unchanged, which
+    // simply runs once per period instead of once per block.
     const closeBlock = () => {
+      if (block.length === 0) return
+      const pending = block
+      block = []
+      for (const piece of splitPeriodBlocks(pending, columns[0]?.start ?? 0)) closeOnePeriod(piece)
+    }
+
+    const closeOnePeriod = (block) => {
       if (block.length === 0) return
       const label = []
       const valueRows = []
@@ -405,7 +417,6 @@ export function parseTextGrid(text) {
       // A block with no value row at all is still one row of content.
       if (leading.length > 0) valueRows.push(leading)
 
-      block = []
       const periodLabel = label.join(' ')
 
       if (valueRows.length === 0) {

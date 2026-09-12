@@ -268,6 +268,16 @@ so its contract is about honesty rather than perfection.
   and is not imported as a schedulable block (`src/ingest/periodSpan.js`). The
   threshold came from the corpus: change-overs are 5-10 minutes and the shortest
   real period is 15.
+- **One blank-line block can hold two periods, and they are split apart**
+  (`src/ingest/splitPeriodBlocks.js`). A new period starts where the time column
+  carries another time, once the period being accumulated has a complete label
+  AND has seen data — both conditions matter, or the two halves of a wrapped
+  label fragment, which is the bug blank-line blocks exist to fix.
+- **A one-ended block is dropped when a range already covers its time**
+  (`src/ingest/dropRedundantEndpoints.js`), and KEPT when no range does, because
+  there it may be the only trace of a real period. campA imports as 11 periods,
+  every one with a start and an end; it used to be 13 with four fragments, and
+  before that 53.
 - **Suspect names are flagged, never dropped.** `src/ingest/suspectRecords.js`
   marks activity names that begin with a joining word ("and Mitzvah") or with the
   period column's word ("Block Sports"), and the import preview shows them under

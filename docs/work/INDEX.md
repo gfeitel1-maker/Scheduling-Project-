@@ -25,7 +25,6 @@ Regenerate with `npm run index:work`.
 | [T111-elective-cell-atomic-content-and-mutual-exclusion](../../docs/work/tickets/T111-elective-cell-atomic-content-and-mutual-exclusion.md) | in-progress | [2026-08-20-elective-authoring-render-design](../../docs/work/specs/2026-08-20-elective-authoring-render-design.md) · [2026-08-20-elective-cell-atomic-content-design](../../docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md) · [T109-orphaned-span-tail-reconciliation-guard](../../docs/work/tickets/T109-orphaned-span-tail-reconciliation-guard.md) |
 | [T114-infer-outdoor-coschedule-alt-activity-rules](../../docs/work/tickets/T114-infer-outdoor-coschedule-alt-activity-rules.md) | open | — |
 | [T115-locations-ingest-create-name-first](../../docs/work/tickets/T115-locations-ingest-create-name-first.md) | open | — |
-| [T140-one-block-holds-two-periods](../../docs/work/tickets/T140-one-block-holds-two-periods.md) | open | — |
 | [T36-ingest-unlabeled-path-residuals](../../docs/work/tickets/T36-ingest-unlabeled-path-residuals.md) | open | — |
 
 ### documentation-governance

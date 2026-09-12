@@ -81,7 +81,6 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
       <div className="shoresh-login-hero" style={{ ...loginStyles.heroPanel, ...heroTransition }}>
         <img src={treeArt} alt="" style={loginStyles.heroArt} />
         <div style={loginStyles.heroWordmark}>Shoresh</div>
-        <div style={loginStyles.heroTagline}>From Roots to Rhythm</div>
       </div>
 
       <div style={loginStyles.formPanel}>
@@ -221,12 +220,6 @@ const loginStyles = {
     fontSize: 40,
     color: '#fff',
     letterSpacing: '-0.3px',
-  },
-  heroTagline: {
-    fontFamily: 'var(--font-sans)',
-    fontSize: 13,
-    color: 'color-mix(in srgb, #fff 78%, transparent)',
-    letterSpacing: '0.02em',
   },
   formPanel: {
     flex: '1 1 54%',
