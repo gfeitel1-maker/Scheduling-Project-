@@ -396,11 +396,13 @@ export function commitDeferredDocWrites(db) {
     // A failure still leaves the document behind SQLite for that field — the
     // second, separate hole (a document write failing on its own), which this
     // change does not claim to close.
-    try {
+    const flushed = withRetry(() => {
       if (item.kind === 'bulk') applyLocalBulkReplaceNow(item.db, item.args)
       else applyLocalWriteNow(item.db, item.args)
-    } catch (err) {
-      console.error('deferred document write failed (SQLite already committed, unaffected):', err)
+    })
+    if (!flushed.ok) {
+      const err = flushed.error
+      console.error(`deferred document write failed after ${flushed.attempts} attempts (SQLite already committed, unaffected):`, err)
       recordDocumentWriteFailure(item.db, {
         op_id: item.args?.op_id,
         entity: item.args?.entity,
@@ -420,13 +422,47 @@ export function discardDeferredDocWrites(db) {
   state.queue = []
 }
 
+// Retry a document write before giving up on it.
+//
+// The value is still in hand at this instant — that is the whole reason to try
+// here rather than sweep up later. Once `projectAll` runs, SQLite has been
+// corrected to match the document and the good value is no longer sitting in
+// the easy place to find it; recovering then means reconstructing from the
+// op-log, which is more work and more ways to be wrong.
+//
+// A transient cause (a busy disk, a momentary lock while the debounced save is
+// landing) clears on the next attempt. A deterministic one (a value the
+// document model rejects) fails all three, costs microseconds, and falls
+// through to being recorded — which is the outcome it would have had anyway.
+//
+// Deliberately synchronous and small: this sits on the write path, and a write
+// the director is waiting on must not block on backoff.
+const DOCUMENT_WRITE_ATTEMPTS = 3
+
+function withRetry(apply) {
+  let lastErr
+  for (let attempt = 1; attempt <= DOCUMENT_WRITE_ATTEMPTS; attempt += 1) {
+    try {
+      apply()
+      if (attempt > 1) {
+        console.warn(`document write succeeded on attempt ${attempt} after a transient failure`)
+      }
+      return { ok: true, attempts: attempt }
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  return { ok: false, attempts: DOCUMENT_WRITE_ATTEMPTS, error: lastErr }
+}
+
 export function recordLocalWrite(db, args) {
   const state = deferStates.get(db)
   if (state && state.depth > 0) {
     state.queue.push({ kind: 'write', db, args })
     return
   }
-  applyLocalWriteNow(db, args)
+  const result = withRetry(() => applyLocalWriteNow(db, args))
+  if (!result.ok) throw result.error
 }
 
 export function recordLocalBulkReplace(db, args) {
@@ -435,7 +471,8 @@ export function recordLocalBulkReplace(db, args) {
     state.queue.push({ kind: 'bulk', db, args })
     return
   }
-  applyLocalBulkReplaceNow(db, args)
+  const result = withRetry(() => applyLocalBulkReplaceNow(db, args))
+  if (!result.ok) throw result.error
 }
 
 export function docPathForTests(userDataDir, campId) {

@@ -19,6 +19,19 @@ import { fileURLToPath } from 'node:url'
 import { asList } from './frontmatter.js'
 import { readDocs, generate, INDEX_PATH, REFERENCE_FIELDS } from './build-work-index.js'
 
+// See checkWritableEntitiesCanSync. Imported at module load so the check is
+// ordinary synchronous code; if either module cannot be loaded the check is
+// skipped with a warning rather than failing a documentation run.
+let projectionsRegistry = null
+let modeledEntities = null
+try {
+  ;({ PROJECTIONS: projectionsRegistry } = await import('../electron/ops/projections.js'))
+  ;({ MODELED_ENTITIES: modeledEntities } = await import('../electron/automerge/campDocument.js'))
+} catch (err) {
+  console.warn(`check:governance — entity-sync check skipped (could not load app modules: ${err?.message ?? err})`)
+}
+
+
 /** CONSTITUTION.md Article VI. Kebab-case, matching .claude/agents/*.md. */
 export const AGENTS = [
   'governor', 'architect', 'designer', 'maker', 'code-reviewer',
@@ -354,6 +367,42 @@ function gatherCompletionSubjects(root, execFn) {
   }
 }
 
+
+// Every entity a screen can WRITE must be able to reach another device — or be
+// deliberately, documentedly local. There is no third state, and the third state
+// is silent: a table registered in PROJECTIONS but absent from the Automerge
+// document is one a director can fill in and nobody else will ever see, and
+// which `projectAll`'s delete-reconcile may then remove, because it treats the
+// document as the authoritative superset.
+//
+// docs/current/WHERE_DATA_LIVES.md ships this same diff as a command for a human
+// to run. Running it by hand is how the current gaps were found; nothing ran it
+// on its own, which is the part this closes.
+//
+// The allowlist is the "documentedly local" half. Adding to it is a real
+// decision — say why here, and add the row to WHERE_DATA_LIVES.md — not a way
+// to make this finding go away.
+const SQLITE_ONLY_BY_DESIGN = new Set([
+  // Each device tracks its own unresolved conflicts; a conflict is a fact about
+  // THIS device's merge history, not shared camp data. Registered in PROJECTIONS
+  // with `fields: []`, so no field op can target it either.
+  'conflicts',
+])
+
+export function checkWritableEntitiesCanSync(projections, modeled) {
+  if (!projections || !modeled) return []
+  return Object.keys(projections)
+    .filter((entity) => !modeled.has(entity) && !SQLITE_ONLY_BY_DESIGN.has(entity))
+    .sort()
+    .map((entity) =>
+      finding('entity-cannot-sync',
+        `\`${entity}\` is registered in PROJECTIONS but is not modeled in the Automerge document — ` +
+        'a screen can write it, no other device will ever see it, and projectAll may delete it. ' +
+        'Either model it in electron/automerge/campDocument.js, or — if it is deliberately ' +
+        'device-local — add it to SQLITE_ONLY_BY_DESIGN here WITH a reason and give it a row in ' +
+        'docs/current/WHERE_DATA_LIVES.md'))
+}
+
 export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8' })) {
   const exists = (p) => existsSync(join(root, p))
   const docs = readDocs(root)
@@ -364,6 +413,12 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   findings.push(...checkIndexFreshness(committed, generate(root)))
 
   findings.push(...checkPlatformStateFreshness(root, execFn))
+
+  // Loaded lazily and defensively: this check reads application modules rather
+  // than documents, and a doc-hygiene run must not hard-fail because an app
+  // module could not be imported (a native-module ABI mismatch, say). A skip is
+  // announced, never silent — an unreported skip would read as a pass.
+  findings.push(...checkWritableEntitiesCanSync(projectionsRegistry, modeledEntities))
 
   const subjects = gatherCompletionSubjects(root, execFn)
   if (subjects !== null) {
