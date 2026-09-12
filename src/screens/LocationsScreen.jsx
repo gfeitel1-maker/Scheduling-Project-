@@ -37,6 +37,10 @@ const repo = createScheduleRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
 
 function capacityWord(n) {
+  // A location with no capacity set is a real state (import leaves it null,
+  // and the column is nullable), and it used to render the literal string
+  // "null groups" in the table. Say nothing rather than say that.
+  if (n === null || n === undefined || n === '') return '—'
   return `${n} group${n === 1 ? '' : 's'}`
 }
 
@@ -386,9 +390,14 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnc
         <td style={S.td}>
           <input value={notes} onChange={(e) => setNotes(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} />
         </td>
+        {/* Save/Cancel never stack: the Actions column is sized by the display
+            row's single Delete button, so two free-flowing buttons wrap onto
+            two lines inside it. Same nowrap flex the other setup tables use. */}
         <td style={{ ...S.td, textAlign: 'right' }}>
-          <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
-          <button className="press-97" onClick={() => { setName(location.name); setCapacity(location.capacity); setNotes(location.notes || ''); setKind(location.kind || ''); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
+          <div style={{ display: 'flex', flexWrap: 'nowrap', gap: 6, justifyContent: 'flex-end' }}>
+            <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
+            <button className="press-97" onClick={() => { setName(location.name); setCapacity(location.capacity); setNotes(location.notes || ''); setKind(location.kind || ''); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
+          </div>
         </td>
       </tr>
     )
@@ -397,16 +406,31 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnc
   const kindInfo = KIND_OPTIONS.find((k) => k.value === location.kind)
 
   return (
+    // Click the row to edit it, as every other setup table does. Locations was
+    // the one screen still requiring a dedicated Edit button.
+    //
+    // The row carries live controls of its own (the duplicate and capacity
+    // dots, and Delete), so the handler ignores any click that landed on a
+    // button rather than each of those stopping propagation individually —
+    // which is the version a new control can forget to opt into.
     <tr style={{
         borderBottom: '1px solid var(--border)',
+        cursor: 'pointer',
         background: justConfirmed ? 'color-mix(in srgb, var(--secondary) 10%, transparent)' : 'transparent',
         transition: (justConfirmed && !prefersReducedMotion()) ? 'background-color var(--motion-settle) var(--ease-out)' : 'none',
       }}
+      onClick={(e) => { if (!e.target.closest('button')) setEditing(true) }}
       onMouseEnter={(e) => { if (!justConfirmed) e.currentTarget.style.background = 'var(--bg)' }}
       onMouseLeave={(e) => { if (!justConfirmed) e.currentTarget.style.background = '' }}
     >
       <td style={{ ...S.td, fontWeight: 500 }}>
-        {location.name}
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Edit ${location.name}`}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
+          style={{ cursor: 'pointer' }}
+        >{location.name}</span>
         {duplicateSiblings?.length > 0 && (
           <DuplicateLocationDot location={location} siblings={duplicateSiblings} onMerge={onMergeDuplicate} busy={duplicateMergeBusy} />
         )}
@@ -419,12 +443,11 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle, capacityUnc
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{location.notes || '—'}</td>
       {weekToggle}
       <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
-        <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
         <button
           onClick={() => onDelete(location)}
           disabled={role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
-          style={role !== 'admin' ? { ...S.btnRowDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnRowDanger, marginLeft: 6 }}
+          style={role !== 'admin' ? { ...S.btnRowDanger, ...S.buttonDisabled } : S.btnRowDanger}
         >Delete</button>
       </td>
     </tr>
@@ -863,21 +886,16 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
             <div style={S.stateLoading}>Loading…</div>
           ) : (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              {/* Locations builds its own frame rather than SetupScreenShell
+                  (it has a Back control the shell has no slot for), so the
+                  same demotion the shell got is applied here by hand: the
+                  count alone at the top, the file/bulk actions quiet in the
+                  footer. Keep the two in step. */}
+              <div style={{ marginBottom: 20 }}>
                 <div style={S.sectionCount}>
                   {locations.length} location{locations.length !== 1 ? 's' : ''}
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-                  <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
-                  <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-                  <button
-                    onClick={deleteAll}
-                    disabled={role !== 'admin'}
-                    title={role !== 'admin' ? 'Admin only' : undefined}
-                    style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-                  >Delete All</button>
-                </div>
+                <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
               </div>
 
               <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
@@ -950,7 +968,25 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           )}
         </>
 
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* Three groups (Back, the file/bulk utilities, Next) do not fit this
+          screen's 720px column on one line — they wrapped, and Next fell to a
+          line of its own. The utilities get their own quiet row above the
+          navigation footer instead. */}
+      <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 2 }}>
+        <button className="press-97" onClick={downloadTemplate} style={S.btnUtility}>Download Template</button>
+        <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnUtility}>Import from Excel</button>
+        <span aria-hidden="true" style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 8px' }} />
+        <button
+          onClick={deleteAll}
+          disabled={role !== 'admin'}
+          title={role !== 'admin' ? 'Admin only' : undefined}
+          style={role !== 'admin'
+            ? { ...S.btnUtility, ...S.buttonDisabled }
+            : { ...S.btnUtility, color: 'var(--warning)' }}
+        >Delete All</button>
+      </div>
+
+      <div style={{ marginTop: 12, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button className="press-97" onClick={() => onNavigate('activities')} style={S.backBar}>← Back to Activities</button>
         <button className="press-97" onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Recurring Events →</button>
       </div>

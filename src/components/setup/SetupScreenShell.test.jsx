@@ -62,7 +62,7 @@ describe('SetupScreenShell', () => {
   })
 
   // Prominence is state-derived, not a per-screen literal: solid (full opacity)
-  // when the button is enabled, muted (opacity 0.6) when it is disabled.
+  // when the button is enabled, muted (S.buttonDisabled's opacity) when it is disabled.
   it('renders Delete All prominent (full opacity) when enabled', () => {
     render(<SetupScreenShell {...base} role="admin" actions={{ onDeleteAll: () => {} }}><div /></SetupScreenShell>)
     const btn = screen.getByText('Delete All')
@@ -70,17 +70,17 @@ describe('SetupScreenShell', () => {
     expect(btn.style.opacity === '' || btn.style.opacity === '1').toBe(true)
   })
 
-  it('renders Delete All muted (opacity 0.6) when disabled via deleteAllDisabled', () => {
+  it('renders Delete All muted (the shared disabled opacity) when disabled via deleteAllDisabled', () => {
     render(<SetupScreenShell {...base} role="admin" actions={{ onDeleteAll: () => {}, deleteAllDisabled: true }}><div /></SetupScreenShell>)
     const btn = screen.getByText('Delete All')
     expect(btn.disabled).toBe(true)
-    expect(btn.style.opacity).toBe('0.6')
+    expect(btn.style.opacity).toBe('0.45')
   })
 
-  it('renders Delete All muted (opacity 0.6) when disabled for a non-admin', () => {
+  it('renders Delete All muted (the shared disabled opacity) when disabled for a non-admin', () => {
     render(<SetupScreenShell {...base} role="staff" actions={{ onDeleteAll: () => {} }}><div /></SetupScreenShell>)
     const btn = screen.getByText('Delete All')
     expect(btn.disabled).toBe(true)
-    expect(btn.style.opacity).toBe('0.6')
+    expect(btn.style.opacity).toBe('0.45')
   })
 })

@@ -491,16 +491,59 @@ describe('GroupsScreen — row-click to edit', () => {
     expect(screen.queryByDisplayValue('Yeladim 1')).toBeNull()
   })
 
-  it('clicking History does not enter edit mode', async () => {
+  // Regression: saving any row calls load(), which sets `loading` and swaps the
+  // whole table for "Loading…". While each row owned its own edit state, that
+  // unmounted every OTHER open editor and discarded what was typed in it.
+  //
+  // Three things this test needs, each of which silently defeated an earlier
+  // version of it: list() must resolve asynchronously (an instant mock batches
+  // the loading render away), write() must match the repository's real
+  // (token, entity, id, field, value) signature and {status:'applied'} result
+  // (or the save throws and never reloads), and the assertion must wait for the
+  // RELOAD rather than the write (asserting after the write passes trivially,
+  // because nothing has re-rendered yet).
+  it('keeps other rows\u2019 pending edits when one row is saved', async () => {
+    const t = tier()
+    let g1 = { ...group(), id: 'g1', name: 'Yeladim 1', tier_id: null }
+    const g2 = { ...group(), id: 'g2', name: 'Yeladim 2', tier_id: null }
+    // The reload after a save must reflect the save, or the row never moves
+    // between tier sections and the remount this test exists to catch never
+    // happens. (A first version of this test mocked a static list and passed
+    // against the very code it was written to fail on.)
+    // A REAL list() is an IPC round-trip, so the reload after a save actually
+    // renders load()'s `loading` state. An instantly-resolved mock batches that
+    // render away and hides the very unmount this test is about.
     localClient.list.mockImplementation((entity) =>
-      Promise.resolve(entity === 'groups' ? [group()] : [tier()])
+      new Promise(r => setTimeout(() => r(entity === 'groups' ? [g1, g2] : [t]), 0))
     )
+    localClient.write.mockImplementation(async (_token, entity, id, field, value) => {
+      if (entity === 'groups' && id === 'g1' && field === 'tier_id') g1 = { ...g1, tier_id: value }
+      return { status: 'applied' }
+    })
     render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 2')).not.toBeNull())
+
+    // Open BOTH rows and retype both names.
+    fireEvent.click(screen.getByText('Yeladim 1'))
+    fireEvent.click(screen.getByText('Yeladim 2'))
+    fireEvent.change(screen.getByDisplayValue('Yeladim 2'), { target: { value: 'Renamed 2' } })
+    // Assign the first to an age division — this is what moves its row.
+    fireEvent.change(screen.getByDisplayValue('Yeladim 1').closest('tr').querySelector('select'),
+      { target: { value: t.id } })
+
+    // Save only the first. Its save moves it under a tier and reloads the list.
+    const listCallsBefore = localClient.list.mock.calls.length
+    fireEvent.click(screen.getAllByText('Save')[0])
+
+    // Wait for the RELOAD to land, not just the write. Asserting straight after
+    // the write passes trivially: the row has not been re-rendered yet, so the
+    // typed value is still on screen no matter what happens next.
+    await waitFor(() => expect(localClient.list.mock.calls.length).toBeGreaterThan(listCallsBefore + 1))
+    await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull())
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('History'))
-
-    expect(screen.queryByDisplayValue('Yeladim 1')).toBeNull()
+    // The second row must still be open, still holding what was typed.
+    expect(screen.queryByDisplayValue('Renamed 2')).not.toBeNull()
   })
 
   it('shows the no-age-divisions caution through the shared bronze --accent primitive, not hardcoded amber', async () => {

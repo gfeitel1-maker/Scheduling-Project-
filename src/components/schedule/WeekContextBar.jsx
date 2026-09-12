@@ -17,9 +17,6 @@ export default function WeekContextBar({
 
   return (
     <div style={{
-      position: 'sticky',
-      top: 0,
-      zIndex: 10,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
