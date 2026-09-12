@@ -312,7 +312,12 @@ CREATE TABLE IF NOT EXISTS projection_failures (
   field TEXT NOT NULL,
   error_message TEXT NOT NULL,
   failed_at TEXT NOT NULL,
-  resolved_at TEXT
+  resolved_at TEXT,
+  -- Which store the op failed to reach (schema v58). 'projection' = it did not
+  -- reach SQLite, repairable by replaying the op-log. 'document' = it reached
+  -- SQLite but not the Automerge document, where that same replay would be
+  -- WRONG (SQLite is already correct). See electron/ops/documentWriteFailures.js.
+  store TEXT NOT NULL DEFAULT 'projection'
 );
 CREATE INDEX IF NOT EXISTS idx_projection_failures_unresolved
   ON projection_failures(entity, entity_id) WHERE resolved_at IS NULL;
