@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { openLocalDb } from '../db/localDb.js'
-import { appendOp } from './operations.js'
+import { appendOp, runAtomic } from './operations.js'
 import { readRecord } from '../automerge/campDocument.js'
 import {
   setUserDataDirGetter,
@@ -46,8 +46,11 @@ import {
 // deferred. `applyWrite` mutates the in-memory document immediately, and the
 // in-memory document is what projectAll and sync read.
 //
-// THIS TEST IS EXPECTED TO FAIL until the document write joins the transaction
-// it belongs to. It is the red half of that fix, written first on purpose.
+// THE FIX. An Automerge document cannot be rolled back, so it is not written
+// until the outermost transaction has COMMITTED — `runAtomic` (operations.js)
+// buffers document writes for the duration and drops them on a throw. Every
+// multi-write op path goes through it; the guard at the bottom of this file
+// keeps it that way.
 let userDataDir
 let tmpFile
 let db
@@ -76,18 +79,25 @@ const writeGroup = (id, name) =>
 
 describe('appendOp inside an outer transaction — the rollback boundary', () => {
   it('leaves NOTHING in the document when the outer transaction rolls back', () => {
-    const importLike = db.transaction(() => {
+    // A committed write FIRST, so the document genuinely exists. Without it the
+    // assertions below pass vacuously against a null document — and proving the
+    // failed job leaves an EXISTING document untouched is the stronger claim
+    // anyway: the buffer must drop only its own writes, never earlier ones.
+    runAtomic(db, () => { writeGroup('g0', 'Already here') })
+    flushPendingWrites()
+    expect(readRecord(getDocIfLoaded(db), 'groups', 'g0').name).toBe('Already here')
+
+    expect(() => runAtomic(db, () => {
       writeGroup('g1', 'Bunk A')
       writeGroup('g2', 'Bunk B')
       throw new Error('import failed partway, as commitPlan is designed to do')
-    })
-
-    expect(() => importLike()).toThrow('import failed partway')
+    })).toThrow('import failed partway')
     flushPendingWrites()
 
-    // SQLite and the op-log rolled back — this half already works.
-    expect(db.prepare('SELECT id FROM groups').all()).toEqual([])
-    expect(db.prepare("SELECT id FROM operations WHERE entity = 'groups'").all()).toEqual([])
+    // SQLite and the op-log rolled back to the committed write — this half
+    // already worked before the fix.
+    expect(db.prepare('SELECT id FROM groups').all().map((r) => r.id)).toEqual(['g0'])
+    expect(db.prepare("SELECT DISTINCT entity_id FROM operations WHERE entity = 'groups'").all().map((r) => r.entity_id)).toEqual(['g0'])
 
     // The document must roll back with them. It is the authoritative store:
     // anything left here is written BACK into SQLite by the next projectAll.
@@ -96,7 +106,8 @@ describe('appendOp inside an outer transaction — the rollback boundary', () =>
     // so it returned null and the assertion never ran. The test passed while
     // measuring nothing. The two control cases below are what caught it.
     const doc = getDocIfLoaded(db)
-    expect(doc, 'the document should be loaded — otherwise this test proves nothing').toBeTruthy()
+    expect(doc, 'the document should exist — otherwise this test proves nothing').toBeTruthy()
+    expect(readRecord(doc, 'groups', 'g0').name).toBe('Already here')
     expect(readRecord(doc, 'groups', 'g1')).toBeNull()
     expect(readRecord(doc, 'groups', 'g2')).toBeNull()
   })
@@ -104,10 +115,7 @@ describe('appendOp inside an outer transaction — the rollback boundary', () =>
   it('still records a committed outer transaction in all three stores', () => {
     // The guard against "fix it by never writing the document" — the fix must
     // preserve the working case, not trade one asymmetry for another.
-    const importLike = db.transaction(() => {
-      writeGroup('g3', 'Bunk C')
-    })
-    importLike()
+    runAtomic(db, () => { writeGroup('g3', 'Bunk C') })
     flushPendingWrites()
 
     expect(db.prepare('SELECT name FROM groups WHERE id = ?').get('g3').name).toBe('Bunk C')
@@ -115,10 +123,58 @@ describe('appendOp inside an outer transaction — the rollback boundary', () =>
     expect(readRecord(getDocIfLoaded(db), 'groups', 'g3').name).toBe('Bunk C')
   })
 
+  it('only the OUTERMOST boundary releases — a nested job cannot flush early', () => {
+    // deleteRecord's cascade calls deleteWeek's, which is why this matters: if
+    // an inner runAtomic flushed on its own commit, the bug would simply move
+    // one level down and the outer rollback would leave the inner writes behind.
+    runAtomic(db, () => { writeGroup('g0', 'Already here') })
+    flushPendingWrites()
+
+    expect(() => runAtomic(db, () => {
+      runAtomic(db, () => { writeGroup('g5', 'Inner') })
+      throw new Error('outer failed after the inner one succeeded')
+    })).toThrow('outer failed')
+    flushPendingWrites()
+
+    expect(db.prepare('SELECT id FROM groups').all().map((r) => r.id)).toEqual(['g0'])
+    expect(readRecord(getDocIfLoaded(db), 'groups', 'g5')).toBeNull()
+  })
+
   it('a top-level write is unaffected — it was always correct', () => {
     writeGroup('g4', 'Bunk D')
     flushPendingWrites()
     expect(db.prepare('SELECT name FROM groups WHERE id = ?').get('g4').name).toBe('Bunk D')
     expect(readRecord(getDocIfLoaded(db), 'groups', 'g4').name).toBe('Bunk D')
+  })
+})
+
+// Structural guard. The fix is only as good as its adoption: a future
+// multi-write path that reaches for `db.transaction` directly gets the old
+// behaviour back, silently, and no behavioural test would catch it because the
+// path would look correct in isolation.
+describe('no op path opens its own transaction around appendOp', () => {
+  it('every multi-write module uses runAtomic', async () => {
+    const { readFileSync, readdirSync } = await import('node:fs')
+    const dir = new URL('.', import.meta.url).pathname
+    // These legitimately own a bare transaction: operations.js defines
+    // runAtomic and appendOp's own inner transaction; the rest write ONLY
+    // host-local tables that never reach the document, so there is nothing to
+    // keep in step.
+    const ALLOWED = new Set([
+      'operations.js', 'confirmAlias.js', 'confirmCompoundCellPattern.js',
+      'migrationReviews.js', 'openReconciliationDecisions.js', 'projectionRepair.js',
+    ])
+    const offenders = []
+    for (const file of readdirSync(dir)) {
+      if (!file.endsWith('.js') || file.includes('.test.') || ALLOWED.has(file)) continue
+      const src = readFileSync(dir + file, 'utf8')
+      if (!src.includes('appendOp(')) continue
+      for (const [i, line] of src.split('\n').entries()) {
+        if (line.includes('db.transaction(') && !line.trim().startsWith('//') && !line.trim().startsWith('*')) {
+          offenders.push(`${file}:${i + 1}`)
+        }
+      }
+    }
+    expect(offenders, 'use runAtomic(db, fn) so the document shares the rollback boundary').toEqual([])
   })
 })

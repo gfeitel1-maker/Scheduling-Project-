@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appendOp, DELETE_FIELD } from './operations.js'
+import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 import { nameFieldFor } from './restore.js'
 import { clearSlotOccupant } from './slotOccupants.js'
 
@@ -372,7 +372,7 @@ function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to,
 
   const name = recordName(db, 'locations', entity_id)
 
-  return db.transaction(() => {
+  return runAtomic(db, () => {
     const refs = locationReferenceRows(db, entity_id)
     const { activities, exclusions, anchors, events, special_day_slots, event_slots } = refs
     const ref_count = totalLocationRefCount(refs)
@@ -429,7 +429,7 @@ function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to,
       reassigned_activity_ids: reassign_to ? activities.map((a) => a.id) : [],
       ops,
     }
-  })()
+  })
 }
 
 // Merge two locations: re-point every activity on the LOSER to the WINNER,
@@ -494,7 +494,7 @@ export function deleteRecord(db, { entity, entity_id, expected_slot_count, autho
 
   let outcome
   try {
-    outcome = db.transaction(() => {
+    outcome = runAtomic(db, () => {
       const rows = slotRows(db, entity, entity_id)
 
       if (Number.isInteger(expected_slot_count) && rows.length !== expected_slot_count) {
@@ -556,7 +556,7 @@ export function deleteRecord(db, { entity, entity_id, expected_slot_count, autho
         snapshots: snapshots.map(({ id, template_id, slot_count }) => ({ id, template_id, slot_count })),
         ops: [...snapshots.flatMap((s) => s.ops), ...ops],
       }
-    })()
+    })
   } catch (err) {
     if (err.code === 'SNAPSHOT_FAILED') return { error: 'snapshot-failed' }
     throw err

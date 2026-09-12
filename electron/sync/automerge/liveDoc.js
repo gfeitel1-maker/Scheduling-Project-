@@ -99,6 +99,9 @@ export function setLocalWriteBroadcaster(db, fn) {
   broadcastCallbacks.set(db, fn)
 }
 
+let deferDepth = 0
+let deferredDocWrites = []
+
 export function resetForTests() {
   if (pendingTimer) clearTimeout(pendingTimer)
   pendingTimer = null
@@ -107,6 +110,10 @@ export function resetForTests() {
   userDataDirGetter = null
   warnedUnconfigured = false
   broadcastCallbacks = new WeakMap()
+  // Without this, a test whose transaction throws leaves deferDepth > 0 and
+  // every subsequent test silently buffers its document writes forever.
+  deferDepth = 0
+  deferredDocWrites = []
 }
 
 function getCampId(db) {
@@ -245,7 +252,7 @@ export function flushPendingWrites() {
 // This is ALSO the local half of Stage 5f's unification: the doc this reads and writes
 // (getDoc/docRegistry) is the exact same one syncNode.js's remote-merge path reads and writes, so a
 // local edit always builds on top of whatever the last remote merge left behind, never a stale copy.
-export function recordLocalWrite(db, { entity, entity_id, field, value, source, author_user_id }) {
+function applyLocalWriteNow(db, { entity, entity_id, field, value, source, author_user_id }) {
   if (!MODELED_ENTITIES.has(entity)) return
 
   // Not wired yet (pre-Stage-5e): stay gracefully inert — warn ONCE, never
@@ -294,7 +301,7 @@ export function recordLocalWrite(db, { entity, entity_id, field, value, source, 
 // of recordLocalWrite above. Same gating (unmodeled entity / unconfigured / no camp -> inert), same
 // getDoc/docRegistry/scheduleSave plumbing, so a bulk-replace and an ordinary field write on the
 // same db always build on the SAME in-memory doc, never a stale copy of one or the other.
-export function recordLocalBulkReplace(db, { entity, scope_id, rows }) {
+function applyLocalBulkReplaceNow(db, { entity, scope_id, rows }) {
   if (!BULK_REPLACE_MODELED_ENTITIES.has(entity)) return
 
   if (!userDataDirGetter) {
@@ -316,6 +323,72 @@ export function recordLocalBulkReplace(db, { entity, scope_id, rows }) {
   const nextDoc = applyBulkReplace(doc, { entity, scope_id, rows })
   docRegistry.set(db, nextDoc)
   scheduleSave(db, userDataDir, campId, { local: true })
+}
+
+// --- Deferred document writes: the rollback boundary -----------------------
+//
+// SQLite can roll back. An Automerge document cannot — `applyWrite` returns a
+// new document and there is nothing to undo it with. That asymmetry is the
+// whole defect this exists to close.
+//
+// `appendOp` writes SQLite + the op-log inside a transaction, then writes the
+// document once that transaction returns, believing it committed
+// (operations.js). Nested inside another transaction that belief is false:
+// better-sqlite3 nests as SAVEPOINTs, so the savepoint releases while the outer
+// transaction is still open. If the outer one then rolls back, SQLite and the
+// op-log are undone and the document keeps every write — and the next
+// projectAll writes them straight back into SQLite. A failed import returns.
+//
+// Since the document cannot be rolled back, it is not written at all until the
+// outermost transaction has actually committed. During one, writes queue here
+// in order; on commit they are applied in that order; on rollback they are
+// dropped. Ordering is preserved because a later write to the same field must
+// still win, exactly as it would have unbuffered.
+//
+// Depth-counted, because these transactions nest (deleteRecord's cascade calls
+// deleteWeek's, and so on). Only the OUTERMOST boundary flushes — an inner one
+// releasing early would reintroduce the bug one level down.
+//
+// The gating each apply does (unmodeled entity, unconfigured userDataDir, no
+// camp row) deliberately runs at APPLY time, not queue time, so a buffered
+// write behaves identically to an unbuffered one.
+export function beginDeferredDocWrites() {
+  deferDepth += 1
+}
+
+export function commitDeferredDocWrites() {
+  if (deferDepth === 0) return
+  deferDepth -= 1
+  if (deferDepth > 0) return
+  const queued = deferredDocWrites
+  deferredDocWrites = []
+  for (const item of queued) {
+    if (item.kind === 'bulk') applyLocalBulkReplaceNow(item.db, item.args)
+    else applyLocalWriteNow(item.db, item.args)
+  }
+}
+
+export function discardDeferredDocWrites() {
+  if (deferDepth === 0) return
+  deferDepth -= 1
+  if (deferDepth > 0) return
+  deferredDocWrites = []
+}
+
+export function recordLocalWrite(db, args) {
+  if (deferDepth > 0) {
+    deferredDocWrites.push({ kind: 'write', db, args })
+    return
+  }
+  applyLocalWriteNow(db, args)
+}
+
+export function recordLocalBulkReplace(db, args) {
+  if (deferDepth > 0) {
+    deferredDocWrites.push({ kind: 'bulk', db, args })
+    return
+  }
+  applyLocalBulkReplaceNow(db, args)
 }
 
 export function docPathForTests(userDataDir, campId) {

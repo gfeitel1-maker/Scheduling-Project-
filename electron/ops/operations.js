@@ -3,7 +3,10 @@ import { Buffer } from 'node:buffer'
 import { PROJECTIONS, applyProjection, sanitizeMutuallyExclusiveRow } from './projections.js'
 import { getStmt } from './stmtCache.js'
 import { isOpLogEngine } from '../sync/automerge/syncEngineFlag.js'
-import { recordLocalWrite, recordLocalBulkReplace } from '../sync/automerge/liveDoc.js'
+import {
+  recordLocalWrite, recordLocalBulkReplace,
+  beginDeferredDocWrites, commitDeferredDocWrites, discardDeferredDocWrites,
+} from '../sync/automerge/liveDoc.js'
 // Moved to campScopedEntities.js (parent-scoped entities slice) — see that file's comment for why:
 // campDocument.js needs these too and cannot import them from here without a circular dependency.
 // Re-exported unchanged so every existing importer of these three from operations.js is unaffected.
@@ -109,6 +112,41 @@ export function coerceOpValue(value) {
 // other field this codebase writes is small by construction).
 export const MAX_FIELD_VALUE_LENGTH = {
   camp_maps: { image_data: 1_400_000 }, // chars; ~1MB base64 + slack, never truncated, hard reject
+}
+
+// Run a multi-write job so that ALL THREE stores share one rollback boundary.
+//
+// Use this instead of `db.transaction(fn)()` anywhere the body calls `appendOp`
+// or `appendBulkReplaceOp` more than once — an import, a delete cascade, an
+// undo, a restore, a week duplication.
+//
+// `db.transaction` alone is not enough, and that is the bug this closes.
+// better-sqlite3 nests transactions as SAVEPOINTs, so `appendOp`'s own inner
+// transaction releases while the outer one is still open — and `appendOp` then
+// writes the Automerge document believing the data is committed. It is not. If
+// the outer transaction later rolls back, SQLite and the op-log are undone
+// while the document keeps every write, and the next projectAll writes them
+// back into SQLite. The import the director was told had failed reappears.
+//
+// An Automerge document cannot be rolled back, so the document is simply not
+// written until the outermost transaction has committed. Nested calls are
+// depth-counted and only the outermost flushes.
+//
+// The SQLite transaction is still the inner boundary, unchanged — this only
+// adds the document to the same boundary.
+export function runAtomic(db, fn) {
+  beginDeferredDocWrites()
+  let result
+  try {
+    result = db.transaction(fn)()
+  } catch (err) {
+    discardDeferredDocWrites()
+    throw err
+  }
+  // Deliberately AFTER the transaction has committed, and deliberately not in
+  // a `finally`: a throw must discard, and only a clean commit may flush.
+  commitDeferredDocWrites()
+  return result
 }
 
 export function appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, parent_op_id, client_write_id, source = null }) {

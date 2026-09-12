@@ -1,4 +1,4 @@
-import { appendOp, DELETE_FIELD } from './operations.js'
+import { appendOp, DELETE_FIELD, runAtomic } from './operations.js'
 
 // Permanently delete a week and every row scoped to it, in one transaction,
 // children before parents, every delete routed through the op-log so it
@@ -45,7 +45,7 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
   const del = (entity, entity_id) =>
     appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
 
-  const outcome = db.transaction(() => {
+  const outcome = runAtomic(db, () => {
     const ops = []
 
     // Step 0: anchor_activities.schedule_week_id carries a real DB-level FK
@@ -171,7 +171,7 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
     ops.push(del('schedule_weeks', weekId))
 
     return { ok: true, ops }
-  })()
+  })
 
   return outcome
 }
