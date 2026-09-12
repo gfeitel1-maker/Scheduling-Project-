@@ -46,9 +46,11 @@ whether they are three **entities** or one entity with three **placements**.
 the three sidebar rows become filtered views, and the engine's placement order
 becomes a sort over one list rather than a join across two.
 
-**Stage it.** The end state above is the target; the first slice is a
-*non-destructive link*, not a migration. Section 7 explains why the honest
-answer may be that the table merge never has to happen at all.
+**Stage it, ordered by correctness rather than by visibility.** The end state
+above is the target; the first slice is a *non-destructive link*, not a
+migration. §7 explains why the honest answer may be that the table merge never
+has to happen at all, and §10 re-orders the slices to put engine and ingest
+correctness ahead of the UI, per the owner.
 
 ## 3. Why the split is the cause and not a neutral choice
 
@@ -136,8 +138,12 @@ been observed. If a real camp produces a counterexample, the model gains a
 per-scope placement — but complexity should be added on evidence, not in
 anticipation of it.
 
-**Open for the owner (§10 Q1):** is a genuinely dual-use activity something a
-camp would ever author deliberately?
+**ANSWERED by the owner, 2026-09-12: no.** A genuinely dual-use activity is not
+something a camp would author. This is therefore settled, not provisional:
+**an Activity has exactly one placement**, and `dualUseNames` /
+`pinOnlyActivityNames` are machinery for a case that will not exist. Both should
+be retired by whichever slice first makes them redundant, and neither should
+constrain the model.
 
 ## 6. What the model must be able to express, including what inference cannot yet find
 
@@ -207,8 +213,11 @@ The column is already an enum stored in an integer column.
 
 Adding a `medium` tier is one extra `runRound` in the engine, but it would be
 built on that lie. **Recommendation: correct the column to a constrained TEXT
-enum first, in the same slice as any third tier.** Whether `medium` should
-exist at all is a product question the owner has flagged as open (§10 Q2).
+enum first, in the same slice as any third tier.**
+
+**Owner, 2026-09-12: `medium` may need to exist, but not yet.** So the column
+correction is in scope for this work and the third tier is not. The correction
+should leave adding a value cheap — a constrained enum with two values today.
 
 ## 9. How to try to break this — required before any code
 
@@ -238,18 +247,35 @@ These are gates, not suggestions. Each must be answered with evidence.
    `undoReferences` each special-case `anchor_activities`, including the
    anchors-first delete order (`ingest.js:42`). Each needs a surviving test.
 
-## 10. Open questions for the owner
+## 10. Owner answers, and what they change
 
-- **Q1 (§5)** — Is a genuinely dual-use activity (pinned for some groups,
-  rotating for others) something a camp would author deliberately? If no, the
-  model simplifies permanently and `dualUseNames`/`pinOnlyActivityNames` can be
-  retired.
-- **Q2 (§8)** — Should `medium` priority exist? Recommendation: decide it
-  alongside the column-type correction, not before.
-- **Q3 (§7)** — Is "one Activities page showing all three subsets" the actual
-  goal? If so, slices 1-2 deliver it and slice 3 should stay unbuilt.
+Answered 2026-09-12:
+
+- **Q1 — dual-use: NO.** One placement per Activity. Settled; see §5.
+- **Q2 — `medium`: later, not now.** Correct the column type in scope, leave the
+  third value cheap to add. See §8.
+- **Q3 — the goal is CORRECTNESS at the data-model, ingest and schedule-engine
+  levels. UI/UX is explicitly secondary.**
+
+**Q3 changes this ADR's staging, and the change matters.** §7 originally ordered
+the slices toward the one-Activities-page view, on the assumption that the view
+was the goal. It is not. Re-ordered by the owner's actual priority:
+
+| | was | is |
+|---|---|---|
+| 1 | link (`activity_id`) | link (`activity_id`) — unchanged, still first |
+| 2 | the one-page view | **engine correctness**: activate the dead guard (§3.2) under test, and retire `pinOnlyActivityNames` (§5) |
+| 3 | merge, probably never | **ingest correctness**: close the §6 detection hole so `Lunch 4`-shaped pinnings are proposed, not silently filed as general activities |
+| 4 | — | the view (UI), and only then any table merge |
+
+The view is now the LAST thing, not the second. Everything above it is
+observable without a screen: engine output, ingest proposals, projection state.
+
+Still open:
+
 - **Q4 (§6)** — Should inference *propose* a minority-groups/minority-days
-  pinning like `Lunch 4`, or is hand-authoring the right answer for that shape?
+  pinning like `Lunch 4`, or is hand-authoring right for that shape? This is now
+  load-bearing, because it is slice 3.
 
 ## 11. Method note
 
