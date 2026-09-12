@@ -1600,17 +1600,32 @@ export const mockShoresh = {
   // would make the dialog look verified when it is not. Persistence checks for
   // this belong under electron:dev.
   async previewDelete({ entity, entity_id }) {
+    // The NAME is real: it is sitting in the same state the list renders from,
+    // and returning null made every confirmation read 'Delete “this record”?'
+    // — which is exactly the kind of thing this surface exists to catch. The
+    // COUNTS stay zero because they are honestly zero here.
+    const state = loadState()
+    const row = Array.isArray(state[entity]) ? state[entity].find((r) => r.id === entity_id) : null
+    const name = row ? (row[mockNameColumnFor(entity)] ?? null) : null
+
     // M3c: locations get their own shape (ref_count + activities), never
     // the schedule-shaped slot_count/routes/unprotected_count fields — see
     // electron/ops/deleteRecord.js's previewDelete.
     if (entity === 'locations') {
-      return { ok: true, entity, entity_id, name: null, ref_count: 0, activities: [] }
+      const usedBy = (Array.isArray(state.activities) ? state.activities : [])
+        .filter((a) => a.location_id === entity_id)
+      return {
+        ok: true, entity, entity_id, name,
+        ref_count: usedBy.length,
+        activities: usedBy.map((a) => ({ id: a.id, name: a.name })),
+        anchor_count: 0, event_count: 0, special_day_slot_count: 0, event_slot_count: 0,
+      }
     }
     return {
       ok: true,
       entity,
       entity_id,
-      name: null,
+      name,
       destructive: entity === 'groups' || entity === 'days_of_operation',
       slot_count: 0,
       routes: [],
@@ -1619,14 +1634,70 @@ export const mockShoresh = {
       weather_dependent_count: 0,
     }
   },
-  async deleteRecord() {
-    return { error: 'no-record' }
+  // The mock has no schedule or op-log, so there is nothing to clear and no
+  // version to save — but the RECORD is real, and it lives in the same state
+  // the list reads from. Returning { error: 'no-record' } (as this did) made
+  // the confirm dialog refuse every delete at :5200, so Delete simply did not
+  // work on the dev surface even though the Electron path was fine.
+  //
+  // Deleting soft-deletes exactly the way write() does, via the __deleted__
+  // field, so the row leaves the list and Trash still knows about it. Counts
+  // stay zero because they are honestly zero here — previewDelete above says
+  // the same, and inventing them would make the dialog look verified when it
+  // is not. Anything that depends on a real op-log belongs under electron:dev.
+  async deleteRecord({ entity, entity_id } = {}) {
+    if (!entity || !entity_id) return { error: 'no-record' }
+    const state = loadState()
+    const rows = state[entity]
+    if (!Array.isArray(rows)) return { error: 'no-record' }
+    const row = rows.find((r) => r.id === entity_id)
+    if (!row) return { error: 'no-record' }
+    const name = row[mockNameColumnFor(entity)] ?? null
+    state[entity] = rows.filter((r) => r.id !== entity_id)
+    saveState(state)
+    return {
+      ok: true,
+      entity,
+      entity_id,
+      name,
+      destructive: entity === 'groups' || entity === 'days_of_operation',
+      cleared: 0,
+      routes: [],
+      snapshots: [],
+      ops: [],
+    }
   },
-  // M3c — the mock has no schedule/op-log, so there is nothing real to merge;
-  // matching deleteRecord's own mock above.
+  // M3c — merging two locations. Like deleteRecord above, this used to refuse
+  // unconditionally, which meant "merge into this location" did nothing at
+  // :5200 however the director reached it (the duplicate dot, the near-
+  // duplicate gate, or the migration review).
+  //
+  // The mock has no op-log, but it does have locations and the activities that
+  // point at them, so the merge itself is real: every activity on the loser is
+  // repointed at the winner, the winner can take the surviving capacity, and
+  // the loser goes. That is the whole observable effect of a merge on this
+  // surface.
   // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
-  async mergeLocation() {
-    return { error: 'no-record' }
+  async mergeLocation({ loser_id, winner_id, winner_capacity } = {}) {
+    if (!loser_id || !winner_id || loser_id === winner_id) return { error: 'no-record' }
+    const state = loadState()
+    const locations = Array.isArray(state.locations) ? state.locations : []
+    const loser = locations.find((l) => l.id === loser_id)
+    const winner = locations.find((l) => l.id === winner_id)
+    if (!loser || !winner) return { error: 'no-record' }
+
+    const activities = Array.isArray(state.activities) ? state.activities : []
+    let moved = 0
+    state.activities = activities.map((a) => {
+      if (a.location_id !== loser_id) return a
+      moved += 1
+      return { ...a, location_id: winner_id }
+    })
+    state.locations = locations
+      .filter((l) => l.id !== loser_id)
+      .map((l) => (l.id === winner_id && winner_capacity != null ? { ...l, capacity: winner_capacity } : l))
+    saveState(state)
+    return { ok: true, loser_id, winner_id, moved, ref_count: moved, ops: [] }
   },
   // The mock has no migration journal (it never ran the v32 migration) — a
   // real empty result, not an invented fixture, so the review region

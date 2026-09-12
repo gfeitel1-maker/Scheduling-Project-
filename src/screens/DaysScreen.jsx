@@ -248,7 +248,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                <th style={S.th}>Label</th>
+                <th style={S.th}>Day</th>
                 <th style={S.th}>Day of Week</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
@@ -273,7 +273,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
                       screens (Groups/Tiers/TimeBlocks/Electives). */}
                   <InlineAddRow
                     fields={[
-                      { key: 'label', type: 'text', placeholder: 'Label (e.g. Monday)', required: true },
+                      { key: 'label', type: 'text', placeholder: 'Day (e.g. Monday)', required: true },
                       { key: 'day_of_week', type: 'select', default: 1, options: DOW.map((d, i) => ({ value: i, label: d })) },
                     ]}
                     onAdd={addDay}
@@ -290,7 +290,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
         step={importStep}
         title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
         width={520}
-        columns={[{ key: 'label', label: 'Label' }, { key: 'day_of_week', label: 'Day' }, { key: 'status', label: 'Status' }]}
+        columns={[{ key: 'label', label: 'Day' }, { key: 'day_of_week', label: 'Day of Week' }, { key: 'status', label: 'Status' }]}
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}

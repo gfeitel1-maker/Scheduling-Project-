@@ -9,7 +9,6 @@ import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
-import RecordHistory from '../components/RecordHistory'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -32,42 +31,48 @@ const AVAIL_OPTIONS = [
   { value: 'afternoon', label: 'Afternoon Only' },
 ]
 
-function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle }) {
-  const [editing, setEditing] = useState(false)
-  const [name, setName] = useState(group.name)
-  const [tierId, setTierId] = useState(group.tier_id || '')
-  const [avail, setAvail] = useState(group.availability)
-  const [saving, setSaving] = useState(false)
-
-  async function save() {
-    if (!name.trim()) return
-    setSaving(true)
-    await onSave(group.id, { name: name.trim(), tier_id: tierId || null, availability: avail })
-    setSaving(false)
-    setEditing(false)
-  }
-
+// The row is CONTROLLED: its draft lives in GroupsScreen, not here.
+//
+// It used to hold `editing`/`name`/`tierId`/`avail` in its own useState, which
+// looked fine and was silently lossy. Saving any row calls load(), and load()
+// sets `loading`, which swaps the whole table for "Loading…" — unmounting every
+// open row and discarding what was typed in it. A director who opened three
+// groups, set each to an age division, and saved one lost the other two, with
+// no error to explain it.
+//
+// Verified by running the regression test in GroupsScreen.test.jsx against the
+// previous implementation: it fails there whether or not the saved row changes
+// its age division, which is what rules out the other candidate explanation
+// (rows moving between the per-tier <React.Fragment key={tier.id}> sections and
+// remounting). The reload is enough on its own.
+//
+// A draft keyed by group id in the screen survives that reload, so open editors
+// keep what was typed.
+function GroupRow({ group, tiers, role, draft, onOpen, onChange, onSave, onCancel, onDelete, saving, weekToggle }) {
   const tierName = tiers.find(t => t.id === group.tier_id)?.name || '—'
 
-  if (editing) {
+  if (draft) {
+    const commit = () => { if (draft.name.trim()) onSave(group.id) }
+    const keys = e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') onCancel(group.id) }
     return (
       <tr style={{ background: 'var(--surface-elevated)' }}>
-        <td style={S.td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} /></td>
+        <td style={S.td}><input autoFocus value={draft.name} onChange={e => onChange(group.id, { name: e.target.value })} onKeyDown={keys} style={S.input} /></td>
         <td style={S.td}>
-          <select value={tierId} onChange={e => setTierId(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input}>
+          <select value={draft.tier_id} onChange={e => onChange(group.id, { tier_id: e.target.value })} onKeyDown={keys} style={S.input}>
             <option value="">— No age division —</option>
             {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </td>
         <td style={S.td}>
-          <select value={avail} onChange={e => setAvail(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input}>
+          <select value={draft.availability} onChange={e => onChange(group.id, { availability: e.target.value })} onKeyDown={keys} style={S.input}>
             {AVAIL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </td>
+        {weekToggle}
         <td style={{ ...S.td, textAlign: 'right' }}>
           <div style={rowActionsFlex}>
-            <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
-            <button className="press-97" onClick={() => { setName(group.name); setTierId(group.tier_id||''); setAvail(group.availability); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
+            <button className="press-97" onClick={commit} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
+            <button className="press-97" onClick={() => onCancel(group.id)} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
           </div>
         </td>
       </tr>
@@ -76,7 +81,7 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle 
 
   return (
     <tr style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-      onClick={() => setEditing(true)}
+      onClick={() => onOpen(group)}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
       onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
@@ -87,7 +92,7 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle 
           role="button"
           tabIndex={0}
           aria-label={`Edit ${group.name}`}
-          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(group) } }}
           style={{ cursor: 'pointer' }}
         >{group.name}</span>
       </td>
@@ -95,12 +100,11 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle 
       <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || '—'}</td>
       {weekToggle}
       <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
-        <button className="press-97" onClick={e => { e.stopPropagation(); onHistory(group) }} style={S.btnSecondary}>History</button>
         <button
           onClick={e => { e.stopPropagation(); onDelete(group.id) }}
           disabled={role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
-          style={role !== 'admin' ? { ...S.btnRowDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnRowDanger, marginLeft: 6 }}
+          style={role !== 'admin' ? { ...S.btnRowDanger, ...S.buttonDisabled } : S.btnRowDanger}
         >Delete</button>
       </td>
     </tr>
@@ -117,7 +121,10 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
-  const [historyFor, setHistoryFor] = useState(null)
+  // id -> { name, tier_id, availability }. A key present means that row is
+  // open for editing; several may be open at once.
+  const [drafts, setDrafts] = useState({})
+  const [savingId, setSavingId] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
@@ -218,6 +225,36 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       return false
     } finally {
       setAdding(false)
+    }
+  }
+
+  function openDraft(group) {
+    setDrafts(d => d[group.id] ? d : {
+      ...d,
+      [group.id]: { name: group.name, tier_id: group.tier_id || '', availability: group.availability },
+    })
+  }
+
+  function changeDraft(id, patch) {
+    setDrafts(d => (d[id] ? { ...d, [id]: { ...d[id], ...patch } } : d))
+  }
+
+  function closeDraft(id) {
+    setDrafts(d => { const { [id]: _gone, ...rest } = d; return rest })
+  }
+
+  async function commitDraft(id) {
+    const draft = drafts[id]
+    if (!draft || !draft.name.trim()) return
+    setSavingId(id)
+    try {
+      await saveGroup(id, { name: draft.name.trim(), tier_id: draft.tier_id || null, availability: draft.availability })
+      closeDraft(id)
+    } catch {
+      // saveGroup has already surfaced the failure; the draft stays open so
+      // nothing typed is lost.
+    } finally {
+      setSavingId(null)
     }
   }
 
@@ -428,7 +465,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                           </td>
                         </tr>
                         {tierGroups.map(g => (
-                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} onHistory={setHistoryFor} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
+                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
                         ))}
                       </React.Fragment>
                     )
@@ -441,7 +478,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                         </td>
                       </tr>
                       {noTier.map(g => (
-                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} onHistory={setHistoryFor} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
+                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
                       ))}
                     </>
                   )}
@@ -508,14 +545,6 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         />
       )}
 
-      {historyFor && (
-        <RecordHistory
-          entity="groups"
-          entityId={historyFor.id}
-          name={historyFor.name}
-          onClose={() => setHistoryFor(null)}
-        />
-      )}
       {pendingExclusion && (
         <ExclusionConfirmDialog
           entityName={pendingExclusion.group.name}

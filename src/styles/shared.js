@@ -105,6 +105,28 @@ export const S = {
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
+  // A SECONDARY action that sits beside the screen's real work.
+  //
+  // Download Template / Import from Excel / Delete All used to sit top-right of
+  // every germination screen as filled buttons, with Delete All in loud
+  // btnDanger — so the first thing a director met on a setup screen was a file
+  // menu and a red button, above the list they actually came to work on. They
+  // are occasional bulk operations, not the point of the screen.
+  //
+  // Borderless text so they read as available-but-quiet, and moved into the
+  // footer beside Next. Same vertical padding as the other buttons so a footer
+  // row mixing them with btnPrimary aligns on one baseline.
+  btnUtility: {
+    padding: '7px 10px',
+    background: 'none',
+    color: 'var(--text-secondary)',
+    border: 'none',
+    borderRadius: 7,
+    fontWeight: 600,
+    fontSize: 13,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
   btnDanger: {
     padding: '7px 14px',
     background: 'none',

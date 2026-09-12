@@ -233,7 +233,8 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    // Click-to-edit: the row itself opens the editor, as on every other setup table.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Pool' }))
     // The Add card renders its own stepper too, so scope to the first
     // (edit row) instance — the edit row renders before the Add card in DOM order.
     const increase = screen.getAllByLabelText('Increase')[0]
@@ -259,7 +260,8 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    // Click-to-edit: the row itself opens the editor, as on every other setup table.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Pool' }))
     const input = screen.getAllByLabelText('Groups at once')[0]
     fireEvent.change(input, { target: { value: '0' } })
     fireEvent.blur(input) // CapacityStepper only commits (and clamps) on blur/Enter/+-click
@@ -334,7 +336,8 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    // Click-to-edit: the row itself opens the editor, as on every other setup table.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Pool' }))
     const nameInputs = screen.getAllByDisplayValue('Pool')
     fireEvent.change(nameInputs[0], { target: { value: 'Pool Building' } })
     fireEvent.click(screen.getByText('Save'))
@@ -354,7 +357,8 @@ describe('LocationsScreen', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Pool', IGNORE_KIND_OPTIONS)).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    // Click-to-edit: the row itself opens the editor, as on every other setup table.
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Pool' }))
     const increase = screen.getAllByLabelText('Increase')[0]
     fireEvent.click(increase)
     fireEvent.click(screen.getByText('Save'))

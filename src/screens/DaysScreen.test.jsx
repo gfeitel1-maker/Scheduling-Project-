@@ -97,7 +97,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Wednesday' } })
+    fireEvent.change(screen.getByPlaceholderText('Day (e.g. Monday)'), { target: { value: 'Wednesday' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -115,7 +115,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    const labelInput = screen.getByPlaceholderText('Label (e.g. Monday)')
+    const labelInput = screen.getByPlaceholderText('Day (e.g. Monday)')
     fireEvent.change(labelInput, { target: { value: 'Sunday' } })
     fireEvent.keyDown(labelInput, { key: 'Enter' })
 
@@ -129,7 +129,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    const labelInput = screen.getByPlaceholderText('Label (e.g. Monday)')
+    const labelInput = screen.getByPlaceholderText('Day (e.g. Monday)')
     fireEvent.change(labelInput, { target: { value: 'Saturday' } })
     // Blur with relatedTarget outside the row commits the add.
     fireEvent.blur(labelInput, { relatedTarget: document.body })
@@ -144,7 +144,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    const labelInput = screen.getByPlaceholderText('Label (e.g. Monday)')
+    const labelInput = screen.getByPlaceholderText('Day (e.g. Monday)')
     fireEvent.blur(labelInput, { relatedTarget: document.body })
 
     expect(localClient.write).not.toHaveBeenCalled()
@@ -157,14 +157,14 @@ describe('DaysScreen', () => {
 
     // After the add, the reload returns the newly-created day.
     localClient.list.mockResolvedValue([day({ id: 'new-day-id', label: 'Wednesday', day_of_week: 3, sort_order: 3 })])
-    const labelInput = screen.getByPlaceholderText('Label (e.g. Monday)')
+    const labelInput = screen.getByPlaceholderText('Day (e.g. Monday)')
     fireEvent.change(labelInput, { target: { value: 'Wednesday' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     // The created day now shows as a real row...
     await waitFor(() => expect(screen.queryByText('1 day')).not.toBeNull())
     // ...and the blank row is still there, cleared, ready for the next entry.
-    const blankInput = screen.getByPlaceholderText('Label (e.g. Monday)')
+    const blankInput = screen.getByPlaceholderText('Day (e.g. Monday)')
     expect(blankInput.value).toBe('')
   })
 
@@ -177,7 +177,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Thursday' } })
+    fireEvent.change(screen.getByPlaceholderText('Day (e.g. Monday)'), { target: { value: 'Thursday' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'new-day-id'))
@@ -189,7 +189,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Friday' } })
+    fireEvent.change(screen.getByPlaceholderText('Day (e.g. Monday)'), { target: { value: 'Friday' } })
     const dowSelect = screen.getByDisplayValue('Monday')
     fireEvent.keyDown(dowSelect, { key: 'Enter' })
 
@@ -323,7 +323,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Monday' } })
+    fireEvent.change(screen.getByPlaceholderText('Day (e.g. Monday)'), { target: { value: 'Monday' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(screen.queryByText(/Another record already has that name/)).not.toBeNull())
