@@ -703,10 +703,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   }
 
   // Register the colour assignment for this camp's activity set before anything
-  // renders a dot. The hash alone collided badly on real data — three of one
-  // camp's four activities shared an entry — so the set has to be resolved as a
-  // whole rather than each id independently. useMemo, not an effect: the first
-  // paint must already have the right colours, and it is idempotent.
+  // renders a dot. T52: colour now encodes how often an activity runs
+  // (min_per_week), on a fixed scale — so this is a straight per-activity
+  // lookup, not the old collision-resolving hash. useMemo, not an effect: the
+  // first paint must already have the right colours, and it is idempotent.
+  //
+  // NOTE the dependency on data the camp may never have entered: a camp that
+  // never sets min_per_week gets every activity on the palest rung, i.e. a
+  // monochrome grid. See hasCoverageTargets directly below, which exists
+  // because exactly that gap is common.
   useMemo(() => setActivityPalette(activities), [activities])
 
   // "Still needed" and "Spread across the week" measure per-activity targets

@@ -123,12 +123,18 @@ describe('route-aware legend', () => {
 // fix); this test still guards the one colour convention `activityColor()` must
 // keep.
 describe('T17: one colour convention, keyed on the activity id', () => {
-  it('gives the same colour for the same activity id, and a different one for an index', () => {
+  it('gives the same colour for the same activity id', () => {
     const id = 'a1b2c3d4-5e6f-7890-abcd-ef1234567890'
     expect(activityColor(id)).toBe(activityColor(id))
-    // The bug's shape: index 3 and the id of the 4th activity are unrelated seeds.
-    expect(activityColor(id)).not.toBe(activityColor(3))
   })
+
+  // T52 — the "different colour for an index" half of T17's original assertion
+  // is gone, and deliberately. Colour no longer identifies an activity; it
+  // encodes how often one runs. An unregistered id and an index now both
+  // resolve to the palest rung ("least often, or nobody has said"), which is
+  // the honest answer rather than a hashed colour asserting a frequency
+  // nobody supplied. T17's real invariant — ONE convention, keyed on the id,
+  // agreed on by every surface — is still guarded by the registry test below.
 
   it('always returns a colour from the published palette', () => {
     for (const seed of ['x', 0, 3, 'a1b2c3d4-5e6f', 'Copy of Archery']) {
@@ -143,17 +149,19 @@ describe('T17: one colour convention, keyed on the activity id', () => {
 describe('T18: activity colours are assigned, not merely hashed', () => {
   const acts = (...ids) => ids.map(id => ({ id }))
 
-  it('gives every activity a distinct colour while the palette has room', () => {
-    // The exact ids from the camp that exposed this: basketball, flag football
-    // and swim all preferred #3F6690 under the bare hash.
-    const real = acts(
-      '3d1f7a52-2c9a-4a1e-9a3e-1f4b6c8d0e21',
-      '7b2e9c14-5f6d-4c88-b0a1-2e3f4a5b6c7d',
-      'c4a8e0d2-9b13-4f57-8e6a-0d1c2b3a4958',
-      'f0e1d2c3-b4a5-4968-8776-655443322110',
-    )
-    const assigned = assignActivityColors(real)
-    expect(new Set([...assigned.values()]).size).toBe(real.length)
+  // T52 — T18's original assertion (a distinct colour per activity) no longer
+  // holds BY DESIGN: colour encodes frequency, so equal-frequency activities
+  // share a rung. What survives from T18 is the reason it was filed — the
+  // colour must still separate activities that DIFFER in the thing it encodes.
+  it('separates activities that run at different frequencies', () => {
+    const varied = [
+      { id: '3d1f7a52-2c9a-4a1e-9a3e-1f4b6c8d0e21', min_per_week: 5 },
+      { id: '7b2e9c14-5f6d-4c88-b0a1-2e3f4a5b6c7d', min_per_week: 3 },
+      { id: 'c4a8e0d2-9b13-4f57-8e6a-0d1c2b3a4958', min_per_week: 2 },
+      { id: 'f0e1d2c3-b4a5-4968-8776-655443322110', min_per_week: 1 },
+    ]
+    const assigned = assignActivityColors(varied)
+    expect(new Set([...assigned.values()]).size).toBe(varied.length)
   })
 
   it('is independent of the order the activities arrive in', () => {
@@ -163,10 +171,14 @@ describe('T18: activity colours are assigned, not merely hashed', () => {
     for (const { id } of ids) expect(backward.get(id)).toBe(forward.get(id))
   })
 
-  it('degrades to the hash preference once the palette is exhausted', () => {
-    // Past six, collisions are unavoidable by pigeonhole — the name carries the
-    // identity from there, and colour is supplementary.
-    const many = acts(...Array.from({ length: 12 }, (_, i) => `activity-${i}`))
+  it('colours every activity, however many there are', () => {
+    // T52 — no pigeonhole limit any more: 12 activities across 6 frequencies
+    // is 6 rungs shared between them, which is the point rather than a
+    // degradation. The activity NAME still carries identity; colour carries
+    // how often it runs.
+    // 0..5 exercises all six rungs: 0/unset is the palest, and 5+ collapses
+    // to the darkest (an activity running 5x or 7x a week is 'daily' either way).
+    const many = Array.from({ length: 12 }, (_, i) => ({ id: `activity-${i}`, min_per_week: i % 6 }))
     const assigned = assignActivityColors(many)
     expect(assigned.size).toBe(12)
     for (const c of assigned.values()) expect(ACTIVITY_COLORS).toContain(c)

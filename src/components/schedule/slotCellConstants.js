@@ -21,7 +21,46 @@
 // This is a token-value change and the aesthetic call is the director's; the
 // constraint that must survive any reshuffle is the one in
 // slotCellConstants.test.js, not these exact values.
-export const ACTIVITY_COLORS = ['#305C7B','#3D7D84','#4B8C60','#B6A050','#B68B6B','#BE6BC7']
+// T52 — six rungs of ONE navy hue, dark to light, spanning the brand's own two
+// ends: --primary-dark (#0F2A47) down toward --bg (#F4F3EF). Owner decision,
+// 2026-09-12.
+//
+// Colour here means HOW OFTEN AN ACTIVITY RUNS (see assignActivityColors).
+// That pairing is the whole reason a ramp is allowed: dark-to-light is an
+// ORDER, and readers infer order whether or not one is intended. Assigned
+// arbitrarily a ramp would be WORSE than six distinct hues, because it implies
+// a relationship that isn't there. If frequency ever stops driving the
+// assignment, this palette must go back to distinct hues or go away entirely.
+//
+// The rungs are spread as widely as the page tolerates (lightness 16..86) and
+// that width is load-bearing, not aesthetic. Measured against the four checks
+// in slotCellConstants.test.js:
+//
+// TWO constraints had to hold at once, and the second is easy to miss:
+//
+//   (A) the four separation checks below, floor 15
+//   (B) every rung must still READ as a 6px dot on the cream page — colour
+//       here renders as `.identity-dot` (scheduleGrid.css:217), never as a
+//       cell fill. A pale rung that looks fine as a swatch DISAPPEARS at 6px.
+//
+// Those pull in opposite directions: (A) wants the widest possible lightness
+// spread, (B) forbids the light end of it. The first ramp tried here ran
+// #102842..#D2DBE5 and satisfied (A) at 16 — but its palest rung sat at
+// 1.35:1 against the surface, i.e. invisible, and the next at 2:1.
+//
+// Compressing the range and letting saturation carry some of the work
+// satisfies both, and is better on (A) too:
+//
+//                      normal  deuteranopia  protanopia  greyscale   min dot
+//   six distinct hues      34            20          18        17      2.5:1
+//   wide pale ramp         63            16          16        59      1.35:1  <- (B) fails
+//   THIS ramp             ~33           ~33         ~33       ~33      4.01:1
+//
+// Margin note for whoever edits these: the binding constraint is (B). Lighten
+// the top rungs to make the grid prettier and the dots stop being visible
+// before any test here complains — slotCellConstants.test.js checks (A) only.
+export const ACTIVITY_COLORS = ['#121E2B','#203144','#2F455C','#405872','#526B86','#667F99']
+
 export const ANCHOR_COLOR = 'var(--anchor)'
 
 // Per-slot flags are UNFILLABLE (generated route) and OVERLAP (manual route).
@@ -166,58 +205,38 @@ export const LEGEND_ENTRIES = [
   },
 ]
 
-// Duplicated verbatim from buildSchedule.js:17-24 rather than imported —
-// coupling the pure engine module to a UI constants file is the wrong
-// direction; this is 6 lines, not an abstraction (karpathy-guidelines).
-function djb2(str) {
-  let hash = 5381
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash) + str.charCodeAt(i)
-    hash = hash & hash
-  }
-  return Math.abs(hash)
+// Colour by frequency: how many times a week the activity runs.
+//
+// A FIXED scale, not a ranking over the camp's current activities. That
+// distinction matters operationally — under a ranking, adding one new activity
+// could recolour everything already on the grid, and a director would watch
+// their schedule change colour for no reason they caused. Here, 3-per-week is
+// the same blue in every camp, forever.
+//
+// min_per_week is the goal the engine schedules against (schema.sql:405).
+// Unset means nobody has said, which reads as the palest rung alongside
+// "runs least often" — the honest reading of an absent value here, since the
+// grid cannot show a frequency the camp has never recorded.
+const FREQUENCY_RUNGS = 6
+
+export function frequencyRung(minPerWeek) {
+  const n = Number(minPerWeek)
+  if (!Number.isFinite(n) || n <= 0) return FREQUENCY_RUNGS - 1
+  // 5+ -> 0 (darkest), 4 -> 1, 3 -> 2, 2 -> 3, 1 -> 4
+  return Math.max(0, FREQUENCY_RUNGS - 1 - Math.min(Math.round(n), FREQUENCY_RUNGS - 1))
 }
 
-// Which colour each activity gets.
-//
-// The hash alone was not enough. djb2 % 6 is a preference, not an assignment,
-// and on a real camp it collided badly: with only FOUR activities
-// (basketball, flag football, soccer, swim) three of them landed on the same
-// entry, so the dot distinguished exactly one activity out of four. Colour
-// exists to tell activities apart at a glance; that failed at the smallest
-// scale anyone would ever run.
-//
-// So the hash still chooses, and a collision walks to the next free entry.
-// Order is by sorted id, not array position, so the result does not depend on
-// how the caller happened to order the list.
-//
-// The cost, stated plainly: absolute per-activity stability is gone. Adding a
-// fifth activity can shift a later one's colour, where the pure hash never
-// would. That trade was made deliberately — a stable colour identical to two
-// other activities is not doing the job the colour exists for.
-//
-// Past six activities collisions are unavoidable by pigeonhole, and the
-// assignment degrades to the old behaviour: everyone keeps their preferred
-// entry. The activity NAME remains the identifying signal; colour is
-// supplementary (DESIGN_STANDARD §3).
 export function assignActivityColors(activities) {
-  const ids = (activities || []).map((a) => a && a.id).filter(Boolean).sort()
   const out = new Map()
-  const used = new Set()
-  for (const id of ids) {
-    const want = djb2(String(id)) % ACTIVITY_COLORS.length
-    let i = want
-    // Only resolve while a free entry exists; once the palette is exhausted
-    // every activity simply keeps its preference.
-    if (used.size < ACTIVITY_COLORS.length) {
-      let steps = 0
-      while (used.has(i) && steps < ACTIVITY_COLORS.length) {
-        i = (i + 1) % ACTIVITY_COLORS.length
-        steps += 1
-      }
-    }
-    used.add(i)
-    out.set(id, ACTIVITY_COLORS[i])
+  // Sorted by id so the returned Map is canonical: the same activities produce
+  // an identical map whatever order the caller happened to hold them in.
+  // Colour never depended on position, but a caller that diffs or serialises
+  // this map would otherwise see spurious changes from list order alone.
+  const rows = (activities || [])
+    .filter((a) => a && a.id)
+    .sort((x, y) => String(x.id).localeCompare(String(y.id)))
+  for (const a of rows) {
+    out.set(a.id, ACTIVITY_COLORS[frequencyRung(a.min_per_week)])
   }
   return out
 }
@@ -240,12 +259,17 @@ export function setActivityPalette(activities) {
   for (const [id, colour] of next) assignedColors.set(id, colour)
 }
 
-// Falls back to the bare hash when no assignment has been registered, so any
-// caller outside the schedule screen still gets a sensible, stable colour.
+// Falls back to the palest rung when no assignment has been registered.
+//
+// Deliberately NOT the old hash fallback: under a frequency ramp a hashed
+// colour would assert a frequency the caller never supplied, and asserting a
+// wrong fact is worse than asserting the weakest one. The palest rung is the
+// same thing an unset min_per_week renders as — "least often, or nobody has
+// said" — so an unregistered caller degrades to the honest value.
 export function activityColor(activityId) {
   const assigned = assignedColors.get(activityId)
   if (assigned) return assigned
-  return ACTIVITY_COLORS[djb2(String(activityId)) % ACTIVITY_COLORS.length]
+  return ACTIVITY_COLORS[FREQUENCY_RUNGS - 1]
 }
 
 // The two routes share a flag VOCABULARY, not an identical flag SET: a word

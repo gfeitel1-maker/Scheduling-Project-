@@ -15,6 +15,7 @@ import { shouldShowReconstructionMoment } from '../components/reconciliation/rec
 import { buildRootMapModel } from '../ingest/rootMapModel.js'
 import RootMap from '../components/reconciliation/RootMap.jsx'
 import RootMapPanel from '../components/reconciliation/RootMapPanel.jsx'
+import { NO_SELECTION, toggleTile } from '../components/reconciliation/selectionModel.js'
 
 // docs/work/specs/2026-08-17-reconciliation-onescreen-design.md — the one
 // continuous surface that replaces ImportScreen's six-gate reconciliation
@@ -50,14 +51,22 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   // rows, feeding buildRootMapModel's per-child roster. Separate from
   // `report`/fetchReadiness on purpose; see fetchCensusSnapshot's own doc.
   const [censusSnapshot, setCensusSnapshot] = useState({})
+  // T98 — kept in state (not just passed to buildReconciliationReport) so the
+  // render path can hand it to reportToLanes, which is the single authority on
+  // in-lane order. Empty Map until the first dry-run returns: reportToLanes
+  // treats an empty index as "no ordering signal" and falls back to walk order.
+  const [blastRadius, setBlastRadius] = useState(new Map())
   const [answers, setAnswers] = useState({})
-  // ADR docs/adr/2026-08-18-rootmap-screen-port.md §5 — replaces the old
-  // `activeFilters` multi-select Set with one selection union: 'none' (the
-  // default needs-attention queue), a tile (single state, across domains),
-  // or a root node (a specific domain or child, any state). This is an
-  // intentional UX narrowing from the old chip row's additive multi-domain
-  // filtering, dictated by the interaction spec's single-select model.
-  const [selection, setSelection] = useState({ type: 'none' })
+  // Selection union: 'none' (the default needs-attention queue), a tile
+  // (one or more states, across domains), or a root node (a specific domain
+  // or child, any state).
+  //
+  // ADR docs/adr/2026-08-18-rootmap-screen-port.md §5 narrowed the old
+  // `activeFilters` multi-select Set to single-select. T95 (owner reversal,
+  // 2026-09-12) restores multi-select for TILES; node selection stays single.
+  // The rule lives in selectionModel.js so RootMap (which draws the active
+  // state) and RootMapPanel (which lists what is in scope) cannot disagree.
+  const [selection, setSelection] = useState(NO_SELECTION)
   const [expandedEvidence, setExpandedEvidence] = useState(new Set())
   const [showUnderstood, setShowUnderstood] = useState(false)
   const [showNotInSource, setShowNotInSource] = useState(false)
@@ -114,6 +123,7 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
       if (requestGenRef.current !== myGen) return
       setCensusSnapshot(snapshot)
       const blastRadiusIndex = buildBlastRadiusIndex(result?.planItems ?? [])
+      setBlastRadius(blastRadiusIndex)
       const nextReport = buildReconciliationReport({
         planItems: result?.planItems ?? [],
         readiness,
@@ -222,7 +232,7 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
     // it lands — driven by promise resolution, not a timer (Gate 1). The
     // rollup reuses the exact filter/resolution logic the main render uses
     // below, via the shared domainRollup helper.
-    const momentLanes = report ? reportToLanes(report) : null
+    const momentLanes = report ? reportToLanes(report, blastRadius) : null
     const momentDomainCounts = momentLanes
       ? computeDomainCounts([...momentLanes.hold, ...momentLanes.standard], (d) => isDecisionResolvedFor(d, answers, dismissedGaps))
       : null
@@ -259,7 +269,7 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   // hint reserved for a future finer-grained weight WITHIN a lane and is not
   // consulted here — order within each lane stays report.decisions order
   // (ADR invariant 2: salience never reorders truth).
-  const lanes = reportToLanes(report ?? { decisions: [], buckets: {}, readiness: [] })
+  const lanes = reportToLanes(report ?? { decisions: [], buckets: {}, readiness: [] }, blastRadius)
   // RootMap's info layer (spec docs/work/specs/2026-08-21-roots-metaphor-
   // visual.md, "Information layer") reads a chip's decision the same way
   // RootMapPanel already does (~:103) — same lanes, same id map, so the
@@ -288,17 +298,18 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   const tray = applyTrayState({ totalCount, doneCount, confirmedCount })
   const isGenuinelyEmpty = totalCount === 0 && understoodCount === 0 && notInSourceCount === 0 && lanes.readinessGreen
 
-  // Interaction spec §1 — tile click toggles (re-clicking the active tile
-  // clears the filter); node click always replaces the selection, never
-  // appends.
+  // Interaction spec §1 — tile click toggles (re-clicking a selected tile
+  // removes just that one; removing the last returns to the quiet default).
+  // T95: a second tile ADDS rather than replaces. Node click always replaces
+  // the selection, never appends.
   function selectTile(state) {
-    setSelection({ type: 'tile', state })
+    setSelection((prev) => toggleTile(prev, state))
   }
   function selectNode(domainKey, childKey) {
     setSelection({ type: 'node', domainKey, childKey: childKey ?? undefined })
   }
   function clearSelection() {
-    setSelection({ type: 'none' })
+    setSelection(NO_SELECTION)
   }
 
   function toggleEvidence(id) {

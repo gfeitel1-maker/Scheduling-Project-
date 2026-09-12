@@ -89,19 +89,53 @@ describe('ACTIVITY_COLORS are distinguishable by everyone', () => {
   })
 })
 
-describe('assignActivityColors avoids collisions', () => {
-  it('gives every activity its own colour while the palette has room', () => {
-    const activities = Array.from({ length: 6 }, (_, i) => ({ id: `act-${i}` }))
-    const used = [...assignActivityColors(activities).values()]
-    expect(new Set(used).size).toBe(6)
+// T52 — colour now means HOW OFTEN AN ACTIVITY RUNS (owner decision,
+// 2026-09-12). The palette is a dark-to-light ramp, and a ramp is an ORDER:
+// dark = runs most often. Two activities that run equally often therefore
+// SHARE a colour, deliberately. That replaces the old model, where a colour
+// was a per-activity identity badge and collisions were the bug — the two
+// tests asserting one-colour-per-activity were removed with this change, not
+// broken by it.
+describe('assignActivityColors encodes frequency', () => {
+  it('gives the same colour to activities that run equally often', () => {
+    const used = [...assignActivityColors([
+      { id: 'swim', min_per_week: 3 },
+      { id: 'arts', min_per_week: 3 },
+    ]).values()]
+    expect(used[0]).toBe(used[1])
   })
 
-  it('does not collide on a small camp, which is where this was first seen', () => {
-    // Four activities hashing to three colours is what made the grid look
-    // broken on the product owner's own data.
-    const activities = Array.from({ length: 4 }, (_, i) => ({ id: `activity-${i}` }))
-    const used = [...assignActivityColors(activities).values()]
-    expect(new Set(used).size).toBe(4)
+  it('runs more often => darker rung', () => {
+    const m = assignActivityColors([
+      { id: 'daily', min_per_week: 5 },
+      { id: 'weekly', min_per_week: 1 },
+    ])
+    expect(ACTIVITY_COLORS.indexOf(m.get('daily')))
+      .toBeLessThan(ACTIVITY_COLORS.indexOf(m.get('weekly')))
+  })
+
+  it('is a FIXED scale, not a ranking — adding an activity never recolours the others', () => {
+    const before = assignActivityColors([{ id: 'swim', min_per_week: 2 }])
+    const after = assignActivityColors([
+      { id: 'swim', min_per_week: 2 },
+      { id: 'newthing', min_per_week: 5 },
+    ])
+    expect(after.get('swim')).toBe(before.get('swim'))
+  })
+
+  it('treats anything at or above the top of the scale as the darkest rung', () => {
+    const m = assignActivityColors([
+      { id: 'five', min_per_week: 5 },
+      { id: 'seven', min_per_week: 7 },
+    ])
+    expect(m.get('five')).toBe(ACTIVITY_COLORS[0])
+    expect(m.get('seven')).toBe(ACTIVITY_COLORS[0])
+  })
+
+  it('puts an unset frequency at the palest rung — least often, or nobody has said', () => {
+    const m = assignActivityColors([{ id: 'unknown' }, { id: 'null', min_per_week: null }])
+    expect(m.get('unknown')).toBe(ACTIVITY_COLORS[5])
+    expect(m.get('null')).toBe(ACTIVITY_COLORS[5])
   })
 
   it('is stable — the same activities always get the same colours', () => {
@@ -113,5 +147,32 @@ describe('assignActivityColors avoids collisions', () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ id: `act-${i}` }))
     setActivityPalette(many)
     for (const a of many) expect(ACTIVITY_COLORS).toContain(activityColor(a.id))
+  })
+})
+
+// T52 constraint (B) — colour renders as a 6px `.identity-dot` on the cell
+// surface (scheduleGrid.css:217), never as a cell fill. A rung that looks fine
+// as a large swatch can be invisible at 6px: the first ramp proposed for this
+// change had a palest rung at 1.35:1, which is not a dot, it is nothing.
+//
+// This is the constraint that actually binds when someone lightens the ramp to
+// make the grid prettier, and the separation checks above will not catch it.
+const SURFACE = '#FCFBF8'
+const relLum = (h) => { const [r, g, b] = hex(h); return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b) }
+const contrast = (a, b) => {
+  const x = relLum(a), y = relLum(b)
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+}
+
+describe('ACTIVITY_COLORS survive being a 6px dot', () => {
+  it('every rung clears 3:1 against the cell surface', () => {
+    for (const c of ACTIVITY_COLORS) {
+      expect(contrast(c, SURFACE), `${c} against ${SURFACE}`).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('the palest rung is still clearly a mark, not a smudge', () => {
+    const palest = ACTIVITY_COLORS.reduce((a, b) => (relLum(a) > relLum(b) ? a : b))
+    expect(contrast(palest, SURFACE), `palest rung ${palest}`).toBeGreaterThanOrEqual(3)
   })
 })
