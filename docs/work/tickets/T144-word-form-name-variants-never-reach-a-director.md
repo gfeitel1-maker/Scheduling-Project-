@@ -1,9 +1,9 @@
 ---
 title: T144-word-form-name-variants-never-reach-a-director
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-11
-task_class: ingestion
+task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md]
 archive_when: a director can merge "Swim Returning" onto "Swim Return" during import review, and the merge heals the catalogue, fixed events and multi-block candidates together
 ---

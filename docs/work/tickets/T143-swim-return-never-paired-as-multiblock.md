@@ -1,9 +1,9 @@
 ---
 title: T143-swim-return-never-paired-as-multiblock
 document_type: ticket
-status: done
+status: completed
 created: 2026-09-11
-task_class: ingestion
+task_class: scheduling-engine
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-24-merged-cell-multiblock-ingest.md]
 archive_when: Swim + Swim Return from Schedule by Group.xlsx is proposed as one multi-block occurrence rather than two activities
 ---
