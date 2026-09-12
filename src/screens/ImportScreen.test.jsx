@@ -783,3 +783,38 @@ describe('ImportScreen — word-form name variants (T144)', () => {
     expect(screen.getByText(/Kept apart/)).toBeTruthy()
   })
 })
+
+// A pinned slot that moved for one day — told, not asked (owner, 2026-09-12).
+describe('ImportScreen — something moved for a day', () => {
+  const movedPages = [
+    { title: 'A', columns: ['Monday', 'Wednesday'], rows: [
+      { label: '12:00-12:40', cells: ['Lunch', 'Music'] },
+      { label: '13:00-13:40', cells: ['', 'Late Lunch'] },
+    ] },
+  ]
+
+  it('renders no section when nothing moved', async () => {
+    await uploadFile()
+    expect(screen.queryByText('Something moved for a day')).toBeNull()
+  })
+
+  it('tells the director what moved, and attaches no decision to it', async () => {
+    parseTextGrid.mockReturnValueOnce({ pages: movedPages })
+    inferFixedEvents.mockReturnValueOnce({
+      fixedEvents: [{
+        name: 'Lunch', time_block: '12:00-12:40', days: ['Monday'], kind: 'recurring',
+        scope: { is_all_groups: true, groups: null }, confidence: 'high',
+      }],
+      dualUseNames: [],
+    })
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const input = document.querySelector('input[type="file"]')
+    await userEvent.upload(input, new File(['x'], 'schedule.txt', { type: 'text/plain' }))
+    await waitFor(() => expect(screen.getByText('Something moved for a day')).toBeTruthy())
+    expect(screen.getByText(textNode(/Lunch.*moved to.*Late Lunch.*Wednesday/))).toBeTruthy()
+    // No buttons, no pills: the owner asked to be told and to move past it.
+    expect(screen.queryByText(/Not sure — ask me later/)).toBeNull()
+    // And it never blocks the commit.
+    expect(screen.getByText(/Add \d+ record/)).toBeTruthy()
+  })
+})
