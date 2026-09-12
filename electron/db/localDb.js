@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 57
+export const CURRENT_SCHEMA_VERSION = 58
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2264,6 +2264,40 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v58 — projection_failures.store, distinguishing WHICH store an op failed to
+  // reach (docs/current/WHERE_DATA_LIVES.md).
+  //
+  // 'projection' (the default, and every pre-v58 row) means the op did not reach
+  // SQLite — repairable by replaying the op-log, which is what
+  // repairProjectionForEntity does. 'document' means the op reached SQLite but
+  // not the Automerge document, where that same replay would be WRONG: SQLite is
+  // already correct, the document is the one behind, and replaying would succeed
+  // and then mark the failure resolved — declaring fixed a divergence that is
+  // still there. So the projection repair/health paths scope to
+  // store = 'projection'.
+  //
+  // Backfilling the default as 'projection' is correct rather than merely
+  // convenient: before v58 the only writer was projectionRepair.js, which only
+  // ever recorded projection failures. There is no pre-existing row this
+  // mislabels.
+  //
+  // Both-places DDL, following the v57/libp2p_peer_id precedent: the column is
+  // declared here AND in schema.sql's CREATE TABLE projection_failures, so a
+  // fresh install and a migrated db agree on PRAGMA table_info.
+  //
+  // Guarded `>= 57 && < 58`, not a bare `< 58` — a db that has never reached 57
+  // must run 57 first, and the bare form would let it skip straight here.
+  if (getSchemaVersion(db) >= 57 && getSchemaVersion(db) < 58) {
+    const cols = db.prepare('PRAGMA table_info(projection_failures)').all().map((c) => c.name)
+    if (!cols.includes('store')) {
+      db.exec("ALTER TABLE projection_failures ADD COLUMN store TEXT NOT NULL DEFAULT 'projection'")
+    }
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (58, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct

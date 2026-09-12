@@ -19,6 +19,7 @@ import buildSchedule from '../../src/engine/buildSchedule.js'
 import { buildScheduleExport } from '../../src/utils/exportScheduleJson.js'
 import { PROJECTIONS } from '../../electron/ops/projections.js'
 import { repairProjectionForEntity, checkProjectionHealth } from '../../electron/ops/projectionRepair.js'
+import { listDocumentWriteFailures } from '../../electron/ops/documentWriteFailures.js'
 
 export const ENTITY_MAP = {
   age_divisions: 'tiers',
@@ -195,10 +196,24 @@ export function exportScheduleTool(args, { dbPath }) {
 // projection_failures — this MCP surface is the only manual entry point,
 // for dogfooding/support use. Read-only, so always available like
 // list_entities/setup_summary — no --allow-write gate.
+// Reports BOTH kinds, separately, because they need opposite remedies and this
+// is the only place either is readable (schema v58, see
+// electron/ops/documentWriteFailures.js):
+//
+//   failures          — the op did not reach SQLite. repair_projection_entity
+//                       replays the op-log and fixes it.
+//   documentFailures  — the op reached SQLite but not the Automerge document.
+//                       SQLite is already correct and the DOCUMENT is behind, so
+//                       that same replay is the WRONG remedy: it would succeed
+//                       and mark the divergence resolved while it is still there.
+//                       Recovery is a re-seed of the document, not a replay.
+//
+// Omitting the second here would have left them recorded where nothing can read
+// them — a durable trace is only worth having if something surfaces it.
 export function checkProjectionHealthTool(_args, { dbPath }) {
   const db = openLocalDb(dbPath)
   try {
-    return { ok: true, ...checkProjectionHealth(db) }
+    return { ok: true, ...checkProjectionHealth(db), documentFailures: listDocumentWriteFailures(db) }
   } finally {
     db.close()
   }

@@ -50,6 +50,7 @@
 // there is no window where a local write and a remote merge can interleave mid-update. Both sides
 // always read the latest value and write back synchronously before yielding to the event loop.
 import { docPath, loadDoc, saveDoc } from './docStore.js'
+import { recordDocumentWriteFailure } from '../../ops/documentWriteFailures.js'
 import { applyWrite, applyBulkReplace, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../../automerge/campDocument.js'
 import { seedAllFromSqlite } from '../../automerge/seed.js'
 
@@ -400,6 +401,13 @@ export function commitDeferredDocWrites(db) {
       else applyLocalWriteNow(item.db, item.args)
     } catch (err) {
       console.error('deferred document write failed (SQLite already committed, unaffected):', err)
+      recordDocumentWriteFailure(item.db, {
+        op_id: item.args?.op_id,
+        entity: item.args?.entity,
+        entity_id: item.args?.entity_id ?? item.args?.scope_id,
+        field: item.args?.field,
+        error: err,
+      })
     }
   }
 }

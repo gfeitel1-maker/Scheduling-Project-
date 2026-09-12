@@ -53,6 +53,7 @@ Counts below are computed from a fresh database, not remembered:
 | **`template_slots`** (schedule cells) | **B**, but by *scope* not by row | `appendBulkReplaceOp` for a whole schedule; `appendOp` for one edited cell | A whole-schedule regenerate owns row existence; a single-cell edit it doesn't know about is dropped | `electron/automerge/projector.js` `deleteReconcileBulkReplaceEntity` |
 | **`camps`** (the camp's own identity row) | **A**, deliberately | Created only by `bootstrapCamp` / `joinSession`. The projection **refuses** to create it. | Cannot — one camp per device | Protected by name in `deleteReconcileEntity`; `projections.js` `camps.ensureExists` throws |
 | **`conflicts`** | **A** only | `conflictStore.js` | Never syncs — each device tracks its own | The computed diff below reports exactly one such entity |
+| **`projection_failures`** | **A** only | `projectionRepair.js` (`store='projection'`), `documentWriteFailures.js` (`store='document'`) | Never syncs — this device's own diagnostics | The MCP tool `check_projection_health` reports both kinds separately; they need opposite remedies (replay the op-log vs re-seed the document) |
 | **`operations`** (history) | **C**, derived | `appendOp` locally; `historyLedger.js` from an incoming merge | Not a sync input since Stage 6 — a record, not a mechanism | `syncNode.js` synthesizes rows *from* the merged document |
 | **The 20 SQLite-only tables** — `source_aliases`, `compound_cell_decisions`, `declined_two_row_splits`, `location_word_decisions`, `open_reconciliation_decisions`, `location_migration_reviews`, `import_evidence`, `projection_failures`, `audit_events`, `login_attempts`, `host_signing_key`, `devices`, `device_identity`, `locks`, `pending_writes`, `pending_restores`, `schema_migrations`, the two migration logs, `operations` | **A**, deliberately | Direct SQL | Never syncs, by design — these are *this device's* answers, keys and bookkeeping | `appendOp` hard-throws for `source_aliases`; the rest are convention, **not enforced** |
 
@@ -78,13 +79,20 @@ Stated plainly, because a page that quietly overclaims is worse than no page.
 
 | Gap | What it means | Status |
 |---|---|---|
-| **A document write can fail on its own** — `appendOp` catches it and logs | The edit is in A, not B. Your change silently reverts at the next sync, or a new row disappears. | **Open.** Mechanism confirmed; how often it happens is unmeasured. |
+| **A document write can fail on its own** | The edit is in A, not B, so it silently reverts at the next projection — or a new row disappears outright. | **Open, but no longer silent.** Now recorded durably in `projection_failures` with `store='document'`. Measured: `electron/ops/operations.loneWriteFailure.test.js`. Recording it is not preventing it. |
 | **Migrations write synced tables with raw SQL** and no document write (`localDb.js` v11–v32 re-points, the v27 week backfill, `backfillLocations`) | If a document already exists, `projectAll` reverts those edits. | **Open.** Protected only by seeding order. |
-| **`projectionRepair` rebuilds A from C**, not from B | Running it produces state the document disagrees with, which the next `projectAll` reverts. | **Open.** Reachable only via the MCP tool with `--allow-write`. |
+| **`projectionRepair` rebuilds A from C**, not from B | Running it produces state the document disagrees with, which the next `projectAll` reverts. | **Open**, and now fenced: it scopes to `store='projection'`, so it can no longer mark a document failure resolved by replaying ops that were never the problem. Reachable only via the MCP tool with `--allow-write`. |
 | **The empty-document guard is deliberately narrow** | It refuses a *totally* empty document, but a *partially* empty one passes and can delete-reconcile away whichever entities it is missing. | **Known and accepted**, stated in `projector.js`. |
 | **`SHORESH_SYNC_ENGINE=oplog`** skips every document write | That device silently stops syncing while looking completely normal. Nothing on screen says which engine is running. | **Open.** Default is safe. |
 
 ### Closed 2026-09-12
+
+**A document write failing on its own left no trace.** The op-log said the
+write succeeded — for SQLite it had — so there was nothing to find afterwards,
+and `repairProjectionForEntity` would have replayed those ops into SQLite,
+succeeded, and marked the divergence *resolved* while the document was still
+behind. Failures are now recorded with `store='document'` (schema v58) and the
+projection repair/health paths scope themselves to `store='projection'`.
 
 **A rolled-back job used to leave its writes in the document.** `appendOp` wrote
 the document after its own transaction returned, believing it had committed —
