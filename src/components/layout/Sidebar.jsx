@@ -41,7 +41,7 @@ const BADGE_PILL = {
 
 export default function Sidebar({
   current, onNavigate, role, badges = {},
-  counts, startedRoutes, campName, syncStatus,
+  counts, campName, syncStatus,
   projectPath, isDevDb, buildLabel,
   backupStatus, handleBackupNow,
   offerShown, setOfferShown,
@@ -218,7 +218,7 @@ export default function Sidebar({
           // regardless of any stale persisted fold state (WS5 S1).
           const open = section.pinned ? true : sidebar.sections[section.key] !== false
           const rollup = section.pinned ? null : sectionRollup({
-            section: section.key, open, gaps, startedRoutes,
+            section: section.key, open, gaps,
           })
 
           return (

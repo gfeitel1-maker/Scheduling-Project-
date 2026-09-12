@@ -22,7 +22,6 @@ export function useSetupCounts(campId) {
   const [buildLabel, setBuildLabel] = useState(null)
   const [backupStatus, setBackupStatus] = useState(null)
   const [counts, setCounts] = useState(null)
-  const [startedRoutes, setStartedRoutes] = useState(0)
   const [syncStatus, setSyncStatus] = useState(null)
   const [offerShown, setOfferShown] = useState(false)
 
@@ -45,9 +44,6 @@ export function useSetupCounts(campId) {
         (!campId || !r.camp_id || r.camp_id === campId) && (!kind || r.kind === kind)
       ).length
     })
-
-    const slots = await localClient.list('template_slots').catch(() => [])
-    setStartedRoutes(new Set((Array.isArray(slots) ? slots : []).map((r) => r.template_id)).size)
 
     setCounts((prev) => {
       if (prev !== null && shouldOfferFold({
@@ -117,7 +113,6 @@ export function useSetupCounts(campId) {
 
   return {
     counts,
-    startedRoutes,
     campName,
     syncStatus,
     projectPath,
