@@ -161,7 +161,7 @@ export function activityNamesFromCell(cell, canonicalMap, compoundCellDecisions)
 // alphabetical) as the single canonical form. A key with no variance is omitted
 // entirely, so this is a no-op for a clean file. Pure. Scans cells with the
 // bare (map-less) activityNamesFromCell to gather raw spellings.
-export function buildActivityNameCanonicalMap(pages, compoundCellDecisions) {
+export function buildActivityNameCanonicalMap(pages, compoundCellDecisions, confirmedNameMerges) {
   const names = []
   for (const page of pages ?? []) {
     for (const row of page.rows ?? []) {
@@ -170,7 +170,27 @@ export function buildActivityNameCanonicalMap(pages, compoundCellDecisions) {
       }
     }
   }
-  return electCanonicalSpellings(names)
+  const map = electCanonicalSpellings(names)
+  // T144 — director-confirmed WORD-FORM merges ("Swim Returning" -> "Swim
+  // Return"). The election above folds only whitespace/case variants, which are
+  // safe to decide automatically; a word-form variant is not, so it arrives
+  // here already answered by a human.
+  //
+  // Folding it into this one map rather than post-processing entity lists is
+  // the whole point: every consumer — the activity catalogue, inferFixedEvents,
+  // inferMultiBlockCandidates — already reads names through canonicalMap, so a
+  // confirmed merge heals all of them at once and none of them changes. It also
+  // means the variant's occurrences COUNT toward the real name's footprint,
+  // which is what a stray spelling was silently costing (a fixed event's day
+  // coverage, a companion pair's group scope).
+  //
+  // Applied last so a human decision wins over the automatic election.
+  for (const [variant, canonical] of confirmedNameMerges ?? []) {
+    const key = whitespaceInsensitiveKey(variant)
+    if (!key || !canonical) continue
+    map.set(key, canonical)
+  }
+  return map
 }
 
 // The core: from a flat list of raw activity-name spellings, elect one dominant
@@ -409,14 +429,14 @@ export function detectOrientation(pages) {
  * Returns `{ orientation, entities, counts }`, where `entities` only ever has
  * keys from INGESTIBLE_ENTITIES. Nothing here touches the database.
  */
-export function extractEntities(parsed, compoundCellDecisions) {
+export function extractEntities(parsed, compoundCellDecisions, confirmedNameMerges) {
   const pages = parsed?.pages ?? []
   const orientation = detectOrientation(pages)
   // Elect one canonical spelling per whitespace/case typo-cluster BEFORE any
   // name is read into an entity (heals: a "Lunch2" cell becoming a phantom
   // catalog activity, AND its event fragmenting because the typo dropped a day
   // from the real event's footprint). Empty for a clean file → no-op.
-  const canonicalMap = buildActivityNameCanonicalMap(pages, compoundCellDecisions)
+  const canonicalMap = buildActivityNameCanonicalMap(pages, compoundCellDecisions, confirmedNameMerges)
 
   const groups = []
   const activityPages = new Map()

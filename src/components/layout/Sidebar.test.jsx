@@ -104,31 +104,35 @@ describe('Sidebar: Roots — fixed, chevron-less top row (ADR Decision 3)', () =
     expect(within(daysRow).queryByText('0')).toBeNull()
   })
 
-  it('never shows the blocking mark on an optional area', () => {
+  it('says nothing at all beside a non-required area, and never marks it blocking', () => {
     // A camp with no locations is finished, not unfinished. Marking it
     // otherwise trains directors to ignore the mark that matters.
-    // Fixed Events/Recurring Events are not among these: they are
-    // `expected`, not `optional` (see the dedicated describe block below) —
-    // they read "attention", not "optional", though they still never show '!'.
+    //
+    // The words "optional" and "attention" are both gone (owner, 2026-09-11):
+    // neither was necessarily true of a camp that legitimately has none of
+    // these, and neither was actionable. An empty row now says nothing, which
+    // reads as what it is. "needed" survives only for the irreducible setup.
     renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, locations: 0 } })
-    // Electives (Slice 1) and Special Events (the unified Events + Special
-    // Days row, docs/adr/2026-08-29-unify-special-events-screen.md) are the
-    // other two optional entities, alongside Locations.
-    expect(screen.getAllByText('optional').length).toBe(3)
-    for (const label of ['Locations', 'Special Events', 'Electives']) {
+    expect(screen.queryByText('optional')).toBeNull()
+    expect(screen.queryByText('attention')).toBeNull()
+    for (const label of ['Locations', 'Special Events', 'Electives', 'Fixed Events', 'Recurring Events']) {
       const row = screen.getByText(label).closest('button')
       expect(within(row).queryByText('!')).toBeNull()
+      expect(within(row).queryByText('needed')).toBeNull()
     }
   })
 })
 
 describe('Sidebar: Fixed Events and Recurring Events are two separate, expected rows (not merely optional)', () => {
-  it('reads "attention" (not "optional", not the blocking "needed") when a camp has zero recurring events', () => {
+  it('says nothing beside Recurring Events when a camp has zero of them', () => {
+    // Previously "attention". A camp with no recurring events is a normal
+    // camp, not one that needs a look — the word claimed otherwise.
     renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0 } })
     const anchorsRow = screen.getByText('Recurring Events').closest('button')
-    expect(within(anchorsRow).getByText('attention')).toBeTruthy()
-    expect(within(anchorsRow).queryByText('!')).toBeNull()
+    expect(within(anchorsRow).queryByText('attention')).toBeNull()
     expect(within(anchorsRow).queryByText('optional')).toBeNull()
+    expect(within(anchorsRow).queryByText('needed')).toBeNull()
+    expect(within(anchorsRow).queryByText('!')).toBeNull()
   })
 
   it('reads its count, like a required area, once it has recurring events', () => {

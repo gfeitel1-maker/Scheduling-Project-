@@ -8,8 +8,8 @@ import { ChevronIcon, GearIcon } from '../icons'
 
 // Marks are fixed-width whether or not one is present, so labels stay aligned
 // as ticks appear. Colour is never the only carrier: `!` is a distinct glyph
-// AND carries the word "needed"; `✓` carries a count; every unmarked row
-// carries "needed", "optional" or "attention" beside it.
+// AND carries the word "needed"; `✓` carries a count. A row that is neither
+// blocking nor filled carries nothing — see the `meta` note in renderItem.
 // Counts are keyed by area; getSetupGaps wants collections and only inspects
 // length, so a count becomes an array of that length.
 function countGaps(counts) {
@@ -24,11 +24,6 @@ function countGaps(counts) {
 }
 
 const MARK_COLOR = { '✓': 'var(--success)', '!': 'var(--danger)' }
-// The tint an `expected`-but-empty row's word carries (Recurring Events), so it
-// reads as "worth a look" without borrowing '!''s blocking weight. It sits on
-// the word rather than a dot: as a re-tinted dot it was colour acting as the
-// sole carrier, which the note above says never to do.
-const EXPECTED_EMPTY_DOT_COLOR = 'var(--warning)'
 const TONE_COLOR = {
   danger: 'var(--danger)', success: 'var(--success)',
   warning: 'var(--warning)', secondary: 'var(--text-secondary)',
@@ -108,25 +103,30 @@ export default function Sidebar({
     const lan = item.key === 'devices' && syncStatus ? syncStatusLabel(syncStatus) : null
     const count = item.area ? counts?.[item.area] : undefined
     const isBlocking = item.area ? gapAreas.has(item.area) : false
-    const isExpectedEmpty = item.area && item.expected && !isBlocking && !(count > 0)
     // Two marks, not three. `✓` and `!` are universal — nobody has to be told
     // what a tick or an exclamation mark means. `·` was the one a director
     // would have had to LEARN, and it said nothing the row was not already
-    // saying: every row with no tick carries the word "needed", "optional" or
-    // "attention" right beside it. A glyph that needs a legend is a glyph to
-    // remove, not to explain (T129).
-    //
-    // The expected-but-empty tint moves onto that WORD. It was previously the
-    // only thing separating "attention" from "optional" — a re-tinted `·`,
-    // colour as sole carrier, which this file's own header comment says never
-    // to do. On the word it is reinforcement: "attention" already says it.
+    // saying (T129).
     const mark = !item.area ? null : isBlocking ? '!' : (count > 0 ? '✓' : null)
     const markColor = mark ? MARK_COLOR[mark] : null
+    // An empty row says a count, "needed", or nothing at all.
+    //
+    // "attention" and "optional" are both gone (owner, 2026-09-11). They were
+    // claims the app could not actually make: Fixed Events, Recurring Events,
+    // Electives, Special Events and Locations are each legitimately empty for
+    // plenty of real camps, so "optional" was not necessarily true and
+    // "attention" was not necessarily warranted — and neither word told the
+    // director anything they could act on. An empty row with no word reads as
+    // what it is: nothing here yet, which is fine.
+    //
+    // "needed" survives because it IS actionable — it marks the irreducible
+    // structure (Age Divisions, Groups, Days, Time Blocks, Activities) a camp
+    // cannot schedule without. `isBlocking`/`!` is unchanged and still carries
+    // the blocking case.
     const meta = !item.area
       ? null
       : count > 0 ? String(count)
-      : item.expected ? 'attention'
-      : item.optional ? 'optional'
+      : (item.expected || item.optional) ? null
       : 'needed'
 
     return (
@@ -166,9 +166,7 @@ export default function Sidebar({
         {meta && (
           <span style={{
             fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
-            color: isBlocking
-              ? 'var(--danger)'
-              : isExpectedEmpty ? EXPECTED_EMPTY_DOT_COLOR : 'var(--text-secondary)',
+            color: isBlocking ? 'var(--danger)' : 'var(--text-secondary)',
           }}>{meta}</span>
         )}
         {Boolean(badges[item.key]) && (

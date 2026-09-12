@@ -157,6 +157,9 @@ describe('inferFixedEvents — detection over a fabricated grid', () => {
     const mifkad = find('Mifkad', '09:00-09:30')
     expect(mifkad.support).toEqual({
       days: DAYS,
+      // T141: which eligibility arm admitted the event. Mifkad is a daily
+      // anchor, so it is 'daily' — the arm that existed before T141.
+      basis: 'daily',
       occupied_days: 5,
       operating_days: 5,
       groups_in_scope: ['A', 'B', 'C'],
@@ -172,6 +175,7 @@ describe('inferFixedEvents — detection over a fabricated grid', () => {
     const lunch1 = find('Lunch 1', '12:00-12:30')
     expect(lunch1.support).toEqual({
       days: DAYS,
+      basis: 'daily',
       occupied_days: 5,
       operating_days: 5,
       groups_in_scope: ['A', 'B'],
@@ -186,6 +190,7 @@ describe('inferFixedEvents — detection over a fabricated grid', () => {
     const swim = find('Swim', '14:00-14:30')
     expect(swim.support).toEqual({
       days: ['Monday', 'Wednesday', 'Friday'],
+      basis: 'daily',
       occupied_days: 3,
       operating_days: 5,
       groups_in_scope: ['A'],
