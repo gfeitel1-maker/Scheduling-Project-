@@ -50,6 +50,21 @@ describe('localClient.onLocalWrite', () => {
     unsub()
   })
 
+  // 2026-09-12. deleteRecord, mergeLocation and restoreEntity were the three
+  // mutations left OUT of the announcing() wrapper, so the sidebar's tick and
+  // count stayed on pre-mutation state until something else forced a refetch.
+  // Observed live: merging two locations left the table reading "1 LOCATION"
+  // beside a sidebar reading "Locations 2".
+  it('notifies after a record delete, a location merge and a restore', async () => {
+    const seen = vi.fn()
+    const unsub = localClient.onLocalWrite(seen)
+    await localClient.deleteRecord('activities', 'a-1', 0)
+    await localClient.mergeLocation({ loser_id: 'l2', winner_id: 'l1' })
+    await localClient.restoreEntity('activities', 'a-1')
+    expect(seen).toHaveBeenCalledTimes(3)
+    unsub()
+  })
+
   it('stops notifying once unsubscribed', async () => {
     const seen = vi.fn()
     localClient.onLocalWrite(seen)()

@@ -89,11 +89,13 @@ describe('Sidebar: Roots — fixed, chevron-less top row (ADR Decision 3)', () =
     expect(screen.queryByTitle('Expand Roots')).toBeNull()
   })
 
-  it('marks a complete area with a tick and its count', () => {
+  it('marks a complete area with a tick and NOTHING else — no count', () => {
+    // The count was the one thing on the rail a director could not act on.
+    // `✓` says there is something here; how much is what the screen is for.
     renderSidebar()
-    expect(screen.getByText('14')).toBeTruthy()
     const groupsRow = screen.getByText('Groups').closest('button')
     expect(within(groupsRow).getByText('✓')).toBeTruthy()
+    expect(within(groupsRow).queryByText(String(DEFAULT_COUNTS.groups))).toBeNull()
   })
 
   it('marks a missing required area as needed, never as a count of zero', () => {
@@ -135,11 +137,12 @@ describe('Sidebar: Fixed Events and Recurring Events are two separate, expected 
     expect(within(anchorsRow).queryByText('!')).toBeNull()
   })
 
-  it('reads its count, like a required area, once it has recurring events', () => {
+  it('says nothing but a tick once it has recurring events — no count', () => {
     renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 3 } })
     const anchorsRow = screen.getByText('Recurring Events').closest('button')
-    expect(within(anchorsRow).getByText('3')).toBeTruthy()
     expect(within(anchorsRow).getByText('✓')).toBeTruthy()
+    expect(within(anchorsRow).queryByText('attention')).toBeNull()
+    expect(within(anchorsRow).queryByText('3')).toBeNull()
   })
 
   it('lists Fixed Events as its own row, distinct from Recurring Events', () => {
@@ -345,7 +348,7 @@ describe('Sidebar: scale', () => {
     unmount()
 
     renderSidebar({ counts: { ...DEFAULT_COUNTS, groups: 100 } })
-    expect(screen.getByText('100')).toBeTruthy()
+    expect(screen.getByText('Groups')).toBeTruthy()
     expect(screen.getAllByRole('button').length).toBe(few)
   })
 })
