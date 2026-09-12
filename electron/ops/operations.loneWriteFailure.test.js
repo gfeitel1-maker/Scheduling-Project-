@@ -26,6 +26,8 @@ import { openLocalDb } from '../db/localDb.js'
 import { appendOp, runAtomic } from './operations.js'
 import { applyWrite, readRecord } from '../automerge/campDocument.js'
 import { projectAll } from '../automerge/projector.js'
+import { listDocumentWriteFailures } from './documentWriteFailures.js'
+import { repairProjectionForEntity, checkProjectionHealth } from './projectionRepair.js'
 import { setUserDataDirGetter, resetForTests, getDocIfLoaded, flushPendingWrites } from '../sync/automerge/liveDoc.js'
 
 let userDataDir, tmpFile, db
@@ -108,18 +110,46 @@ describe('a document write that fails on its own (WHERE_DATA_LIVES.md, open gap)
     expect(db.prepare('SELECT id FROM groups ORDER BY id').all().map((r) => r.id)).toEqual(['keep'])
   })
 
-  it('MEASUREMENT: nothing records that it happened', () => {
-    // The op-log still says the write succeeded, because for SQLite it did.
-    // projection_failures — the table built for exactly this shape of problem —
-    // is not written by this path. So there is no durable trace to find later,
-    // and `repairProjectionForEntity` replays the op-log into SQLite, which
-    // would restore the row while leaving the document still missing it.
+  it('is now recorded durably, and marked as a DOCUMENT failure', () => {
+    // Was a MEASUREMENT asserting nothing was recorded — the third finding, and
+    // the worst of them: the loss was invisible AND untraceable. The op-log
+    // still says the write succeeded (for SQLite it did), so there was nothing
+    // to find afterwards.
     const fired = failWriteOf('Doomed')
     runAtomic(db, () => { write('g2', 'name', 'Doomed') })
     flushPendingWrites()
     expect(fired()).toBe(1)
 
     expect(db.prepare("SELECT COUNT(*) n FROM operations WHERE entity_id = 'g2'").get().n).toBe(1)
-    expect(db.prepare('SELECT COUNT(*) n FROM projection_failures').get().n).toBe(0)
+
+    const recorded = listDocumentWriteFailures(db)
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0].entity).toBe('groups')
+    expect(recorded[0].entity_id).toBe('g2')
+    expect(recorded[0].field).toBe('name')
+    expect(recorded[0].store).toBe('document')
+    expect(recorded[0].resolved_at).toBeNull()
+  })
+
+  it('does NOT let the projection repair path claim it as fixed', () => {
+    // The reason for the `store` column. repairProjectionForEntity replays the
+    // op-log INTO SQLite. For a document failure that repair is not merely
+    // useless, it is wrong: SQLite is already correct and the DOCUMENT is
+    // behind, so the replay succeeds and would then mark the divergence
+    // resolved — declaring fixed something that is still broken.
+    const fired = failWriteOf('Doomed too')
+    runAtomic(db, () => { write('g3', 'name', 'Doomed too') })
+    flushPendingWrites()
+    expect(fired()).toBe(1)
+    expect(listDocumentWriteFailures(db)).toHaveLength(1)
+
+    // The projection health check must not see it — it is not its kind of problem.
+    expect(checkProjectionHealth(db).failures).toEqual([])
+
+    // And repairing that entity must not resolve it.
+    repairProjectionForEntity(db, 'groups', 'g3')
+    const after = listDocumentWriteFailures(db)
+    expect(after, 'a document failure must survive a projection repair').toHaveLength(1)
+    expect(after[0].resolved_at).toBeNull()
   })
 })

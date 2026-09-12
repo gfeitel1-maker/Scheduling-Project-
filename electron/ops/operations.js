@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { PROJECTIONS, applyProjection, sanitizeMutuallyExclusiveRow } from './projections.js'
 import { getStmt } from './stmtCache.js'
+import { recordDocumentWriteFailure } from './documentWriteFailures.js'
 import { isOpLogEngine } from '../sync/automerge/syncEngineFlag.js'
 import {
   recordLocalWrite, recordLocalBulkReplace,
@@ -208,9 +209,14 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     // off the op that was just written rather than the caller's argument, so the
     // document records exactly what the op-log recorded — including appendOp's
     // own defaulting — and the two can never disagree.
-    recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: op.source, author_user_id: op.author_user_id })
+    recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: op.source, author_user_id: op.author_user_id, op_id: op.id })
   } catch (err) {
+    // Durable, not just a console line. SQLite has this write and the document
+    // does not, so `projectAll` will silently revert it at the next projection
+    // — recorded as store='document' because replaying the op-log (the repair
+    // for a projection failure) would be wrong here: SQLite is already correct.
     console.error('automerge dual-write failed (op-log write already committed, unaffected):', err)
+    recordDocumentWriteFailure(db, { op_id: op.id, entity, entity_id, field, error: err })
   }
 
   return op

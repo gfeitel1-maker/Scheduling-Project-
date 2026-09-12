@@ -13,6 +13,7 @@
 // renderer-facing IPC in v1 (ADR "Product decisions" #3).
 import { isBulkReplaceOp, applyBulkReplaceProjection } from './operations.js'
 import { applyProjection } from './projections.js'
+import { STORE_PROJECTION } from './documentWriteFailures.js'
 
 export function repairProjectionForEntity(db, entity, entity_id) {
   const ops = db
@@ -58,10 +59,11 @@ export function repairProjectionForEntity(db, entity, entity_id) {
     const now = new Date().toISOString()
     for (const { op, error } of outstanding.values()) {
       db.prepare(
-        `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(op_id) DO UPDATE SET error_message = excluded.error_message, failed_at = excluded.failed_at`
-      ).run(op.id, op.entity, op.entity_id, op.field, error.message, now)
+        `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at, store)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(op_id) DO UPDATE SET
+           error_message = excluded.error_message, failed_at = excluded.failed_at, store = excluded.store`
+      ).run(op.id, op.entity, op.entity_id, op.field, error.message, now, STORE_PROJECTION)
     }
     const reasons = Array.from(outstanding.values())
       .map(({ error }) => error.message)
@@ -80,14 +82,19 @@ export function repairProjectionForEntity(db, entity, entity_id) {
   // here, unlike the old code's version of the same wholesale resolve — the
   // difference is this line is now only reached when outstanding is empty.
   db.prepare(
-    'UPDATE projection_failures SET resolved_at = ? WHERE entity = ? AND entity_id = ? AND resolved_at IS NULL'
-  ).run(new Date().toISOString(), entity, entity_id)
+    // store-scoped (v58): a document-store failure means SQLite is already
+    // correct and the DOCUMENT is behind, so this replay-into-SQLite repair
+    // neither fixes it nor may declare it resolved.
+    'UPDATE projection_failures SET resolved_at = ? WHERE entity = ? AND entity_id = ? AND resolved_at IS NULL AND store = ?'
+  ).run(new Date().toISOString(), entity, entity_id, STORE_PROJECTION)
   return { ok: true }
 }
 
 // Read-side detection primitive (ADR §1, "Read side"). Cheap, indexed
 // (idx_projection_failures_unresolved), safe to run on app boot or on-demand.
 export function checkProjectionHealth(db) {
-  const failures = db.prepare('SELECT * FROM projection_failures WHERE resolved_at IS NULL').all()
+  const failures = db
+    .prepare('SELECT * FROM projection_failures WHERE resolved_at IS NULL AND store = ?')
+    .all(STORE_PROJECTION)
   return { failures }
 }
