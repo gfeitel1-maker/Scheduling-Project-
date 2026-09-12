@@ -1,9 +1,9 @@
 ---
 title: T141-fixed-event-eligibility-ignores-group-coverage
 document_type: ticket
-status: done
+status: completed
 created: 2026-09-11
-task_class: ingestion
+task_class: scheduling-engine
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-03-ingesting-recurring-fixed-events.md, docs/adr/2026-08-28-fixed-vs-recurring-events.md]
 archive_when: All Camp Activity, Shabbat and Ruach are proposed as pinned events scoped to their 13 groups from Schedule by Group.xlsx, and no previously-detected event is lost
 ---

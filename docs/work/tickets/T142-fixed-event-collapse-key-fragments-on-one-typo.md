@@ -1,9 +1,9 @@
 ---
 title: T142-fixed-event-collapse-key-fragments-on-one-typo
 document_type: ticket
-status: done
+status: closed
 created: 2026-09-11
-task_class: ingestion
+task_class: scheduling-engine
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-03-ingesting-recurring-fixed-events.md]
 archive_when: closed — premise disproved by measurement, see below
 ---
