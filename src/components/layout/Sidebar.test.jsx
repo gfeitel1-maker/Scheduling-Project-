@@ -34,7 +34,6 @@ function renderSidebar(props = {}) {
       role="admin"
       badges={{}}
       counts={DEFAULT_COUNTS}
-      startedRoutes={0}
       campName="Camp Test"
       syncStatus={null}
       projectPath={null}
@@ -301,7 +300,11 @@ describe('Sidebar: collapsing never hides a problem', () => {
     fireEvent.click(screen.getByText('Germination').closest('button'))
 
     expect(screen.queryByText('Days')).toBeNull()
-    expect(screen.getByText('3 / 4')).toBeTruthy()
+    // A mark, never a number: "3 / 4" did not say which row was missing, and
+    // the director has to expand the section either way. `!` is the whole
+    // actionable content and is what keeps collapsing safe.
+    expect(screen.getByText('!')).toBeTruthy()
+    expect(screen.queryByText('3 / 4')).toBeNull()
   })
 
   it('remembers which sections were collapsed', () => {

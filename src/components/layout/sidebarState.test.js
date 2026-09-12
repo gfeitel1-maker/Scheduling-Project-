@@ -28,22 +28,22 @@ describe('sectionRollup', () => {
 
   it('carries the unmet count out to a collapsed Germination header (3 required areas: tiers/groups/days/timeblocks minus the "days" gap)', () => {
     const rollup = sectionRollup({ section: 'germination', open: false, gaps: TWO_GAPS })
-    expect(rollup).toEqual({ mark: '!', text: '3 / 4', tone: 'danger' })
+    expect(rollup).toEqual({ mark: '!', text: '', tone: 'danger' })
   })
 
   it('shows a complete Germination as complete, not as silence', () => {
     const rollup = sectionRollup({ section: 'germination', open: false, gaps: NO_GAPS })
-    expect(rollup).toEqual({ mark: '✓', text: '4 / 4', tone: 'success' })
+    expect(rollup).toEqual({ mark: '✓', text: '', tone: 'success' })
   })
 
   it('carries the unmet count out to a collapsed Sprouts header (1 required area: activities)', () => {
     const rollup = sectionRollup({ section: 'sprouts', open: false, gaps: TWO_GAPS })
-    expect(rollup).toEqual({ mark: '!', text: '0 / 1', tone: 'danger' })
+    expect(rollup).toEqual({ mark: '!', text: '', tone: 'danger' })
   })
 
   it('shows a complete Sprouts as complete, not as silence', () => {
     const rollup = sectionRollup({ section: 'sprouts', open: false, gaps: NO_GAPS })
-    expect(rollup).toEqual({ mark: '✓', text: '1 / 1', tone: 'success' })
+    expect(rollup).toEqual({ mark: '✓', text: '', tone: 'success' })
   })
 
   // Roots-as-Hub Slice B: 'system' is no longer a foldable nav section —
@@ -56,9 +56,13 @@ describe('sectionRollup', () => {
     expect(sectionRollup({ section: 'plants', open: false, gaps: NO_GAPS })).toBeNull()
   })
 
-  it('counts started weeks on a collapsed Plants header', () => {
-    expect(sectionRollup({ section: 'plants', open: false, gaps: NO_GAPS, startedRoutes: 2 }))
-      .toEqual({ mark: null, text: '2', tone: 'secondary' })
+  it('says nothing on a collapsed Plants header, even with started weeks', () => {
+    // It used to render a bare count of started schedule routes with no mark —
+    // a number with nothing actionable attached, which is what came off the
+    // rows (owner, 2026-09-12). It never carried an alert, so nothing is lost.
+    // Removing it also removed a full `template_slots` list from every counts
+    // refresh, which was the most expensive query the sidebar made.
+    expect(sectionRollup({ section: 'plants', open: false, gaps: NO_GAPS })).toBeNull()
   })
 })
 

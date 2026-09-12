@@ -38,23 +38,34 @@ const STORAGE_KEY = 'shoresh-sidebar-state'
  * This is the rule that makes collapsing safe. A director who tidied their
  * sidebar in June must still see a sync problem in August.
  */
-export function sectionRollup({ section, open, gaps = [], startedRoutes = 0 }) {
+export function sectionRollup({ section, open, gaps = [] }) {
   if (open) return null
 
+  // A MARK, never a number. The rollup used to read "! 3 / 4", which is the
+  // same thing the per-row counts were doing (owner, 2026-09-12: the tick is
+  // fine, the number is not) — "3 / 4" does not tell a director which row is
+  // missing or what to do, and they have to expand the section either way.
+  // `!` and `✓` carry the whole actionable content: something in here needs
+  // you, or nothing does.
+  //
+  // The safety rule is unchanged and is why `!` survives: a director who
+  // tidied their sidebar in June must still see a problem in August.
   if (section === 'germination' || section === 'sprouts') {
     const inSection = section === 'germination'
       ? (area) => GERMINATION_AREA_KEYS.has(area)
       : (area) => !GERMINATION_AREA_KEYS.has(area)
-    const total = REQUIRED_AREAS.filter((a) => inSection(a.key)).length
     const sectionGaps = gaps.filter((g) => inSection(g.key))
-    const done = total - sectionGaps.length
     return sectionGaps.length > 0
-      ? { mark: '!', text: `${done} / ${total}`, tone: 'danger' }
-      : { mark: '✓', text: `${done} / ${total}`, tone: 'success' }
+      ? { mark: '!', text: '', tone: 'danger' }
+      : { mark: '✓', text: '', tone: 'success' }
   }
 
+  // Plants reported a bare count of started schedule routes and no mark at
+  // all — a number with nothing actionable attached, which is exactly what
+  // came off the rows. A collapsed Plants section now says nothing, and
+  // nothing is lost: it never carried an alert.
   if (section === 'plants') {
-    return startedRoutes > 0 ? { mark: null, text: String(startedRoutes), tone: 'secondary' } : null
+    return null
   }
 
   return null
