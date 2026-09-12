@@ -143,8 +143,12 @@ describe('a document write that fails on its own (WHERE_DATA_LIVES.md, open gap)
     expect(fired()).toBe(1)
     expect(listDocumentWriteFailures(db)).toHaveLength(1)
 
-    // The projection health check must not see it — it is not its kind of problem.
+    // The projection health check must not see it as ITS kind of problem...
     expect(checkProjectionHealth(db).failures).toEqual([])
+    // ...but it must be readable SOMEWHERE. check_projection_health is the only
+    // manual entry point for either kind, so scoping the repair without also
+    // surfacing this would have recorded the loss where nothing can read it.
+    expect(listDocumentWriteFailures(db)).toHaveLength(1)
 
     // And repairing that entity must not resolve it.
     repairProjectionForEntity(db, 'groups', 'g3')
