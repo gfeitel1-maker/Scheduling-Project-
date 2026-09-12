@@ -55,12 +55,15 @@ const write = (id, field, value) =>
     author_user_id: null, device_id: 'device-1', parent_op_id: null, client_write_id: null,
   })
 
-// Fail the NEXT applyWrite whose value matches, and only that one.
-function failWriteOf(value) {
+// Fail applyWrite for this value the first `times` attempts.
+//   times = 1        -> TRANSIENT: the retry inside recordLocalWrite recovers it.
+//   times = Infinity -> PERSISTENT: every attempt fails, and we fall through to
+//                       the recorded-failure path.
+function failWriteOf(value, times = Infinity) {
   const real = vi.mocked(applyWrite).getMockImplementation()
   let fired = 0
   vi.mocked(applyWrite).mockImplementation((doc, args) => {
-    if (args?.value === value && fired === 0) {
+    if (args?.value === value && fired < times) {
       fired += 1
       throw new Error('document write failed')
     }
@@ -69,8 +72,30 @@ function failWriteOf(value) {
   return () => fired
 }
 
-describe('a document write that fails on its own (WHERE_DATA_LIVES.md, open gap)', () => {
-  it('MEASUREMENT: an edited field reverts at the next projection', () => {
+describe('a document write that fails on its own', () => {
+  it('a TRANSIENT failure loses nothing — the retry recovers it', () => {
+    // The owner's question, and the right one: why does this have to lose
+    // anything at all? It does not. The value is still in hand at the moment
+    // the write fails, so trying again is exact rather than reconstructed.
+    // Most real causes — a busy disk, a lock held while the debounced save
+    // lands — clear on the next attempt.
+    runAtomic(db, () => { write('g0', 'name', 'Original') })
+    flushPendingWrites()
+
+    const fired = failWriteOf('Renamed', 1) // fails once, then succeeds
+    runAtomic(db, () => { write('g0', 'name', 'Renamed') })
+    flushPendingWrites()
+    expect(fired(), 'the injected failure never ran — this test would prove nothing').toBe(1)
+
+    // It reached the document despite the failure, so the projection has
+    // nothing to revert and nothing was recorded as lost.
+    expect(readRecord(getDocIfLoaded(db), 'groups', 'g0').name).toBe('Renamed')
+    projectAll(db, getDocIfLoaded(db))
+    expect(db.prepare('SELECT name FROM groups WHERE id = ?').get('g0').name).toBe('Renamed')
+    expect(listDocumentWriteFailures(db)).toHaveLength(0)
+  })
+
+  it('a PERSISTENT failure still reverts the edit at the next projection', () => {
     runAtomic(db, () => { write('g1', 'name', 'Original') })
     flushPendingWrites()
     expect(readRecord(getDocIfLoaded(db), 'groups', 'g1').name).toBe('Original')
@@ -79,7 +104,9 @@ describe('a document write that fails on its own (WHERE_DATA_LIVES.md, open gap)
     const fired = failWriteOf('Renamed')
     runAtomic(db, () => { write('g1', 'name', 'Renamed') })
     flushPendingWrites()
-    expect(fired(), 'the injected failure never ran — this test would prove nothing').toBe(1)
+    // 3 = DOCUMENT_WRITE_ATTEMPTS: the retry ran and gave up, which is the
+    // precondition for everything this test asserts.
+    expect(fired(), 'the injected failure never ran — this test would prove nothing').toBe(3)
 
     // The screen shows the new name. Nothing errored. This is what the director sees.
     expect(db.prepare('SELECT name FROM groups WHERE id = ?').get('g1').name).toBe('Renamed')
@@ -92,14 +119,16 @@ describe('a document write that fails on its own (WHERE_DATA_LIVES.md, open gap)
     expect(db.prepare('SELECT name FROM groups WHERE id = ?').get('g1').name).toBe('Original')
   })
 
-  it('MEASUREMENT: a newly created record disappears entirely', () => {
+  it('a PERSISTENT failure still loses a newly created record entirely', () => {
     runAtomic(db, () => { write('keep', 'name', 'Existing group') })
     flushPendingWrites()
 
     const fired = failWriteOf('Brand new group')
     runAtomic(db, () => { write('new', 'name', 'Brand new group') })
     flushPendingWrites()
-    expect(fired()).toBe(1)
+    // 3 = DOCUMENT_WRITE_ATTEMPTS: the retry ran and gave up, which is the
+    // precondition for everything this test asserts.
+    expect(fired()).toBe(3)
 
     // It is on screen.
     expect(db.prepare('SELECT id FROM groups ORDER BY id').all().map((r) => r.id)).toEqual(['keep', 'new'])
@@ -118,7 +147,9 @@ describe('a document write that fails on its own (WHERE_DATA_LIVES.md, open gap)
     const fired = failWriteOf('Doomed')
     runAtomic(db, () => { write('g2', 'name', 'Doomed') })
     flushPendingWrites()
-    expect(fired()).toBe(1)
+    // 3 = DOCUMENT_WRITE_ATTEMPTS: the retry ran and gave up, which is the
+    // precondition for everything this test asserts.
+    expect(fired()).toBe(3)
 
     expect(db.prepare("SELECT COUNT(*) n FROM operations WHERE entity_id = 'g2'").get().n).toBe(1)
 
@@ -140,7 +171,9 @@ describe('a document write that fails on its own (WHERE_DATA_LIVES.md, open gap)
     const fired = failWriteOf('Doomed too')
     runAtomic(db, () => { write('g3', 'name', 'Doomed too') })
     flushPendingWrites()
-    expect(fired()).toBe(1)
+    // 3 = DOCUMENT_WRITE_ATTEMPTS: the retry ran and gave up, which is the
+    // precondition for everything this test asserts.
+    expect(fired()).toBe(3)
     expect(listDocumentWriteFailures(db)).toHaveLength(1)
 
     // The projection health check must not see it as ITS kind of problem...
