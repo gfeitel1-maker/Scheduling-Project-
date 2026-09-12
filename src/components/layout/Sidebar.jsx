@@ -109,24 +109,32 @@ export default function Sidebar({
     // saying (T129).
     const mark = !item.area ? null : isBlocking ? '!' : (count > 0 ? '✓' : null)
     const markColor = mark ? MARK_COLOR[mark] : null
-    // An empty row says a count, "needed", or nothing at all.
+    // An empty row says "needed" or nothing at all. A populated row says
+    // nothing — it carries `✓` and stops there.
     //
-    // "attention" and "optional" are both gone (owner, 2026-09-11). They were
-    // claims the app could not actually make: Fixed Events, Recurring Events,
+    // "attention" and "optional" went first (owner, 2026-09-11): they were
+    // claims the app could not actually make. Fixed Events, Recurring Events,
     // Electives, Special Events and Locations are each legitimately empty for
     // plenty of real camps, so "optional" was not necessarily true and
-    // "attention" was not necessarily warranted — and neither word told the
-    // director anything they could act on. An empty row with no word reads as
-    // what it is: nothing here yet, which is fine.
+    // "attention" was not necessarily warranted.
+    //
+    // The COUNT went next (owner, 2026-09-12), for the same reason one step
+    // further on: "Groups 3" does not tell a director to do anything. It was
+    // the last element on the rail with no decision attached to it, and a
+    // column of numbers is noise beside the one word that does ask for
+    // something. `✓` already carries "there is something in here"; how much is
+    // what the screen itself is for.
     //
     // "needed" survives because it IS actionable — it marks the irreducible
     // structure (Age Divisions, Groups, Days, Time Blocks, Activities) a camp
     // cannot schedule without. `isBlocking`/`!` is unchanged and still carries
     // the blocking case.
-    const meta = !item.area
+    //
+    // The counts are still COMPUTED — `✓`, `!`, "needed", the gap detection
+    // and the collapsed-section summary all read the same `counts` object.
+    // This hides a derived string; it does not remove the data.
+    const meta = !item.area || count > 0 || item.expected || item.optional
       ? null
-      : count > 0 ? String(count)
-      : (item.expected || item.optional) ? null
       : 'needed'
 
     return (

@@ -156,19 +156,24 @@ export const localClient = {
   listPendingRestores: () => shoresh.listPendingRestores(currentToken()),
   getEntityHistory: (entity, entity_id) =>
     shoresh.getEntityHistory({ token: currentToken(), entity, entity_id }),
-  restoreEntity: (entity, entity_id) =>
-    shoresh.restoreEntity({ token: currentToken(), entity, entity_id }),
+  // Announcing, like write/deleteEntity above: these three are mutations too,
+  // and leaving them silent left every count-and-tick reader (the sidebar's
+  // `useSetupCounts`) showing pre-mutation state until something else made it
+  // refetch. Deleting a record, merging two locations and restoring from Trash
+  // all change what is there.
+  restoreEntity: announcing((entity, entity_id) =>
+    shoresh.restoreEntity({ token: currentToken(), entity, entity_id })),
   // Deleting a record a schedule uses: previewDelete counts what would change
   // so the confirmation can state it, deleteRecord clears it and deletes.
   // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
   previewDelete: (entity, entity_id) =>
     shoresh.previewDelete({ token: currentToken(), entity, entity_id }),
-  deleteRecord: (entity, entity_id, expected_slot_count) =>
-    shoresh.deleteRecord({ token: currentToken(), entity, entity_id, expected_slot_count }),
+  deleteRecord: announcing((entity, entity_id, expected_slot_count) =>
+    shoresh.deleteRecord({ token: currentToken(), entity, entity_id, expected_slot_count })),
   // M3c — the near-duplicate merge gate and the migration review journal.
   // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
-  mergeLocation: ({ loser_id, winner_id, winner_capacity, expected_ref_count }) =>
-    shoresh.mergeLocation({ token: currentToken(), loser_id, winner_id, winner_capacity, expected_ref_count }),
+  mergeLocation: announcing(({ loser_id, winner_id, winner_capacity, expected_ref_count }) =>
+    shoresh.mergeLocation({ token: currentToken(), loser_id, winner_id, winner_capacity, expected_ref_count })),
   listMigrationReviews: () => shoresh.listMigrationReviews(currentToken()),
   dismissMigrationReviews: (ids) => shoresh.dismissMigrationReviews({ token: currentToken(), ids }),
   // docs/adr/2026-08-28-persisted-reconciliation-decisions.md §4b.
