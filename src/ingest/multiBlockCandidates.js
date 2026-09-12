@@ -137,6 +137,167 @@ export function inferMultiBlockCandidates(parsed, proposal = {}) {
     }
   }
 
+  // COMPANION TAILS (T143). The walk above sees only XLSX vertical merges.
+  // A camp that writes a two-block session as two separately-named adjacent
+  // cells — "Swim" then "Swim Return" — is invisible to it, so a swim reads as
+  // two sessions and the travel block becomes independently schedulable.
+  //
+  // The pattern is structural, not lexical (no name-substring test: a tail is
+  // as likely to be "Cleanup" or "Return to Bunk" as "<head> Return"):
+  //
+  //   B is the TAIL of A iff, across the whole file,
+  //     (1) B NEVER occupies a block that A does not immediately precede;
+  //     (2) B occurs at least twice (one adjacency is coincidence);
+  //     (3) A is followed by B in at least TWO THIRDS of A's occurrences;
+  //     (4) B's name CONTINUES A's name — "Swim" -> "Swim Return".
+  //
+  // (3) rejects a decoy that clause (1) cannot. In the owner's real file
+  // Menucha ALWAYS sits in the block right after Lunch 1 and never stands
+  // alone, so (1)+(2) would weld Lunch 1 + Menucha into a fake two-block
+  // lunch. But Lunch 1 runs five days a week and is followed by Menucha on
+  // only some of them (6 of 25 occurrences), so (3) rejects it. Swim passes at
+  // 17 of 18 — the one miss being the "Swim Returning" typo in Alufim 2's
+  // Wednesday cell, which is why (3) is a ratio and not "always". That typo
+  // forms its own 1-of-18 pair and is rejected too, so the pair is not
+  // duplicated.
+  //
+  // (4) was added after measuring (1)-(3) against that same file, which is the
+  // only reason it is here: a purely structural rule is far too loose. It
+  // welded THREE pairs that are nothing of the kind — "Group Time + Mifkad"
+  // (two separate daily anchors that simply always run in that order, on every
+  // group, every day), "CIT Block 1 + CIT Block 2" (a numbered chain), and
+  // "Ruach + Shabbat" (two distinct all-camp Friday events). Rigid sequence is
+  // not the same relation as "second half of one session", and nothing in the
+  // grid's shape separates them. The name does: a travel/return block is
+  // written as its activity plus a qualifier, so requiring B to begin with A's
+  // full name plus at least one more word rejects all three (Mifkad does not
+  // continue "Group Time"; "CIT Block 2" does not continue "CIT Block 1";
+  // Shabbat does not continue "Ruach") while keeping Swim + Swim Return.
+  //
+  // The cost is a tail named for something other than its head — a "Swim" ->
+  // "Towel Time" camp gets no candidate. That is the right trade here: this
+  // detector INFERS a pairing the camp never marked up, unlike the merged-cell
+  // walk above where the camp explicitly merged the cells and over-inclusion is
+  // cheap. A wrong weld silently makes two sessions into one.
+  //
+  // Emits into the SAME candidate stream as the merge walk, so the director
+  // confirms one kind of thing; `tail_name` is what lets the review surface
+  // say "Swim + Swim Return" rather than silently renaming a block.
+  const COMPANION_MIN_RATIO = 2 / 3
+  const heads = new Map()      // normalized name -> total occurrences
+  const tails = new Map()      // normalized name -> total occurrences
+  const pairCounts = new Map() // keyOf(headNorm, tailNorm) -> count
+  const tailPrecededBy = new Map() // tailNorm -> Set(headNorm seen directly before it)
+  const tailStandalone = new Map() // tailNorm -> occurrences with NO filled block before
+  // Every raw adjacency, kept so a confirmed pair can be replayed into the
+  // same (day, group-set) aggregation the merge walk uses.
+  const adjacencies = []
+  const pairKey = (a, b) => JSON.stringify([a, b])
+  const bump = (map, key) => map.set(key, (map.get(key) ?? 0) + 1)
+
+  // Walk each (group, day) column top to bottom in block order, recording what
+  // sits directly above what. `cellsByBlock` is built per orientation so the
+  // two share one adjacency pass, exactly as the merge walk shares addOccurrence.
+  const walkColumn = (cells, groupRawName, day) => {
+    for (let i = 0; i < cells.length; i++) {
+      const { block, names } = cells[i]
+      const prev = i > 0 ? cells[i - 1] : null
+      for (const name of names) {
+        const norm = normalizeName(name)
+        bump(tails, norm)
+        const prevNames = prev?.names ?? []
+        if (prevNames.length === 0) {
+          bump(tailStandalone, norm)
+          continue
+        }
+        if (!tailPrecededBy.has(norm)) tailPrecededBy.set(norm, new Set())
+        for (const headName of prevNames) {
+          const headNorm = normalizeName(headName)
+          tailPrecededBy.get(norm).add(headNorm)
+          bump(pairCounts, pairKey(headNorm, norm))
+          adjacencies.push({
+            headName, tailName: name,
+            headNorm, tailNorm: norm,
+            start_block: prev.block, tail_block: block,
+            day, groupRawName,
+          })
+        }
+      }
+    }
+  }
+  // `heads` counts an activity wherever it appears, tail or not — clause (3)'s
+  // denominator is "every time A happened", not "every time A had something
+  // under it".
+  const countHead = (names) => { for (const n of names) bump(heads, normalizeName(n)) }
+
+  for (const page of pages) {
+    if (orientation.columns === 'days') {
+      const rawTitle = cleanTitle(page.title)
+      const groupName = groupNameByTitle[rawTitle] ?? rawTitle
+      if (!groupName) continue
+      // The merge walk above is guarded by `row.blockSpans`, which a page
+      // without rows/columns simply never has. This walk reads the grid
+      // directly, so it needs the shape checks stated outright — a parsed page
+      // is not guaranteed to carry either.
+      if (!Array.isArray(page.columns) || !Array.isArray(page.rows)) continue
+      page.columns.forEach((colHeader, cellIndex) => {
+        if (!isDayName(colHeader)) return
+        const day = canonicalDay(colHeader)
+        const cells = page.rows.map((r) => ({
+          block: (r.label ?? '').trim(),
+          names: [...activityNamesFromCell(r.cells?.[cellIndex], canonicalMap, compoundCellDecisions)],
+        }))
+        cells.forEach((c) => countHead(c.names))
+        walkColumn(cells, groupName, day)
+      })
+    } else {
+      const day = dayNameFromTitle(cleanTitle(page.title))
+      if (!day) continue
+      if (!Array.isArray(page.columns) || !Array.isArray(page.rows)) continue
+      page.columns.forEach((rawGroupName, cellIndex) => {
+        if (!rawGroupName) return
+        const groupName = groupNameByTitle[rawGroupName] ?? rawGroupName
+        const cells = page.rows.map((r) => ({
+          block: (r.label ?? '').trim(),
+          names: [...activityNamesFromCell(r.cells?.[cellIndex], canonicalMap, compoundCellDecisions)],
+        }))
+        cells.forEach((c) => countHead(c.names))
+        walkColumn(cells, groupName, day)
+      })
+    }
+  }
+
+  // Resolve which (head, tail) pairs qualify. A tail preceded by more than one
+  // distinct head is not a companion at all — it follows whatever happens to
+  // be above it that day — so it is rejected outright rather than attributed
+  // to its most frequent predecessor.
+  const confirmedPairs = new Map() // tailNorm -> headNorm
+  for (const [key, count] of pairCounts) {
+    const [headNorm, tailNorm] = JSON.parse(key)
+    if (headNorm === tailNorm) continue
+    const tailTotal = tails.get(tailNorm) ?? 0
+    if (tailTotal < 2) continue
+    if ((tailStandalone.get(tailNorm) ?? 0) > 0) continue
+    if ((tailPrecededBy.get(tailNorm)?.size ?? 0) !== 1) continue
+    if (count !== tailTotal) continue // every occurrence of B follows this A
+    // Clause (4): B continues A's name. Anchored at a word boundary so "Swim"
+    // does not claim "Swimming Pool" — a different activity, not a tail.
+    if (!tailNorm.startsWith(`${headNorm} `)) continue
+    const headTotal = heads.get(headNorm) ?? 0
+    if (headTotal === 0 || count / headTotal < COMPANION_MIN_RATIO) continue
+    confirmedPairs.set(tailNorm, headNorm)
+  }
+
+  // Replay the confirmed adjacencies through the SAME per-day aggregation the
+  // merge walk feeds, so scope/day collapsing (and its Red Hat HIGH #2
+  // two-pass discipline) applies identically to both kinds of candidate.
+  const tailNameByPair = new Map() // dayKey -> tail display spelling
+  for (const adj of adjacencies) {
+    if (confirmedPairs.get(adj.tailNorm) !== adj.headNorm) continue
+    addOccurrence(adj.headName, adj.start_block, 2, adj.day, adj.groupRawName)
+    tailNameByPair.set(dayKeyOf(adj.headName, adj.start_block, 2, adj.day), adj.tailName)
+  }
+
   // Pass 2 — collapse across days ONLY when the group-set is identical
   // (Red Hat HIGH #2). A distinct group-set is a distinct candidate.
   const collapsed = new Map()
@@ -144,9 +305,13 @@ export function inferMultiBlockCandidates(parsed, proposal = {}) {
     const sortedGroups = [...entry.groups].sort().join(',')
     const key = JSON.stringify([entry.name, entry.start_block, entry.span_blocks, sortedGroups])
     if (!collapsed.has(key)) {
-      collapsed.set(key, { name: entry.name, start_block: entry.start_block, span_blocks: entry.span_blocks, days: new Set(), groups: entry.groups })
+      collapsed.set(key, { name: entry.name, start_block: entry.start_block, span_blocks: entry.span_blocks, days: new Set(), groups: entry.groups, tail_name: null })
     }
     collapsed.get(key).days.add(entry.day)
+    // Present only on a companion-tail candidate (T143); a merged-cell
+    // candidate has no second name to report and stays null.
+    const tail = tailNameByPair.get(dayKeyOf(entry.name, entry.start_block, entry.span_blocks, entry.day))
+    if (tail) collapsed.get(key).tail_name = tail
   }
 
   const candidates = []
@@ -156,6 +321,7 @@ export function inferMultiBlockCandidates(parsed, proposal = {}) {
       [...allGroupsNorm].every((g) => entry.groups.has(g))
     candidates.push({
       name: entry.name,
+      ...(entry.tail_name ? { tail_name: entry.tail_name } : {}),
       start_block: entry.start_block,
       span_blocks: entry.span_blocks,
       days: [...entry.days].sort((a, b) => dayRank(a) - dayRank(b)),

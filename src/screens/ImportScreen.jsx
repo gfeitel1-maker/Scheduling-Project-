@@ -13,6 +13,7 @@ import { fixedEventKey } from '../ingest/fixedEventKey'
 import { capturePlacements } from '../ingest/capturePlacements'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
+import { findNameVariantCandidates } from '../ingest/nearDuplicateNames'
 import { detectCompoundCellPatterns } from '../ingest/compoundCellPatterns'
 import { inferActivityRules } from '../ingest/activityRules'
 import { normalizeName } from '../ingest/preview'
@@ -187,6 +188,13 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // same "unticked = not written" contract as multiBlockDecisions above — a
   // pattern with no key is undecided and ships nothing at commit.
   const [compoundCellCandidates, setCompoundCellCandidates] = useState([])
+  // T144 — word-form name variants ("Swim Returning" next to "Swim Return").
+  // Keyed by the VARIANT spelling; value is 'merge' or 'keep'. Session-scoped:
+  // unlike compound-cell decisions there is no per-camp persistence yet, so an
+  // unanswered card simply contributes nothing, same as every other decision
+  // on this screen.
+  const [nameVariantCandidates, setNameVariantCandidates] = useState([])
+  const [nameVariantDecisions, setNameVariantDecisions] = useState({})
   const [compoundCellDecisions, setCompoundCellDecisions] = useState({})
   // Slice 2b — dualUseNames lifted out of the throwaway destructure in
   // readFiles (was computed only to seed pinOnlySet, then discarded). Filtered
@@ -273,6 +281,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     setMultiBlockCandidates([])
     setMultiBlockDecisions({})
     setCompoundCellCandidates([])
+    setNameVariantCandidates([])
+    setNameVariantDecisions({})
     setCompoundCellDecisions({})
     const files = [...(fileList ?? [])]
     if (files.length === 0) return
@@ -425,6 +435,13 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // multiBlockDecisions above).
       const { multiBlockCandidates: mbc } = inferMultiBlockCandidates({ pages }, proposal)
       setMultiBlockCandidates(mbc)
+
+      // T144 — word-form variants the whitespace/case fold deliberately leaves
+      // alone. Read from seenCounts (occurrences per spelling) because
+      // frequency is what decides which spelling to keep.
+      setNameVariantCandidates(findNameVariantCandidates(
+        Object.entries(proposal.seenCounts?.activities ?? {}).map(([name, count]) => ({ name, count }))
+      ))
 
       // ADR 2026-08-09 Decision 1 / A3 (Red Hat) — an auto-accepted
       // (high-confidence) fixed-event name that is NOT dual-use is never a
@@ -783,9 +800,18 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     // parse-time `proposal` already reflects every PRIOR camp decision
     // (confirmedCompoundDecisionsRef was folded into extractEntities in
     // readFiles), so it stays correct as-is when nothing new was decided.
+    // T144 — director-confirmed word-form merges travel the same road: they
+    // change what `approved.activities` is built FROM, upstream, so they must
+    // be folded in at re-parse rather than post-processed onto stale entities.
+    // Only 'merge' counts; 'keep' and an untouched card contribute nothing
+    // (the same "unticked = not written" contract as every other decision
+    // here).
+    const confirmedNameMerges = nameVariantCandidates
+      .filter((c) => nameVariantDecisions[c.variant] === 'merge')
+      .map((c) => [c.variant, c.canonical])
     const effectiveProposal =
-      newlyResolvedCompoundDecisions.length > 0
-        ? extractEntities({ pages: pagesRef.current }, mergedCompoundDecisions)
+      newlyResolvedCompoundDecisions.length > 0 || confirmedNameMerges.length > 0
+        ? extractEntities({ pages: pagesRef.current }, mergedCompoundDecisions, confirmedNameMerges)
         : proposal
     // Red Hat (T118 slice 4 review) — a re-parse re-keys activityLocations to
     // whatever name activityNamesFromCell now resolves a cell to (a wrapper
@@ -1562,6 +1588,77 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               not just appends an interpretation on top of it. Renders
               nothing when the classifier found no candidate (the common
               case). */}
+          {/* T144 — word-form name variants. Separate from "Cells We Weren't
+              Sure About": that section is about ONE cell holding two words;
+              this is about two spellings of one name. Both are the same shape
+              of question (the file is ambiguous, only a human can settle it),
+              so they read the same way and sit next to each other. */}
+          {nameVariantCandidates.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{
+                fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: 'var(--text-secondary)', marginBottom: 8,
+              }}>
+                Names That Look Like Typos
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+                Two spellings that might be the same thing. Shoresh won't merge these on its own —
+                some camps really do run both.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {nameVariantCandidates.map((c) => {
+                  const decision = nameVariantDecisions[c.variant]
+                  const choose = (choice) => setNameVariantDecisions((d) => ({ ...d, [c.variant]: choice }))
+                  const pill = {
+                    fontSize: 11, padding: '4px 9px', borderRadius: 5, fontFamily: 'inherit', cursor: 'pointer',
+                    border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-secondary)',
+                    textAlign: 'left',
+                  }
+                  const times = (n) => `${n} ${n === 1 ? 'time' : 'times'}`
+                  return (
+                    <div key={c.variant} style={{
+                      background: 'var(--surface)', border: '1px solid var(--border)',
+                      borderRadius: 8, padding: '10px 12px',
+                    }}>
+                      {decision ? (
+                        <div style={{ fontSize: 12, color: 'var(--text)' }}>
+                          {decision === 'merge'
+                            ? `✓ "${c.variant}" will be read as "${c.canonical}"`
+                            : `✓ Kept apart — "${c.variant}" and "${c.canonical}" are different things`}
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 2 }}>
+                            "{c.canonical}"
+                            <span style={{ opacity: 0.6, fontSize: 11 }}> · seen {times(c.canonicalCount)}</span>
+                            <span style={{ opacity: 0.6, fontSize: 11 }}>{'  vs  '}</span>
+                            "{c.variant}"
+                            <span style={{ opacity: 0.6, fontSize: 11 }}> · seen {times(c.variantCount)}</span>
+                          </div>
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5 }}>
+                            Are these the same thing?
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            <button type="button" onClick={() => choose('merge')} style={pill}>
+                              Same thing — call it "{c.canonical}"
+                            </button>
+                            <button type="button" onClick={() => choose('keep')} style={pill}>
+                              Different things — keep both
+                            </button>
+                            <button type="button" onClick={() => choose(undefined)} style={pill}>
+                              Not sure — ask me later
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {compoundCellCandidates.length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <div style={{

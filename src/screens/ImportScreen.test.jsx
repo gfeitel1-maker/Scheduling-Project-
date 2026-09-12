@@ -8,7 +8,15 @@ import userEvent from '@testing-library/user-event'
 // exercise. Stubbing extractEntities/parseTextGrid keeps the test about
 // "does the inferred rule render and drive the commit payload", not about the
 // grid parser (which has its own tests).
-vi.mock('../ingest/textGrid', () => ({ parseTextGrid: vi.fn(() => ({ pages: [{ title: 'x', columns: [], rows: [] }] })) }))
+// Partial mock: only parseTextGrid is stubbed. The rest of textGrid stays real
+// because the ingest modules under test import it for genuine work —
+// multiBlockCandidates' companion-tail walk (T143) calls isDayName on every
+// column, not just on merged cells the way the merge walk does, so a
+// replace-the-whole-module mock leaves it undefined and the import throws.
+vi.mock('../ingest/textGrid', async (importOriginal) => ({
+  ...(await importOriginal()),
+  parseTextGrid: vi.fn(() => ({ pages: [{ title: 'x', columns: [], rows: [] }] })),
+}))
 // Base proposal fixture, reused as the default mock return and cloned by
 // individual tests (via extractEntities.mockReturnValueOnce) that need a
 // different activity shape — e.g. one with no per-group signal at all, to
@@ -728,5 +736,50 @@ describe('ImportScreen — compound-cell interpretation (T118 slice 4)', () => {
     expect(screen.getAllByRole('button', { name: 'One thing, as written' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'These are alternatives — either one' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'Not sure — ask me later' }).length).toBeGreaterThan(0)
+  })
+})
+
+// T144 — docs/work/tickets/T144-word-form-name-variants-never-reach-a-director.md
+describe('ImportScreen — word-form name variants (T144)', () => {
+  const variantProposal = {
+    ...baseProposal,
+    entities: { ...baseProposal.entities, activities: ['Swim Return', 'Swim Returning'] },
+    seenCounts: { activities: { 'Swim Return': 17, 'Swim Returning': 1 }, activityUnitShare: {} },
+  }
+
+  it('renders no section when the file has no variant pairs', async () => {
+    await uploadFile()
+    expect(screen.queryByText('Names That Look Like Typos')).toBeNull()
+  })
+
+  it('asks about a variant pair, showing each spelling with how often it was seen', async () => {
+    extractEntities.mockReturnValueOnce(variantProposal)
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const input = document.querySelector('input[type="file"]')
+    await userEvent.upload(input, new File(['x'], 'schedule.txt', { type: 'text/plain' }))
+    await waitFor(() => expect(screen.getByText('Names That Look Like Typos')).toBeTruthy())
+    expect(screen.getByText(textNode(/"Swim Return".*17 times.*"Swim Returning".*1 time/))).toBeTruthy()
+    expect(screen.getByText(/Same thing — call it "Swim Return"/)).toBeTruthy()
+    expect(screen.getByText(/Different things — keep both/)).toBeTruthy()
+  })
+
+  it('confirms the merge and reports it back', async () => {
+    extractEntities.mockReturnValueOnce(variantProposal)
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const input = document.querySelector('input[type="file"]')
+    await userEvent.upload(input, new File(['x'], 'schedule.txt', { type: 'text/plain' }))
+    await waitFor(() => expect(screen.getByText('Names That Look Like Typos')).toBeTruthy())
+    await userEvent.click(screen.getByText(/Same thing — call it "Swim Return"/))
+    expect(screen.getByText('✓ "Swim Returning" will be read as "Swim Return"')).toBeTruthy()
+  })
+
+  it('lets the director keep both, and says so', async () => {
+    extractEntities.mockReturnValueOnce(variantProposal)
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const input = document.querySelector('input[type="file"]')
+    await userEvent.upload(input, new File(['x'], 'schedule.txt', { type: 'text/plain' }))
+    await waitFor(() => expect(screen.getByText('Names That Look Like Typos')).toBeTruthy())
+    await userEvent.click(screen.getByText(/Different things — keep both/))
+    expect(screen.getByText(/Kept apart/)).toBeTruthy()
   })
 })

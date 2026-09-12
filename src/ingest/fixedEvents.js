@@ -200,9 +200,33 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
   // (activity, block, sorted-day-set): the sharing groups are the scope; all
   // groups -> is_all_groups. A whole unit falls out naturally as its groups, with
   // no unit special-casing (§3.5).
-  // First pass: majority-filter every (group, block, activity, period) tuple
-  // down to the ones that survive, without collapsing across groups yet.
+  // A parsed grid carries three independent coordinates per cell — group, day
+  // and block — and fixed-ness is visible on all of them. Eligibility is
+  // therefore TWO arms, and a tuple survives if it clears EITHER
+  // (docs/work/tickets/T141-fixed-event-eligibility-ignores-group-coverage.md):
+  //
+  //   Arm 1 (daily anchor)     — within one group, the block is held on a
+  //                              strict majority of that group's operating
+  //                              days. Catches Mifkad, Carpool, Lunch n.
+  //   Arm 2 (weekly recurring) — across groups, the SAME activity holds the
+  //                              SAME block on EXACTLY the same days, in at
+  //                              least two groups and at least two thirds of
+  //                              all of them. Catches All Camp Activity
+  //                              (Tue+Thu), Shabbat and Ruach (Fri) — events
+  //                              perfectly invariant across all 14 of a real
+  //                              camp's sheets that hold only 1-2 days of 5,
+  //                              so arm 1 alone discards them outright.
+  //
+  // Before T141 only arm 1 existed, and group-coverage was computed further
+  // down solely to LABEL scope (is_all_groups). That inverted the evidence:
+  // holding one block across every independently-authored group sheet is
+  // stronger proof of a pinned event than holding it 3 days of 5 inside a
+  // single group, yet only the latter could admit an event at all.
+  //
+  // First pass (arm 1): majority-filter every (group, block, activity, period)
+  // tuple down to the ones that survive, without collapsing across groups yet.
   const filtered = []
+  const admitted = new Set() // keyOf(group, block, activity, period) already in `filtered`
   for (const [key, daySet] of occupied) {
     const [group, block, activity, period] = JSON.parse(key)
     const operating = operatingDays.get(group)?.size ?? 0
@@ -212,7 +236,63 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
     const confidenceTier = classifyConfidence(occ / operating, { highThreshold: 1 })
     const confidence = confidenceTier === CONFIDENCE.HIGH ? 'high' : 'low'
     const days = [...daySet].sort((a, b) => dayRank(a) - dayRank(b))
-    filtered.push({ group, block, activity, period, days, occ, operating, confidence })
+    filtered.push({ group, block, activity, period, days, occ, operating, confidence, basis: 'daily' })
+    admitted.add(key)
+  }
+
+  // Second pass (arm 2): the same `occupied` map read ACROSS groups instead of
+  // within one. Partition the groups holding each (block, activity, period) by
+  // their exact day-set; a bucket is eligible when enough groups share it.
+  //
+  // Each clause is load-bearing:
+  //   same block    — the invariance separating a pinned event from a rotation.
+  //                   Swim sits at 12:10 Monday and 01:40 Wednesday for one
+  //                   group, so it never forms a bucket and correctly stays an
+  //                   activity (T143 pairs it with Swim Return on the activity
+  //                   path instead).
+  //   exact day-set — Water Play appears in most groups but on group-specific
+  //                   days, so it fragments into one-group buckets and clears
+  //                   nothing. Correct: it is an activity.
+  //   >= 2 groups   — one group can never mint an all-camp event here; that is
+  //                   arm 1's job.
+  //   >= two thirds — matches this module's stated over-inclusion bias while
+  //                   degrading gracefully rather than vanishing: one typo'd
+  //                   cell (T142) drops a contributor, taking 14/14 to 13/14 —
+  //                   still eligible, now 'low' instead of 'high'.
+  const totalGroups = operatingDays.size
+  const byBlockActivity = new Map() // keyOf(block, activity, period) -> Map(daysJoined -> entries)
+  for (const [key, daySet] of occupied) {
+    const [group, block, activity, period] = JSON.parse(key)
+    const operating = operatingDays.get(group)?.size ?? 0
+    if (operating === 0) continue
+    const days = [...daySet].sort((a, b) => dayRank(a) - dayRank(b))
+    const outerKey = keyOf(block, activity, period)
+    if (!byBlockActivity.has(outerKey)) byBlockActivity.set(outerKey, new Map())
+    const buckets = byBlockActivity.get(outerKey)
+    const dayKey = days.join(',')
+    if (!buckets.has(dayKey)) buckets.set(dayKey, [])
+    buckets.get(dayKey).push({ key, group, block, activity, period, days, occ: daySet.size, operating })
+  }
+  for (const buckets of byBlockActivity.values()) {
+    for (const entries of buckets.values()) {
+      const groupsHere = new Set(entries.map((e) => e.group))
+      if (groupsHere.size < 2) continue
+      if (groupsHere.size * 3 < totalGroups * 2) continue
+      // Confidence on this arm is a statement about the axis that justified it:
+      // 'high' only when EVERY observed group holds the event, so a 'high' on
+      // 2-of-5 days never looks like it contradicts its own support numbers.
+      const confidence = groupsHere.size === totalGroups ? 'high' : 'low'
+      for (const e of entries) {
+        // A tuple arm 1 already admitted is emitted once, keeping its own
+        // day-majority confidence — arm 2 only ever ADDS tuples.
+        if (admitted.has(e.key)) continue
+        admitted.add(e.key)
+        filtered.push({
+          group: e.group, block: e.block, activity: e.activity, period: e.period,
+          days: e.days, occ: e.occ, operating: e.operating, confidence, basis: 'weekly',
+        })
+      }
+    }
   }
 
   const collapsed = new Map()
@@ -236,10 +316,16 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
         // eventual "why?" panel could show "held 6 of 6" next to
         // confidence=low with no way to see the group that caused it.
         maxOcc: 0, pairedOperating: 0, groupStats: new Map(),
+        // T141: which arm admitted this event, carried into support so the
+        // review panel can explain a 'high' that rests on group-coverage
+        // rather than day-coverage. A collapsed event drawing on both arms
+        // reports 'daily' — the stronger, original justification.
+        anyDaily: false,
       })
     }
     const entry = collapsed.get(collKey)
     for (const e of entries) {
+      if (e.basis === 'daily') entry.anyDaily = true
       entry.groups.add(e.group)
       entry.groupStats.set(e.group, { occ: e.occ, operating: e.operating })
       if (e.confidence !== 'high') entry.allHigh = false
@@ -341,6 +427,7 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
         )
         return {
           days: entry.days,
+          basis: entry.anyDaily ? 'daily' : 'weekly',
           occupied_days: entry.maxOcc,
           operating_days: entry.pairedOperating,
           groups_in_scope: [...entry.groups].map((g) => groupSpelling.get(g) ?? g).sort((a, b) => a.localeCompare(b)),
