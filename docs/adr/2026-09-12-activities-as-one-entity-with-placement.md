@@ -41,16 +41,44 @@ whether they are three **entities** or one entity with three **placements**.
 
 ## 2. Decision
 
-**Model Activities as one entity with a `placement` axis (`fixed` |
-`recurring` | `general`), not as two tables.** The three subsets become values,
-the three sidebar rows become filtered views, and the engine's placement order
-becomes a sort over one list rather than a join across two.
+**Model placement as a RELATIONSHIP, not as a table boundary and not as a
+column on a merged table.**
 
-**Stage it, ordered by correctness rather than by visibility.** The end state
-above is the target; the first slice is a *non-destructive link*, not a
-migration. §7 explains why the honest answer may be that the table merge never
-has to happen at all, and §10 re-orders the slices to put engine and ingest
-correctness ahead of the UI, per the owner.
+- `activities` stays the catalogue: what a thing is, and its rules.
+- `anchor_activities` stays, permanently, but is understood and documented as
+  **the placement record for an Activity** — gaining a real
+  `activity_id` foreign key. It is not "the events table."
+- `fixed` / `recurring` / `general` are a **classification computed from a
+  placement row's own coverage** (all groups? all days?), not a label asserted
+  independently of the data that implies it.
+
+**The table merge is rejected, not deferred.** An earlier draft of this ADR
+named "one entity with a placement axis" as the target and treated the merge as
+"probably never." Independent architectural review (§11) argued that is the
+expensive option with no measurable benefit, and I accept the correction: the
+owner's conceptual model — one Activities, three subsets — is fully delivered by
+the relationship, and collapsing the tables buys nothing the FK does not already
+buy while forcing an Automerge entity-model change and a history-translation
+problem.
+
+The owner's model is therefore honoured **in the model and the UI**, without
+one-table storage. "One Activities page showing three subsets" remains the
+outcome; it just does not require one Activities table.
+
+## 2a. Options considered
+
+The first draft of this ADR proposed one path and called it a decision. That is
+the gap this section closes.
+
+| | Model | Verdict |
+|---|---|---|
+| **A** | One `activities` table; placement as a `placement` enum + nullable pinning columns. `anchor_activities` retired. | **Rejected.** Nullable-column soup on the busiest table; the `kind` CHECK invariant degrades into internal consistency nobody enforces. Forces an Automerge entity-count change (28 → 27) and a history-translation problem. Highest cost, lowest reversibility. |
+| **B** | `activities` = catalogue; `anchor_activities` = placement child record with a real FK. Classification computed from the row's coverage. | **Chosen.** Strongest fit to the owner's model, expresses `Lunch 4` with no special case, additive and backward-compatible to Automerge, and is the version that does not need undoing if "one placement per Activity" is ever revisited (drop a uniqueness assumption → 1:N). |
+| **C** | Link only: add the FK, change nothing conceptually. | The same SQL migration as B. B is C plus a naming and documentation stance, at zero structural cost. |
+| **D** | Store no classification at all; derive fixed/recurring/general entirely at read time. | **Trap in isolation.** T141 already proved that computing "is this fixed" from coverage alone silently misses cases. Viable only combined with B's stored row — which is what B does. |
+
+**A and B differ in cost, not in what the director sees.** That is the whole
+argument for B.
 
 ## 3. Why the split is the cause and not a neutral choice
 
@@ -72,20 +100,33 @@ A model that must be continuously suppressed is a model disagreeing with the
 domain. Under §1 these names *are* Activities, so the fix is not to stop
 creating them — it is to stop pretending they are a different kind of thing.
 
-### 3.2 A safety guard is dead, and the split is why
+### 3.2 A safety guard is dead — AND scope-blind
 
 `src/engine/buildSchedule.js:121-123` builds `anchoredActivityIds` from
-`anchor.activity_id`, and line 286 filters general placement by it — *don't
-also rotate an activity that is already pinned.*
+`anchor.activity_id`, and line 286 filters general placement by it.
+`anchor_activities` has no `activity_id` column, so the set is always empty and
+the filter never excludes anything.
 
-`anchor_activities` **has no `activity_id` column** (`schema.sql:613`; v51
-migration `localDb.js:2036`). The set is therefore always empty and the filter
-never excludes anything.
+**The first draft stopped there, and that was the draft's most serious error.**
+Adversarial review (§11) found that the guard is not only dead but **scope-blind**:
+the set is built from *every* anchor with no group, day or block filter, and
+line 286 consumes it with no scope check either. So the moment `activity_id`
+exists, an activity pinned **anywhere** — one group, one day — becomes
+unplaceable **everywhere**.
 
-The guard is exactly the protection §1 requires, and it is inert because the
-split severed identity. It does not bite today only because no name is
-currently both. The first camp that pins an activity *and* rotates it gets it
-placed twice, silently.
+The code itself proves this was a known hazard on one axis and fixed only there.
+`buildSchedule.js:112-117` filters week-bound anchors out *before*
+`anchoredActivityIds` is built, with the comment:
+
+> a week-bound anchor must not occupy a cell on another week, **and must not
+> exclude its activity from regular placement there either**
+
+Exactly that reasoning applies to the group and day axes, where it was never
+applied.
+
+**Consequence for this ADR: "slice 1 changes no behaviour by default" was
+false**, and no appeal to "nothing is dual-use" rescues it — a single
+partially-scoped recurring anchor is sufficient. See §7.1.
 
 ### 3.3 "Name identity is load-bearing" is a missing foreign key
 
@@ -162,7 +203,7 @@ Activities**, each with its own pinning, not one Activity whose pinning varies
 by day. Pinning stays a scalar per Activity. If that proves wrong for some real
 camp, the model breaks and §9 catches it.
 
-## 7. Staging — and why the merge may never be required
+## 7. Staging
 
 The `grep -a` census (graphify cannot see a table-name string; see §11) finds
 **43 non-test files and 48 test files** referencing `anchor_activities`: the
@@ -171,36 +212,61 @@ permissions, the projections registry, `deleteRecord`/`deleteWeek`/`restore`/
 `undoReferences`, engine inputs, ingest inference and commit, the MCP tools,
 and six screens.
 
-A single migration across that surface is not a small reversible change.
+Ordered by the owner's priority — data model, ingest and engine correctness
+first; UI last (§10 Q3).
 
-### Slice 1 — the link (small, reversible, high value on its own)
+### 7.1 Slice 0 — scope the engine guard (do this FIRST, and on its own)
 
-Add `activity_id` to `anchor_activities`; backfill by name from existing rows.
-No table is merged and no behaviour changes by default.
+`anchoredActivityIds` must be keyed by the anchor's actual footprint
+(group × day × block), not by bare activity id, matching what the week filter
+at `buildSchedule.js:112-117` already does for weeks.
 
-This alone:
+**This is a standalone bug fix and belongs before anything else**, for two
+reasons. It is latent today and becomes live the instant anyone adds
+`activity_id` — so shipping it separately means the behaviour change is
+observable, tested and reviewed on its own rather than buried inside a
+migration. And with the guard correctly scoped, slice 1 genuinely does become
+behaviour-neutral, which is what the first draft wrongly claimed it already was.
 
-- restores identity, so §3.3's by-name resolution stops being load-bearing;
-- makes §3.2's dead guard **live** — which is a behaviour change and needs its
-  own test before it is enabled (§9.2);
-- turns "is this name also an activity?" from a string question into a join;
-- is the prerequisite of any later merge, so it is not wasted work if the merge
-  never happens.
+Open design question this raises, and it is a product question rather than a
+technical one (§10 Q5): if an activity is pinned for some groups, *should* it be
+rotatable for the others? "Scope the guard" assumes yes. The owner's "no
+dual-use" answer may instead mean such data should be refused at authoring time,
+in which case the guard's breadth is harmless and the fix is a validation rule.
+**Slice 0 cannot be designed until that is answered.**
 
-### Slice 2 — the view
+### 7.2 Slice 1 — the link
 
-`placement` becomes a derived read model over the linked pair, and the
-Activities screen shows one list of Activities labelled by subset instead of a
-flat list plus a second list repeating some of the same names. **This is the
-change the owner actually asked for**, and slice 1 is sufficient for it.
+Add `activity_id` to `anchor_activities`; populate it for existing rows.
+Three preconditions, each identified by review and none of them optional:
 
-### Slice 3 — the merge, only if slices 1-2 prove insufficient
+1. **The backfill must be written through the Automerge document, not as a SQL
+   `UPDATE`.** `rebuildFromDoc` (`electron/automerge/projector.js:382-392`)
+   does `DELETE FROM <entity>` and re-projects from the document. A value that
+   exists only in SQLite is therefore not merely unreplayable — it is
+   **destroyed by the next rebuild**, silently, on whichever device rebuilds.
+   `activity_id` must also be added to `PROJECTIONS.anchor_activities.fields`
+   (`electron/ops/projections.js:289-291`) or it is not a projected field at all.
+2. **The zero-match case needs a stated contract.** An anchor whose name matches
+   no activity must have one defined outcome — mint, leave null, or surface to
+   the director — not silence. (Two-match is NOT a live risk: see §11.2.)
+3. **The backfill must be idempotent.** Running it twice must not drift.
 
-Collapse `anchor_activities` into `activities`. Recommended posture:
-**do not do this unless a concrete need survives slices 1 and 2.** The
-user-visible goal is reachable without it, and §9.3 (op-log replay) is a real
-constraint that may make "keep both tables, keep the link" the permanently
-correct answer.
+### 7.3 Slice 2 — engine and ingest correctness
+
+Retire `dualUseNames`/`pinOnlyActivityNames` (§5, now dead by the owner's
+answer). Close the §6 detection hole so `Lunch 4`-shaped pinnings are proposed
+rather than silently filed as general activities — pending §10 Q4.
+
+### 7.4 Slice 3 — the view
+
+One Activities surface showing all three subsets. Last, per §10 Q3.
+
+### 7.5 Not planned: the table merge
+
+Rejected (§2, §2a), not deferred. It would be reconsidered only if Automerge/
+op-log migration tooling were built for some unrelated reason — that is the
+blocking dependency, not general caution.
 
 ## 8. Priority, and a latent schema defect
 
@@ -221,31 +287,30 @@ should leave adding a value cheap — a constrained enum with two values today.
 
 ## 9. How to try to break this — required before any code
 
-These are gates, not suggestions. Each must be answered with evidence.
+Gates, not suggestions. Revised after review; the first draft's list was the
+right shape but answered too optimistically in the body text.
 
-1. **Per-day pinning.** §6 asserts pinning is a scalar per Activity. Sweep every
-   real file for one name pinned to *different* blocks on different days for the
-   *same* group. One instance invalidates §6 and complicates the model.
-2. **The newly-live guard.** Construct a camp where an activity is both pinned
-   and eligible for rotation. Today it is placed twice. Prove the new behaviour
-   is correct *and* that no existing schedule changes when the guard activates —
-   a behaviour change hidden inside a refactor is the failure mode to fear.
-3. **Op-log replay.** Every historical op is typed `anchor_activities` or
-   `activities`. Replay a real op-log from before the change and assert the
-   projection is byte-identical. This is the constraint most likely to force
-   "link, never merge."
-4. **The `kind` CHECK constraint** (`schema.sql:629-632`) encodes *fixed ⇒
-   all-groups ∧ no unit ∧ no group_ids*. If placement moves, that invariant must
-   move with it or it is silently lost. Assert it still rejects the bad shapes.
-5. **Automerge.** `campDocument.js:203` lists `anchor_activities` among 28
-   modelled entities. Any shape change touches the flat-record concurrency
-   work. Two devices editing placement concurrently must converge.
-6. **Ingest round-trip.** `Schedule by Group.xlsx` must produce the same fixed
-   (5) and recurring (11) results before and after, plus `Lunch 4`/`Lunch 5`
-   still authorable by hand (§6).
-7. **Delete/restore/undo.** `deleteRecord`, `deleteWeek`, `restore` and
-   `undoReferences` each special-case `anchor_activities`, including the
-   anchors-first delete order (`ingest.js:42`). Each needs a surviving test.
+1. **The scoped guard (slice 0).** Build a camp with a recurring anchor covering
+   3 of 14 groups on one day, for an activity other groups are eligible for.
+   Assert those other groups can still be scheduled it. Then assert no existing
+   schedule changes. This test must exist and fail before the fix.
+2. **Rebuild-from-document.** Populate `activity_id`, call `rebuildFromDoc`, and
+   assert the link survives. This is the test that catches a SQL-only backfill.
+   A pure op-log replay test does NOT catch it (§11.1).
+3. **Backfill contracts.** Zero-match, idempotency on re-run, and a name whose
+   canonical spelling changed after the anchor was written (T144's class).
+4. **BINARY collation.** `idx_activities_camp_name` is case- and
+   whitespace-sensitive, so `Swim`/`swim` can coexist. Assert the backfill's
+   matching rule against that, using the same canonicalization T144 built.
+5. **The `kind` CHECK constraint** (`schema.sql:629-632`) encodes *fixed ⇒
+   all-groups ∧ no unit ∧ no group_ids*. Assert it still rejects the bad shapes.
+6. **Automerge convergence.** Two devices editing placement concurrently.
+7. **Ingest round-trip.** `Schedule by Group.xlsx` must still yield fixed 5 /
+   recurring 11, with `Lunch 4`/`Lunch 5` hand-authorable (§6).
+8. **Delete/restore/undo.** `ingest.js:35-38` states "nothing points into
+   anchors," which is what makes anchors-first delete order safe. `activity_id`
+   makes that comment stale — anchors now depend on activities existing. Correct
+   the comment in the same commit, and re-verify restore ordering.
 
 ## 10. Owner answers, and what they change
 
@@ -277,14 +342,66 @@ Still open:
   pinning like `Lunch 4`, or is hand-authoring right for that shape? This is now
   load-bearing, because it is slice 3.
 
-## 11. Method note
+## 11. Review — what two independent passes found, including where they disagreed
+
+The first draft was written without divergent ideation or adversarial review:
+one author, one option, converged immediately. Both passes were run afterwards,
+and both changed the ADR materially. Recorded here because the disagreements are
+more informative than the agreements.
+
+**They agreed, from different directions, on the thing that matters most:** the
+FK is the fix, and the table merge is not worth its cost. Adversarial review
+reached it via migration and replay risk; architectural review reached it via
+Automerge entity modelling and the absence of any measurable benefit. That
+convergence is why §2 rejects the merge outright rather than deferring it.
+
+### 11.1 Where they contradicted each other — and both were wrong
+
+Architectural review held that the FK "replays identically, because old ops
+simply don't set the new field." Adversarial review held that the backfill is
+invisible to op-log replay and the link silently would not survive.
+
+Checking the code settles it in neither's favour. `rebuildFromDoc`
+(`electron/automerge/projector.js:382-392`) does `DELETE FROM <entity>` and
+re-projects **from the Automerge document**, not from the op-log. So the risk is
+real but the mechanism is different from the one described: a SQL-only backfill
+is not merely unreplayable, it is **destroyed by the next rebuild**. That is a
+sharper and more dangerous failure than either pass stated, and it is now §7.2's
+first precondition.
+
+### 11.2 A finding that did not survive verification
+
+Adversarial review reported HIGH severity on `activities.name` having no
+uniqueness, making a by-name backfill ambiguous. **Not true.**
+`electron/db/localDb.js:628` creates
+`UNIQUE INDEX idx_activities_camp_name ON activities(camp_id, name)`, preceded
+by a dedupe `DELETE`. The review grepped `schema.sql` and missed it, because in
+this repo constraints frequently live in the migrations rather than the schema
+file.
+
+A weaker version does survive and is kept as a gate (§9.4): the index is
+BINARY-collated, so `Swim`/`swim` and whitespace variants can coexist, and an
+anchor name written before T144's canonicalization may now match **zero**
+activities. Zero-match needs a contract; two-match does not.
+
+### 11.3 The finding that most changed this document
+
+The guard's scope-blindness (§3.2). Adversarial review found it; architectural
+review looked at the same lines and judged the risk "identical in shape
+regardless of A vs B," which is true of the merge question and misses the defect
+entirely. It invalidated this ADR's claim that slice 1 is behaviour-neutral and
+produced a new slice 0.
+
+## 11a. Method note
 
 `graphify` was consulted first per the standing rule. It could not produce the
 blast radius here: `anchor_activities` is a **table-name string**, not an import
 edge — the documented blind spot — and `affected` returned no unique match,
 indexing local test variables instead. `god-nodes` and a neighborhood query were
 useful for orientation only. The §7 census is therefore a `grep -a` pass, and
-every file-and-line claim in this document was confirmed by opening the file.
+every file-and-line claim in this document was confirmed by opening the file —
+including the ones asserted by reviewers, two of which did not survive that
+check (§11.1, §11.2).
 
 ## 12. Document hygiene
 
