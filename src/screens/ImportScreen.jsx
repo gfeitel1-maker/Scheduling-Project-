@@ -8,6 +8,7 @@ import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { isScheduleShaped } from '../ingest/scheduleShape'
+import { proposeSpecialDay } from '../ingest/specialDayFile'
 import { findSuspectRecords } from '../ingest/suspectRecords'
 import { formatEligibility } from './importEligibility'
 import { fixedEventKey } from '../ingest/fixedEventKey'
@@ -391,6 +392,30 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         setError(
           `${files.map((f) => f.name).join(', ')} doesn't look like a schedule — expected day columns ` +
           '(e.g. Monday–Friday) or time-of-day rows. Nothing was imported.'
+        )
+        return
+      }
+
+      // T40 slice 3a — a ONE-DAY special schedule (a Maccabiah, a colour war, a
+      // trip day) IS a schedule and passes the gate above on its time axis, but
+      // it is not a WEEK. Measured on the ticket's own sample, pushing one
+      // through the weekly path produces zero days (impossible for a weekly
+      // file), all five periods collapsed into one block, and twelve
+      // "activities" of which six are staff names read out of "Pool - Unit
+      // Heads" cells — all of it landing in the camp's PERMANENT setup.
+      //
+      // Recognised and stopped here rather than silently ingested. Building the
+      // day from the file is slice 3b; this half exists because the wrong
+      // outcome today is not "nothing happened", it is a polluted camp.
+      const specialDay = proposeSpecialDay(pages)
+      if (specialDay) {
+        setProposal(null)
+        setError(
+          `${files.map((f) => f.name).join(', ')} looks like a single-day schedule` +
+          (specialDay.name ? ` — "${specialDay.name}"` : '') +
+          `: ${specialDay.timeBlocks.length} periods across ${specialDay.columnNames.length} groups, with no days of the week. ` +
+          'Nothing was imported — importing it here would add its periods and activities to your camp\'s permanent setup. ' +
+          'Build it under Special Events instead.'
         )
         return
       }

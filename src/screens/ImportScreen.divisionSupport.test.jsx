@@ -30,7 +30,7 @@ import userEvent from '@testing-library/user-event'
 
 vi.mock('../ingest/textGrid', async () => {
   const actual = await vi.importActual('../ingest/textGrid')
-  return { ...actual, parseTextGrid: () => parsed }
+  return { ...actual, parseTextGrid: vi.fn(() => parsed) }
 })
 vi.mock('../ingest/fixedEvents', () => ({ inferFixedEvents: () => ({ fixedEvents: [], dualUseNames: [] }) }))
 vi.mock('../hooks/useCohorts', () => ({ useCohorts: () => ({ activeCohort: { id: 'cohort-1' } }) }))
@@ -45,6 +45,7 @@ vi.mock('../localClient', () => ({
 }))
 
 import ImportScreen from './ImportScreen'
+import { parseTextGrid } from '../ingest/textGrid'
 import { localClient } from '../localClient'
 
 beforeEach(() => {
@@ -123,5 +124,35 @@ describe('ImportScreen — division provenance sent to the commit', () => {
     for (const name of Object.keys(payload.divisionSupport)) {
       expect(payload.approved.groups.map((g) => g.name ?? g)).toContain(name)
     }
+  })
+})
+
+// T40 slice 3a — a one-day special schedule must be recognised and stopped,
+// not silently folded into the camp's permanent weekly setup.
+describe('ImportScreen — declines a one-day special schedule (T40)', () => {
+  it('names the day and says what it found, and imports nothing', async () => {
+    parseTextGrid.mockReturnValueOnce({
+      pages: [{
+        title: '"Among Us" Maccabiah Schedule 2022',
+        columns: ['Lil Chai', 'Chaverim', 'Shalom', 'Giborim'],
+        rows: [
+          { label: '9:15', cells: ['Opening', 'Opening', 'Opening', 'Opening'] },
+          { label: '10:15', cells: ['Pool - Unit Heads', 'Stem - Sylvia', 'Values - Laura', 'Gym - Tomer'] },
+        ],
+      }],
+    })
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const input = document.querySelector('input[type="file"]')
+    await userEvent.upload(input, new File(['x'], 'maccabiah.txt', { type: 'text/plain' }))
+
+    await waitFor(() => expect(screen.getByText(/single-day schedule/i)).toBeTruthy())
+    // The director is told WHICH day, and what importing it would have cost —
+    // not just that something was refused.
+    expect(screen.getByText(/Among Us/)).toBeTruthy()
+    expect(screen.getByText(/2 periods across 4 groups/)).toBeTruthy()
+    expect(screen.getByText(/permanent setup/i)).toBeTruthy()
+    expect(screen.getByText(/Special Events/)).toBeTruthy()
+    // Nothing reached the commit path.
+    expect(localClient.ingestCommit).not.toHaveBeenCalled()
   })
 })
