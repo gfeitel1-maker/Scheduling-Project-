@@ -41,14 +41,31 @@ export function buildSpecialDayPlan(proposal, live) {
   const activities = live?.activities ?? []
   const specialDays = live?.specialDays ?? []
 
-  const groupByName = new Map(groups.map((g) => [key(g.name), g.id]))
+  // Red Hat (T40 3b review): a plain Map here is last-write-wins, so two live
+  // groups whose names normalize identically ("Bogrim" and "bogrim ") silently
+  // bound the column to whichever came last — one group got the whole day and
+  // the other silently got nothing, with no way for the director to tell. This
+  // camp has hit duplicate-by-normalization names before; collisions are
+  // collected and BLOCK the plan rather than being resolved by array order.
+  const groupByName = new Map()
+  const ambiguousColumnNames = new Set()
+  for (const g of groups) {
+    const k = key(g.name)
+    if (groupByName.has(k)) ambiguousColumnNames.add(k)
+    else groupByName.set(k, g.id)
+  }
   const activityByName = new Map(activities.map((a) => [key(a.name), a.id]))
 
   const columns = proposal.columnNames.map((columnName) => ({
     columnName,
-    groupId: groupByName.get(key(columnName)) ?? null,
+    // An ambiguous name resolves to NOTHING rather than to a guess.
+    groupId: ambiguousColumnNames.has(key(columnName))
+      ? null
+      : (groupByName.get(key(columnName)) ?? null),
+    ambiguous: ambiguousColumnNames.has(key(columnName)),
   }))
-  const unmatchedColumns = columns.filter((c) => !c.groupId).map((c) => c.columnName)
+  const unmatchedColumns = columns.filter((c) => !c.groupId && !c.ambiguous).map((c) => c.columnName)
+  const ambiguousColumns = columns.filter((c) => c.ambiguous).map((c) => c.columnName)
 
   const timeBlocks = proposal.timeBlocks.map((name, i) => ({
     name,
@@ -61,6 +78,12 @@ export function buildSpecialDayPlan(proposal, live) {
     activityId: activityByName.get(key(name)) ?? null,
   }))
   const newActivityNames = activityRows.filter((a) => !a.activityId).map((a) => a.name)
+  // Which of the camp's EXISTING activities this day will bind to. Matching is
+  // whitespace/case-insensitive so a re-import does not double the catalog, but
+  // that means a one-off "Ga Ga pit" can silently attach to the camp's real,
+  // rule-governed "GaGa Pit" — so the director is shown the reuse, not just the
+  // additions (Red Hat, T40 3b review).
+  const reusedActivityNames = activityRows.filter((a) => a.activityId).map((a) => a.name)
 
   const slots = proposal.slots.map((s) => ({
     columnName: s.groupName,
@@ -87,6 +110,7 @@ export function buildSpecialDayPlan(proposal, live) {
   // day unbuilt — the director would see a grid with a missing stripe and no
   // explanation.
   if (unmatchedColumns.length > 0) blockedBy.push('unmatched_columns')
+  if (ambiguousColumns.length > 0) blockedBy.push('ambiguous_columns')
   // special_days has UNIQUE(camp_id, name); the write would fail at the DB.
   if (nameTaken) blockedBy.push('name_taken')
   if (!String(proposal.name ?? '').trim()) blockedBy.push('no_name')
@@ -96,9 +120,11 @@ export function buildSpecialDayPlan(proposal, live) {
     nameTaken,
     columns,
     unmatchedColumns,
+    ambiguousColumns,
     timeBlocks,
     activities: activityRows,
     newActivityNames,
+    reusedActivityNames,
     slots,
     notes,
     blockedBy,

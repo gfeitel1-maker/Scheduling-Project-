@@ -124,3 +124,34 @@ describe('commitSpecialDayPlan', () => {
     expect(out).toMatchObject({ periods: 2, cells: 2, activitiesCreated: 1 })
   })
 })
+
+// Red Hat (T40 3b review) — the id is minted before the first write, and
+// attaching it unconditionally told the director to "find it under Special
+// Events and delete it" even when the very first write failed and nothing had
+// been created. That is the same class of lie as claiming nothing happened,
+// pointed the other way.
+describe('commitSpecialDayPlan — a failure on the FIRST write', () => {
+  it('does not claim a day exists', async () => {
+    const err = await commitSpecialDayPlan(plan(), harness(1)).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    // The screen keys its "go find and delete it" message on this property.
+    expect(err.specialDayId).toBeUndefined()
+  })
+
+  it('says plainly that nothing was written', async () => {
+    const h = harness(1)
+    await expect(commitSpecialDayPlan(plan(), h)).rejects.toThrow(/Nothing was written/i)
+  })
+
+  it('still says which day it was', async () => {
+    await expect(commitSpecialDayPlan(plan(), harness(1))).rejects.toThrow(/Maccabiah/)
+  })
+
+  it('DOES claim a day once the parent row has landed', async () => {
+    // The distinction is the whole point: write #2 onward, the day is real.
+    const h = harness(3)
+    await expect(commitSpecialDayPlan(plan(), h)).rejects.toMatchObject({
+      specialDayId: expect.any(String),
+    })
+  })
+})

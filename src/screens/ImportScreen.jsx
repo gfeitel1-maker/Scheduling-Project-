@@ -224,6 +224,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   const [specialDayPlan, setSpecialDayPlan] = useState(null)
   const [specialDayResult, setSpecialDayResult] = useState(null)
   const [buildingSpecialDay, setBuildingSpecialDay] = useState(false)
+  // Checked and set SYNCHRONOUSLY before the first await. The `disabled`
+  // attribute and the state flag only take effect once React commits a render,
+  // so two clicks dispatched before that commit would both get through and
+  // write two days of the same name (Red Hat, T40 3b review).
+  const buildingSpecialDayRef = useRef(false)
   // Slice 2b — dualUseNames lifted out of the throwaway destructure in
   // readFiles (was computed only to seed pinOnlySet, then discarded). Filtered
   // against declined_two_row_splits on every readFiles() pass so a director's
@@ -979,7 +984,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // reports where it stopped, because there is no transaction and claiming
   // "nothing happened" would be a lie the director acts on.
   async function buildSpecialDay() {
-    if (!specialDayPlan?.ready || buildingSpecialDay) return
+    if (!specialDayPlan?.ready || buildingSpecialDayRef.current) return
+    buildingSpecialDayRef.current = true
     setBuildingSpecialDay(true)
     setError(null)
     try {
@@ -1021,6 +1027,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         setError(describeWriteFailure(err, 'That special day could not be built.'))
       }
     } finally {
+      buildingSpecialDayRef.current = false
       setBuildingSpecialDay(false)
     }
   }
@@ -1478,7 +1485,21 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
             <p style={{ margin: '0 0 8px', fontSize: 13 }}>
               Building it adds {specialDayPlan.newActivityNames.length} new{' '}
               {specialDayPlan.newActivityNames.length === 1 ? 'activity' : 'activities'} to your camp:{' '}
-              {specialDayPlan.newActivityNames.join(', ')}.
+              {specialDayPlan.newActivityNames.join(', ')}. These stay in your activities even if you
+              delete this day afterwards.
+            </p>
+          )}
+          {specialDayPlan.reusedActivityNames?.length > 0 && (
+            <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+              It reuses {specialDayPlan.reusedActivityNames.join(', ')} from your camp rather than
+              making new ones — names are matched ignoring spacing and capitals.
+            </p>
+          )}
+          {specialDayPlan.ambiguousColumns?.length > 0 && (
+            <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+              You have more than one group whose name matches{' '}
+              {specialDayPlan.ambiguousColumns.join(', ')}, so this day cannot tell which one the
+              column means. Rename one of them under Groups first.
             </p>
           )}
           {specialDayPlan.unmatchedColumns.length > 0 && (

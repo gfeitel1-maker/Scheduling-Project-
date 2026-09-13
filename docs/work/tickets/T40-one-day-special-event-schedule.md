@@ -181,6 +181,32 @@ parent that never existed. On failure the rejection carries the day's id and the
 names the day and says where to find it, and the panel is cleared — offering a retry would create a
 second day of the same name and trip the UNIQUE constraint.
 
+**Review round (Red Hat).** Four findings, all confirmed in code first:
+
+- **The failure message lied when the FIRST write failed.** The day's id is minted before any
+  write, and was attached to every error unconditionally — so a rejection on the very first call
+  still told the director to "find it under Special Events and delete it", sending them to look for
+  a day that was never created. That is the same class of lie as claiming nothing happened, pointed
+  the other way. The id is now attached only once the parent row has actually landed, and the
+  message for an unstarted day says plainly that nothing was written.
+- **Two live groups normalizing to the same name silently collided.** A plain `Map` is
+  last-write-wins, so "Bogrim" and "bogrim " bound the column to whichever came last: one group got
+  the whole day, the other silently got nothing, with no way to tell. Collisions are now collected
+  and BLOCK the plan, reported as `ambiguous_columns` — distinct from `unmatched_columns`, because
+  "you have two groups with this name" and "you have none" need different fixes.
+- **Activities minted by an import survive deleting the day.** `deleteSpecialDay`'s cascade covers
+  the three special-day tables and does not touch `activities` — correctly, since by then one may be
+  in use elsewhere. Accepted rather than changed, but it is no longer SILENT: the panel says these
+  stay in the camp's activities even if the day is deleted afterwards. The feature's rule is against
+  QUIET enlargement of permanent setup; disclosed-and-agreed is a different thing.
+- **Silent reuse of existing activities was not disclosed.** Matching ignores spacing and capitals
+  so a re-import cannot double the catalog, which also means a one-off "Ga Ga pit" attaches to the
+  camp's real, rule-governed "GaGa Pit". The panel now names what it reuses, not only what it adds.
+
+Also hardened: the Build button's re-entrancy guard read React state, which only takes effect once a
+render commits, so two clicks dispatched before that commit could both write. It is now a ref,
+checked and set synchronously before the first await.
+
 Verified at the seam, not just the layers: `ImportScreen.divisionSupport.test.jsx` drives the real
 parse -> detect -> plan -> confirm -> write path, including the disabled-while-unmatched case, the
 "what this adds" disclosure before any write, and the mid-way write refusal.

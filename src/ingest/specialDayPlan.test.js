@@ -136,3 +136,44 @@ describe('buildSpecialDayPlan — readiness', () => {
     expect(buildSpecialDayPlan(null, { groups, activities, specialDays: [] })).toBeNull()
   })
 })
+
+// Red Hat (T40 3b review) — a plain Map is last-write-wins, so two live groups
+// normalizing to the same name silently bound the column to whichever came
+// last: one group got the whole day, the other silently got nothing, and the
+// director had no way to tell. This camp has hit duplicate-by-normalization
+// names before.
+describe('buildSpecialDayPlan — two live groups with the same name', () => {
+  const dupGroups = [
+    { id: 'g1', name: 'Lil Chai' },
+    { id: 'g2', name: 'Chaverim' },
+    { id: 'g3', name: 'chaverim ' },   // the duplicate
+    { id: 'g4', name: 'Shalom' },
+  ]
+  const p = buildSpecialDayPlan(maccabiah, { groups: dupGroups, activities, specialDays: [] })
+
+  it('refuses to guess which group the column means', () => {
+    expect(p.columns.find(c => c.columnName === 'Chaverim').groupId).toBeNull()
+  })
+
+  it('reports it as ambiguous rather than merely unmatched', () => {
+    // "you have two groups with this name" and "you have no group with this
+    // name" need different fixes, so they must not read the same.
+    expect(p.ambiguousColumns).toEqual(['Chaverim'])
+    expect(p.unmatchedColumns).not.toContain('Chaverim')
+  })
+
+  it('blocks the build', () => {
+    expect(p.ready).toBe(false)
+    expect(p.blockedBy).toContain('ambiguous_columns')
+  })
+})
+
+describe('buildSpecialDayPlan — existing activities it will reuse', () => {
+  it('names them, because matching ignores spacing and capitals', () => {
+    // A one-off "Ga Ga pit" can silently attach to the camp's real,
+    // rule-governed "GaGa Pit". The director should see the reuse, not just
+    // the additions.
+    const p = buildSpecialDayPlan(maccabiah, { groups, activities, specialDays: [] })
+    expect(p.reusedActivityNames.sort()).toEqual(['Lunch', 'Opening'])
+  })
+})

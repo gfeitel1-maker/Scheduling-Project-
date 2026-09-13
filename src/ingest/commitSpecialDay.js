@@ -31,18 +31,28 @@ export async function commitSpecialDayPlan(plan, { writeField, newId }) {
 
   const specialDayId = newId()
   const counts = { periods: 0, cells: 0, activitiesCreated: 0 }
-  // Attached to whatever error escapes, so the caller can name the half-built
-  // day rather than reporting an anonymous failure.
+  // Red Hat (T40 3b review): set only once the parent row has ACTUALLY landed.
+  // The id is minted before the first write, and attaching it unconditionally
+  // meant a failure ON that first write still told the director to "find it
+  // under Special Events and delete it" — sending them to look for a day that
+  // was never created. That is the same class of lie as claiming nothing
+  // happened, pointed the other way.
+  let dayExists = false
   const fail = (err) => {
     const wrapped = err instanceof Error ? err : new Error(String(err))
-    wrapped.message = `"${plan.name}" was only partly built — ${wrapped.message}`
-    wrapped.specialDayId = specialDayId
-    wrapped.counts = counts
+    wrapped.message = dayExists
+      ? `"${plan.name}" was only partly built — ${wrapped.message}`
+      : `"${plan.name}" could not be started — ${wrapped.message} Nothing was written.`
+    if (dayExists) {
+      wrapped.specialDayId = specialDayId
+      wrapped.counts = counts
+    }
     throw wrapped
   }
 
   try {
     await writeField('special_days', specialDayId, 'name', plan.name)
+    dayExists = true
     if (plan.notes) await writeField('special_days', specialDayId, 'notes', plan.notes)
 
     // Activity ids by the plan's own spelling, so a cell can bind to a row this
