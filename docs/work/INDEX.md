@@ -45,7 +45,6 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [T100-manualbuildview-converge-on-decidecell](../../docs/work/tickets/T100-manualbuildview-converge-on-decidecell.md) | open | — |
 | [T102-devmock-is-span-head-default-fidelity](../../docs/work/tickets/T102-devmock-is-span-head-default-fidelity.md) | open | — |
 | [T104-extract-shared-free-suffix-scan](../../docs/work/tickets/T104-extract-shared-free-suffix-scan.md) | open | — |
 | [T105-elective-inline-authoring-and-render](../../docs/work/tickets/T105-elective-inline-authoring-and-render.md) | in-progress | [2026-08-20-elective-authoring-render-design](../../docs/work/specs/2026-08-20-elective-authoring-render-design.md) · [2026-08-21-empty-cell-click-editor-design](../../docs/work/specs/2026-08-21-empty-cell-click-editor-design.md) · [T109-orphaned-span-tail-reconciliation-guard](../../docs/work/tickets/T109-orphaned-span-tail-reconciliation-guard.md) · [T112-empty-cell-click-opens-inline-editor](../../docs/work/tickets/T112-empty-cell-click-opens-inline-editor.md) |
@@ -54,7 +53,6 @@ Regenerate with `npm run index:work`.
 | [T108-day-overrides-repoint](../../docs/work/tickets/T108-day-overrides-repoint.md) | in-progress | [2026-08-21-day-overrides-repoint-shape](../../docs/adr/2026-08-21-day-overrides-repoint-shape.md) · [2026-08-21-day-overrides-designer-spec](../../docs/work/specs/2026-08-21-day-overrides-designer-spec.md) · [2026-08-21-day-overrides-repoint-design](../../docs/work/specs/2026-08-21-day-overrides-repoint-design.md) · [T113-day-override-undo-redo](../../docs/work/tickets/T113-day-override-undo-redo.md) · [T145-remove-day-overrides](../../docs/work/tickets/T145-remove-day-overrides.md) |
 | [T112-empty-cell-click-opens-inline-editor](../../docs/work/tickets/T112-empty-cell-click-opens-inline-editor.md) | in-progress | [2026-08-21-empty-cell-click-editor-design](../../docs/work/specs/2026-08-21-empty-cell-click-editor-design.md) |
 | [T95-reconciliation-multi-select-domain-filter](../../docs/work/tickets/T95-reconciliation-multi-select-domain-filter.md) | open | — |
-| [T96-reconciliation-field-level-diff-ledger](../../docs/work/tickets/T96-reconciliation-field-level-diff-ledger.md) | open | — |
 | [T97-per-field-unknown-detection](../../docs/work/tickets/T97-per-field-unknown-detection.md) | open | — |
 | [T98-blast-radius-salience-reordering](../../docs/work/tickets/T98-blast-radius-salience-reordering.md) | open | — |
 

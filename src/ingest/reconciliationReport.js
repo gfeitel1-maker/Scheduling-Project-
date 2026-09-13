@@ -144,6 +144,9 @@ function classifyItem(item, fieldProvenance, activityEvidence) {
       const proposedValue = humanFields.length === 1
         ? item.fields[humanFields[0]].to
         : Object.fromEntries(humanFields.map((f) => [f, item.fields[f].to]))
+      // NOTE: distinct from `evidence.currentValue` in reconciliationCards.jsx,
+      // which is evidence-table display data. This one is the raw stored value.
+      //
       // T96 — the card asks "keep it or overwrite from the file?" and showed
       // only the file's value, so the director chose between a value they
       // could see and one they could not. Same shape rule as proposedValue

@@ -71,14 +71,35 @@ describe('confirm_change card — both sides of the choice are named (T96)', () 
     expect(body).not.toMatch(/""/)
   })
 
+  it('escapes a quote inside the value — `6\' x 10" tent` must not end early', () => {
+    // Not hypothetical: camp field dimensions use inch marks. Unescaped, the
+    // label reads as ending at the inner quote.
+    renderCard(changeDecision({ currentValue: `6' x 10" tent` }))
+    expect(document.body.textContent).toMatch(/6' x 10\\" tent/)
+  })
+
+  it('does not claim the value was hand-edited, only that it did not come from a file', () => {
+    // fieldProvenance decodes NULL as human deliberately, so this card fires
+    // for values nobody typed too. The copy states what the check knows.
+    renderCard(changeDecision())
+    const body = document.body.textContent
+    expect(body).toMatch(/wasn't imported from a file/)
+    expect(body).not.toMatch(/was hand-edited/)
+  })
+
   it('names several hand-edited fields when they ride one row', () => {
     renderCard(changeDecision({
       field: ['location', 'min_per_week'],
       proposedValue: { location: 'Field', min_per_week: 4 },
       currentValue: { location: 'Dock', min_per_week: 2 },
     }))
+    // Asserts the FULL rendered string, not a substring. The looser version
+    // of this test passed even while the map rendered as raw JSON braces —
+    // `{"location":"Dock","min_per_week":2}` — which is what a director would
+    // have seen (reviewer catch).
     const body = document.body.textContent
-    expect(body).toMatch(/Keep the current value —/)
-    expect(body).toMatch(/"Dock"/)
+    expect(body).toMatch(/Keep the current value — location: Dock, min_per_week: 2/)
+    expect(body).toMatch(/Use the file's value — location: Field, min_per_week: 4/)
+    expect(body).not.toMatch(/[{}]/)
   })
 })
