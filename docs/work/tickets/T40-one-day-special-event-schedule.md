@@ -124,6 +124,28 @@ silently dropped.
 ImportScreen declines such a file with a message naming the day, its period and group counts, and
 what importing it would have cost, pointing to Special Events instead.
 
+**Review round (Red Hat, same day).** Three findings, all confirmed in code first:
+
+- **The detector blocked real weekly schedules.** Its day recognition matched full day names only —
+  the same rule `src/ingest/textGrid.js`'s `isDayName` uses. That is correct for a parser
+  EXTRACTING days and wrong for a gate that REFUSES a file: a camp heading its columns
+  `Mon/Tue/Wed` read as "no day named anywhere", so an ordinary weekly schedule was classified
+  single-day and declined outright, with a message pointing at the wrong screen. Day recognition
+  here is now deliberately BROADER than the pipeline's — abbreviations, all-single-letter headers,
+  date headings — plus a check on the ROW labels, since a transposed week is still a week. Being
+  over-eager to see a day is safe (a missed special day merely behaves as it does today); being
+  under-eager blocks a camp's real file.
+- **A non-ASCII dash defeated the cell split.** A sheet authored in Word or Excel autocorrects
+  `" - "` to an en dash, and matching only the ASCII hyphen let the whole cell — staff name
+  included — become the activity name, the exact outcome the split exists to prevent.
+- **A cell containing only a dash proposed an activity called `"-"`**, because `trim()` collapses
+  `" - "` before the split sees it.
+
+Also hardened, same review: `readFiles` reset STATE but not the refs that carry a parse to the
+commit, so any early decline left the previous file's pages and unit maps in memory. Nothing could
+reach them (every consumer is gated behind `proposal`), but that was an implicit guarantee. Cleared
+once at the top, so it holds for every early return rather than being re-argued at each.
+
 **KNOWN LIMIT, stated not hidden:** this reads the `pages` shape, which for a SPREADSHEET (the
 ticket's sample is one) is one row per sheet row and is exactly right. The plain-TEXT path's
 blank-line block logic mangles the shape before it arrives — a one-day file has no blank lines

@@ -32,15 +32,53 @@
 // a one-day file has no blank lines between periods. Text-pasted special days
 // are therefore not supported by this slice; the spreadsheet path is.
 
-const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+// DELIBERATELY BROADER than the pipeline's own isDayName (src/ingest/textGrid.js),
+// which matches full day names only. That is the right rule for a parser
+// EXTRACTING days; it is the wrong rule for a gate that REFUSES a file.
+//
+// Red Hat (T40 review): a camp whose weekly sheet heads its columns "Mon/Tue/
+// Wed" names its days in a spelling isDayName does not know. Under the first
+// version of this module those columns read as "no day named anywhere", so an
+// ordinary weekly schedule was classified single-day and REFUSED — the
+// director could not import at all, and the message sent them to the wrong
+// screen. Being over-eager to see a day is safe here (worst case: a genuine
+// special day is missed and behaves as it does today); being under-eager
+// blocks a real camp's real file.
+const DAY_WORDS = [
+  'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
+  'sun', 'mon', 'tue', 'tues', 'wed', 'weds', 'thu', 'thur', 'thurs', 'fri', 'sat',
+]
+// Single/double-letter day headers ("M T W Th F"). Only accepted when EVERY
+// column is one of these — in isolation "T" is as likely a bunk called T as a
+// Tuesday, and treating one stray letter as a day axis would be the mirror
+// mistake.
+const DAY_LETTERS = ['s', 'm', 't', 'w', 'th', 'f', 'sa', 'su', 'mo', 'tu', 'we', 'fr']
+// A date heading ("7/14", "7-14", "14.7") is a day axis too: a grid whose
+// columns are dates is placing itself in a calendar, which a one-day file does
+// not do.
+const DATE_HEADING = /^\d{1,2}\s*[/.-]\s*\d{1,2}(\s*[/.-]\s*\d{2,4})?$/
+
 const TIME_LABEL = /\d{1,2}\s*[:.]\s*\d{2}/
-// The same separator the weekly path reads as activity-location. Here the tail
-// is a STAFF NAME ("Pool - Unit Heads"), which is why this module handles it
-// itself rather than reusing that split — see splitCell below.
-const DETAIL_SEPARATOR = /\s+-\s+| - /
+// The separator the weekly path reads as activity-location. Here the tail is a
+// STAFF NAME ("Pool - Unit Heads"), which is why this module handles it itself
+// rather than reusing that split — see splitCell below.
+//
+// En dash and em dash included (Red Hat, T40 review): a sheet authored in Word
+// or Excel autocorrects " - " to " – ", and matching only the ASCII hyphen let
+// the whole cell — staff name and all — become the activity name, which is
+// precisely the outcome this split exists to prevent.
+const DETAIL_SEPARATOR = /\s*[-\u2013\u2014]\s+|\s+[-\u2013\u2014]\s*/
 
 const norm = (s) => String(s ?? '').trim().toLowerCase()
-const namesADay = (text) => String(text ?? '').split(/[^a-z]+/i).some((w) => DAY_NAMES.includes(norm(w)))
+const namesADay = (text) => {
+  const raw = String(text ?? '').trim()
+  if (DATE_HEADING.test(raw)) return true
+  return raw.split(/[^a-z]+/i).some((w) => DAY_WORDS.includes(norm(w)))
+}
+// Every column a bare day letter — checked across the whole header, never per
+// column, for the reason given on DAY_LETTERS.
+const allColumnsAreDayLetters = (columns) =>
+  columns.length >= 2 && columns.every((c) => DAY_LETTERS.includes(norm(c)))
 
 function timeRowCount(rows) {
   return (rows ?? []).filter((r) => TIME_LABEL.test(String(r?.label ?? ''))).length
@@ -60,7 +98,11 @@ export function looksLikeSpecialDayFile(pages) {
   if (columns.length < 2 || timeRowCount(rows) < 2) return false
   // A day named ANYWHERE means the file is placing itself within a week.
   if (columns.some(namesADay)) return false
+  if (allColumnsAreDayLetters(columns)) return false
   if (namesADay(page?.title)) return false
+  // A day named in the ROW LABELS is still a week — a grid can be transposed
+  // (days down the side, groups across the top) without ceasing to be weekly.
+  if (rows.some((r) => namesADay(r?.label))) return false
   return true
 }
 
@@ -77,7 +119,10 @@ function splitCell(raw) {
   if (!text) return null
   const parts = text.split(DETAIL_SEPARATOR)
   const activityName = parts[0].trim()
-  if (!activityName) return null
+  // A cell that is only a separator ("-", " - ") names nothing. Red Hat: trim()
+  // collapses " - " to "-" before the split sees it, so without this the cell
+  // proposed an activity literally called "-".
+  if (!activityName || /^[-\u2013\u2014]+$/.test(activityName)) return null
   const note = parts.length > 1 ? parts.slice(1).join(' - ').trim() : ''
   return { activityName, note: note || null }
 }

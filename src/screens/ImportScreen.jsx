@@ -306,6 +306,27 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     setNameVariantCandidates([])
     setNameVariantDecisions({})
     setCompoundCellDecisions({})
+    // Red Hat (T40 review): the resets above clear STATE, not the refs that
+    // carry a parse forward to the commit. A file that is declined early — an
+    // unreadable file, a non-schedule workbook (T146), a one-day special
+    // schedule (T40) — returns before these are reassigned, leaving the
+    // PREVIOUS file's pages, placements and unit maps in memory. Nothing can
+    // reach them today (every consumer is gated behind `proposal`, which is
+    // null on those paths), but that is an implicit guarantee a later change
+    // would not know it was relying on. Cleared here, once, so it holds for
+    // every early return rather than being re-argued at each one.
+    pagesRef.current = []
+    placementsRef.current = []
+    divisionsRef.current = []
+    anchorNamesRef.current = []
+    knownTimeBlockNamesRef.current = []
+    statedUnitsRef.current = {}
+    groupTierByNameRef.current = {}
+    coScheduleRef.current = new Map()
+    allCampOverridesRef.current = []
+    fileGroupUnitsRef.current = {}
+    fileActivityLocationsRef.current = {}
+    confirmedCompoundDecisionsRef.current = new Map()
     const files = [...(fileList ?? [])]
     if (files.length === 0) return
     setFileNames(files.map((f) => f.name))

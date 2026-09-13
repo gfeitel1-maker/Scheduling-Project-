@@ -138,3 +138,93 @@ describe('proposeSpecialDay', () => {
     expect(proposeSpecialDay(null)).toBeNull()
   })
 })
+
+// Red Hat (T40 review) — the detector REFUSES a file, so its day recognition
+// must be broader than the pipeline's own isDayName, which knows full day names
+// only. Under the first version a camp heading its columns "Mon/Tue/Wed" had
+// its ordinary weekly schedule classified single-day and blocked outright, with
+// a message pointing at the wrong screen. Every spelling below is a weekly file.
+describe('looksLikeSpecialDayFile — day headers the parser itself does not know', () => {
+  const weeklyWith = (columns, rows) => [{
+    title: 'Bunk 1', columns,
+    rows: rows ?? [
+      { label: '9:15', cells: columns.map(() => 'Swim') },
+      { label: '10:00', cells: columns.map(() => 'Art') },
+    ],
+  }]
+
+  it.each([
+    [['Mon', 'Tue', 'Wed', 'Thu', 'Fri']],
+    [['Tues', 'Thurs']],
+    [['Weds', 'Fri']],
+    [['SUN', 'SAT']],
+    [['Monday ', ' Tuesday']],
+  ])('does not claim a weekly grid headed %j', (columns) => {
+    expect(looksLikeSpecialDayFile(weeklyWith(columns))).toBe(false)
+  })
+
+  it('does not claim single-letter day headers', () => {
+    // Only when EVERY column is one — a lone "T" among real names is a bunk.
+    expect(looksLikeSpecialDayFile(weeklyWith(['M', 'T', 'W', 'Th', 'F']))).toBe(false)
+  })
+
+  it('still claims a real one-day grid whose columns merely START with day letters', () => {
+    // "Shalom"/"Firebirds" are team names, not Saturday and Friday. One stray
+    // letter-shaped column must not be read as a day axis.
+    expect(looksLikeSpecialDayFile(weeklyWith(['Shalom', 'Firebirds', 'Maccabi']))).toBe(true)
+  })
+
+  it('does not claim a grid whose columns are DATES', () => {
+    expect(looksLikeSpecialDayFile(weeklyWith(['7/14', '7/15', '7/16']))).toBe(false)
+  })
+
+  it('does not claim a TRANSPOSED week — days down the side, groups across the top', () => {
+    expect(looksLikeSpecialDayFile([{
+      title: 'Week 1', columns: ['Bunk 1', 'Bunk 2'],
+      rows: [
+        { label: 'Monday 9:15', cells: ['Swim', 'Art'] },
+        { label: 'Tuesday 9:15', cells: ['Art', 'Swim'] },
+      ],
+    }])).toBe(false)
+  })
+})
+
+describe('proposeSpecialDay — separators a real spreadsheet actually contains', () => {
+  const withCell = (cell) => proposeSpecialDay([{
+    title: 'Colour War', columns: ['Red', 'Blue'],
+    rows: [
+      { label: '9:00', cells: [cell, 'Tug of War'] },
+      { label: '10:00', cells: ['Relay', 'Relay'] },
+    ],
+  }])
+
+  it.each([
+    ['Gym \u2013 Tomer', 'Gym', 'Tomer'],
+    ['Gym \u2014 Tomer', 'Gym', 'Tomer'],
+    ['Gym - Tomer', 'Gym', 'Tomer'],
+  ])('splits %j, so a staff name never becomes an activity', (cell, activity, note) => {
+    // Word and Excel autocorrect " - " to an en dash. Matching only the ASCII
+    // hyphen let the whole cell become the activity name — the exact outcome
+    // this split exists to prevent.
+    const p = withCell(cell)
+    const slot = p.slots.find(s => s.groupName === 'Red' && s.blockLabel === '9:00')
+    expect(slot.activityName).toBe(activity)
+    expect(slot.note).toBe(note)
+    expect(p.activityNames).not.toContain('Tomer')
+  })
+
+  it('keeps a multi-part tail whole rather than losing it', () => {
+    const slot = withCell('Pool - Unit Heads - Sylvia').slots.find(s => s.groupName === 'Red')
+    expect(slot.activityName).toBe('Pool')
+    expect(slot.note).toBe('Unit Heads - Sylvia')
+  })
+
+  it('treats a cell that is only a dash as empty, not as an activity called "-"', () => {
+    // trim() collapses " - " to "-" before the split sees it.
+    for (const junk of [' - ', '-', '\u2013', ' — ']) {
+      const p = withCell(junk)
+      expect(p.activityNames).not.toContain('-')
+      expect(p.slots.some(s => s.groupName === 'Red' && s.blockLabel === '9:00')).toBe(false)
+    }
+  })
+})
