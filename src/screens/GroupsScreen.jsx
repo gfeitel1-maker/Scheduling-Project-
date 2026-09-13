@@ -10,8 +10,9 @@ import ImportModal from '../components/setup/ImportModal'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import WeekContextBar from '../components/schedule/WeekContextBar'
-import { TIER_LABEL, tierShapeStyle } from '../utils/ruleProvenance.js'
 import { describeDivisionEvidence } from '../utils/divisionProvenance.js'
+import ProvenanceDot from '../components/setup/ProvenanceDot'
+import { provenanceDotStyles } from '../components/setup/provenanceDotStyles.js'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
@@ -59,74 +60,18 @@ const AVAIL_OPTIONS = [
 // asymmetry T114 recorded as a known gap: co-schedule rules explained
 // themselves and divisions did not.
 //
-// Mirrors LocationsScreen's CapacityProvenanceDot shape deliberately — same
-// quiet 6px dot, same popover, same TIER_LABEL vocabulary — so a director who
-// has met one reads the other without learning anything new. Renders ONLY when
-// an evidence row exists: a hand-assigned division shows nothing, quiet by
-// default, exactly like the activities dot.
+// Renders ONLY when an evidence row survives the hand-edit filter in load() —
+// a division the director assigned is theirs, and quiet by default.
 function DivisionProvenanceDot({ group, evidence }) {
-  const [open, setOpen] = useState(false)
-  const [hovered, setHovered] = useState(false)
-  const btnRef = useRef(null)
-  const popRef = useRef(null)
-  const reduced = prefersReducedMotion()
-  const shape = tierShapeStyle('inferred')
-
-  useEffect(() => {
-    if (!open) return
-    function onKeyDown(e) { if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus() } }
-    function onPointerDown(e) { if (popRef.current && !popRef.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('keydown', onKeyDown)
-    document.addEventListener('mousedown', onPointerDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.removeEventListener('mousedown', onPointerDown)
-    }
-  }, [open])
-
   return (
-    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }} onClick={(e) => e.stopPropagation()}>
-      <button
-        ref={btnRef}
-        type="button"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={`Age division provenance for ${group.name}: inferred`}
-        onClick={() => setOpen((v) => !v)}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onFocus={() => setHovered(true)}
-        onBlur={() => setHovered(false)}
-        style={{
-          ...divisionDotStyles.dot,
-          ...shape,
-          boxShadow: hovered ? '0 0 0 3px color-mix(in srgb, var(--text) 10%, transparent)' : shape.boxShadow,
-          transition: reduced ? 'none' : 'background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out)',
-        }}
-      />
-      {open && (
-        <div ref={popRef} role="dialog" aria-label={`Age division provenance for ${group.name}`} tabIndex={-1} style={divisionDotStyles.popover}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ ...divisionDotStyles.rowDot, ...shape }} />
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Age division</span>
-            <span style={divisionDotStyles.tierLabel}>{TIER_LABEL.inferred}</span>
-          </div>
-          <div style={divisionDotStyles.rowSentence}>{describeDivisionEvidence(evidence, group.name)}</div>
-        </div>
-      )}
-    </span>
+    <ProvenanceDot
+      ariaLabel={`Age division provenance for ${group.name}: inferred`}
+      dialogLabel={`Age division provenance for ${group.name}`}
+      title="Age division"
+    >
+      <div style={provenanceDotStyles.rowSentence}>{describeDivisionEvidence(evidence, group.name)}</div>
+    </ProvenanceDot>
   )
-}
-
-const divisionDotStyles = {
-  dot: { display: 'inline-block', width: 6, height: 6, borderRadius: '50%', border: 'none', padding: 0, cursor: 'pointer', verticalAlign: 'middle' },
-  popover: {
-    position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 40, minWidth: 260, padding: 12,
-    background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-  },
-  rowDot: { display: 'inline-block', width: 6, height: 6, borderRadius: '50%', flexShrink: 0 },
-  tierLabel: { fontSize: 11, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' },
-  rowSentence: { fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 },
 }
 
 function GroupRow({ group, tiers, role, draft, onOpen, onChange, onSave, onCancel, onDelete, saving, weekToggle, divisionEvidence }) {
@@ -248,9 +193,19 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         const byGroup = {}
         for (const row of evidence ?? []) {
           if (row.field !== 'tier_id') continue
-          // A director who has since re-assigned the division by hand owns that
-          // value now, so the import's reasoning no longer explains it.
-          if ((fieldSources?.[row.entity_id]?.tier_id ?? null) === null) continue
+          // A director who assigned the division by hand owns that value now, so
+          // the import's reasoning no longer explains it.
+          //
+          // Red Hat (T114 review): this tested ONLY for null and so missed the
+          // commonest case. operations.source encodes a hand edit as EITHER null
+          // (unlabelled write) or the literal 'human' (a field the director
+          // authored in import review) — tierForField in ../utils/ruleProvenance.js
+          // is the definition, and it treats both as confirmed. Checking null
+          // alone meant a director who overrode the division in the import review
+          // screen still saw a dot explaining the division they had just
+          // rejected, on the very first import.
+          const source = fieldSources?.[row.entity_id]?.tier_id ?? null
+          if (source === null || source === 'human') continue
           try { byGroup[row.entity_id] = JSON.parse(row.support) } catch { /* unreadable support explains nothing */ }
         }
         setDivisionEvidenceByGroup(byGroup)

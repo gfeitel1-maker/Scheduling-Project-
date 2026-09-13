@@ -138,3 +138,37 @@ describe('division evidence', () => {
     expect(evidenceFor('Tzofim 1').support.anchors_excluded).toEqual(['Lunch', 'Carpool'])
   })
 })
+
+// Red Hat (T114 review) — the create arm wrote evidence unconditionally while
+// the update arm re-verified against the stored row. The create arm is the
+// commoner path, and the unit a director picks in import review is independent
+// of the inference, so the two can disagree by construction.
+describe('evidence never explains a division the director rejected', () => {
+  it('writes nothing when the director overrode the inferred division', () => {
+    commitIngest(db, {
+      approved: { tiers: ['Tzofim', 'Bogrim'], groups: ['Tzofim 1'] },
+      // The names inferred "Tzofim"; the director picked "Bogrim" in review.
+      links: { groups: { 'Tzofim 1': 'Bogrim' } },
+      humanEditedFields: { groups: { 'Tzofim 1': ['unit'] } },
+      divisionSupport: SUPPORT,
+      camp_id: campId, device_id: deviceId,
+    })
+    const g = db.prepare('SELECT tier_id FROM groups WHERE camp_id = ? AND name = ?').get(campId, 'Tzofim 1')
+    const bogrim = db.prepare('SELECT id FROM tiers WHERE camp_id = ? AND name = ?').get(campId, 'Bogrim')
+    expect(g.tier_id).toBe(bogrim.id)
+    // An explanation of the division they rejected is worse than none.
+    expect(evidenceFor('Tzofim 1')).toBeNull()
+  })
+
+  it('tolerates cosmetic drift between the stored name and the inferred one', () => {
+    // A tier stored as "  tzofim " is the same division as "Tzofim". A strict
+    // comparison made the dot vanish for a reason no director could diagnose.
+    commitIngest(db, {
+      approved: { tiers: ['  tzofim '], groups: ['Tzofim 1'] },
+      links: { groups: { 'Tzofim 1': '  tzofim ' } },
+      divisionSupport: SUPPORT,
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(evidenceFor('Tzofim 1')).toBeTruthy()
+  })
+})

@@ -1038,8 +1038,21 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // reading of a label, not a sighting of the camp's structure. Confidence is
   // derived from the basis rather than invented — a split is corroborated by
   // the grid, a bare name cluster is not.
-  const writeDivisionEvidence = (entityId, support) => {
+  // `writtenDivision` — the division name actually being stored. Evidence is
+  // refused unless the support explains THAT division: an explanation of a value
+  // the director cannot see is worse than no explanation at all.
+  //
+  // Compared case- and whitespace-insensitively, matching how tier names are
+  // resolved everywhere else in this file (tierIdByName). A strict comparison
+  // made the dot vanish for cosmetic drift — a tier stored as "Aleph " reading
+  // as a different division from "Aleph" — which is a safe failure but an
+  // undiagnosable one.
+  const sameDivision = (a, b) =>
+    String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase()
+
+  const writeDivisionEvidence = (entityId, support, writtenDivision) => {
     if (!support || typeof support !== 'object') return
+    if (!sameDivision(support.division, writtenDivision)) return
     writeEvidence(db, {
       camp_id, entity_type: 'groups', entity_id: entityId, field: 'tier_id',
       tag: 'inferred',
@@ -1341,11 +1354,19 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const unit = item._link_unit
       const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
       if (tierId) fields.tier_id = tierId
-      // T114 follow-up — WHY this bunk is in this division. Gated on tierId so
-      // evidence can never explain a tier_id that was not written, and on the
-      // support existing at all, which is how a division the FILE stated
-      // outright stays free of inference provenance it did not earn.
-      if (tierId) writeDivisionEvidence(entityId, item._division_support)
+      // T114 follow-up — WHY this bunk is in this division.
+      //
+      // Gated on tierId so evidence can never explain a tier_id that was not
+      // written, and on the support existing at all, which is how a division
+      // the FILE stated outright stays free of provenance it did not earn.
+      //
+      // Red Hat (T114 review): ALSO gated on the support describing the division
+      // actually being written. `unit` comes from the director's dropdown in
+      // import review, while the support is the auto-inference — a director who
+      // overrode the division would otherwise get evidence explaining the
+      // division they rejected. The update arm already re-verified this against
+      // the stored row; the create arm did not, which is the commoner path.
+      if (tierId) writeDivisionEvidence(entityId, item._division_support, unit)
     }
     if (entity === 'activities') {
       // Inferred (or director-edited) rules, keyed by the exact activity name
@@ -1904,8 +1925,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const storedDivision = db.prepare(
         'SELECT t.name AS name FROM groups g JOIN tiers t ON t.id = g.tier_id WHERE g.id = ?'
       ).get(item.entity_id)?.name
-      if (!storedDivision || storedDivision !== support.division) continue
-      writeDivisionEvidence(item.entity_id, support)
+      // A null tier_id fails the JOIN and lands here as undefined: a group whose
+      // division was cleared has nothing to explain.
+      if (!storedDivision) continue
+      writeDivisionEvidence(item.entity_id, support, storedDivision)
     }
 
     for (const item of plan.items) {

@@ -632,6 +632,17 @@ describe('GroupsScreen — age division provenance', () => {
     expect(screen.queryByRole('button', { name: /Age division provenance/i })).toBeNull()
   })
 
+  it("hides the dot when the director's own choice is what got written", async () => {
+    // Red Hat: operations.source records a hand edit as EITHER null (unlabelled)
+    // or the literal 'human' (authored in import review). Checking null alone
+    // meant a director who overrode the division in review still saw a dot
+    // explaining the division they had just rejected — on the FIRST import.
+    withEvidence(SPLIT, 'human')
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+    expect(screen.queryByRole('button', { name: /Age division provenance/i })).toBeNull()
+  })
+
   it('still renders the groups when the evidence read fails', async () => {
     // Provenance explains the data; it is never a precondition for showing it.
     localClient.list.mockImplementation((entity) =>

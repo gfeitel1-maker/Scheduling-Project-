@@ -269,7 +269,12 @@ export function divisionSupportByGroup(groupNames, placements, anchorActivityNam
     membersOf.get(division).push(group)
   }
 
-  const anchors = [...(anchorActivityNames ?? [])].map((n) => String(n)).sort()
+  // Guarded on `placements`, not just on the list being non-empty: with no
+  // placements the co-occurrence pass never ran, so nothing was "ignored" and
+  // saying so would imply a grid check that did not happen. Not reachable from
+  // ImportScreen today (it always supplies placements) — closed here rather
+  // than left to caller discipline.
+  const anchors = placements ? [...(anchorActivityNames ?? [])].map((n) => String(n)).sort() : []
   const out = {}
   for (const name of names) {
     const division = byGroup[name]

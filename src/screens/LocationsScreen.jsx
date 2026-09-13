@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { TIER_LABEL, tierShapeStyle, tierForCapacitySource } from '../utils/ruleProvenance.js'
+import { tierForCapacitySource } from '../utils/ruleProvenance.js'
+import ProvenanceDot from '../components/setup/ProvenanceDot'
+import { provenanceDotStyles } from '../components/setup/provenanceDotStyles.js'
 import * as XLSX from 'xlsx'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
@@ -194,88 +196,26 @@ function CapacityAdvisoryStrip({ items, locations, onAccept, busyId }) {
 // to a binary, see electron/main.js) and this row already has its own Edit
 // affordance, so a mirrored one-row popover is simpler than bending the
 // activities component to a shape it wasn't built for.
-function useCapacityPopover(open, onClose) {
-  const popRef = useRef(null)
-  useEffect(() => {
-    if (!open) return
-    popRef.current?.querySelector('button:not([disabled])')?.focus()
-    function onKeyDown(e) { if (e.key === 'Escape') onClose() }
-    function onPointerDown(e) {
-      if (popRef.current && !popRef.current.contains(e.target)) onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    document.addEventListener('mousedown', onPointerDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.removeEventListener('mousedown', onPointerDown)
-    }
-  }, [open, onClose])
-  return popRef
-}
-
 function CapacityProvenanceDot({ location, onConfirm }) {
-  const [open, setOpen] = useState(false)
-  const [hovered, setHovered] = useState(false)
-  const btnRef = useRef(null)
-  const close = () => { setOpen(false); btnRef.current?.focus() }
-  const popRef = useCapacityPopover(open, close)
-  const reduced = prefersReducedMotion()
-  const shape = tierShapeStyle('inferred')
-
   return (
-    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }} onClick={(e) => e.stopPropagation()}>
-      <button
-        ref={btnRef}
-        type="button"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label="Capacity provenance: inferred, needs review"
-        onClick={() => setOpen((v) => !v)}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onFocus={() => setHovered(true)}
-        onBlur={() => setHovered(false)}
-        style={{
-          ...capacityDotStyles.dot,
-          ...shape,
-          boxShadow: hovered ? '0 0 0 3px color-mix(in srgb, var(--text) 10%, transparent)' : shape.boxShadow,
-          transition: reduced ? 'none' : 'background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out)',
-        }}
-      />
-      {open && (
-        <div ref={popRef} role="dialog" aria-label={`Capacity provenance for ${location.name}`} tabIndex={-1} style={capacityDotStyles.popover}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ ...capacityDotStyles.rowDot, ...shape }} />
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Capacity</span>
-            <span style={capacityDotStyles.tierLabel}>{TIER_LABEL.inferred}</span>
-          </div>
-          <div style={capacityDotStyles.rowSentence}>No one has confirmed how many groups fit here.</div>
-          <div style={capacityDotStyles.rowActions}>
-            <button
-              type="button"
-              className="press-97"
-              onClick={() => { close(); onConfirm(location) }}
-              style={capacityDotStyles.confirmBtn}
-            >Confirm</button>
-          </div>
-        </div>
+    <ProvenanceDot
+      ariaLabel="Capacity provenance: inferred, needs review"
+      dialogLabel={`Capacity provenance for ${location.name}`}
+      title="Capacity"
+      actions={(
+        <button
+          type="button"
+          className="press-97"
+          onClick={() => onConfirm(location)}
+          style={provenanceDotStyles.confirmBtn}
+        >Confirm</button>
       )}
-    </span>
+    >
+      <div style={provenanceDotStyles.rowSentence}>No one has confirmed how many groups fit here.</div>
+    </ProvenanceDot>
   )
 }
 
-const capacityDotStyles = {
-  dot: { display: 'inline-block', width: 6, height: 6, borderRadius: '50%', border: 'none', padding: 0, cursor: 'pointer', verticalAlign: 'middle' },
-  popover: {
-    position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 40, minWidth: 240, padding: 12,
-    background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-  },
-  rowDot: { display: 'inline-block', width: 6, height: 6, borderRadius: '50%', flexShrink: 0 },
-  tierLabel: { fontSize: 11, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' },
-  rowSentence: { fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 },
-  rowActions: { display: 'flex', justifyContent: 'flex-end', marginTop: 6 },
-  confirmBtn: { background: 'none', border: 'none', color: 'var(--primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: 'inherit' },
-}
 
 // Piece B of the duplicate-catcher ticket — a quiet, derived-at-render-time
 // marker (never persisted, the computeOverlaps precedent) for a location
@@ -285,58 +225,29 @@ const capacityDotStyles = {
 // merge primitive (localClient.mergeLocation, via onMerge) LocationsScreen's
 // migration-review gate already uses — no second merge implementation.
 function DuplicateLocationDot({ location, siblings, onMerge, busy }) {
-  const [open, setOpen] = useState(false)
-  const [hovered, setHovered] = useState(false)
-  const btnRef = useRef(null)
-  const close = () => { setOpen(false); btnRef.current?.focus() }
-  const popRef = useCapacityPopover(open, close)
-  const reduced = prefersReducedMotion()
-  const shape = tierShapeStyle('inferred')
   const other = siblings[0]
-
   return (
-    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }} onClick={(e) => e.stopPropagation()}>
-      <button
-        ref={btnRef}
-        type="button"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={`Possible duplicate of ${other.name}`}
-        onClick={() => setOpen((v) => !v)}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onFocus={() => setHovered(true)}
-        onBlur={() => setHovered(false)}
-        style={{
-          ...capacityDotStyles.dot,
-          ...shape,
-          boxShadow: hovered ? '0 0 0 3px color-mix(in srgb, var(--text) 10%, transparent)' : shape.boxShadow,
-          transition: reduced ? 'none' : 'background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out)',
-        }}
-      />
-      {open && (
-        <div ref={popRef} role="dialog" aria-label={`Possible duplicate for ${location.name}`} tabIndex={-1} style={capacityDotStyles.popover}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ ...capacityDotStyles.rowDot, ...shape }} />
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Possible duplicate</span>
-          </div>
-          <div style={capacityDotStyles.rowSentence}>
-            {siblings.length === 1
-              ? `This looks like the same place as "${other.name}".`
-              : `This looks like the same place as ${siblings.length} other location${siblings.length === 1 ? '' : 's'} (e.g. "${other.name}").`}
-          </div>
-          <div style={capacityDotStyles.rowActions}>
-            <button
-              type="button"
-              className="press-97"
-              disabled={busy}
-              onClick={() => { close(); onMerge(location, other) }}
-              style={capacityDotStyles.confirmBtn}
-            >{busy ? 'Merging…' : `Merge into "${other.name}"`}</button>
-          </div>
-        </div>
+    <ProvenanceDot
+      ariaLabel={`Possible duplicate of ${other.name}`}
+      dialogLabel={`Possible duplicate for ${location.name}`}
+      title="Possible duplicate"
+      tierLabel={null}
+      actions={(
+        <button
+          type="button"
+          className="press-97"
+          disabled={busy}
+          onClick={() => onMerge(location, other)}
+          style={provenanceDotStyles.confirmBtn}
+        >{busy ? 'Merging…' : `Merge into "${other.name}"`}</button>
       )}
-    </span>
+    >
+      <div style={provenanceDotStyles.rowSentence}>
+        {siblings.length === 1
+          ? `This looks like the same place as "${other.name}".`
+          : `This looks like the same place as ${siblings.length} other locations (e.g. "${other.name}").`}
+      </div>
+    </ProvenanceDot>
   )
 }
 

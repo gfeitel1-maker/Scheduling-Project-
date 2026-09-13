@@ -159,6 +159,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   const coScheduleRef = useRef(new Map())
   const groupTierByNameRef = useRef({})
   const anchorNamesRef = useRef([])
+  const knownTimeBlockNamesRef = useRef([])
+  const statedUnitsRef = useRef({})
   const placementsRef = useRef([])
   // T118 slice 4 — the raw pages this import parsed, retained so
   // buildCommitInputs can re-run extractEntities at commit time with this
@@ -459,6 +461,9 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // once its own already-configured time_blocks names are known — thread
       // the existing rows in so isBlockLabel can recognize them.
       const knownTimeBlockNames = (existingAll.time_blocks ?? []).map((t) => t.name)
+      // Kept so a commit-time re-parse can re-derive the anchors on the SAME
+      // terms this parse did — see anchorNamesForCommit in buildCommitInputs.
+      knownTimeBlockNamesRef.current = knownTimeBlockNames
       const { fixedEvents: inferred, dualUseNames: dualUseNamesRaw = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
       setFixedEvents(inferred)
       setMovedPlacements(findMovedPlacements({ pages }, proposal, inferred))
@@ -488,6 +493,14 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         anchorNames,
       )
       const statedUnits = proposal.groupUnits ?? {}
+      // Captured BEFORE line ~536 overwrites proposal.groupUnits with the
+      // inferred divisions merged in. Without this the "was it stated?" test at
+      // commit time reads the MERGED map, matches every group, and filters away
+      // all division provenance — the feature ships writing nothing, which is
+      // exactly how it behaved until the ImportScreen glue got a test.
+      // fileGroupUnitsRef is not a substitute: despite the name it is
+      // reassigned to the merged map too.
+      statedUnitsRef.current = statedUnits
       // Kept so buildCommitInputs can re-derive the division PROVENANCE against
       // the same anchor exclusions the preview used — a different exclusion set
       // would explain a different division than the one being committed.
@@ -982,13 +995,14 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     // Note the trigger set is WIDER than activityLocations' above: a name-variant
     // merge re-keys activity names without touching compound decisions, so both
     // conditions have to be tested here.
-    const coScheduleForCommit =
-      newlyResolvedCompoundDecisions.length > 0 || confirmedNameMerges.length > 0
-        ? inferCoScheduleRules(
-            capturePlacements({ pages: pagesRef.current }, effectiveProposal).placements,
-            groupTierByNameRef.current,
-          )
-        : coScheduleRef.current
+    // Computed once and shared with the division-provenance derivation below —
+    // both need the placements as effectiveProposal spells them, and parsing the
+    // whole grid twice in one call buys nothing.
+    const reparsed = newlyResolvedCompoundDecisions.length > 0 || confirmedNameMerges.length > 0
+    const placementsForCommit = capturePlacements({ pages: pagesRef.current }, effectiveProposal).placements
+    const coScheduleForCommit = reparsed
+      ? inferCoScheduleRules(placementsForCommit, groupTierByNameRef.current)
+      : coScheduleRef.current
 
     // T114 follow-up — WHY each bunk landed in the division it did, so a split
     // the director did not expect can be audited instead of taken on faith.
@@ -1000,11 +1014,25 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     //
     // A group whose unit the FILE STATED outright is excluded: that is not an
     // inference and must not be dressed as one.
-    const statedUnitNames = new Set(Object.keys(effectiveProposal?.groupUnits ?? {}))
+    const statedUnitNames = new Set(Object.keys(statedUnitsRef.current))
+    // Red Hat (T114 review): the anchors must come from the SAME parse as the
+    // placements they are excluded from. Pairing freshly re-parsed placements
+    // with parse-time anchor names is an internally inconsistent combination
+    // that was never exercised when the director-facing divisions were computed
+    // — a name-variant merge can re-key an anchor ("Lunch + Leave" -> "Lunch"),
+    // and a stale name simply fails to exclude, letting an all-camp activity
+    // vouch for a division it says nothing about.
+    const anchorNamesForCommit = reparsed
+      ? inferFixedEvents(
+          { pages: pagesRef.current },
+          effectiveProposal,
+          { knownTimeBlockNames: knownTimeBlockNamesRef.current },
+        ).fixedEvents.filter((e) => e.kind === 'fixed').map((e) => e.name)
+      : anchorNamesRef.current
     const allDivisionSupport = divisionSupportByGroup(
       effectiveProposal?.entities?.groups ?? [],
-      capturePlacements({ pages: pagesRef.current }, effectiveProposal).placements,
-      anchorNamesRef.current,
+      placementsForCommit,
+      anchorNamesForCommit,
     )
     const divisionSupport = {}
     for (const [groupName, support] of Object.entries(allDivisionSupport)) {
