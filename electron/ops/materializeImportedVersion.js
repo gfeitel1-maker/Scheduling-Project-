@@ -73,7 +73,6 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
     is_auto: false,
     created_at: new Date().toISOString(),
     slots: JSON.stringify(slots),
-    day_overrides_json: '[]',
   }, authorUserId)
 
   return { created: true, snapshotId, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName) }

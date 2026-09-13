@@ -94,8 +94,8 @@ describe('migration v57: devices.libp2p_peer_id', () => {
     // A fresh db runs every migration, so it lands on CURRENT (58 since the
     // projection_failures.store split), not on 57. What this test owns is that
     // v57 itself ran — asserted by its schema_migrations row below.
-    expect(CURRENT_SCHEMA_VERSION).toBe(58)
-    expect(getSchemaVersion(db)).toBe(58)
+    expect(CURRENT_SCHEMA_VERSION).toBe(59)
+    expect(getSchemaVersion(db)).toBe(59)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 57').get().c).toBe(1)
 
     const col = columnInfo(db)

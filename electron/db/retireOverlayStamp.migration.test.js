@@ -57,7 +57,7 @@ describe('migration v53: retire overlay/stamp subsystem', () => {
   it('declares schema version 53 on a fresh db; no template_overlays, no snapshots.overlays', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(58)
+    expect(CURRENT_SCHEMA_VERSION).toBe(59)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 53').get().c).toBe(1)
     expect(tableExists(db, 'template_overlays')).toBe(false)
     expect(columnsOf(db, 'schedule_snapshots')).not.toContain('overlays')
@@ -78,26 +78,28 @@ describe('migration v53: retire overlay/stamp subsystem', () => {
     db.close()
   })
 
-  it('preserves snapshot slots/day_overrides_json while discarding overlays', () => {
+  // T145/v59 — this test used to also assert `day_overrides_json` survived the
+  // v53 rebuild and stayed the last column. That column is gone (v59 removed
+  // Day Overrides entirely), so those two assertions were dropped. What the
+  // test is actually FOR is unchanged and still asserted: v53 discards
+  // `overlays` while carrying `slots` through the table rebuild intact.
+  it('preserves snapshot slots while discarding overlays', () => {
     const db = preV53Db('v53-data')
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare(
       "INSERT INTO schedule_templates (id, camp_id, name, kind) VALUES ('tpl1', 'camp1', 'T', 'generated')"
     ).run()
     db.prepare(
-      `INSERT INTO schedule_snapshots (id, template_id, name, is_auto, created_at, slots, overlays, day_overrides_json)
-       VALUES ('s1', 'tpl1', 'Snap', 0, '2026-08-30', '{"slots":1}', '{"overlays":1}', '{"do":1}')`
+      `INSERT INTO schedule_snapshots (id, template_id, name, is_auto, created_at, slots, overlays)
+       VALUES ('s1', 'tpl1', 'Snap', 0, '2026-08-30', '{"slots":1}', '{"overlays":1}')`
     ).run()
 
     initSchema(db)
 
     const row = db.prepare('SELECT * FROM schedule_snapshots WHERE id = ?').get('s1')
     expect(row.slots).toBe('{"slots":1}')
-    expect(row.day_overrides_json).toBe('{"do":1}')
     expect(row).not.toHaveProperty('overlays')
-    // day_overrides_json must remain the last column on the rebuilt table.
-    const cols = columnsOf(db, 'schedule_snapshots')
-    expect(cols[cols.length - 1]).toBe('day_overrides_json')
+    expect(row).not.toHaveProperty('day_overrides_json')
     db.close()
   })
 

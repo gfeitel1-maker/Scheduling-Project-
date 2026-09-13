@@ -24,40 +24,6 @@ function makeRepo(overrides = {}) {
   }
 }
 
-// T108 Phase 2 review round 3 — a plain vi.fn() mock (makeRepo's default
-// writeDayOverrideFields above) accepts ANY id unconditionally, so it could
-// never have caught the real-schema bug (day_overrides has
-// UNIQUE(schedule_week_id, day_id, group_id, time_block_id); the electron/ops
-// projection does INSERT OR IGNORE keyed by id, then UPDATE WHERE id=?, so a
-// FRESH id for an already-overridden coordinate silently persists nothing —
-// see electron/ops/dayOverrides.projections.test.js for the real-SQLite
-// proof). This fake reproduces that exact semantic in memory: a row keyed by
-// id; writing a NEW id whose coordinate already belongs to a DIFFERENT id is
-// a no-op (mirrors "INSERT OR IGNORE finds the UNIQUE collision, UPDATE
-// WHERE id=<fresh id> matches nothing"); writing an id that already owns the
-// row updates it in place. Used to prove the hook-level fix (id reuse) is
-// what actually prevents data loss, not merely that a mock accepted the call.
-function makeRealisticDayOverrideRepo() {
-  const rowsById = new Map()
-  const writeDayOverrideFields = vi.fn(async (id, fields) => {
-    const coordKey = `${fields.schedule_week_id}|${fields.day_id}|${fields.group_id}|${fields.time_block_id}`
-    const ownerOfCoord = [...rowsById.values()].find((r) => r.coordKey === coordKey && r.id !== id)
-    if (ownerOfCoord) {
-      // UNIQUE collision on the tuple: INSERT OR IGNORE inserts nothing, and
-      // the follow-up UPDATE WHERE id=<this id> matches no row either — a
-      // total no-op, exactly like the real projection.
-      return { status: 'applied' }
-    }
-    const existing = rowsById.get(id) ?? {}
-    rowsById.set(id, { ...existing, ...fields, id, coordKey })
-    return { status: 'applied' }
-  })
-  return {
-    ...makeRepo({ writeDayOverrideFields }),
-    _rowsById: rowsById,
-    _rowForCoord: (coordKey) => [...rowsById.values()].find((r) => r.coordKey === coordKey),
-  }
-}
 
 // The route-scoped values the hook pulls off routeState. setSlots is the
 // route-PINNED setter (in the real screen it is bound to the route the
@@ -907,9 +873,10 @@ describe('useSlotMutations — spanStopsAt (ADR §3 ordered stop conditions)', (
   it('a WEEK_CLOSED block stops', () => {
     expect(spanStopsAt({ flags: { WEEK_CLOSED: true } }, 'act-1', activities)).toBe(true)
   })
-  it('an overridden cell stops', () => {
-    expect(spanStopsAt({ is_overridden: true }, 'act-1', activities)).toBe(true)
-  })
+  // T145 — the `is_overridden` stop condition was removed with Day Overrides.
+  // Nothing in the app can set that field any more, so the case this test
+  // constructed is unreachable; keeping it would have pinned dead defensive
+  // logic reading a ghost field (Code Reviewer, 2026-09-13).
   it('a different LOCKED activity stops', () => {
     expect(spanStopsAt({ activity_id: 'act-locked' }, 'act-1', activities)).toBe(true)
   })
@@ -2083,25 +2050,6 @@ describe('useSlotMutations — createElectiveFromCell', () => {
   // elective. This must be a clear BLOCK, not a silent template_slots write
   // (which applyDayOverrides would then never see) or an orphaned elective
   // set with nothing placing it.
-  it('blocks elective placement in override mode — no writes at all, clear message', async () => {
-    const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: null, flags: {} },
-    ]
-    const activities = [{ id: 'act-swim', name: 'Swimming' }]
-    const { hook, props } = setup({ slots, activities, overrideModeDayId: 'd1', weekId: 'week-1' })
-
-    await act(async () => {
-      await hook.result.current.createElectiveFromCell('Afternoon Chugim', ['Swimming'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
-    })
-
-    expect(props.repo.writeElectiveSetFields).not.toHaveBeenCalled()
-    expect(props.repo.writeElectiveSetActivityFields).not.toHaveBeenCalled()
-    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
-    expect(props.repo.writeDayOverrideFields).not.toHaveBeenCalled()
-    expect(props.setActionError).toHaveBeenCalledWith(
-      "Electives can't be overridden for a single day yet — exit Override mode to place an elective."
-    )
-  })
 
   it('does not write an empty elective when every typed member name is blank', async () => {
     const slots = [
@@ -2396,81 +2344,11 @@ describe('useSlotMutations — createElectiveFromCell undo-then-redo re-create (
 describe('useSlotMutations — override edit-block guard (is_overridden, not in override mode)', () => {
   const OVERRIDE_MESSAGE = 'This day has an override on this cell — switch to Override mode to change it.'
 
-  it('replaceSlot: blocks a write onto an overridden target, surfaces the error, no write, no undo', async () => {
-    const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', flags: {}, is_overridden: true },
-    ]
-    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
-    await act(async () => {
-      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
-    })
-    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
-    expect(props.pushUndo).not.toHaveBeenCalled()
-    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
-  })
 
-  it('placeActivityManual: blocks a write onto an overridden cell', async () => {
-    const slots = [
-      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', flags: {}, is_overridden: true },
-    ]
-    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }], groups: [{ id: 'g1', tier_id: 't1' }] })
-    await act(async () => {
-      await hook.result.current.placeActivityManual('act-1', 'g1', 'd1', 'b1')
-    })
-    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
-    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
-  })
 
-  it('expandSlot: blocks when the head cell is overridden', async () => {
-    const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', flags: {}, is_span_head: true, is_overridden: true }
-    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actTail', flags: {}, is_span_head: true }
-    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities: [{ id: 'actHead', name: 'Swim' }, { id: 'actTail', name: 'Archery' }] })
-    await act(async () => {
-      await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon')
-    })
-    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
-    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
-  })
 
-  it('splitSlot: blocks when the tail cell is overridden', async () => {
-    const headSlot = {
-      id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', is_span_head: true,
-      flags: { expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' } },
-    }
-    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false, is_overridden: true }
-    const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks: [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }], days: [{ id: 'd1', label: 'Mon' }] })
-    await act(async () => {
-      await hook.result.current.splitSlot('g1', 'd1', 'b1')
-    })
-    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
-    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
-  })
 
-  it('createActivityFromCell: blocks onto an overridden cell, never creates the activity', async () => {
-    const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', flags: {}, is_anchor: false, is_overridden: true },
-    ]
-    const { hook, props } = setup({ slots, activities: [], campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }] })
-    await act(async () => {
-      await hook.result.current.createActivityFromCell('Kayaking', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
-    })
-    expect(props.repo.writeActivityFields).not.toHaveBeenCalled()
-    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
-    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
-  })
 
-  it('createElectiveFromCell: blocks onto an overridden cell', async () => {
-    const slots = [
-      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', flags: {}, is_anchor: false, is_overridden: true },
-    ]
-    const { hook, props } = setup({ slots, activities: [], campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }] })
-    await act(async () => {
-      await hook.result.current.createElectiveFromCell('Chugim', ['Art', 'Archery'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
-    })
-    expect(props.repo.writeElectiveSetFields).not.toHaveBeenCalled()
-    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
-    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
-  })
 
   it('a non-overridden cell is unaffected — replaceSlot proceeds normally', async () => {
     const slots = [
@@ -2489,59 +2367,8 @@ describe('useSlotMutations — override edit-block guard (is_overridden, not in 
 // wires the mode as a plain hook param (`overrideMode`); the UI toggle that
 // sets it is Phase 2 (out of scope here, per the ticket).
 describe('useSlotMutations — override-authoring mode (overrideMode: true)', () => {
-  it('placeActivityManual in override mode writes a day_overrides row (kind: swap), never template_slots', async () => {
-    const slots = [
-      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
-    ]
-    const { hook, props } = setup({
-      slots, activities: [{ id: 'act-1', name: 'Swim' }], groups: [{ id: 'g1', tier_id: 't1' }],
-      overrideModeDayId: 'd1', weekId: 'week-1',
-    })
-    await act(async () => {
-      await hook.result.current.placeActivityManual('act-1', 'g1', 'd1', 'b1')
-    })
-    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
-    expect(props.repo.writeDayOverrideFields).toHaveBeenCalled()
-    const [, fields] = props.repo.writeDayOverrideFields.mock.calls[0]
-    expect(fields).toMatchObject({
-      schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1',
-      activity_id: 'act-1', kind: 'swap',
-    })
-  })
 
-  it('pullOverrideCell writes a day_overrides row with kind: pull and a null activity_id', async () => {
-    const slots = [
-      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
-    ]
-    const { hook, props } = setup({ slots, overrideModeDayId: 'd1', weekId: 'week-1' })
-    await act(async () => {
-      await hook.result.current.pullOverrideCell('g1', 'd1', 'b1')
-    })
-    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
-    expect(props.repo.writeDayOverrideFields).toHaveBeenCalled()
-    const [, fields] = props.repo.writeDayOverrideFields.mock.calls[0]
-    expect(fields).toMatchObject({
-      schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1',
-      activity_id: null, kind: 'pull',
-    })
-  })
 
-  it('override-mode writes still respect the edit-block guard on an already-overridden cell', async () => {
-    const slots = [
-      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', flags: {}, is_overridden: true },
-    ]
-    const { hook, props } = setup({
-      slots, activities: [{ id: 'act-1', name: 'Swim' }], groups: [{ id: 'g1', tier_id: 't1' }],
-      overrideModeDayId: 'd1', weekId: 'week-1',
-    })
-    await act(async () => {
-      await hook.result.current.placeActivityManual('act-1', 'g1', 'd1', 'b1')
-    })
-    // Already-overridden means a NEW override write in override mode is still
-    // allowed (the guard only blocks NON-override-mode edits) — this asserts
-    // the guard is gated correctly on overrideMode, not that it blocks here.
-    expect(props.repo.writeDayOverrideFields).toHaveBeenCalled()
-  })
 
   // T108 Phase 2 (design §6.1, group-view correctness) — override mode is
   // scoped to ONE (week, day); group view renders every day as a column at
@@ -2566,25 +2393,6 @@ describe('useSlotMutations — override-authoring mode (overrideMode: true)', ()
   // what dragHandlers.js routes ALL drops/card-moves to) had NO override-mode
   // branch: dragging in override mode silently wrote template_slots for
   // every day. This pins the fix.
-  it('replaceSlot in override mode writes a day_overrides row (kind: swap), never template_slots', async () => {
-    const slots = [
-      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, is_anchor: false, flags: {} },
-    ]
-    const { hook, props } = setup({
-      slots, activities: [{ id: 'act-1', name: 'Swim' }],
-      overrideModeDayId: 'd1', weekId: 'week-1',
-    })
-    await act(async () => {
-      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
-    })
-    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
-    expect(props.repo.writeDayOverrideFields).toHaveBeenCalled()
-    const [, fields] = props.repo.writeDayOverrideFields.mock.calls[0]
-    expect(fields).toMatchObject({
-      schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1',
-      activity_id: 'act-1', kind: 'swap',
-    })
-  })
 
   it('replaceSlot on a different day than the active override-mode day writes normally, not to day_overrides', async () => {
     const slots = [
@@ -2601,119 +2409,7 @@ describe('useSlotMutations — override-authoring mode (overrideMode: true)', ()
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
   })
 
-  it('pullOverrideDay batches pullOverrideCell across the day\'s non-span, non-overridden blocks for one group', async () => {
-    const slots = [
-      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {}, is_anchor: false },
-      { id: 's2', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', flags: {}, is_anchor: false },
-      { id: 's3', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null, flags: {}, is_anchor: true },
-    ]
-    const timeBlocks = [{ id: 'b1' }, { id: 'b2' }, { id: 'b3' }]
-    const { hook, props } = setup({ slots, timeBlocks, overrideModeDayId: 'd1', weekId: 'week-1' })
-    await act(async () => {
-      await hook.result.current.pullOverrideDay('g1', 'd1')
-    })
-    // b1 and b2 get pull writes; b3 (anchor) is skipped.
-    expect(props.repo.writeDayOverrideFields).toHaveBeenCalledTimes(2)
-    const blockIds = props.repo.writeDayOverrideFields.mock.calls.map(([, fields]) => fields.time_block_id)
-    expect(blockIds.sort()).toEqual(['b1', 'b2'])
-  })
 
-  // T108 Phase 2 review round 3 (HIGH — re-authoring an existing override
-  // silently no-ops / data loss). Uses makeRealisticDayOverrideRepo, which
-  // reproduces the real UNIQUE(schedule_week_id, day_id, group_id,
-  // time_block_id) collision semantics a plain vi.fn() mock cannot — a
-  // FRESH id for an already-overridden coordinate must be a documented no-op
-  // here too, or this test would give the same false confidence the
-  // original round-2 tests did (see electron/ops/dayOverrides.projections.test.js
-  // for the real-SQLite version of this same proof).
-  describe('re-authoring an existing override (coordinate id reuse)', () => {
-    const slots = [
-      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, is_anchor: false, flags: {} },
-    ]
-
-    it('placeActivityManual, re-authored: the SECOND write reuses the id findOverrideId resolves, and the row ends up with the SECOND content', async () => {
-      const repo = makeRealisticDayOverrideRepo()
-      const { hook, props } = setup({
-        slots, activities: [{ id: 'act-art', name: 'Art' }, { id: 'act-boat', name: 'Boating' }],
-        overrideModeDayId: 'd1', weekId: 'week-1', repo,
-      })
-
-      await act(async () => {
-        await hook.result.current.placeActivityManual('act-art', 'g1', 'd1', 'b1')
-      })
-      const firstId = repo.writeDayOverrideFields.mock.calls[0][0]
-      expect(repo._rowForCoord('week-1|d1|g1|b1').activity_id).toBe('act-art')
-
-      // Simulate the real app: the composed dayOverrides state now includes
-      // the row the first write created, fed back in via rerender (the same
-      // way ScheduleScreen's setDayOverrides -> re-render -> updated prop
-      // cycle works in production).
-      hook.rerender({
-        ...props,
-        dayOverrides: [{ id: firstId, schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', activity_id: 'act-art', kind: 'swap', note: null }],
-      })
-
-      await act(async () => {
-        await hook.result.current.placeActivityManual('act-boat', 'g1', 'd1', 'b1')
-      })
-      const secondId = repo.writeDayOverrideFields.mock.calls[1][0]
-
-      // THE FIX: the second write reused the first write's id.
-      expect(secondId).toBe(firstId)
-      // And because the id was reused, the row's content is now the SECOND
-      // override — not silently stuck on the first (the bug this closes).
-      const rows = [...repo._rowsById.values()]
-      expect(rows).toHaveLength(1)
-      expect(rows[0].activity_id).toBe('act-boat')
-    })
-
-    it('WITHOUT id reuse (fresh id per write), the realistic repo reproduces the data-loss bug — pins why the fix is required', async () => {
-      // Same scenario as above, but calling the repo directly with two FRESH
-      // ids for the same coordinate — exactly what the pre-fix
-      // useSlotMutations.js code did (crypto.randomUUID() unconditionally).
-      // This is the control case: it demonstrates the realistic mock's
-      // UNIQUE-collision behavior is real, not a tautology that always passes.
-      const repo = makeRealisticDayOverrideRepo()
-      await repo.writeDayOverrideFields('fresh-id-1', {
-        schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', activity_id: 'act-art', kind: 'swap', note: null,
-      })
-      await repo.writeDayOverrideFields('fresh-id-2', {
-        schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', activity_id: 'act-boat', kind: 'swap', note: null,
-      })
-      const rows = [...repo._rowsById.values()]
-      expect(rows).toHaveLength(1)
-      expect(rows[0].id).toBe('fresh-id-1')
-      expect(rows[0].activity_id).toBe('act-art') // the second write vanished
-    })
-
-    it('setDayOverrides upserts by coordinate: after a re-authored write, the array has exactly ONE entry with the NEW content', async () => {
-      const repo = makeRealisticDayOverrideRepo()
-      let current = []
-      const setDayOverrides = vi.fn((updater) => {
-        current = typeof updater === 'function' ? updater(current) : updater
-      })
-      const { hook, props } = setup({
-        slots, activities: [{ id: 'act-art', name: 'Art' }, { id: 'act-boat', name: 'Boating' }],
-        overrideModeDayId: 'd1', weekId: 'week-1', repo, setDayOverrides,
-      })
-
-      await act(async () => {
-        await hook.result.current.placeActivityManual('act-art', 'g1', 'd1', 'b1')
-      })
-      expect(current).toHaveLength(1)
-      expect(current[0].activity_id).toBe('act-art')
-
-      hook.rerender({ ...props, dayOverrides: current })
-
-      await act(async () => {
-        await hook.result.current.placeActivityManual('act-boat', 'g1', 'd1', 'b1')
-      })
-      // Upsert, not append: still exactly one entry, and applyDayOverrides'
-      // find() (first match wins) now sees the fresh content immediately.
-      expect(current).toHaveLength(1)
-      expect(current[0].activity_id).toBe('act-boat')
-    })
-  })
 })
 
 // slot-occupant-write-builder — regression pins for the three defects the

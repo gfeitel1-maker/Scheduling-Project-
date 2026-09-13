@@ -1,6 +1,5 @@
 import SlotCell from '../schedule/SlotCell'
 import EmptyCell from './EmptyCell'
-import PulledCell from './PulledCell'
 import { decideCell, computeSpanCellProps } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
@@ -144,21 +143,6 @@ export default function ScheduleDayView({
                         )
                       }
 
-                      // T108 Phase 2 (design §5.1) — a PULL override, never droppable.
-                      if (decision.kind === 'pulled') {
-                        return (
-                          <PulledCell
-                            key={group.id}
-                            slot={decision.slot}
-                            ariaColIndex={ariaColIndex}
-                            cellKey={cellKey}
-                            collapsed={isCollapsed}
-                            blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
-                            column={group.name}
-                            {...placeCell({ blockIndex, columnIndex: groupIndex })}
-                          />
-                        )
-                      }
 
                       const { slot, rowSpan, cellType } = decision
                       const act = slot.activity_id ? actMap.get(slot.activity_id) : null

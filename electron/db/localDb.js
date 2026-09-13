@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 58
+export const CURRENT_SCHEMA_VERSION = 59
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2123,6 +2123,24 @@ export function initSchema(db) {
     db.transaction(() => {
       db.pragma('foreign_keys = OFF')
       db.exec(`DROP TABLE IF EXISTS template_overlays;`)
+      // T145/v59 — `day_overrides_json` is CONDITIONAL here now. This block is
+      // historical: when it shipped, every db reaching it had the column (v38
+      // added it), so carrying it forward was unconditional. schema.sql no
+      // longer declares it, so a database whose tables were created by the
+      // CURRENT schema.sql and then replayed through this migration does not
+      // have it, and the unconditional `SELECT ... day_overrides_json` threw
+      // `no such column`. That is not a hypothetical: it broke 19 test files
+      // that build a synthetic pre-vN db exactly this way.
+      //
+      // Reading the column list rather than assuming it keeps the historical
+      // behaviour EXACTLY where it applied (a real v52 db still carries its
+      // data forward to v59, which then discards it) while tolerating its
+      // absence. Do not "simplify" this back to a fixed list.
+      const hasDayOverridesJson = db
+        .prepare('PRAGMA table_info(schedule_snapshots)')
+        .all()
+        .some((c) => c.name === 'day_overrides_json')
+      const v53Cols = ['id', 'template_id', 'name', 'is_auto', 'created_at', 'slots']
       db.exec(`
         CREATE TABLE schedule_snapshots_v53 (
           id TEXT PRIMARY KEY,
@@ -2130,11 +2148,10 @@ export function initSchema(db) {
           name TEXT,
           is_auto INTEGER,
           created_at TEXT NOT NULL,
-          slots TEXT,
-          day_overrides_json TEXT
+          slots TEXT${hasDayOverridesJson ? ',\n          day_overrides_json TEXT' : ''}
         );
-        INSERT INTO schedule_snapshots_v53
-          SELECT id, template_id, name, is_auto, created_at, slots, day_overrides_json
+        INSERT INTO schedule_snapshots_v53 (${[...v53Cols, ...(hasDayOverridesJson ? ['day_overrides_json'] : [])].join(', ')})
+          SELECT ${[...v53Cols, ...(hasDayOverridesJson ? ['day_overrides_json'] : [])].join(', ')}
           FROM schedule_snapshots;
         DROP TABLE schedule_snapshots;
         ALTER TABLE schedule_snapshots_v53 RENAME TO schedule_snapshots;
@@ -2294,6 +2311,54 @@ export function initSchema(db) {
       db.exec("ALTER TABLE projection_failures ADD COLUMN store TEXT NOT NULL DEFAULT 'projection'")
     }
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (58, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v59 — remove Day Overrides entirely (T145, reversing T108's re-point).
+  //
+  // Drops `day_overrides` outright and drops `schedule_snapshots.day_overrides_json`.
+  // Follows the v53/overlay-retirement precedent above EXACTLY, including its
+  // decision to discard rather than preserve: hard cutover, no back-compat,
+  // pre-production, no real camp data. A saved version still restores — it just
+  // comes back without the per-day diffs the removed feature layered on top,
+  // which is the same trade v53 made for `overlays` and for the same reason.
+  //
+  // WHY THIS MUST DROP THE TABLE IN THE SAME COMMIT THAT UNREGISTERED IT
+  // (Red Hat, 2026-09-13): `day_overrides` carried DB-enforced REFERENCES on
+  // group_id/day_id/activity_id, registered in undoReferences.js so the U2
+  // delete path could BLOCK a delete with a friendly "still referenced" message.
+  // Removing those registrations while the table still exists leaves the
+  // pre-check and the DB constraint out of sync: referencesInto() reports zero
+  // blockers and the DELETE then throws a raw `FOREIGN KEY constraint failed`
+  // at a director. Dropping the table here is what closes that window — it is a
+  // correctness requirement, not tidying.
+  //
+  // Guard is `>= 58 && < 59`, NOT a bare `< 59` — see the v50 block's comment
+  // for the load-bearing reason (bug #194).
+  if (getSchemaVersion(db) >= 58 && getSchemaVersion(db) < 59) {
+    db.transaction(() => {
+      db.pragma('foreign_keys = OFF')
+      db.exec(`DROP TABLE IF EXISTS day_overrides;`)
+      db.exec(`
+        CREATE TABLE schedule_snapshots_v59 (
+          id TEXT PRIMARY KEY,
+          template_id TEXT NOT NULL REFERENCES schedule_templates(id),
+          name TEXT,
+          is_auto INTEGER,
+          created_at TEXT NOT NULL,
+          slots TEXT
+        );
+        INSERT INTO schedule_snapshots_v59
+          SELECT id, template_id, name, is_auto, created_at, slots
+          FROM schedule_snapshots;
+        DROP TABLE schedule_snapshots;
+        ALTER TABLE schedule_snapshots_v59 RENAME TO schedule_snapshots;
+      `)
+      db.pragma('foreign_keys = ON')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (59, ?)').run(
       new Date().toISOString()
     )
   }

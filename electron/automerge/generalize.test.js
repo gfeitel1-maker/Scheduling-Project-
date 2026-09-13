@@ -91,7 +91,20 @@ describe('Automerge generalization slice — modeled entity set is pinned to DIR
     // each field, kept separate because provenance is deliberately sparse and
     // authorship is not.
     const expectedOther = [PROVENANCE_COLLECTION, AUTHOR_COLLECTION]
-    const expected = [...expectedFlat, ...expectedScopes, ...expectedOther]
+    // T145 (2026-09-13) — `day_overrides` was REMOVED as an entity, but its
+    // (empty) collection remains in the frozen genesis. GENESIS_B64 is
+    // deliberately not regenerated: the runtime guard in campDocument.js is a
+    // SUBSET check (everything modeled must exist in genesis), which a superset
+    // satisfies, and regenerating the bytes would change the shared document's
+    // identity for every existing `.automerge` file — a far larger blast radius
+    // than one empty key.
+    //
+    // Named here explicitly, in the same style and for the same reason as
+    // expectedOther above: loosening this to a subset assertion would let the
+    // NEXT accidental collection through silently, which is the drift this
+    // guard exists to catch. A second orphan must fail this test.
+    const genesisOnly = ['day_overrides']
+    const expected = [...expectedFlat, ...expectedScopes, ...expectedOther, ...genesisOnly]
     expect(Object.keys(doc).sort()).toEqual(expected.sort())
     // MODELED_ENTITIES stays exactly the entity set — provenance is not an
     // entity and must never become writable through applyWrite's entity path.
@@ -100,7 +113,7 @@ describe('Automerge generalization slice — modeled entity set is pinned to DIR
     expect(MODELED_ENTITIES.has(AUTHOR_COLLECTION)).toBe(false)
   })
 
-  it('DEFERRED_ENTITIES is empty (day_overrides un-deferred by the doc-native ensureExists slice)', () => {
+  it('DEFERRED_ENTITIES is empty', () => {
     expect([...DEFERRED_ENTITIES]).toEqual([])
   })
 
@@ -139,10 +152,6 @@ describe('Automerge generalization slice — scope guard: refuses non-DIRECT_CAM
     expect(() => seedDocFromSqlite(db, undefined, 'not_a_real_entity')).toThrow()
   })
 })
-
-// day_overrides was previously refused at all three entry points (deferred, op-log-coupled) — see
-// electron/automerge/docNativeEnsureExists.test.js for its current, doc-native coverage now that
-// its ensureExists accepts a knownRow and no longer needs deferring.
 
 describe('Automerge generalization slice — multi-entity parity with the op-log (load-bearing)', () => {
   it('a mixed write stream across several entities projects byte-identically via op-log vs. Automerge', () => {
@@ -306,9 +315,7 @@ describe('Automerge generalization slice — full-camp rebuildFromDoc round-trip
       { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'day_id', value: 'day-1' },
       { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'name', value: 'Flag' },
       // Code Reviewer LOW: broaden coverage beyond the original 8 entities to
-      // every remaining direct-camp entity. day_overrides is covered separately
-      // in docNativeEnsureExists.test.js (its ensureExists needs sibling parent
-      // rows this stream doesn't set up, plus knownRow-specific assertions).
+      // every remaining direct-camp entity.
       { entity: 'camp_maps', entity_id: 'map-1', field: 'camp_id', value: 'camp-1' },
       { entity: 'camp_maps', entity_id: 'map-1', field: 'kind', value: 'outdoor' },
       { entity: 'schedule_weeks', entity_id: 'week-1', field: 'camp_id', value: 'camp-1' },

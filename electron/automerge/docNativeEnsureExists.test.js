@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
 // Doc-native ensureExists (docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md, Stage 6
-// prep): seven entities' PROJECTIONS[...].ensureExists reconstructed their NOT-NULL FK columns by
+// prep): six entities' PROJECTIONS[...].ensureExists reconstructed their NOT-NULL FK columns by
 // querying the `operations` table for a sibling field's prior value — the correct behavior for
 // true op-log replay (one field at a time), but a dependency on a table Stage 6 removes entirely.
 // PR #322's backfillOperationsForRow bridged this by writing synthetic operations rows before
@@ -12,7 +12,7 @@
 // replay) and consults it BEFORE falling back to the operations query. The op-log path (appendOp,
 // syncClient replay) passes no knownRow and is byte-for-byte unchanged.
 //
-// These tests prove the thing PR #322's bridge only worked around: project each of the seven
+// These tests prove the thing PR #322's bridge only worked around: project each of the six
 // entities into a FRESH database that has ZERO `operations` rows at all, using ONLY applyWrite
 // (the pure doc-mutation path) — never appendOp. If ensureExists still secretly depended on the
 // operations table, these rows would silently never materialize, exactly as day_overrides did
@@ -23,7 +23,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
 import { PROJECTIONS } from '../ops/projections.js'
-import { createEmptyDoc, applyWrite, DEFERRED_ENTITIES, MODELED_ENTITIES, readRecord, listRecordIds } from './campDocument.js'
+import { createEmptyDoc, applyWrite, DEFERRED_ENTITIES, MODELED_ENTITIES } from './campDocument.js'
 import { projectAll, rebuildFromDoc } from './projector.js'
 import { seedAllFromSqlite } from './seed.js'
 
@@ -85,7 +85,7 @@ function docWithParents() {
   return () => doc
 }
 
-describe('doc-native ensureExists — seven op-log-backed entities project from a pure document, zero operations rows', () => {
+describe('doc-native ensureExists — six op-log-backed entities project from a pure document, zero operations rows', () => {
   const cases = [
     {
       entity: 'week_activity_exclusions',
@@ -129,15 +129,6 @@ describe('doc-native ensureExists — seven op-log-backed entities project from 
         activity_id: null, location_id: null,
       },
     },
-    {
-      entity: 'day_overrides',
-      id: 'do-1',
-      fields: { camp_id: 'camp-1', schedule_week_id: 'week-1', day_id: 'day-1', group_id: 'group-1', time_block_id: 'tb-1' },
-      expected: {
-        id: 'do-1', camp_id: 'camp-1', schedule_week_id: 'week-1', day_id: 'day-1', group_id: 'group-1',
-        time_block_id: 'tb-1', activity_id: null, kind: 'swap', note: null,
-      },
-    },
   ]
 
   for (const { entity, id, fields, expected } of cases) {
@@ -160,71 +151,10 @@ describe('doc-native ensureExists — seven op-log-backed entities project from 
     })
   }
 
-  it('day_overrides is no longer deferred', () => {
-    expect(DEFERRED_ENTITIES.has('day_overrides')).toBe(false)
-    expect(MODELED_ENTITIES.has('day_overrides')).toBe(true)
-  })
 
-  it('day_overrides round-trips: build via applyWrite, corrupt SQLite, rebuildFromDoc reproduces it from the document alone', () => {
-    const getDoc = docWithParents()
-    let doc = getDoc()
-    doc = applyWrite(doc, { entity: 'day_overrides', entity_id: 'do-1', field: 'camp_id', value: 'camp-1' })
-    doc = applyWrite(doc, { entity: 'day_overrides', entity_id: 'do-1', field: 'schedule_week_id', value: 'week-1' })
-    doc = applyWrite(doc, { entity: 'day_overrides', entity_id: 'do-1', field: 'day_id', value: 'day-1' })
-    doc = applyWrite(doc, { entity: 'day_overrides', entity_id: 'do-1', field: 'group_id', value: 'group-1' })
-    doc = applyWrite(doc, { entity: 'day_overrides', entity_id: 'do-1', field: 'time_block_id', value: 'tb-1' })
-    doc = applyWrite(doc, { entity: 'day_overrides', entity_id: 'do-1', field: 'kind', value: 'cancel' })
-
-    projectAll(db, doc)
-    const before = rowsOf(db, 'day_overrides')
-    expect(before).toHaveLength(1)
-    expect(before[0].kind).toBe('cancel')
-
-    db.prepare('DELETE FROM day_overrides').run()
-    expect(rowsOf(db, 'day_overrides')).toEqual([])
-
-    rebuildFromDoc(db, doc)
-    expect(rowsOf(db, 'day_overrides')).toEqual(before)
-  })
 })
 
-describe('day_overrides — two devices converge', () => {
-  it('two devices each writing a different day_overrides row converge to both, no data loss', async () => {
-    const A = await import('@automerge/automerge')
-    let base = createEmptyDoc()
-    base = applyWrite(base, { entity: 'schedule_weeks', entity_id: 'week-1', field: 'camp_id', value: 'camp-1' })
-    base = applyWrite(base, { entity: 'days_of_operation', entity_id: 'day-1', field: 'camp_id', value: 'camp-1' })
-    base = applyWrite(base, { entity: 'groups', entity_id: 'g1', field: 'camp_id', value: 'camp-1' })
-    base = applyWrite(base, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk 1' })
-    base = applyWrite(base, { entity: 'groups', entity_id: 'g2', field: 'camp_id', value: 'camp-1' })
-    base = applyWrite(base, { entity: 'groups', entity_id: 'g2', field: 'name', value: 'Bunk 2' })
-
-    let a = A.clone(base)
-    let b = A.clone(base)
-    a = applyWrite(a, { entity: 'day_overrides', entity_id: 'do-a', field: 'camp_id', value: 'camp-1' })
-    a = applyWrite(a, { entity: 'day_overrides', entity_id: 'do-a', field: 'schedule_week_id', value: 'week-1' })
-    a = applyWrite(a, { entity: 'day_overrides', entity_id: 'do-a', field: 'day_id', value: 'day-1' })
-    a = applyWrite(a, { entity: 'day_overrides', entity_id: 'do-a', field: 'group_id', value: 'g1' })
-    a = applyWrite(a, { entity: 'day_overrides', entity_id: 'do-a', field: 'time_block_id', value: 'tb-1' })
-
-    b = applyWrite(b, { entity: 'day_overrides', entity_id: 'do-b', field: 'camp_id', value: 'camp-1' })
-    b = applyWrite(b, { entity: 'day_overrides', entity_id: 'do-b', field: 'schedule_week_id', value: 'week-1' })
-    b = applyWrite(b, { entity: 'day_overrides', entity_id: 'do-b', field: 'day_id', value: 'day-1' })
-    b = applyWrite(b, { entity: 'day_overrides', entity_id: 'do-b', field: 'group_id', value: 'g2' })
-    b = applyWrite(b, { entity: 'day_overrides', entity_id: 'do-b', field: 'time_block_id', value: 'tb-1' })
-
-    const merged = A.merge(A.clone(a), b)
-    expect(listRecordIds(merged, 'day_overrides')).toEqual(['do-a', 'do-b'])
-    expect(readRecord(merged, 'day_overrides', 'do-a').group_id).toBe('g1')
-    expect(readRecord(merged, 'day_overrides', 'do-b').group_id).toBe('g2')
-
-    expect(() => projectAll(db, merged)).not.toThrow()
-    const rows = rowsOf(db, 'day_overrides')
-    expect(rows.map((r) => r.id).sort()).toEqual(['do-a', 'do-b'])
-  })
-})
-
-describe('op-log path is unchanged: seedAllFromSqlite + rebuildFromDoc still work for these seven entities via real op-log writes', () => {
+describe('op-log path is unchanged: seedAllFromSqlite + rebuildFromDoc still work for these six entities via real op-log writes', () => {
   it('a real op-log write (appendOp) still seeds and rebuilds correctly (regression guard)', async () => {
     const { appendOp } = await import('../ops/operations.js')
     appendOp(db, { entity: 'schedule_weeks', entity_id: 'week-1', field: 'camp_id', value: 'camp-1', device_id: 'device-1' })

@@ -260,7 +260,7 @@ export function flushPendingWrites() {
 }
 
 // Mirror one op-log write into the held Automerge doc, if `entity` is modeled. Unmodeled entities
-// (day_overrides, parent-scoped entities, template_slots, host-only tables) are a deliberate scope
+// (parent-scoped entities, template_slots, host-only tables) are a deliberate scope
 // fence (see campDocument.js's MODELED_ENTITIES) — they stay op-log-only, silently, not an error.
 //
 // This is ALSO the local half of Stage 5f's unification: the doc this reads and writes

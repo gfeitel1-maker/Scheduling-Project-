@@ -188,7 +188,6 @@ function seedDemoCamp() {
     schedule_templates: [{ id: TEMPLATE, camp_id: CAMP, name: 'Generated', kind: 'generated', week_id: WEEK }],
     template_slots,
     schedule_snapshots: [],
-    day_overrides: [],
   }
 }
 
@@ -227,7 +226,6 @@ const UNIQUE_KEYS = {
   special_days: ['camp_id', 'name'],
   elective_sets: ['camp_id', 'name'],
   events: ['camp_id', 'name'],
-  day_overrides: ['schedule_week_id', 'day_id', 'group_id', 'time_block_id'],
 }
 
 // Mirrors electron/ops/operations.js's UNIQUE_FIELD_ENTITIES exactly (D2,
@@ -402,14 +400,10 @@ export const MOCK_WRITE_ALLOWLIST = {
   // deferred.
   elective_set_activities: ['elective_set_id', 'activity_id', 'camper_headcount'],
   // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-
-  // shape.md D1) — hand-transcribed mirror of PROJECTIONS.day_overrides.fields,
-  // same discipline as T40/T41 above.
-  day_overrides: ['camp_id', 'schedule_week_id', 'day_id', 'group_id', 'time_block_id', 'activity_id', 'kind', 'note'],
   schedule_weeks: ['camp_id', 'name', 'sort_order', 'is_archived'],
   schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],
-  // day_overrides_json (T108, design §5.2) — hand-transcribed mirror of
   // PROJECTIONS.schedule_snapshots.fields.
-  schedule_snapshots: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'day_overrides_json'],
+  schedule_snapshots: ['template_id', 'name', 'is_auto', 'created_at', 'slots'],
   template_slots: [
     'template_id',
     'group_id',
@@ -1216,7 +1210,6 @@ export const mockShoresh = {
             is_auto: false,
             created_at: new Date().toISOString(),
             slots: JSON.stringify(slots),
-            day_overrides_json: '[]',
           })
           version = { created: true, snapshotId, unresolvedCount: unresolved.length, unresolvedNames: unresolved.map((u) => u.activityName) }
         } else {

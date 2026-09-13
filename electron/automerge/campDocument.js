@@ -198,6 +198,21 @@ function assertModeled(entity) {
 // GENESIS_B64. Do NOT "fix" a failure of that assertion by editing GENESIS_ENTITIES alone — the
 // bytes below must be regenerated to match, or the exact bug described above reappears for
 // whatever entity was added.
+//
+// T145 (2026-09-13) — `day_overrides` is still listed below even though the
+// entity was REMOVED from the app. It is deliberately NOT deleted from this
+// list, and GENESIS_B64 is deliberately NOT regenerated:
+//
+//   - The guard below is a SUBSET check (every MODELED_ENTITIES must exist in
+//     genesis), so a genesis that is a superset passes. Removal cannot trip it.
+//   - The cost of leaving it is one empty collection key in the genesis
+//     document that nothing ever writes to. The cost of regenerating the bytes
+//     is changing the shared document's identity for every existing `.automerge`
+//     file — a far larger blast radius than the orphan key it would tidy.
+//
+// So this entry is expected to be here, and removing it would be a bigger
+// change than it looks. Verified at removal time: the module loads and the
+// assertion passes with day_overrides absent from MODELED_ENTITIES.
 const GENESIS_ENTITIES = [
   'activities',
   'anchor_activities',

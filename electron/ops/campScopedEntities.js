@@ -36,7 +36,6 @@ export const DIRECT_CAMP_ENTITIES = new Set([
   // shape.md D1): direct-camp-scoped (camp_id NOT NULL), like schedule_weeks/
   // special_days, NOT parent-scoped through a join like
   // week_activity_exclusions (which has no camp_id column of its own).
-  'day_overrides',
   // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
   // placement.md §1): camp-scoped, mirroring elective_sets exactly — no
   // children of its own (no offerings table in Slice 1).
@@ -143,7 +142,6 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'camp_maps', // v33 (M6); references camps.id only, applied separately (unconditional) from this loop on the Client.
   'anchor_activities', // references cohorts.id/days_of_operation.id, both nullable
   'schedule_weeks', // references camps.id only; must precede schedule_templates and every week_*_exclusions table below, all of which reference it
-  'day_overrides', // T108; references schedule_weeks.id/days_of_operation.id/groups.id, all NOT NULL — positioned after all three
   'schedule_templates', // references schedule_weeks.id, nullable
   'template_slots', // references groups.id/activities.id, both nullable — no declared FK to schedule_templates.id (schema.sql); elective_set_id (v35) also has no declared FK
   'week_activity_exclusions', // references schedule_weeks.id and activities.id, both NOT NULL

@@ -24,10 +24,6 @@ export const RESTORE_DECISIONS = Object.freeze({
   days_of_operation: 'restorable',
   time_blocks: 'restorable',
   anchor_activities: 'restorable',
-  // T108 Phase 2 review round 3 (full-gate) — day_overrides is a normal
-  // authored camp-scoped entity like anchor_activities, restorable from the
-  // op-log.
-  day_overrides: 'restorable',
   locations: 'restorable',
 
   users: 'refused: a restore would re-emit pin_hash and pin_salt as replicating ops',
