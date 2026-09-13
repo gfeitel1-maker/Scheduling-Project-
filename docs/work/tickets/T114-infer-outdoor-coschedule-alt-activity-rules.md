@@ -5,7 +5,7 @@ status: open
 created: 2026-08-22
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-10-ingestion-evidence-persistence.md, docs/adr/2026-08-22-roots-as-hub-setup-ia.md]
-archive_when: ingest infers (with import_evidence) at least one of is_outdoor / co-schedule / weather-alternative for activity rules, and ActivitiesScreen surfaces its provenance the same way Slice D does the other three
+archive_when: ingest infers co-schedule rules WITH import_evidence rows, and ActivitiesScreen surfaces their provenance the same way Slice D does the other three (is_outdoor and weather_alternative_id are downscoped as not inferable from a schedule - see Scope below)
 ---
 
 # T114 — Infer age divisions and per-activity co-scheduling from an import
@@ -72,10 +72,19 @@ PLACE, not of the placement, so the only source that could carry it is a
 locations list. Attempting to infer it from a schedule would be manufacturing a
 fact, which is exactly what this repo's provenance rules exist to prevent.
 
-Co-schedule (`max_groups_per_slot` / `same_tier_only`) and weather-alternative
-(`weather_alternative_id`) ARE inferable from a schedule, because both are
-statements about how placements co-occur, which is precisely what a grid
-records. Those two remain in scope.
+Co-schedule (`max_groups_per_slot` / `same_tier_only`) IS inferable from a
+schedule, because it is a statement about how placements co-occur, which is
+precisely what a grid records. That one remains in scope.
+
+Weather-alternative (`weather_alternative_id`) is NOT, and an earlier revision
+of this ticket was wrong to group it with co-schedule (owner, 2026-09-13: "we
+know that weather cannot be inferred"). An alternative is the activity you
+substitute WHEN IT RAINS, and a schedule records no weather. Seeing Swim
+replaced by Arts one Tuesday is equally consistent with rain, a broken filter,
+or a staff absence — the grid cannot distinguish them, so any correlation drawn
+from it would be manufactured, the same error as inferring outdoor-ness above.
+Downscoped alongside `is_outdoor`; it needs a source that actually carries the
+fact (a director saying so).
 
 Spun off: inferring LOCATIONS from a schedule — see
 `docs/work/tickets/T147-infer-locations-from-a-schedule.md`. That one needs a
