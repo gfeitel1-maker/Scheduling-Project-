@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
-import { activityColor } from './slotCellConstants'
 import { SearchIcon } from '../icons'
 
 function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable, showTarget }) {
@@ -10,7 +9,6 @@ function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable, show
     disabled: atMax || !draggable,
   })
 
-  const color = activityColor(activity.id)
   const target = activity.min_per_week ?? 0
   const met = scheduledCount >= target
 
@@ -28,8 +26,13 @@ function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable, show
         gap: 8,
         padding: '8px 10px',
         borderRadius: 8,
-        border: `1.5px solid ${atMax ? 'var(--border)' : color}`,
-        background: isDragging ? `${color}22` : atMax ? 'var(--surface)' : `${color}11`,
+        // T52 follow-up (owner, 2026-09-12): the chip carries no activity
+        // colour. Frequency is already stated as a number beside the name
+        // (`2/\u221e`), so colouring the chip by the same fact was redundant —
+        // it read as noise rather than signal. Neutral chrome; the only
+        // colour left is state (at-max, dragging).
+        border: '1.5px solid var(--border)',
+        background: isDragging ? 'var(--surface-elevated)' : 'var(--surface)',
         cursor: !draggable ? 'default' : atMax ? 'not-allowed' : isDragging ? 'grabbing' : 'grab',
         opacity: atMax ? 0.45 : isDragging ? 0.6 : 1,
         userSelect: 'none',
@@ -37,13 +40,6 @@ function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable, show
         transition: 'opacity var(--motion-fast) var(--ease-out)',
       }}
     >
-      <span style={{
-        width: 10,
-        height: 10,
-        borderRadius: '50%',
-        background: color,
-        flexShrink: 0,
-      }} />
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <span style={{
           fontFamily: 'var(--font-sans)',

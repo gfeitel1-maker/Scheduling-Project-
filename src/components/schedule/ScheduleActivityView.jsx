@@ -1,4 +1,3 @@
-import { activityColor } from '../schedule/slotCellConstants'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { S } from '../../styles/shared'
@@ -39,7 +38,6 @@ export default function ScheduleActivityView({
         /* Card grid */
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
           {activities.map((act) => {
-            const color = activityColor(act.id)
             const totalSlots = slots.filter(s => s.activity_id === act.id).length
             const weeklyGroups = new Set(slots.filter(s => s.activity_id === act.id).map(s => s.group_id)).size
             const place = placeNameFor(act, locMap)
@@ -49,18 +47,21 @@ export default function ScheduleActivityView({
                 onClick={() => onSelectActivity(act.id)}
                 className="activity-card press-97"
                 style={{
-                  '--activity-color': color,
+                  // Neutral chrome — the activity colour was removed with the
+                  // grid/palette dots (owner, 2026-09-12). The card is identified
+                  // by its NAME; colour carried no fact the card doesn't state.
+                  '--activity-color': 'var(--primary)',
                   background: 'var(--surface)', border: `1px solid var(--border)`,
                   borderRadius: 8, padding: '14px 16px', textAlign: 'left',
                   cursor: 'pointer', transition: 'border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out)',
-                  borderTop: `4px solid ${color}`,
+                  borderTop: '4px solid var(--border)',
                 }}
               >
                 <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 6, lineHeight: 1.3 }}>{act.name}</div>
                 {place && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>{place}</div>}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   {act.priority === 'high' && (
-                    <span style={S.chip(color, true, { fontSize: 10, borderRadius: 3, padding: '1px 6px', border: 'none', cursor: 'default' })}>HIGH</span>
+                    <span style={S.chip('var(--accent)', true, { fontSize: 10, borderRadius: 3, padding: '1px 6px', border: 'none', cursor: 'default' })}>HIGH</span>
                   )}
                   {act.is_outdoor && (
                     <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600 }}>OUTDOOR</span>
@@ -78,7 +79,6 @@ export default function ScheduleActivityView({
         (() => {
           const act = activities.find(a => a.id === selectedActivity)
           const place = placeNameFor(act, locMap)
-          const color = activityColor(selectedActivity)
           const gridTemplateColumns = columnTracks(days.length)
           const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
           return (
@@ -88,10 +88,9 @@ export default function ScheduleActivityView({
                   onClick={() => onSelectActivity(null)}
                   style={S.backBar}
                 >← All Activities</button>
-                <span style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }} />
                 <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 18, color: 'var(--text)' }}>{act?.name}</span>
                 {place && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{place}</span>}
-                {act?.priority === 'high' && <span style={S.chip(color, true, { fontSize: 11, borderRadius: 3, padding: '2px 8px', border: 'none', cursor: 'default' })}>HIGH PRIORITY</span>}
+                {act?.priority === 'high' && <span style={S.chip('var(--accent)', true, { fontSize: 11, borderRadius: 3, padding: '2px 8px', border: 'none', cursor: 'default' })}>HIGH PRIORITY</span>}
                 {act?.is_outdoor && <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>OUTDOOR</span>}
               </div>
 
@@ -172,9 +171,11 @@ export default function ScheduleActivityView({
                                 })}
                                 style={{
                                   ...placeCell({ blockIndex, columnIndex: dayIndex }),
-                                  // Data-derived paint (the activity's own hue), so it stays inline.
-                                  background: assigned.length ? `${color}12` : '',
-                                  borderLeft: assigned.length ? `3px solid ${color}` : '3px solid transparent',
+                                  // "This activity is here" is now shown by presence
+                                  // alone plus a neutral accent bar, not by the
+                                  // activity's own hue.
+                                  background: assigned.length ? 'color-mix(in srgb, var(--primary) 6%, transparent)' : '',
+                                  borderLeft: assigned.length ? '3px solid var(--primary)' : '3px solid transparent',
                                   cursor: 'default',
                                 }}
                               >
@@ -189,7 +190,7 @@ export default function ScheduleActivityView({
                                       <div
                                         key={s.id}
                                         className="cell-name"
-                                        style={{ '--cell-name-color': color, fontSize: 11 }}
+                                        style={{ '--cell-name-color': 'var(--text)', fontSize: 11 }}
                                       >
                                         {g?.name || '?'}
                                       </div>

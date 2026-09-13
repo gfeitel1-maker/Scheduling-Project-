@@ -1,7 +1,6 @@
 import SlotCell from '../schedule/SlotCell'
 import EmptyCell from './EmptyCell'
 import PulledCell from './PulledCell'
-import OverrideToggleButton from './OverrideToggleButton'
 import { decideCell, computeSpanCellProps } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
@@ -33,7 +32,6 @@ export default function ScheduleDayView({
   onSpanExtendStart,
   // Generated "track changes" review; empty/true on the manual route so its
   // day view is unchanged. highlightMap is Map<slotId, reason>.
-  showIdentityDot = true,
   highlightMap,
   highlightColor = 'var(--danger)',
   collapsedBlockIds = NO_COLLAPSE,
@@ -43,9 +41,6 @@ export default function ScheduleDayView({
   // Events overlay placement Slice 1
   eventsAll = [], onPlaceEvent, onOpenEvent,
   isContentRaced, onDismissContentRace,
-  // T108 Phase 2 (design §6, Designer spec §1.1) — the day view IS one
-  // (week, day), so the toggle lives once in the toolbar, not per-column.
-  overrideModeDayId, onToggleOverrideMode,
 }) {
   const gridTemplateColumns = columnTracks(groups.length)
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
@@ -59,16 +54,6 @@ export default function ScheduleDayView({
         {days.map(d => (
           <button key={d.id} onClick={() => onSelectDay(d.id)} className="press-98" style={S.chip('var(--primary)', selectedDay === d.id, { padding: '5px 16px', fontSize: 12, fontFamily: 'var(--font-sans)' })}>{d.label}</button>
         ))}
-        {/* T108 Phase 2 (Designer spec §1.1) — one control, next to the
-            existing week/day selector controls, since every column here
-            already shares the one (week, selectedDay) binding. */}
-        {selectedDay && onToggleOverrideMode && (
-          <OverrideToggleButton
-            active={overrideModeDayId === selectedDay}
-            onClick={() => onToggleOverrideMode(selectedDay)}
-            showLabel
-          />
-        )}
       </div>
 
       {selectedDay && (
@@ -201,7 +186,6 @@ export default function ScheduleDayView({
                             : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
                           activity={act}
                           anchor={anchor}
-                          actColorIdx={act?.colorIdx || 0}
                           weatherMode={weatherMode}
                           eligibleActivities={eligibleActivitiesFor?.(group.id) ?? []}
                           onPlace={onPlace}
@@ -225,7 +209,6 @@ export default function ScheduleDayView({
                           spanTailBlockIds={spanTailBlockIds}
                           onSplitAt={onSplitAt}
                           onExtendGrab={onExtendGrab}
-                          showIdentityDot={showIdentityDot}
                           isFlagHighlighted={highlightMap?.has(slot.id) ?? false}
                           highlightColor={highlightColor}
                           highlightReason={highlightMap?.get(slot.id) ?? null}

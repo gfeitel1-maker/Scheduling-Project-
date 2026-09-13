@@ -2,7 +2,6 @@ import SlotCell from '../schedule/SlotCell'
 import EmptyCell from './EmptyCell'
 import PulledCell from './PulledCell'
 import { PullIcon } from '../icons'
-import OverrideToggleButton from './OverrideToggleButton'
 import { decideCell } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
@@ -32,9 +31,7 @@ export default function ScheduleGroupView({
   selectedSlotKeys,
   pasteMode,
   onCellSelect,
-  // Generated "track changes" review: calm grid (showIdentityDot=false) and the
   // lit-cell set for the active concern. highlightMap is Map<slotId, reason>.
-  showIdentityDot = true,
   highlightMap,
   highlightColor = 'var(--danger)',
   // T55. A Set of collapsed time-block ids and the toggle for it. Collapse is
@@ -111,10 +108,6 @@ export default function ScheduleGroupView({
                                 onClick={e => { e.stopPropagation(); onPullOverrideDay(selectedGroup, d.id) }}
                               ><PullIcon /></button>
                             )}
-                            <OverrideToggleButton
-                              active={overrideModeDayId === d.id}
-                              onClick={() => onToggleOverrideMode(d.id)}
-                            />
                           </span>
                         )}
                       </div>
@@ -238,7 +231,6 @@ export default function ScheduleGroupView({
                             slot={slot.is_anchor ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id } : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
                             activity={act}
                             anchor={anchor}
-                            actColorIdx={act?.colorIdx || 0}
                             weatherMode={weatherMode}
                             eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
                             onPlace={onPlace}
@@ -266,7 +258,6 @@ export default function ScheduleGroupView({
                             spanTailBlockIds={spanTailBlockIds}
                             onSplitAt={onSplitAt}
                             onExtendGrab={onExtendGrab}
-                            showIdentityDot={showIdentityDot}
                             isFlagHighlighted={highlightMap?.has(slot.id) ?? false}
                             highlightColor={highlightColor}
                             highlightReason={highlightMap?.get(slot.id) ?? null}

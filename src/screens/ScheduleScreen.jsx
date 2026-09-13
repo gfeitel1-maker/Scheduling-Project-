@@ -735,9 +735,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     [snapshots, slots]
   )
 
-  // colorIdx carries the activity's stable id, which activityColor() looks up in
-  // that assignment (falling back to the bare hash if none is registered).
-  const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
+  // `colorIdx` is vestigial — nothing reads it since the activity colour dots
+  // were removed from the grid, palette and activity view (owner, 2026-09-12).
+  // Kept out of the row rather than left as dead freight.
+  const actMap = new Map(activities.map(a => [a.id, { ...a }]))
   const anchorMap = new Map(anchors.map(a => [a.id, a]))
 
   // Group-view and day-view DnD share identical palette-drop/replace branches —
@@ -997,7 +998,17 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               ))}
             </div>
 
-            {/* Undo / Redo (T5) */}
+            {/* Weather Mode sits with the views (owner, 2026-09-12): it changes
+                what you SEE, not what you have. */}
+            <button
+              onClick={() => setWeatherMode(w => !w)}
+              style={{ padding: '6px 12px', border: `1px solid ${weatherMode ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, background: weatherMode ? 'color-mix(in srgb, var(--accent) 9%, var(--surface))' : 'var(--surface)', color: weatherMode ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
+            >
+              Weather Mode {weatherMode ? 'ON' : 'OFF'}
+            </button>
+
+            {/* Acting on the schedule: undo, redo, rebuild — one cluster, since
+                all three CHANGE the week rather than describe it. */}
             <button
               onClick={() => { bumpFlagAckResync(); handleUndo() }}
               disabled={undoStack.length === 0}
@@ -1011,30 +1022,52 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: redoStack.length === 0 ? 'not-allowed' : 'pointer', opacity: redoStack.length === 0 ? 0.35 : 1, fontSize: 14, fontFamily: 'inherit' }}
             ><UndoIcon direction="redo" /></button>
 
+            {!isManual && (
+              // Sits with undo/redo (owner, 2026-09-12) — all three change the
+              // week. Quiet at rest; the destructive amber only surfaces on
+              // hover, where the intent to rebuild actually matters. Non-admins
+              // get the muted disabled form with no hover reveal.
+              <button
+                onClick={() => setConfirmRegen(true)}
+                disabled={role !== 'admin'}
+                title={role !== 'admin' ? 'Admin only' : undefined}
+                style={role !== 'admin'
+                  ? { ...S.btnSecondary, ...S.buttonDisabled, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)' }
+                  : { ...S.btnSecondary, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)', transition: 'color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)' }}
+                onMouseEnter={role === 'admin' ? (e) => {
+                  e.currentTarget.style.color = 'var(--warning)'
+                  e.currentTarget.style.borderColor = 'var(--warning)'
+                  e.currentTarget.style.background = 'color-mix(in srgb, var(--warning) 8%, var(--surface))'
+                } : undefined}
+                onMouseLeave={role === 'admin' ? (e) => {
+                  e.currentTarget.style.color = 'var(--text-secondary)'
+                  e.currentTarget.style.borderColor = 'var(--border)'
+                  e.currentTarget.style.background = 'var(--surface)'
+                } : undefined}
+              >Rebuild this schedule</button>
+            )}
+
             <div style={{ flex: 1 }} />
 
-            {/* Weather Mode, Versions, Export, and Rebuild are used
-                occasionally, not mid-build. WS5 S2a hid them behind a "⋯"
-                overflow popup for density; the owner disliked that popup
-                container specifically, not the controls being secondary. S3
-                keeps them always on screen but visually quiet — set off by a
-                divider, smaller/lighter than the primary front-row controls
-                (Week/View/Undo-Redo) so the grid still dominates. */}
+            {/* Getting the week OUT of the app: versions and the two exports.
+                Categorised per the owner, 2026-09-12 — Versions belongs here
+                rather than beside Week 1, because "give me a different copy of
+                this" is closer to export/restore than to which-week-am-I-on.
+                Weather Mode moved up to the views; Rebuild moved to the
+                undo/redo cluster.
+
+                Deliberately NOT behind an overflow popup: WS5 S2a tried a "⋯"
+                container here and the owner rejected that specifically. These
+                stay on screen, set off by a divider and visually quieter than
+                the primary controls, so the grid still dominates. */}
             <div
-              aria-label="Secondary schedule actions"
+              aria-label="Versions and export"
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 paddingLeft: 12, marginLeft: 4,
                 borderLeft: '1px solid var(--border)',
               }}
             >
-              <button
-                onClick={() => setWeatherMode(w => !w)}
-                style={{ padding: '5px 10px', border: `1px solid ${weatherMode ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, background: weatherMode ? 'color-mix(in srgb, var(--accent) 9%, var(--surface))' : 'var(--surface)', color: weatherMode ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1 }}
-              >
-                Weather Mode {weatherMode ? 'ON' : 'OFF'}
-              </button>
-
               <VersionsDropdown
                 snapshots={versionRows}
                 isOpen={showVersions}
@@ -1060,36 +1093,97 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 title="Machine-readable schedule data for another tool"
                 style={{ ...S.btnSecondary, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)' }}
               >Export data (JSON)</button>
-              {!isManual && (
-                // Quiet at rest like the rest of the secondary cluster; the
-                // destructive amber only surfaces on hover, where the intent to
-                // rebuild actually matters. Non-admins get the muted disabled
-                // form with no hover reveal.
-                <button
-                  onClick={() => setConfirmRegen(true)}
-                  disabled={role !== 'admin'}
-                  title={role !== 'admin' ? 'Admin only' : undefined}
-                  style={role !== 'admin'
-                    ? { ...S.btnSecondary, ...S.buttonDisabled, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)' }
-                    : { ...S.btnSecondary, padding: '5px 10px', fontSize: 12, color: 'var(--text-secondary)', transition: 'color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)' }}
-                  onMouseEnter={role === 'admin' ? (e) => {
-                    e.currentTarget.style.color = 'var(--warning)'
-                    e.currentTarget.style.borderColor = 'var(--warning)'
-                    e.currentTarget.style.background = 'color-mix(in srgb, var(--warning) 8%, var(--surface))'
-                  } : undefined}
-                  onMouseLeave={role === 'admin' ? (e) => {
-                    e.currentTarget.style.color = 'var(--text-secondary)'
-                    e.currentTarget.style.borderColor = 'var(--border)'
-                    e.currentTarget.style.background = 'var(--surface)'
-                  } : undefined}
-                >Rebuild this schedule</button>
-              )}
             </div>
           </>
         )}
 
         {anyRouteStarted && generating && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>Generating…</span>}
       </div>
+
+      {/* Second row — the flag system. Owner, 2026-09-12: this is the
+          state of the thing you are looking at, so it reads directly under
+          the view switcher rather than below the grid. */}
+      {hasSchedule && stats && (
+        <div style={{ marginBottom: 20 }}>
+        <div style={{ position: 'relative', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* T18: one concept, one name. "Placed" is a plain progress count on
+              both routes — not a concern, so it never toggles anything. */}
+          <StatBadge
+            label="Placed"
+            value={`${stats.filled} of ${stats.open}`}
+            color={isManual ? 'var(--text-secondary)' : 'var(--success)'}
+          />
+          {isManual ? (
+            <StatBadge
+              label="Overlapping"
+              value={overlapSlots.length}
+              color={overlapSlots.length > 0 ? 'var(--accent)' : 'var(--text-secondary)'}
+              onClick={() => toggleRail('ALL')}
+            />
+          ) : (
+            <StatBadge
+              label="Unfillable"
+              value={unfillableSlots.length}
+              color={unfillableSlots.length > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
+              active={railView === 'UNFILLABLE'}
+              onClick={() => toggleRail('UNFILLABLE')}
+            />
+          )}
+          {hasCoverageTargets && (
+            <StatBadge
+              label="Still needed"
+              value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
+              color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
+              active={!isManual && railView === 'UNDERSERVED'}
+              onClick={() => toggleRail(isManual ? 'ALL' : 'UNDERSERVED')}
+            />
+          )}
+          {hasSpreadTargets && (
+            <StatBadge
+              label="Spread across the week"
+              value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
+              color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--secondary)' : 'var(--text-secondary)'}
+              active={!isManual && railView === 'DISTRIBUTION'}
+              onClick={() => toggleRail(isManual ? 'ALL' : 'DISTRIBUTION')}
+            />
+          )}
+          {/* Read the whole list without picking a concern first — opens the
+              list showing everything and leaves the grid calm. */}
+          {!isManual && findingsRows.length > 0 && (
+            <button
+              onClick={() => setRailView(v => (v === 'ALL' ? null : 'ALL'))}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
+                fontFamily: 'inherit', fontSize: 12,
+                color: railView === 'ALL' ? 'var(--text)' : 'var(--text-secondary)',
+                textDecoration: 'underline', textUnderlineOffset: 3,
+              }}
+            >{railView === 'ALL' ? 'Hide list' : 'Review all'}</button>
+          )}
+          {findingsRailOpen && (
+            <FindingsRail
+              rows={railRows}
+              onDismiss={dismissFindingsRow}
+              onLocate={locateFindingsRow}
+              onClose={() => setRailView(null)}
+              intro={{ title: 'What this week still needs', sub: "Nothing here is a mistake. It's what's left to place." }}
+              emptyText="Everything on your list is placed."
+            />
+          )}
+        </div>
+        {/* Off-view honesty: a concern's count is camp-wide, but the grid only
+            lights the current view. Say so rather than silently showing fewer. */}
+        {highlightedKind && (view === 'group' || view === 'day') && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
+            {highlightedIds.length === 0
+              ? 'Nothing to light up here — this concern is about time that isn’t placed yet. See the list.'
+              : visibleHighlighted < highlightedIds.length
+                ? `Showing ${visibleHighlighted} of ${highlightedIds.length} here — open the list to reach the rest.`
+                : `${highlightedIds.length} lit on the grid.`}
+          </div>
+        )}
+        </div>
+      )}
 
 
       {/* Paste mode status line */}
@@ -1238,7 +1332,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 selectedSlotKeys={selectedSlotKeys}
                 pasteMode={pasteMode}
                 onCellSelect={handleCellSelect}
-                showIdentityDot={false}
                 highlightMap={highlightMap}
                 highlightColor={highlightColor}
                 collapsedBlockIds={collapsedBlockIds}
@@ -1281,7 +1374,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
                 onSpanExtendStart={onSpanExtendStart}
-                showIdentityDot={isManual}
                 highlightMap={highlightMap}
                 highlightColor={highlightColor}
                 collapsedBlockIds={collapsedBlockIds}
@@ -1378,92 +1470,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           manual route the boxes stay a plain count that opens the same list —
           manual owns no engine concerns to review cell-by-cell, so it is left
           as it was. docs/work/specs/2026-08-01-generated-flag-review.md */}
-      {hasSchedule && stats && (
-        <div style={{ marginBottom: 20 }}>
-        <div style={{ position: 'relative', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* T18: one concept, one name. "Placed" is a plain progress count on
-              both routes — not a concern, so it never toggles anything. */}
-          <StatBadge
-            label="Placed"
-            value={`${stats.filled} of ${stats.open}`}
-            color={isManual ? 'var(--text-secondary)' : 'var(--success)'}
-          />
-          {isManual ? (
-            <StatBadge
-              label="Overlapping"
-              value={overlapSlots.length}
-              color={overlapSlots.length > 0 ? 'var(--accent)' : 'var(--text-secondary)'}
-              onClick={() => toggleRail('ALL')}
-            />
-          ) : (
-            <StatBadge
-              label="Unfillable"
-              value={unfillableSlots.length}
-              color={unfillableSlots.length > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
-              active={railView === 'UNFILLABLE'}
-              onClick={() => toggleRail('UNFILLABLE')}
-            />
-          )}
-          {hasCoverageTargets && (
-            <StatBadge
-              label="Still needed"
-              value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
-              color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
-              active={!isManual && railView === 'UNDERSERVED'}
-              onClick={() => toggleRail(isManual ? 'ALL' : 'UNDERSERVED')}
-            />
-          )}
-          {hasSpreadTargets && (
-            <StatBadge
-              label="Spread across the week"
-              value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
-              color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--secondary)' : 'var(--text-secondary)'}
-              active={!isManual && railView === 'DISTRIBUTION'}
-              onClick={() => toggleRail(isManual ? 'ALL' : 'DISTRIBUTION')}
-            />
-          )}
-          {/* Read the whole list without picking a concern first — opens the
-              list showing everything and leaves the grid calm. */}
-          {!isManual && findingsRows.length > 0 && (
-            <button
-              onClick={() => setRailView(v => (v === 'ALL' ? null : 'ALL'))}
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
-                fontFamily: 'inherit', fontSize: 12,
-                color: railView === 'ALL' ? 'var(--text)' : 'var(--text-secondary)',
-                textDecoration: 'underline', textUnderlineOffset: 3,
-              }}
-            >{railView === 'ALL' ? 'Hide list' : 'Review all'}</button>
-          )}
-          {findingsRailOpen && (
-            <FindingsRail
-              rows={railRows}
-              onDismiss={dismissFindingsRow}
-              onLocate={locateFindingsRow}
-              onClose={() => setRailView(null)}
-              intro={{ title: 'What this week still needs', sub: "Nothing here is a mistake. It's what's left to place." }}
-              emptyText="Everything on your list is placed."
-            />
-          )}
-        </div>
-        {/* Off-view honesty: a concern's count is camp-wide, but the grid only
-            lights the current view. Say so rather than silently showing fewer. */}
-        {highlightedKind && (view === 'group' || view === 'day') && (
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
-            {highlightedIds.length === 0
-              ? 'Nothing to light up here — this concern is about time that isn’t placed yet. See the list.'
-              : visibleHighlighted < highlightedIds.length
-                ? `Showing ${visibleHighlighted} of ${highlightedIds.length} here — open the list to reach the rest.`
-                : `${highlightedIds.length} lit on the grid.`}
-          </div>
-        )}
-        </div>
-      )}
 
-      {/* Grid legend — always on the manual route (identity + overlap dots),
+      {/* Grid legend — always on the manual route (overlap dots),
           and on the generated route ONLY when it actually carries a per-cell
           mark to explain: a WEEK_CLOSED dot. The generated grid is otherwise
-          kept calm (no identity dots, concerns reviewed from the boxes above —
+          kept calm (concerns reviewed from the boxes above —
           docs/work/specs/2026-08-01-generated-flag-review.md), but a closed-week
           placement can reach it (a post-generation edit, or an activity marked
           closed after the week was built), and a mark on the grid must never go

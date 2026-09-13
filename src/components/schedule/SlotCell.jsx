@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { S, prefersReducedMotion } from '../../styles/shared'
-import { ANCHOR_COLOR, FLAG_COLORS, activityColor } from './slotCellConstants'
+import { ANCHOR_COLOR, FLAG_COLORS } from './slotCellConstants'
 import { cellAccessibleName } from './cellLabel'
 import CellInlineEditor from './CellInlineEditor'
 import { CellSpanChevron, UnfillableIcon, OpenElectiveIcon, OutdoorIcon } from '../icons'
 import './scheduleGrid.css'
 
 export default function SlotCell({
-  slot, activity, anchor, actColorIdx, weatherMode,
+  slot, activity, anchor, weatherMode,
   onRelease, onSelect,
   // Inline-write (replaces the removed EditModal picklist, 2026-08-09):
   // eligibleActivities is this cell's group's eligible activity list (computed
@@ -60,11 +60,9 @@ export default function SlotCell({
   // cell's merge button show it right now".
   showMergeHint = false,
   // Generated-route "track changes" review (default off, so the manual route
-  // and every existing caller are unchanged). showIdentityDot=false is the calm
   // grid: the activity name carries identity, no colour dot. isFlagHighlighted
   // lights the cell in the active concern's colour; highlightReason is shown in
   // a callout when the lit cell is hovered or focused.
-  showIdentityDot = true,
   isFlagHighlighted = false,
   highlightColor = 'var(--danger)',
   highlightReason = null,
@@ -210,7 +208,6 @@ export default function SlotCell({
   const isOutdoor = Boolean(activity?.is_outdoor)
   const showOutdoorIcon = isOutdoor && !isUnfillable
   const isWeatherHighlight = weatherMode && showOutdoorIcon
-  const color = activity ? activityColor(actColorIdx) : null
 
   // WS5 follow-up "double-click to edit" (owner directive 2026-08-29): a
   // single plain click no longer opens the inline editor — Excel-style, that
@@ -459,9 +456,6 @@ export default function SlotCell({
           />
         ) : (
           <div className="cell-name" data-unassigned={!activity && !electiveLabel && !eventLabel ? '' : undefined}>
-            {showIdentityDot && activity && (
-              <span className="identity-dot" style={{ background: color }} />
-            )}
             {electiveLabel || eventLabel || activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')}
           </div>
         )}
