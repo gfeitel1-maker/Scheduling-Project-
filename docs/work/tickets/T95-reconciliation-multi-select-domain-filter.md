@@ -1,7 +1,7 @@
 ---
 title: T95-reconciliation-multi-select-domain-filter
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-20
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/DESIGN_STANDARD.md, docs/adr/2026-08-18-rootmap-screen-port.md]
@@ -9,6 +9,8 @@ archive_when: multi-select is restored, or evidence confirms single-select is th
 ---
 
 # T95 — Reconciliation multi-select domain filtering (audit M2)
+
+**Shipped 2026-09-13 (PR #371). Multi-select restored for TILES via a pure `selectionModel.js`; node selection stays single (a lens widens, a drill-down does not).**
 
 **Source:** `docs/work/specs/2026-08-19-roots-reconciliation-audit.md` §12 (deferred, revisit on
 evidence). Severity: LOW.

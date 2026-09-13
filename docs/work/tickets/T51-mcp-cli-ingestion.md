@@ -1,7 +1,7 @@
 ---
 title: T51-mcp-cli-ingestion
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-08-05
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs: []
@@ -9,6 +9,8 @@ archive_when: superseded by an approved specification
 ---
 
 # T51 — MCP server and CLI for ingestion
+
+**Verified complete 2026-09-13 — `scripts/mcp/server.js` exposes eight tools spanning ingestion, read access, export and projection repair, launched via `npm run mcp`. Exceeds the ticket's original narrow-surface question.**
 
 **Status: open.** Parked until the ingestion work (T49) is declared production-ready. Recorded
 so it is not lost. **Not a design — no approach chosen.**

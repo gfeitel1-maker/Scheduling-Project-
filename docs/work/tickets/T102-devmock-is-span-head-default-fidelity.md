@@ -1,7 +1,7 @@
 ---
 title: T102-devmock-is-span-head-default-fidelity
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-20
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -9,6 +9,8 @@ archive_when: the dev mock's freshly-placed manual slot defaults is_span_head th
 ---
 
 # T102 — Dev-mock is_span_head default diverges from real ensureExists (browser-mock only)
+
+**Shipped 2026-09-13 (PR #371) — though NOT the defect the ticket described. The premise (a wrong default) was unreproducible from source. The real divergence, found by running the app: the mock stored `is_span_head` as the STRING "1", which normalizeSlots' strict `value === 1` turns into false, so every slot read as a merged-block continuation and the dev grid rendered with no cells and no grid lines while the stats bar said "45 of 45 Placed". Both write paths now emulate SQLite INTEGER affinity; 6 tests pin it.**
 
 **Surfaced during T92 visual verification (2026-08-20).** Browser-mock only; NOT a real-app bug.
 

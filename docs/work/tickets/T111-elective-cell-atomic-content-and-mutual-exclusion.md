@@ -1,7 +1,7 @@
 ---
 title: T111-elective-cell-atomic-content-and-mutual-exclusion
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-08-20
 task_class: database-sync
 governing_docs: [docs/adr/2026-08-20-electives-authoring.md]
@@ -11,6 +11,8 @@ archive_when: shipped and merged
 ---
 
 # T111 — Elective cell: atomic content-kind + mutual exclusion (the correctness-critical seam)
+
+**Verified complete 2026-09-13 — shipped as option (ii): `MUTUALLY_EXCLUSIVE_FIELDS` + `sanitizeMutuallyExclusiveRow` in projections.js, with multi-device interleave tests.**
 
 **The HIGH-severity seam Red Hat named.** A `template_slots` cell must never carry both `activity_id`
 and `elective_set_id`. Conflict detection is per-`(entity,entity_id,field)`, so writing the two as

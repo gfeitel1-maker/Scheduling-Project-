@@ -1,7 +1,7 @@
 ---
 title: T117-imported-schedule-as-version-slice2
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-02
 governing_docs: [docs/adr/2026-09-02-imported-schedule-materializes-as-a-version.md]
 related_adrs: [docs/adr/2026-09-02-imported-schedule-materializes-as-a-version.md]
@@ -9,6 +9,8 @@ archive_when: slice 2 shipped and restore-guard follow-up resolved
 ---
 
 # T117 — Imported schedule materializes as a saved version (slice 2)
+
+**Verified complete 2026-09-13 — `resolveImportedPlacements.js` and `materializeImportedVersion.js` exist and are wired in electron/main.js, plus the restore-guard follow-up the archive_when also named.**
 
 See `docs/adr/2026-09-02-imported-schedule-materializes-as-a-version.md` for the decision this
 implements. Slice 1 (merged, 68c7ca7) built `src/ingest/capturePlacements.js`; nothing calls it

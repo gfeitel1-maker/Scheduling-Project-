@@ -109,4 +109,4 @@ This is a skeleton only. Each stage should be its own small, reversible, test-fi
 
 ---
 
-**File**: `/Users/gregfeitel/dev/shoresh/.claude/worktrees/relaxed-albattani-000799/experiments/future-arch/PRODUCTIONIZATION_AUDIT.md`
+**File**: `~/dev/shoresh/experiments/future-arch/PRODUCTIONIZATION_AUDIT.md`

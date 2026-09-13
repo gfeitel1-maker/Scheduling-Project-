@@ -1,7 +1,7 @@
 ---
 title: T106-special-day-author-ui
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-20
 task_class: ui-ux-design
 governing_docs: [docs/adr/2026-08-20-special-days-authoring-and-day-override-repoint.md]
@@ -10,6 +10,8 @@ archive_when: shipped and merged
 ---
 
 # T106 — Special Day author UI (the single construction surface)
+
+**Verified complete 2026-09-13 by the open-ticket audit. The author UI shipped (PR #132) and was subsequently folded into SpecialEventsScreen by the Special Events unification; only the status was never flipped.**
 
 Build the author UI on the shipped v34 `special_days` substrate. A list screen + a grid editor that
 **seeds** its time blocks from the camp's `time_blocks` (convenience, not a storage branch), then lets

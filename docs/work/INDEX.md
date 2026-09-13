@@ -19,12 +19,8 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [T103-location-disambiguation-suffix-namespace](../../docs/work/tickets/T103-location-disambiguation-suffix-namespace.md) | open | — |
 | [T109-orphaned-span-tail-reconciliation-guard](../../docs/work/tickets/T109-orphaned-span-tail-reconciliation-guard.md) | open | [2026-08-20-elective-authoring-render-design](../../docs/work/specs/2026-08-20-elective-authoring-render-design.md) |
-| [T110-electives-sets-crud-and-durability-marker](../../docs/work/tickets/T110-electives-sets-crud-and-durability-marker.md) | in-progress | [2026-08-20-elective-authoring-render-design](../../docs/work/specs/2026-08-20-elective-authoring-render-design.md) |
-| [T111-elective-cell-atomic-content-and-mutual-exclusion](../../docs/work/tickets/T111-elective-cell-atomic-content-and-mutual-exclusion.md) | in-progress | [2026-08-20-elective-authoring-render-design](../../docs/work/specs/2026-08-20-elective-authoring-render-design.md) · [2026-08-20-elective-cell-atomic-content-design](../../docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md) · [T109-orphaned-span-tail-reconciliation-guard](../../docs/work/tickets/T109-orphaned-span-tail-reconciliation-guard.md) |
 | [T114-infer-outdoor-coschedule-alt-activity-rules](../../docs/work/tickets/T114-infer-outdoor-coschedule-alt-activity-rules.md) | open | — |
-| [T115-locations-ingest-create-name-first](../../docs/work/tickets/T115-locations-ingest-create-name-first.md) | open | — |
 | [The importer extracts from a workbook that is not a schedule, instead of declining it](../../docs/work/tickets/T146-importer-accepts-non-schedule-workbook.md) | open | — |
 | [Can locations be inferred from a schedule? (needs a conversation first)](../../docs/work/tickets/T147-infer-locations-from-a-schedule.md) | open | — |
 | [T36-ingest-unlabeled-path-residuals](../../docs/work/tickets/T36-ingest-unlabeled-path-residuals.md) | open | — |
@@ -35,37 +31,11 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
 
-### test-infrastructure
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Sync/WS tests fail under concurrent load, making a red gate uninformative](../../docs/work/tickets/T121-sync-test-load-fragility.md) | in-progress | — |
-
-### ui-ux-design
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [T102-devmock-is-span-head-default-fidelity](../../docs/work/tickets/T102-devmock-is-span-head-default-fidelity.md) | open | — |
-| [T104-extract-shared-free-suffix-scan](../../docs/work/tickets/T104-extract-shared-free-suffix-scan.md) | open | — |
-| [T105-elective-inline-authoring-and-render](../../docs/work/tickets/T105-elective-inline-authoring-and-render.md) | in-progress | [2026-08-20-elective-authoring-render-design](../../docs/work/specs/2026-08-20-elective-authoring-render-design.md) · [2026-08-21-empty-cell-click-editor-design](../../docs/work/specs/2026-08-21-empty-cell-click-editor-design.md) · [T109-orphaned-span-tail-reconciliation-guard](../../docs/work/tickets/T109-orphaned-span-tail-reconciliation-guard.md) · [T112-empty-cell-click-opens-inline-editor](../../docs/work/tickets/T112-empty-cell-click-opens-inline-editor.md) |
-| [T106-special-day-author-ui](../../docs/work/tickets/T106-special-day-author-ui.md) | open | [2026-08-22-event-internal-subschedule](../../docs/adr/2026-08-22-event-internal-subschedule.md) · [2026-08-21-special-day-author-ui-design](../../docs/work/specs/2026-08-21-special-day-author-ui-design.md) · [2026-08-21-special-day-author-ui-designer-spec](../../docs/work/specs/2026-08-21-special-day-author-ui-designer-spec.md) |
-| [T107-special-days-into-roots-context](../../docs/work/tickets/T107-special-days-into-roots-context.md) | open | — |
-| [T108-day-overrides-repoint](../../docs/work/tickets/T108-day-overrides-repoint.md) | in-progress | [2026-08-21-day-overrides-repoint-shape](../../docs/adr/2026-08-21-day-overrides-repoint-shape.md) · [2026-08-21-day-overrides-designer-spec](../../docs/work/specs/2026-08-21-day-overrides-designer-spec.md) · [2026-08-21-day-overrides-repoint-design](../../docs/work/specs/2026-08-21-day-overrides-repoint-design.md) · [T113-day-override-undo-redo](../../docs/work/tickets/T113-day-override-undo-redo.md) · [T145-remove-day-overrides](../../docs/work/tickets/T145-remove-day-overrides.md) |
-| [T112-empty-cell-click-opens-inline-editor](../../docs/work/tickets/T112-empty-cell-click-opens-inline-editor.md) | in-progress | [2026-08-21-empty-cell-click-editor-design](../../docs/work/specs/2026-08-21-empty-cell-click-editor-design.md) |
-| [T95-reconciliation-multi-select-domain-filter](../../docs/work/tickets/T95-reconciliation-multi-select-domain-filter.md) | open | — |
-| [T97-per-field-unknown-detection](../../docs/work/tickets/T97-per-field-unknown-detection.md) | open | — |
-| [T98-blast-radius-salience-reordering](../../docs/work/tickets/T98-blast-radius-salience-reordering.md) | open | — |
-
 ### unclassified
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [T107-arbitrary-span-ui-and-repair-wiring](../../docs/work/tickets/T107-arbitrary-span-ui-and-repair-wiring.md) | open | — |
-| [T117-imported-schedule-as-version-slice2](../../docs/work/tickets/T117-imported-schedule-as-version-slice2.md) | in-progress | [2026-09-02-imported-schedule-materializes-as-a-version](../../docs/adr/2026-09-02-imported-schedule-materializes-as-a-version.md) |
 | [T40-one-day-special-event-schedule](../../docs/work/tickets/T40-one-day-special-event-schedule.md) | in-progress | [2026-08-20-special-days-authoring-and-day-override-repoint](../../docs/adr/2026-08-20-special-days-authoring-and-day-override-repoint.md) · [2026-08-22-events-overlay-placement](../../docs/adr/2026-08-22-events-overlay-placement.md) · [2026-08-22-nested-schedules-electives-and-events](../../docs/adr/2026-08-22-nested-schedules-electives-and-events.md) · [2026-08-20-electives-specialdays-facility-audit](../../docs/work/specs/2026-08-20-electives-specialdays-facility-audit.md) · [2026-08-20-special-days-data-shape-design](../../docs/work/specs/2026-08-20-special-days-data-shape-design.md) · [2026-08-21-special-day-author-ui-design](../../docs/work/specs/2026-08-21-special-day-author-ui-design.md) |
-| [T41-elective-scheduling](../../docs/work/tickets/T41-elective-scheduling.md) | in-progress | [2026-08-20-electives-authoring](../../docs/adr/2026-08-20-electives-authoring.md) · [2026-08-22-nested-schedules-electives-and-events](../../docs/adr/2026-08-22-nested-schedules-electives-and-events.md) · [2026-08-20-electives-specialdays-facility-audit](../../docs/work/specs/2026-08-20-electives-specialdays-facility-audit.md) · [2026-08-20-group-electives-design](../../docs/work/specs/2026-08-20-group-electives-design.md) |
-| [T51-mcp-cli-ingestion](../../docs/work/tickets/T51-mcp-cli-ingestion.md) | in-progress | [2026-08-20-ingestion-cli-design](../../docs/work/specs/2026-08-20-ingestion-cli-design.md) |
-| [T52-activity-colors-tokenization](../../docs/work/tickets/T52-activity-colors-tokenization.md) | open | [T50-schedule-canvas-rebuild](../../docs/work/tickets/T50-schedule-canvas-rebuild.md) |
 
 ## Decisions
 

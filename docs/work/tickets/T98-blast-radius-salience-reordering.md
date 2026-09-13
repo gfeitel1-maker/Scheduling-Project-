@@ -1,7 +1,7 @@
 ---
 title: T98-blast-radius-salience-reordering
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-20
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-17-onescreen-reconciliation-projection.md]
@@ -9,6 +9,8 @@ archive_when: blast-radius actually reorders salience, or the report-order defau
 ---
 
 # T98 — Blast-radius actually reorders salience (audit M5)
+
+**Shipped 2026-09-13 (PR #371). Orders WITHIN a lane only. Required narrowing ADR invariant 2 rather than contradicting it — recorded as an addendum on the projection ADR. Sorts on the blast-radius count, never `salienceOf().rank`, which returns 0 for both confirm_change and resolve_conflict.**
 
 **Source:** `docs/work/specs/2026-08-19-roots-reconciliation-audit.md` §12 (deferred, revisit on
 evidence). Severity: LOW.

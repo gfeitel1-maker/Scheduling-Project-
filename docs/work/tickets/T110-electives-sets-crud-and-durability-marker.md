@@ -1,7 +1,7 @@
 ---
 title: T110-electives-sets-crud-and-durability-marker
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-08-20
 task_class: database-sync
 governing_docs: [docs/adr/2026-08-20-electives-authoring.md, docs/adr/2026-08-20-in-context-knowledge-and-durability-tiers.md]
@@ -10,6 +10,8 @@ archive_when: shipped and merged
 ---
 
 # T110 — Electives sets: management CRUD, IPC, and the durability marker
+
+**Verified complete 2026-09-13 — schema v36 `is_reusable`, `durableElectiveSets.js`, and the IPC CRUD all shipped; only the status was never flipped.**
 
 **First ticket of the ratified electives-authoring ADR.** The isolated, low-risk data foundation —
 **no schedule-cell writing** (that is T111, the race-prone seam). Test-first.

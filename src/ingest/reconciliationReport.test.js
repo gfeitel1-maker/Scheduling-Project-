@@ -1482,3 +1482,68 @@ describe('buildReconciliationReport — T96 (current value on a confirm_change)'
     expect(report.decisions[0].currentValue).toBeNull()
   })
 })
+
+// T114 — the all-camp override question reaches the director through the
+// ordinary reconciliation flow (owner, 2026-09-13: "put the override question
+// into the roots screen part that is already a part of ingestion").
+describe('buildReconciliationReport — all-camp override questions (T114)', () => {
+  const finding = {
+    activityName: 'Color War',
+    day: 'Wednesday',
+    block: '2:00 PM',
+    missingGroups: ['Alufim 1'],
+    attendingCount: 3,
+    totalGroups: 4,
+    occurrences: 1,
+  }
+
+  it('becomes a needs-attention decision, never a silent inference', () => {
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [], allCampOverrides: [finding],
+    })
+    expect(report.buckets.needsAttention).toBe(1)
+    const d = report.decisions[0]
+    expect(d.kind).toBe('all_camp_override')
+    expect(d.entityName).toBe('Color War')
+  })
+
+  it('asks the question in the director\'s own terms, with the counts', () => {
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [], allCampOverrides: [finding],
+    })
+    const reason = report.decisions[0].reason
+    expect(reason).toMatch(/Color War/)
+    expect(reason).toMatch(/3 of your 4 groups/)
+    expect(reason).toMatch(/everyone except Alufim 1/)
+  })
+
+  it('carries the evidence needed to judge it', () => {
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [], allCampOverrides: [finding],
+    })
+    expect(report.decisions[0].evidence).toMatchObject({
+      day: 'Wednesday', block: '2:00 PM', missingGroups: ['Alufim 1'], occurrences: 1,
+    })
+  })
+
+  it('names several missing groups readably', () => {
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [],
+      allCampOverrides: [{ ...finding, missingGroups: ['Alufim 1', 'CIT'], attendingCount: 3, totalGroups: 5 }],
+    })
+    expect(report.decisions[0].reason).toMatch(/Alufim 1 and CIT/)
+  })
+
+  it('dedups a repeated finding rather than asking twice', () => {
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [], allCampOverrides: [finding, { ...finding }],
+    })
+    expect(report.decisions.filter((d) => d.kind === 'all_camp_override')).toHaveLength(1)
+  })
+
+  it('is additive — absent input is byte-identical to a run without it', () => {
+    const withInput = buildReconciliationReport({ planItems: [], readiness: [], allCampOverrides: [] })
+    const without = buildReconciliationReport({ planItems: [], readiness: [] })
+    expect(withInput).toEqual(without)
+  })
+})

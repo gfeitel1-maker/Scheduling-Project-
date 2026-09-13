@@ -1,7 +1,7 @@
 ---
 title: T107-arbitrary-span-ui-and-repair-wiring
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-21
 governing_docs: [docs/adr/2026-08-21-arbitrary-length-activity-span.md]
 related_adrs: [docs/adr/2026-08-21-arbitrary-length-activity-span.md]
@@ -10,6 +10,8 @@ archive_when: drag-to-extend + click-any-cell-to-split are live on both routes a
 ---
 
 # T107 — Arbitrary-length span: UI interaction layer + repair-pass wiring
+
+**Verified complete 2026-09-13 — all four deferred items landed in commit 2dd15ff: drag-to-extend, interior-cell split, the repair pass wired into loadAll with the R2 quiescence guard, and the R3 undo test.**
 
 Follow-up to the arbitrary-length-span write-path work (committed on this
 branch: `ef47e2e`). The data model, write path, and the reported 2-block cap

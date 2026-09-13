@@ -41,6 +41,13 @@ function laneFor(decision) {
     case 'elective_candidate':
       return 'hold'
 
+    // T114 — a probable all-camp override is always a question for the
+    // director, never silently resolved: only they know whether that group had
+    // a trip that week or genuinely never attends. Hold, like the elective
+    // nudge above, for the same "never silent" reason.
+    case 'all_camp_override':
+      return 'hold'
+
     // fix, panel round 2 — the "N more not shown" cap note is informational,
     // not a director decision blocking anything; standard (not hold, not
     // express-silent) matches review_legacy_priority's own batch-note lane.

@@ -1,7 +1,7 @@
 ---
 title: T52-activity-colors-tokenization
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-06
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs: []
@@ -9,6 +9,8 @@ archive_when: ACTIVITY_COLORS reads from tokens and DESIGN_STANDARD's stale note
 ---
 
 # T52 — `ACTIVITY_COLORS` is the last hardcoded colour in the schedule components
+
+**CLOSED 2026-09-13 — not tokenized, RETIRED. Briefly shipped as a navy frequency ramp (PR #371), then removed entirely (PR #372) on the owner's better argument: the palette chip already states the frequency as a number, so a colour encoding the same fact is noise. Activity colour is gone from the palette chips, grid cells and Activity View. `ACTIVITY_COLORS` has one consumer left, RootsHomeScreen.**
 
 **Status: open.** Split out of T50 (schedule canvas rebuild) by product owner decision,
 2026-08-06, to keep the canvas rebuild a rendering-only change.
