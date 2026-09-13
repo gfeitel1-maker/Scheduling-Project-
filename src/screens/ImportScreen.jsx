@@ -291,6 +291,13 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // inside a recognised page that never became an entity). Read-only
   // transparency, never a gate on commit.
   const [residualSheets, setResidualSheets] = useState([])
+  // T36 F3 — a repeated one-word line above each page break is stripped as a
+  // page banner. The parser has always computed this and thrown it away, so a
+  // removal was invisible; it is shown under "Not recognised" instead.
+  const [strippedBanners, setStrippedBanners] = useState([])
+  // T36 F1 — a row filed as a LOCATION that the document also schedules as an
+  // activity. The reading is unchanged; this reports where it may be wrong.
+  const [ambiguousLocations, setAmbiguousLocations] = useState([])
 
   const REPLACEABLE = INGESTIBLE_ENTITIES.filter((e) => e !== 'cohorts')
   // Camp-wide count — what Replace actually deletes. This drives the
@@ -309,6 +316,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     setActivityRules({})
     setGroupUnitOverrides({})
     setResidualSheets([])
+    setStrippedBanners([])
+    setAmbiguousLocations([])
     setDualUseNames(new Set())
     setSplitDecisions({})
     setMultiBlockCandidates([])
@@ -351,6 +360,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       const prefix = sharedFilenamePrefix(files.map((f) => f.name))
       const pages = []
       const fileResidualSheets = []
+    const fileBanners = []
+    const fileAmbiguousLocations = []
 
       for (const file of files) {
         const title = groupNameFromFilename(file.name, prefix)
@@ -405,10 +416,19 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
           // F4 — same size guard as the xlsx branch: fail closed before the
           // whole text file is read unbounded into a JS string.
           assertImportFileSize(file.size)
-          pages.push(...parseTextGrid(await file.text()).pages)
+          const parsed = parseTextGrid(await file.text())
+          pages.push(...parsed.pages)
+          // T36 F3 — what the parser removed as a page heading. Collected so the
+          // "Not recognised" box can show it: a one-word line repeated above
+          // every page break is usually the camp's name, but it can equally be a
+          // real event, and typography cannot tell them apart.
+          if (parsed.banner) fileBanners.push(parsed.banner)
+          fileAmbiguousLocations.push(...(parsed.ambiguousLocations ?? []))
         }
       }
       setResidualSheets(fileResidualSheets)
+      setStrippedBanners([...new Set(fileBanners)])
+      setAmbiguousLocations(fileAmbiguousLocations)
 
       if (pages.length === 0) {
         setProposal(null)
@@ -1657,7 +1677,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               it matters, rather than it vanishing with no trace. */}
           {(() => {
             const residualCells = proposal.residual?.cells ?? []
-            if (residualCells.length === 0 && residualSheets.length === 0) return null
+            if (residualCells.length === 0 && residualSheets.length === 0 && strippedBanners.length === 0 && ambiguousLocations.length === 0) return null
             return (
               <div style={{
                 background: 'var(--surface)', border: '1px solid var(--border)',
@@ -1679,6 +1699,27 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                     {residualSheets.map((r, i) => (
                       <li key={i}>
                         Sheet "{r.sheet}" in {r.file}: {r.sample.join(', ')}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {ambiguousLocations.length > 0 && (
+                  <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
+                    {ambiguousLocations.map((a) => (
+                      <li key={a.text}>
+                        "{a.text}" was read as the place an activity happens, because it sits under
+                        one. But it is also scheduled elsewhere as its own activity, so it may be a
+                        second thing happening rather than a room. Check it on the list above.
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {strippedBanners.length > 0 && (
+                  <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
+                    {strippedBanners.map((b) => (
+                      <li key={b}>
+                        "{b}" — repeated above each page break, so it was read as a heading rather
+                        than something the camp does. If it is a real event, add it under Fixed Events.
                       </li>
                     ))}
                   </ul>

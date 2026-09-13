@@ -48,11 +48,36 @@ export function tokenize(line) {
 // spec §3). Proven byte-identical for Camp A/B; not a general-case proof —
 // see the isHeaderLine note and [T36] for the widened-match residual.
 //
-// The label is matched by prefix, not equality: a Camp-A-shaped camp that heads
-// its time column "Times", "Time:", "Time Block", or "Period" must take the
-// labelled path too, or it silently loses unit inference (tiers=[]). One
-// constant, reused by hasTimeLabel and isHeaderLine, so the two never drift.
-const TIME_HEADER_LABEL = /^(time|times|period)\b/i
+// The label is matched against a SET of spellings, not the single word "Time":
+// a Camp-A-shaped camp that heads its time column "Times", "Time Block", or
+// "Period" must take the labelled path too, or it silently loses unit inference
+// (tiers=[]). One constant, reused by hasTimeLabel and isHeaderLine, so the two
+// never drift.
+// T36 F2 (2026-08-03, re-verified still reproducing 2026-09-13): this was a
+// PREFIX match, so any first token merely STARTING with a time word passed —
+// including "Period 2" (a period named in the body) and "Times Up" (an
+// activity). Such a row read as a header, starting a spurious page mid-body:
+// the grid is cut at that row and whatever sat above it can be lost.
+//
+// Now an EXACT match on the LABEL. The distinction is what the text is doing:
+// a header labels the column ("Time", "Period"), while "Period 2" names one
+// particular period and is therefore data. Measured against the four-camp
+// corpus before tightening — every time-labelled header in it is the single
+// word "Time" — so the exact set refuses nothing real while closing both
+// proven over-matches.
+//
+// WHAT IS ALLOWED AFTER THE WORD is the part that matters, and the first cut
+// got it too narrow (Red Hat): "Time (approx)", "Period #" and "Time/Period"
+// all passed the old prefix and would have been REFUSED, silently routing a
+// labelled camp into the unlabeled family and costing it unit inference. So the
+// tail is an allowlist of things that QUALIFY a label — a parenthetical, a #
+// placeholder, a slash alternative, "Block"/"of day", a colon — and not the two
+// shapes that turn a label into data: a bare following word ("Times Up") or an
+// index ("Period 2"). Being generous here is the safe direction, since the cost
+// of a false reject is a camp that cannot import correctly and the cost of a
+// false accept is the narrow mid-body split this closes.
+const TIME_HEADER_LABEL =
+  /^(time|times|period|periods)(\s*[/|]\s*(time|times|period|periods))?(\s+(blocks?|of\s+day))?(\s*[#*]|\s*\([^)]*\))?\s*:?$/i
 
 export function hasTimeLabel(tokens) {
   return tokens.length > 0 && TIME_HEADER_LABEL.test(tokens[0]?.text ?? '')
@@ -77,13 +102,15 @@ export function isDayHeader(tokens) {
  * layout-independent anchor); a third leaves the time column blank and is
  * recognised instead by a day-name-majority row.
  *
- * The time-word test is a PREFIX, wider than the original `/^time$/` so a
- * "Times"/"Period" time column is caught (spec §3 FIX 2). The cost: a BODY row
- * whose first cell begins with a time word (a period literally named "Period 2",
- * an activity "Times Up") could be misread as a header on some future unlabeled
- * camp and split the page wrongly. No such body line exists in Camp A/B/Shemesh,
- * so it does not fire on the current corpus — tracked as a residual, not
- * pre-solved. See [T36].
+ * The time-word test covers a SET of spellings, wider than the original
+ * `/^time$/` so a "Times"/"Period"/"Time Block" time column is caught (spec §3
+ * FIX 2) — but an EXACT match against that set rather than a prefix of it.
+ *
+ * It was a prefix until 2026-09-13, and the cost was T36 F2: a BODY row whose
+ * first cell merely BEGAN with a time word (a period named "Period 2", an
+ * activity "Times Up") read as a header and split the page mid-body, losing
+ * what sat above it. Closed — see TIME_HEADER_LABEL's own note, and
+ * textGrid.f2.test.js.
  */
 export function isHeaderLine(tokens) {
   return (tokens.length >= 3 && TIME_HEADER_LABEL.test(tokens[0].text)) || isDayHeader(tokens)
@@ -213,7 +240,43 @@ function isBareNumbers(tokens) {
 // every day) tokenizes to many columns, while a camp-name banner is one token.
 // Requiring one token stops a repeated fixed-event row from being mistaken for a
 // banner and silently stripped (ADR §1 forbids the omission; spec §3d).
-function detectBanner(lines, titleIndexes) {
+// T36 F3 — does this text also appear INSIDE a real row?
+//
+// A line with two or more tokens is schedule content, not a centred label. If
+// the banner candidate turns up as a whole cell in one of those, it is a thing
+// the camp does — a "Dismissal" both printed above each page break and
+// scheduled in the grid — and stripping it would delete a real event from every
+// page.
+//
+// This is the deciding evidence precisely BECAUSE typography cannot decide: a
+// camp name and a one-word event are the same shape above a page break. The
+// document settles what the layout cannot (owner, 2026-09-13: "I'd rather us
+// almost not infer but just flag that this isn't knowable from the way it is
+// written").
+// Red Hat (T36 review): scoped to the lines INSIDE a page's body, not the whole
+// document. A PDF footer sets the camp name and a page number in two columns
+// ("Shemesh        Page 1"), which tokenizes to two tokens — so scanning every
+// line let a footer vouch for the camp name as "content" and made the real
+// banner un-strippable, reintroducing it as a phantom activity on every page.
+// That is the very bug the strip exists to close, arrived at through the guard
+// meant to protect it.
+function appearsInAValueRow(bodyLines, text) {
+  const wanted = text.trim().toLowerCase()
+  for (const line of bodyLines) {
+    const tokens = tokenize(line)
+    // Three or more columns, and the match is NOT the first one. A schedule row
+    // leads with its time or period label and carries content after it; a PDF
+    // footer leads with the camp name ("Shemesh        Page 1") and is two
+    // columns wide. Scoping to page bodies alone does not separate them —
+    // a footer falls physically INSIDE the previous page's span, the same
+    // property that makes a banner need stripping in the first place.
+    if (tokens.length < 3) continue
+    if (tokens.slice(1).some((t) => t.text.trim().toLowerCase() === wanted)) return true
+  }
+  return false
+}
+
+function detectBanner(lines, titleIndexes, bodyLines) {
   const counts = new Map()
   for (const ti of titleIndexes) {
     for (let i = ti - 1; i >= 0; i--) {
@@ -223,12 +286,18 @@ function detectBanner(lines, titleIndexes) {
       break
     }
   }
-  let banner = null
-  let best = 0
-  for (const [text, n] of counts) {
-    if (n > best) { best = n; banner = text }
+  const threshold = Math.ceil(titleIndexes.length / 2)
+  // Ordered by how often the candidate repeats, so the strongest is considered
+  // first — but a candidate the grid vouches for as content is SKIPPED rather
+  // than ending the search, or a camp whose name repeats less often than a real
+  // event would keep its name as a phantom activity.
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1])
+  for (const [text, n] of ranked) {
+    if (n < threshold) break
+    if (appearsInAValueRow(bodyLines, text)) continue
+    return text
   }
-  return best >= Math.ceil(titleIndexes.length / 2) ? banner : null
+  return null
 }
 
 /**
@@ -262,7 +331,14 @@ function splitPages(lines) {
     endIndex: n === headerIndexes.length - 1 ? lines.length : titleIndexes[n + 1],
   }))
 
-  return { pages, banner: detectBanner(lines, titleIndexes) }
+  // Only the rows of a page count as schedule content for the banner check: a
+  // title, a footer and the gap between pages are not rows, however many
+  // columns they happen to occupy.
+  const bodyLines = []
+  for (const page of pages) {
+    for (let i = page.headerIndex + 1; i < page.endIndex; i++) bodyLines.push(lines[i])
+  }
+  return { pages, banner: detectBanner(lines, titleIndexes, bodyLines) }
 }
 
 /**
@@ -275,6 +351,48 @@ function splitPages(lines) {
  * Wrapped text is joined to the row it belongs to: a line with no time in its
  * first column is a continuation of the row above.
  */
+
+// T36 F1 — a trailing row filed as a LOCATION that the document itself says is
+// an activity.
+//
+// `closeOnePeriod` reads a full-width row following another data row as the
+// room printed under its activity. That is right almost always, and this does
+// NOT change it: the reading stands, so every current camp parses identically.
+// What it adds is a report, because the one case it gets wrong is a block that
+// stacks two activities with no blank line between them, and the cost there is
+// a real thing the camp does filed as a place.
+//
+// The evidence is whole-document rather than typographic, because typography
+// cannot settle it (owner, 2026-09-13): "Art / Art Studio" and "Swim / Swim
+// Return" are the same shape and mean opposite things. A text filed as a place
+// on one row, which ALSO appears as an activity CELL somewhere else in the
+// document, is a thing happening.
+function findAmbiguousLocations(pages) {
+  const activityCells = new Set()
+  for (const page of pages) {
+    for (const row of page.rows ?? []) {
+      for (const cell of row.cells ?? []) {
+        const text = String(cell ?? '').trim().toLowerCase()
+        if (text) activityCells.add(text)
+      }
+    }
+  }
+  const counts = new Map()
+  for (const page of pages) {
+    for (const row of page.rows ?? []) {
+      for (const loc of row.locations ?? []) {
+        const text = String(loc ?? '').trim()
+        if (!text) continue
+        if (!activityCells.has(text.toLowerCase())) continue
+        counts.set(text, (counts.get(text) ?? 0) + 1)
+      }
+    }
+  }
+  return [...counts.entries()]
+    .map(([text, count]) => ({ text, count }))
+    .sort((a, b) => b.count - a.count || a.text.localeCompare(b.text))
+}
+
 export function parseTextGrid(text) {
   const lines = String(text ?? '').split(/\r?\n/)
   const pages = []
@@ -481,5 +599,8 @@ export function parseTextGrid(text) {
     pages.push({ title, columns: columnLabels, rows, timeColumnLabeled: labeled })
   }
 
-  return { pages }
+  // T36 F3 — returned so a caller can SHOW what was removed. The parser has
+  // always computed this and thrown it away, which is what made a stripped line
+  // invisible to the director.
+  return { pages, banner, ambiguousLocations: findAmbiguousLocations(pages) }
 }

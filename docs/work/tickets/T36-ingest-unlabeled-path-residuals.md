@@ -1,14 +1,88 @@
 ---
 title: T36-ingest-unlabeled-path-residuals
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-03
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md]
-archive_when: the three unlabeled-path residuals are closed or a 5th camp forces a different design
+archive_when: the three unlabeled-path residuals are closed - F1/F2/F3 all closed 2026-09-13
 ---
 
 # T36 — Residual silent-omission / over-match vectors in the unlabeled ingest path
+
+## CLOSED 2026-09-13 — all three, without waiting for a fifth camp
+
+The ticket's posture was "harden before a 5th camp with these shapes", and the fix directions it
+proposed all required a real file to calibrate against: distinguish a second activity from a
+location by a page-level signal, distinguish a header from a body row by position. I asked the owner
+for a fifth camp. **The owner reframed the problem instead, and the reframing dissolved the
+blocker:**
+
+> "if something says art on line 1 and art studio on line 2, chances are art studio is the place. if
+> it is swim and swim return it isn't a place but a thing happening. so i'd rather us almost not
+> infer but just flag that this isn't knowable from the way it is written"
+
+That is the whole design. A CLASSIFIER needs examples of both classes to calibrate, which is why a
+fifth camp seemed necessary. A FLAG does not — and where a decision genuinely is available, the
+evidence is the DOCUMENT rather than the typography, which is what no amount of layout analysis
+could have supplied.
+
+**F2 — header mis-split. CLOSED, behaviour changed.** `TIME_HEADER_LABEL` matched by PREFIX, so any
+first token merely beginning with a time word passed: `Period 2` (a period named in the body),
+`Times Up` (an activity). Re-verified as still reproducing on 2026-09-13 before the fix. Now an
+EXACT match against the label set, plus an optional trailing colon. The distinction is what the text
+is DOING: a header labels the column, while "Period 2" names one particular period and is therefore
+data. Measured against the corpus first — every time-labelled header in it is the single word
+"Time" — so nothing real is refused. An existing test covering a `Time:` header caught the colon
+omission in the first cut. `src/ingest/textGrid.f2.test.js`.
+
+**F3 — banner over-strip. CLOSED, behaviour changed.** A one-word line repeated above each page
+break was stripped. A camp name IS a banner; a centred "Dismissal" is content; typography cannot
+tell them apart. The deciding evidence is now the document: a candidate that also appears as a whole
+cell inside a real row is a thing the camp does, and is kept. Candidates are considered in order of
+how often they repeat, and one the grid vouches for is SKIPPED rather than ending the search — or a
+camp whose name repeats less often than a real event would keep its name as a phantom activity.
+Separately, `parseTextGrid` now RETURNS the banner it removed; it had always computed it and thrown
+it away, which is what made a removal invisible. `src/ingest/textGrid.f3.test.js`.
+
+**F1 — location strip. CLOSED as a FLAG, deliberately not as a decision.** The reading is UNCHANGED:
+a full-width row following another data row is still filed as the room printed under its activity,
+so every current camp parses byte-identically. What is added is a report, because the one case it
+gets wrong — a block stacking two activities with no blank line — files a real thing the camp does
+as a place. `findAmbiguousLocations` flags a text filed as a location that the document ALSO
+schedules as an activity cell somewhere else. "Art Studio" never appears as an activity; "Swim
+Return" does. Silent on all three corpus samples, which is the test that matters: a flag that fires
+on a camp importing correctly today would be noise. `src/ingest/textGrid.f1.test.js`.
+
+All three reports surface in ImportScreen's existing "Not recognised" box, the transparency piece
+the 2026-08-20 partial resolution shipped — no new chrome, and nothing blocks the import.
+
+### Review round (Red Hat) — three findings, all confirmed in code first
+
+- **The F2 allowlist was narrower than it needed to be, and that is the dangerous direction.**
+  `Time (approx)`, `Period #` and `Time/Period` all passed the OLD prefix and were refused by the
+  first cut. A refusal there does not fail loudly: `hasTimeLabel` flips false, the page routes to the
+  UNLABELED family, and the camp silently loses unit inference (`tiers = []`) while still appearing
+  to parse. The tail is now an allowlist of things that QUALIFY a label — a parenthetical, a `#`
+  placeholder, a slash alternative, `Block`/`of day`, a colon — rather than an exact word. Only the
+  two shapes that turn a label into DATA are refused: a bare following word (`Times Up`) and an index
+  (`Period 2`). The same fix closes the second finding, that a day-majority header could keep its
+  page boundary while flipping family, since the realistic spelling behind it now matches again.
+- **The F3 guard could defeat the strip it protects.** `appearsInAValueRow` scanned every line, so a
+  PDF footer setting the camp name beside a page number (`Shemesh        Page 1` — two columns)
+  vouched for the camp name as "content" and made the real banner un-strippable, reintroducing it as
+  a phantom activity on every page. Scoping to page BODIES is not enough on its own: a footer falls
+  physically inside the previous page's span, which is the same property that makes a banner need
+  stripping at all. A content row is now three or more columns with the match NOT in the first — a
+  schedule row leads with its time and carries content after it; a footer leads with the camp name.
+- **The corpus regression tests were weaker than their own names claimed.** A test called "still
+  parses to the same number of pages" asserted only `pages.length > 0`, so a regression dropping one
+  page of five would have passed. Pinned to the measured shape: campA 33 pages / 5 columns / 483
+  rows, campB 5 / 14 / 62, campC 3 / 5 / 23.
+
+**Still true and still not built:** the lower-severity notes below (a 2+-token camp banner leaking as
+phantom activities; welded narrow rooms) are unchanged, and remain candidates for T35's post-import
+cleanup UX rather than the parser.
 
 **Raised:** 2026-08-03, Red Hat review of the round-2 resilience fixes. **All three are proven
 UNREACHABLE on the current four-camp corpus** (Camp A/B, Shemesh, campC-synthetic) — they are

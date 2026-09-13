@@ -20,7 +20,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Can locations be inferred from a schedule? (needs a conversation first)](../../docs/work/tickets/T147-infer-locations-from-a-schedule.md) | open | — |
-| [T36-ingest-unlabeled-path-residuals](../../docs/work/tickets/T36-ingest-unlabeled-path-residuals.md) | open | — |
 
 ### documentation-governance
 
