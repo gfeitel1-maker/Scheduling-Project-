@@ -224,3 +224,80 @@ export function inferDivisionEntities(groupNames, placements, anchorActivityName
     .map(([name, groups]) => ({ name, groupNames: groups.slice().sort() }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
+
+/**
+ * Per-group provenance for the division assignment (T114 follow-up).
+ *
+ * Co-schedule rules record why they concluded what they did; divisions did not,
+ * so a director shown "Kittah Aleph" and "Kittah Bet" as two separate divisions
+ * had no way to find out why they were separated. This answers that.
+ *
+ * Keyed by GROUP rather than by division on purpose: the question a director
+ * asks is "why is Tzofim 1 in Tzofim?", and a split then shows up naturally as
+ * two groups whose support says the grid contradicted their shared name.
+ *
+ * Derived from the SAME two functions that produce the committed assignment, so
+ * the explanation cannot drift from the decision it explains.
+ *
+ * @returns {Object<string,{division, basis, members, stem, qualifier_stripped,
+ *          names_proposed?, anchors_excluded}>}
+ */
+export function divisionSupportByGroup(groupNames, placements, anchorActivityNames) {
+  const names = (Array.isArray(groupNames) ? groupNames : [])
+    .map((n) => String(n ?? '').trim())
+    .filter(Boolean)
+  if (!names.length) return {}
+
+  const byName = inferDivisions(names)
+  const byGroup = placements
+    ? refineDivisionsByCoOccurrence(byName, placements, anchorActivityNames)
+    : { ...byName }
+
+  // Stem per group, recomputed exactly as inferDivisions computes it, so the
+  // quoted reason is the real one rather than a plausible reconstruction.
+  const stemOf = {}
+  const strippedOf = {}
+  for (const name of names) {
+    const parts = tokensOf(name)
+    stemOf[name] = parts ? (parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0]) : name
+    strippedOf[name] = strippedName(name) !== name
+  }
+
+  const membersOf = new Map()
+  for (const [group, division] of Object.entries(byGroup)) {
+    if (!membersOf.has(division)) membersOf.set(division, [])
+    membersOf.get(division).push(group)
+  }
+
+  // Guarded on `placements`, not just on the list being non-empty: with no
+  // placements the co-occurrence pass never ran, so nothing was "ignored" and
+  // saying so would imply a grid check that did not happen. Not reachable from
+  // ImportScreen today (it always supplies placements) — closed here rather
+  // than left to caller discipline.
+  const anchors = placements ? [...(anchorActivityNames ?? [])].map((n) => String(n)).sort() : []
+  const out = {}
+  for (const name of names) {
+    const division = byGroup[name]
+    if (division === undefined) continue
+    const members = (membersOf.get(division) ?? [name]).slice().sort()
+    // The names proposed one division and the grid broke it apart: the group's
+    // name-derived division is not the one it ended up in.
+    const split = byName[name] !== division
+    out[name] = {
+      division,
+      basis: split ? 'split_by_co_occurrence' : (members.length > 1 ? 'name_stem' : 'solo'),
+      members,
+      stem: stemOf[name],
+      // Load-bearing, not a footnote: "Tzofim 1 (girls)" clusters with
+      // "Tzofim 2 (girls)" ONLY because the bracket came off first. Without
+      // this the division looks unexplainable from the raw names.
+      qualifier_stripped: strippedOf[name],
+      // Also load-bearing: an all-camp lunch puts every group in one slot, so
+      // with anchors left in NOTHING would ever split. Which activities were
+      // ignored is part of why the answer is what it is.
+      anchors_excluded: anchors,
+      ...(split ? { names_proposed: byName[name] } : {}),
+    }
+  }
+  return out
+}

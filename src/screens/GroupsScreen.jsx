@@ -10,6 +10,9 @@ import ImportModal from '../components/setup/ImportModal'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import WeekContextBar from '../components/schedule/WeekContextBar'
+import { describeDivisionEvidence } from '../utils/divisionProvenance.js'
+import ProvenanceDot from '../components/setup/ProvenanceDot'
+import { provenanceDotStyles } from '../components/setup/provenanceDotStyles.js'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
@@ -48,7 +51,30 @@ const AVAIL_OPTIONS = [
 //
 // A draft keyed by group id in the screen survives that reload, so open editors
 // keep what was typed.
-function GroupRow({ group, tiers, role, draft, onOpen, onChange, onSave, onCancel, onDelete, saving, weekToggle }) {
+
+// T114 follow-up — WHY this bunk is in this age division.
+//
+// An import reads divisions out of group NAMES and then lets the schedule
+// overrule them, so a director can be shown two divisions where the names said
+// one. Until this existed there was no way to find out why, which is the
+// asymmetry T114 recorded as a known gap: co-schedule rules explained
+// themselves and divisions did not.
+//
+// Renders ONLY when an evidence row survives the hand-edit filter in load() —
+// a division the director assigned is theirs, and quiet by default.
+function DivisionProvenanceDot({ group, evidence }) {
+  return (
+    <ProvenanceDot
+      ariaLabel={`Age division provenance for ${group.name}: inferred`}
+      dialogLabel={`Age division provenance for ${group.name}`}
+      title="Age division"
+    >
+      <div style={provenanceDotStyles.rowSentence}>{describeDivisionEvidence(evidence, group.name)}</div>
+    </ProvenanceDot>
+  )
+}
+
+function GroupRow({ group, tiers, role, draft, onOpen, onChange, onSave, onCancel, onDelete, saving, weekToggle, divisionEvidence }) {
   const tierName = tiers.find(t => t.id === group.tier_id)?.name || '—'
 
   if (draft) {
@@ -96,7 +122,10 @@ function GroupRow({ group, tiers, role, draft, onOpen, onChange, onSave, onCance
           style={{ cursor: 'pointer' }}
         >{group.name}</span>
       </td>
-      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{tierName}</td>
+      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>
+        {tierName}
+        {divisionEvidence && <DivisionProvenanceDot group={group} evidence={divisionEvidence} />}
+      </td>
       <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || '—'}</td>
       {weekToggle}
       <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
@@ -129,6 +158,10 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
   const [excludedGroupIds, setExcludedGroupIds] = useState(new Set())
+  // T114 follow-up — group id -> the support object explaining its inferred age
+  // division. Empty for a hand-assigned division, which is what keeps the dot
+  // quiet by default.
+  const [divisionEvidenceByGroup, setDivisionEvidenceByGroup] = useState({})
   const [pendingExclusion, setPendingExclusion] = useState(null)
   const fileRef = useRef()
 
@@ -151,6 +184,32 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
       setGroups(gList)
       setTiers(tList)
+      // Best-effort and deliberately NOT in the Promise.all above: provenance is
+      // an explanation of the data, not the data. A camp whose evidence read
+      // fails (an older host, a browser-dev mock) must still see its groups —
+      // the dot simply does not render.
+      try {
+        const { evidence, fieldSources } = await localClient.listDivisionEvidence()
+        const byGroup = {}
+        for (const row of evidence ?? []) {
+          if (row.field !== 'tier_id') continue
+          // A director who assigned the division by hand owns that value now, so
+          // the import's reasoning no longer explains it.
+          //
+          // Red Hat (T114 review): this tested ONLY for null and so missed the
+          // commonest case. operations.source encodes a hand edit as EITHER null
+          // (unlabelled write) or the literal 'human' (a field the director
+          // authored in import review) — tierForField in ../utils/ruleProvenance.js
+          // is the definition, and it treats both as confirmed. Checking null
+          // alone meant a director who overrode the division in the import review
+          // screen still saw a dot explaining the division they had just
+          // rejected, on the very first import.
+          const source = fieldSources?.[row.entity_id]?.tier_id ?? null
+          if (source === null || source === 'human') continue
+          try { byGroup[row.entity_id] = JSON.parse(row.support) } catch { /* unreadable support explains nothing */ }
+        }
+        setDivisionEvidenceByGroup(byGroup)
+      } catch { setDivisionEvidenceByGroup({}) }
     } catch {
       setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
@@ -465,7 +524,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                           </td>
                         </tr>
                         {tierGroups.map(g => (
-                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
+                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} divisionEvidence={divisionEvidenceByGroup[g.id]} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
                         ))}
                       </React.Fragment>
                     )
@@ -478,7 +537,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                         </td>
                       </tr>
                       {noTier.map(g => (
-                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
+                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} divisionEvidence={divisionEvidenceByGroup[g.id]} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
                       ))}
                     </>
                   )}

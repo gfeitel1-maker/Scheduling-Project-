@@ -80,11 +80,38 @@ seeing it.
   (`src/utils/ruleProvenance.js`) gains a fourth row, so the Co-schedule column
   gets the same clickable provenance dot and confirm gesture as the other three.
 
-### Still open
+- **Divisions now carry evidence too** (2026-09-13, third round — closes the
+  asymmetry recorded below). `divisionSupportByGroup` (`src/ingest/inferDivisions.js`)
+  returns, per group: the division, the basis (`name_stem` / `solo` /
+  `split_by_co_occurrence`), the stem that clustered it, its siblings, whether a
+  bracketed qualifier was stripped, and which anchor activities were excluded.
+  The last two are load-bearing rather than decorative: `Tzofim 1 (girls)`
+  clusters ONLY because the bracket came off first, and an all-camp lunch left in
+  would make every group look like it belongs with every other, so nothing could
+  ever split.
 
-- **Divisions carry no evidence.** Co-schedule rules now record why they
-  concluded what they did; divisions still do not, so a director cannot audit a
-  split. The asymmetry is known and deliberate-for-now, not overlooked.
+  Written as `import_evidence` on **groups/`tier_id`** — keyed per GROUP, because
+  the question a director asks is "why is this bunk here?", and a split then
+  shows up naturally as two groups whose support says the grid overruled their
+  shared name. Always tagged `inferred` (a division read off a label is not a
+  sighting); confidence is `high` for a split, which the grid corroborates, and
+  `low` for a bare name cluster, which nothing does.
+
+  A group whose division the FILE STATED is excluded renderer-side — a stated
+  fact must not be dressed as an inference.
+
+  Surfaced on the **Groups** screen as a quiet provenance dot mirroring
+  LocationsScreen's capacity dot, rendering a plain-English sentence built by
+  `describeDivisionEvidence` (`src/utils/divisionProvenance.js`). It disappears
+  once a director re-assigns the division by hand: they own that value, so the
+  import's reasoning no longer explains it.
+
+  Defect found while wiring this: `RULE_FIELDS` gained its co-schedule row in the
+  previous round, but `listImportEvidenceHandler` never returned sources for
+  those two columns — so `tierForField` read `undefined` as a human write and an
+  imported inference rendered as **confirmed**. Fixed here.
+
+### Still open
 - `weather_alternative_id` (the Alt column) remains uninferred, and is now
   formally downscoped — see the Scope section below. Not a gap to close; a
   thing a schedule cannot carry.

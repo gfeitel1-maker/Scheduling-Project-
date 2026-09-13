@@ -307,7 +307,10 @@ export function listCompoundCellDecisions(db, camp_id) {
 // ALIAS_ENTITY_TABLE above), so it is validated against a FIXED set rather
 // than trusted — the two entity types inferActivityRules/inferFixedEvents
 // produce support for today.
-const EVIDENCE_ENTITY_TYPES = new Set(['activities', 'anchor_activities'])
+// 'groups' joined the set for T114's division-evidence follow-up: a group's
+// tier_id is inferred from its NAME (src/ingest/inferDivisions.js), so it needs
+// the same auditability the activity rule fields have.
+const EVIDENCE_ENTITY_TYPES = new Set(['activities', 'anchor_activities', 'groups'])
 const EVIDENCE_TAGS = new Set(['observed', 'inferred', 'unknown'])
 const EVIDENCE_CONFIDENCE = new Set(['high', 'low'])
 
@@ -661,7 +664,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
   return { created, failed }
 }
 
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [] }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [], divisionSupport = {} }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -698,7 +701,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
     // create confidence) and pinOnlyActivityNames (the A3 guard) flow straight
     // through the same way — additive, absent for any caller/fixture that
     // predates this change (S4b workbook re-import included — Risk 2/A4).
-    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents },
+    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport },
     existing,
     // T73: a director's per-conflict decisions from a prior held commit. buildPlan
     // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
@@ -1026,6 +1029,39 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     })
   }
 
+  // T114 follow-up — a division split must be auditable. A group's tier_id is
+  // inferred from its NAME and then possibly overruled by the grid
+  // (src/ingest/inferDivisions.js), and until this existed a director shown two
+  // divisions where the names said one had no way to find out why.
+  //
+  // Always 'inferred', never 'observed': a division read off group names is a
+  // reading of a label, not a sighting of the camp's structure. Confidence is
+  // derived from the basis rather than invented — a split is corroborated by
+  // the grid, a bare name cluster is not.
+  // `writtenDivision` — the division name actually being stored. Evidence is
+  // refused unless the support explains THAT division: an explanation of a value
+  // the director cannot see is worse than no explanation at all.
+  //
+  // Compared case- and whitespace-insensitively, matching how tier names are
+  // resolved everywhere else in this file (tierIdByName). A strict comparison
+  // made the dot vanish for cosmetic drift — a tier stored as "Aleph " reading
+  // as a different division from "Aleph" — which is a safe failure but an
+  // undiagnosable one.
+  const sameDivision = (a, b) =>
+    String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase()
+
+  const writeDivisionEvidence = (entityId, support, writtenDivision) => {
+    if (!support || typeof support !== 'object') return
+    if (!sameDivision(support.division, writtenDivision)) return
+    writeEvidence(db, {
+      camp_id, entity_type: 'groups', entity_id: entityId, field: 'tier_id',
+      tag: 'inferred',
+      confidence: support.basis === 'split_by_co_occurrence' ? 'high' : 'low',
+      support,
+      import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
+    })
+  }
+
   const writeActivityEvidence = (entityId, rule) => {
     if (!rule?.support) return
     const confidence = rule.eligibility_known && Array.isArray(rule.eligible_group_names) ? 'high' : 'low'
@@ -1318,6 +1354,19 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const unit = item._link_unit
       const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
       if (tierId) fields.tier_id = tierId
+      // T114 follow-up — WHY this bunk is in this division.
+      //
+      // Gated on tierId so evidence can never explain a tier_id that was not
+      // written, and on the support existing at all, which is how a division
+      // the FILE stated outright stays free of provenance it did not earn.
+      //
+      // Red Hat (T114 review): ALSO gated on the support describing the division
+      // actually being written. `unit` comes from the director's dropdown in
+      // import review, while the support is the auto-inference — a director who
+      // overrode the division would otherwise get evidence explaining the
+      // division they rejected. The update arm already re-verified this against
+      // the stored row; the create arm did not, which is the commoner path.
+      if (tierId) writeDivisionEvidence(entityId, item._division_support, unit)
     }
     if (entity === 'activities') {
       // Inferred (or director-edited) rules, keyed by the exact activity name
@@ -1861,6 +1910,27 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // the required demonstration of latest-wins re-import (ADR "On re-import").
     // A conflict on any of these items would already have held the whole
     // transaction above, so reaching here means entity_id is live.
+    // T114 follow-up — the groups counterpart of the activities loop below.
+    // A re-import that re-derives the same division should refresh the reason
+    // (the grid it read, the anchors it ignored), but must never attach this
+    // run's reasoning to a tier_id this run did not put there — the same rule
+    // writeCoScheduleEvidence's verifyStored enforces, and for the same reason:
+    // evidence that describes a value other than the stored one is worse than
+    // no evidence at all.
+    for (const item of plan.items) {
+      if (item.entity !== 'groups') continue
+      if (item.op !== 'unchanged' && item.op !== 'update' && item.op !== 'clear') continue
+      const support = item._division_support
+      if (!support) continue
+      const storedDivision = db.prepare(
+        'SELECT t.name AS name FROM groups g JOIN tiers t ON t.id = g.tier_id WHERE g.id = ?'
+      ).get(item.entity_id)?.name
+      // A null tier_id fails the JOIN and lands here as undefined: a group whose
+      // division was cleared has nothing to explain.
+      if (!storedDivision) continue
+      writeDivisionEvidence(item.entity_id, support, storedDivision)
+    }
+
     for (const item of plan.items) {
       if (item.entity !== 'activities') continue
       if (item.op !== 'unchanged' && item.op !== 'update' && item.op !== 'clear') continue

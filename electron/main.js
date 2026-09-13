@@ -248,7 +248,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // and localClient both already await/resolve their handler's return value
   // either way) — but every pre-T117 caller, which never passes placements,
   // keeps getting the outcome object back synchronously, unchanged.
-  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions } = {}) {
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions, divisionSupport } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -276,6 +276,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const outcome = commitIngest(db, {
       approved,
       links,
+      // T114 follow-up — per-group division provenance (why this bunk is in
+      // this division), written as import_evidence. Inference support only:
+      // a division the file STATED is filtered out renderer-side.
+      divisionSupport: divisionSupport ?? {},
       // ADR 2026-08-09 Decision 2 — the S4b clear path (record.clears) now has
       // a real caller from a raw schedule import too, and the item-level
       // human/import provenance side-channel for the unit field. Both arrive
@@ -375,7 +379,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // guard above — a dry run commits nothing anywhere, on any device, so there
   // is no fork-the-camp risk to guard against. Also does not push any
   // onOpApplied/sync broadcast: nothing was written for a peer to learn about.
-  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents } = {}) {
+  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
@@ -383,6 +387,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const outcome = commitIngest(db, {
       approved,
       links,
+      // T114 follow-up — per-group division provenance (why this bunk is in
+      // this division), written as import_evidence. Inference support only:
+      // a division the file STATED is filtered out renderer-side.
+      divisionSupport: divisionSupport ?? {},
       clears: clears ?? {},
       humanEditedFields: humanEditedFields ?? {},
       cohort_id: cohort_id ?? null,
@@ -1508,7 +1516,29 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         max_per_week: sources.get('max_per_week') ?? null,
         eligible_group_ids: sources.get('eligible_group_ids') ?? null,
         location_id: sources.get('location_id') ?? null,
+        // T114 follow-up. RULE_FIELDS gained a co-schedule row; without its
+        // source here the lookup returns undefined, tierForField reads that as
+        // a human write, and an imported inference renders as 'confirmed' — the
+        // provenance dot then vouches for something nobody reviewed.
+        max_groups_per_slot: sources.get('max_groups_per_slot') ?? null,
+        same_tier_only: sources.get('same_tier_only') ?? null,
       }
+    }
+    return { evidence, fieldSources }
+  }
+
+  // T114 follow-up — the groups counterpart, backing the Groups screen's
+  // per-row division provenance. Narrowed to the one inferred field a group
+  // has (tier_id), mirroring listImportEvidenceHandler's shape.
+  function listDivisionEvidenceHandler(token) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'groups.read' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return { evidence: [], fieldSources: {} }
+    const evidence = listImportEvidence(db, camp.id, { entity_type: 'groups' })
+    const fieldSources = {}
+    for (const row of db.prepare('SELECT id FROM groups WHERE camp_id = ?').all(camp.id)) {
+      fieldSources[row.id] = { tier_id: lastKnownFieldSources(db, 'groups', row.id).get('tier_id') ?? null }
     }
     return { evidence, fieldSources }
   }
@@ -1681,6 +1711,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     deleteEvent: deleteEventHandler,
     listDurableElectiveSets: listDurableElectiveSetsHandler,
     listImportEvidence: listImportEvidenceHandler,
+    listDivisionEvidence: listDivisionEvidenceHandler,
     locationCapacityProvenance: locationCapacityProvenanceHandler,
     listDeleted: listDeletedHandler,
     listPendingRestores: listPendingRestoresHandler,
@@ -1933,6 +1964,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:delete-event', (_event, args) => handlers.deleteEvent(args))
     ipcMain.handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
     ipcMain.handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
+    ipcMain.handle('shoresh:list-division-evidence', (_event, args) => handlers.listDivisionEvidence(args && args.token))
     ipcMain.handle('shoresh:location-capacity-provenance', (_event, args) => handlers.locationCapacityProvenance(args && args.token))
   }
 

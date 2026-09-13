@@ -1495,6 +1495,12 @@ export const mockShoresh = {
   async listImportEvidence() {
     return { evidence: [], fieldSources: {} }
   },
+  // T114 follow-up — same additive-degradation stub for the groups counterpart:
+  // no evidence in browser-dev, so the division provenance dot never renders
+  // there. Real fidelity is `electron:dev`.
+  async listDivisionEvidence() {
+    return { evidence: [], fieldSources: {} }
+  },
   // T119 — mirrors locationCapacityProvenanceHandler's shape (electron/main.js),
   // but the mock has no op-log source per field (same additive-degradation
   // discipline as listImportEvidence above): every location reads as

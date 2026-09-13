@@ -10,6 +10,7 @@ vi.mock('../localClient', () => ({
     deleteEntity: vi.fn(),
     previewDelete: vi.fn(),
     deleteRecord: vi.fn(),
+    listDivisionEvidence: vi.fn(),
   },
 }))
 
@@ -575,5 +576,81 @@ describe('GroupsScreen — row-click to edit', () => {
     fireEvent.click(screen.getByRole('switch'))
 
     expect(screen.queryByDisplayValue('Yeladim 1')).toBeNull()
+  })
+})
+
+// T114 follow-up — a director must be able to ask why a bunk is in the age
+// division the import put it in, and a split must be auditable rather than
+// taken on faith.
+describe('GroupsScreen — age division provenance', () => {
+  const withEvidence = (support, source = 'import') => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group({ tier_id: 'tier-1' })] : [tier()])
+    )
+    localClient.listDivisionEvidence.mockResolvedValue({
+      evidence: [{ entity_id: 'group-1', field: 'tier_id', tag: 'inferred', support: JSON.stringify(support) }],
+      fieldSources: { 'group-1': { tier_id: source } },
+    })
+  }
+
+  const SPLIT = {
+    division: 'Kittah 1', basis: 'split_by_co_occurrence', names_proposed: 'Kittah',
+    members: ['Kittah 1', 'Kittah 2'], stem: 'Kittah', qualifier_stripped: false,
+    anchors_excluded: ['Lunch'],
+  }
+
+  it('shows no dot when nothing explains the division — quiet by default', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group({ tier_id: 'tier-1' })] : [tier()])
+    )
+    localClient.listDivisionEvidence.mockResolvedValue({ evidence: [], fieldSources: {} })
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+    expect(screen.queryByRole('button', { name: /Age division provenance/i })).toBeNull()
+  })
+
+  it('explains a split in words a director can act on', async () => {
+    withEvidence(SPLIT)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+    const dot = await screen.findByRole('button', { name: /Age division provenance/i })
+    fireEvent.click(dot)
+    const dialog = await screen.findByRole('dialog')
+    // The names said one division; the schedule overruled them. Both halves.
+    expect(dialog.textContent).toMatch(/Kittah/)
+    expect(dialog.textContent).toMatch(/never shares an activity/i)
+    // And which all-camp activities were ignored, since that decides what the
+    // schedule could possibly show.
+    expect(dialog.textContent).toMatch(/Lunch/)
+  })
+
+  it('hides the dot once a director has re-assigned the division by hand', async () => {
+    // They own that value now; the import's reasoning no longer explains it.
+    withEvidence(SPLIT, null)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+    expect(screen.queryByRole('button', { name: /Age division provenance/i })).toBeNull()
+  })
+
+  it("hides the dot when the director's own choice is what got written", async () => {
+    // Red Hat: operations.source records a hand edit as EITHER null (unlabelled)
+    // or the literal 'human' (authored in import review). Checking null alone
+    // meant a director who overrode the division in review still saw a dot
+    // explaining the division they had just rejected — on the FIRST import.
+    withEvidence(SPLIT, 'human')
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+    expect(screen.queryByRole('button', { name: /Age division provenance/i })).toBeNull()
+  })
+
+  it('still renders the groups when the evidence read fails', async () => {
+    // Provenance explains the data; it is never a precondition for showing it.
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group({ tier_id: 'tier-1' })] : [tier()])
+    )
+    localClient.listDivisionEvidence.mockRejectedValue(new Error('older host'))
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+    expect(screen.queryByRole('button', { name: /Age division provenance/i })).toBeNull()
   })
 })
