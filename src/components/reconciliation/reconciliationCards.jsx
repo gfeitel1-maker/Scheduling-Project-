@@ -177,7 +177,13 @@ function questionFor(decision) {
       ? `Keep the current value for "${name}"'s ${decision.field?.[0]} or use the file's value?`
       : `Is "${name}" a new record, or one you already have?`
   }
-  if (decision.kind === 'confirm_change') return `"${name}" was hand-edited — keep it or overwrite from the file?`
+  // NOT "was hand-edited": fieldProvenance decodes NULL as human deliberately
+  // (electron/ops/fieldProvenance.js:34 — an unlabelled write counts as a hand
+  // edit), so this fires for a value nobody typed as well as one somebody did.
+  // The honest claim is the one the check actually makes — this value did not
+  // come from a file. Red Hat catch: putting a concrete value beside a
+  // confident authorship claim makes an overclaim more consequential, not less.
+  if (decision.kind === 'confirm_change') return `"${name}" wasn't imported from a file — keep it or overwrite from this one?`
   if (decision.kind === 'review_legacy_priority') {
     const count = decision.count ?? 0
     return `Review priority for ${count} ${count === 1 ? 'activity' : 'activities'} carried over from an earlier import`
@@ -292,8 +298,22 @@ function ResolutionControls({ decision, onAnswer, locations }) {
   if (decision.kind === 'confirm_change') {
     return (
       <div style={{ marginTop: 10 }}>
-        <RadioOption label={`Use the file's value${decision.proposedValue != null ? ` — "${JSON.stringify(decision.proposedValue)}"` : ''}`} description="Overwrites what's in Shoresh now." onClick={() => onAnswer({ choice: 'accept' })} />
-        <RadioOption label="Keep the current value" description="Ignores this file's value going forward for this field." onClick={() => onAnswer({ choice: 'keep' })} />
+        {/* A string value was being double-quoted: the template adds quotes
+            AND JSON.stringify adds its own, so "Field" rendered as ""Field"".
+            Pre-existing on this line; surfaced by T96 adding the matching
+            current-value line beside it. */}
+        <RadioOption label={`Use the file's value${decision.proposedValue != null ? ` — ${quoteValue(decision.proposedValue)}` : ''}`} description="Overwrites what's in Shoresh now." onClick={() => onAnswer({ choice: 'accept' })} />
+        {/* T96 — name the value being kept. This choice overwrites something
+            the director typed themselves; asking them to weigh it against the
+            file's value while showing only the file's value made one side of
+            the comparison invisible. Falls back to the bare label when the
+            current value is null (never written), where "" would read as an
+            empty string rather than as absent. */}
+        <RadioOption
+          label={`Keep the current value${decision.currentValue != null ? ` — ${quoteValue(decision.currentValue)}` : ''}`}
+          description="Ignores this file's value going forward for this field."
+          onClick={() => onAnswer({ choice: 'keep' })}
+        />
       </div>
     )
   }
@@ -340,10 +360,19 @@ function ResolutionControls({ decision, onAnswer, locations }) {
       </div>
     )
   }
+  // The generic fallback carried the SAME two defects confirm_change did —
+  // double-quoted values, and a "keep" option that never named what was being
+  // kept. Fixed here too rather than left for a future reader to find the
+  // asymmetry and wonder which branch was right (reviewer catch: the original
+  // commit claimed both options were fixed, when only confirm_change's were).
   return (
     <div style={{ marginTop: 10 }}>
-      <RadioOption label={`Use the file's value — "${JSON.stringify(decision.proposedValue)}"`} description="Overwrites what's in Shoresh now." onClick={() => onAnswer({ choice: 'accept' })} />
-      <RadioOption label="Keep the current value" description="Ignores this file's value going forward for this field." onClick={() => onAnswer({ choice: 'keep' })} />
+      <RadioOption label={`Use the file's value — ${quoteValue(decision.proposedValue)}`} description="Overwrites what's in Shoresh now." onClick={() => onAnswer({ choice: 'accept' })} />
+      <RadioOption
+        label={`Keep the current value${decision.currentValue != null ? ` — ${quoteValue(decision.currentValue)}` : ''}`}
+        description="Ignores this file's value going forward for this field."
+        onClick={() => onAnswer({ choice: 'keep' })}
+      />
     </div>
   )
 }
@@ -364,6 +393,28 @@ function useContentCrossfade(dep) {
     opacity: entered ? 1 : 0,
     transition: 'opacity var(--motion-fast) var(--ease-out)',
   }
+}
+
+// Renders a field value for display in one quoted form.
+//
+// A plain string is wrapped in quotes directly: JSON.stringify would add its
+// own, and the surrounding template added more, so "Field" reached the screen
+// as ""Field"".
+//
+// Everything else defers to formatFieldValue (above), which this file already
+// uses for the same job in the evidence table — so a multi-field map renders
+// as `location: Dock, min_per_week: 2` rather than raw JSON braces. Reviewer
+// catch: the first version called JSON.stringify here and would have shown a
+// director `{"location":"Dock","min_per_week":2}`.
+function quoteValue(value) {
+  // Embedded quotes are escaped. A camp value legitimately containing one is
+  // not hypothetical — field dimensions read `6' x 10" tent` — and leaving it
+  // raw renders as `"6' x 10" tent"`, which visually ends at the inner quote.
+  // Red Hat catch: this was the defect class the change set out to fix, on the
+  // very line it touched.
+  return typeof value === 'string'
+    ? `"${value.replace(/"/g, '\\"')}"`
+    : formatFieldValue(value)
 }
 
 export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onToggleEvidence, locations, repeatCount = 1 }) {
