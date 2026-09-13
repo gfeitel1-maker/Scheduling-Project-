@@ -1,7 +1,7 @@
 ---
 title: T113-day-override-undo-redo
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-21
 task_class: ui-ux-design
 governing_docs: [docs/adr/2026-08-21-day-overrides-repoint-shape.md]
@@ -10,6 +10,17 @@ archive_when: shipped and merged
 ---
 
 # T113 — Undo/redo for day-override authoring writes (deferred from T108)
+
+## CLOSED 2026-09-13 — superseded by T145, no code written
+
+Day Overrides was removed from the app entirely (T145, schema v59). The writes
+this ticket was going to make undoable — `placeActivityManual`'s override
+branch, `pullOverrideCell`, `pullOverrideDay`, and the drag path — no longer
+exist. There is nothing left to undo.
+
+Closed as superseded rather than completed: the gap this ticket described was
+real while the feature existed, and it was never fixed. It stopped mattering
+because the feature went away, which is a different thing from being solved.
 
 ## What it is
 

@@ -1,7 +1,7 @@
 ---
 title: "Remove Day Overrides entirely (reversing the T108 re-point)"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-12
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-23-override-family-model.md]

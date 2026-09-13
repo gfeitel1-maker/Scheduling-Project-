@@ -25,7 +25,6 @@ Regenerate with `npm run index:work`.
 | [T111-elective-cell-atomic-content-and-mutual-exclusion](../../docs/work/tickets/T111-elective-cell-atomic-content-and-mutual-exclusion.md) | in-progress | [2026-08-20-elective-authoring-render-design](../../docs/work/specs/2026-08-20-elective-authoring-render-design.md) · [2026-08-20-elective-cell-atomic-content-design](../../docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md) · [T109-orphaned-span-tail-reconciliation-guard](../../docs/work/tickets/T109-orphaned-span-tail-reconciliation-guard.md) |
 | [T114-infer-outdoor-coschedule-alt-activity-rules](../../docs/work/tickets/T114-infer-outdoor-coschedule-alt-activity-rules.md) | open | — |
 | [T115-locations-ingest-create-name-first](../../docs/work/tickets/T115-locations-ingest-create-name-first.md) | open | — |
-| [Remove Day Overrides entirely (reversing the T108 re-point)](../../docs/work/tickets/T145-remove-day-overrides.md) | open | — |
 | [The importer extracts from a workbook that is not a schedule, instead of declining it](../../docs/work/tickets/T146-importer-accepts-non-schedule-workbook.md) | open | — |
 | [Can locations be inferred from a schedule? (needs a conversation first)](../../docs/work/tickets/T147-infer-locations-from-a-schedule.md) | open | — |
 | [T36-ingest-unlabeled-path-residuals](../../docs/work/tickets/T36-ingest-unlabeled-path-residuals.md) | open | — |
@@ -54,7 +53,6 @@ Regenerate with `npm run index:work`.
 | [T107-special-days-into-roots-context](../../docs/work/tickets/T107-special-days-into-roots-context.md) | open | — |
 | [T108-day-overrides-repoint](../../docs/work/tickets/T108-day-overrides-repoint.md) | in-progress | [2026-08-21-day-overrides-repoint-shape](../../docs/adr/2026-08-21-day-overrides-repoint-shape.md) · [2026-08-21-day-overrides-designer-spec](../../docs/work/specs/2026-08-21-day-overrides-designer-spec.md) · [2026-08-21-day-overrides-repoint-design](../../docs/work/specs/2026-08-21-day-overrides-repoint-design.md) · [T113-day-override-undo-redo](../../docs/work/tickets/T113-day-override-undo-redo.md) · [T145-remove-day-overrides](../../docs/work/tickets/T145-remove-day-overrides.md) |
 | [T112-empty-cell-click-opens-inline-editor](../../docs/work/tickets/T112-empty-cell-click-opens-inline-editor.md) | in-progress | [2026-08-21-empty-cell-click-editor-design](../../docs/work/specs/2026-08-21-empty-cell-click-editor-design.md) |
-| [T113-day-override-undo-redo](../../docs/work/tickets/T113-day-override-undo-redo.md) | open | [T145-remove-day-overrides](../../docs/work/tickets/T145-remove-day-overrides.md) |
 | [T95-reconciliation-multi-select-domain-filter](../../docs/work/tickets/T95-reconciliation-multi-select-domain-filter.md) | open | — |
 | [T96-reconciliation-field-level-diff-ledger](../../docs/work/tickets/T96-reconciliation-field-level-diff-ledger.md) | open | — |
 | [T97-per-field-unknown-detection](../../docs/work/tickets/T97-per-field-unknown-detection.md) | open | — |
