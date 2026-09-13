@@ -13,6 +13,7 @@ import { fixedEventKey } from '../ingest/fixedEventKey'
 import { capturePlacements } from '../ingest/capturePlacements'
 import { inferDivisionEntities } from '../ingest/inferDivisions'
 import { inferCoScheduleRules } from '../ingest/coScheduleRules'
+import { detectAllCampOverrides } from '../ingest/allCampOverrides'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
 import { findNameVariantCandidates } from '../ingest/nearDuplicateNames'
@@ -153,6 +154,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // refs for the same reason placementsRef is: they are computed once at parse
   // time and must survive staging nulling `proposal` out.
   const divisionsRef = useRef([])
+  const allCampOverridesRef = useRef([])
   const coScheduleRef = useRef(new Map())
   const placementsRef = useRef([])
   // T118 slice 4 — the raw pages this import parsed, retained so
@@ -475,15 +477,72 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         }))
         .filter((d) => d.groupNames.length > 0)
 
+      // INGEST THE DIVISIONS (owner, 2026-09-13: "we need to ingest divisions
+      // it sounds like? that should solve the rest").
+      //
+      // `tiers` is an INGESTIBLE_ENTITY, so adding the inferred divisions to
+      // the proposal makes them flow through the ordinary propose-then-confirm
+      // path — they appear in the preview for the director to accept, rename or
+      // drop, exactly like a proposed activity or group. That is also the answer
+      // to "what about a re-import over hand-edited divisions": nothing is ever
+      // written silently, and a re-import is itself the director saying they
+      // want this file's version.
+      //
+      // Establishing group -> division here is what lets same_tier_only be
+      // answered on a FIRST import, and fills the Age Divisions screen instead
+      // of leaving it reading "needed".
+      // EVERY group is proposed into an age division, including a lone one
+      // (owner, 2026-09-13: "just like CIT — which is a group and an age
+      // division, every group goes into an age division"). An earlier version
+      // filtered single-group divisions out as tautological; that was the wrong
+      // call. CIT really is both a bunk and a division, and a camp's setup is
+      // more complete with it than without.
+      const proposableDivisions = divisionsRef.current
+
+      const statedTiers = proposal.entities.tiers ?? []
+      const statedTierKeys = new Set(statedTiers.map((t) => String(t).trim().toLowerCase()))
+      proposal.entities.tiers = [
+        ...statedTiers,
+        ...proposableDivisions
+          .map((d) => d.name)
+          .filter((n) => !statedTierKeys.has(String(n).trim().toLowerCase())),
+      ]
+      proposal.groupUnits = {
+        // Inferred first, stated last: a unit the FILE states outright always
+        // wins over one we derived from a naming pattern.
+        ...proposableDivisions.reduce((acc, d) => {
+          for (const g of d.groupNames) acc[g] = d.name
+          return acc
+        }, {}),
+        ...statedUnits,
+      }
+      fileGroupUnitsRef.current = proposal.groupUnits
+
+      // A near-all, once-a-week activity is probably an all-camp activity the
+      // director pulled a group out of, not one that excludes them. Detected
+      // here, asked in reconciliation — never inferred silently either way.
+      allCampOverridesRef.current = detectAllCampOverrides(
+        placementsRef.current,
+        proposal.entities.groups ?? [],
+      )
+
       // Co-schedule: each activity gets its OWN rule from its own observed
       // maximum — Lunch seen with 3 groups can share, Sports never seen with
       // more than 1 cannot.
+      // Same precedence as divisionsRef above: a unit the FILE states wins over
+      // an inferred one. The inferred names are laid down FIRST and the stated
+      // ones spread over them, so a stated unit can never be clobbered.
+      // (Reviewer catch: the first version seeded with statedUnits and then
+      // overwrote every inferred group on top, silently replacing a stated fact
+      // with a name-clustering guess and producing a wrong same_tier_only with
+      // no evidence trail.)
+      const inferredUnits = inferredDivisions.reduce((acc, d) => {
+        for (const g of d.groupNames) acc[g] = d.name
+        return acc
+      }, {})
       coScheduleRef.current = inferCoScheduleRules(
         placementsRef.current,
-        inferredDivisions.reduce((acc, d) => {
-          for (const g of d.groupNames) acc[g] = d.name
-          return acc
-        }, { ...statedUnits }),
+        { ...inferredUnits, ...statedUnits },
       )
 
       // Slice B — merges Slice A reconstructed as row.blockSpans, surfaced
@@ -1140,6 +1199,10 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         onNavigate={onNavigate}
         factCount={ledger.factCount}
         isFirstImport={ledger.isFirstImport}
+        // T114 — detected client-side at parse time (the placements only exist
+        // here), asked in reconciliation like every other thing the import is
+        // unsure about.
+        allCampOverrides={allCampOverridesRef.current}
       />
     )
   }

@@ -181,3 +181,57 @@ describe('every activity gets its own rule, anchors included', () => {
     expect(rules.get('Sports').max_groups_per_slot).toBe(1)
   })
 })
+
+// The owner's own worked examples, 2026-09-13.
+describe("the rule says CAN, and says WITH WHOM", () => {
+  it('Sports shared once by Alufim 1+2 can be co-scheduled — for those two', () => {
+    const rules = inferCoScheduleRules([
+      p('Alufim 1', 'Tue', '9:00', 'Sports'),
+      p('Alufim 2', 'Tue', '9:00', 'Sports'),
+      p('Alufim 1', 'Wed', '9:00', 'Sports'),
+      p('Tzofim 1', 'Thu', '9:00', 'Sports'),
+    ])
+    const r = rules.get('Sports')
+    expect(r.can_co_schedule).toBe(true)
+    // One shared Tuesday is enough to say it is POSSIBLE — and the groups it
+    // vouches for are the ones actually seen sharing, not everyone who ever
+    // did Sports.
+    expect(r.co_schedule_groups).toEqual(['Alufim 1', 'Alufim 2'])
+    expect(r.co_schedule_groups).not.toContain('Tzofim 1')
+  })
+
+  it('Lunch 1 is co-schedulable for Tzofim 1/2/3 and no one else', () => {
+    const rules = inferCoScheduleRules([
+      ...['Mon', 'Tue', 'Wed'].flatMap((d) => [
+        p('Tzofim 1', d, '12:00', 'Lunch 1'),
+        p('Tzofim 2', d, '12:00', 'Lunch 1'),
+        p('Tzofim 3', d, '12:00', 'Lunch 1'),
+      ]),
+      p('Alufim 1', 'Mon', '13:00', 'Lunch 2'),
+    ])
+    const r = rules.get('Lunch 1')
+    expect(r.can_co_schedule).toBe(true)
+    expect(r.co_schedule_groups).toEqual(['Tzofim 1', 'Tzofim 2', 'Tzofim 3'])
+  })
+
+  it('an activity never seen shared CANNOT be co-scheduled', () => {
+    const rules = inferCoScheduleRules([
+      p('B1', 'Mon', '9:00', 'Sports'),
+      p('B2', 'Tue', '9:00', 'Sports'),
+      p('B3', 'Wed', '9:00', 'Sports'),
+    ])
+    const r = rules.get('Sports')
+    expect(r.can_co_schedule).toBe(false)
+    expect(r.co_schedule_groups).toEqual([])
+  })
+
+  it('Carpool — all groups, every day, same time — is co-schedulable for all of them', () => {
+    const ALL = ['Tzofim 1', 'Tzofim 2', 'Alufim 1']
+    const rules = inferCoScheduleRules(
+      ['Mon', 'Tue'].flatMap((d) => ALL.map((g) => p(g, d, '8:00', 'Carpool'))),
+    )
+    const r = rules.get('Carpool')
+    expect(r.can_co_schedule).toBe(true)
+    expect(r.co_schedule_groups).toEqual(ALL.slice().sort())
+  })
+})

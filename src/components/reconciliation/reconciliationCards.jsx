@@ -200,6 +200,10 @@ function questionFor(decision) {
     return `This looks like an elective period. Create an empty "${decision.entityName ?? 'Electives'}" elective set? `
       + `(You'll add the activities on the Electives screen.)`
   }
+  // T114 — the reason string already reads as the question ("X on Wed has 3 of
+  // your 4 groups — everyone except Alufim 1. Was this an all-camp activity
+  // they were pulled out of?"), built where the counts are known.
+  if (decision.kind === 'all_camp_override') return decision.reason
   if (decision.kind === 'elective_candidates_truncated') return decision.reason
   return `Use the file's value for "${name}"?`
 }
@@ -326,6 +330,28 @@ function ResolutionControls({ decision, onAnswer, locations }) {
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <button className="press-97" onClick={() => onAnswer({ choice: 'confirm' })} style={cardStyles.btnCompactPrimary}>Create elective set</button>
         <button className="press-97" onClick={() => onAnswer({ choice: 'decline' })} style={cardStyles.btnCompactSecondary}>Not electives</button>
+      </div>
+    )
+  }
+
+  // T114 — the two readings of a near-all, once-a-week activity. Only the
+  // director knows which: the group had a trip that week, or they genuinely
+  // never attend. Neither is inferred, so both are offered plainly.
+  if (decision.kind === 'all_camp_override') {
+    const missing = decision.evidence?.missingGroups ?? []
+    const who = missing.length === 1 ? missing[0] : `${missing.length} groups`
+    return (
+      <div style={{ marginTop: 10 }}>
+        <RadioOption
+          label="It's for all camp"
+          description={`${who} missed it that week. Everyone is eligible.`}
+          onClick={() => onAnswer({ choice: 'all_camp' })}
+        />
+        <RadioOption
+          label={`It really excludes ${who}`}
+          description="Keep it limited to the groups the file shows."
+          onClick={() => onAnswer({ choice: 'as_written' })}
+        />
       </div>
     )
   }

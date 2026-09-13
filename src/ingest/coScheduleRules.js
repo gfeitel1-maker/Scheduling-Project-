@@ -36,8 +36,30 @@
 //     director holds, not an observation the grid contains. Two activities
 //     never co-occurring is not evidence one substitutes for the other.
 //
-// EVERY ACTIVITY GETS ITS OWN RULE, ANCHORS INCLUDED (owner, 2026-09-13:
-// "the rule is applied to an activity not to a group").
+// THE RULE, as the owner states it (2026-09-13):
+//
+//   "an activity of any kind can [be] inferred to be co-scheduled based on
+//    whether or not it shows up that way during any ingest. whether that
+//    co-scheduling is all, some, a few, two, or none is activity dependent."
+//
+// So: seen sharing a slot even once -> it CAN be co-scheduled. Never seen
+// sharing -> it cannot. And the answer includes WHICH groups, not just how
+// many:
+//
+//   Sports, Alufim 1 + Alufim 2 on one Tuesday only
+//     -> can share, with those groups. Not every day, not obligatory.
+//   Lunch 1, Tzofim 1/2/3 at the same time every day
+//     -> co-schedulable for Tzofim 1/2/3, and NOT for any other group on any
+//        day. This is a RECURRING activity (some groups, same time, many days).
+//   Carpool, all groups every day at the same time
+//     -> an ANCHOR. Co-schedulable like everything else, but the engine places
+//        anchors FIRST, so the rule barely matters for it.
+//
+// Placement order the engine works in: anchors/fixed first, recurring second,
+// everything else third by priority.
+//
+// EVERY ACTIVITY GETS ITS OWN RULE, ANCHORS INCLUDED (owner: "the rule is
+// applied to an activity not to a group").
 //
 // An all-camp lunch really can take the whole camp, so `max_groups_per_slot =
 // every group` is a TRUE fact about that lunch and belongs on it. Nothing is
@@ -131,8 +153,21 @@ export function inferCoScheduleRules(placements, groupTierByName) {
       if (allKnown) sameTierOnly = !sawMixed
     }
 
+    // WHICH groups can share this activity, not merely how many. Lunch 1 seen
+    // with Tzofim 1/2/3 every day is co-schedulable FOR THOSE THREE — not for
+    // any other group, on any day. The union across every slot is the set the
+    // grid actually vouches for.
+    const coScheduleGroups = new Set()
+    for (const slot of slots.values()) {
+      if (slot.groups.size > 1) for (const g of slot.groups) coScheduleGroups.add(g)
+    }
+
     rules.set(activity, {
       max_groups_per_slot: busiest.groups.size,
+      // CAN, not must. One observation of two groups sharing a slot is enough
+      // to say it is possible; it never obliges the engine to do it again.
+      can_co_schedule: busiest.groups.size > 1,
+      co_schedule_groups: [...coScheduleGroups].sort(),
       ...(sameTierOnly === undefined ? {} : { same_tier_only: sameTierOnly }),
       _inferred: true,
       // The observation the number came from, so a director asking "why?"

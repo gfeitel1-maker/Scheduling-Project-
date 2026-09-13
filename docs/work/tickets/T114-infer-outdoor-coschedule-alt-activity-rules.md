@@ -8,6 +8,59 @@ governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-10-ingest
 archive_when: ingest infers (with import_evidence) at least one of is_outdoor / co-schedule / weather-alternative for activity rules, and ActivitiesScreen surfaces its provenance the same way Slice D does the other three
 ---
 
+# T114 — Infer age divisions and per-activity co-scheduling from an import
+
+## SHIPPED 2026-09-13 — and the shape changed substantially under owner review
+
+What this ticket asked for was inference for three activity rule columns. What
+it became, through six owner corrections, is a bigger and more useful thing:
+**the import now proposes a camp's age divisions.**
+
+### What ships
+
+| inferred | from |
+|---|---|
+| **Age divisions + membership** | group NAMES. `Tzofim 1/2/3` -> one "Tzofim". `Kittah Aleph/Bet` -> one "Kittah" (the varying token may be a number, a letter, or a WORD acting as an ordinal). `CIT` alone -> its own division. EVERY group lands in one. |
+| **Division corrections** | the grid. A name-derived division whose groups never share a slot SPLITS. Splits but never merges — an all-camp lunch would otherwise fold the whole camp into one division. |
+| **Per-activity co-scheduling** | observed co-occurrence. `can_co_schedule`, `max_groups_per_slot`, and WHICH groups. |
+| **`same_tier_only`** | the above two together. |
+| **Probable all-camp overrides** | near-universal attendance + low frequency, raised as a question in reconciliation. |
+
+Divisions ingest as `tiers`, so they flow through the ordinary
+propose-then-confirm path — the Age Divisions screen fills in from the import
+instead of reading "needed", and nothing is ever written without the director
+seeing it.
+
+### Six owner corrections, each of which changed the design
+
+1. **`is_outdoor` is not inferable at all.** A property of the PLACE, not the
+   placement. Dropped from scope; spun off as T147.
+2. **"`same_tier_only` is not inferable" was WRONG** — that was a statement
+   about a current gap in ingestion, not about the domain.
+3. **Requiring repetition before admitting a division was wrong.** *"What camp
+   is not separating out their kids into divisions?"* Every group is in one.
+4. **`Kittah Aleph`/`Bet` are one division**, not two unrelated names — and the
+   grid, not the names, is the tiebreaker when they disagree.
+5. **The co-schedule rule belongs to the ACTIVITY, not a group.** An all-camp
+   lunch gets its own (large) rule. Anchors are excluded only from the DIVISION
+   inference, where their co-occurrence would wrongly imply shared membership.
+6. **A near-all, once-a-week activity is a director OVERRIDE**, not a
+   restriction. *"The original schedule probably said all camp."* Recognised
+   and asked, never silently written — because writing the naive reading turns
+   a one-week accommodation into a permanent rule the engine honours forever.
+
+### Still open
+
+- **Divisions carry no evidence.** Co-schedule rules record why they concluded
+  what they did; divisions do not, so a director cannot audit a split. The
+  asymmetry is known and deliberate-for-now, not overlooked.
+- `weather_alternative_id` (the Alt column) remains uninferred — a plan the
+  director holds, not an observation the grid contains.
+- No `import_evidence` rows are written yet, so the Activities screen provenance
+  dot cannot explain these values.
+
+## Original ticket follows
+
 # T114 — Build inference for the Co-schedule / Alt activity rule columns
 
 ## DOWNSCOPED 2026-09-13 (owner): outdoor inference is REMOVED from this ticket

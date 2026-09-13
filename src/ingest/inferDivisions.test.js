@@ -48,6 +48,31 @@ describe('inferDivisions — every group lands in a division', () => {
     for (const n of names) expect(d[n]).toBeTruthy()
   })
 
+  it('ignores a trailing qualifier — "Tzofim 1 (girls)" is still the Tzofim division', () => {
+    // Red Hat catch: without stripping the bracketed suffix the stem reads as
+    // "Tzofim 1", so every numbered variant became its OWN division — three
+    // bunks that are plainly one division proposed as three. A wrong division
+    // is worse than no division, because it looks confident.
+    const d = inferDivisions(['Tzofim 1 (girls)', 'Tzofim 2 (girls)', 'Tzofim 3 (girls)'])
+    expect(new Set(Object.values(d))).toEqual(new Set(['Tzofim']))
+  })
+
+  it('handles square-bracket qualifiers too', () => {
+    const d = inferDivisions(['Bogrim 1 [session 2]', 'Bogrim 2 [session 2]'])
+    expect(new Set(Object.values(d))).toEqual(new Set(['Bogrim']))
+  })
+
+  it('strips the qualifier from a lone group name as well', () => {
+    const d = inferDivisions(['CIT (senior)'])
+    expect(d['CIT (senior)']).toBe('CIT')
+  })
+
+  it('does not let a qualifier merge genuinely different families', () => {
+    const d = inferDivisions(['Tzofim 1 (girls)', 'Bogrim 1 (girls)'])
+    expect(new Set(Object.values(d))).toEqual(new Set(['Tzofim 1 (girls)', 'Bogrim 1 (girls)'].map((n) => d[n])))
+    expect(d['Tzofim 1 (girls)']).not.toBe(d['Bogrim 1 (girls)'])
+  })
+
   it('handles hyphens and hashes as separators', () => {
     const d = inferDivisions(['Nitzanim-1', 'Nitzanim-2'])
     expect(d['Nitzanim-1']).toBe('Nitzanim')

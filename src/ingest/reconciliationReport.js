@@ -614,6 +614,49 @@ export function buildReconciliationReport(input) {
     })
   }
 
+  // T114 — a probable all-camp override, surfaced as a question rather than
+  // silently inferred either way.
+  //
+  // An activity attended by almost every group, once, is most likely an
+  // all-camp activity the director pulled one group out of (a trip, a session
+  // they could not miss) — NOT an activity that excludes that group. Writing
+  // the naive reading down would turn a one-week accommodation into a
+  // permanent rule the engine honours forever.
+  //
+  // Same decision shape as the elective candidates above: no entity_id, no
+  // plan row, needsAttention, and it lands in hold via reportToLanes — the
+  // director answers it in the ordinary reconciliation flow they already use
+  // for everything else this import is unsure about.
+  for (const finding of asArray(input?.allCampOverrides)) {
+    const id = `all_camp_override:${finding.activityName}:${finding.day}:${finding.block}`
+    if (decisionsByKey.has(id)) continue
+    buckets.needsAttention += 1
+    const missing = finding.missingGroups ?? []
+    const missingLabel = missing.length === 1
+      ? missing[0]
+      : `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]}`
+    decisionsByKey.set(id, {
+      id,
+      kind: 'all_camp_override',
+      entity: 'activities',
+      entityId: null,
+      entityName: finding.activityName,
+      field: null,
+      confidence: 'inferred',
+      proposedValue: null,
+      unknowns: [],
+      evidence: {
+        day: finding.day,
+        block: finding.block,
+        missingGroups: missing,
+        attendingCount: finding.attendingCount,
+        totalGroups: finding.totalGroups,
+        occurrences: finding.occurrences,
+      },
+      reason: `"${finding.activityName}" on ${finding.day} has ${finding.attendingCount} of your ${finding.totalGroups} groups — everyone except ${missingLabel}. Was this an all-camp activity that ${missing.length === 1 ? 'they were' : 'they were'} pulled out of?`,
+    })
+  }
+
   // fix, panel round 2 (Red Hat, "unbounded nudges") — buildPlan's cap note
   // (`.truncated` on the electiveCandidates array), surfaced as ONE
   // acknowledgeable decision, same shape/UI as review_legacy_priority's

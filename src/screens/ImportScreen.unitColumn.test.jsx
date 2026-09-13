@@ -82,10 +82,21 @@ async function commit() {
 }
 
 describe('ImportScreen — reviewable unit column (ADR 2026-08-09 Decision 2)', () => {
-  it('unset (default): no override reaches the commit, links.groups has no entry (file inferred none)', async () => {
+  it('unset (default): the INFERRED division reaches the commit, but never as a human edit', async () => {
+    // T114 changed what "the file infers no unit" means. Every group is now
+    // proposed into an age division (owner: "just like CIT — which is a group
+    // and an age division, every group goes into an age division"), so a lone
+    // bunk infers a division named for itself and that link DOES reach the
+    // commit.
+    //
+    // What must NOT change, and is the real subject of this test: an INFERRED
+    // unit is not a DIRECTOR'S choice. humanEditedFields stays empty until the
+    // director actually touches the dropdown, so Policy A still protects a
+    // hand-set unit from a later re-import while an inferred one stays
+    // import-owned and refreshable.
     await uploadFile()
     const inputs = await commit()
-    expect(inputs.links.groups.Chagalls).toBeUndefined()
+    expect(inputs.links.groups.Chagalls).toBe('Chagalls')
     expect(inputs.clears.groups.Chagalls).toBeUndefined()
     expect(inputs.humanEditedFields.groups.Chagalls).toBeUndefined()
   })

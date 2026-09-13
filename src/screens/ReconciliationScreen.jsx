@@ -42,7 +42,7 @@ async function fetchReadiness() {
   return getReadiness(collections, null)
 }
 
-export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false }) {
+export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, allCampOverrides = [] }) {
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -135,6 +135,9 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
         blastRadiusIndex,
         unknownFieldEvidence: new Map(Object.entries(result?.unknownFieldEvidence ?? {})),
         electiveCandidates: result?.electiveCandidates,
+        // T114 — computed at parse time in ImportScreen (placements live there),
+        // not by the dry run, so it arrives as a prop rather than on `result`.
+        allCampOverrides,
       })
       if (requestGenRef.current !== myGen) return
       lastGoodReportRef.current = nextReport
