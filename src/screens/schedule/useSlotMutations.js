@@ -70,7 +70,6 @@ function spanStopsAt(row, headActivityId, activities) {
   if (!row) return true
   if (row.is_anchor) return true
   if (row.flags?.WEEK_CLOSED) return true
-  if (row.is_overridden) return true
   if (row.activity_id && row.activity_id !== headActivityId) {
     const act = activities.find(a => a.id === row.activity_id)
     if (act?.is_locked) return true
@@ -474,17 +473,8 @@ export function useSlotMutations({
     const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
     if (!targetRow || targetRow.is_anchor) return
 
-    // T108 Phase 2 review round 2 (HIGH #1) — replaceSlot is the drag-drop /
-    // card-move entry point (dragHandlers.js routes every drop here), the
-    // PRIMARY placement gesture. In override-authoring mode for the target
-    // cell's day, a drop writes a day_overrides row (kind: swap), never
-    // template_slots — same routing placeActivityManual already does for the
-    // typeahead path. Deliberately does not touch the source cell (a
-    // grid-to-grid drag's source clearing) or span tails: authoring an
-    // override is a per-cell diff (design §4), not a move, so this branch
-    // returns before any of that logic runs. Undo/redo for override
-    // authoring is a deferred follow-up (T113, Governor-accepted) — same
-    // posture as placeActivityManual's override branch below.
+    // replaceSlot is the drag-drop / card-move entry point (dragHandlers.js
+    // routes every drop here), the PRIMARY placement gesture.
 
     const hasSource = incoming.groupId != null && incoming.dayId != null && incoming.blockId != null
     const sourceRow = hasSource
@@ -763,12 +753,6 @@ export function useSlotMutations({
 
     const activity = activityOverride ?? activities.find(a => a.id === activityId)
     if (!activity) return
-
-    // T108 Phase 2 (design §6.1): in override-authoring mode FOR THIS CELL'S
-    // DAY, a cell edit writes a day_overrides row (kind: swap) instead of
-    // template_slots. No undo/redo for override authoring — deferred to
-    // T113 (Governor-accepted follow-up); the only way to undo an override
-    // today is a snapshot restore (design's §5.2 whole-week restore path).
 
     const group = groups.find(g => g.id === groupId)
     const eligible = isActivityEligibleForGroup(activity, group)
@@ -1126,7 +1110,6 @@ export function useSlotMutations({
     // aborts the whole split).
     const releasable = []
     for (const t of candidateRelease) {
-      if (t.is_overridden) break
       releasable.push(t)
     }
     if (releasable.length === 0) return
@@ -1242,12 +1225,6 @@ export function useSlotMutations({
     const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
     if (!targetRow || targetRow.is_anchor) return
 
-    // T108 Phase 2 review round 2 (HIGH #2) — day_overrides has no
-    // elective_set_id column (v1 scope, per the schema), so an override
-    // cannot point at an elective. Blocked BEFORE any write — including
-    // before the fresh-mint path below creates elective_sets/
-    // elective_set_activities rows — so override mode can never leave an
-    // orphan one-off elective set with nothing placing it.
 
     setActionError(null)
 

@@ -873,9 +873,10 @@ describe('useSlotMutations — spanStopsAt (ADR §3 ordered stop conditions)', (
   it('a WEEK_CLOSED block stops', () => {
     expect(spanStopsAt({ flags: { WEEK_CLOSED: true } }, 'act-1', activities)).toBe(true)
   })
-  it('an overridden cell stops', () => {
-    expect(spanStopsAt({ is_overridden: true }, 'act-1', activities)).toBe(true)
-  })
+  // T145 — the `is_overridden` stop condition was removed with Day Overrides.
+  // Nothing in the app can set that field any more, so the case this test
+  // constructed is unreachable; keeping it would have pinned dead defensive
+  // logic reading a ghost field (Code Reviewer, 2026-09-13).
   it('a different LOCKED activity stops', () => {
     expect(spanStopsAt({ activity_id: 'act-locked' }, 'act-1', activities)).toBe(true)
   })

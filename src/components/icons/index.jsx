@@ -106,24 +106,6 @@ export function OutdoorIcon({ style, ...rest }) {
   )
 }
 
-// "Arrow-out" glyph for a PULL override — the group leaves the grid here.
-export function PullIcon({ style, ...rest }) {
-  return (
-    <svg viewBox="0 0 12 12" width={12} height={12} fill="none" style={{ display: 'block', ...style }} {...rest}>
-      <path d="M4.5 2 L2 2 L2 10 L4.5 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M5 6 L10 6 M10 6 L7.5 3.5 M10 6 L7.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-// The "override this day" entry control's glyph.
-export function PencilIcon({ style, ...rest }) {
-  return (
-    <svg viewBox="0 0 12 12" width={12} height={12} fill="none" style={{ display: 'block', ...style }} {...rest}>
-      <path d="M8 2 L10 4 L4 10 L2 10 L2 8 Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Chrome family — 14–24px, for ordinary screen furniture.

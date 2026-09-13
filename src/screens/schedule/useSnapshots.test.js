@@ -292,7 +292,4 @@ describe('useSnapshots', () => {
     expect(props.setSnapshots).toHaveBeenCalledTimes(1)
   })
 
-  // T108 (day-overrides re-point, design §5.2): a snapshot captures the
-  // WHOLE WEEK's day_overrides (all days), and restore passes them back to
-  // the repository as a 4th argument.
 })

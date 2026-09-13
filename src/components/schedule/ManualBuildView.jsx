@@ -177,7 +177,6 @@ export default function ManualBuildView({
                       // The tail of a merged activity span — covered by the head's grid-row span.
                       if (slot?.activity_id && !slot.is_anchor && geometry.isActivityTail(selectedGroup, day.id, block.id)) return null
 
-
                       if (slot?.is_anchor) {
                         const rowSpan = geometry.getAnchorRowSpan(selectedGroup, day.id, block.id)
                         const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null

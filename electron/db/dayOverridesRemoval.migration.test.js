@@ -135,6 +135,47 @@ describe('migration v59: Day Overrides removal', () => {
     db.close()
   })
 
+  // Code Reviewer round 2 (MEDIUM) — the v53 block's `hasDayOverridesJson`
+  // TRUE branch had no coverage. Every other fixture in this file reaches v53
+  // with the column already absent, so the conditional only ever took the
+  // "missing" path, and the comment's claim that a genuine v52 database still
+  // carries its data forward was prose, not proof.
+  //
+  // This builds that database the hard way — schema.sql's CURRENT shape, then
+  // the column ALTER-added back the way v38 did, then schema_migrations wound
+  // back to 52 — so v53 executes with the column PRESENT, exactly as it did
+  // for every real device before T145.
+  it('v53 still carries a real pre-T145 db\'s day_overrides_json forward, then v59 drops it', () => {
+    const db = new Database(tmpFile('v53-true-branch'))
+    db.pragma('foreign_keys = ON')
+    initSchema(db)
+    db.exec('ALTER TABLE schedule_snapshots ADD COLUMN day_overrides_json TEXT')
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Test Camp')
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind) VALUES (?, ?, ?, ?)')
+      .run('tpl-1', 'camp-1', 'Manual', 'manual')
+    db.prepare(
+      `INSERT INTO schedule_snapshots (id, template_id, name, is_auto, created_at, slots, day_overrides_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run('snap-v52', 'tpl-1', 'Pre-T145 version', 0, '2026-05-01T00:00:00.000Z', '[{"s":1}]', '[{"kind":"swap"}]')
+
+    // Wind back to v52 so v53 runs against a column-present table.
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 53').run()
+    expect(columns(db, 'schedule_snapshots')).toContain('day_overrides_json')
+
+    initSchema(db)
+
+    // v53 carried it (the TRUE branch), then v59 dropped it — and the row and
+    // its other columns survived BOTH rebuilds.
+    const row = db.prepare('SELECT * FROM schedule_snapshots WHERE id = ?').get('snap-v52')
+    expect(row).toBeTruthy()
+    expect(row.name).toBe('Pre-T145 version')
+    expect(row.slots).toBe('[{"s":1}]')
+    expect(row.created_at).toBe('2026-05-01T00:00:00.000Z')
+    expect(columns(db, 'schedule_snapshots')).not.toContain('day_overrides_json')
+    expect(tableExists(db, 'day_overrides')).toBe(false)
+    db.close()
+  })
+
   it('day_overrides_json is the LAST column after rollback, matching how v38 added it', () => {
     // Column order is load-bearing here — see the v53 block's comment in
     // localDb.js and the v50 column-order trap (bug #194).
