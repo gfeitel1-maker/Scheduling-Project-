@@ -13,6 +13,17 @@ export const RULE_FIELDS = [
   { key: 'min_per_week', label: 'Min–Max/Wk', opFields: ['min_per_week', 'max_per_week'], evidenceField: 'min_per_week' },
   { key: 'eligible_group_ids', label: 'Eligible groups', opFields: ['eligible_group_ids'], evidenceField: 'eligible_group_names' },
   { key: 'location_id', label: 'Location', opFields: ['location_id'], evidenceField: 'location' },
+  // T114 follow-up. max_groups_per_slot/same_tier_only are ONE logical field
+  // here for the same reason min/max per week are: the Co-schedule column
+  // renders them as a single sentence ("Up to 3 (same age division)"), so
+  // splitting them into two popover rows would ask the director to confirm
+  // half of something they read as one fact.
+  //
+  // evidenceField is max_groups_per_slot — the row that is always written when
+  // co-schedule is inferred at all. same_tier_only's own row is absent whenever
+  // division membership was unknown, so keying on it would make the dot vanish
+  // for exactly the camps whose divisions we could not work out.
+  { key: 'max_groups_per_slot', label: 'Co-schedule', opFields: ['max_groups_per_slot', 'same_tier_only'], evidenceField: 'max_groups_per_slot' },
 ]
 
 const TIER_RANK = { confirmed: 0, observed: 1, inferred: 2 }

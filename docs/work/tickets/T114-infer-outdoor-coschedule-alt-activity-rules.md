@@ -49,15 +49,45 @@ seeing it.
    and asked, never silently written — because writing the naive reading turns
    a one-week accommodation into a permanent rule the engine honours forever.
 
+### Closed since (2026-09-13, same day)
+
+- **Co-schedule now reaches the database, with its evidence.** A defect found
+  while wiring this: `coScheduleRef.current` in `ImportScreen.jsx` was assigned
+  at parse time and read by NOTHING, so every activity's observed capacity was
+  computed and then discarded. It now travels as `rule.co_schedule` and lands on
+  `activities.max_groups_per_slot` / `same_tier_only`.
+
+  Two paths were needed, not one. A CREATE item carries `fields: {}` — buildPlan
+  builds every create field from the `_rule` side-channel — while an UPDATE item
+  carries real `fields` and is diffed upstream. So the create half lives in
+  `commitCreate` (`electron/ops/ingest.js`) and the update half in
+  `foldApprovedToRecords` (`src/ingest/fieldUpdate.js`). Wiring either alone is
+  silently half-broken: fold-only writes nothing on a first import, side-channel
+  only never refreshes on a re-import. Also note `buildPlan`'s `_rule`
+  reconstruction is a FIXED field list — anything not named there is dropped in
+  transit, which is what swallowed the first attempt.
+
+- **`import_evidence` rows are written for both fields.**
+  `max_groups_per_slot` is tagged `observed`/`high` (a count of groups in one
+  slot is seen, not deduced); `same_tier_only` is tagged `inferred`/`low`,
+  because it rests on a group -> division map that is itself inferred from group
+  NAMES. Support carries the busiest slot, the groups in it by name, and how
+  many slots were examined. `co_schedule_groups` lives in the evidence rather
+  than a column — it is the observation behind the constraint, not a constraint
+  the engine reads — which also keeps this free of a schema migration.
+
+- **The Activities screen surfaces it.** `RULE_FIELDS`
+  (`src/utils/ruleProvenance.js`) gains a fourth row, so the Co-schedule column
+  gets the same clickable provenance dot and confirm gesture as the other three.
+
 ### Still open
 
-- **Divisions carry no evidence.** Co-schedule rules record why they concluded
-  what they did; divisions do not, so a director cannot audit a split. The
-  asymmetry is known and deliberate-for-now, not overlooked.
-- `weather_alternative_id` (the Alt column) remains uninferred — a plan the
-  director holds, not an observation the grid contains.
-- No `import_evidence` rows are written yet, so the Activities screen provenance
-  dot cannot explain these values.
+- **Divisions carry no evidence.** Co-schedule rules now record why they
+  concluded what they did; divisions still do not, so a director cannot audit a
+  split. The asymmetry is known and deliberate-for-now, not overlooked.
+- `weather_alternative_id` (the Alt column) remains uninferred, and is now
+  formally downscoped — see the Scope section below. Not a gap to close; a
+  thing a schedule cannot carry.
 
 ## Original ticket follows
 

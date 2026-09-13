@@ -1002,6 +1002,16 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         min_per_week: rule.min_per_week,
         max_per_week: rule.max_per_week,
         priority: rule.priority,
+        // T114 follow-up — the co-schedule inference computed at parse time
+        // above. Until this line existed, `coScheduleRef.current` was assigned
+        // and never read by anything: every activity's observed capacity was
+        // worked out and then discarded on the way to the commit.
+        //
+        // Keyed by the activity name as the PLACEMENTS spell it, which is the
+        // same spelling `approved.activities` carries (both come from
+        // extractEntities), so no normalisation is needed here — and adding one
+        // would silently break the lookup for any name the two agree on today.
+        co_schedule: coScheduleRef.current.get(name),
       }
       // Q8 (§D5) folded into buildPlan (ADR 2026-08-17-onescreen-reconciliation-
       // merge.md §2): the paired location is now sent unconditionally — it is

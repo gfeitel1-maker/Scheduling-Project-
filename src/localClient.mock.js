@@ -1003,6 +1003,19 @@ export const mockShoresh = {
             const locationId = resolveApprovedLocationId(rule.location)
             if (locationId) fields.location_id = locationId
           }
+          // T114 follow-up — co-schedule parity with commitCreate
+          // (electron/ops/ingest.js). Same validation: a capacity of 1 is the
+          // real finding "never seen sharing a slot", so the floor is 1; and
+          // same_tier_only stays OMITTED when membership was unknown rather
+          // than defaulting to false, because "we could not tell" and "no,
+          // groups mixed" are different answers.
+          const cs = rule.co_schedule
+          if (cs && Number.isInteger(cs.max_groups_per_slot) && cs.max_groups_per_slot >= 1) {
+            fields.max_groups_per_slot = cs.max_groups_per_slot
+          }
+          if (cs && typeof cs.same_tier_only === 'boolean') {
+            fields.same_tier_only = cs.same_tier_only ? 1 : 0
+          }
         }
       }
       const row = { id }

@@ -1009,7 +1009,11 @@ describe('ActivitiesScreen — motion + depth pass (Slice E)', () => {
     // Locate the small tier dots (6x6) rendered before each field label.
     const dots = dialog.querySelectorAll('span')
     const tierDots = Array.from(dots).filter(d => d.style.width === '6px' && d.style.height === '6px')
-    expect(tierDots.length).toBe(3)
+    // One per RULE_FIELDS row. Four since T114's follow-up added co-schedule
+    // (max_groups_per_slot/same_tier_only) as an evidence-backed field —
+    // this fixture supplies no co-schedule evidence, so that row renders the
+    // 'inferred' shape, which is what an un-reviewed field should look like.
+    expect(tierDots.length).toBe(4)
 
     // eligible_group_ids: source null -> confirmed -> filled solid, no border/box-shadow.
     const confirmedDot = tierDots.find(d => d.style.background === 'var(--secondary)')

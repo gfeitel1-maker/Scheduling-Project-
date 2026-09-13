@@ -583,6 +583,14 @@ export function buildPlan(source, existing = null, resolutions = []) {
               // the fold too (evidence-only — nothing above this key changes).
               eligibility_known: activityRules?.[name]?.eligibility_known,
               support: activityRules?.[name]?.support,
+              // T114 follow-up: the co-schedule inference travels the same way
+              // support does — read from the side-channel rather than recFields,
+              // because foldApprovedToRecords never folds it into `fields`
+              // (it is not a director-editable record field, it is an
+              // observation). Omitting it here is how the first attempt at this
+              // silently dropped every co-schedule value: the reconstruction
+              // below is a FIXED field list, so anything not named is lost.
+              co_schedule: activityRules?.[name]?.co_schedule,
             }
           } else {
             item._rule = activityRules?.[name]
