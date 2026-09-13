@@ -1,7 +1,7 @@
 ---
 title: T114-infer-outdoor-coschedule-alt-activity-rules
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-22
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-10-ingestion-evidence-persistence.md, docs/adr/2026-08-22-roots-as-hub-setup-ia.md]
