@@ -15,7 +15,13 @@ import userEvent from '@testing-library/user-event'
 // replace-the-whole-module mock leaves it undefined and the import throws.
 vi.mock('../ingest/textGrid', async (importOriginal) => ({
   ...(await importOriginal()),
-  parseTextGrid: vi.fn(() => ({ pages: [{ title: 'x', columns: [], rows: [] }] })),
+  // T146 — the default page must be schedule-shaped (a day column here) or
+  // every test using this default trips the new isScheduleShaped precondition
+  // in ImportScreen. Rows stay empty — real row content flows unmocked
+  // through capturePlacements et al. and can collide with a test's own
+  // extractEntities.mockReturnValueOnce; extractEntities itself is mocked
+  // separately to return baseProposal below.
+  parseTextGrid: vi.fn(() => ({ pages: [{ title: 'x', columns: ['Monday'], rows: [] }] })),
 }))
 // Base proposal fixture, reused as the default mock return and cloned by
 // individual tests (via extractEntities.mockReturnValueOnce) that need a
@@ -171,6 +177,40 @@ describe('ImportScreen — oversized text-file guard (F4)', () => {
     await waitFor(() => expect(screen.getByText(/could not be read/i)).toBeTruthy())
     // Fails closed: the bytes never reach parseTextGrid.
     expect(parseTextGrid).not.toHaveBeenCalled()
+  })
+})
+
+describe('ImportScreen — declines a non-schedule workbook (T146)', () => {
+  it('declines when the parsed pages have no day or time axis, naming the file', async () => {
+    parseTextGrid.mockReturnValueOnce({
+      pages: [{
+        title: 'Legend',
+        columns: ['Meaning'],
+        rows: [{ label: 'L', cells: ['Lake'] }, { label: 'M', cells: ['Mess Hall'] }],
+      }],
+    })
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant, parseTextGrid is mocked'], 'Shoresh-Campus-Map-Template.txt', { type: 'text/plain' })
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(screen.getByText(/doesn't look like a schedule/i)).toBeTruthy())
+    expect(screen.getAllByText(/Shoresh-Campus-Map-Template\.txt/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/expected day columns.*or time-of-day rows/i)).toBeTruthy()
+    // Never a partial extraction — extractEntities is never even reached.
+    expect(extractEntities).not.toHaveBeenCalled()
+  })
+
+  it('accepts a real schedule shape (day columns, time-of-day rows) — the base mock fixture', async () => {
+    parseTextGrid.mockReturnValueOnce({
+      pages: [{
+        title: 'Bunk 1',
+        columns: ['Monday', 'Tuesday'],
+        rows: [{ label: '9:15-9:40', cells: ['Swim', 'Art'] }],
+      }],
+    })
+    await uploadFile()
+    expect(screen.queryByText(/doesn't look like a schedule/i)).toBeNull()
+    expect(extractEntities).toHaveBeenCalled()
   })
 })
 

@@ -55,9 +55,16 @@ describe('worstTier', () => {
 })
 
 describe('deriveActivityProvenance', () => {
-  it('covers exactly the 3 scoped rule fields (min/max-per-week, eligible groups, location)', () => {
+  // Slice D scoped this to 3 fields because those were the only ones ingest
+  // wrote evidence for. T114's follow-up added the 4th: co-schedule now infers
+  // max_groups_per_slot/same_tier_only AND records why, so it earns a row here.
+  // This list stays a deliberate tripwire — a field appears only once ingest
+  // genuinely writes import_evidence for it, never to fill out the popover.
+  it('covers exactly the 4 rule fields ingest writes evidence for', () => {
     const rows = deriveActivityProvenance({}, {})
-    expect(rows.map((r) => r.key)).toEqual(['min_per_week', 'eligible_group_ids', 'location_id'])
+    expect(rows.map((r) => r.key)).toEqual([
+      'min_per_week', 'eligible_group_ids', 'location_id', 'max_groups_per_slot',
+    ])
   })
 
   it('derives each row tier from its own field sources + evidence', () => {

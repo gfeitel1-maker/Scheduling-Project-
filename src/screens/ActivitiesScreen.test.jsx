@@ -35,6 +35,7 @@ import ActivitiesScreen from './ActivitiesScreen'
 import { localClient } from '../localClient'
 import * as XLSX from 'xlsx'
 import { deriveLocationId } from '../../electron/ops/locationId.js'
+import { RULE_FIELDS } from '../utils/ruleProvenance.js'
 
 const CAMP_ID = 'camp-1'
 
@@ -816,7 +817,14 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
     // observed evidence tag but source==='import' -> tier 'observed', worst present.
-    expect(screen.queryByRole('button', { name: /Provenance: observed, 1 of 3 fields need review/ })).not.toBeNull()
+    // Denominator is RULE_FIELDS.length, not a literal — this assertion existed
+    // while the label said "of 3" and RULE_FIELDS had 4 entries, and stayed
+    // green because the fixture encoded the same stale number.
+    // This fixture names no source for max_groups_per_slot, which tierForField
+    // reads as a human write -> 'confirmed', so the new 4th row does not add to
+    // the review count. Only min_per_week needs review here.
+    expect(RULE_FIELDS).toHaveLength(4)
+    expect(screen.queryByRole('button', { name: new RegExp(`Provenance: observed, 1 of ${RULE_FIELDS.length} fields need review`) })).not.toBeNull()
   })
 
   it('opens the popover with exactly 3 field rows, and Confirm re-writes the field then flips the row to confirmed in place', async () => {
@@ -1009,7 +1017,11 @@ describe('ActivitiesScreen — motion + depth pass (Slice E)', () => {
     // Locate the small tier dots (6x6) rendered before each field label.
     const dots = dialog.querySelectorAll('span')
     const tierDots = Array.from(dots).filter(d => d.style.width === '6px' && d.style.height === '6px')
-    expect(tierDots.length).toBe(3)
+    // One per RULE_FIELDS row. Four since T114's follow-up added co-schedule
+    // (max_groups_per_slot/same_tier_only) as an evidence-backed field —
+    // this fixture supplies no co-schedule evidence, so that row renders the
+    // 'inferred' shape, which is what an un-reviewed field should look like.
+    expect(tierDots.length).toBe(4)
 
     // eligible_group_ids: source null -> confirmed -> filled solid, no border/box-shadow.
     const confirmedDot = tierDots.find(d => d.style.background === 'var(--secondary)')

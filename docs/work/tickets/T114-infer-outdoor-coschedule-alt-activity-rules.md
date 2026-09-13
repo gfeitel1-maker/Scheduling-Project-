@@ -5,7 +5,7 @@ status: open
 created: 2026-08-22
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-10-ingestion-evidence-persistence.md, docs/adr/2026-08-22-roots-as-hub-setup-ia.md]
-archive_when: ingest infers (with import_evidence) at least one of is_outdoor / co-schedule / weather-alternative for activity rules, and ActivitiesScreen surfaces its provenance the same way Slice D does the other three
+archive_when: ingest infers co-schedule rules WITH import_evidence rows, and ActivitiesScreen surfaces their provenance the same way Slice D does the other three (is_outdoor and weather_alternative_id are downscoped as not inferable from a schedule - see Scope below)
 ---
 
 # T114 — Infer age divisions and per-activity co-scheduling from an import
@@ -49,15 +49,45 @@ seeing it.
    and asked, never silently written — because writing the naive reading turns
    a one-week accommodation into a permanent rule the engine honours forever.
 
+### Closed since (2026-09-13, same day)
+
+- **Co-schedule now reaches the database, with its evidence.** A defect found
+  while wiring this: `coScheduleRef.current` in `ImportScreen.jsx` was assigned
+  at parse time and read by NOTHING, so every activity's observed capacity was
+  computed and then discarded. It now travels as `rule.co_schedule` and lands on
+  `activities.max_groups_per_slot` / `same_tier_only`.
+
+  Two paths were needed, not one. A CREATE item carries `fields: {}` — buildPlan
+  builds every create field from the `_rule` side-channel — while an UPDATE item
+  carries real `fields` and is diffed upstream. So the create half lives in
+  `commitCreate` (`electron/ops/ingest.js`) and the update half in
+  `foldApprovedToRecords` (`src/ingest/fieldUpdate.js`). Wiring either alone is
+  silently half-broken: fold-only writes nothing on a first import, side-channel
+  only never refreshes on a re-import. Also note `buildPlan`'s `_rule`
+  reconstruction is a FIXED field list — anything not named there is dropped in
+  transit, which is what swallowed the first attempt.
+
+- **`import_evidence` rows are written for both fields.**
+  `max_groups_per_slot` is tagged `observed`/`high` (a count of groups in one
+  slot is seen, not deduced); `same_tier_only` is tagged `inferred`/`low`,
+  because it rests on a group -> division map that is itself inferred from group
+  NAMES. Support carries the busiest slot, the groups in it by name, and how
+  many slots were examined. `co_schedule_groups` lives in the evidence rather
+  than a column — it is the observation behind the constraint, not a constraint
+  the engine reads — which also keeps this free of a schema migration.
+
+- **The Activities screen surfaces it.** `RULE_FIELDS`
+  (`src/utils/ruleProvenance.js`) gains a fourth row, so the Co-schedule column
+  gets the same clickable provenance dot and confirm gesture as the other three.
+
 ### Still open
 
-- **Divisions carry no evidence.** Co-schedule rules record why they concluded
-  what they did; divisions do not, so a director cannot audit a split. The
-  asymmetry is known and deliberate-for-now, not overlooked.
-- `weather_alternative_id` (the Alt column) remains uninferred — a plan the
-  director holds, not an observation the grid contains.
-- No `import_evidence` rows are written yet, so the Activities screen provenance
-  dot cannot explain these values.
+- **Divisions carry no evidence.** Co-schedule rules now record why they
+  concluded what they did; divisions still do not, so a director cannot audit a
+  split. The asymmetry is known and deliberate-for-now, not overlooked.
+- `weather_alternative_id` (the Alt column) remains uninferred, and is now
+  formally downscoped — see the Scope section below. Not a gap to close; a
+  thing a schedule cannot carry.
 
 ## Original ticket follows
 
@@ -72,10 +102,19 @@ PLACE, not of the placement, so the only source that could carry it is a
 locations list. Attempting to infer it from a schedule would be manufacturing a
 fact, which is exactly what this repo's provenance rules exist to prevent.
 
-Co-schedule (`max_groups_per_slot` / `same_tier_only`) and weather-alternative
-(`weather_alternative_id`) ARE inferable from a schedule, because both are
-statements about how placements co-occur, which is precisely what a grid
-records. Those two remain in scope.
+Co-schedule (`max_groups_per_slot` / `same_tier_only`) IS inferable from a
+schedule, because it is a statement about how placements co-occur, which is
+precisely what a grid records. That one remains in scope.
+
+Weather-alternative (`weather_alternative_id`) is NOT, and an earlier revision
+of this ticket was wrong to group it with co-schedule (owner, 2026-09-13: "we
+know that weather cannot be inferred"). An alternative is the activity you
+substitute WHEN IT RAINS, and a schedule records no weather. Seeing Swim
+replaced by Arts one Tuesday is equally consistent with rain, a broken filter,
+or a staff absence — the grid cannot distinguish them, so any correlation drawn
+from it would be manufactured, the same error as inferring outdoor-ness above.
+Downscoped alongside `is_outdoor`; it needs a source that actually carries the
+fact (a director saying so).
 
 Spun off: inferring LOCATIONS from a schedule — see
 `docs/work/tickets/T147-infer-locations-from-a-schedule.md`. That one needs a

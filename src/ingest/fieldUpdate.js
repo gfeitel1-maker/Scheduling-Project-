@@ -71,6 +71,30 @@ export function foldApprovedToRecords(approved, activityRules, links, clears) {
           if (rule.location != null && rule.location !== '' && !('location' in fields)) {
             fields.location = rule.location
           }
+          // T114 follow-up — co-schedule inference (src/ingest/coScheduleRules.js).
+          //
+          // Folded into `fields` rather than ridden in on the `_rule`
+          // side-channel, deliberately: `fields` is the path BOTH create and
+          // update take, so a re-import refreshes these the same way it
+          // refreshes min_per_week, and Policy A hand-edit protection applies
+          // without a second mechanism. A side-channel-only value would land on
+          // first import and then never change again — which matters here,
+          // because how many groups share an activity is exactly the kind of
+          // thing that differs from one year's schedule to the next.
+          const cs = rule.co_schedule
+          // A capacity of 1 is a real finding ("never seen sharing a slot"),
+          // not an absence, so the floor is 1 and not 2.
+          if (Number.isInteger(cs?.max_groups_per_slot) && cs.max_groups_per_slot >= 1
+              && !('max_groups_per_slot' in fields)) {
+            fields.max_groups_per_slot = cs.max_groups_per_slot
+          }
+          // OMITTED, not defaulted. inferCoScheduleRules leaves same_tier_only
+          // absent when it could not place every group in a division: "we could
+          // not tell" and "no, groups mixed" are different answers, and a
+          // `?? false` here would erase the distinction at the last step.
+          if (typeof cs?.same_tier_only === 'boolean' && !('same_tier_only' in fields)) {
+            fields.same_tier_only = cs.same_tier_only ? 1 : 0
+          }
         }
       }
       record.fields = fields

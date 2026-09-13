@@ -87,9 +87,17 @@ function slotKey(dayName, blockLabel) {
  * @param {Array<{groupName: string, dayName: string, blockLabel: string, activityName: string}>} placements
  *        capturePlacements(...).placements
  * @param {Object<string,string>} [groupTierByName]
- *        group name -> division/tier name, when membership is known (a
- *        re-import reads it off live groups' tier_id). Omit it and
+ *        group name -> division/tier name, when membership is known. Omit it and
  *        `same_tier_only` is omitted too — never guessed.
+ *
+ *        NOTE (Red Hat, T114 review): an earlier version of this comment claimed
+ *        a re-import "reads it off live groups' tier_id". It does not — the only
+ *        caller (ImportScreen) builds this map purely from THIS file's parse
+ *        (inferred divisions overlaid with stated units). So a re-import into a
+ *        camp whose divisions are already confirmed in the database gets no
+ *        benefit from that confirmed structure. The failure mode is a benign one
+ *        (same_tier_only degrades to omitted, never to a wrong value), but the
+ *        opportunity is real and unclaimed.
  * @returns {Map<string, {max_groups_per_slot: number, same_tier_only?: boolean, _inferred: true, support: object}>}
  *          keyed by activityName, spelled as the placements spell it
  */

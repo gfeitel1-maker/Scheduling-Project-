@@ -153,8 +153,13 @@ function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmF
   const rows = deriveActivityProvenance(fieldSources, evidenceByField)
   const worst = worstTier(rows.map(r => r.tier))
   const needsReview = rows.filter(r => r.tier !== 'confirmed').length
+  // Denominator DERIVED from rows, never a literal: it was hardcoded to 3 and
+  // silently went wrong the moment RULE_FIELDS gained its 4th entry (T114
+  // co-schedule), announcing a false count to screen-reader users while the
+  // test that should have caught it stayed green — because the fixture encoded
+  // the same stale 3.
   const ariaLabel = needsReview > 0
-    ? `Provenance: ${worst}, ${needsReview} of 3 fields need review`
+    ? `Provenance: ${worst}, ${needsReview} of ${rows.length} fields need review`
     : 'Provenance: all confirmed'
   const shape = tierShapeStyle(worst)
 
@@ -936,7 +941,17 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // write primitive. min_per_week's row confirms BOTH min_per_week AND
   // max_per_week since they're one logical field (one evidence record).
   async function confirmProvenanceField(activity, row) {
-    const fields = Object.fromEntries(row.opFields.map(f => [f, activity[f]]))
+    // Only fields that actually HOLD a value are confirmed. The co-schedule row
+    // spans max_groups_per_slot + same_tier_only, and same_tier_only is
+    // deliberately absent whenever division membership could not be determined
+    // (src/ingest/coScheduleRules.js) — writing that null through would confirm
+    // an answer nobody has, which is the one thing the rest of this feature is
+    // built to avoid.
+    const fields = Object.fromEntries(
+      row.opFields.filter(f => activity[f] !== null && activity[f] !== undefined)
+        .map(f => [f, activity[f]])
+    )
+    if (Object.keys(fields).length === 0) return
     try {
       await writeFields(activity.id, fields)
       await load()

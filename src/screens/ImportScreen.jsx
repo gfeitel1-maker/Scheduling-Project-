@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
+import { isScheduleShaped } from '../ingest/scheduleShape'
 import { findSuspectRecords } from '../ingest/suspectRecords'
 import { formatEligibility } from './importEligibility'
 import { fixedEventKey } from '../ingest/fixedEventKey'
@@ -156,6 +157,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   const divisionsRef = useRef([])
   const allCampOverridesRef = useRef([])
   const coScheduleRef = useRef(new Map())
+  const groupTierByNameRef = useRef({})
   const placementsRef = useRef([])
   // T118 slice 4 — the raw pages this import parsed, retained so
   // buildCommitInputs can re-run extractEntities at commit time with this
@@ -375,6 +377,21 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         return
       }
 
+      // T146 — decline a workbook that was never schedule-shaped (a campus
+      // map, a legend sheet) instead of extracting one-character residual
+      // "activities" from its grid coordinates and legend keys. Scoped to
+      // this path only — the per-entity template importers on Locations/
+      // Electives/Special Events read non-schedule workbooks by design and
+      // never call isScheduleShaped.
+      if (!isScheduleShaped(pages)) {
+        setProposal(null)
+        setError(
+          `${files.map((f) => f.name).join(', ')} doesn't look like a schedule — expected day columns ` +
+          '(e.g. Monday–Friday) or time-of-day rows. Nothing was imported.'
+        )
+        return
+      }
+
       // T118 slice 4 — this camp's already-confirmed compound-cell-pattern
       // decisions, fetched at the SAME moment existingRecordsAll is (ADR §3),
       // so a resolved pattern reads correctly on THIS parse already (not just
@@ -540,9 +557,14 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         for (const g of d.groupNames) acc[g] = d.name
         return acc
       }, {})
+      // Kept on a ref because buildCommitInputs may have to re-derive the
+      // co-schedule rules from a re-parsed proposal (see coScheduleForCommit),
+      // and it must use the SAME group -> division map or same_tier_only would
+      // silently change meaning between the preview and the commit.
+      groupTierByNameRef.current = { ...inferredUnits, ...statedUnits }
       coScheduleRef.current = inferCoScheduleRules(
         placementsRef.current,
-        { ...inferredUnits, ...statedUnits },
+        groupTierByNameRef.current,
       )
 
       // Slice B — merges Slice A reconstructed as row.blockSpans, surfaced
@@ -942,6 +964,27 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         ? (effectiveProposal?.activityLocations ?? {})
         : fileActivityLocationsRef.current
 
+    // Red Hat (T114 co-schedule review) — coScheduleRef has EXACTLY the staleness
+    // the comment above describes, for exactly the same reason: it is computed
+    // once at parse time and keyed on the pre-fold activity name. After a
+    // compound-cell resolution ("Lunch + Leave" -> "Lunch") or a name-variant
+    // merge, `approved.activities` carries the post-fold names and the lookup
+    // misses — silently, because `undefined` flows harmlessly through every
+    // downstream `if (cs && ...)` guard. The activities that lose their
+    // inference are precisely the ones most likely to need it: the ones sharing
+    // a cell with something else.
+    //
+    // Note the trigger set is WIDER than activityLocations' above: a name-variant
+    // merge re-keys activity names without touching compound decisions, so both
+    // conditions have to be tested here.
+    const coScheduleForCommit =
+      newlyResolvedCompoundDecisions.length > 0 || confirmedNameMerges.length > 0
+        ? inferCoScheduleRules(
+            capturePlacements({ pages: pagesRef.current }, effectiveProposal).placements,
+            groupTierByNameRef.current,
+          )
+        : coScheduleRef.current
+
     const approved = {}
     for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(effectiveProposal?.entities[entity] ?? [])]
     // ADR 2026-08-09 Decision 2 — three explicit per-group unit review states.
@@ -1002,6 +1045,16 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         min_per_week: rule.min_per_week,
         max_per_week: rule.max_per_week,
         priority: rule.priority,
+        // T114 follow-up — the co-schedule inference computed at parse time
+        // above. Until this line existed, `coScheduleRef.current` was assigned
+        // and never read by anything: every activity's observed capacity was
+        // worked out and then discarded on the way to the commit.
+        //
+        // Keyed by the activity name as the PLACEMENTS spell it, which is the
+        // same spelling `approved.activities` carries (both come from
+        // extractEntities), so no normalisation is needed here — and adding one
+        // would silently break the lookup for any name the two agree on today.
+        co_schedule: coScheduleForCommit.get(name),
       }
       // Q8 (§D5) folded into buildPlan (ADR 2026-08-17-onescreen-reconciliation-
       // merge.md §2): the paired location is now sent unconditionally — it is
