@@ -1,7 +1,7 @@
 ---
 title: T112-empty-cell-click-opens-inline-editor
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-08-21
 task_class: ui-ux-design
 governing_docs: [docs/adr/2026-08-20-in-context-knowledge-and-durability-tiers.md]
@@ -10,6 +10,8 @@ archive_when: shipped and merged
 ---
 
 # T112 — Empty-cell click should open the inline editor (point-of-intent gap)
+
+**Verified complete 2026-09-13. Shipped as EmptyCell.jsx — with an owner-directed gesture change: it opens on DOUBLE-click, not a single plain click, which is reserved for selection. The goal (reachability without a drag-in-then-right-click detour) is met; the literal wording "on click" is superseded.**
 
 ## The gap (verified live, 2026-08-21, dev app on a dedicated port)
 

@@ -1,7 +1,7 @@
 ---
 title: T97-per-field-unknown-detection
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-20
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-17-onescreen-reconciliation-projection.md]
@@ -9,6 +9,8 @@ archive_when: per-field UNKNOWN detection ships, or the product decides "not in 
 ---
 
 # T97 — Per-field UNKNOWN detection (audit M4)
+
+**Verified complete 2026-09-13 — the ADR landed with an end-to-end pipeline (import_evidence tagged unknown -> buildUnknownFieldEvidenceMap -> reconciliationReport). Two caveats recorded for the reader: UNKNOWN is scoped to `min_per_week`/`priority` only, and UNKNOWNs surface as ordinary needs-attention cards rather than a distinct state token. The capability gap the ticket called the highest-value of the four is closed.**
 
 **Source:** `docs/work/specs/2026-08-19-roots-reconciliation-audit.md` §12 (deferred, revisit on
 evidence). Severity: MEDIUM. **The highest-value of the four M-deferrals — it's a real capability

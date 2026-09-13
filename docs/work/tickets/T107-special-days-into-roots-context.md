@@ -1,7 +1,7 @@
 ---
 title: T107-special-days-into-roots-context
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-20
 task_class: ui-ux-design
 governing_docs: [docs/adr/2026-08-20-special-days-authoring-and-day-override-repoint.md, docs/work/specs/2026-08-19-roots-reconciliation-audit.md]
@@ -10,6 +10,8 @@ archive_when: shipped and merged
 ---
 
 # T107 — Wire Special Days into Roots Context inventory
+
+**CLOSED 2026-09-13 — SUPERSEDED. This ticket instructs extending `buildContextChildren` in rootMapModel.js and says explicitly "never the census". Commit 48054c3 DELETED the Context domain and that function entirely, moving Special Days into the Scheduling domain through the ordinary census machinery. The user-visible outcome it wanted exists; the named symbol, the mechanism, and the invariant it was defending are all gone.**
 
 Extend `buildContextChildren` (`src/ingest/rootMapModel.js`) so `special_days` appears alongside Field
 Trips / Special Events / Day Overrides in the read-only Context inventory (Roots audit Slice 3). Authored,

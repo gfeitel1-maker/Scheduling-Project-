@@ -1,7 +1,7 @@
 ---
 title: T108-day-overrides-repoint
 document_type: ticket
-status: in-progress
+status: closed
 created: 2026-08-20
 task_class: ui-ux-design
 governing_docs: [docs/adr/2026-08-20-special-days-authoring-and-day-override-repoint.md]
@@ -10,6 +10,8 @@ archive_when: shipped and merged
 ---
 
 # T108 — Re-point Day Overrides to a rendered (week, day)
+
+**CLOSED 2026-09-13 — SUPERSEDED by T145, which removed Day Overrides entirely (schema v59, PR #372). The re-point this ticket built did ship; the owner then reversed the decision and the feature was deleted. Closed as superseded, not completed.**
 
 Owner decision: **re-point, don't remove.** The "mostly-normal day with a few swaps" override is the
 high-frequency real case. Make an override apply to a specific `(week, day)` and **render on the

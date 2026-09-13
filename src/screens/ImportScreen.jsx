@@ -11,6 +11,8 @@ import { findSuspectRecords } from '../ingest/suspectRecords'
 import { formatEligibility } from './importEligibility'
 import { fixedEventKey } from '../ingest/fixedEventKey'
 import { capturePlacements } from '../ingest/capturePlacements'
+import { inferDivisionEntities } from '../ingest/inferDivisions'
+import { inferCoScheduleRules } from '../ingest/coScheduleRules'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
 import { findNameVariantCandidates } from '../ingest/nearDuplicateNames'
@@ -147,6 +149,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // placements (capturePlacements.js), computed once at parse time next to
   // proposal (same "survives staging" reasoning as the two refs above), so
   // buildCommitInputs can ship them to ingestCommit for materializeImportedVersion.
+  // T114 — inferred age divisions and per-activity co-schedule rules, held in
+  // refs for the same reason placementsRef is: they are computed once at parse
+  // time and must survive staging nulling `proposal` out.
+  const divisionsRef = useRef([])
+  const coScheduleRef = useRef(new Map())
   const placementsRef = useRef([])
   // T118 slice 4 — the raw pages this import parsed, retained so
   // buildCommitInputs can re-run extractEntities at commit time with this
@@ -436,6 +443,48 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       setFixedEvents(inferred)
       setMovedPlacements(findMovedPlacements({ pages }, proposal, inferred))
       setOperatingDayCount(proposal.entities.days_of_operation.length)
+
+      // T114 — age divisions and per-activity co-scheduling, inferred from the
+      // grid the file already gave us.
+      //
+      // Only TRUE ANCHORS are excluded — kind 'fixed', meaning ALL groups,
+      // every day, same time (owner, 2026-09-13). Those put every group in one
+      // slot, which would make every activity look maximally co-schedulable and
+      // every group look like it shares a division with every other.
+      //
+      // kind 'recurring' is NOT excluded, and the distinction is the whole
+      // point: a "Lunch 1" attended by SOME groups at the same time on multiple
+      // days is a normal activity whose co-scheduling is exactly what we want to
+      // learn — three groups at Lunch 1 means Lunch 1 takes three. Excluding it
+      // would throw away the signal instead of cleaning it.
+      const anchorNames = (inferred ?? []).filter((e) => e.kind === 'fixed').map((e) => e.name)
+
+      // Divisions: names cluster the groups, then the grid splits any cluster
+      // it contradicts. `proposal.groupUnits` wins wherever the FILE states a
+      // group's unit outright — a stated fact always beats an inferred one.
+      const inferredDivisions = inferDivisionEntities(
+        proposal.entities.groups ?? [],
+        placementsRef.current,
+        anchorNames,
+      )
+      const statedUnits = proposal.groupUnits ?? {}
+      divisionsRef.current = inferredDivisions
+        .map((d) => ({
+          ...d,
+          groupNames: d.groupNames.filter((g) => !statedUnits[g]),
+        }))
+        .filter((d) => d.groupNames.length > 0)
+
+      // Co-schedule: each activity gets its OWN rule from its own observed
+      // maximum — Lunch seen with 3 groups can share, Sports never seen with
+      // more than 1 cannot.
+      coScheduleRef.current = inferCoScheduleRules(
+        placementsRef.current,
+        inferredDivisions.reduce((acc, d) => {
+          for (const g of d.groupNames) acc[g] = d.name
+          return acc
+        }, { ...statedUnits }),
+      )
 
       // Slice B — merges Slice A reconstructed as row.blockSpans, surfaced
       // as "Longer Blocks" candidates. Every one is shown; nothing commits

@@ -1,7 +1,7 @@
 ---
 title: T104-extract-shared-free-suffix-scan
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-20
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
@@ -9,6 +9,8 @@ archive_when: duplicateWeek.js and locationId.js share one free-suffix-scan help
 ---
 
 # T104 — Extract a shared free-suffix-scan helper (reuse review, T101)
+
+**Shipped 2026-09-13 (PR #371) together with T103, because the ceiling belongs in the shared scan. `electron/ops/findFreeSuffix.js` now serves both locationId.js and duplicateWeek.js.**
 
 **Surfaced by the reuse review during T101 (2026-08-20). Maintainability, non-blocking.**
 

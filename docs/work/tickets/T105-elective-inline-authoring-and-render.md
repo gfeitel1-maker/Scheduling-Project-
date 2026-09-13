@@ -1,7 +1,7 @@
 ---
 title: T105-elective-inline-authoring-and-render
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-08-20
 task_class: ui-ux-design
 governing_docs: [docs/adr/2026-08-20-electives-authoring.md, docs/adr/2026-08-20-in-context-knowledge-and-durability-tiers.md]
@@ -10,6 +10,8 @@ archive_when: shipped and merged
 ---
 
 # T105 — Elective inline authoring + render (create-in-context first)
+
+**Verified complete 2026-09-13 by the open-ticket audit — `createElectiveFromCell`, `useContentRaceFlag`, the durable read seam and the atomic span-head conversion all shipped; only the status was never flipped.**
 
 The primary authoring path per the ratified ADR: a director marks a cell as an elective **in the grid**,
 naming it and listing members inline (members create-on-type via the generalized `createActivityFromCell`

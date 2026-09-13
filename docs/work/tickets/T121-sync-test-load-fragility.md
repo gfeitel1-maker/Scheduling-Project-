@@ -1,7 +1,7 @@
 ---
 title: "Sync/WS tests fail under concurrent load, making a red gate uninformative"
 document_type: ticket
-status: in-progress
+status: closed
 created: 2026-09-05
 task_class: test-infrastructure
 archive_when: "a full `npm run verify` passes reliably while another test suite runs concurrently, and no WS/mDNS scenario has flaked for a sustained period"
@@ -9,6 +9,8 @@ governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 ---
 
 # T121 — Sync/WS tests fail under concurrent load
+
+**CLOSED 2026-09-13 — SUPERSEDED by the Stage 6 cutover. Every file this ticket named as flaky (syncServer.test.js, syncClient.test.js, the old integration harness) was DELETED with the WebSocket layer. Its archive_when ("no WS/mDNS scenario has flaked") can never be evaluated, because there are no WS/mDNS scenarios. The fix commit did land before the cutover; this is closed as superseded, not verified.**
 
 ## Symptom
 

@@ -151,7 +151,7 @@ describe('users/camps modeled in the Automerge document (Stage 6 prep)', () => {
     expect(PROJECTIONS.camps.fields).toEqual(['name'])
 
     let doc = createEmptyDoc()
-    doc = applyWrite(doc, { entity: 'camps', entity_id: 'camp-1', field: 'name', value: 'Camp Achva' })
+    doc = applyWrite(doc, { entity: 'camps', entity_id: 'camp-1', field: 'name', value: 'Camp Testwood' })
     // Even an explicit (malicious-or-buggy) attempt to write signing_secret must be a silent no-op
     // (applyWrite's "field not registered" rule) — never land as a document key.
     doc = applyWrite(doc, { entity: 'camps', entity_id: 'camp-1', field: 'signing_secret', value: 'sneaky' })

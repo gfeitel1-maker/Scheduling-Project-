@@ -1,7 +1,7 @@
 ---
 title: T103-location-disambiguation-suffix-namespace
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-20
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-15-locations-concurrent-create-collision.md]
@@ -9,6 +9,8 @@ archive_when: the location disambiguation suffix cannot collide with a deriveLoc
 ---
 
 # T103 — Location `${base}:${n}` disambiguation suffix shares deriveLocationId's namespace (Red Hat, T101)
+
+**Shipped 2026-09-13 (PR #371), with the premise CORRECTED. The reported collision does not occur — measured in both orderings, and zero colons exist anywhere in the corpus. The real defect was an unbounded `for (let n = 2; ; n++)`, now bounded in the shared helper, which throws rather than returning a degraded id.**
 
 **Surfaced by Red Hat during T101 review (2026-08-20). NON-corrupting — recorded as a follow-up.**
 

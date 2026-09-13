@@ -1,7 +1,7 @@
 ---
 title: T41-elective-scheduling
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-08-01
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs: []
@@ -9,6 +9,8 @@ archive_when: superseded by an approved specification
 ---
 
 # T41 — Elective scheduling
+
+**Verified complete 2026-09-13 — both remaining slices shipped: set CRUD via T110, authoring/render and mutual exclusion via T105/T111. Nothing in the ticket's non-goal list (campers, solver) was in scope.**
 
 **Status: parked.** Product owner, 2026-08-01: *"elective scheduling should also be on the list
 for the future."* Recorded so it is not lost. **Not a design — no approach chosen.**
