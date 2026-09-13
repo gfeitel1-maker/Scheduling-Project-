@@ -5,10 +5,14 @@
 // kind (protects against a future Phase-C decision kind landing silently,
 // same "never silently drop" discipline classifyItem's fallback branch uses).
 //
-// Ordering within a lane is report.decisions array order — the report's own
-// walk order over planItems/readiness. This adapter never re-sorts; salience
-// (seam 2) is a rendering hint layered on top by the lane renderer, never
-// consulted here (ADR invariant 2).
+// Ordering within a lane: this adapter is the SINGLE authority on it.
+// Salience (seam 2) is a rendering hint layered on top by the lane renderer
+// and can never reorder anything — invariant 2, which still holds.
+//
+// T98 (ADR addendum 2026-09-12) narrowed that invariant: in-lane order is no
+// longer required to be report.decisions walk order. express/standard are
+// ordered by blast radius (largest first, stable, walk order as tiebreak);
+// `hold` keeps walk order. See byBlastRadiusDesc below for why.
 
 function laneFor(decision) {
   switch (decision.kind) {
@@ -75,7 +79,32 @@ function requiredGapDecisions(readinessRows) {
     }))
 }
 
-export function reportToLanes(report) {
+// T98 (ADR 2026-08-17 addendum, 2026-09-12) — order WITHIN a lane by blast
+// radius, largest first.
+//
+// Four constraints, each one structural rather than intentional:
+//
+//  - The sort key is the blast-radius COUNT, read straight from the index.
+//    Never salienceOf().rank: it returns 0 for BOTH confirm_change and
+//    resolve_conflict, so ranking on it would conflate a held conflict with a
+//    confirmed change — the exact misreading invariant 2 was written against.
+//  - Stable, with report walk order as the tiebreak, so equal-radius decisions
+//    do not reshuffle between dry-runs.
+//  - A permutation only: same decisions in, same decisions out.
+//  - Callers that pass no index get report order, unchanged (the same
+//    additive-degradation contract blastRadiusIndex already has upstream).
+//
+// The `hold` lane is deliberately NOT passed through here — see its call site.
+function byBlastRadiusDesc(decisions, blastRadiusIndex) {
+  if (!blastRadiusIndex || blastRadiusIndex.size === 0) return decisions
+  const radiusOf = (d) => blastRadiusIndex.get(`${d.entity}:${d.entityId}`) ?? 0
+  return decisions
+    .map((decision, i) => ({ decision, i }))
+    .sort((a, b) => (radiusOf(b.decision) - radiusOf(a.decision)) || (a.i - b.i))
+    .map(({ decision }) => decision)
+}
+
+export function reportToLanes(report, blastRadiusIndex = null) {
   const express = []
   const standard = []
   const hold = [...requiredGapDecisions(report.readiness ?? [])]
@@ -86,6 +115,13 @@ export function reportToLanes(report) {
     else if (lane === 'standard') standard.push(decision)
     else hold.push(decision)
   }
+
+  // express/standard reorder; `hold` never does. Held conflicts carry the
+  // rank-0 conflation hazard above, and their arrival order is itself
+  // meaningful — a required readiness gap is prepended there precisely
+  // because it blocks everything after it.
+  const orderedExpress = byBlastRadiusDesc(express, blastRadiusIndex)
+  const orderedStandard = byBlastRadiusDesc(standard, blastRadiusIndex)
 
   const spine = BUCKET_KEYS.map((bucket) => ({ bucket, count: report.buckets[bucket] ?? 0 }))
 
@@ -107,5 +143,5 @@ export function reportToLanes(report) {
     .every((row) => row.state === 'ready')
   const readinessGreen = hold.length === 0 && standard.length === 0 && requiredAreasReady
 
-  return { express, standard, hold, spine, readinessGreen }
+  return { express: orderedExpress, standard: orderedStandard, hold, spine, readinessGreen }
 }

@@ -409,9 +409,6 @@
 /* T92 one-time onboarding pulse: bronze, single non-looping pulse on mount,
    cleared by the caller (ManualBuildView) after the first interaction — see
    docs/work/specs/2026-08-20-t92-manual-merge-discoverability.md. */
-.cell-action[data-merge-hint] {
-  animation: cell-action-hint-pulse var(--motion-settle) var(--ease-out) 1;
-}
 
 @keyframes cell-action-hint-pulse {
   0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
@@ -420,12 +417,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cell-action[data-merge-hint] {
-    animation: none;
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
   }
-}
 
 /* Replaces (cellHovered || reasonFocused) on the review reason callout. */
 .cell-reason {
@@ -1099,6 +1091,19 @@
 /* Extend handle — bottom edge of the span's last covered block, always
    present, always above the split bands in z-order (Maker note #5: the
    bottom ~10px belongs to the handle, not band N's click area). */
+/* Hidden at rest, revealed on the CELL's hover/focus (owner, 2026-09-12).
+   This bar is now the only pointer control for lengthening an activity — the
+   always-visible merge chevron that used to sit top-right is gone, because the
+   two did overlapping jobs and the chevron was permanent noise on a grid that
+   can run to hundreds of cells.
+
+   Revealed from `.cell`, not from the handle itself: a 28x4px target you
+   cannot see is one you cannot hover onto, so hovering the handle could never
+   have been what reveals it.
+
+   Keyboard equivalent is Shift+Down / Shift+Up on the focused cell
+   (SlotCell.jsx) — the handle is deliberately tabIndex=-1, so the shortcut is
+   the keyboard path, not this element. */
 .span-extend-handle {
   position: absolute;
   bottom: 3px;
@@ -1108,14 +1113,25 @@
   height: 4px;
   border-radius: 2px;
   background: var(--primary);
-  opacity: 0.5;
+  opacity: 0;
   cursor: row-resize;
   z-index: 3;
   transition: opacity var(--motion-fast) var(--ease-out);
 }
 
-.span-extend-handle:hover,
+.cell:hover .span-extend-handle,
+.cell:focus-within .span-extend-handle {
+  opacity: 0.5;
+}
+
+.cell:hover .span-extend-handle:hover,
 .span-extend-handle:focus-visible {
+  opacity: 1;
+}
+
+/* The one-time discoverability pulse must be visible even though the cell is
+   not hovered — it fires precisely to tell someone the control exists. */
+.span-extend-handle[data-span-extend-hint] {
   opacity: 1;
 }
 

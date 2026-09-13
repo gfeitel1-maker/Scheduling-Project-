@@ -295,6 +295,37 @@ export const MOCK_SCOPE_KEYS = {
   week_location_exclusions: 'week_id',
 }
 
+// T102 — emulate SQLite's INTEGER affinity, which the in-memory mock otherwise
+// lacks entirely.
+//
+// The op log carries every value as a STRING (validateBulkReplaceRows in
+// electron/ops/operations.js accepts only string/null). In the real app that
+// string lands in an INTEGER column and SQLite coerces it, so the renderer
+// reads back the number 1. The mock stored it verbatim, so the renderer read
+// back the string "1" — and normalizeSlots' toSlotBool (src/utils/
+// normalizeSlots.js) is a strict `value === 1 || value === true`, so "1"
+// became FALSE.
+//
+// Measured 2026-09-12 on a seeded dev camp: 0 of 90 template_slots rows read
+// as is_span_head, so every cell was treated as the continuation of a merged
+// block. Continuations render nothing, so the schedule grid came up with no
+// cells and no grid lines at all, while the stats bar correctly said
+// "45 of 45 Placed". Real-app-invisible, dev-mock-fatal — which is exactly the
+// divergence class T102 was filed about, though not the shape it described.
+//
+// Scoped to the columns the renderer reads as booleans rather than applied to
+// every numeric-looking string: a camp named "2024" must stay a string.
+const INTEGER_AFFINITY_FIELDS = {
+  template_slots: ['is_anchor', 'is_span_head', 'is_released'],
+}
+
+function coerceIntegerAffinity(entity, field, value) {
+  if (typeof value !== 'string') return value
+  if (!INTEGER_AFFINITY_FIELDS[entity]?.includes(field)) return value
+  if (!/^-?\d+$/.test(value)) return value
+  return Number(value)
+}
+
 export const MOCK_WRITE_ALLOWLIST = {
   camps: ['name'],
   users: ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role'],
@@ -497,7 +528,7 @@ export const mockShoresh = {
     const base = isNew
       ? { id: entity_id, ...(uniqueKey?.includes('camp_id') && state.camp ? { camp_id: state.camp.id } : {}) }
       : rows[idx]
-    const candidate = { ...base, [field]: value }
+    const candidate = { ...base, [field]: coerceIntegerAffinity(entity, field, value) }
 
     // Emulate the UNIQUE constraint: once every key field is present, reject a
     // write that would duplicate another row's key tuple. Entities registered
@@ -540,7 +571,16 @@ export const mockShoresh = {
     const state = loadState()
     if (!Array.isArray(state[entity])) state[entity] = []
     state[entity] = state[entity].filter((r) => r.template_id !== scope_id)
-    for (const row of rows || []) state[entity].push({ ...row })
+    // T102 — same INTEGER-affinity emulation as write(). bulkReplace is the
+    // path a schedule REBUILD takes, so without this the grid comes back empty
+    // after every generate, which is exactly how the defect presented.
+    for (const row of rows || []) {
+      const coerced = { ...row }
+      for (const f of INTEGER_AFFINITY_FIELDS[entity] ?? []) {
+        coerced[f] = coerceIntegerAffinity(entity, f, coerced[f])
+      }
+      state[entity].push(coerced)
+    }
     saveState(state)
     return { status: 'applied' }
   },

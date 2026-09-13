@@ -170,7 +170,10 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
 
   it('carries the class vocabulary the stylesheet targets', () => {
     const container = renderView()
-    for (const cls of ['.schedule-grid', '.cell', '.cell-name', '.row-header', '.block-name', '.block-time', '.identity-dot']) {
+    // '.identity-dot' was removed from this list when the activity colour dot
+    // was taken off the grid (owner, 2026-09-12): frequency is already stated
+    // as a number on the palette chip, so the dot encoded nothing new.
+    for (const cls of ['.schedule-grid', '.cell', '.cell-name', '.row-header', '.block-name', '.block-time']) {
       expect(container.querySelectorAll(cls).length, cls).toBeGreaterThan(0)
     }
   })

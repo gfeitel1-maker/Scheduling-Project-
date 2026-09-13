@@ -3,6 +3,7 @@ import { prefersReducedMotion, useEnterTransition } from '../../styles/shared'
 import { DOMAIN_LABELS } from './domainRollup.js'
 import { CONFIDENCE_COPY, plainEvidenceSentence } from './reconciliationCards.jsx'
 import forestCircle from '../../assets/brand/forest-circle.png'
+import { tileStates, isTileSelected, isNodeSelection } from './selectionModel.js'
 
 // RootMap — foundation-first stacked layout, replacing the SVG orb/backdrop
 // canvas per docs/work/specs/2026-08-21-roots-metaphor-visual.md (Governor
@@ -233,13 +234,13 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
   const wholeCampEnter = useEnterTransition('settle')
   const wholeCampEmpty = model.domains.every((d) => d.children.length === 0)
   const dimmed = (domainKey, childKey) => {
-    if (selection.type !== 'tile') return false
+    if (tileStates(selection).length === 0) return false
     const domain = model.domains.find((d) => d.key === domainKey)
     if (childKey) {
       const child = domain?.children.find((c) => c.key === childKey)
-      return child ? child.state !== selection.state : true
+      return child ? !isTileSelected(selection, child.state) : true
     }
-    return domain ? domain.state !== selection.state : true
+    return domain ? !isTileSelected(selection, domain.state) : true
   }
 
   const tileCounts = TILE_STATES.reduce((acc, state) => {
@@ -252,15 +253,15 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
 
   // Pulse scoping (Governor consolidation) — attention chips only breathe
   // inside the currently focused/selected domain layer, never all at once.
-  const focusedDomainKey = selection.type === 'node' ? selection.domainKey : null
+  const focusedDomainKey = isNodeSelection(selection) ? selection.domainKey : null
 
   // Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-are-
   // interface.md §2) — the domain/chip grid is demoted from always-on to
   // Understood-only: it renders when the director has entered the
   // Understood tile's context (or a node reached from inside it), never for
   // the default {type:'none'} hub or the other three tile selections.
-  const showDomainStack = selection.type === 'node'
-    || (selection.type === 'tile' && selection.state === 'understood')
+  const showDomainStack = isNodeSelection(selection)
+    || isTileSelected(selection, 'understood')
 
   return (
     <div>
@@ -270,7 +271,7 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
           // (RootMapPanel's unresolved-only default). The attention tile
           // reads visually active for {type:'none'} too, presentation-only
           // — the selection state machine stays {type:'none'}.
-          const active = (selection.type === 'tile' && selection.state === state)
+          const active = isTileSelected(selection, state)
             || (state === 'attention' && selection.type === 'none')
           return (
             <CensusTile

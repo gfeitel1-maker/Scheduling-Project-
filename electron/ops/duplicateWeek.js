@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { appendOp, appendBulkReplaceOp, BULK_REPLACE_ENTITIES, runAtomic } from './operations.js'
 import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
+import { findFreeSuffix } from './findFreeSuffix.js'
 
 // Pick only the columns the bulk_replace entity accepts, replacing the id and
 // the scope column with fresh values for the new template.
@@ -46,9 +47,12 @@ export function duplicateWeek(db, { sourceWeekId, campId }, { author_user_id, de
   )
   let newName = `${sourceWeek.name} copy`
   if (existingNames.has(newName)) {
-    let n = 2
-    while (existingNames.has(`${sourceWeek.name} copy (${n})`)) n++
-    newName = `${sourceWeek.name} copy (${n})`
+    // T104 — same free-suffix scan locationId.js uses, bounded (T103).
+    newName = findFreeSuffix({
+      format: (n) => `${sourceWeek.name} copy (${n})`,
+      probe: (name) => (existingNames.has(name) ? 'taken' : 'free'),
+      label: `week "${sourceWeek.name}"`,
+    }).candidate
   }
 
   const maxSortOrder = db

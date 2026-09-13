@@ -30,6 +30,8 @@
 // campId is a randomUUID (hyphens, no colon), so the `location:` prefix and the
 // two colon separators are unambiguous even when the name itself contains a
 // colon. Mirrors the `schedule-week:${campId}:1` precedent.
+import { findFreeSuffix } from './findFreeSuffix.js'
+
 export function deriveLocationId(campId, trimmedName) {
   return `location:${campId}:${trimmedName}`
 }
@@ -63,9 +65,13 @@ export function resolveLocationCandidateId(campId, trimmedName, existingLocation
   if (!byId.has(base)) return { id: base, isNew: true }
   if (byId.get(base) === trimmedName) return { id: base, isNew: false }
 
-  for (let n = 2; ; n++) {
-    const candidate = `${base}:${n}`
-    if (!byId.has(candidate)) return { id: candidate, isNew: true }
-    if (byId.get(candidate) === trimmedName) return { id: candidate, isNew: false }
-  }
+  // T104 — the free-suffix scan is shared with duplicateWeek.js; T103 — it is
+  // bounded there, so a corrupt state fails loudly instead of spinning inside
+  // this synchronous write path.
+  const { candidate, reused } = findFreeSuffix({
+    format: (n) => `${base}:${n}`,
+    probe: (id) => (!byId.has(id) ? 'free' : byId.get(id) === trimmedName ? 'reuse' : 'taken'),
+    label: `location "${trimmedName}"`,
+  })
+  return { id: candidate, isNew: !reused }
 }

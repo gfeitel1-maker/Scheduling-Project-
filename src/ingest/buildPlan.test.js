@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { buildPlan, looksLikeAMerge, createConfidenceTier, buildElectiveCandidates, fieldsFor } from './buildPlan.js'
+import { buildPlan, looksLikeAMerge, createConfidenceTier, buildElectiveCandidates, fieldsFor, assertUniqueFieldFirst } from './buildPlan.js'
+import { UNIQUE_FIRST_FIELD } from '../data/setupCrudRepository.js'
 
 // S1a — buildPlan RECOGNITION + AMBIGUITY (ADR 2026-08-08-s1a §1, §3).
 //
@@ -390,5 +391,41 @@ describe('fieldsFor locations (T119)', () => {
   it('includes an explicit capacity of 1 on location create', () => {
     const fields = fieldsFor('locations', 'Pool', camp, 0, null)
     expect(fields.capacity).toBe(1)
+  })
+})
+
+// T115 — ingest-create must write the UNIQUE field first.
+//
+// commitCreate (electron/ops/ingest.js) appends one op per field in
+// `Object.entries(fields)` order. For an entity registered in
+// UNIQUE_FIELD_ENTITIES, writing `camp_id` before `name` means a cross-device
+// collision on `name` is detected only AFTER the row has already materialized
+// carrying camp_id — leaving a permanently blank-name row with no UI cleanup
+// path. Writing `name` first means the loser is rejected before anything
+// materializes. This is the ordering the authored-create path already enforces
+// via setupCrudRepository's UNIQUE_FIRST_FIELD guard, and the ordering
+// commitElectiveCandidates adopted for elective_sets (ingest.js:638-643).
+describe('fieldsFor unique-first ordering (T115)', () => {
+  for (const entity of Object.keys(UNIQUE_FIRST_FIELD)) {
+    it(`emits the unique field before camp_id for ${entity}`, () => {
+      let fields
+      try {
+        fields = fieldsFor(entity, 'Some Name', camp, 0, null)
+      } catch {
+        return // entity is not created through buildPlan (e.g. elective_sets)
+      }
+      const keys = Object.keys(fields)
+      const uniqueField = UNIQUE_FIRST_FIELD[entity]
+      expect(keys).toContain(uniqueField)
+      expect(keys.indexOf(uniqueField)).toBe(0)
+      if (keys.includes('camp_id')) {
+        expect(keys.indexOf(uniqueField)).toBeLessThan(keys.indexOf('camp_id'))
+      }
+    })
+  }
+
+  it('throws if a unique-registered entity is shaped without its unique field first', () => {
+    expect(() => assertUniqueFieldFirst('locations', { camp_id: 'c1', name: 'Pool' }))
+      .toThrow(/name/)
   })
 })

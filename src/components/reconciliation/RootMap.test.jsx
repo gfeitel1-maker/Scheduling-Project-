@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import RootMap from './RootMap.jsx'
 import { DOMAIN_LABELS } from './domainRollup.js'
+import { toggleTile } from './selectionModel.js'
 
 // Foundation-first stacked layout (docs/work/specs/2026-08-21-roots-metaphor-visual.md)
 // — RootMap.jsx replaced its SVG orb/backdrop canvas with plain-DOM domain
@@ -200,7 +201,7 @@ describe('RootMap chips', () => {
     const { container } = render(
       <RootMap
         model={model()}
-        selection={{ type: 'tile', state: 'understood' }}
+        selection={{ type: 'tile', states: ['understood'] }}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -292,7 +293,10 @@ describe('RootMap filter row (tile toggles)', () => {
     // covered by its own dedicated test; this test's intent is the generic
     // tile toggle/clear mechanic, unrelated to that default-active affordance.
     let selection = { type: 'none' }
-    const onSelectTile = vi.fn((state) => { selection = { type: 'tile', state } })
+    // T95 — mirror the REAL parent behaviour (ReconciliationScreen's
+    // selectTile), so this test exercises the shipped toggle rule rather
+    // than a hand-rolled stand-in that could drift from it.
+    const onSelectTile = vi.fn((state) => { selection = toggleTile(selection, state) })
     const onClearSelection = vi.fn(() => { selection = { type: 'none' } })
     const { rerender } = render(
       <RootMap
@@ -311,7 +315,7 @@ describe('RootMap filter row (tile toggles)', () => {
     rerender(
       <RootMap
         model={model()}
-        selection={{ type: 'tile', state: 'changed' }}
+        selection={{ type: 'tile', states: ['changed'] }}
         onSelectTile={onSelectTile}
         onSelectNode={noop}
         onClearSelection={onClearSelection}
@@ -723,7 +727,7 @@ describe('RootMap grid visibility gating', () => {
     render(
       <RootMap
         model={fourDomainModel()}
-        selection={{ type: 'tile', state: 'changed' }}
+        selection={{ type: 'tile', states: ['changed'] }}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -736,7 +740,7 @@ describe('RootMap grid visibility gating', () => {
     render(
       <RootMap
         model={fourDomainModel()}
-        selection={{ type: 'tile', state: 'attention' }}
+        selection={{ type: 'tile', states: ['attention'] }}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -749,7 +753,7 @@ describe('RootMap grid visibility gating', () => {
     render(
       <RootMap
         model={fourDomainModel()}
-        selection={{ type: 'tile', state: 'absent' }}
+        selection={{ type: 'tile', states: ['absent'] }}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -762,7 +766,7 @@ describe('RootMap grid visibility gating', () => {
     render(
       <RootMap
         model={fourDomainModel()}
-        selection={{ type: 'tile', state: 'understood' }}
+        selection={{ type: 'tile', states: ['understood'] }}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -802,7 +806,7 @@ describe('RootMap grid visibility gating', () => {
     render(
       <RootMap
         model={fourDomainModel()}
-        selection={{ type: 'tile', state: 'understood' }}
+        selection={{ type: 'tile', states: ['understood'] }}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}

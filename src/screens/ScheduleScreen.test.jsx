@@ -1362,10 +1362,12 @@ describe('T4: merging a cell down', () => {
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
-    fireEvent.pointerOver(scheduleCell('Swim').closest(CELL_SELECTOR))
-    const mergeBtn = await screen.findByTitle(/run into the next period/i)
-    expect(mergeBtn, 'merge affordance should exist on a cell with a block below it').toBeTruthy()
-    fireEvent.click(mergeBtn)
+    // Merge via Shift+Down — the chevron this used to click was removed
+    // 2026-09-12; the assertion below is about the TAIL surviving the merge,
+    // not about how the merge was triggered.
+    const swimCell = scheduleCell('Swim').closest(CELL_SELECTOR)
+    fireEvent.pointerOver(swimCell)
+    fireEvent.keyDown(swimCell, { key: 'ArrowDown', shiftKey: true })
 
     await waitFor(() => {
       // write(token, entity, id, field, value) — one call per field.
@@ -1388,8 +1390,9 @@ describe('T4: merging a cell down', () => {
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
     await waitFor(() => expect(scheduleCell('Archery')).toBeTruthy())
 
-    fireEvent.pointerOver(scheduleCell('Swim').closest(CELL_SELECTOR))
-    fireEvent.click(await screen.findByTitle(/run into the next period/i))
+    const swimCell2 = scheduleCell('Swim').closest(CELL_SELECTOR)
+    fireEvent.pointerOver(swimCell2)
+    fireEvent.keyDown(swimCell2, { key: 'ArrowDown', shiftKey: true })
 
     await waitFor(() => expect(scheduleCell('Archery')).toBeUndefined())
     expect(localClient.deleteEntity).not.toHaveBeenCalled()

@@ -293,7 +293,7 @@ describe('RootMapPanel default view scoping (H1 fix)', () => {
     render(
       <RootMapPanel
         model={emptyModel()}
-        selection={{ type: 'tile', state: 'attention' }}
+        selection={{ type: 'tile', states: ['attention'] }}
         lanes={lanes}
         dismissedGaps={new Set()}
         answers={{ r1: { choice: 'accept' } }}
@@ -383,7 +383,7 @@ describe('RootMapPanel default view scoping (H1 fix)', () => {
     rerender(
       <RootMapPanel
         model={emptyModel()}
-        selection={{ type: 'tile', state: 'attention' }}
+        selection={{ type: 'tile', states: ['attention'] }}
         lanes={lanes}
         dismissedGaps={new Set()}
         answers={answers}
@@ -464,11 +464,11 @@ describe('RootMapPanel panel crossfade (design polish #2)', () => {
   it('does not take the blur crossfade path on a tile->tile selection change', () => {
     const model = emptyModel()
     const { getByTestId, rerender } = render(
-      <RootMapPanel model={model} selection={{ type: 'tile', state: 'attention' }} lanes={lanes} {...props} />,
+      <RootMapPanel model={model} selection={{ type: 'tile', states: ['attention'] }} lanes={lanes} {...props} />,
     )
     const before = getByTestId('panel-crossfade').getAttribute('style')
     rerender(
-      <RootMapPanel model={model} selection={{ type: 'tile', state: 'changed' }} lanes={lanes} {...props} />,
+      <RootMapPanel model={model} selection={{ type: 'tile', states: ['changed'] }} lanes={lanes} {...props} />,
     )
     const after = getByTestId('panel-crossfade').getAttribute('style')
     // No blur-out was initiated: the style is untouched by the selection
@@ -723,7 +723,7 @@ describe('RootMapPanel — Understood tile (census tiles are the interface)', ()
     render(
       <RootMapPanel
         model={understoodModel()}
-        selection={{ type: 'tile', state: 'understood' }}
+        selection={{ type: 'tile', states: ['understood'] }}
         lanes={lanes}
         dismissedGaps={new Set()}
         answers={{}}
@@ -749,7 +749,7 @@ describe('RootMapPanel — Understood tile (census tiles are the interface)', ()
     render(
       <RootMapPanel
         model={model}
-        selection={{ type: 'tile', state: 'understood' }}
+        selection={{ type: 'tile', states: ['understood'] }}
         lanes={lanes}
         dismissedGaps={new Set()}
         answers={{}}
@@ -775,7 +775,7 @@ describe('RootMapPanel — per-tile empty copy (§6)', () => {
     render(
       <RootMapPanel
         model={emptyDomainModel()}
-        selection={{ type: 'tile', state: 'changed' }}
+        selection={{ type: 'tile', states: ['changed'] }}
         lanes={{ hold: [], standard: [] }}
         dismissedGaps={new Set()}
         answers={{}}
@@ -795,7 +795,7 @@ describe('RootMapPanel — per-tile empty copy (§6)', () => {
     render(
       <RootMapPanel
         model={emptyDomainModel()}
-        selection={{ type: 'tile', state: 'absent' }}
+        selection={{ type: 'tile', states: ['absent'] }}
         lanes={{ hold: [], standard: [] }}
         dismissedGaps={new Set()}
         answers={{}}

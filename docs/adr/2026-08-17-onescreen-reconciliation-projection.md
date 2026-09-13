@@ -480,3 +480,55 @@ gap contradicts.
    outside the lanes adapter. Recommend: expose it on the report (one more optional field,
    same additive pattern as `evidence`) since the "why" disclosure is named in this initiative's
    scope and a second consumer wanting blast radius later shouldn't have to re-derive it.
+
+## Addendum — 2026-09-12 (T98): invariant 2 is narrowed, not dropped
+
+**Owner decision, 2026-09-12.** T98 asks for the largest-blast-radius decisions to surface first.
+Invariant 2 as originally written forbids that outright ("lane membership and in-lane order come
+from `reportToLanes` alone, which orders by the report's own walk order"). This addendum records
+the decision to narrow it rather than let code quietly contradict a normative ADR.
+
+### What invariant 2 was actually protecting
+
+Two distinct things, which the original wording fused:
+
+- **(a) One authority on order.** There must not be a second, competing sort — in particular the
+  rendering layer must not be able to reorder what the projection decided. This is the real
+  structural protection, and it is the reason the criterion "reads as a plain sorted checklist
+  with visuals off" is testable at all.
+- **(b) Report-array order specifically.** A *safe default* chosen because no better ordering had
+  been designed, not a property anyone argued for on its merits.
+
+(a) is load-bearing. (b) was incidental.
+
+### The narrowing
+
+**Invariant 2 (amended): _Salience never reorders truth._** `salienceOf` returns a rendering hint
+(`rank`) consumed only by CSS/layout weight. **Lane membership and in-lane order still come from
+`reportToLanes` alone.** `reportToLanes` may now order within a lane by blast radius, provided the
+ordering is pure, total and deterministic.
+
+The acceptance criterion is unchanged and still testable: **turning off the salience CSS layer
+cannot change which decision appears where.** What changes is only that `reportToLanes`'s own
+ordering is no longer required to be report-array order.
+
+### Constraints on the new ordering (all structural, all tested)
+
+1. **Never via `salienceOf`.** The sort key is the blast-radius count, read directly. `salienceOf`
+   returns rank `0` for BOTH `confirm_change` and `resolve_conflict` (see its own module comment),
+   so sorting on rank would conflate a held conflict with a confirmed change — the precise
+   misreading invariant 2's original wording was written to prevent.
+2. **Within a lane only.** No decision may move between lanes. Lane membership is untouched.
+3. **The `hold` lane is not reordered.** It carries held conflicts, where the conflation hazard in
+   (1) lives and where arrival order is itself meaningful.
+4. **Stable, with report order as the tiebreak.** Equal blast radius preserves the report's walk
+   order, so the list does not reshuffle unpredictably between dry-runs.
+5. **Nothing hidden.** Reordering is a permutation: the same set of decisions, in a different
+   order. A test asserts set-equality before and after.
+
+### Why this is the right shape
+
+Ordering belongs in the projection, where there is exactly one authority for it, rather than in the
+renderer, where it would become a second source of truth. That is the distinction invariant 2
+existed to draw, and this addendum keeps it — it moves the ordering *decision* without creating a
+second *place* that decides.

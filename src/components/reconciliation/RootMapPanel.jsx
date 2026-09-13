@@ -6,6 +6,7 @@ import { screenForNode, SCREEN_LABEL } from './rootMapNav.js'
 import { prefersReducedMotion, S } from '../../styles/shared'
 import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
 import RosterList from './RosterList.jsx'
+import { tileStates } from './selectionModel.js'
 
 // Census roster (docs/adr/2026-08-19-roots-census-and-persistent-inspector.md
 // §(a)/(b)) — grouping is opportunistic and limited to children with a real,
@@ -142,20 +143,29 @@ export default function RootMapPanel({
   // §4 — the Understood tile reads roster rows directly (fixes the latent
   // decisionIds gap in the Context section of the ADR); 'Changed' and
   // 'Needs attention' keep their existing decisionsForTileState routing.
-  const isUnderstoodTile = selection.type === 'tile' && selection.state === 'understood'
+  const selectedStates = tileStates(selection)
+  // T95 — 'understood' is a roster view, not a decision list. With multi-
+  // select it contributes its roster while the OTHER selected states still
+  // contribute their decisions, so the two compose instead of one winning.
+  const isUnderstoodTile = selectedStates.includes('understood')
+  const otherStates = selectedStates.filter((st) => st !== 'understood')
   const understoodByDomain = isUnderstoodTile ? understoodRosterByDomain(model) : []
   if (selection.type === 'node') {
     const ids = decisionsForNode(model, selection.domainKey, selection.childKey)
     scoped = ids.map((id) => byId.get(id)).filter(Boolean)
     heading = headingForNode(model, selection)
     targetScreen = screenForNode(selection.domainKey, selection.childKey)
-  } else if (isUnderstoodTile) {
+  } else if (isUnderstoodTile && otherStates.length === 0) {
     scoped = []
     heading = STATE_LABEL.understood
-  } else if (selection.type === 'tile') {
-    const ids = decisionsForTileState(model, selection.state)
+  } else if (selectedStates.length > 0) {
+    // Union across every selected state — a lens that widens, never an
+    // intersection. Decision order follows allDecisions, not click order,
+    // so the list does not reshuffle as tiles are toggled.
+    const ids = new Set()
+    for (const st of otherStates) for (const id of decisionsForTileState(model, st)) ids.add(id)
     scoped = allDecisions.filter((d) => ids.has(d.id))
-    heading = STATE_LABEL[selection.state] ?? selection.state
+    heading = selectedStates.map((st) => STATE_LABEL[st] ?? st).join(' + ')
   } else {
     const unresolved = allDecisions.filter((d) => !isDecisionResolvedFor(d, answers, dismissedGaps))
     resolvedCount = allDecisions.length - unresolved.length
@@ -234,7 +244,10 @@ export default function RootMapPanel({
           </div>
         )
       )}
-      {isUnderstoodTile ? (
+      {/* T95 — with multi-select the understood ROSTER and the other states'
+          DECISION list can both be in scope. Render the roster first, then
+          fall through to the decision list, rather than letting either win. */}
+      {isUnderstoodTile && (
         understoodByDomain.length === 0 ? (
           <div style={styles.empty}>{TILE_EMPTY_COPY.understood}</div>
         ) : (
@@ -248,10 +261,11 @@ export default function RootMapPanel({
             </div>
           ))
         )
-      ) : scoped.length === 0 ? (
+      )}
+      {isUnderstoodTile && otherStates.length === 0 ? null : scoped.length === 0 ? (
         selection.type !== 'node' && (
           <div style={styles.empty}>
-            {TILE_EMPTY_COPY[selection.type === 'tile' ? selection.state : 'attention']}
+            {TILE_EMPTY_COPY[otherStates[0] ?? selectedStates[0] ?? 'attention']}
           </div>
         )
       ) : (

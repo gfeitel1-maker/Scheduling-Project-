@@ -172,21 +172,28 @@ describe('ScheduleDayView — merge/split/extend parity with Group view (WS5 Dai
   it('renders the merge-down affordance on an unmerged head with a block below it', () => {
     // g1|d1|b1 is a single-block activity with an empty b2 below it —
     // mergeable, but not yet merged (unlike g2's b1/b2, already a span).
-    const container = renderView({ onExpandSlot: () => {}, onSplitSlot: () => {} })
+    //
+    // The affordance is the drag bar, not a chevron: the always-visible merge
+    // button was removed 2026-09-12 (owner), leaving the bar as the pointer
+    // control and Shift+Down as the keyboard one.
+    // onSpanExtendStart is what makes the bar render at all (SlotCell gates
+    // it on onExtendGrab), so the affordance test has to supply it.
+    const container = renderView({ onExpandSlot: () => {}, onSplitSlot: () => {}, onSpanExtendStart: () => {} })
     const head = cellAt(container, 'g1|d1|b1')
-    const mergeBtn = head.querySelector('.cell-action')
-    expect(mergeBtn, 'merge affordance should exist on a cell with a block below it').not.toBeNull()
-    expect(mergeBtn.getAttribute('title')).toMatch(/run into the next period/i)
+    const bar = head.querySelector('.span-extend-handle')
+    expect(bar, 'merge affordance should exist on a cell with a block below it').not.toBeNull()
+    expect(bar.getAttribute('title')).toMatch(/run longer/i)
   })
 
-  it('calls onExpandSlot with (groupId, dayId, blockId, nextBlockId) on merge-down click', () => {
+  it('calls onExpandSlot with (groupId, dayId, blockId, nextBlockId) on Shift+Down', () => {
     const calls = []
     const container = renderView({
       onExpandSlot: (...args) => calls.push(args),
       onSplitSlot: () => {},
     })
     const head = cellAt(container, 'g1|d1|b1')
-    fireEvent.click(head.querySelector('.cell-action'))
+    // Shift+Down is the merge path now that the chevron is gone.
+    fireEvent.keyDown(head, { key: 'ArrowDown', shiftKey: true })
     expect(calls).toEqual([['g1', 'd1', 'b1', 'b2']])
   })
 

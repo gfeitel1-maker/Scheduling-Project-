@@ -234,3 +234,61 @@ describe('reportToLanes', () => {
     expect(r).toEqual(snapshot)
   })
 })
+
+// T98 — blast radius orders WITHIN a lane (ADR 2026-08-17 addendum 2026-09-12).
+//
+// The amended invariant 2: order still comes from reportToLanes alone, and
+// salienceOf still cannot reorder anything. What changed is that this module's
+// own ordering is no longer required to be report-array order.
+describe('blast-radius in-lane ordering (T98)', () => {
+  const decision = (id, extra = {}) => ({
+    id, kind: 'confirm_value', confidence: 'low',
+    entity: 'activities', entityId: id, entityName: id,
+    field: null, proposedValue: null, ...extra,
+  })
+  const report = (decisions) => ({ decisions, buckets: {}, readiness: [] })
+
+  it('puts a high-blast-radius decision above a low one in the same lane', () => {
+    const index = new Map([['activities:big', 9], ['activities:small', 1]])
+    const lanes = reportToLanes(report([decision('small'), decision('big')]), index)
+    expect(lanes.standard.map((d) => d.id)).toEqual(['big', 'small'])
+  })
+
+  it('is a permutation — reordering never hides or invents a decision', () => {
+    const index = new Map([['activities:b', 5]])
+    const input = [decision('a'), decision('b'), decision('c')]
+    const lanes = reportToLanes(report(input), index)
+    expect(new Set(lanes.standard.map((d) => d.id))).toEqual(new Set(['a', 'b', 'c']))
+    expect(lanes.standard).toHaveLength(3)
+  })
+
+  it('is stable — equal blast radius keeps report walk order', () => {
+    const lanes = reportToLanes(report([decision('x'), decision('y'), decision('z')]), new Map())
+    expect(lanes.standard.map((d) => d.id)).toEqual(['x', 'y', 'z'])
+  })
+
+  it('never reorders the hold lane (held-conflict arrival order is meaningful)', () => {
+    const index = new Map([['activities:late', 9]])
+    const held = [
+      decision('early', { kind: 'resolve_conflict' }),
+      decision('late', { kind: 'resolve_conflict' }),
+    ]
+    const lanes = reportToLanes(report(held), index)
+    expect(lanes.hold.map((d) => d.id)).toEqual(['early', 'late'])
+  })
+
+  it('never moves a decision between lanes', () => {
+    const index = new Map([['activities:hi', 99]])
+    const lanes = reportToLanes(report([
+      decision('hi', { confidence: 'high' }),   // express
+      decision('lo'),                            // standard
+    ]), index)
+    expect(lanes.express.map((d) => d.id)).toEqual(['hi'])
+    expect(lanes.standard.map((d) => d.id)).toEqual(['lo'])
+  })
+
+  it('degrades safely when no index is supplied — report order, as before', () => {
+    const lanes = reportToLanes(report([decision('p'), decision('q')]))
+    expect(lanes.standard.map((d) => d.id)).toEqual(['p', 'q'])
+  })
+})

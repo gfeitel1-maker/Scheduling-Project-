@@ -80,11 +80,18 @@ describe('shared cell components render placed gridcells (T56)', () => {
     expect(noFlag.container.querySelector('.flag--week-closed')).toBeNull()
   })
 
-  it('renders the merge button permanently in the idle DOM, queryable without any hover (T92)', () => {
-    // T92: the merge/split button is no longer hover-gated (visibility:hidden
-    // at rest) — it is always in the DOM and always hit-testable, which is
-    // what makes it discoverable without being told and reachable by
-    // getByRole without simulating hover.
+  it('renders the drag-to-extend bar in the idle DOM, hover-revealed but always present (T92, revised 2026-09-12)', () => {
+    // T92 originally pinned the MERGE BUTTON here: always in the DOM, never
+    // hover-gated, so it was discoverable without being told. The owner
+    // removed that button on 2026-09-12 — it and the drag bar did overlapping
+    // jobs, and a permanent affordance on every mergeable cell of a dense grid
+    // is noise.
+    //
+    // What survives is the invariant, re-pointed at the bar: the control is
+    // always in the DOM and hit-testable without simulating hover. Its
+    // VISIBILITY is now CSS (`.cell:hover .span-extend-handle`), which jsdom
+    // does not evaluate — so this asserts presence, and the reveal itself is
+    // verified in the running app, not here.
     render(
       <DndContext>
         <SlotCell
@@ -92,15 +99,18 @@ describe('shared cell components render placed gridcells (T56)', () => {
           activity={{ id: 'a1', name: 'Soccer' }}
           actColorIdx={0}
           hasMergeDown={true}
+          onExtendGrab={vi.fn()}
           isDndEnabled={true}
           gridRow="1 / span 1"
           gridColumn="2 / span 1"
         />
       </DndContext>
     )
-    const button = screen.getByRole('button', { name: /run into the next period/i })
-    expect(button).toBeTruthy()
-    expect(button.querySelector('svg')).not.toBeNull()
+    const bar = screen.getByRole('button', { name: /drag to make this activity run longer/i })
+    expect(bar).toBeTruthy()
+    expect(bar.className).toContain('span-extend-handle')
+    // and the control it replaced is really gone
+    expect(screen.queryByLabelText('Let this activity run into the next period')).toBeNull()
   })
 
   it('renders the split variant with its own aria-label when the slot is merged', () => {
@@ -154,7 +164,7 @@ describe('shared cell components render placed gridcells (T56)', () => {
     expect(onSplitAt).toHaveBeenCalledWith('b2')
   })
 
-  it('carries the one-time onboarding pulse data attribute only when showMergeHint is set', () => {
+  it('carries the one-time onboarding pulse data attribute only when showExtendHint is set', () => {
     const withHint = render(
       <DndContext>
         <SlotCell
@@ -162,12 +172,13 @@ describe('shared cell components render placed gridcells (T56)', () => {
           activity={{ id: 'a1', name: 'Soccer' }}
           actColorIdx={0}
           hasMergeDown={true}
+          onExtendGrab={vi.fn()}
           isDndEnabled={true}
-          showMergeHint={true}
+          showExtendHint={true}
         />
       </DndContext>
     )
-    expect(withHint.container.querySelector('.cell-action').hasAttribute('data-merge-hint')).toBe(true)
+    expect(withHint.container.querySelector('.span-extend-handle').hasAttribute('data-span-extend-hint')).toBe(true)
 
     const withoutHint = render(
       <DndContext>
@@ -176,11 +187,12 @@ describe('shared cell components render placed gridcells (T56)', () => {
           activity={{ id: 'a1', name: 'Soccer' }}
           actColorIdx={0}
           hasMergeDown={true}
+          onExtendGrab={vi.fn()}
           isDndEnabled={true}
         />
       </DndContext>
     )
-    expect(withoutHint.container.querySelector('.cell-action').hasAttribute('data-merge-hint')).toBe(false)
+    expect(withoutHint.container.querySelector('.span-extend-handle').hasAttribute('data-span-extend-hint')).toBe(false)
   })
 
   it('never lets dnd-kit displace role="gridcell" with role="button"', () => {
@@ -812,5 +824,80 @@ describe('Events overlay Slice 1 — real placement path (create -> place -> ren
     // The drill-in affordance calls onOpenEvent with the placed event's id.
     fireEvent.click(screen.getByRole('button', { name: 'Open Color War in Events' }))
     expect(onOpenEvent).toHaveBeenCalledWith('ev-color-war')
+  })
+})
+
+// Owner, 2026-09-12: the always-visible merge chevron is gone; the drag bar is
+// hidden until the cell is hovered or focused, and the keyboard path is
+// Shift+Down / Shift+Up. That makes these shortcuts the ONLY keyboard way to
+// merge or unmerge, so they are pinned here.
+describe('Shift+Arrow merges and unmerges a cell', () => {
+  const baseSlot = { id: 's1', type: 'activity', groupId: 'g1', dayId: 'd1', blockId: 'b1', flags: {} }
+  const renderCell = (props) => render(
+    <DndContext>
+      <SlotCell slot={baseSlot} activity={{ id: 'a1', name: 'Soccer' }} {...props} />
+    </DndContext>
+  )
+
+  it('Shift+Down merges when there is something below to merge into', () => {
+    const onMergeDown = vi.fn()
+    renderCell({ hasMergeDown: true, onMergeDown })
+    const cell = screen.getByRole('gridcell')
+    cell.focus()
+    fireEvent.keyDown(cell, { key: 'ArrowDown', shiftKey: true })
+    expect(onMergeDown).toHaveBeenCalledTimes(1)
+  })
+
+  it('Shift+Down still fires on an ALREADY-merged cell — merging is repeatable', () => {
+    // The regression this guards: gating on `!isMerged` allows exactly one
+    // merge and then goes dead. hasMergeDown is computed from the END of the
+    // current span (gridGeometry.js) precisely so a span can keep growing.
+    const onMergeDown = vi.fn()
+    renderCell({ hasMergeDown: true, isMerged: true, onMergeDown })
+    const cell = screen.getByRole('gridcell')
+    cell.focus()
+    fireEvent.keyDown(cell, { key: 'ArrowDown', shiftKey: true })
+    expect(onMergeDown).toHaveBeenCalledTimes(1)
+  })
+
+  it('Shift+Down does nothing when there is nothing below', () => {
+    const onMergeDown = vi.fn()
+    renderCell({ hasMergeDown: false, onMergeDown })
+    const cell = screen.getByRole('gridcell')
+    cell.focus()
+    fireEvent.keyDown(cell, { key: 'ArrowDown', shiftKey: true })
+    expect(onMergeDown).not.toHaveBeenCalled()
+  })
+
+  it('Shift+Up unmerges a merged cell', () => {
+    const onSplitSlot = vi.fn()
+    renderCell({ isMerged: true, onSplitSlot })
+    const cell = screen.getByRole('gridcell')
+    cell.focus()
+    fireEvent.keyDown(cell, { key: 'ArrowUp', shiftKey: true })
+    expect(onSplitSlot).toHaveBeenCalledTimes(1)
+  })
+
+  it('Shift+Up does nothing on a cell that is not merged', () => {
+    const onSplitSlot = vi.fn()
+    renderCell({ isMerged: false, onSplitSlot })
+    const cell = screen.getByRole('gridcell')
+    cell.focus()
+    fireEvent.keyDown(cell, { key: 'ArrowUp', shiftKey: true })
+    expect(onSplitSlot).not.toHaveBeenCalled()
+  })
+
+  it('a bare arrow key, with no Shift, does not merge', () => {
+    const onMergeDown = vi.fn()
+    renderCell({ hasMergeDown: true, onMergeDown })
+    const cell = screen.getByRole('gridcell')
+    cell.focus()
+    fireEvent.keyDown(cell, { key: 'ArrowDown' })
+    expect(onMergeDown).not.toHaveBeenCalled()
+  })
+
+  it('the merge chevron button is gone from the cell entirely', () => {
+    renderCell({ hasMergeDown: true, onMergeDown: vi.fn() })
+    expect(screen.queryByLabelText('Let this activity run into the next period')).toBeNull()
   })
 })

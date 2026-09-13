@@ -272,7 +272,7 @@ export function useSlotMutations({
   // Rebuilt from `activities` rather than injected: expandSlot's undo
   // description reads `actMap.get(id)?.name`, and this is the screen's exact
   // actMap shape (the screen keeps its own copy for the DnD handlers + JSX).
-  const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
+  const actMap = new Map(activities.map(a => [a.id, { ...a }]))
 
   // Fresh-read snapshot seam for replaceSlot's undo capture (Deviation A on the
   // 2026-08-12 drag-FSM gesture-correlation ADR). `slots` is this render's prop —

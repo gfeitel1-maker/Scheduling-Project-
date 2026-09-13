@@ -15,6 +15,7 @@
 import { INGESTIBLE_ENTITIES } from './extractEntities.js'
 import { normalizeName, recognitionKey } from './preview.js'
 import { dbFieldFor } from './fieldUpdate.js'
+import { UNIQUE_FIRST_FIELD } from '../data/setupCrudRepository.js'
 
 // ADR 2026-08-17-onescreen-reconciliation-merge.md §1 — moved here (not
 // duplicated) from preview.js, whose UI-only tick-state role is gone. This is
@@ -127,7 +128,36 @@ function parseTimeRange(label) {
 // the pre-T33 behaviour. Moved verbatim out of ingest.js so buildPlan (renderer
 // side, no DB) can shape the field-delta; ingest.test.js's behaviour is pinned
 // by the golden-ops characterization test.
+// T115 — commitCreate (electron/ops/ingest.js) appends one op per field in
+// `Object.entries(fields)` order, so the SHAPE of the object below is the write
+// order. For an entity registered in UNIQUE_FIELD_ENTITIES, `camp_id` before
+// `name` means a cross-device same-name collision is detected only after the
+// row has materialized carrying camp_id — leaving a permanently blank-name row
+// with no UI cleanup path. Name-first means the loser is rejected before
+// anything materializes.
+//
+// This is a THROWING guard rather than a silent sort, matching
+// setupCrudRepository's UNIQUE_FIRST_FIELD guard on the authored-create path:
+// getting the order wrong needs a human to notice and fix the call site, not a
+// helper quietly papering over it.
+export function assertUniqueFieldFirst(entity, fields) {
+  const uniqueField = UNIQUE_FIRST_FIELD[entity]
+  if (!uniqueField) return fields
+  const keys = Object.keys(fields)
+  if (keys[0] !== uniqueField) {
+    throw new Error(
+      `ingest: ${entity} is unique-field-registered on "${uniqueField}", so its create ` +
+        `must write "${uniqueField}" first (got "${keys[0]}"). See T115.`,
+    )
+  }
+  return fields
+}
+
 export function fieldsFor(entity, name, campId, index, cohortId) {
+  return assertUniqueFieldFirst(entity, fieldsForUnchecked(entity, name, campId, index, cohortId))
+}
+
+function fieldsForUnchecked(entity, name, campId, index, cohortId) {
   switch (entity) {
     case 'cohorts':
       return { camp_id: campId, name }
@@ -148,8 +178,9 @@ export function fieldsFor(entity, name, campId, index, cohortId) {
       const { start_time, end_time } = parseTimeRange(name)
       return { camp_id: campId, name, start_time, end_time, sort_order: index, cohort_id: cohortId }
     }
+    // name FIRST — activities is UNIQUE_FIELD_ENTITIES-registered (T115).
     case 'activities':
-      return { camp_id: campId, name }
+      return { name, camp_id: campId }
     // M4 §D1a: notes/sort_order/map_geometry are left to the schema's own
     // defaults, matching every other bare-minimum entity create (cohorts).
     // capacity IS written explicitly (T119) even though `1` is also the schema
@@ -160,8 +191,9 @@ export function fieldsFor(entity, name, campId, index, cohortId) {
     // The id itself is NOT derived here — buildPlan is pure/DB-agnostic and
     // deriveLocationId lives in electron/ops/locationId.js; commitCreate mints
     // it at commit time (§D1a).
+    // name FIRST — locations is UNIQUE_FIELD_ENTITIES-registered (T115).
     case 'locations':
-      return { camp_id: campId, name, capacity: 1 }
+      return { name, camp_id: campId, capacity: 1 }
     default:
       throw new Error(`ingest: ${entity} is not an ingestible entity`)
   }
