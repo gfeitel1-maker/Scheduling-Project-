@@ -234,7 +234,9 @@ export default function ManualBuildView({
                           clearMergeHint()
                           onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id)
                         } : undefined
-                        const showMergeHint = hasMergeDown && cellKey === hintTargetKey
+                        // One-time discoverability pulse. Now targets the drag bar
+                        // only — the merge chevron it used to also light is gone.
+                        const showExtendHintForCell = hasMergeDown && cellKey === hintTargetKey
                         return (
                           <SlotCell
                             key={day.id}
@@ -263,11 +265,10 @@ export default function ManualBuildView({
                             isMerged={isMerged}
                             onMergeDown={onMergeDown}
                             onSplitSlot={onSplit}
-                            showMergeHint={showMergeHint}
                             spanTailBlockIds={spanTailBlockIds}
                             onSplitAt={onSplitAt}
                             onExtendGrab={onExtendGrab}
-                            showExtendHint={showMergeHint}
+                            showExtendHint={showExtendHintForCell}
                             ariaColIndex={ariaColIndex}
                             cellKey={cellKey}
                             collapsed={isCollapsed}

@@ -50,7 +50,7 @@ export default function SlotCell({
   // target (Interactions §"Click-any-interior-cell-to-split" #3). onSplitAt
   // is called with the covered block's id when a band 2..N is clicked.
   // onExtendGrab starts the drag-to-extend gesture on pointerdown on the
-  // handle; showExtendHint mirrors showMergeHint's one-time discoverability
+  // handle; showExtendHint carries the one-time discoverability
   // convention.
   spanTailBlockIds = [],
   onSplitAt, onExtendGrab, showExtendHint = false,
@@ -58,7 +58,6 @@ export default function SlotCell({
   // a camp's first Manual Build session. Owned by the caller (localStorage flag
   // lives in ManualBuildView, not here) — this prop is purely "should THIS
   // cell's merge button show it right now".
-  showMergeHint = false,
   // Generated-route "track changes" review (default off, so the manual route
   // grid: the activity name carries identity, no colour dot. isFlagHighlighted
   // lights the cell in the active concern's colour; highlightReason is shown in
@@ -320,6 +319,25 @@ export default function SlotCell({
       // reaches dnd-kit's listener when the cell is draggable.
       onKeyDown={e => {
         if (e.key === 'Enter') { handleEnterKeyDown(e); return }
+        // Shift+Down merges this cell into the one below; Shift+Up unmerges.
+        // Owner, 2026-09-12: one cell at a time, pressed again to keep going.
+        //
+        // NOT gated on `!isMerged`: hasMergeDown is computed from the END of
+        // the current span (gridGeometry.js — `timeBlocks[blockIndex + rowSpan]`)
+        // precisely so an already-merged span can keep extending. Gating on
+        // "not already merged" would allow exactly one merge and then go dead,
+        // which is the opposite of the intent.
+        //
+        // Shift+Arrow rather than Ctrl+Arrow: on macOS Control+Down is App
+        // Expose, so the app never receives that keypress on the platform this
+        // is developed on. Range selection was considered for Shift+Arrow and
+        // then dropped, so there is no longer a competing claim on this chord.
+        if (e.shiftKey && e.key === 'ArrowDown' && hasMergeDown) {
+          e.preventDefault(); e.stopPropagation(); onMergeDown?.(); return
+        }
+        if (e.shiftKey && e.key === 'ArrowUp' && isMerged) {
+          e.preventDefault(); e.stopPropagation(); onSplitSlot?.(); return
+        }
         if (canDrag) listeners?.onKeyDown?.(e)
       }}
       // dnd-kit's `attributes` carry role="button", which on a table cell was inert
@@ -346,16 +364,12 @@ export default function SlotCell({
         {isFlagHighlighted && highlightReason && (
           <div className="cell-reason" style={S.cellReasonCallout} role="tooltip">{highlightReason}</div>
         )}
-        {/* Merge-down button (T4, redesigned T92: always visible, quiet at rest) */}
-        {hasMergeDown && !isMerged && (
-          <button
-            className="cell-action"
-            title="Let this activity run into the next period"
-            aria-label="Let this activity run into the next period"
-            data-merge-hint={showMergeHint ? '' : undefined}
-            onClick={e => { e.stopPropagation(); onMergeDown?.() }}
-          ><CellSpanChevron direction="merge" /></button>
-        )}
+        {/* The always-visible merge chevron that used to sit here is GONE
+            (owner, 2026-09-12). It and the drag-to-extend bar did overlapping
+            jobs — the bar is a superset, since dragging down one period is the
+            same result — and on a dense grid a permanent affordance on every
+            mergeable cell is noise. The bar (below) is now the pointer control,
+            revealed on cell hover/focus; Shift+Down is the keyboard one. */}
         {/* Split button (T4) — the keyboard-accessible equivalent of the
             interior-band click below (spec Interactions §4); not removed. */}
         {isMerged && (
