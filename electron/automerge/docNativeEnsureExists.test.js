@@ -12,7 +12,7 @@
 // replay) and consults it BEFORE falling back to the operations query. The op-log path (appendOp,
 // syncClient replay) passes no knownRow and is byte-for-byte unchanged.
 //
-// These tests prove the thing PR #322's bridge only worked around: project each of the seven
+// These tests prove the thing PR #322's bridge only worked around: project each of the six
 // entities into a FRESH database that has ZERO `operations` rows at all, using ONLY applyWrite
 // (the pure doc-mutation path) — never appendOp. If ensureExists still secretly depended on the
 // operations table, these rows would silently never materialize, exactly as day_overrides did
@@ -23,7 +23,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
 import { PROJECTIONS } from '../ops/projections.js'
-import { createEmptyDoc, applyWrite, DEFERRED_ENTITIES, MODELED_ENTITIES, readRecord, listRecordIds } from './campDocument.js'
+import { createEmptyDoc, applyWrite, DEFERRED_ENTITIES, MODELED_ENTITIES } from './campDocument.js'
 import { projectAll, rebuildFromDoc } from './projector.js'
 import { seedAllFromSqlite } from './seed.js'
 
@@ -85,7 +85,7 @@ function docWithParents() {
   return () => doc
 }
 
-describe('doc-native ensureExists — seven op-log-backed entities project from a pure document, zero operations rows', () => {
+describe('doc-native ensureExists — six op-log-backed entities project from a pure document, zero operations rows', () => {
   const cases = [
     {
       entity: 'week_activity_exclusions',

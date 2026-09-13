@@ -257,4 +257,18 @@ describe('ensureSeeded — Stage 5e item 1 (seed-on-first-enable)', () => {
   })
 })
 
-
+// T145 — this test outlived the `day_overrides is modeled` describe it used to
+// share. It is about TEMPLATE_SLOTS, not day_overrides, and was very nearly
+// lost as collateral when that block was deleted wholesale (caught in review).
+// Kept here on its own so the connection it actually tests — that an entity can
+// be modeled in both its flat and bulk-replace-scope shapes at once — is not
+// hostage to some unrelated entity's lifecycle.
+describe('template_slots is modeled in both shapes', () => {
+  it('template_slots is modeled in BOTH its flat and bulk-replace-scope shapes', () => {
+    expect(createEmptyDoc().template_slots).toEqual({})
+    expect(createEmptyDoc().template_slots_scopes).toEqual({})
+    expect(() =>
+      applyWrite(createEmptyDoc(), { entity: 'template_slots', entity_id: 's1', field: 'activity_id', value: 'a1' })
+    ).not.toThrow()
+  })
+})

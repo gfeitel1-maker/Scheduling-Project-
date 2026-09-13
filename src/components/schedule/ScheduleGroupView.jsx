@@ -1,6 +1,5 @@
 import SlotCell from '../schedule/SlotCell'
 import EmptyCell from './EmptyCell'
-import { PullIcon } from '../icons'
 import { decideCell } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
@@ -44,13 +43,6 @@ export default function ScheduleGroupView({
   // Events overlay placement Slice 1
   eventsAll = [], onPlaceEvent, onOpenEvent,
   isContentRaced, onDismissContentRace,
-  // T108 Phase 2 (design §6, Designer spec §1.1) — each day COLUMN is its
-  // own (week, day) binding here, so the toggle lives once per column, in
-  // that column's header cell.
-  overrideModeDayId, onToggleOverrideMode,
-  // Designer spec §3.3 "whole-day pull" — batches a pull across every block
-  // for the selected group on the active override day.
-  onPullOverrideDay,
 }) {
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
   const rowCells = days.map(d => ({ groupId: selectedGroup, dayId: d.id }))
@@ -92,23 +84,9 @@ export default function ScheduleGroupView({
                         role="columnheader"
                         className="cell"
                         aria-colindex={dayIndex + 2}
-                        data-override-active={overrideModeDayId === d.id ? '' : undefined}
                         style={{ ...placeCell({ blockIndex: 0, columnIndex: dayIndex }), position: 'relative' }}
                       >
                         {d.label}
-                        {onToggleOverrideMode && (
-                          <span style={{ position: 'absolute', top: 4, right: 4, display: 'flex', gap: 2 }}>
-                            {overrideModeDayId === d.id && onPullOverrideDay && (
-                              <button
-                                type="button"
-                                className="cell-action"
-                                title={`Pull ${groups.find(g => g.id === selectedGroup)?.name ?? 'group'} for the whole day`}
-                                aria-label={`Pull ${groups.find(g => g.id === selectedGroup)?.name ?? 'group'} for the whole day`}
-                                onClick={e => { e.stopPropagation(); onPullOverrideDay(selectedGroup, d.id) }}
-                              ><PullIcon /></button>
-                            )}
-                          </span>
-                        )}
                       </div>
                     ))}
                   </div>

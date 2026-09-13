@@ -153,8 +153,6 @@ describe('Automerge generalization slice — scope guard: refuses non-DIRECT_CAM
   })
 })
 
-// its ensureExists accepts a knownRow and no longer needs deferring.
-
 describe('Automerge generalization slice — multi-entity parity with the op-log (load-bearing)', () => {
   it('a mixed write stream across several entities projects byte-identically via op-log vs. Automerge', () => {
     const dbA = freshDb('parity-oplog') // Path A: real op-log
@@ -318,7 +316,6 @@ describe('Automerge generalization slice — full-camp rebuildFromDoc round-trip
       { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'name', value: 'Flag' },
       // Code Reviewer LOW: broaden coverage beyond the original 8 entities to
       // every remaining direct-camp entity.
-      // rows this stream doesn't set up, plus knownRow-specific assertions).
       { entity: 'camp_maps', entity_id: 'map-1', field: 'camp_id', value: 'camp-1' },
       { entity: 'camp_maps', entity_id: 'map-1', field: 'kind', value: 'outdoor' },
       { entity: 'schedule_weeks', entity_id: 'week-1', field: 'camp_id', value: 'camp-1' },

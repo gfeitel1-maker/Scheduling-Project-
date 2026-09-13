@@ -694,21 +694,13 @@ CREATE TABLE IF NOT EXISTS schedule_templates (
 -- slots is a JSON TEXT column: a snapshot is an immutable
 -- point-in-time blob by design, not something field-level-synced (see design
 -- doc) — do not generalize this pattern to any actively-edited table.
--- day_overrides_json (schema v38, T108, ADR 2026-08-21-day-overrides-repoint-
--- shape.md D1/§5.2): the day_overrides rows for this snapshot's ENTIRE week
--- (all days), JSON-serialized. Snapshots are whole-week/template-level (no
--- day_id column on this table), so override capture is whole-week too, not
--- per-day. MUST be the LAST column — ALTER-added on a migrated db (localDb.js
--- v38), same column-order-trap precedent as elective_sets.is_reusable /
--- special_days.notes.
 CREATE TABLE IF NOT EXISTS schedule_snapshots (
   id TEXT PRIMARY KEY,
   template_id TEXT NOT NULL REFERENCES schedule_templates(id),
   name TEXT,
   is_auto INTEGER,
   created_at TEXT NOT NULL,
-  slots TEXT,
-  day_overrides_json TEXT
+  slots TEXT
 );
 
 -- Per-week activity and group exclusion tables (migration v28).
@@ -1031,32 +1023,3 @@ CREATE TABLE IF NOT EXISTS event_slots (
   location_id TEXT
 );
 
--- day_overrides (schema v38, T108, ADR 2026-08-21-day-overrides-repoint-
--- shape.md D1, design docs/work/specs/2026-08-21-day-overrides-repoint-
--- design.md). Re-points the "mostly-normal day with a few swaps/pulls" case
--- to a specific rendered (week, day, group, block) instead of the detached
--- day_override_templates/day_override_template_slots pair that predated it
--- (dropped in v46, docs/adr/2026-08-23-override-family-model.md §6a).
--- Direct-camp-scoped (camp_id NOT NULL), like schedule_weeks/special_days,
--- NOT parent-scoped
--- through a join like week_activity_exclusions. `kind` is explicit
--- ('swap' | 'pull'), never inferred from a NULL activity_id (same reasoning
--- as schedule_templates.kind). Bound to schedule_weeks (FK), not a recurring
--- day_of_week integer, so an override never ambient-resurrects for a future
--- cohort. Route-agnostic by construction — no template_id column (ADR D2):
--- composed as a render-time diff over whichever route's slots are on screen,
--- never itself a third canonical schedule. UNIQUE(schedule_week_id, day_id,
--- group_id, time_block_id) — one override per cell.
-CREATE TABLE IF NOT EXISTS day_overrides (
-  id TEXT PRIMARY KEY,
-  camp_id TEXT NOT NULL REFERENCES camps(id),
-  schedule_week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
-  day_id TEXT NOT NULL REFERENCES days_of_operation(id),
-  group_id TEXT NOT NULL REFERENCES groups(id),
-  time_block_id TEXT NOT NULL,
-  activity_id TEXT REFERENCES activities(id),
-  kind TEXT NOT NULL DEFAULT 'swap',
-  note TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(schedule_week_id, day_id, group_id, time_block_id)
-);

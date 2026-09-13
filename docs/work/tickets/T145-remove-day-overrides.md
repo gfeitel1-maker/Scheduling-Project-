@@ -77,8 +77,26 @@ the Stage 6 WS deletion — not a column drop.
 4. **Schema drop** — v59 migration dropping `day_overrides` and the snapshot
    `day_overrides_json` column, with a rollback and a migration test.
 
-Slice 4 last and alone: per project memory, the last several schema-touching PRs each failed a
-gate on a missed sibling test or a version canary, and this one also changes snapshot contents.
+### CORRECTION 2026-09-13 — slices 3 and 4 CANNOT be separated
+
+The sequencing above was wrong, and the tests said so. Three parity scanners compare
+`schema.sql` against the registries:
+
+| scanner | what it asserts |
+|---|---|
+| `electron/ops/projectionsCoverage.test.js` | every non-key column of every PROJECTIONS table is a registered field |
+| `electron/ops/undoReferences.schemaParity.test.js` | every DB-enforced `REFERENCES` clause at a deletable entity is registered |
+| `electron/ops/dayOverrides.projections.test.js` | the entity's own projection behaviour |
+
+With `day_overrides` removed from `PROJECTIONS`/`undoReferences` but the TABLE still present in
+`schema.sql`, all three red — **correctly**, because "a table exists that no registry knows about"
+is exactly the drift they are built to catch. Measured at commit `c435f83`: 8 failures across
+those three files, 1188 passing.
+
+So the registry removal and the table drop must land in **one** commit. The original instinct
+(isolate the schema change, because the last several schema-touching PRs each failed a gate on a
+missed sibling test or a version canary) was right in spirit and wrong in fact: isolating it here
+means deliberately committing a state the repo's own guards reject.
 
 ## Risks to challenge before coding (Red Hat)
 

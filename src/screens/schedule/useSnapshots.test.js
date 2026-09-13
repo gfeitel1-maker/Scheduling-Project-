@@ -145,7 +145,7 @@ describe('useSnapshots', () => {
     await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
 
     expect(props.resetUndoRedo).toHaveBeenCalledTimes(1)
-    expect(repo.restoreSnapshotRows).toHaveBeenCalledWith('tid-generated', expect.any(Array), [])
+    expect(repo.restoreSnapshotRows).toHaveBeenCalledWith('tid-generated', expect.any(Array))
     expect(props.setSlots).toHaveBeenCalledWith(freshSlots)
     expect(props.recalcStats).toHaveBeenCalledWith(freshSlots)
     expect(props.setFindings).toHaveBeenCalledTimes(1)
@@ -177,7 +177,7 @@ describe('useSnapshots', () => {
     const { result, props } = setup({ repo })
     await act(async () => { await result.current.restoreSnapshot({ id: 'snap-imported' }) })
 
-    expect(repo.restoreSnapshotRows).toHaveBeenCalledWith('tid-generated', expect.any(Array), [])
+    expect(repo.restoreSnapshotRows).toHaveBeenCalledWith('tid-generated', expect.any(Array))
     const restoredSlots = repo.restoreSnapshotRows.mock.calls[0][1]
     expect(restoredSlots).toHaveLength(2)
     expect(restoredSlots.find((s) => s.is_anchor)).toMatchObject({ anchor_id: 'anc-1', activity_id: null })
@@ -295,105 +295,4 @@ describe('useSnapshots', () => {
   // T108 (day-overrides re-point, design §5.2): a snapshot captures the
   // WHOLE WEEK's day_overrides (all days), and restore passes them back to
   // the repository as a 4th argument.
-  describe('day_overrides participation', () => {
-    it('saveSnapshot captures the week\'s day_overrides into the payload', async () => {
-      const dayOverrides = [
-        { id: 'ov-1', schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-art' },
-      ]
-      const repo = makeRepo({ loadDayOverridesForWeek: vi.fn(async () => dayOverrides) })
-      const { result } = setup({ repo })
-      await act(async () => { await result.current.saveSnapshot('v1', false) })
-
-      expect(repo.loadDayOverridesForWeek).toHaveBeenCalledWith('week-1')
-      const [, fields] = repo.writeSnapshotFields.mock.calls[0]
-      expect(JSON.parse(fields.day_overrides_json)).toEqual(dayOverrides)
-    })
-
-    it('saveSnapshot captures an empty day_overrides array when the week has none', async () => {
-      const { result, props } = setup()
-      await act(async () => { await result.current.saveSnapshot('v1', false) })
-      const [, fields] = props.repo.writeSnapshotFields.mock.calls[0]
-      expect(JSON.parse(fields.day_overrides_json)).toEqual([])
-    })
-
-    it('restoreSnapshot passes the parsed day_overrides payload as restoreSnapshotRows\' 3rd arg', async () => {
-      const payload = {
-        template_id: 'tid-generated',
-        slots: JSON.stringify([]),
-        day_overrides_json: JSON.stringify([
-          { day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'pull', activity_id: null },
-        ]),
-      }
-      const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
-      const { result } = setup({ repo })
-      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
-
-      expect(repo.restoreSnapshotRows).toHaveBeenCalledWith(
-        'tid-generated',
-        expect.any(Array),
-        [{ day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'pull', activity_id: null }],
-      )
-    })
-
-    it('restoreSnapshot from a version saved before overrides existed passes an empty array (restore-to-no-overrides)', async () => {
-      const payload = {
-        template_id: 'tid-generated',
-        slots: JSON.stringify([]),
-        // No day_overrides_json at all — a snapshot saved before this feature shipped.
-      }
-      const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
-      const { result } = setup({ repo })
-      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
-
-      expect(repo.restoreSnapshotRows).toHaveBeenCalledWith(
-        'tid-generated', expect.any(Array), [],
-      )
-    })
-
-    // HIGH #3 (T108 review round 2) — restoreSnapshotRows writes the DB
-    // correctly, but the grid recomposes from the IN-MEMORY dayOverrides
-    // state (owned by useScheduleData, not useSnapshots) via applyDayOverrides.
-    // Without reloading + re-setting it after a restore, the grid keeps
-    // showing whatever overrides were on screen before the restore — stale
-    // data the director didn't ask for and can't see is wrong.
-    it('restoreSnapshot reloads day_overrides for the week and calls setDayOverrides with the fresh rows', async () => {
-      const payload = {
-        template_id: 'tid-generated',
-        slots: JSON.stringify([]),
-        day_overrides_json: JSON.stringify([
-          { id: 'ov-restored', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-art' },
-        ]),
-      }
-      const restoredRows = [{ id: 'ov-restored', schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-art' }]
-      const repo = makeRepo({
-        getSnapshot: vi.fn(async () => payload),
-        loadDayOverridesForWeek: vi.fn(async () => restoredRows),
-      })
-      const setDayOverrides = vi.fn()
-      const { result } = setup({ repo, setDayOverrides })
-      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
-
-      expect(repo.loadDayOverridesForWeek).toHaveBeenCalledWith('week-1')
-      expect(setDayOverrides).toHaveBeenCalledWith(restoredRows)
-    })
-
-    // restore-to-none: a snapshot from before overrides existed must CLEAR
-    // whatever overrides are currently showing, not leave them stale.
-    it('restoreSnapshot to a version with no overrides clears the in-memory dayOverrides (empty array)', async () => {
-      const payload = {
-        template_id: 'tid-generated',
-        slots: JSON.stringify([]),
-        // No day_overrides_json — pre-feature snapshot.
-      }
-      const repo = makeRepo({
-        getSnapshot: vi.fn(async () => payload),
-        loadDayOverridesForWeek: vi.fn(async () => []), // DB now has none, post-restore
-      })
-      const setDayOverrides = vi.fn()
-      const { result } = setup({ repo, setDayOverrides })
-      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
-
-      expect(setDayOverrides).toHaveBeenCalledWith([])
-    })
-  })
 })
