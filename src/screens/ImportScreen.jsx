@@ -8,6 +8,7 @@ import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { isScheduleShaped } from '../ingest/scheduleShape'
+import { proposeSpecialDay } from '../ingest/specialDayFile'
 import { findSuspectRecords } from '../ingest/suspectRecords'
 import { formatEligibility } from './importEligibility'
 import { fixedEventKey } from '../ingest/fixedEventKey'
@@ -305,6 +306,27 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     setNameVariantCandidates([])
     setNameVariantDecisions({})
     setCompoundCellDecisions({})
+    // Red Hat (T40 review): the resets above clear STATE, not the refs that
+    // carry a parse forward to the commit. A file that is declined early — an
+    // unreadable file, a non-schedule workbook (T146), a one-day special
+    // schedule (T40) — returns before these are reassigned, leaving the
+    // PREVIOUS file's pages, placements and unit maps in memory. Nothing can
+    // reach them today (every consumer is gated behind `proposal`, which is
+    // null on those paths), but that is an implicit guarantee a later change
+    // would not know it was relying on. Cleared here, once, so it holds for
+    // every early return rather than being re-argued at each one.
+    pagesRef.current = []
+    placementsRef.current = []
+    divisionsRef.current = []
+    anchorNamesRef.current = []
+    knownTimeBlockNamesRef.current = []
+    statedUnitsRef.current = {}
+    groupTierByNameRef.current = {}
+    coScheduleRef.current = new Map()
+    allCampOverridesRef.current = []
+    fileGroupUnitsRef.current = {}
+    fileActivityLocationsRef.current = {}
+    confirmedCompoundDecisionsRef.current = new Map()
     const files = [...(fileList ?? [])]
     if (files.length === 0) return
     setFileNames(files.map((f) => f.name))
@@ -391,6 +413,30 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         setError(
           `${files.map((f) => f.name).join(', ')} doesn't look like a schedule — expected day columns ` +
           '(e.g. Monday–Friday) or time-of-day rows. Nothing was imported.'
+        )
+        return
+      }
+
+      // T40 slice 3a — a ONE-DAY special schedule (a Maccabiah, a colour war, a
+      // trip day) IS a schedule and passes the gate above on its time axis, but
+      // it is not a WEEK. Measured on the ticket's own sample, pushing one
+      // through the weekly path produces zero days (impossible for a weekly
+      // file), all five periods collapsed into one block, and twelve
+      // "activities" of which six are staff names read out of "Pool - Unit
+      // Heads" cells — all of it landing in the camp's PERMANENT setup.
+      //
+      // Recognised and stopped here rather than silently ingested. Building the
+      // day from the file is slice 3b; this half exists because the wrong
+      // outcome today is not "nothing happened", it is a polluted camp.
+      const specialDay = proposeSpecialDay(pages)
+      if (specialDay) {
+        setProposal(null)
+        setError(
+          `${files.map((f) => f.name).join(', ')} looks like a single-day schedule` +
+          (specialDay.name ? ` — "${specialDay.name}"` : '') +
+          `: ${specialDay.timeBlocks.length} periods across ${specialDay.columnNames.length} groups, with no days of the week. ` +
+          'Nothing was imported — importing it here would add its periods and activities to your camp\'s permanent setup. ' +
+          'Build it under Special Events instead.'
         )
         return
       }
