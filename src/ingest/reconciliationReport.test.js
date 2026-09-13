@@ -1414,3 +1414,71 @@ describe('buildReconciliationReport — electiveCandidates (Slice 3a)', () => {
     expect(report.decisions).toEqual([])
   })
 })
+
+// T96 — a confirm_change card asks the director to choose between the file's
+// value and "the current value". The file's value was shown; the CURRENT one
+// was not, so the choice was between a number you can see and a number you
+// cannot. `currentValue` closes that, carrying the delta's `from` the same way
+// `proposedValue` already carries its `to`.
+//
+// This is deliberately NOT the retired ledger the ticket describes. The
+// decision the director actually faces on a re-import is already narrowed by
+// the machinery: an import-owned field at HIGH tier is applied silently (the
+// new file wins), and only a hand-edited field forces a choice. The one thing
+// missing at that moment was what they would be giving up.
+describe('buildReconciliationReport — T96 (current value on a confirm_change)', () => {
+  const humanUpdate = (entityId, fields, name = 'Sail') => ({
+    op: 'update', entity: 'activities', entity_id: entityId,
+    fields, evidence: { tier: 'exact_name', matched_name: name }, _name: name,
+  })
+
+  it('carries the current value alongside the proposed one, for a single field', () => {
+    const planItems = [humanUpdate('a20', { location: { from: 'Dock', to: 'Field', source: 'import' } })]
+    const fieldProvenance = new Map([['activities:a20:location', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    const d = report.decisions[0]
+    expect(d.kind).toBe('confirm_change')
+    expect(d.proposedValue).toBe('Field')
+    expect(d.currentValue).toBe('Dock')
+  })
+
+  it('shapes currentValue as a field->value map when several hand-edited fields ride one row', () => {
+    // Mirrors proposedValue's own shape rule exactly — one scalar cannot
+    // represent N values, and the two must agree or the card cannot pair them.
+    const planItems = [humanUpdate('a21', {
+      location: { from: 'Dock', to: 'Field', source: 'import' },
+      min_per_week: { from: 2, to: 4, source: 'import' },
+    })]
+    const fieldProvenance = new Map([
+      ['activities:a21:location', 'human'],
+      ['activities:a21:min_per_week', 'human'],
+    ])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    const d = report.decisions[0]
+    expect(d.proposedValue).toEqual({ location: 'Field', min_per_week: 4 })
+    expect(d.currentValue).toEqual({ location: 'Dock', min_per_week: 2 })
+  })
+
+  it('lists ONLY the hand-edited fields, matching the mixed-row rule proposedValue already follows', () => {
+    const planItems = [humanUpdate('a22', {
+      location: { from: 'Dock', to: 'Field', source: 'import' },
+      notes: { from: 'old', to: 'new', source: 'import' },
+    })]
+    const fieldProvenance = new Map([['activities:a22:location', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    const d = report.decisions[0]
+    expect(d.field).toEqual(['location'])
+    expect(d.currentValue).toBe('Dock')
+  })
+
+  it('a null current value stays null rather than becoming a misleading empty string', () => {
+    const planItems = [humanUpdate('a23', { location: { from: null, to: 'Field', source: 'import' } })]
+    const fieldProvenance = new Map([['activities:a23:location', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    expect(report.decisions[0].currentValue).toBeNull()
+  })
+})

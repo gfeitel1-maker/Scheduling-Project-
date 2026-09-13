@@ -292,8 +292,22 @@ function ResolutionControls({ decision, onAnswer, locations }) {
   if (decision.kind === 'confirm_change') {
     return (
       <div style={{ marginTop: 10 }}>
-        <RadioOption label={`Use the file's value${decision.proposedValue != null ? ` — "${JSON.stringify(decision.proposedValue)}"` : ''}`} description="Overwrites what's in Shoresh now." onClick={() => onAnswer({ choice: 'accept' })} />
-        <RadioOption label="Keep the current value" description="Ignores this file's value going forward for this field." onClick={() => onAnswer({ choice: 'keep' })} />
+        {/* A string value was being double-quoted: the template adds quotes
+            AND JSON.stringify adds its own, so "Field" rendered as ""Field"".
+            Pre-existing on this line; surfaced by T96 adding the matching
+            current-value line beside it. */}
+        <RadioOption label={`Use the file's value${decision.proposedValue != null ? ` — ${quoteValue(decision.proposedValue)}` : ''}`} description="Overwrites what's in Shoresh now." onClick={() => onAnswer({ choice: 'accept' })} />
+        {/* T96 — name the value being kept. This choice overwrites something
+            the director typed themselves; asking them to weigh it against the
+            file's value while showing only the file's value made one side of
+            the comparison invisible. Falls back to the bare label when the
+            current value is null (never written), where "" would read as an
+            empty string rather than as absent. */}
+        <RadioOption
+          label={`Keep the current value${decision.currentValue != null ? ` — ${quoteValue(decision.currentValue)}` : ''}`}
+          description="Ignores this file's value going forward for this field."
+          onClick={() => onAnswer({ choice: 'keep' })}
+        />
       </div>
     )
   }
@@ -364,6 +378,17 @@ function useContentCrossfade(dep) {
     opacity: entered ? 1 : 0,
     transition: 'opacity var(--motion-fast) var(--ease-out)',
   }
+}
+
+// Renders a field value for display in one quoted form.
+//
+// A plain string is wrapped in quotes directly: JSON.stringify would add its
+// own, and the surrounding template added more, so "Field" reached the screen
+// as ""Field"". Anything non-string (a number, or the field->value map a
+// multi-field row carries) still goes through JSON.stringify, which is the
+// only readable rendering for those.
+function quoteValue(value) {
+  return typeof value === 'string' ? `"${value}"` : JSON.stringify(value)
 }
 
 export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onToggleEvidence, locations, repeatCount = 1 }) {

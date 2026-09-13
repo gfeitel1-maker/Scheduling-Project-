@@ -144,6 +144,14 @@ function classifyItem(item, fieldProvenance, activityEvidence) {
       const proposedValue = humanFields.length === 1
         ? item.fields[humanFields[0]].to
         : Object.fromEntries(humanFields.map((f) => [f, item.fields[f].to]))
+      // T96 — the card asks "keep it or overwrite from the file?" and showed
+      // only the file's value, so the director chose between a value they
+      // could see and one they could not. Same shape rule as proposedValue
+      // above (scalar for one field, field->value map for several) because the
+      // card pairs them per field; if the shapes diverged it could not.
+      const currentValue = humanFields.length === 1
+        ? item.fields[humanFields[0]].from ?? null
+        : Object.fromEntries(humanFields.map((f) => [f, item.fields[f].from ?? null]))
       return {
         outcome: 'changed',
         decision: {
@@ -155,6 +163,7 @@ function classifyItem(item, fieldProvenance, activityEvidence) {
           field: humanFields,
           confidence: 'changed',
           proposedValue,
+          currentValue,
           unknowns: [],
           evidence: activitySupportFor(item, activityEvidence),
           reason: item.reason ?? null,
