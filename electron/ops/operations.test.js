@@ -1207,41 +1207,6 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
     }
   })
 
-  // day_overrides was previously deferred (its ensureExists reconstructed NOT-NULL FK columns from
-  // the operations table, which the doc-replay path never writes) and therefore excluded from the
-  // dual-write here. The doc-native ensureExists slice gave it a `knownRow` fallback instead
-  // (electron/ops/projections.js), so it is now MODELED and mirrors into the doc like any other
-  // entity — replacing the old "unmodeled, doc absent" assumption below.
-  it('flag ON: day_overrides field writes now mirror into the doc (un-deferred, doc-native ensureExists)', async () => {
-    const ops = await loadOperationsWithEngine('automerge')
-    const { flushPendingWrites } = await import('../sync/automerge/liveDoc.js')
-
-    db.prepare('INSERT INTO days_of_operation (id, camp_id, label) VALUES (?, ?, ?)').run('d1', 'camp-1', 'Monday')
-    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)').run('w1', 'camp-1', 'Week 1')
-    db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run('g1', 'camp-1', 'Bunk A')
-
-    ops.appendOp(db, { entity: 'day_overrides', entity_id: 'do1', field: 'schedule_week_id', value: 'w1', author_user_id: 'user-1', device_id: 'device-1' })
-    ops.appendOp(db, { entity: 'day_overrides', entity_id: 'do1', field: 'day_id', value: 'd1', author_user_id: 'user-1', device_id: 'device-1' })
-    ops.appendOp(db, { entity: 'day_overrides', entity_id: 'do1', field: 'group_id', value: 'g1', author_user_id: 'user-1', device_id: 'device-1' })
-    const op = ops.appendOp(db, { entity: 'day_overrides', entity_id: 'do1', field: 'time_block_id', value: 'tb1', author_user_id: 'user-1', device_id: 'device-1' })
-
-    expect(op).toBeTruthy()
-    expect(db.prepare('SELECT day_id FROM day_overrides WHERE id = ?').get('do1').day_id).toBe('d1')
-    flushPendingWrites()
-    expect(fs.existsSync(docPath(userDataDir, 'camp-1'))).toBe(true)
-    const doc = loadDoc(userDataDir, 'camp-1')
-    expect(readRecord(doc, 'day_overrides', 'do1')).toEqual({
-      schedule_week_id: 'w1',
-      day_id: 'd1',
-      group_id: 'g1',
-      time_block_id: 'tb1',
-    })
-  })
-
-  // Parent-scoped entities slice: template_slots is now modeled (its ordinary FLAT per-field shape,
-  // for individual cell edits — see campDocument.js's applyBulkReplace comment for the separate
-  // bulk-replace primitive), so a field-level appendOp on it now mirrors into the doc exactly like
-  // any other modeled entity, replacing the old "unaffected" assumption below.
   it('flag ON: template_slots individual-cell field write mirrors into the doc (flat shape)', async () => {
     const ops = await loadOperationsWithEngine('automerge')
     const { flushPendingWrites } = await import('../sync/automerge/liveDoc.js')

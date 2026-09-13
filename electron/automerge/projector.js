@@ -187,7 +187,7 @@ function upsertEntity(db, doc, entity) {
     // knownRow = row: every field the document currently holds for this id, all at once — unlike
     // op-log replay's true one-field-at-a-time arrival. Some entities' ensureExists (projections.js's
     // ensureWeekJoinRow and its hand-written equivalents for special_day_slots/
-    // elective_set_activities/event_slots/day_overrides) reconstruct sibling NOT-NULL FK columns to
+    // elective_set_activities/event_slots) reconstruct sibling NOT-NULL FK columns to
     // satisfy a multi-column INSERT; passed the full row, they resolve those siblings directly
     // instead of querying the `operations` table, which the doc-replay path never writes.
     for (const field of fields) {
@@ -377,7 +377,7 @@ export function projectAll(db, doc) {
 // "seed the document from current SQLite" step must run first (see
 // seed.js's seedDocFromSqlite/seedAllFromSqlite) — otherwise an empty/partial
 // document would delete real rows and silently orphan convention-only
-// referrers (anchor_activities.day_id, day_overrides). Nothing here wires
+// referrers (anchor_activities.day_id). Nothing here wires
 // this to live data; it runs only against documents built in-process.
 export function rebuildFromDoc(db, doc, entity) {
   assertConflictsRecorded(db, doc)

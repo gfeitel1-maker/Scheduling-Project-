@@ -173,15 +173,6 @@ export function createScheduleRepository({
       return (await localClient.list('schedule_weeks')) || []
     },
 
-    // T108 (day-overrides re-point, design §5.2). day_overrides is
-    // direct-camp-scoped (no parent_id, unlike the week_*_exclusions above),
-    // so this filters localClient.list() client-side rather than using
-    // listByScope.
-    async loadDayOverridesForWeek(weekId) {
-      const rows = (await localClient.list('day_overrides')) || []
-      return rows.filter((r) => r.schedule_week_id === weekId)
-    },
-
     async loadWeekExclusions(weekId) {
       const [activityExclusions, groupExclusions, locationExclusions] = await Promise.all([
         localClient.listByScope('week_activity_exclusions', weekId ?? null),
@@ -278,9 +269,6 @@ export function createScheduleRepository({
 
     // T108 (day-overrides re-point, design §6.1) — override-authoring-mode
     // cell edits write here instead of template_slots.
-    async writeDayOverrideFields(dayOverrideId, fields) {
-      await writeFields('day_overrides', dayOverrideId, fields)
-    },
 
     // Undo-time cleanup for a one-off elective the director never promoted
     // (T105 design §1). Best-effort — callers accept a thrown error the same
@@ -313,40 +301,10 @@ export function createScheduleRepository({
     },
 
     // restoreSnapshot(): replace slots (from snapshot slots — no is_span_head).
-    // snapshotDayOverrides (T108, design §5.2): the whole week's day_overrides
-    // rows captured at save time. Restore is whole-week delete-then-recreate
-    // (matching schedule_snapshots' own whole-week/template-level grain, not
-    // the currently-viewed day) — resolved by looking up templateId's
-    // week_id, since a snapshot only carries a template_id. An unresolvable
-    // template (no matching schedule_templates row, e.g. in tests that don't
-    // seed one) is a no-op for day_overrides, same posture as an omitted 4th
-    // arg — neither is a bug, both leave day_overrides untouched.
-    async restoreSnapshotRows(templateId, snapshotSlots, snapshotDayOverrides) {
+    async restoreSnapshotRows(templateId, snapshotSlots) {
       const token = getToken()
       const rows = snapshotSlots.map(s => mapSlotToRow(s, templateId, { spanHead: false }))
       await localClient.bulkReplace(token, 'template_slots', templateId, rows)
-
-      const templates = (await localClient.list('schedule_templates')) || []
-      const weekId = templates.find((t) => t.id === templateId)?.week_id
-      if (!weekId) return
-
-      const existing = (await localClient.list('day_overrides')) || []
-      const weekRows = existing.filter((r) => r.schedule_week_id === weekId)
-      for (const row of weekRows) {
-        await localClient.deleteEntity(token, 'day_overrides', row.id)
-      }
-      for (const ov of snapshotDayOverrides || []) {
-        const id = crypto.randomUUID()
-        await writeFields('day_overrides', id, {
-          schedule_week_id: weekId,
-          day_id: ov.day_id,
-          group_id: ov.group_id,
-          time_block_id: ov.time_block_id,
-          activity_id: ov.activity_id ?? null,
-          kind: ov.kind,
-          note: ov.note ?? null,
-        })
-      }
     },
 
     // --- delete ------------------------------------------------------------

@@ -8,7 +8,26 @@ governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-10-ingest
 archive_when: ingest infers (with import_evidence) at least one of is_outdoor / co-schedule / weather-alternative for activity rules, and ActivitiesScreen surfaces its provenance the same way Slice D does the other three
 ---
 
-# T114 — Build inference for the Outdoor / Co-schedule / Alt activity rule columns
+# T114 — Build inference for the Co-schedule / Alt activity rule columns
+
+## DOWNSCOPED 2026-09-13 (owner): outdoor inference is REMOVED from this ticket
+
+The owner's reasoning, and it is correct: **outdoor-vs-indoor cannot be inferred
+from a schedule at all.** A schedule cell says `Archery / Barn`. Nothing in that
+tells you whether the Barn is outdoors — outdoor-ness is a property of the
+PLACE, not of the placement, so the only source that could carry it is a
+locations list. Attempting to infer it from a schedule would be manufacturing a
+fact, which is exactly what this repo's provenance rules exist to prevent.
+
+Co-schedule (`max_groups_per_slot` / `same_tier_only`) and weather-alternative
+(`weather_alternative_id`) ARE inferable from a schedule, because both are
+statements about how placements co-occur, which is precisely what a grid
+records. Those two remain in scope.
+
+Spun off: inferring LOCATIONS from a schedule — see
+`docs/work/tickets/T147-infer-locations-from-a-schedule.md`. That one needs a
+conversation before any design.
+
 
 **Surfaced by the Slice D architecture investigation (2026-08-22), owner-directed split.**
 

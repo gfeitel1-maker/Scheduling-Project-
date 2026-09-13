@@ -9,7 +9,7 @@
 // seedDocFromSqlite/seedAllFromSqlite make it so: they read SQLite's current
 // rows and write them into the document FIRST, so the very first projection
 // can't delete real data (and can't orphan the convention-only referrers
-// `anchor_activities.day_id` / `day_overrides`, which have no DB foreign key
+// `anchor_activities.day_id`, which have no DB foreign key
 // to catch it — see buildSchedule.js:326-339).
 //
 // Scoped to DIRECT_CAMP_ENTITIES only, same boundary as campDocument.js/

@@ -1,6 +1,5 @@
 import SlotCell from '../schedule/SlotCell'
 import EmptyCell from './EmptyCell'
-import PulledCell from './PulledCell'
 import { PullIcon } from '../icons'
 import { decideCell } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
@@ -184,21 +183,6 @@ export default function ScheduleGroupView({
                               onPlaceEvent={onPlaceEvent}
                               pasteMode={pasteMode}
                               onCellSelect={onCellSelect}
-                              {...placeCell({ blockIndex, columnIndex: dayIndex })}
-                            />
-                          )
-                        }
-                        // T108 Phase 2 (design §5.1) — a PULL override, never droppable.
-                        if (decision.kind === 'pulled') {
-                          return (
-                            <PulledCell
-                              key={day.id}
-                              slot={decision.slot}
-                              ariaColIndex={ariaColIndex}
-                              cellKey={cellKey}
-                              collapsed={isCollapsed}
-                              blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
-                              column={day.label}
                               {...placeCell({ blockIndex, columnIndex: dayIndex })}
                             />
                           )

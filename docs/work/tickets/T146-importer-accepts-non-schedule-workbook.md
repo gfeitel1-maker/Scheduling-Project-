@@ -43,6 +43,24 @@ extractions, and the director has to recognise the nonsense and back out. The sc
 is "nothing is added until you have looked at the list"; that promise is weaker when the list is
 plausible-looking garbage.
 
+## SCOPE CORRECTION (owner, 2026-09-13) — schedule import ONLY
+
+The first draft of this ticket said "the importer" without qualifying which one.
+There are **two unrelated import paths**, and this ticket applies to exactly one:
+
+| path | entry | parser | in scope? |
+|---|---|---|---|
+| Schedule import | `ImportScreen` ("Import last year") | `src/ingest/workbookToSource.js` → grid parser | **YES** |
+| Per-entity import | `SetupScreenShell`'s *Download Template → Import from Excel* — Locations, Electives, Special Events, and the germination screens | its own single-entity template reader | **NO** |
+
+The per-entity importers exist precisely to take a workbook that is **not** a
+schedule: a Locations template is a list of rooms, an Electives template is a
+list of sets. A "decline anything that is not schedule-shaped" rule applied to
+those would reject every legitimate file they are built for.
+
+So the precondition belongs on the schedule path alone, and must be implemented
+where only that path reaches it — not in a shared workbook helper both use.
+
 ## Scope
 
 - Decide the precondition: what minimally makes a workbook schedule-shaped (a day axis? a time axis?
@@ -52,13 +70,21 @@ plausible-looking garbage.
 - Test with `Shoresh-Campus-Map-Template.xlsx` as the negative fixture and at least two real camp
   schedules as positives, so the gate cannot be tightened into rejecting real input.
 
-**Non-goal:** guessing what the file IS, or importing map data. Declining is the whole job.
+**Non-goals:** guessing what the file IS, or importing map data — declining is
+the whole job. And any change to the per-entity template importers, which are
+explicitly out of scope per the correction above.
 
 ## Risk to challenge (Red Hat)
 
-The obvious failure mode is a precondition tight enough to reject a legitimately odd camp file — the
-corpus already contains four materially different layouts, and a fifth is expected. Bias the rule
-toward accepting anything ambiguous; only decline what is clearly not a schedule.
+Two failure modes, both false-rejects:
+
+1. A precondition tight enough to reject a legitimately odd camp SCHEDULE — the corpus already
+   contains four materially different layouts, and a fifth is expected. Bias toward accepting
+   anything ambiguous; only decline what is clearly not a schedule.
+2. **The rule leaking onto the per-entity importers.** If it is implemented in a shared workbook
+   helper rather than on the schedule path, every Locations / Electives / Special Events template
+   import starts failing — and those files are non-schedules BY DESIGN. Red Hat should check the
+   call graph, not just the rule.
 
 ## Review loop
 
