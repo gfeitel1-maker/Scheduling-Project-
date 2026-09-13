@@ -201,7 +201,18 @@ const COMPARABLE_COLUMNS = Object.freeze({
   // M4 §D4: 'location' -> 'location_id'. The frozen `activities.location`
   // string (D5 of the parent ADR) is never written after v32 and stays out of
   // this diff — comparing against it would only ever be stale.
-  activities: ['priority', 'min_per_week', 'max_per_week', 'location_id', 'eligible_group_ids'],
+  // max_groups_per_slot/same_tier_only (T114 co-schedule): added so a re-import
+  // can actually DIFF them. Folding the inference into `fields` is not enough —
+  // buildPlan only emits a field it can compare against the snapshot, so without
+  // these two entries the fold was inert and a re-import silently never
+  // refreshed the co-schedule values.
+  //
+  // Consequence worth knowing (Red Hat, T114 review): this is a NEW conflict
+  // surface. A camp where a director hand-set one of these will now hold the
+  // import for review when this year's grid disagrees — correct Policy A
+  // behaviour, but behaviour that camp has never seen before, because these
+  // columns were never written by an import until now.
+  activities: ['priority', 'min_per_week', 'max_per_week', 'location_id', 'eligible_group_ids', 'max_groups_per_slot', 'same_tier_only'],
   // No comparable fields — a locations plan item is only ever create/unchanged
   // (§D3: exact-match recognition means it can never surface an update either).
   locations: [],
@@ -957,11 +968,28 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // Shared by the create and update paths deliberately: a re-import that
   // refreshes the VALUE must refresh the reason alongside it, or the dot ends
   // up explaining last year's schedule.
-  const writeCoScheduleEvidence = (entityId, rule) => {
+  // `verifyStored` — the UPDATE path passes true. Red Hat (T114 review): on that
+  // path the column write is gated upstream by the plan diff and by Policy A
+  // hand-edit protection, while this evidence write is a separate unconditional
+  // loop over plan.items. So a director's hand-set max_groups_per_slot that this
+  // year's grid happens to match produces NO field delta and NO column write —
+  // and without this check would still have its evidence overwritten with this
+  // year's busiest-slot observation, telling the director that their own typed
+  // number came from a grid reading. Evidence must describe the value actually
+  // stored, or it is worse than no evidence at all.
+  const writeCoScheduleEvidence = (entityId, rule, verifyStored = false) => {
     const cs = rule?.co_schedule
     // Guarded on the same validation the column write uses, so an evidence row
     // can never explain a value that was refused.
     if (!cs || !Number.isInteger(cs.max_groups_per_slot) || cs.max_groups_per_slot < 1) return
+    if (verifyStored) {
+      const stored = db
+        .prepare('SELECT max_groups_per_slot FROM activities WHERE id = ?')
+        .get(entityId)?.max_groups_per_slot
+      // Not what this run inferred: the write was skipped, held, or protected.
+      // Leave whatever evidence already explains the stored value alone.
+      if (stored !== cs.max_groups_per_slot) return
+    }
     const support = {
       ...(cs.support ?? {}),
       // WHICH groups, not merely how many — a director asking "why?" needs the
@@ -969,6 +997,13 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // observation behind the constraint, not a constraint the engine reads,
       // which is also what keeps this change free of a schema migration.
       co_schedule_groups: cs.co_schedule_groups ?? [],
+      // Red Hat (T114 review): say what was actually measured. capturePlacements
+      // carries no location, so two groups doing a same-named activity at the
+      // same time in two DIFFERENT rooms are indistinguishable from two groups
+      // sharing one. The count is honestly 'observed' — concurrency WAS seen —
+      // but it is concurrency, not shared occupancy, and a director reading
+      // "why?" is entitled to know which of the two this number means.
+      basis: 'groups seen scheduled at the same day and block; the grid carries no room, so concurrent-in-different-rooms is not distinguished from sharing one',
     }
     writeEvidence(db, {
       camp_id, entity_type: 'activities', entity_id: entityId, field: 'max_groups_per_slot',
@@ -1330,17 +1365,6 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           minPerWeekUnknown = true
         }
 
-        // T114 follow-up — co-schedule inference (src/ingest/coScheduleRules.js),
-        // arriving on its own sub-object so its `support` cannot collide with
-        // the activity rule's own. Until this landed, inferCoScheduleRules ran
-        // at parse time and its result was assigned to a ref nothing read: the
-        // values were computed and discarded.
-        //
-        // Same write-boundary discipline as min_per_week above — a count is
-        // file-derived input, so it is validated here rather than trusted. A
-        // capacity of 1 is a real finding ("never seen sharing a slot"), not an
-        // absence, and is written; anything that is not a positive integer is
-        // nonsense and is refused.
         // T114 follow-up — co-schedule inference (src/ingest/coScheduleRules.js),
         // arriving on its own sub-object so its `support` cannot collide with the
         // activity rule's own.
@@ -1852,7 +1876,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         .prepare('SELECT tag FROM import_evidence WHERE camp_id = ? AND entity_type = ? AND entity_id = ? AND field = ?')
         .get(camp_id, 'activities', item.entity_id, 'min_per_week')?.tag
       writeActivityEvidence(item.entity_id, item._rule)
-      writeCoScheduleEvidence(item.entity_id, item._rule)
+      writeCoScheduleEvidence(item.entity_id, item._rule, true)
       if (priorMinPerWeekTag === 'unknown' && item._rule?.support?.appearances === 0) {
         writeEvidence(db, {
           camp_id, entity_type: 'activities', entity_id: item.entity_id, field: 'min_per_week',

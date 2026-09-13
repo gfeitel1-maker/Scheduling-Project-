@@ -1,5 +1,7 @@
 // Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7): tier derivation
-// for the 3 owner-locked inferred-rule fields on the Activities screen.
+// for the inferred-rule fields on the Activities screen (3 at Slice D; a 4th,
+// co-schedule, added by T114's follow-up — see RULE_FIELDS below, which is the
+// single source of the count).
 // min_per_week/max_per_week are ONE logical field (one evidence record under
 // 'min_per_week', one popover row, one Confirm writes both — see ingest.js's
 // writeEvidence call sites for min_per_week).
@@ -59,7 +61,7 @@ export function deriveActivityProvenance(fieldSources, evidenceByField) {
   })
 }
 
-// A row-level provenance dot renders only when at least one of the 3 fields
+// A row-level provenance dot renders only when at least one RULE_FIELDS entry
 // actually has an import_evidence record — a hand-created activity (no
 // import ever touched it) shows nothing, quiet by default.
 export function hasAnyEvidence(evidenceByField) {

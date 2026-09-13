@@ -156,6 +156,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   const divisionsRef = useRef([])
   const allCampOverridesRef = useRef([])
   const coScheduleRef = useRef(new Map())
+  const groupTierByNameRef = useRef({})
   const placementsRef = useRef([])
   // T118 slice 4 — the raw pages this import parsed, retained so
   // buildCommitInputs can re-run extractEntities at commit time with this
@@ -540,9 +541,14 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         for (const g of d.groupNames) acc[g] = d.name
         return acc
       }, {})
+      // Kept on a ref because buildCommitInputs may have to re-derive the
+      // co-schedule rules from a re-parsed proposal (see coScheduleForCommit),
+      // and it must use the SAME group -> division map or same_tier_only would
+      // silently change meaning between the preview and the commit.
+      groupTierByNameRef.current = { ...inferredUnits, ...statedUnits }
       coScheduleRef.current = inferCoScheduleRules(
         placementsRef.current,
-        { ...inferredUnits, ...statedUnits },
+        groupTierByNameRef.current,
       )
 
       // Slice B — merges Slice A reconstructed as row.blockSpans, surfaced
@@ -942,6 +948,27 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         ? (effectiveProposal?.activityLocations ?? {})
         : fileActivityLocationsRef.current
 
+    // Red Hat (T114 co-schedule review) — coScheduleRef has EXACTLY the staleness
+    // the comment above describes, for exactly the same reason: it is computed
+    // once at parse time and keyed on the pre-fold activity name. After a
+    // compound-cell resolution ("Lunch + Leave" -> "Lunch") or a name-variant
+    // merge, `approved.activities` carries the post-fold names and the lookup
+    // misses — silently, because `undefined` flows harmlessly through every
+    // downstream `if (cs && ...)` guard. The activities that lose their
+    // inference are precisely the ones most likely to need it: the ones sharing
+    // a cell with something else.
+    //
+    // Note the trigger set is WIDER than activityLocations' above: a name-variant
+    // merge re-keys activity names without touching compound decisions, so both
+    // conditions have to be tested here.
+    const coScheduleForCommit =
+      newlyResolvedCompoundDecisions.length > 0 || confirmedNameMerges.length > 0
+        ? inferCoScheduleRules(
+            capturePlacements({ pages: pagesRef.current }, effectiveProposal).placements,
+            groupTierByNameRef.current,
+          )
+        : coScheduleRef.current
+
     const approved = {}
     for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(effectiveProposal?.entities[entity] ?? [])]
     // ADR 2026-08-09 Decision 2 — three explicit per-group unit review states.
@@ -1011,7 +1038,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         // same spelling `approved.activities` carries (both come from
         // extractEntities), so no normalisation is needed here — and adding one
         // would silently break the lookup for any name the two agree on today.
-        co_schedule: coScheduleRef.current.get(name),
+        co_schedule: coScheduleForCommit.get(name),
       }
       // Q8 (§D5) folded into buildPlan (ADR 2026-08-17-onescreen-reconciliation-
       // merge.md §2): the paired location is now sent unconditionally — it is

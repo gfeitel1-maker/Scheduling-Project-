@@ -167,10 +167,65 @@ describe('co-schedule inference records WHY', () => {
   it('is latest-wins on re-import, like every other evidence row', () => {
     commit({ 'Lunch 1': LUNCH })
     commit({ 'Lunch 1': { ...LUNCH, co_schedule: { ...LUNCH.co_schedule, max_groups_per_slot: 4, support: { ...LUNCH.co_schedule.support, slots_observed: 9 } } } })
+    // The column must actually have moved, or the evidence guard below is
+    // correctly declining to describe a value that is not there.
+    expect(activity('Lunch 1').max_groups_per_slot).toBe(4)
     const rows = db.prepare(
       'SELECT * FROM import_evidence WHERE camp_id = ? AND field = ?'
     ).all(campId, 'max_groups_per_slot')
     expect(rows).toHaveLength(1)
     expect(JSON.parse(rows[0].support).slots_observed).toBe(9)
+  })
+})
+
+// Red Hat (T114 review) — the evidence write on the update path is a separate,
+// unconditional loop over plan.items, while the COLUMN write is gated by the
+// plan diff and by Policy A hand-edit protection. So the two can disagree, and
+// when they do the evidence is the one that lies.
+describe('evidence never describes a value that was not stored', () => {
+  it('leaves evidence alone when a hand-set value blocks the re-import', () => {
+    // First import: inferred 3, and the director is recorded as having authored
+    // it (Policy A), so a later import cannot silently overwrite it.
+    commitIngest(db, {
+      approved: { groups: ['Tzofim 1', 'Tzofim 2', 'Tzofim 3'], activities: ['Lunch 1'] },
+      activityRules: { 'Lunch 1': LUNCH },
+      humanEditedFields: { activities: { 'Lunch 1': ['max_groups_per_slot'] } },
+      camp_id: campId, device_id: deviceId,
+    })
+    const before = evidenceFor('Lunch 1', 'max_groups_per_slot')
+    expect(activity('Lunch 1').max_groups_per_slot).toBe(3)
+
+    // A later import observes a busier slot. Policy A holds it for review
+    // rather than overwriting, so the stored column stays 3.
+    commitIngest(db, {
+      approved: { groups: ['Tzofim 1', 'Tzofim 2', 'Tzofim 3'], activities: ['Lunch 1'] },
+      activityRules: {
+        'Lunch 1': {
+          ...LUNCH,
+          co_schedule: {
+            ...LUNCH.co_schedule,
+            max_groups_per_slot: 9,
+            support: { ...LUNCH.co_schedule.support, slots_observed: 99 },
+          },
+        },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+
+    expect(activity('Lunch 1').max_groups_per_slot).toBe(3)
+    // The evidence must still explain the 3 that is actually stored — NOT the 9
+    // this run inferred and failed to write. Otherwise a director asking "why?"
+    // about their own protected value is shown a grid reading that produced a
+    // different number entirely.
+    const after = evidenceFor('Lunch 1', 'max_groups_per_slot')
+    expect(after.support.slots_observed).toBe(before.support.slots_observed)
+    expect(after.support.slots_observed).not.toBe(99)
+  })
+
+  it('says what the count actually measured, rather than implying shared occupancy', () => {
+    // The grid carries no room. Two groups at the same time in different rooms
+    // look identical to two groups sharing one, so the evidence says so.
+    commit({ 'Lunch 1': LUNCH })
+    expect(evidenceFor('Lunch 1', 'max_groups_per_slot').support.basis).toMatch(/no room/i)
   })
 })

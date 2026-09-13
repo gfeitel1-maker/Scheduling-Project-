@@ -48,7 +48,18 @@ const MOCK_COMPARABLE_COLUMNS = {
   days_of_operation: ['day_of_week', 'sort_order'],
   time_blocks: ['start_time', 'end_time', 'sort_order'],
   // M4: 'location' -> 'location_id' (mirrors electron's COMPARABLE_COLUMNS).
-  activities: ['priority', 'min_per_week', 'max_per_week', 'location_id', 'eligible_group_ids'],
+  // max_groups_per_slot/same_tier_only (T114 co-schedule): added so a re-import
+  // can actually DIFF them. Folding the inference into `fields` is not enough —
+  // buildPlan only emits a field it can compare against the snapshot, so without
+  // these two entries the fold was inert and a re-import silently never
+  // refreshed the co-schedule values.
+  //
+  // Consequence worth knowing (Red Hat, T114 review): this is a NEW conflict
+  // surface. A camp where a director hand-set one of these will now hold the
+  // import for review when this year's grid disagrees — correct Policy A
+  // behaviour, but behaviour that camp has never seen before, because these
+  // columns were never written by an import until now.
+  activities: ['priority', 'min_per_week', 'max_per_week', 'location_id', 'eligible_group_ids', 'max_groups_per_slot', 'same_tier_only'],
   locations: [],
 }
 
