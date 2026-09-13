@@ -152,10 +152,62 @@ blank-line block logic mangles the shape before it arrives — a one-day file ha
 between periods, so the whole grid joins into a single block. Text-pasted special days are not
 supported by 3a.
 
-### Slice 3b — NOT built: create the day from the file
+### Slice 3b — SHIPPED: build the day from the file
 
-Committing the proposal means creating the `special_days` row, N `special_day_time_blocks`, matching
-columns to existing groups by name, minting the activities that do not exist, and writing the
-`special_day_slots` — a multi-row write with exactly the partial-failure class T109 is about. It
-deserves its own design and review round rather than being appended here.
+`src/ingest/specialDayPlan.js` (pure) resolves the proposal against the camp's LIVE rows and
+`src/ingest/commitSpecialDay.js` writes it. The rule 3a exists for stays in force — a special day
+must not quietly enlarge the camp's PERMANENT setup — so nothing is minted silently:
+
+- a column matching no group is REPORTED, never created. A Maccabiah team is a throwaway; putting
+  one in the camp's permanent roster is the same pollution 3a refuses the whole file to avoid. The
+  plan is NOT READY while any column is unresolved, because committing then would silently leave
+  that share of the day unbuilt.
+- activities the camp lacks are listed separately and named in the panel, so the director sees
+  exactly what agreeing adds to the catalog.
+- a name already taken blocks the plan (`special_days` has `UNIQUE(camp_id, name)`).
+
+**The staff names are preserved.** `special_day_slots` has no notes column, so `Pool - Unit Heads`
+has nowhere to put "Unit Heads". Dropping it would silently lose something the file plainly said, so
+the DAY records it in `special_days.notes` — the right grain for "here is what the source told us
+that the grid cannot hold".
+
+**There is no transaction, and the code does not pretend otherwise.** A day is a parent row, N
+period rows and N*M cell rows, each its own IPC write — the partial-write class T109 covers. The
+existing author screen (`SpecialEventsScreen.seedFromCampTimeBlocks`) already faces this and answers
+the same way, so this follows that precedent rather than inventing a guarantee the IPC surface
+cannot honour. The ORDER is the design: the `special_days` row is written FIRST so any later failure
+leaves something the director can SEE and delete, rather than orphan periods and cells pointing at a
+parent that never existed. On failure the rejection carries the day's id and the counts, the message
+names the day and says where to find it, and the panel is cleared — offering a retry would create a
+second day of the same name and trip the UNIQUE constraint.
+
+**Review round (Red Hat).** Four findings, all confirmed in code first:
+
+- **The failure message lied when the FIRST write failed.** The day's id is minted before any
+  write, and was attached to every error unconditionally — so a rejection on the very first call
+  still told the director to "find it under Special Events and delete it", sending them to look for
+  a day that was never created. That is the same class of lie as claiming nothing happened, pointed
+  the other way. The id is now attached only once the parent row has actually landed, and the
+  message for an unstarted day says plainly that nothing was written.
+- **Two live groups normalizing to the same name silently collided.** A plain `Map` is
+  last-write-wins, so "Bogrim" and "bogrim " bound the column to whichever came last: one group got
+  the whole day, the other silently got nothing, with no way to tell. Collisions are now collected
+  and BLOCK the plan, reported as `ambiguous_columns` — distinct from `unmatched_columns`, because
+  "you have two groups with this name" and "you have none" need different fixes.
+- **Activities minted by an import survive deleting the day.** `deleteSpecialDay`'s cascade covers
+  the three special-day tables and does not touch `activities` — correctly, since by then one may be
+  in use elsewhere. Accepted rather than changed, but it is no longer SILENT: the panel says these
+  stay in the camp's activities even if the day is deleted afterwards. The feature's rule is against
+  QUIET enlargement of permanent setup; disclosed-and-agreed is a different thing.
+- **Silent reuse of existing activities was not disclosed.** Matching ignores spacing and capitals
+  so a re-import cannot double the catalog, which also means a one-off "Ga Ga pit" attaches to the
+  camp's real, rule-governed "GaGa Pit". The panel now names what it reuses, not only what it adds.
+
+Also hardened: the Build button's re-entrancy guard read React state, which only takes effect once a
+render commits, so two clicks dispatched before that commit could both write. It is now a ref,
+checked and set synchronously before the first await.
+
+Verified at the seam, not just the layers: `ImportScreen.divisionSupport.test.jsx` drives the real
+parse -> detect -> plan -> confirm -> write path, including the disabled-while-unmatched case, the
+"what this adds" disclosure before any write, and the mid-way write refusal.
 Deferred/not-required per owner: teams, person-per-cell, calendar dates, multi-block spanning.
