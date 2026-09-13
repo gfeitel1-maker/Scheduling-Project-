@@ -3,7 +3,7 @@ import { computeFindings } from '../../engine/buildSchedule'
 import { normalizeActivityEligibility, parseIdList } from '../../utils/normalizeActivityEligibility'
 import { isRestorable } from '../snapshotRestore'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId'
-import { repairOrphanSpanTails } from './useSlotMutations'
+import { repairOrphanSpanTails, orphanRepairFields } from './useSlotMutations'
 
 // Which row IS this camp's candidate for this route? Ask the database by
 // (camp_id, kind) — do not assume the derived id is the one on disk.
@@ -316,7 +316,12 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
             if (!prevOrphanIds.has(orphan.id)) continue
             if (!settled) continue
             if (hasInFlightClaim(orphan.group_id, orphan.day_id)) continue
-            repo.writeSlotFields?.(orphan.id, { activity_id: null, is_span_head: true, flags: {} })?.catch(() => {})
+            // T109: the fields to clear are derived from the orphan itself.
+            // This hardcoded `activity_id: null`, so an orphan carrying an
+            // event had a null field re-nulled and kept its event_id — the
+            // repair promoted a torn two-block event into two independent
+            // events rather than freeing the cell.
+            repo.writeSlotFields?.(orphan.id, orphanRepairFields(orphan))?.catch(() => {})
           }
           orphanSightingsRef.current[r] = new Set(orphans.map(o => o.id))
         } catch {

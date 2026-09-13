@@ -86,6 +86,31 @@ function spanStopsAt(row, headActivityId, activities) {
 // without this tail being freed in the same gesture. Returns the list of
 // orphan rows found (caller decides whether/when to heal — see R2's
 // quiescence guard, enforced by the caller, not this pure function).
+// What a row holds, for chain-continuity purposes: the content reference and
+// its value, or 'empty'. Two rows continue one chain iff these agree — so an
+// activity, an event, and nothing are three distinct answers rather than
+// collapsing to a null activity_id.
+function contentKey(row) {
+  const field = refField(row)
+  return field ? `${field}:${row[field]}` : 'empty'
+}
+
+/**
+ * The write that frees one orphaned tail. Clears the content the row ACTUALLY
+ * carries — T109: the caller hardcoded `activity_id: null`, so healing an
+ * orphan that carried an event cleared a field already null and left the event
+ * standing as its own head. A two-block event silently became two events,
+ * which is a worse state than the orphan the repair was fixing.
+ *
+ * An empty orphan gets no content field at all rather than a spurious
+ * `activity_id: null` write — there is nothing to clear, only the stale
+ * is_span_head marking to normalize.
+ */
+function orphanRepairFields(row) {
+  const field = refField(row)
+  return { ...(field ? { [field]: null } : {}), is_span_head: true, flags: {} }
+}
+
 function repairOrphanSpanTails(slots, timeBlocks) {
   const sortedBlocks = [...timeBlocks].sort((a, b) => a.sort_order - b.sort_order)
   const orphans = []
@@ -95,11 +120,19 @@ function repairOrphanSpanTails(slots, timeBlocks) {
     if (idx <= 0) { orphans.push(row); continue }
     const prevBlock = sortedBlocks[idx - 1]
     const prevRow = slots.find(s => s.group_id === row.group_id && s.day_id === row.day_id && s.time_block_id === prevBlock.id)
-    // Valid predecessor: either the head of this chain, or an EARLIER tail
-    // of the SAME chain (is_span_head:false is fine there too) — both cases
-    // collapse to "same activity_id", since a tail only ever carries the
-    // activity_id of the head it belongs to.
-    const validPredecessor = prevRow && prevRow.activity_id === row.activity_id
+    // Valid predecessor: either the head of this chain, or an EARLIER tail of
+    // the SAME chain (is_span_head:false is fine there too) — both cases
+    // collapse to "carries the same content", since a tail only ever carries
+    // the content of the head it belongs to.
+    //
+    // T109: this compared `activity_id` directly, which was correct only while
+    // activities were the one thing that could span. Events span too (ADR
+    // 2026-08-22 §4, and collectSpanTails resolves event_id above), and an
+    // event chain's rows carry activity_id: null — so the old comparison put
+    // null against null and pronounced EVERY torn event chain healthy. Keyed on
+    // the content the row actually carries instead, which also distinguishes an
+    // event tail sitting after an activity head from a real continuation.
+    const validPredecessor = prevRow && contentKey(prevRow) === contentKey(row)
     if (!validPredecessor) orphans.push(row)
   }
   return orphans
@@ -1641,4 +1674,4 @@ export function useSlotMutations({
   }
 }
 
-export { collectSpanTails, spanStopsAt, repairOrphanSpanTails, computeSpanExtendPreview, refField }
+export { collectSpanTails, spanStopsAt, repairOrphanSpanTails, orphanRepairFields, computeSpanExtendPreview, refField }

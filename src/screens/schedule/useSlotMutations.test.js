@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { useSlotMutations, collectSpanTails, spanStopsAt, repairOrphanSpanTails, computeSpanExtendPreview, refField } from './useSlotMutations'
+import { useSlotMutations, collectSpanTails, spanStopsAt, repairOrphanSpanTails, orphanRepairFields, computeSpanExtendPreview, refField } from './useSlotMutations'
 import { getSlot } from './gridGeometry'
 
 // A fake repo capturing exactly the fields handed to each write — no React, no
@@ -1048,6 +1048,103 @@ describe('useSlotMutations — repairOrphanSpanTails (ADR §4, pure function)', 
       { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true },
     ]
     expect(repairOrphanSpanTails(slots, spanTimeBlocks)).toEqual([])
+  })
+})
+
+// T109 — the guard above was written before events could span, and keys only
+// on activity_id. An event chain's rows carry event_id with activity_id null,
+// so `prev.activity_id === row.activity_id` compares null to null and calls
+// every event orphan valid. Two distinct defects follow.
+describe('useSlotMutations — repairOrphanSpanTails covers EVERY content kind (T109)', () => {
+  const ev = (id, block, event_id, is_span_head) =>
+    ({ id, group_id: 'g1', day_id: 'd1', time_block_id: block, activity_id: null, event_id, is_span_head })
+
+  it('flags an orphaned EVENT tail whose head no longer carries the event', () => {
+    // The exact partial-write victim: head released, tail left behind.
+    const slots = [
+      ev('h1', 'b1', null, true),
+      ev('t1', 'b2', 'evt-1', false),
+    ]
+    expect(repairOrphanSpanTails(slots, spanTimeBlocks).map(o => o.id)).toEqual(['t1'])
+  })
+
+  it('does not flag a valid event chain', () => {
+    const slots = [
+      ev('h1', 'b1', 'evt-1', true),
+      ev('t1', 'b2', 'evt-1', false),
+      ev('t2', 'b3', 'evt-1', false),
+    ]
+    expect(repairOrphanSpanTails(slots, spanTimeBlocks)).toEqual([])
+  })
+
+  it('flags a tail carrying a DIFFERENT event from its predecessor', () => {
+    const slots = [
+      ev('h1', 'b1', 'evt-1', true),
+      ev('t1', 'b2', 'evt-2', false),
+    ]
+    expect(repairOrphanSpanTails(slots, spanTimeBlocks).map(o => o.id)).toEqual(['t1'])
+  })
+
+  it('flags an emptied tail left behind by an event head', () => {
+    // The other half of a torn write: the tail lost its content but kept the
+    // is_span_head:false marking, so it renders as part of a chain it is not in.
+    const slots = [
+      ev('h1', 'b1', 'evt-1', true),
+      ev('t1', 'b2', null, false),
+    ]
+    expect(repairOrphanSpanTails(slots, spanTimeBlocks).map(o => o.id)).toEqual(['t1'])
+  })
+
+  it('never mistakes an activity chain for an event chain', () => {
+    // Same block positions, different content kinds — a tail carrying an event
+    // after an activity head is an orphan, not a continuation.
+    const slots = [
+      { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', event_id: null, is_span_head: true },
+      ev('t1', 'b2', 'evt-1', false),
+    ]
+    expect(repairOrphanSpanTails(slots, spanTimeBlocks).map(o => o.id)).toEqual(['t1'])
+  })
+
+  it('still leaves a legitimate activity chain alone', () => {
+    // Regression guard for the pre-T109 behaviour this generalization must keep.
+    const slots = [
+      { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true },
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false },
+    ]
+    expect(repairOrphanSpanTails(slots, spanTimeBlocks)).toEqual([])
+  })
+
+  it('does not flag two independent empty cells', () => {
+    // An empty row following an empty row is not a torn chain; healing it would
+    // write ops for cells nobody touched.
+    const slots = [ev('h1', 'b1', null, true), ev('t1', 'b2', null, false)]
+    expect(repairOrphanSpanTails(slots, spanTimeBlocks)).toEqual([])
+  })
+})
+
+// The SECOND defect: even where an orphan carrying an event was flagged, the
+// heal cleared activity_id — which was already null — and set is_span_head
+// true, leaving event_id in place. A two-block event silently became two
+// separate one-block events. The repair has to clear the field the row
+// actually carries.
+describe('useSlotMutations — orphanRepairFields (T109)', () => {
+  it('clears the activity a row actually carries', () => {
+    expect(orphanRepairFields({ activity_id: 'act-1', event_id: null }))
+      .toEqual({ activity_id: null, is_span_head: true, flags: {} })
+  })
+
+  it('clears the EVENT a row actually carries, not activity_id', () => {
+    const fields = orphanRepairFields({ activity_id: null, event_id: 'evt-1' })
+    expect(fields.event_id).toBeNull()
+    expect(fields.is_span_head).toBe(true)
+    // Clearing activity_id here would leave the event standing as its own head
+    // — the two-block event becomes two events, which is worse than the orphan.
+    expect(fields.activity_id).toBeUndefined()
+  })
+
+  it('normalizes an empty orphan without inventing a field to clear', () => {
+    expect(orphanRepairFields({ activity_id: null, event_id: null }))
+      .toEqual({ is_span_head: true, flags: {} })
   })
 })
 

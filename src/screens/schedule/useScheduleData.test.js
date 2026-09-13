@@ -250,7 +250,7 @@ describe('useScheduleData', () => {
     afterEach(() => { vi.restoreAllMocks() })
     const advancePastQuiescence = () => { nowMs += 1000 }
 
-    function makeOrphanRepo() {
+    function makeOrphanRepo(slots = [orphanRow]) {
       return makeRepo({
         loadSetupLists: vi.fn(async () => ({
           groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bears', tier_id: 't1' }],
@@ -262,7 +262,7 @@ describe('useScheduleData', () => {
           cohorts: [{ id: 'coh-1', camp_id: CAMP_ID }],
         })),
         loadTemplateData: vi.fn(async () => ({
-          templates, slots: [orphanRow], overlays: [], snapshots: [],
+          templates, slots, overlays: [], snapshots: [],
         })),
         writeSlotFields: vi.fn(async () => ({ status: 'applied' })),
       })
@@ -291,6 +291,24 @@ describe('useScheduleData', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       expect(repo.writeSlotFields).toHaveBeenCalledWith('orphan-1', { activity_id: null, is_span_head: true, flags: {} })
+    })
+
+    // T109 — the same heal for an orphan that carries an EVENT rather than an
+    // activity. The write was hardcoded to `activity_id: null`, so this cell
+    // had an already-null field re-nulled and kept its event_id while being
+    // promoted to is_span_head:true: a torn two-block event became two
+    // independent one-block events. That is a worse state than the orphan.
+    it('clears the EVENT an orphan carries, not activity_id', async () => {
+      const repo = makeOrphanRepo([{ ...orphanRow, activity_id: null, event_id: 'evt-1' }])
+      const { result } = renderHook(() =>
+        useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ['manual'] })
+      )
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      advancePastQuiescence()
+      await result.current.reload()
+      await waitFor(() => expect(result.current.loading).toBe(false))
+
+      expect(repo.writeSlotFields).toHaveBeenCalledWith('orphan-1', { event_id: null, is_span_head: true, flags: {} })
     })
 
     it('does NOT heal when the second sighting lands within a sync burst (Red Hat R2 quiescence)', async () => {
