@@ -40,6 +40,15 @@ describe('isHeaderLine — a body row starting with a time word (T36 F2)', () =>
     // test covered this spelling and caught its omission from the first cut.
     ['Time:  Bunk 1  Bunk 2  Bunk 3'],
     ['Period:  Bunk 1  Bunk 2  Bunk 3'],
+    // Red Hat: all of these passed the OLD prefix match. Refusing them would
+    // silently route a labelled camp into the unlabeled family and cost it unit
+    // inference — a worse failure than the mid-body split this closes.
+    ['Time (approx)  Bunk 1  Bunk 2  Bunk 3'],
+    ['Period #  Bunk 1  Bunk 2  Bunk 3'],
+    ['Time/Period  Bunk 1  Bunk 2  Bunk 3'],
+    ['TIME OF DAY  Bunk 1  Bunk 2  Bunk 3'],
+    ['Periods:  Bunk 1  Bunk 2  Bunk 3'],
+    ['Time Blocks  Bunk 1  Bunk 2  Bunk 3'],
   ])('still reads %j as a header', (line) => {
     expect(header(line)).toBe(true)
   })
@@ -56,15 +65,23 @@ describe('isHeaderLine — a body row starting with a time word (T36 F2)', () =>
   })
 })
 
-describe('isHeaderLine — the real corpus is unaffected (T36 F2)', () => {
-  it.each(['campA-bunk-schedules.txt', 'campB-by-day.txt', 'campC-daysheet-synthetic.txt'])(
-    '%s still parses to the same number of pages', (file) => {
-      // The regression that matters: this fix must not cost a real camp a page.
-      const text = fs.readFileSync(path.join(SAMPLES, file), 'utf8')
-      const { pages } = parseTextGrid(text)
-      expect(pages.length).toBeGreaterThan(0)
-      // Every page still has columns and rows — a mis-tightening would strand
-      // a page with a header it no longer recognises.
-      for (const p of pages) expect(p.columns.length).toBeGreaterThan(0)
-    })
+// Red Hat (T36 review): these asserted `pages.length > 0`, under a test name
+// claiming "the same number of pages". A regression dropping one page of five,
+// or halving every page's columns, would have passed — a weak guard dressed as
+// a strong one by its own description. Pinned to the real, measured shape now,
+// so any change to the parser that moves a shipped camp's parse fails here.
+const GOLDEN = {
+  'campA-bunk-schedules.txt': { pages: 33, columnsPerPage: 5, rows: 483 },
+  'campB-by-day.txt': { pages: 5, columnsPerPage: 14, rows: 62 },
+  'campC-daysheet-synthetic.txt': { pages: 3, columnsPerPage: 5, rows: 23 },
+}
+
+describe('the real corpus parses to exactly the shape it did before (T36)', () => {
+  it.each(Object.keys(GOLDEN))('%s', (file) => {
+    const { pages } = parseTextGrid(fs.readFileSync(path.join(SAMPLES, file), 'utf8'))
+    const g = GOLDEN[file]
+    expect(pages).toHaveLength(g.pages)
+    expect(pages.map((p) => p.columns.length)).toEqual(Array(g.pages).fill(g.columnsPerPage))
+    expect(pages.reduce((n, p) => n + p.rows.length, 0)).toBe(g.rows)
+  })
 })

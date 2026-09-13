@@ -53,13 +53,16 @@ describe('detectBanner — a repeated one-word line (T36 F3)', () => {
     expect(parseTextGrid(text).banner).toBeNull()
   })
 
-  it('leaves the real corpus alone', async () => {
-    const fs = await import('node:fs')
-    const path = await import('node:path')
-    const dir = path.join(process.cwd(), 'docs/work/specs/samples')
-    for (const f of ['campA-bunk-schedules.txt', 'campB-by-day.txt', 'campC-daysheet-synthetic.txt']) {
-      const { pages } = parseTextGrid(fs.readFileSync(path.join(dir, f), 'utf8'))
-      expect(pages.length).toBeGreaterThan(0)
-    }
+  it('is not defeated by a footer that sets the camp name beside a page number', () => {
+    // Red Hat: a PDF footer tokenizes to two columns ("Shemesh   Page 1"), and
+    // scanning every line let that vouch for the camp name as content — making
+    // the real banner un-strippable and reintroducing it as a phantom activity
+    // on every page. Only a page's ROWS count as content now.
+    const text = [
+      'Shemesh', page('Bunk 1'), 'Shemesh        Page 1',
+      'Shemesh', page('Bunk 2'), 'Shemesh        Page 2',
+      'Shemesh', page('Bunk 3'), 'Shemesh        Page 3',
+    ].join('\n')
+    expect(parseTextGrid(text).banner).toBe('Shemesh')
   })
 })

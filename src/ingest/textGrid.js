@@ -64,10 +64,20 @@ export function tokenize(line) {
 // particular period and is therefore data. Measured against the four-camp
 // corpus before tightening — every time-labelled header in it is the single
 // word "Time" — so the exact set refuses nothing real while closing both
-// proven over-matches. A trailing colon is allowed ("Time:"): it is
-// punctuation on the label, not a second word making it data. An existing test
-// covered that spelling and caught its omission.
-const TIME_HEADER_LABEL = /^(time|times|period|periods)(\s+(blocks?|of\s+day))?\s*:?$/i
+// proven over-matches.
+//
+// WHAT IS ALLOWED AFTER THE WORD is the part that matters, and the first cut
+// got it too narrow (Red Hat): "Time (approx)", "Period #" and "Time/Period"
+// all passed the old prefix and would have been REFUSED, silently routing a
+// labelled camp into the unlabeled family and costing it unit inference. So the
+// tail is an allowlist of things that QUALIFY a label — a parenthetical, a #
+// placeholder, a slash alternative, "Block"/"of day", a colon — and not the two
+// shapes that turn a label into data: a bare following word ("Times Up") or an
+// index ("Period 2"). Being generous here is the safe direction, since the cost
+// of a false reject is a camp that cannot import correctly and the cost of a
+// false accept is the narrow mid-body split this closes.
+const TIME_HEADER_LABEL =
+  /^(time|times|period|periods)(\s*[/|]\s*(time|times|period|periods))?(\s+(blocks?|of\s+day))?(\s*[#*]|\s*\([^)]*\))?\s*:?$/i
 
 export function hasTimeLabel(tokens) {
   return tokens.length > 0 && TIME_HEADER_LABEL.test(tokens[0]?.text ?? '')
@@ -243,17 +253,30 @@ function isBareNumbers(tokens) {
 // document settles what the layout cannot (owner, 2026-09-13: "I'd rather us
 // almost not infer but just flag that this isn't knowable from the way it is
 // written").
-function appearsInAValueRow(lines, text) {
+// Red Hat (T36 review): scoped to the lines INSIDE a page's body, not the whole
+// document. A PDF footer sets the camp name and a page number in two columns
+// ("Shemesh        Page 1"), which tokenizes to two tokens — so scanning every
+// line let a footer vouch for the camp name as "content" and made the real
+// banner un-strippable, reintroducing it as a phantom activity on every page.
+// That is the very bug the strip exists to close, arrived at through the guard
+// meant to protect it.
+function appearsInAValueRow(bodyLines, text) {
   const wanted = text.trim().toLowerCase()
-  for (const line of lines) {
+  for (const line of bodyLines) {
     const tokens = tokenize(line)
-    if (tokens.length < 2) continue
-    if (tokens.some((t) => t.text.trim().toLowerCase() === wanted)) return true
+    // Three or more columns, and the match is NOT the first one. A schedule row
+    // leads with its time or period label and carries content after it; a PDF
+    // footer leads with the camp name ("Shemesh        Page 1") and is two
+    // columns wide. Scoping to page bodies alone does not separate them —
+    // a footer falls physically INSIDE the previous page's span, the same
+    // property that makes a banner need stripping in the first place.
+    if (tokens.length < 3) continue
+    if (tokens.slice(1).some((t) => t.text.trim().toLowerCase() === wanted)) return true
   }
   return false
 }
 
-function detectBanner(lines, titleIndexes) {
+function detectBanner(lines, titleIndexes, bodyLines) {
   const counts = new Map()
   for (const ti of titleIndexes) {
     for (let i = ti - 1; i >= 0; i--) {
@@ -271,7 +294,7 @@ function detectBanner(lines, titleIndexes) {
   const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1])
   for (const [text, n] of ranked) {
     if (n < threshold) break
-    if (appearsInAValueRow(lines, text)) continue
+    if (appearsInAValueRow(bodyLines, text)) continue
     return text
   }
   return null
@@ -308,7 +331,14 @@ function splitPages(lines) {
     endIndex: n === headerIndexes.length - 1 ? lines.length : titleIndexes[n + 1],
   }))
 
-  return { pages, banner: detectBanner(lines, titleIndexes) }
+  // Only the rows of a page count as schedule content for the banner check: a
+  // title, a footer and the gap between pages are not rows, however many
+  // columns they happen to occupy.
+  const bodyLines = []
+  for (const page of pages) {
+    for (let i = page.headerIndex + 1; i < page.endIndex; i++) bodyLines.push(lines[i])
+  }
+  return { pages, banner: detectBanner(lines, titleIndexes, bodyLines) }
 }
 
 /**

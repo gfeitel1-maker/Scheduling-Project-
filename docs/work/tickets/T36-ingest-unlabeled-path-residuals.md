@@ -57,6 +57,29 @@ on a camp importing correctly today would be noise. `src/ingest/textGrid.f1.test
 All three reports surface in ImportScreen's existing "Not recognised" box, the transparency piece
 the 2026-08-20 partial resolution shipped — no new chrome, and nothing blocks the import.
 
+### Review round (Red Hat) — three findings, all confirmed in code first
+
+- **The F2 allowlist was narrower than it needed to be, and that is the dangerous direction.**
+  `Time (approx)`, `Period #` and `Time/Period` all passed the OLD prefix and were refused by the
+  first cut. A refusal there does not fail loudly: `hasTimeLabel` flips false, the page routes to the
+  UNLABELED family, and the camp silently loses unit inference (`tiers = []`) while still appearing
+  to parse. The tail is now an allowlist of things that QUALIFY a label — a parenthetical, a `#`
+  placeholder, a slash alternative, `Block`/`of day`, a colon — rather than an exact word. Only the
+  two shapes that turn a label into DATA are refused: a bare following word (`Times Up`) and an index
+  (`Period 2`). The same fix closes the second finding, that a day-majority header could keep its
+  page boundary while flipping family, since the realistic spelling behind it now matches again.
+- **The F3 guard could defeat the strip it protects.** `appearsInAValueRow` scanned every line, so a
+  PDF footer setting the camp name beside a page number (`Shemesh        Page 1` — two columns)
+  vouched for the camp name as "content" and made the real banner un-strippable, reintroducing it as
+  a phantom activity on every page. Scoping to page BODIES is not enough on its own: a footer falls
+  physically inside the previous page's span, which is the same property that makes a banner need
+  stripping at all. A content row is now three or more columns with the match NOT in the first — a
+  schedule row leads with its time and carries content after it; a footer leads with the camp name.
+- **The corpus regression tests were weaker than their own names claimed.** A test called "still
+  parses to the same number of pages" asserted only `pages.length > 0`, so a regression dropping one
+  page of five would have passed. Pinned to the measured shape: campA 33 pages / 5 columns / 483
+  rows, campB 5 / 14 / 62, campC 3 / 5 / 23.
+
 **Still true and still not built:** the lower-severity notes below (a 2+-token camp banner leaking as
 phantom activities; welded narrow rooms) are unchanged, and remain candidates for T35's post-import
 cleanup UX rather than the parser.
