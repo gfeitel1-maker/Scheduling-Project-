@@ -94,12 +94,12 @@ export const localClient = {
   // T118 slice 4 — compoundCellDecisions rides alongside placements: the
   // director's freshly-resolved compound-cell-pattern decisions THIS import,
   // written to the per-camp learned table once, at successful commit.
-  ingestCommit: announcing(({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions } = {}) =>
-    shoresh.ingestCommit({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions })),
+  ingestCommit: announcing(({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions, divisionSupport } = {}) =>
+    shoresh.ingestCommit({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents, placements, compoundCellDecisions, divisionSupport })),
   // D1 — read-only dry run of the same commit pipeline, for the reconciliation
   // summary. Same argument shape as ingestCommit; never writes.
-  ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents } = {}) =>
-    shoresh.ingestReconcile({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents }),
+  ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport } = {}) =>
+    shoresh.ingestReconcile({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport }),
   // U1+U2 — reverts field-updates AND newly-created rows from a
   // captureInverse commit. See the ADR's "grace-window" mechanism;
   // invertibleOps/createdEntityIds never persist past the renderer session
@@ -142,6 +142,7 @@ export const localClient = {
   // Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7) — batched
   // provenance read for the Activities screen's row-level dot.
   listImportEvidence: () => shoresh.listImportEvidence(currentToken()),
+  listDivisionEvidence: () => shoresh.listDivisionEvidence(currentToken()),
   // T119 — batched read for the Locations screen's per-row capacity marker
   // and the Roots attention list's aggregate count.
   locationCapacityProvenance: () => shoresh.locationCapacityProvenance(currentToken()),

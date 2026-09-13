@@ -10,6 +10,8 @@ import ImportModal from '../components/setup/ImportModal'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import WeekContextBar from '../components/schedule/WeekContextBar'
+import { TIER_LABEL, tierShapeStyle } from '../utils/ruleProvenance.js'
+import { describeDivisionEvidence } from '../utils/divisionProvenance.js'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
@@ -48,7 +50,86 @@ const AVAIL_OPTIONS = [
 //
 // A draft keyed by group id in the screen survives that reload, so open editors
 // keep what was typed.
-function GroupRow({ group, tiers, role, draft, onOpen, onChange, onSave, onCancel, onDelete, saving, weekToggle }) {
+
+// T114 follow-up — WHY this bunk is in this age division.
+//
+// An import reads divisions out of group NAMES and then lets the schedule
+// overrule them, so a director can be shown two divisions where the names said
+// one. Until this existed there was no way to find out why, which is the
+// asymmetry T114 recorded as a known gap: co-schedule rules explained
+// themselves and divisions did not.
+//
+// Mirrors LocationsScreen's CapacityProvenanceDot shape deliberately — same
+// quiet 6px dot, same popover, same TIER_LABEL vocabulary — so a director who
+// has met one reads the other without learning anything new. Renders ONLY when
+// an evidence row exists: a hand-assigned division shows nothing, quiet by
+// default, exactly like the activities dot.
+function DivisionProvenanceDot({ group, evidence }) {
+  const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  const btnRef = useRef(null)
+  const popRef = useRef(null)
+  const reduced = prefersReducedMotion()
+  const shape = tierShapeStyle('inferred')
+
+  useEffect(() => {
+    if (!open) return
+    function onKeyDown(e) { if (e.key === 'Escape') { setOpen(false); btnRef.current?.focus() } }
+    function onPointerDown(e) { if (popRef.current && !popRef.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onPointerDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onPointerDown)
+    }
+  }, [open])
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }} onClick={(e) => e.stopPropagation()}>
+      <button
+        ref={btnRef}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`Age division provenance for ${group.name}: inferred`}
+        onClick={() => setOpen((v) => !v)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
+        style={{
+          ...divisionDotStyles.dot,
+          ...shape,
+          boxShadow: hovered ? '0 0 0 3px color-mix(in srgb, var(--text) 10%, transparent)' : shape.boxShadow,
+          transition: reduced ? 'none' : 'background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out)',
+        }}
+      />
+      {open && (
+        <div ref={popRef} role="dialog" aria-label={`Age division provenance for ${group.name}`} tabIndex={-1} style={divisionDotStyles.popover}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ ...divisionDotStyles.rowDot, ...shape }} />
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Age division</span>
+            <span style={divisionDotStyles.tierLabel}>{TIER_LABEL.inferred}</span>
+          </div>
+          <div style={divisionDotStyles.rowSentence}>{describeDivisionEvidence(evidence, group.name)}</div>
+        </div>
+      )}
+    </span>
+  )
+}
+
+const divisionDotStyles = {
+  dot: { display: 'inline-block', width: 6, height: 6, borderRadius: '50%', border: 'none', padding: 0, cursor: 'pointer', verticalAlign: 'middle' },
+  popover: {
+    position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 40, minWidth: 260, padding: 12,
+    background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+  },
+  rowDot: { display: 'inline-block', width: 6, height: 6, borderRadius: '50%', flexShrink: 0 },
+  tierLabel: { fontSize: 11, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)' },
+  rowSentence: { fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 },
+}
+
+function GroupRow({ group, tiers, role, draft, onOpen, onChange, onSave, onCancel, onDelete, saving, weekToggle, divisionEvidence }) {
   const tierName = tiers.find(t => t.id === group.tier_id)?.name || '—'
 
   if (draft) {
@@ -96,7 +177,10 @@ function GroupRow({ group, tiers, role, draft, onOpen, onChange, onSave, onCance
           style={{ cursor: 'pointer' }}
         >{group.name}</span>
       </td>
-      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{tierName}</td>
+      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>
+        {tierName}
+        {divisionEvidence && <DivisionProvenanceDot group={group} evidence={divisionEvidence} />}
+      </td>
       <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || '—'}</td>
       {weekToggle}
       <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
@@ -129,6 +213,10 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
   const [excludedGroupIds, setExcludedGroupIds] = useState(new Set())
+  // T114 follow-up — group id -> the support object explaining its inferred age
+  // division. Empty for a hand-assigned division, which is what keeps the dot
+  // quiet by default.
+  const [divisionEvidenceByGroup, setDivisionEvidenceByGroup] = useState({})
   const [pendingExclusion, setPendingExclusion] = useState(null)
   const fileRef = useRef()
 
@@ -151,6 +239,22 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
       setGroups(gList)
       setTiers(tList)
+      // Best-effort and deliberately NOT in the Promise.all above: provenance is
+      // an explanation of the data, not the data. A camp whose evidence read
+      // fails (an older host, a browser-dev mock) must still see its groups —
+      // the dot simply does not render.
+      try {
+        const { evidence, fieldSources } = await localClient.listDivisionEvidence()
+        const byGroup = {}
+        for (const row of evidence ?? []) {
+          if (row.field !== 'tier_id') continue
+          // A director who has since re-assigned the division by hand owns that
+          // value now, so the import's reasoning no longer explains it.
+          if ((fieldSources?.[row.entity_id]?.tier_id ?? null) === null) continue
+          try { byGroup[row.entity_id] = JSON.parse(row.support) } catch { /* unreadable support explains nothing */ }
+        }
+        setDivisionEvidenceByGroup(byGroup)
+      } catch { setDivisionEvidenceByGroup({}) }
     } catch {
       setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
@@ -465,7 +569,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                           </td>
                         </tr>
                         {tierGroups.map(g => (
-                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
+                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} divisionEvidence={divisionEvidenceByGroup[g.id]} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
                         ))}
                       </React.Fragment>
                     )
@@ -478,7 +582,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                         </td>
                       </tr>
                       {noTier.map(g => (
-                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
+                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} divisionEvidence={divisionEvidenceByGroup[g.id]} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
                       ))}
                     </>
                   )}

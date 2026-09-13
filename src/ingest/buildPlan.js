@@ -337,6 +337,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
   const approved = source?.approved ?? {}
   const links = source?.links ?? {}
   const activityRules = source?.activityRules ?? {}
+  const divisionSupport = source?.divisionSupport ?? {}
   const groupUnits = links?.groups ?? {}
   const campId = source?.camp_id ?? null
   const cohortId = source?.cohort_id ?? null
@@ -490,6 +491,11 @@ export function buildPlan(source, existing = null, resolutions = []) {
             // (re-imported) activity's evidence stays current too. Unused by
             // any field-diff logic above — evidence-only.
             ...(entity === 'activities' ? { _rule: activityRules?.[name] } : {}),
+            // T114 follow-up — the same evidence-only carry for a group's division
+            // provenance, on every recognized arm for the same reason the rule support
+            // is: a re-import can re-derive the same division from a changed grid, and
+            // the reason must stay current even when the value itself does not move.
+            ...(entity === 'groups' ? { _division_support: divisionSupport?.[name] } : {}),
           })
           return
         }
@@ -510,6 +516,11 @@ export function buildPlan(source, existing = null, resolutions = []) {
             // HIGH finding: this arm was silently exempt). Never read by any
             // value-write path.
             ...(entity === 'activities' ? { _rule: activityRules?.[name] } : {}),
+            // T114 follow-up — the same evidence-only carry for a group's division
+            // provenance, on every recognized arm for the same reason the rule support
+            // is: a re-import can re-derive the same division from a changed grid, and
+            // the reason must stay current even when the value itself does not move.
+            ...(entity === 'groups' ? { _division_support: divisionSupport?.[name] } : {}),
           })
           return
         }
@@ -529,6 +540,11 @@ export function buildPlan(source, existing = null, resolutions = []) {
           // its evidence (the source's observation may differ even when the
           // confirmed value didn't move).
           ...(entity === 'activities' ? { _rule: activityRules?.[name] } : {}),
+          // T114 follow-up — the same evidence-only carry for a group's division
+          // provenance, on every recognized arm for the same reason the rule support
+          // is: a re-import can re-derive the same division from a changed grid, and
+          // the reason must stay current even when the value itself does not move.
+          ...(entity === 'groups' ? { _division_support: divisionSupport?.[name] } : {}),
         })
       }
 
@@ -563,6 +579,11 @@ export function buildPlan(source, existing = null, resolutions = []) {
         // commitCreate already consumes, so the create op sequence is unchanged.
         if (entity === 'groups') {
           item._link_unit = recFields.unit ?? groupUnits[name]
+          // T114 follow-up — the per-group division provenance, on its own
+          // side-channel beside the unit it explains. Read from the source
+          // rather than recFields because it is not a director-editable record
+          // field: it is an observation about how the unit was arrived at.
+          item._division_support = divisionSupport[name]
         }
         if (entity === 'activities') {
           if ('min_per_week' in recFields || 'max_per_week' in recFields

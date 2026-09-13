@@ -2345,6 +2345,10 @@ describe('listImportEvidence handler (activities.read, staff+admin)', () => {
     expect(result.evidence[0]).toMatchObject({ entity_id: activityId, field: 'min_per_week', tag: 'inferred' })
     expect(result.fieldSources[activityId]).toEqual({
       min_per_week: 'import', max_per_week: null, eligible_group_ids: null, location_id: null,
+      // T114 follow-up — RULE_FIELDS' 4th row. Without these two the lookup
+      // returns undefined, which tierForField reads as a human write, so an
+      // imported inference would render as 'confirmed'.
+      max_groups_per_slot: null, same_tier_only: null,
     })
   })
 

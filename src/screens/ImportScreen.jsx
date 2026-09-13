@@ -12,7 +12,7 @@ import { findSuspectRecords } from '../ingest/suspectRecords'
 import { formatEligibility } from './importEligibility'
 import { fixedEventKey } from '../ingest/fixedEventKey'
 import { capturePlacements } from '../ingest/capturePlacements'
-import { inferDivisionEntities } from '../ingest/inferDivisions'
+import { inferDivisionEntities, divisionSupportByGroup } from '../ingest/inferDivisions'
 import { inferCoScheduleRules } from '../ingest/coScheduleRules'
 import { detectAllCampOverrides } from '../ingest/allCampOverrides'
 import { inferFixedEvents } from '../ingest/fixedEvents'
@@ -158,6 +158,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   const allCampOverridesRef = useRef([])
   const coScheduleRef = useRef(new Map())
   const groupTierByNameRef = useRef({})
+  const anchorNamesRef = useRef([])
   const placementsRef = useRef([])
   // T118 slice 4 — the raw pages this import parsed, retained so
   // buildCommitInputs can re-run extractEntities at commit time with this
@@ -487,6 +488,10 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         anchorNames,
       )
       const statedUnits = proposal.groupUnits ?? {}
+      // Kept so buildCommitInputs can re-derive the division PROVENANCE against
+      // the same anchor exclusions the preview used — a different exclusion set
+      // would explain a different division than the one being committed.
+      anchorNamesRef.current = anchorNames
       divisionsRef.current = inferredDivisions
         .map((d) => ({
           ...d,
@@ -985,6 +990,27 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
           )
         : coScheduleRef.current
 
+    // T114 follow-up — WHY each bunk landed in the division it did, so a split
+    // the director did not expect can be audited instead of taken on faith.
+    //
+    // Derived HERE from effectiveProposal rather than cached at parse time, for
+    // the reason the co-schedule derivation above spells out: a name-variant
+    // merge re-keys group names between parse and commit, and a cached map
+    // would then explain groups that no longer exist under those names.
+    //
+    // A group whose unit the FILE STATED outright is excluded: that is not an
+    // inference and must not be dressed as one.
+    const statedUnitNames = new Set(Object.keys(effectiveProposal?.groupUnits ?? {}))
+    const allDivisionSupport = divisionSupportByGroup(
+      effectiveProposal?.entities?.groups ?? [],
+      capturePlacements({ pages: pagesRef.current }, effectiveProposal).placements,
+      anchorNamesRef.current,
+    )
+    const divisionSupport = {}
+    for (const [groupName, support] of Object.entries(allDivisionSupport)) {
+      if (!statedUnitNames.has(groupName)) divisionSupport[groupName] = support
+    }
+
     const approved = {}
     for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(effectiveProposal?.entities[entity] ?? [])]
     // ADR 2026-08-09 Decision 2 — three explicit per-group unit review states.
@@ -1108,6 +1134,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       links: { groups: groupUnits },
       clears: { groups: groupClears },
       humanEditedFields: { groups: groupHumanFields, activities: activityHumanFields },
+      divisionSupport,
       cohort_id: activeCohort?.id ?? null,
       fixedEvents: [...fixedEvents, ...multiBlockRecurring],
       multiBlockEvents: multiBlockOneOff,
