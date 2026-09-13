@@ -21,7 +21,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [T109-orphaned-span-tail-reconciliation-guard](../../docs/work/tickets/T109-orphaned-span-tail-reconciliation-guard.md) | open | [2026-08-20-elective-authoring-render-design](../../docs/work/specs/2026-08-20-elective-authoring-render-design.md) |
 | [T114-infer-outdoor-coschedule-alt-activity-rules](../../docs/work/tickets/T114-infer-outdoor-coschedule-alt-activity-rules.md) | open | — |
-| [The importer extracts from a workbook that is not a schedule, instead of declining it](../../docs/work/tickets/T146-importer-accepts-non-schedule-workbook.md) | open | — |
 | [Can locations be inferred from a schedule? (needs a conversation first)](../../docs/work/tickets/T147-infer-locations-from-a-schedule.md) | open | — |
 | [T36-ingest-unlabeled-path-residuals](../../docs/work/tickets/T36-ingest-unlabeled-path-residuals.md) | open | — |
 

@@ -1,7 +1,7 @@
 ---
 title: "The importer extracts from a workbook that is not a schedule, instead of declining it"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-12
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
@@ -60,6 +60,42 @@ those would reject every legitimate file they are built for.
 
 So the precondition belongs on the schedule path alone, and must be implemented
 where only that path reaches it — not in a shared workbook helper both use.
+
+## RESOLVED 2026-09-13
+
+`src/ingest/scheduleShape.js` — `isScheduleShaped(pages)`. A page qualifies on
+POSITIVE evidence of a schedule, never on a blocklist of bad sheet names (a
+blocklist is evaded by renaming the file): either a **day axis** (>=60% of its
+columns are day names, or its title names a day) or a **time axis** (>=50% of its
+row labels match a clock-time pattern). ONE qualifying page anywhere in the file
+set accepts the whole import — deliberately biased toward acceptance, because a
+false reject blocks a real camp's real file and a false accept only reproduces
+today's behaviour.
+
+The decline names the file and says what was expected:
+
+> `<filenames>` doesn't look like a schedule — expected day columns (e.g.
+> Monday–Friday) or time-of-day rows. Nothing was imported.
+
+**Placed on the schedule path only**, per the scope correction above: its own
+module, imported solely by `ImportScreen.jsx` and checked in `readFiles` right
+after `pages` is built and BEFORE `extractEntities` is reached, so no partial
+extraction is possible. The per-entity template importers never touch it.
+
+NOTE — the ticket's scope table named the wrong parser. It said the schedule
+path is `src/ingest/workbookToSource.js`; that is the S4b enrichment-workbook
+re-import adapter, a different branch. The real path is `workbookToPages`
+(`src/ingest/sheetGrid.js`) -> `extractEntities`. A precondition placed per the
+ticket would have guarded the wrong door.
+
+Fixtures: the campus-map/legend shape as the negative, and ALL THREE real camp
+samples in `docs/work/specs/samples/` as positives (campA day-columns, campB
+day-per-page, campC daysheet) — so the gate cannot later be tightened into
+rejecting real corpus input.
+
+Six sibling `ImportScreen.*.test.jsx` files needed their `parseTextGrid` mock
+fixture updated: they returned a degenerate page (`columns: []`) that no real
+schedule resembles, and which the new precondition correctly declines.
 
 ## Scope
 

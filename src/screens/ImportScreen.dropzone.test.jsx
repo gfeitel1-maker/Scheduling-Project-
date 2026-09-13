@@ -17,7 +17,15 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 // exercise. Stubbing extractEntities/parseTextGrid keeps the test about
 // "does the inferred rule render and drive the commit payload", not about the
 // grid parser (which has its own tests).
-vi.mock('../ingest/textGrid', () => ({ parseTextGrid: vi.fn(() => ({ pages: [{ title: 'x', columns: [], rows: [] }] })) }))
+// T146 — must be schedule-shaped (day column) or ImportScreen's new
+// isScheduleShaped precondition declines it before extractEntities runs.
+// Columns stay empty — several real (unmocked) ingest modules
+// (multiBlockCandidates, capturePlacements) call isDayName on every column,
+// and this file's textGrid mock doesn't export isDayName; a non-empty
+// columns array would run that forEach body and throw. A time-labeled row is
+// enough to satisfy isScheduleShaped without ever touching that code path
+// (it only iterates columns, and returns immediately on an empty one).
+vi.mock('../ingest/textGrid', () => ({ parseTextGrid: vi.fn(() => ({ pages: [{ title: 'x', columns: [], rows: [{ label: '9:00', cells: [] }] }] })) }))
 // Base proposal fixture, reused as the default mock return and cloned by
 // individual tests (via extractEntities.mockReturnValueOnce) that need a
 // different activity shape — e.g. one with no per-group signal at all, to

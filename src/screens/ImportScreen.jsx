@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
+import { isScheduleShaped } from '../ingest/scheduleShape'
 import { findSuspectRecords } from '../ingest/suspectRecords'
 import { formatEligibility } from './importEligibility'
 import { fixedEventKey } from '../ingest/fixedEventKey'
@@ -373,6 +374,21 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       if (pages.length === 0) {
         setProposal(null)
         setError('No schedule could be read out of that. It may be a scan rather than a document with text in it.')
+        return
+      }
+
+      // T146 — decline a workbook that was never schedule-shaped (a campus
+      // map, a legend sheet) instead of extracting one-character residual
+      // "activities" from its grid coordinates and legend keys. Scoped to
+      // this path only — the per-entity template importers on Locations/
+      // Electives/Special Events read non-schedule workbooks by design and
+      // never call isScheduleShaped.
+      if (!isScheduleShaped(pages)) {
+        setProposal(null)
+        setError(
+          `${files.map((f) => f.name).join(', ')} doesn't look like a schedule — expected day columns ` +
+          '(e.g. Monday–Friday) or time-of-day rows. Nothing was imported.'
+        )
         return
       }
 

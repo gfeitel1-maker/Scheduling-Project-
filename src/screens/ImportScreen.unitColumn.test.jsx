@@ -9,7 +9,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-vi.mock('../ingest/textGrid', () => ({ parseTextGrid: () => ({ pages: [{ title: 'x', columns: [], rows: [] }] }) }))
+// T146 — must be schedule-shaped (day column) or ImportScreen's new
+// isScheduleShaped precondition declines it before extractEntities runs.
+// Columns stay empty — several real (unmocked) ingest modules
+// (multiBlockCandidates, capturePlacements) call isDayName on every column,
+// and this file's textGrid mock doesn't export isDayName; a non-empty
+// columns array would run that forEach body and throw. A time-labeled row is
+// enough to satisfy isScheduleShaped without ever touching that code path
+// (it only iterates columns, and returns immediately on an empty one).
+vi.mock('../ingest/textGrid', () => ({ parseTextGrid: () => ({ pages: [{ title: 'x', columns: [], rows: [{ label: '9:00', cells: [] }] }] }) }))
 vi.mock('../ingest/extractEntities', async () => {
   const actual = await vi.importActual('../ingest/extractEntities')
   return {
