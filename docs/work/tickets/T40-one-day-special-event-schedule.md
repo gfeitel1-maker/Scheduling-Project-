@@ -1,11 +1,11 @@
 ---
 title: T40-one-day-special-event-schedule
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-08-01
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs: [docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md]
-archive_when: superseded by an approved specification
+archive_when: all four slices shipped - data shape, author UI, ingest, census wiring
 ---
 
 # T28 — A one-day schedule for a special event
@@ -84,6 +84,23 @@ merge-ready. Full gate green (3383 tests, 26/26 integration).
 **Remaining slices (this ticket stays in-progress):** (2) author UI — the screen a director builds a
 special day on (creates it, seeds/edits its time blocks, fills the groups×time grid, assigns
 locations; wires `deleteSpecialDay`); (3) ingest a special-day file; (4) Context/Roots census wiring.
+
+## CLOSED 2026-09-13 — all four slices shipped
+
+| slice | what | state |
+|---|---|---|
+| 1 | data shape (`special_days` + time blocks + slots, schema v34) | shipped 2026-08-20 |
+| 2 | author UI (`SpecialSchedulesScreen`, `specialDay/SpecialDayGridEditor`) | already shipped |
+| 3a | recognise a one-day file instead of folding it into the weekly setup | shipped, PR #378 |
+| 3b | build the day from the file | shipped, PR #379 |
+| 4 | Roots census wiring (`special_days` in `CENSUS_ENTITIES`, `domainRollup`) | already shipped |
+
+Deferred by the owner and still not required: throwaway TEAMS, person-per-cell, calendar dates,
+multi-block spanning. The person-per-cell decision is why an imported `Pool - Unit Heads` cell keeps
+"Unit Heads" as a NOTE on the day rather than modelling a staff assignment.
+
+Ticket status was `in-progress` while slices 2 and 4 were in fact already shipped — the same
+stale-ticket trap T140 carries. Verified against the tree before the 2026-09-13 work, not assumed.
 
 ## Progress (2026-09-13) — slices 2 and 4 already shipped; slice 3 SPLIT, 3a shipped
 

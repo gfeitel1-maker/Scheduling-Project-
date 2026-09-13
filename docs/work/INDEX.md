@@ -29,12 +29,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
 
-### unclassified
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [T40-one-day-special-event-schedule](../../docs/work/tickets/T40-one-day-special-event-schedule.md) | in-progress | [2026-08-20-special-days-authoring-and-day-override-repoint](../../docs/adr/2026-08-20-special-days-authoring-and-day-override-repoint.md) · [2026-08-22-events-overlay-placement](../../docs/adr/2026-08-22-events-overlay-placement.md) · [2026-08-22-nested-schedules-electives-and-events](../../docs/adr/2026-08-22-nested-schedules-electives-and-events.md) · [2026-08-20-electives-specialdays-facility-audit](../../docs/work/specs/2026-08-20-electives-specialdays-facility-audit.md) · [2026-08-20-special-days-data-shape-design](../../docs/work/specs/2026-08-20-special-days-data-shape-design.md) · [2026-08-21-special-day-author-ui-design](../../docs/work/specs/2026-08-21-special-day-author-ui-design.md) |
-
 ## Decisions
 
 Backlinks are generated. An ADR does not name the tickets it came from; this does.
