@@ -152,10 +152,36 @@ blank-line block logic mangles the shape before it arrives — a one-day file ha
 between periods, so the whole grid joins into a single block. Text-pasted special days are not
 supported by 3a.
 
-### Slice 3b — NOT built: create the day from the file
+### Slice 3b — SHIPPED: build the day from the file
 
-Committing the proposal means creating the `special_days` row, N `special_day_time_blocks`, matching
-columns to existing groups by name, minting the activities that do not exist, and writing the
-`special_day_slots` — a multi-row write with exactly the partial-failure class T109 is about. It
-deserves its own design and review round rather than being appended here.
+`src/ingest/specialDayPlan.js` (pure) resolves the proposal against the camp's LIVE rows and
+`src/ingest/commitSpecialDay.js` writes it. The rule 3a exists for stays in force — a special day
+must not quietly enlarge the camp's PERMANENT setup — so nothing is minted silently:
+
+- a column matching no group is REPORTED, never created. A Maccabiah team is a throwaway; putting
+  one in the camp's permanent roster is the same pollution 3a refuses the whole file to avoid. The
+  plan is NOT READY while any column is unresolved, because committing then would silently leave
+  that share of the day unbuilt.
+- activities the camp lacks are listed separately and named in the panel, so the director sees
+  exactly what agreeing adds to the catalog.
+- a name already taken blocks the plan (`special_days` has `UNIQUE(camp_id, name)`).
+
+**The staff names are preserved.** `special_day_slots` has no notes column, so `Pool - Unit Heads`
+has nowhere to put "Unit Heads". Dropping it would silently lose something the file plainly said, so
+the DAY records it in `special_days.notes` — the right grain for "here is what the source told us
+that the grid cannot hold".
+
+**There is no transaction, and the code does not pretend otherwise.** A day is a parent row, N
+period rows and N*M cell rows, each its own IPC write — the partial-write class T109 covers. The
+existing author screen (`SpecialEventsScreen.seedFromCampTimeBlocks`) already faces this and answers
+the same way, so this follows that precedent rather than inventing a guarantee the IPC surface
+cannot honour. The ORDER is the design: the `special_days` row is written FIRST so any later failure
+leaves something the director can SEE and delete, rather than orphan periods and cells pointing at a
+parent that never existed. On failure the rejection carries the day's id and the counts, the message
+names the day and says where to find it, and the panel is cleared — offering a retry would create a
+second day of the same name and trip the UNIQUE constraint.
+
+Verified at the seam, not just the layers: `ImportScreen.divisionSupport.test.jsx` drives the real
+parse -> detect -> plan -> confirm -> write path, including the disabled-while-unmatched case, the
+"what this adds" disclosure before any write, and the mid-way write refusal.
 Deferred/not-required per owner: teams, person-per-cell, calendar dates, multi-block spanning.

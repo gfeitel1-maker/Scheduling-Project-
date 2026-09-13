@@ -9,6 +9,8 @@ import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '..
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { isScheduleShaped } from '../ingest/scheduleShape'
 import { proposeSpecialDay } from '../ingest/specialDayFile'
+import { buildSpecialDayPlan } from '../ingest/specialDayPlan'
+import { commitSpecialDayPlan } from '../ingest/commitSpecialDay'
 import { findSuspectRecords } from '../ingest/suspectRecords'
 import { formatEligibility } from './importEligibility'
 import { fixedEventKey } from '../ingest/fixedEventKey'
@@ -217,6 +219,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   const [nameVariantCandidates, setNameVariantCandidates] = useState([])
   const [nameVariantDecisions, setNameVariantDecisions] = useState({})
   const [compoundCellDecisions, setCompoundCellDecisions] = useState({})
+  // T40 slice 3b — a recognised one-day schedule, held for the director to
+  // confirm rather than declined outright.
+  const [specialDayPlan, setSpecialDayPlan] = useState(null)
+  const [specialDayResult, setSpecialDayResult] = useState(null)
+  const [buildingSpecialDay, setBuildingSpecialDay] = useState(false)
   // Slice 2b — dualUseNames lifted out of the throwaway destructure in
   // readFiles (was computed only to seed pinOnlySet, then discarded). Filtered
   // against declined_two_row_splits on every readFiles() pass so a director's
@@ -306,6 +313,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     setNameVariantCandidates([])
     setNameVariantDecisions({})
     setCompoundCellDecisions({})
+    setSpecialDayPlan(null)
+    setSpecialDayResult(null)
     // Red Hat (T40 review): the resets above clear STATE, not the refs that
     // carry a parse forward to the commit. A file that is declined early — an
     // unreadable file, a non-schedule workbook (T146), a one-day special
@@ -431,13 +440,18 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       const specialDay = proposeSpecialDay(pages)
       if (specialDay) {
         setProposal(null)
-        setError(
-          `${files.map((f) => f.name).join(', ')} looks like a single-day schedule` +
-          (specialDay.name ? ` — "${specialDay.name}"` : '') +
-          `: ${specialDay.timeBlocks.length} periods across ${specialDay.columnNames.length} groups, with no days of the week. ` +
-          'Nothing was imported — importing it here would add its periods and activities to your camp\'s permanent setup. ' +
-          'Build it under Special Events instead.'
-        )
+        // Slice 3b — resolved against the camp's LIVE rows, so the director is
+        // shown what this day would actually add before agreeing to any of it.
+        // A read failure here degrades to a plan with nothing matched, which is
+        // not-ready and therefore cannot commit — never to a silent build.
+        const [liveGroups, liveActivities, liveSpecialDays] = await Promise.all([
+          localClient.list('groups').catch(() => []),
+          localClient.list('activities').catch(() => []),
+          localClient.list('special_days').catch(() => []),
+        ])
+        setSpecialDayPlan(buildSpecialDayPlan(specialDay, {
+          groups: liveGroups ?? [], activities: liveActivities ?? [], specialDays: liveSpecialDays ?? [],
+        }))
         return
       }
 
@@ -960,6 +974,57 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
 
   // The exact inputs a commit sends — built once here so a held re-commit (T73)
   // re-sends the SAME inputs plus the director's resolutions (ADR §1).
+  // T40 slice 3b — build the recognised one-day schedule. Nothing here is
+  // silent: the panel above already listed what would be created, and a failure
+  // reports where it stopped, because there is no transaction and claiming
+  // "nothing happened" would be a lie the director acts on.
+  async function buildSpecialDay() {
+    if (!specialDayPlan?.ready || buildingSpecialDay) return
+    setBuildingSpecialDay(true)
+    setError(null)
+    try {
+      const out = await commitSpecialDayPlan(specialDayPlan, {
+        writeField: async (entity, id, field, value) => {
+          // Guarded exactly as localClient.js's own currentToken() is: this
+          // screen must not assume a working localStorage, which is absent or
+          // inert under an opaque origin.
+          const token = typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function'
+            ? localStorage.getItem('shoresh-token')
+            : null
+          const result = await localClient.write(token, entity, id, field, value)
+          if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+            // Terse on purpose: commitSpecialDayPlan prefixes this with the
+            // day's name, and describeWriteFailure's full sentence would read
+            // as two apologies welded together.
+            throw new Error(result?.error ? String(result.error) : `writing ${entity}.${field} was refused`)
+          }
+          return result
+        },
+        newId: () => crypto.randomUUID(),
+      })
+      setSpecialDayResult(out)
+      setSpecialDayPlan(null)
+    } catch (err) {
+      // An error from commitSpecialDayPlan carries specialDayId and already
+      // says WHICH day was left half-built — the one detail the director needs
+      // to go and find it. describeWriteFailure only maps known DB error
+      // shapes and would replace that with "the reason was not something the
+      // app recognised", which is strictly less useful here.
+      if (err?.specialDayId) {
+        setError(`${err.message} Find it under Special Events to finish or delete it.`)
+        // The day EXISTS now, half-built. Leaving the panel up would offer to
+        // build it again, which creates a second day of the same name (and
+        // trips special_days' UNIQUE constraint). Clearing it points the
+        // director at the half-built day instead of at a retry that cannot work.
+        setSpecialDayPlan(null)
+      } else {
+        setError(describeWriteFailure(err, 'That special day could not be built.'))
+      }
+    } finally {
+      setBuildingSpecialDay(false)
+    }
+  }
+
   function buildCommitInputs() {
     // T118 slice 4 — unlike Longer Blocks (which only APPENDS an
     // interpretation on top of an already-correct proposal.entities), a
@@ -1390,6 +1455,55 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       </p>
 
       {error && <div style={{ ...S.errorBanner, marginBottom: 16 }}>{error}</div>}
+
+      {specialDayResult && (
+        <div style={{ ...S.card, marginBottom: 16 }} role="status">
+          <strong>Special day built.</strong>{' '}
+          {specialDayResult.periods} periods, {specialDayResult.cells} cells
+          {specialDayResult.activitiesCreated > 0
+            ? `, ${specialDayResult.activitiesCreated} new ${specialDayResult.activitiesCreated === 1 ? 'activity' : 'activities'}`
+            : ''}. Find it under Special Events.
+        </div>
+      )}
+
+      {specialDayPlan && (
+        <div style={{ ...S.card, marginBottom: 16 }}>
+          <h3 style={{ margin: '0 0 6px', fontSize: 16 }}>This looks like a single-day schedule</h3>
+          <p style={{ margin: '0 0 10px', color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.5 }}>
+            {specialDayPlan.name ? `"${specialDayPlan.name}" — ` : ''}
+            {specialDayPlan.timeBlocks.length} periods across {specialDayPlan.columns.length} groups,
+            with no days of the week. It won&apos;t be imported as your weekly schedule.
+          </p>
+          {specialDayPlan.newActivityNames.length > 0 && (
+            <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+              Building it adds {specialDayPlan.newActivityNames.length} new{' '}
+              {specialDayPlan.newActivityNames.length === 1 ? 'activity' : 'activities'} to your camp:{' '}
+              {specialDayPlan.newActivityNames.join(', ')}.
+            </p>
+          )}
+          {specialDayPlan.unmatchedColumns.length > 0 && (
+            <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+              {specialDayPlan.unmatchedColumns.join(', ')}{' '}
+              {specialDayPlan.unmatchedColumns.length === 1 ? 'is not a group' : 'are not groups'} in
+              your camp. Add {specialDayPlan.unmatchedColumns.length === 1 ? 'it' : 'them'} under
+              Groups first, or rename the column{specialDayPlan.unmatchedColumns.length === 1 ? '' : 's'} in the file.
+            </p>
+          )}
+          {specialDayPlan.nameTaken && (
+            <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+              A special day called &quot;{specialDayPlan.name}&quot; already exists — rename it, or rename this one in the file.
+            </p>
+          )}
+          <button
+            type="button"
+            className="press-97"
+            disabled={!specialDayPlan.ready || buildingSpecialDay}
+            onClick={buildSpecialDay}
+            style={specialDayPlan.ready ? S.primaryBtn : { ...S.primaryBtn, opacity: 0.5, cursor: 'not-allowed' }}
+          >{buildingSpecialDay ? 'Building…' : 'Build this special day'}</button>
+        </div>
+      )}
+
 
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
