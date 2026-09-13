@@ -1146,6 +1146,47 @@ describe('useSlotMutations — orphanRepairFields (T109)', () => {
     expect(orphanRepairFields({ activity_id: null, event_id: null }))
       .toEqual({ is_span_head: true, flags: {} })
   })
+
+  // Red Hat (T109 review) — placing an elective writes occupantFields(), which
+  // never touches is_span_head, so an elective dropped on a cell that used to be
+  // a tail keeps the tail marking and gets picked up by this background pass.
+  it('never deletes an elective a director placed, and keeps its flags', () => {
+    const fields = orphanRepairFields({
+      activity_id: null, event_id: null, elective_set_id: 'es-1', flags: { dismissed: true },
+    })
+    // The marking is the only thing wrong. The cell is not chain wreckage.
+    expect(fields).toEqual({ is_span_head: true })
+    expect(fields.elective_set_id).toBeUndefined()
+    expect(fields.flags).toBeUndefined()
+  })
+
+  it('clears BOTH chain fields on a row corrupted into carrying each', () => {
+    // Single-field clearing would leave one standing as a new head — the same
+    // defect this ticket fixed for events, one state further along.
+    expect(orphanRepairFields({ activity_id: 'act-1', event_id: 'evt-1' }))
+      .toEqual({ activity_id: null, event_id: null, is_span_head: true, flags: {} })
+  })
+})
+
+describe('useSlotMutations — an elective on a stale tail is seen (T109)', () => {
+  it('is flagged rather than reading as an empty continuation', () => {
+    // Through refField (chain-scoped, elective-blind) this row reads 'empty',
+    // which after an EVENT head compares equal to the head's own null
+    // activity_id — invisible. contentKey reads the occupant instead.
+    const slots = [
+      { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, event_id: 'evt-1', is_span_head: true },
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, event_id: null, elective_set_id: 'es-1', is_span_head: false },
+    ]
+    expect(repairOrphanSpanTails(slots, spanTimeBlocks).map(o => o.id)).toEqual(['t1'])
+  })
+
+  it('does not flag an elective cell that is already its own head', () => {
+    const slots = [
+      { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, is_span_head: true },
+      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, elective_set_id: 'es-1', is_span_head: true },
+    ]
+    expect(repairOrphanSpanTails(slots, spanTimeBlocks)).toEqual([])
+  })
 })
 
 describe('useSlotMutations — placeActivityManual', () => {

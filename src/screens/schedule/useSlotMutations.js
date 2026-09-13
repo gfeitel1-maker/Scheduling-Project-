@@ -3,7 +3,7 @@ import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { whitespaceInsensitiveName } from '../../ingest/preview.js'
 import { isActivityEligibleForGroup } from '../../engine/eligibility'
 import { createActivity } from './createActivityHelper'
-import { occupantFields, readOccupant, occupantWriteKind } from './slotOccupant.js'
+import { occupantFields, readOccupant, occupantWriteKind, SLOT_OCCUPANT_FIELDS } from './slotOccupant.js'
 import { resolveElectiveOfferingLocations } from '../../engine/electiveOccupancy.js'
 
 // T91: collect the covered tail rows of a span head being replaced, via a
@@ -23,6 +23,11 @@ import { resolveElectiveOfferingLocations } from '../../engine/electiveOccupancy
 // elective_set_id through this), so a row with only elective_set_id set
 // resolves to null here, same as a fully-empty row — collectSpanTails'
 // guard below then returns [] for it, exactly as before this generalization.
+// The occupant columns a span CHAIN can be threaded through — everything
+// refField resolves. Named separately from SLOT_OCCUPANT_FIELDS because
+// elective_set_id occupies a cell but never threads a chain.
+const CHAIN_CONTENT_FIELDS = ['activity_id', 'event_id']
+
 function refField(row) {
   if (row.activity_id != null) return 'activity_id'
   if (row.event_id != null) return 'event_id'
@@ -90,25 +95,48 @@ function spanStopsAt(row, headActivityId, activities) {
 // its value, or 'empty'. Two rows continue one chain iff these agree — so an
 // activity, an event, and nothing are three distinct answers rather than
 // collapsing to a null activity_id.
+//
+// Reads the full OCCUPANT set, not refField: refField is chain-scoped and
+// deliberately excludes elective_set_id (electives never thread a chain), but
+// an elective still OCCUPIES its cell. Red Hat (T109 review): placing an
+// elective writes occupantFields(), which nulls the sibling content columns and
+// never touches is_span_head — so an elective dropped on a cell that was
+// previously a tail keeps `is_span_head: false`. Through refField that row reads
+// as 'empty', i.e. indistinguishable from a cell torn out of a chain.
 function contentKey(row) {
-  const field = refField(row)
+  const field = SLOT_OCCUPANT_FIELDS.find((f) => row[f] != null)
   return field ? `${field}:${row[field]}` : 'empty'
 }
 
 /**
- * The write that frees one orphaned tail. Clears the content the row ACTUALLY
- * carries — T109: the caller hardcoded `activity_id: null`, so healing an
- * orphan that carried an event cleared a field already null and left the event
- * standing as its own head. A two-block event silently became two events,
- * which is a worse state than the orphan the repair was fixing.
+ * The write that frees one orphaned tail.
  *
- * An empty orphan gets no content field at all rather than a spurious
- * `activity_id: null` write — there is nothing to clear, only the stale
- * is_span_head marking to normalize.
+ * Clears the content the row ACTUALLY carries — T109: the caller hardcoded
+ * `activity_id: null`, so healing an orphan that carried an event cleared a
+ * field already null and left the event standing as its own head. A two-block
+ * event silently became two events, which is a worse state than the orphan the
+ * repair was fixing. Every non-null chain field is cleared, so a corrupt row
+ * carrying both cannot leave one behind the same way.
+ *
+ * WHAT THIS MUST NEVER DELETE (Red Hat, T109 review). An ELECTIVE on a row
+ * marked is_span_head:false is not chain wreckage — it is content a director
+ * placed on a cell that happened to be a stale tail (placeElectiveOnCell never
+ * resets the marking). The only thing wrong there is the marking, so that case
+ * normalizes is_span_head and touches nothing else. Wiping its flags would
+ * throw away a director's dismissed warning on a cell they deliberately filled,
+ * and this pass runs in the background with no gesture behind it.
+ *
+ * An orphan holding nothing at all gets flags cleared too — there is no content
+ * for them to describe, and they are the torn chain's leftovers.
  */
 function orphanRepairFields(row) {
-  const field = refField(row)
-  return { ...(field ? { [field]: null } : {}), is_span_head: true, flags: {} }
+  const chainFields = CHAIN_CONTENT_FIELDS.filter((f) => row[f] != null)
+  if (chainFields.length > 0) {
+    return { ...Object.fromEntries(chainFields.map((f) => [f, null])), is_span_head: true, flags: {} }
+  }
+  // Elective-occupied: fix the marking, preserve the cell.
+  if (row.elective_set_id != null) return { is_span_head: true }
+  return { is_span_head: true, flags: {} }
 }
 
 function repairOrphanSpanTails(slots, timeBlocks) {

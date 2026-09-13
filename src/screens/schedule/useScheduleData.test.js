@@ -299,7 +299,16 @@ describe('useScheduleData', () => {
     // promoted to is_span_head:true: a torn two-block event became two
     // independent one-block events. That is a worse state than the orphan.
     it('clears the EVENT an orphan carries, not activity_id', async () => {
-      const repo = makeOrphanRepo([{ ...orphanRow, activity_id: null, event_id: 'evt-1' }])
+      // Red Hat (T109 review): the first version of this fixture supplied ONLY
+      // the tail. With no predecessor row at all the guard flags it whatever
+      // the comparison does, so it exercised the repair-fields fix but NOT the
+      // detection fix it was commented as covering. A real event head is
+      // present now, which is the state the old null-vs-null comparison called
+      // healthy: head released (event gone), tail left carrying it.
+      const repo = makeOrphanRepo([
+        { id: 'head-1', template_id: 'tid-manual', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, event_id: null, is_span_head: true, flags: {} },
+        { ...orphanRow, activity_id: null, event_id: 'evt-1' },
+      ])
       const { result } = renderHook(() =>
         useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ['manual'] })
       )
