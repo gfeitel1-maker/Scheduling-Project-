@@ -53,3 +53,9 @@ graphify-out/
 # Agent scratch dumps at the repo root — never project assets.
 # Real sample data belongs in docs/work/specs/samples/.
 scratchpad_*
+
+# SQLite sidecars — a fixture under test/fixtures/ must be ONE self-contained
+# file (see scripts/fixtures/make-era-fixtures.mjs), and a stray -wal/-shm from
+# a test run is never something to commit.
+*.sqlite-wal
+*.sqlite-shm

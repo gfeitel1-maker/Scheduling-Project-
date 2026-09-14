@@ -2843,6 +2843,18 @@ function repairMissingScheduleTemplates(db) {
   }
 }
 
+// The version a database was at when this process opened it, and the version it
+// is at now. Keyed by the db handle, read by main.js's startup to answer one
+// question: did a DOMAIN-STATE migration run on this launch? See
+// migrationDomainState.js for why that question matters and what is done about
+// the answer.
+const migrationSpans = new WeakMap()
+
+/** `{ from, to }` for a db this process opened, or null. `from === 0` is a fresh database. */
+export function migrationSpanFor(db) {
+  return migrationSpans.get(db) ?? null
+}
+
 export function openLocalDb(filePath) {
   let db
   try {
@@ -2882,6 +2894,7 @@ export function openLocalDb(filePath) {
     }
 
     initSchema(db)
+    migrationSpans.set(db, { from: existingVersion, to: getSchemaVersion(db) })
   } catch (err) {
     // Close the handle if it was opened before the failure so we don't leak a
     // file descriptor. Safe to call on an already-closed db (schema_too_new
