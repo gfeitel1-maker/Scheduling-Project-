@@ -50,7 +50,8 @@
 // there is no window where a local write and a remote merge can interleave mid-update. Both sides
 // always read the latest value and write back synchronously before yielding to the event loop.
 import { docPath, loadDoc, saveDoc } from './docStore.js'
-import { recordDocumentWriteFailure } from '../../ops/documentWriteFailures.js'
+import { recordDocumentWriteFailure, documentWriteFailureRecorded } from '../../ops/documentWriteFailures.js'
+import { recordAuditEvent } from '../../audit/auditLog.js'
 import { applyWrite, applyBulkReplace, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../../automerge/campDocument.js'
 import { seedAllFromSqlite } from '../../automerge/seed.js'
 
@@ -88,6 +89,8 @@ let broadcastCallbacks = new WeakMap()
 // value is `{ db, local }`: `db` so the flush can look up the current doc in `docRegistry`, `local`
 // so the flush knows whether to broadcast (true if ANY write in this window was a local one).
 const SAVE_DEBOUNCE_MS = 250
+// Only ever used to make one incident's console lines greppable together.
+let failureCounter = 0
 let pendingTimer = null
 let pendingSaves = new Map()
 
@@ -212,20 +215,32 @@ export function ensureSeeded(db) {
 // (and, for windows with a local write, broadcast) once, however many writes accumulated.
 //
 // Durability window: up to SAVE_DEBOUNCE_MS (or until flushPendingWrites() runs, e.g. at app quit)
-// of field-writes exist only in memory, not yet on disk, if the process crashes. This is acceptable
-// because the op-log write these mirror has ALREADY committed to SQLite synchronously, inside
-// appendOp's own transaction, before recordLocalWrite is ever called (operations.js) — the op-log
-// remains the authoritative record regardless of what the Automerge doc file holds. Recovering from
-// a crash in this window means the on-disk doc is missing up to a few hundred ms of field-writes
-// that SQLite already has; the doc is not corrupted (each save is a complete, valid document), it is
-// merely stale by a bounded amount. Because this stage's doc is a test/transition scaffold — not yet
-// load-bearing for any real camp — that staleness is closed by re-running seedAllFromSqlite (a
-// deliberate operational step), not by an automatic reseed on every restart (which would also
+// of field-writes exist only in memory, not yet on disk, if the process crashes.
+//
+// WHAT THIS COSTS, STATED HONESTLY. The document is the authoritative, replicated state and SQLite
+// is the projection of it (docs/current/WHERE_DATA_LIVES.md) — the reverse of what this comment
+// said through Stage 5, when the document was still a scaffold. So a crash inside this window does
+// NOT leave "the authoritative record intact and a stale mirror": it leaves SQLite holding a write
+// the authoritative document does not have. That is survivable rather than destructive, and only
+// because of one deliberate decision: startup performs NO projectAll (see main.js's sync-node
+// startup), so nothing reverts SQLite to the stale document on the next launch. The divergence is
+// real, bounded to the window, and persists silently until some later merge projects the older
+// value over it. Closing it properly means a synchronous save (rejected: a full A.save + fsync per
+// field-op does not survive a bulk import) or a write-ahead of pending ops; neither is built.
+// Meanwhile a deliberate quit flushes (main.js's will-quit), and a FAILED save is now recorded
+// rather than thrown into the void (see flushPendingWrites). Re-seeding from SQLite remains the
+// deliberate operational repair, not an automatic reseed on every restart (which would also
 // discard genuine Automerge-only history, e.g. tombstones — see the design doc §5's own reasoning
 // against reseeding on every restart).
-function scheduleSave(db, userDataDir, campId, { local = false } = {}) {
+function scheduleSave(db, userDataDir, campId, { local = false, opId = null } = {}) {
   const existing = pendingSaves.get(campId)
-  pendingSaves.set(campId, { db, local: local || Boolean(existing?.local) })
+  // The op ids in flight for THIS window. If the save at the end of it fails,
+  // these are the ops that reached SQLite and never reached the document file
+  // — the only moment they are still identifiable, which is the whole reason
+  // to carry them (see flushPendingWrites).
+  const opIds = existing?.opIds ?? new Set()
+  if (opId) opIds.add(opId)
+  pendingSaves.set(campId, { db, local: local || Boolean(existing?.local), opIds })
   if (pendingTimer) return
   pendingTimer = setTimeout(() => {
     pendingTimer = null
@@ -250,12 +265,82 @@ export function flushPendingWrites() {
   const entries = pendingSaves
   pendingSaves = new Map()
   if (!userDataDir) return
-  for (const [campId, { db, local }] of entries) {
+  for (const [campId, { db, local, opIds }] of entries) {
     const doc = getCurrentDoc(db)
     if (!doc) continue
-    saveDoc(userDataDir, campId, doc)
+    // THE FSYNC IS THE THIRD PLACE A WRITE CAN BE LOST, and it used to be the
+    // only one with no container and no record. `applyWrite` failing in memory
+    // is retried and recorded (documentWriteFailures.js); a rollback around a
+    // document write is held by runAtomic (operations.js). This is neither: the
+    // document is correct in memory and the DISK write fails (a full or
+    // unwritable disk, a path that is no longer a directory). Uncontained it
+    // throws out of a setTimeout callback — an uncaught main-process exception
+    // — and every write in the window is silently missing from the file, with
+    // the op ids that would identify them already discarded.
+    //
+    // So: contain it, record every op that was in the window against the SAME
+    // `store='document'` ledger an in-memory failure uses (the divergence is
+    // identical — SQLite has it, the document does not — and so is the repair),
+    // and never let one camp's failure skip another's save or its broadcast.
+    try {
+      saveDoc(userDataDir, campId, doc)
+    } catch (err) {
+      // A CORRELATION ID, because the recovery can fail too and Red Hat was
+      // right that it fails hardest exactly when it matters most. The motivating
+      // fault is a full disk — and `recordDocumentWriteFailure`/`recordAuditEvent`
+      // are SQLite inserts to the same disk, both deliberately never-throwing. So
+      // under sustained ENOSPC this whole mechanism can degrade to console lines,
+      // which is the pre-fix behaviour. It cannot be fixed by trying harder on
+      // the same disk; what it can have is a tag that ties the three otherwise
+      // unrelated console lines into one incident, and a check below that says
+      // plainly when nothing durable landed rather than implying it did.
+      const incident = `docsave-${campId}-${failureCounter++}`
+      console.error(`[${incident}] document save failed for camp ${campId} (SQLite already committed, unaffected):`, err)
+      for (const opId of opIds ?? []) {
+        recordDocumentWriteFailure(db, { op_id: opId, entity: 'document', entity_id: campId, field: 'save', error: err })
+      }
+      // A remote merge schedules a save with no op ids of its own (nothing
+      // local was written). Losing THAT save is still a real divergence — the
+      // in-memory document is ahead of the file — and would otherwise leave no
+      // trace at all, so it is recorded as a device event rather than nothing.
+      recordAuditEvent(db, {
+        campId,
+        action: 'sync.document_save_failed',
+        targetType: 'document',
+        targetId: campId,
+        outcome: 'error',
+        reason: String(err?.message ?? err),
+        metadata: { pendingOpCount: opIds?.size ?? 0, incident },
+      })
+      // Did the durable trace actually land? If the disk is gone, no. Saying so
+      // is the difference between a degraded mechanism and a mechanism that
+      // lies about having worked.
+      if (!documentWriteFailureRecorded(db, opIds)) {
+        console.error(
+          `[${incident}] NOTHING DURABLE WAS RECORDED for this failure — the recovery write failed too ` +
+            `(most likely the same full or unwritable disk). ${opIds?.size ?? 0} write(s) are in SQLite and ` +
+            `not in the document, and this console line is the only trace that exists.`
+        )
+      }
+      continue
+    }
     const broadcast = broadcastCallbacks.get(db)
-    if (local && broadcast) broadcast(doc)
+    // `broadcast` resolves to syncNode's broadcastLocalDoc, which is async and
+    // is deliberately not awaited (a flush must not block on the network). Both
+    // halves of that need guarding or a failure to PROPAGATE a saved write is
+    // exactly as invisible as a failure to SAVE one used to be: a synchronous
+    // throw would abort this camp's iteration, and a rejection would surface as
+    // an unhandled promise rejection and nothing else.
+    if (local && broadcast) {
+      try {
+        const result = broadcast(doc)
+        if (result && typeof result.catch === 'function') {
+          result.catch((err) => console.error(`document broadcast failed for camp ${campId} (saved locally, peers may be stale):`, err))
+        }
+      } catch (err) {
+        console.error(`document broadcast failed for camp ${campId} (saved locally, peers may be stale):`, err)
+      }
+    }
   }
 }
 
@@ -266,11 +351,12 @@ export function flushPendingWrites() {
 // This is ALSO the local half of Stage 5f's unification: the doc this reads and writes
 // (getDoc/docRegistry) is the exact same one syncNode.js's remote-merge path reads and writes, so a
 // local edit always builds on top of whatever the last remote merge left behind, never a stale copy.
-function applyLocalWriteNow(db, { entity, entity_id, field, value, source, author_user_id }) {
+function applyLocalWriteNow(db, { entity, entity_id, field, value, source, author_user_id, op_id = null }) {
   if (!MODELED_ENTITIES.has(entity)) return
 
   // Not wired yet (pre-Stage-5e): stay gracefully inert — warn ONCE, never
-  // throw per write. The op-log remains the source of truth regardless.
+  // throw per write. SQLite still has the write either way; what is lost is
+  // replication of it, which is exactly what this warning is for.
   if (!userDataDirGetter) {
     if (!warnedUnconfigured) {
       console.warn(
@@ -308,14 +394,14 @@ function applyLocalWriteNow(db, { entity, entity_id, field, value, source, autho
     // the seed already paid, just moved to after the write instead of before.
     saveDoc(userDataDir, campId, nextDoc)
   }
-  scheduleSave(db, userDataDir, campId, { local: true })
+  scheduleSave(db, userDataDir, campId, { local: true, opId: op_id })
 }
 
 // Mirror one appendBulkReplaceOp write into the held Automerge doc — the bulk-replace counterpart
 // of recordLocalWrite above. Same gating (unmodeled entity / unconfigured / no camp -> inert), same
 // getDoc/docRegistry/scheduleSave plumbing, so a bulk-replace and an ordinary field write on the
 // same db always build on the SAME in-memory doc, never a stale copy of one or the other.
-function applyLocalBulkReplaceNow(db, { entity, scope_id, rows }) {
+function applyLocalBulkReplaceNow(db, { entity, scope_id, rows, op_id = null }) {
   if (!BULK_REPLACE_MODELED_ENTITIES.has(entity)) return
 
   if (!userDataDirGetter) {
@@ -336,7 +422,7 @@ function applyLocalBulkReplaceNow(db, { entity, scope_id, rows }) {
   const doc = getDoc(db, userDataDir, campId)
   const nextDoc = applyBulkReplace(doc, { entity, scope_id, rows })
   docRegistry.set(db, nextDoc)
-  scheduleSave(db, userDataDir, campId, { local: true })
+  scheduleSave(db, userDataDir, campId, { local: true, opId: op_id })
 }
 
 // --- Deferred document writes: the rollback boundary -----------------------

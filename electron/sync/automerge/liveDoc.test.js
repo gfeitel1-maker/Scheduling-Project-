@@ -16,6 +16,7 @@ import {
   getDocIfLoaded,
   flushPendingWrites,
 } from './liveDoc.js'
+import { listDocumentWriteFailures } from '../../ops/documentWriteFailures.js'
 
 let userDataDir
 let tmpFile
@@ -270,5 +271,62 @@ describe('template_slots is modeled in both shapes', () => {
     expect(() =>
       applyWrite(createEmptyDoc(), { entity: 'template_slots', entity_id: 's1', field: 'activity_id', value: 'a1' })
     ).not.toThrow()
+  })
+})
+
+// --- The debounced save is the third place a write can be lost ------------
+//
+// applyWrite failing in memory is recorded (documentWriteFailures.js). The
+// nested-transaction case is closed (runAtomic). The fsync at the END of the
+// debounce window was not covered by either: it throws inside a setTimeout
+// callback, which is an uncaught main-process exception, and the op ids that
+// contributed to the window are gone by then. These pin that the loss is now
+// contained and recorded against exactly the ops that were in flight.
+describe('flushPendingWrites — a failing save is contained and recorded', () => {
+  function failTheSave() {
+    // Real fault injection, not a mock: point the writer at a path whose
+    // parent is a FILE, so mkdirSync inside saveDoc throws ENOTDIR the way a
+    // full or unwritable disk would.
+    const blocker = path.join(os.tmpdir(), `shoresh-livedoc-blocker-${Date.now()}-${Math.random()}`)
+    fs.writeFileSync(blocker, 'not a directory')
+    setUserDataDirGetter(() => blocker)
+    return blocker
+  }
+
+  it('does not throw out of the flush when saveDoc fails', () => {
+    ensureSeeded(db)
+    const op = appendOp(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A', device_id: 'device-1' })
+    expect(op).toBeTruthy()
+    const blocker = failTheSave()
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g2', field: 'name', value: 'Bunk B', op_id: op.id })
+    expect(() => flushPendingWrites()).not.toThrow()
+    fs.rmSync(blocker, { force: true })
+  })
+
+  it('records the ops that were in the failed window, so the loss is queryable', () => {
+    ensureSeeded(db)
+    const op = appendOp(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A', device_id: 'device-1' })
+    const blocker = failTheSave()
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A', op_id: op.id })
+    flushPendingWrites()
+    const failures = listDocumentWriteFailures(db)
+    expect(failures.map((f) => f.op_id)).toContain(op.id)
+    expect(failures[0].store).toBe('document')
+    fs.rmSync(blocker, { force: true })
+  })
+
+  it('a successful flush leaves no failure rows and clears the tracked ops', () => {
+    ensureSeeded(db)
+    const op = appendOp(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A', device_id: 'device-1' })
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A', op_id: op.id })
+    flushPendingWrites()
+    expect(listDocumentWriteFailures(db)).toEqual([])
+    // A second, failing window must not re-report the op from the first one.
+    const op2 = appendOp(db, { entity: 'groups', entity_id: 'g2', field: 'name', value: 'Bunk B', device_id: 'device-1' })
+    const blocker = failTheSave()
+    recordLocalWrite(db, { entity: 'groups', entity_id: 'g2', field: 'name', value: 'Bunk B', op_id: op2.id })
+    flushPendingWrites()
+    expect(listDocumentWriteFailures(db).map((f) => f.op_id)).toEqual([op2.id])
+    fs.rmSync(blocker, { force: true })
   })
 })
