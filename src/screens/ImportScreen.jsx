@@ -165,6 +165,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   const anchorNamesRef = useRef([])
   const knownTimeBlockNamesRef = useRef([])
   const statedUnitsRef = useRef({})
+  const liveLocationsRef = useRef([])
   const placementsRef = useRef([])
   // T118 slice 4 — the raw pages this import parsed, retained so
   // buildCommitInputs can re-run extractEntities at commit time with this
@@ -574,10 +575,15 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         { alreadyPlaced: fileNamedActivities },
       )
       setLocationBindings(bindings)
-      // Ticked by default: an identity match is not a guess — the director
-      // named that place the same thing — and the list is shown in full so an
-      // unwanted one can be untied before anything is written.
-      setBindingChoices(Object.fromEntries(bindings.map((b) => [b.activityName, true])))
+      // Ticked OFF, deliberately. Red Hat (T147 review): default-ON makes
+      // confirmation passive, and this whole feature exists because a wrong
+      // binding is INVISIBLE — it silently reshapes what the engine will
+      // schedule. An identity match is strong evidence at the owner's camp, but
+      // it is an assumption about naming conventions, not a property of every
+      // camp Shoresh ships to: an activity called "Office" need not happen in
+      // the Office. The asymmetry decides it — a missed binding costs a tick, a
+      // wrong one costs a distorted schedule nobody can see.
+      setBindingChoices({})
       setAmbiguousPlaceNames(ambiguous)
       // Offered as POSSIBLE places, ticked OFF. Ticking one creates a place; it
       // binds nothing, which is why a name that must never be BOUND may still
@@ -589,6 +595,9 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // Kept so a commit-time re-parse can re-derive the anchors on the SAME
       // terms this parse did — see anchorNamesForCommit in buildCommitInputs.
       knownTimeBlockNamesRef.current = knownTimeBlockNames
+      // T147 — the camp's live places, kept so buildCommitInputs can re-derive
+      // the bindings against a re-parsed proposal (see bindingsForCommit).
+      liveLocationsRef.current = existingAll.locations ?? []
       const { fixedEvents: inferred, dualUseNames: dualUseNamesRaw = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
       setFixedEvents(inferred)
       setMovedPlacements(findMovedPlacements({ pages }, proposal, inferred))
@@ -1207,6 +1216,20 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
           { knownTimeBlockNames: knownTimeBlockNamesRef.current },
         ).fixedEvents.filter((e) => e.kind === 'fixed').map((e) => e.name)
       : anchorNamesRef.current
+    // T147 — Red Hat: this is the THIRD feature in this session to need it, and
+    // the sibling derivations above spell out why. `locationBindings` is
+    // computed once at parse time and keyed on the activity name as it was
+    // spelled THEN; a compound-cell resolution or a name-variant merge re-keys
+    // those names, so a ticked binding would silently miss at commit — the
+    // checkbox stays ticked and the write never happens.
+    const bindingsForCommit = reparsed
+      ? matchActivitiesToLocations(
+          effectiveProposal?.entities?.activities ?? [],
+          liveLocationsRef.current,
+          { alreadyPlaced: Object.keys(effectiveProposal?.activityLocations ?? {}) },
+        ).bindings
+      : locationBindings
+
     const allDivisionSupport = divisionSupportByGroup(
       effectiveProposal?.entities?.groups ?? [],
       placementsForCommit,
@@ -1312,7 +1335,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         // T147 — an identity binding the director left ticked. Only reached
         // when the FILE named no place for this activity: a stated fact always
         // wins, so this can never overwrite one.
-        const bound = locationBindings.find((b) => b.activityName === name)
+        const bound = bindingsForCommit.find((b) => b.activityName === name)
         if (bound && bindingChoices[name]) outgoingRules[name].location = bound.locationName
       }
       const edited = Array.isArray(rule._editedFields) ? rule._editedFields : []
@@ -1774,8 +1797,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
 
               {ambiguousPlaceNames.length > 0 && (
                 <div style={{ color: 'var(--text-secondary)', marginBottom: 10 }}>
-                  You have more than one place called {ambiguousPlaceNames.join(', ')}, so Shoresh
-                  cannot tell which one is meant. Rename one under Locations, or set these by hand.
+                  You have more than one place called{' '}
+                  {ambiguousPlaceNames.map((n, i) => (
+                    <span key={n}>{i > 0 ? ', ' : ''}&quot;{n}&quot;</span>
+                  ))}, so Shoresh cannot tell which one is meant. Rename one under Locations, or set
+                  these by hand.
                 </div>
               )}
 

@@ -107,6 +107,29 @@ offered a range, that a file-stated place is never overridden, that unticking
 Sports keeps it out of the commit, and that a ticked candidate creates a place
 without asserting anything happens there.
 
+### Review round (Red Hat)
+
+- **The commit-time staleness bug, for the third time this session.** Bindings were
+  computed once at parse time and keyed on the activity name AS SPELLED THEN. A
+  compound-cell resolution or a name-variant merge re-keys those names, so a ticked
+  binding missed silently at commit: the checkbox stayed ticked and the write never
+  happened. The two sibling derivations directly above it in the same function
+  (`activityLocationsForCommit`, `coScheduleForCommit`) each carry a comment
+  explaining this exact failure — both written earlier the same day. Now re-derived
+  against `effectiveProposal`, with a regression test at that seam.
+- **Bindings now default to ticked OFF.** They were ON, on the argument that an
+  identity match is not a guess. Red Hat's counter is correct: that is an assumption
+  about NAMING CONVENTIONS at one camp, not a property of every camp — an activity
+  called "Office" need not happen in the Office. Default-ON also makes confirmation
+  passive, and this whole feature exists because a wrong binding is invisible. The
+  asymmetry decides it: a missed binding costs a tick, a wrong one costs a distorted
+  schedule nobody can see.
+- **Matching no longer deletes whitespace.** `whitespaceInsensitiveName` removes it
+  entirely, making "Room 2" and "Room2" one key — a stemming rule wearing a
+  normalization costume, contradicting this module's own premise. Runs of whitespace
+  now collapse to one space instead: a doubled space between words is typing, a
+  missing space is a different name.
+
 ## Non-goals
 
 - Guessing indoor/outdoor. Rejected in T114 on the reasoning that outdoor-ness is

@@ -29,9 +29,13 @@
 // Hence: exact-name identity only. No stemming, no prefix, no "Art" -> "Art
 // Room". Two similar strings are not one fact.
 
-import { whitespaceInsensitiveName } from './preview.js'
-
-const key = (s) => whitespaceInsensitiveName(String(s ?? ''))
+// Case-insensitive, with runs of whitespace collapsed to ONE space — NOT
+// removed. Red Hat (T147 review): `whitespaceInsensitiveName` deletes whitespace
+// entirely, which makes "Room 2" and "Room2" the same key. That is a stemming
+// rule wearing a normalization costume, and it contradicts this module's own
+// premise — the whole point is that two similar strings are not one fact. A
+// doubled space between words is typing; a missing space is a different name.
+const key = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 
 /**
  * @param {string[]} activityNames        as the import proposes them

@@ -308,8 +308,10 @@ describe('ImportScreen — activity-to-place bindings (T147)', () => {
       { id: 'l2', camp_id: 'camp-1', name: 'Sports' },
     ])
     await upload()
-    // Untick Sports — "usually outside on the field but could be in the gym".
-    await userEvent.click(await screen.findByRole('checkbox', { name: /Sports → Sports/ }))
+    // Bindings are ticked OFF by default — confirmation has to be an act, not
+    // an omission, because a wrong binding is invisible. Tick Art; leave Sports
+    // alone ("usually outside on the field but could be in the gym").
+    await userEvent.click(await screen.findByRole('checkbox', { name: /Art → Art/ }))
     const payload = await commit()
     expect(payload.activityRules.Art.location).toBe('Art')
     expect(payload.activityRules.Sports?.location).toBeUndefined()
@@ -346,5 +348,28 @@ describe('ImportScreen — activity-to-place bindings (T147)', () => {
     await screen.findByRole('checkbox', { name: 'Slingshots' })
     const payload = await commit()
     expect(payload.approved.locations ?? []).not.toContain('Slingshots')
+  })
+})
+
+// Red Hat (T147 review) — the THIRD feature this session to need the
+// commit-time re-derivation. A binding is keyed on the activity name as spelled
+// at PARSE time; a name-variant merge re-keys it, and a stale lookup misses
+// silently: the checkbox stays ticked and the write never happens.
+describe('ImportScreen — a ticked binding survives a name-variant merge (T147)', () => {
+  it('still reaches the commit after the activity is re-keyed', async () => {
+    parseTextGrid.mockReturnValue({
+      pages: [{
+        title: 'Bunk 1', columns: ['Monday', 'Tuesday'],
+        rows: [{ label: '9:15', cells: ['Art', 'Art'] }, { label: '10:00', cells: ['Art', 'Art'] }],
+      }],
+    })
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'locations' ? [{ id: 'l1', camp_id: 'camp-1', name: 'Art' }] : []))
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    await userEvent.upload(document.querySelector('input[type="file"]'), new File(['x'], 'sched.txt', { type: 'text/plain' }))
+
+    await userEvent.click(await screen.findByRole('checkbox', { name: /Art → Art/ }))
+    const payload = await commit()
+    expect(payload.activityRules.Art.location).toBe('Art')
   })
 })

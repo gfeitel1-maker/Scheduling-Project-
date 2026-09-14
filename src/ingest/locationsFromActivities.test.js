@@ -40,6 +40,15 @@ describe('matchActivitiesToLocations — binds on identity', () => {
     expect(matchActivitiesToLocations(['Slingshots'], withSlingshot).bindings).toEqual([])
   })
 
+  it('does NOT treat "Room2" and "Room 2" as one place', () => {
+    // Red Hat: whitespace-INSENSITIVE matching deletes spaces entirely, making
+    // these one key. A doubled space between words is typing; a missing space
+    // is a different name, and this module's premise is that two similar
+    // strings are not one fact.
+    expect(matchActivitiesToLocations(['Room2'], [loc('l8', 'Room 2')]).bindings).toEqual([])
+    expect(matchActivitiesToLocations(['Room 2'], [loc('l8', 'Room2')]).bindings).toEqual([])
+  })
+
   it('does NOT bind Art to an "Art Room" — a similar string is not the same name', () => {
     expect(matchActivitiesToLocations(['Art'], [loc('l9', 'Art Room')]).bindings).toEqual([])
   })
