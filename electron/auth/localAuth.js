@@ -36,7 +36,34 @@ const SCRYPT_KEYLEN = 64
 // N is the memory/CPU cost parameter; 2^16 needs 128*r*N = 64MB, which exceeds
 // Node's 32MB default maxmem, so maxmem must be raised with it or scryptSync
 // throws.
-const SCRYPT_PARAMS = { N: 65536, r: 8, p: 1, maxmem: 96 * 1024 * 1024 }
+export const SCRYPT_PARAMS = Object.freeze({ N: 65536, r: 8, p: 1, maxmem: 96 * 1024 * 1024 })
+
+// The parameters NEW hashes are minted with. Normally SCRYPT_PARAMS; lowered by
+// the test suite, and by nothing else.
+//
+// WHY THIS EXISTS. Raising N to 2^16 made one hash cost ~430ms, which is right
+// for a login a person waits on once — and wrong for a test suite that creates
+// users constantly. `localAuth.test.js` went from seconds to three minutes, and
+// one test began TIMING OUT: six real hashes no longer fit in the 20-second
+// per-test budget on a loaded machine. Left alone this gets worse with every
+// test that touches auth, and the pressure to "just raise the timeout" ends
+// with a suite nobody runs.
+//
+// Lowering the cost in tests is safe for the same reason the format exists:
+// hashes are SELF-DESCRIBING, so one minted cheaply still verifies at the cost
+// it was minted with. What must not happen is the lower cost silently shipping —
+// so the default is asserted by its own test, and this setter is the only way to
+// change it.
+let activeScryptParams = SCRYPT_PARAMS
+
+/**
+ * TEST ONLY. Pass nothing to restore the production parameters.
+ * Never call this from application code — `localAuth.test.js` pins that the
+ * default is the real cost, which is the guard that makes this safe.
+ */
+export function setScryptParamsForTests(params) {
+  activeScryptParams = params ? { ...SCRYPT_PARAMS, ...params } : SCRYPT_PARAMS
+}
 
 // Hashes produced before T150 are bare hex at Node's DEFAULT scrypt cost, with
 // nothing recorded about the parameters used. New ones are self-describing, so
@@ -104,7 +131,7 @@ const LOGIN_LOCKOUT_MS = 30_000
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000
 
 function hashPin(pin, salt) {
-  return formatHash(SCRYPT_PARAMS, scryptSync(pin, salt, SCRYPT_KEYLEN, SCRYPT_PARAMS).toString('hex'))
+  return formatHash(activeScryptParams, scryptSync(pin, salt, SCRYPT_KEYLEN, activeScryptParams).toString('hex'))
 }
 
 function assertValidPin(pin) {
@@ -424,10 +451,24 @@ function clearAttempts(db, name) {
 // attempt sent unauthenticated over the sync WebSocket (syncServer.js's
 // `login` message handler). Keeping this in one place means the two paths
 // can never drift out of sync on lockout thresholds or verification rules.
-export function attemptLogin(db, { name, pin, deviceId }) {
+/**
+ * `now` is injected for ONE reason, and it is not convenience (T160 follow-up).
+ *
+ * The lockout is a wall-clock window, and verifying a PIN now costs a real
+ * scrypt hash at T150's raised parameters. A test that drives five failed
+ * attempts to prove the lockout works therefore spends several seconds of real
+ * time doing so — and on a loaded machine it spent more than the 30-second
+ * window, so the lockout expired before the test could observe it and the test
+ * reported "the lockout does not work" when what happened was "this machine was
+ * too slow". That is the worst kind of failing test: it blames the security
+ * property for the harness's problem, and it trains people to re-run it.
+ *
+ * Production always passes the real clock. Nothing about the behaviour changes.
+ */
+export function attemptLogin(db, { name, pin, deviceId }, { now = () => Date.now() } = {}) {
   const attempt = attemptsRow(db, name)
   const lockedUntil = attempt && attempt.locked_until ? Number(attempt.locked_until) : 0
-  if (lockedUntil && lockedUntil > Date.now()) {
+  if (lockedUntil && lockedUntil > now()) {
     recordAuditEvent(db, {
       actorUserId: null,
       deviceId,
@@ -435,7 +476,7 @@ export function attemptLogin(db, { name, pin, deviceId }) {
       outcome: 'deny',
       reason: 'locked_out',
     })
-    return { locked: true, retryAfterMs: lockedUntil - Date.now() }
+    return { locked: true, retryAfterMs: lockedUntil - now() }
   }
 
   const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
@@ -454,7 +495,7 @@ export function attemptLogin(db, { name, pin, deviceId }) {
     let count = (attempt ? attempt.count : 0) + 1
     let newLockedUntil = null
     if (count >= LOGIN_MAX_ATTEMPTS) {
-      newLockedUntil = Date.now() + LOGIN_LOCKOUT_MS
+      newLockedUntil = now() + LOGIN_LOCKOUT_MS
       count = 0
     }
     saveAttempts(db, name, count, newLockedUntil)

@@ -25,3 +25,25 @@
 import { configure } from '@testing-library/dom'
 
 configure({ asyncUtilTimeout: 3000 })
+
+// PIN hashing cost, lowered for the suite and ONLY for the suite.
+//
+// T150 raised scrypt to N=2^16, ~430ms a hash. That is the right price for one
+// login a person waits on, and the wrong price for a suite that creates users
+// constantly: localAuth.test.js went from seconds to three minutes and one test
+// began timing out on six hashes, and every other file that seeds a camp pays
+// the same toll. Left alone, the pressure is always to raise the timeout — and
+// the end of that road is a suite nobody runs.
+//
+// Safe because hashes are SELF-DESCRIBING: one minted cheaply still verifies at
+// the cost it was minted with, so nothing about the verification path is
+// bypassed. What must not happen is the low cost silently shipping, so
+// localAuth.test.js pins the production default AND mints one hash at the real
+// cost end to end. This setter is the only way to change it and lives in the
+// only file that should ever call it.
+//
+// Deliberately at setup level rather than per file: a new test that seeds a
+// user should not have to know this exists to run at a sane speed.
+import { setScryptParamsForTests } from './electron/auth/localAuth.js'
+
+setScryptParamsForTests({ N: 1024, maxmem: 32 * 1024 * 1024 })

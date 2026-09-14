@@ -167,6 +167,12 @@ const SYNC_STATUS_COPY = {
 // slot beside Devices that every other sync state already uses.
 export function syncStatusLabel(status) {
   const unshared = status?.unsharedWrites ?? 0
+  // ORDER MATTERS, and it is the difference between a warning and a post-mortem.
+  // An unshared write is something already lost to the camp; a low disk is
+  // something about to go wrong. If both are true the director needs to hear
+  // the one that has already happened first — but they still need to hear about
+  // the disk, which is why the low-disk label names the cause rather than just
+  // repeating the symptom.
   if (unshared > 0) {
     return {
       text: unshared === 1 ? '1 change not shared' : `${unshared} changes not shared`,
@@ -174,6 +180,19 @@ export function syncStatusLabel(status) {
       title:
         'Some changes were saved on this computer but could not be added to the copy the camp shares. ' +
         'They will not reach the other computers on their own.',
+    }
+  }
+  // T160 — the disk is nearly full. Deliberately shown on every state, like the
+  // unshared count and for the same reason: it is not a connectivity fact. A
+  // computer about to run out of room is about to stop being able to save,
+  // whether or not anyone else is reachable.
+  if (status?.lowDisk) {
+    return {
+      text: 'storage almost full',
+      tone: 'danger',
+      title:
+        'This computer is nearly out of storage. Saving can start to fail — including the part that ' +
+        'records what failed. Free up space before it runs out.',
     }
   }
   return SYNC_STATUS_COPY[status?.state] ?? SYNC_STATUS_COPY.standalone
