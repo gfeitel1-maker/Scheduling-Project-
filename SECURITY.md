@@ -208,6 +208,30 @@ than revealing anything. `parseStoredHash` therefore **clamps** the parameters a
 ceiling and never derives `maxmem` from the stored value; anything out of range, zero, negative or
 non-integer reads as a failed login, since a hash we refuse to compute is a hash we cannot verify.
 
+**T163 (owner decision 2026-09-14) closed the PIN-length half of that open question, not the role
+half.** DIRECTORS (role `admin`) now need a 6+ digit PIN; staff keep 4. Both roles are digits-only —
+a genuine widening beyond the ask, since any non-empty string up to 32 characters used to pass
+despite the UI's numeric keypad. The chokepoint is `assertValidPin` inside `createUser`
+(`electron/auth/localAuth.js`), reached by both `createUserHandler` and `bootstrapCamp`. Because a
+staff -> admin role flip on an existing user is a separate risk — the server cannot infer a PIN's
+plaintext length from its scrypt hash, so a role write alone could silently leave a 4-digit PIN
+behind a director-privileged account — the generic `write()` IPC handler now refuses
+`entity:'users' field:'role' value:'admin'` outright, and a new `promoteToAdmin` handler
+(`electron/ops/promoteToAdmin.js`) is the only path that can perform the promotion: it requires a
+fresh PIN meeting the admin floor and writes it atomically with the role change via `runAtomic`.
+There is no grandfather path and no login-time refusal for a PIN that predates this change — there
+is no live camp data yet, and the owner's standing preference is a clean cutover; if that ever
+changes, a flagged-not-blocked login nudge (not a refusal) is the documented compromise, not a
+revival of what this paragraph describes.
+
+Be honest about what this raises and what it leaves untouched. It raises the offline guess space for
+a director PIN from 10,000 to 1,000,000 — roughly 100x attacker cost, hours-to-days of offline
+scrypt work rather than minutes, **not "safe."** It does **nothing** about blast radius: `admin` is
+an unconditional wildcard in `electron/auth/permissions.js` (`PERMISSIONS.admin = ['*']`), so
+cracking one director's PIN still buys every admin-gated action in the camp, not just that
+director's own. Narrowing that wildcard is a follow-up the owner has been told about and is
+deliberately not built here.
+
 ### A camp token is a bearer credential (T155)
 
 `evaluateAuthenticate` binds a token to the `device_id` carried **inside** the token. Nothing binds

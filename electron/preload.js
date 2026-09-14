@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   chooseMode: (args) => ipcRenderer.invoke('shoresh:choose-mode', args),
   login: (args) => ipcRenderer.invoke('shoresh:login', args),
   createUser: (args) => ipcRenderer.invoke('shoresh:create-user', args),
+  promoteToAdmin: (args) => ipcRenderer.invoke('shoresh:promote-to-admin', args),
   bootstrapCamp: (args) => ipcRenderer.invoke('shoresh:bootstrap-camp', args),
   write: (args) => ipcRenderer.invoke('shoresh:write', args),
   bulkReplace: (args) => ipcRenderer.invoke('shoresh:bulk-replace', args),
