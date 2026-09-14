@@ -9,6 +9,7 @@ import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '..
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { isScheduleShaped } from '../ingest/scheduleShape'
 import { proposeSpecialDay } from '../ingest/specialDayFile'
+import { matchActivitiesToLocations, candidatePlaceNames } from '../ingest/locationsFromActivities'
 import { buildSpecialDayPlan } from '../ingest/specialDayPlan'
 import { commitSpecialDayPlan } from '../ingest/commitSpecialDay'
 import { findSuspectRecords } from '../ingest/suspectRecords'
@@ -164,6 +165,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   const anchorNamesRef = useRef([])
   const knownTimeBlockNamesRef = useRef([])
   const statedUnitsRef = useRef({})
+  const liveLocationsRef = useRef([])
   const placementsRef = useRef([])
   // T118 slice 4 — the raw pages this import parsed, retained so
   // buildCommitInputs can re-run extractEntities at commit time with this
@@ -298,6 +300,14 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // T36 F1 — a row filed as a LOCATION that the document also schedules as an
   // activity. The reading is unchanged; this reports where it may be wrong.
   const [ambiguousLocations, setAmbiguousLocations] = useState([])
+  // T147 — activity-to-place bindings proposed on NAME IDENTITY only (the
+  // director already named that place the same thing), and activity names
+  // offered as candidate places. Neither infers what a name MEANS.
+  const [locationBindings, setLocationBindings] = useState([])
+  const [bindingChoices, setBindingChoices] = useState({})
+  const [ambiguousPlaceNames, setAmbiguousPlaceNames] = useState([])
+  const [placeCandidates, setPlaceCandidates] = useState([])
+  const [placeChoices, setPlaceChoices] = useState({})
 
   const REPLACEABLE = INGESTIBLE_ENTITIES.filter((e) => e !== 'cohorts')
   // Camp-wide count — what Replace actually deletes. This drives the
@@ -318,6 +328,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     setResidualSheets([])
     setStrippedBanners([])
     setAmbiguousLocations([])
+    setLocationBindings([])
+    setBindingChoices({})
+    setAmbiguousPlaceNames([])
+    setPlaceCandidates([])
+    setPlaceChoices({})
     setDualUseNames(new Set())
     setSplitDecisions({})
     setMultiBlockCandidates([])
@@ -546,9 +561,43 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // once its own already-configured time_blocks names are known — thread
       // the existing rows in so isBlockLabel can recognize them.
       const knownTimeBlockNames = (existingAll.time_blocks ?? []).map((t) => t.name)
+
+      // T147 — activity-to-place bindings, on NAME IDENTITY only. An activity
+      // the FILE already placed is excluded: a stated fact always beats a
+      // proposal. Nothing here reads what a name MEANS, so "Slingshots" is
+      // never bound to a "Slingshot Range" (owner: it is at the archery range).
+      const fileNamedActivities = Object.values(proposal.activityLocations ?? {}).length
+        ? Object.keys(proposal.activityLocations ?? {})
+        : []
+      const { bindings, ambiguous } = matchActivitiesToLocations(
+        proposal.entities.activities ?? [],
+        existingAll.locations ?? [],
+        { alreadyPlaced: fileNamedActivities },
+      )
+      setLocationBindings(bindings)
+      // Ticked OFF, deliberately. Red Hat (T147 review): default-ON makes
+      // confirmation passive, and this whole feature exists because a wrong
+      // binding is INVISIBLE — it silently reshapes what the engine will
+      // schedule. An identity match is strong evidence at the owner's camp, but
+      // it is an assumption about naming conventions, not a property of every
+      // camp Shoresh ships to: an activity called "Office" need not happen in
+      // the Office. The asymmetry decides it — a missed binding costs a tick, a
+      // wrong one costs a distorted schedule nobody can see.
+      setBindingChoices({})
+      setAmbiguousPlaceNames(ambiguous)
+      // Offered as POSSIBLE places, ticked OFF. Ticking one creates a place; it
+      // binds nothing, which is why a name that must never be BOUND may still
+      // be offered here.
+      const candidates = candidatePlaceNames(
+        proposal.entities.activities ?? [], existingAll.locations ?? [])
+      setPlaceCandidates(candidates)
+      setPlaceChoices({})
       // Kept so a commit-time re-parse can re-derive the anchors on the SAME
       // terms this parse did — see anchorNamesForCommit in buildCommitInputs.
       knownTimeBlockNamesRef.current = knownTimeBlockNames
+      // T147 — the camp's live places, kept so buildCommitInputs can re-derive
+      // the bindings against a re-parsed proposal (see bindingsForCommit).
+      liveLocationsRef.current = existingAll.locations ?? []
       const { fixedEvents: inferred, dualUseNames: dualUseNamesRaw = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
       setFixedEvents(inferred)
       setMovedPlacements(findMovedPlacements({ pages }, proposal, inferred))
@@ -1167,6 +1216,20 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
           { knownTimeBlockNames: knownTimeBlockNamesRef.current },
         ).fixedEvents.filter((e) => e.kind === 'fixed').map((e) => e.name)
       : anchorNamesRef.current
+    // T147 — Red Hat: this is the THIRD feature in this session to need it, and
+    // the sibling derivations above spell out why. `locationBindings` is
+    // computed once at parse time and keyed on the activity name as it was
+    // spelled THEN; a compound-cell resolution or a name-variant merge re-keys
+    // those names, so a ticked binding would silently miss at commit — the
+    // checkbox stays ticked and the write never happens.
+    const bindingsForCommit = reparsed
+      ? matchActivitiesToLocations(
+          effectiveProposal?.entities?.activities ?? [],
+          liveLocationsRef.current,
+          { alreadyPlaced: Object.keys(effectiveProposal?.activityLocations ?? {}) },
+        ).bindings
+      : locationBindings
+
     const allDivisionSupport = divisionSupportByGroup(
       effectiveProposal?.entities?.groups ?? [],
       placementsForCommit,
@@ -1179,6 +1242,16 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
 
     const approved = {}
     for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(effectiveProposal?.entities[entity] ?? [])]
+    // T147 — activity names the director TICKED as places. Added to the ordinary
+    // locations proposal, so they run the same propose-then-confirm path every
+    // other location does; unticked names add nothing.
+    const tickedPlaces = placeCandidates.filter((n) => placeChoices[n])
+    if (tickedPlaces.length > 0) {
+      const already = new Set((approved.locations ?? []).map((l) => normalizeName(typeof l === 'string' ? l : l?.name)))
+      for (const n of tickedPlaces) {
+        if (!already.has(normalizeName(n))) approved.locations.push(n)
+      }
+    }
     // ADR 2026-08-09 Decision 2 — three explicit per-group unit review states.
     const groupUnits = {}
     const groupClears = {}
@@ -1258,6 +1331,12 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       const pairedLocation = activityLocationsForCommit[normalizeName(name)]
       if (pairedLocation) {
         outgoingRules[name].location = pairedLocation
+      } else {
+        // T147 — an identity binding the director left ticked. Only reached
+        // when the FILE named no place for this activity: a stated fact always
+        // wins, so this can never overwrite one.
+        const bound = bindingsForCommit.find((b) => b.activityName === name)
+        if (bound && bindingChoices[name]) outgoingRules[name].location = bound.locationName
       }
       const edited = Array.isArray(rule._editedFields) ? rule._editedFields : []
       if (edited.length > 0) activityHumanFields[name] = edited
@@ -1675,6 +1754,82 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               parser saw and could not turn into an entity or a page, shown
               before commit so the director can judge for themselves whether
               it matters, rather than it vanishing with no trace. */}
+
+          {/* T147 — places. Two tiers, deliberately separate: a BINDING says
+              "this activity happens there", which the engine treats as a
+              constraint; a CANDIDATE says only "this might be the name of a
+              place". Nothing here reads what a name MEANS. */}
+          {(locationBindings.length > 0 || placeCandidates.length > 0 || ambiguousPlaceNames.length > 0) && (
+            <div style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 12, lineHeight: 1.6,
+            }}>
+              <div style={{
+                fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: 'var(--text-secondary)', marginBottom: 8,
+              }}>
+                Places
+              </div>
+
+              {locationBindings.length > 0 && (
+                <>
+                  <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    These activities have the same name as a place you already set up, so Shoresh can
+                    put them there. Untick any that happen somewhere else.
+                  </div>
+                  <ul style={{ listStyle: 'none', margin: '0 0 10px', padding: 0 }}>
+                    {locationBindings.map((b) => (
+                      <li key={b.activityName} style={{ marginBottom: 2 }}>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(bindingChoices[b.activityName])}
+                            onChange={(e) => setBindingChoices((prev) => ({ ...prev, [b.activityName]: e.target.checked }))}
+                          />
+                          <span>{b.activityName} → {b.locationName}</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
+              {ambiguousPlaceNames.length > 0 && (
+                <div style={{ color: 'var(--text-secondary)', marginBottom: 10 }}>
+                  You have more than one place called{' '}
+                  {ambiguousPlaceNames.map((n, i) => (
+                    <span key={n}>{i > 0 ? ', ' : ''}&quot;{n}&quot;</span>
+                  ))}, so Shoresh cannot tell which one is meant. Rename one under Locations, or set
+                  these by hand.
+                </div>
+              )}
+
+              {placeCandidates.length > 0 && (
+                <>
+                  <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    Any of these activity names that are also the name of a place? Tick them and
+                    Shoresh will add the place — it won&apos;t assume anything happens there.
+                  </div>
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexWrap: 'wrap', gap: '2px 14px' }}>
+                    {placeCandidates.map((n) => (
+                      <li key={n}>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(placeChoices[n])}
+                            onChange={(e) => setPlaceChoices((prev) => ({ ...prev, [n]: e.target.checked }))}
+                          />
+                          <span>{n}</span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+
           {(() => {
             const residualCells = proposal.residual?.cells ?? []
             if (residualCells.length === 0 && residualSheets.length === 0 && strippedBanners.length === 0 && ambiguousLocations.length === 0) return null
