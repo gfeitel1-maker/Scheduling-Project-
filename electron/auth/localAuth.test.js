@@ -102,7 +102,7 @@ describe('createUser / verifyPin', () => {
   })
 
   it('never stores the raw PIN in the users row', async () => {
-    const user = await createUser(db, { camp_id: 'camp-1', name: 'Bob', pin: '5678', role: 'admin' }, testWrite())
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'Bob', pin: '567890', role: 'admin' }, testWrite())
     const row = db.prepare('SELECT pin_hash, pin_salt FROM users WHERE id = ?').get(user.id)
     expect(row.pin_hash).not.toBe('5678')
     expect(row.pin_salt).not.toBe('5678')
@@ -148,11 +148,57 @@ describe('PIN input validation', () => {
   })
 })
 
+// T163 (owner decision 2026-09-14, SECURITY.md T150): admin PINs need 6+
+// digits, staff keep 4; both roles are digits-only now.
+describe('PIN length by role (T163)', () => {
+  it('createUser rejects a 5-digit admin PIN', async () => {
+    await expect(
+      createUser(db, { camp_id: 'camp-1', name: 'ShortAdmin', pin: '12345', role: 'admin' }, testWrite())
+    ).rejects.toThrow(/at least 6 digits/)
+  })
+
+  it('createUser accepts a 6-digit admin PIN', async () => {
+    const user = await createUser(
+      db,
+      { camp_id: 'camp-1', name: 'LongAdmin', pin: '123456', role: 'admin' },
+      testWrite()
+    )
+    expect(verifyPin(db, user.id, '123456')).toBe(true)
+  })
+
+  it('createUser rejects a 3-digit staff PIN', async () => {
+    await expect(
+      createUser(db, { camp_id: 'camp-1', name: 'ShortStaff', pin: '123', role: 'staff' }, testWrite())
+    ).rejects.toThrow(/at least 4 digits/)
+  })
+
+  it('createUser accepts a 4-digit staff PIN (no regression)', async () => {
+    const user = await createUser(
+      db,
+      { camp_id: 'camp-1', name: 'OkStaff', pin: '1234', role: 'staff' },
+      testWrite()
+    )
+    expect(verifyPin(db, user.id, '1234')).toBe(true)
+  })
+
+  it('createUser rejects a non-digit PIN for staff', async () => {
+    await expect(
+      createUser(db, { camp_id: 'camp-1', name: 'LetterStaff', pin: 'abcd', role: 'staff' }, testWrite())
+    ).rejects.toThrow(/only digits/)
+  })
+
+  it('createUser rejects a non-digit PIN for admin', async () => {
+    await expect(
+      createUser(db, { camp_id: 'camp-1', name: 'LetterAdmin', pin: 'abcdef', role: 'admin' }, testWrite())
+    ).rejects.toThrow(/only digits/)
+  })
+})
+
 describe('unique username per camp', () => {
   it('throws a clear error when creating a second user with the same name in the same camp', async () => {
     await createUser(db, { camp_id: 'camp-1', name: 'Sam', pin: '1111', role: 'staff' }, testWrite())
     await expect(
-      createUser(db, { camp_id: 'camp-1', name: 'Sam', pin: '2222', role: 'admin' }, testWrite())
+      createUser(db, { camp_id: 'camp-1', name: 'Sam', pin: '222222', role: 'admin' }, testWrite())
     ).rejects.toThrow(/already exists/)
   })
 
@@ -161,7 +207,7 @@ describe('unique username per camp', () => {
     const opsBefore = db.prepare('SELECT COUNT(*) as n FROM operations').get().n
 
     await expect(
-      createUser(db, { camp_id: 'camp-1', name: 'Sam2', pin: '2222', role: 'admin' }, testWrite())
+      createUser(db, { camp_id: 'camp-1', name: 'Sam2', pin: '222222', role: 'admin' }, testWrite())
     ).rejects.toThrow(/already exists/)
 
     const opsAfter = db.prepare('SELECT COUNT(*) as n FROM operations').get().n
@@ -222,7 +268,7 @@ describe('createUser op-log integration', () => {
   it('produces a queryable users row via projection with the correct name and role', async () => {
     const user = await createUser(
       db,
-      { camp_id: 'camp-1', name: 'Opuser2', pin: '1234', role: 'admin' },
+      { camp_id: 'camp-1', name: 'Opuser2', pin: '123456', role: 'admin' },
       testWrite()
     )
 
@@ -550,9 +596,9 @@ describe('attemptLogin', () => {
   })
 
   it('issues a token bound to the deviceId passed in, not any other device', async () => {
-    await createUser(db, { camp_id: 'camp-1', name: 'Zane', pin: '9999', role: 'admin' }, testWrite())
+    await createUser(db, { camp_id: 'camp-1', name: 'Zane', pin: '999999', role: 'admin' }, testWrite())
 
-    const result = attemptLogin(db, { name: 'Zane', pin: '9999', deviceId: 'remote-device-42' })
+    const result = attemptLogin(db, { name: 'Zane', pin: '999999', deviceId: 'remote-device-42' })
     const verified = verifySessionToken(db, result.token)
     expect(verified.deviceId).toBe('remote-device-42')
   })
@@ -586,9 +632,9 @@ describe('attemptLogin', () => {
   })
 
   it('issues a camp token (not local) when run on a db that holds host_signing_key, per the Host/Client dispatch rule', async () => {
-    await createUser(db, { camp_id: 'camp-1', name: 'HostUser', pin: '4444', role: 'admin' }, testWrite())
+    await createUser(db, { camp_id: 'camp-1', name: 'HostUser', pin: '444444', role: 'admin' }, testWrite())
 
-    const result = attemptLogin(db, { name: 'HostUser', pin: '4444', deviceId: 'device-1' })
+    const result = attemptLogin(db, { name: 'HostUser', pin: '444444', deviceId: 'device-1' })
     const verified = verifySessionToken(db, result.token)
     expect(verified.type).toBe('camp')
   })
@@ -602,12 +648,12 @@ describe('attemptLogin', () => {
        VALUES (?, ?, ?, ?, 'authorized')`
     ).run('device-1', 'Test Device', new Date().toISOString(), randomBytes(32).toString('hex'))
 
-    await createUser(clientDb, { camp_id: 'camp-1', name: 'ClientUser', pin: '4444', role: 'admin' }, async (args) => {
+    await createUser(clientDb, { camp_id: 'camp-1', name: 'ClientUser', pin: '444444', role: 'admin' }, async (args) => {
       const op = appendOp(clientDb, { ...args, author_user_id: null, device_id: 'device-1', parent_op_id: null })
       return { status: 'applied', op }
     })
 
-    const result = attemptLogin(clientDb, { name: 'ClientUser', pin: '4444', deviceId: 'device-1' })
+    const result = attemptLogin(clientDb, { name: 'ClientUser', pin: '444444', deviceId: 'device-1' })
     const verified = verifySessionToken(clientDb, result.token)
     expect(verified.type).toBe('local')
 

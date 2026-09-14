@@ -6,6 +6,7 @@ import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion, migrationSpanFor } from './db/localDb.js'
 import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, issueDeviceToken } from './auth/localAuth.js'
+import { promoteToAdmin } from './ops/promoteToAdmin.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
@@ -726,6 +727,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return createUser(db, { camp_id, name, pin, role }, (args) => syncClient.write(args))
   }
 
+  // T163 (owner decision 2026-09-14, SECURITY.md T150) — the ONLY path that
+  // may turn a staff user into an admin. write() (below) explicitly refuses
+  // entity:'users' field:'role' value:'admin' and names this handler, so a
+  // role promotion can never bypass the fresh-PIN requirement enforced here
+  // (promoteToAdmin/assertValidPin — electron/ops/promoteToAdmin.js).
+  async function promoteToAdminHandler({ token, userId, newPin } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId: actorUserId } = requireAuthorized(db, { token, action: 'users.promote' })
+    if (!isNonEmptyString(userId)) throw new Error('userId is required')
+    return promoteToAdmin(db, { userId, newPin, actorUserId, deviceId })
+  }
+
   // Deliberately NOT wrapped in authorize(). Signature is
   // { campName, adminName, adminPin } — no token. Ground truth from reading
   // the body below: it only proceeds when `SELECT COUNT(*) FROM camps` is 0,
@@ -928,6 +941,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function write({ token, ...writeArgs } = {}) {
     if (!isNonEmptyString(token)) {
       throw new Error('token is required')
+    }
+    // T163: block users.role -> 'admin' from the generic write path, the
+    // same way IPC_PIN_FIELDS blocks pin_hash/pin_salt from leaving the
+    // main process (electron/ops/pinFields.js) — a role promotion is a
+    // dedicated, atomic operation (role + a FRESH admin-floor PIN, written
+    // together via promoteToAdmin/runAtomic), not an ordinary field write.
+    // Without this, an admin could flip a staff user's role through write()
+    // and silently leave their existing (possibly 4-digit) PIN in place —
+    // the server cannot tell from a scrypt hash whether that PIN meets the
+    // admin floor, so the role flip alone can never be trusted to be safe.
+    if (writeArgs.entity === 'users' && writeArgs.field === 'role' && writeArgs.value === 'admin') {
+      throw new Error('users.role cannot be set to admin via write() — use promoteToAdmin, which also resets the PIN to the director floor')
     }
     // Three distinct actions dispatched from this one handler, per the ADR's
     // IPC table — matching the three distinct gates that used to be inline
@@ -1745,6 +1770,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     restoreEntity: restoreEntityHandler,
     login,
     createUser: createUserHandler,
+    promoteToAdmin: promoteToAdminHandler,
     bootstrapCamp,
     write,
     verifySession,
@@ -1856,6 +1882,7 @@ if (isElectronEntryPoint()) {
     'shoresh:discover-hosts',
     'shoresh:login',
     'shoresh:create-user',
+    'shoresh:promote-to-admin',
     'shoresh:bootstrap-camp',
     'shoresh:write',
     'shoresh:bulk-replace',
@@ -1918,6 +1945,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:choose-mode', (_event, args) => handlers.chooseMode(args))
     ipcMain.handle('shoresh:login', (_event, args) => handlers.login(args))
     ipcMain.handle('shoresh:create-user', (_event, args) => handlers.createUser(args))
+    ipcMain.handle('shoresh:promote-to-admin', (_event, args) => handlers.promoteToAdmin(args))
     ipcMain.handle('shoresh:bootstrap-camp', (_event, args) => handlers.bootstrapCamp(args))
     ipcMain.handle('shoresh:write', (_event, args) => handlers.write(args))
     ipcMain.handle('shoresh:bulk-replace', (_event, args) => handlers.bulkReplace(args))
