@@ -15,12 +15,6 @@ Regenerate with `npm run index:work`.
 
 ## Open work
 
-### database-sync
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Can locations be inferred from a schedule? (needs a conversation first)](../../docs/work/tickets/T147-infer-locations-from-a-schedule.md) | open | — |
-
 ### documentation-governance
 
 | Ticket | Status | Referenced by |

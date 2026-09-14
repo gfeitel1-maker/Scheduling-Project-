@@ -260,3 +260,91 @@ describe('ImportScreen — declines a one-day special schedule (T40)', () => {
     expect(screen.queryByRole('button', { name: /Build this special day/i })).toBeNull()
   })
 })
+
+// T147 — places. Drives the real parse -> match -> confirm -> commit path,
+// because every defect found in this session's reviews lived in the glue
+// between two layers that were each individually green.
+describe('ImportScreen — activity-to-place bindings (T147)', () => {
+  const withLocations = (locations) => {
+    parseTextGrid.mockReturnValue({
+      pages: [{
+        title: 'Bunk 1',
+        columns: ['Monday', 'Tuesday'],
+        rows: [
+          { label: '9:15', cells: ['Art', 'Slingshots'] },
+          { label: '10:00', cells: ['Sports', 'Art'] },
+        ],
+      }],
+    })
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'locations' ? locations : []))
+  }
+  const upload = async () => {
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    await userEvent.upload(document.querySelector('input[type="file"]'), new File(['x'], 'sched.txt', { type: 'text/plain' }))
+  }
+
+  it('offers a binding when the activity and the place share a name', async () => {
+    withLocations([{ id: 'l1', camp_id: 'camp-1', name: 'Art' }])
+    await upload()
+    expect(await screen.findByText('Art → Art')).toBeTruthy()
+  })
+
+  it('does NOT offer Slingshots → Slingshot Range', async () => {
+    // The decisive case: it is at the archery range. A plausible wrong answer
+    // in a review list is worse than no answer.
+    withLocations([
+      { id: 'l1', camp_id: 'camp-1', name: 'Slingshot Range' },
+      { id: 'l2', camp_id: 'camp-1', name: 'Archery Range' },
+    ])
+    await upload()
+    await waitFor(() => expect(screen.queryByText(/Places/i)).toBeTruthy())
+    expect(screen.queryByText(/Slingshots →/)).toBeNull()
+  })
+
+  it('sends a ticked binding to the commit, and only that one', async () => {
+    withLocations([
+      { id: 'l1', camp_id: 'camp-1', name: 'Art' },
+      { id: 'l2', camp_id: 'camp-1', name: 'Sports' },
+    ])
+    await upload()
+    // Untick Sports — "usually outside on the field but could be in the gym".
+    await userEvent.click(await screen.findByRole('checkbox', { name: /Sports → Sports/ }))
+    const payload = await commit()
+    expect(payload.activityRules.Art.location).toBe('Art')
+    expect(payload.activityRules.Sports?.location).toBeUndefined()
+  })
+
+  it('sends no binding for an activity the FILE already placed', async () => {
+    // A stated fact always beats a proposal.
+    parseTextGrid.mockReturnValue({
+      pages: [{
+        title: 'Bunk 1', columns: ['Monday'],
+        rows: [{ label: '9:15', cells: ['Art'], locations: ['Barn'] }],
+      }],
+    })
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'locations' ? [{ id: 'l1', camp_id: 'camp-1', name: 'Art' }] : []))
+    await upload()
+    await waitFor(() => expect(screen.queryAllByText(/Art/).length).toBeGreaterThan(0))
+    expect(screen.queryByText('Art → Art')).toBeNull()
+  })
+
+  it('adds a ticked candidate as a place, and binds nothing to it', async () => {
+    withLocations([])
+    await upload()
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Slingshots' }))
+    const payload = await commit()
+    expect(payload.approved.locations).toContain('Slingshots')
+    // Offered as a possible PLACE; never asserted as where Slingshots happens.
+    expect(payload.activityRules.Slingshots?.location).toBeUndefined()
+  })
+
+  it('adds nothing for a candidate left unticked', async () => {
+    withLocations([])
+    await upload()
+    await screen.findByRole('checkbox', { name: 'Slingshots' })
+    const payload = await commit()
+    expect(payload.approved.locations ?? []).not.toContain('Slingshots')
+  })
+})

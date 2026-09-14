@@ -1,61 +1,117 @@
 ---
-title: "Can locations be inferred from a schedule? (needs a conversation first)"
+title: "Locations from a schedule: bind on identity, never infer meaning"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-13
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs: [docs/adr/2026-08-15-camp-locations-entity.md]
-archive_when: an owner conversation has produced either a design worth building or an explicit decision not to
+archive_when: an import proposes activity-to-location bindings on exact name identity only, offers activity names as candidate places without binding them, and infers nothing from what a name means
 ---
 
-# T147 — Can locations be inferred from a schedule?
+# T147 — Locations from a schedule: bind on identity, never infer meaning
 
-**Spun off T114, owner, 2026-09-13.** Explicitly NOT ready to build. The owner
-asked for it to be recorded and said it needs to be talked through, probably not
-in the session that raised it. **No design, no approach chosen, no code
-authorized.**
+**Owner decision, 2026-09-13.** The conversation this ticket was parked for has
+happened. The question was put as a binary — *"try to infer and ask, or
+explicitly stop trying?"* — and the answer is neither half of it exactly: stop
+inferring what a name MEANS, but do offer what a name IS.
 
-## Why it came up
+## What decides it: a location is a constraint, not a label
 
-T114 originally proposed inferring three activity rule columns from an imported
-schedule, one of them `is_outdoor`. The owner rejected that specific one on
-sound grounds: **outdoor-vs-indoor is a property of the PLACE, not of the
-placement.** A schedule cell reads `Archery / Barn`; nothing in it says whether
-the Barn is outdoors. The only source that could carry that fact is a locations
-list.
+`src/engine/buildSchedule.js` keeps `placeUsage` — who is in each place in each
+block, capped at that place's `capacity`. A location is therefore an input to
+what the engine will and will not schedule, not a caption on a cell.
 
-Which raises the real question underneath: a schedule names places constantly —
-`Barn`, `Lake`, `Loft`, `302` — and the app has a `locations` entity those
-strings are already partially resolved against during ingest. So what, exactly,
-can be learned about a camp's places from its schedule, and what can only come
-from the director?
+So a wrongly-guessed location does not merely display wrong. It silently refuses
+a pairing that would have been fine, or admits two groups into a room that holds
+one. And it does that without surfacing anything: the director sees a schedule
+that looks ordinary and has been shaped by a room assignment they never made.
 
-## What to talk through (not to answer here)
+That moves the question off "how often would a guess be right?" and onto "what
+does a wrong guess cost, and would anyone catch it?" Here, wrong is invisible.
 
-- **Existence vs. properties.** That a place named "Lake" exists is directly
-  observable from a schedule. Its capacity, its indoor/outdoor-ness, whether
-  "302" and "Room 302" are one room — none of those are. Where is the line?
-- **What ingest already does.** Locations are already minted from schedule cells
-  (`src/ingest/buildPlan.js` `fieldsFor('locations', …)`, and the
-  `location_unresolved` held-conflict path). So some inference exists today —
-  this ticket is partly about naming what that already is before extending it.
-- **Capacity from co-occurrence.** If three groups are in the Lake in the same
-  block across a whole season, is that evidence the Lake holds three? Or just
-  evidence that the camp overbooked it? These are not the same claim.
-- **The provenance rule.** Anything inferred must be labelled as inferred and
-  must never be presented as a director-confirmed value
-  (`src/utils/ruleProvenance.js`, and the `import_evidence` tagging T119
-  established for capacity). This constrains the design more than it may appear.
-- **Whether this is even wanted.** A director who has never entered a locations
-  list may not want the app guessing at one.
+## The owner's own camp, which is the evidence
 
-## Non-goal
+Where a name IS the place:
 
-Guessing indoor/outdoor. That was rejected on the reasoning above, and nothing in
-this ticket reopens it.
+> "for my camp - virtual sports is in the room with that name, same for art, same
+> for clay, etc."
 
-## Next step
+Where a name is NOT the place — and this is the decisive case:
 
-A conversation with the owner. This ticket exists so the question is not lost,
-not because a build is queued.
+> "slingshots is at the archery range, not the slingshot range"
+
+Name-based inference gets that exactly backwards, and the wrong answer is
+PLAUSIBLE: "Slingshots → Slingshot Range" reads fine in a review list and would
+be skimmed past. That is the same failure shape T146 was written for — an import
+producing confident nonsense that looks like real extraction.
+
+Genuinely variable, so not confirmable either:
+
+> "sports is usually outside on the field but could be in the gym"
+
+Ambiguous only AFTER the places exist:
+
+> "big playground and little playground, gaga field and gaga pit are different
+> places and activity names"
+
+Two playgrounds not distinguished by name is a disambiguation question, not an
+inference one — it can only arise once the director has said both exist, and it
+belongs in the binding step where they are already looking.
+
+## The design
+
+**1. Bind only on identity.** An activity whose name matches an EXISTING
+location's name (whitespace- and case-insensitively) is proposed for binding and
+confirmed by the director. This is not an inference: the director named that
+place. Covers the Virtual Sports / Art / Clay bulk.
+
+**2. Offer activity names as candidate PLACE NAMES — no binding.** A camp with
+few or no locations gets its activity list as a tick-list of possible places.
+That is typing saved, not a guess: a location ticked and never used costs
+nothing, while a binding asserted wrongly costs a distorted schedule.
+
+**3. Infer nothing from what a name means.** No `Art` → "there must be an Art
+Room", no `Slingshots` → "probably the Slingshot Range". Every counterexample
+above lives in this tier.
+
+**The file always wins.** Where a schedule cell states the place outright
+(`Archery / Barn`, the existing Q8/M4 path), that stated fact is untouched by any
+of this — a binding is only ever proposed for an activity the file left unplaced.
+
+**Two locations with the same name refuse to bind.** Same rule as T40's
+`ambiguous_columns`: "you have two places called this" and "you have none" need
+different fixes and must not read the same.
+
+## Built 2026-09-13
+
+`src/ingest/locationsFromActivities.js` — two functions, pure, and the split
+between them IS the design:
+
+- `matchActivitiesToLocations` proposes a BINDING on exact name identity only.
+  It excludes any activity the file already placed, and refuses to bind when two
+  places share a name (returning them as `ambiguous` instead).
+- `candidatePlaceNames` offers activity names the camp has no place for, as
+  possible PLACES. It binds nothing, which is why "Slingshots" may appear here
+  while never being bound to "Slingshot Range".
+
+ImportScreen shows both in a "Places" panel. Bindings are ticked ON — an identity
+match is not a guess, and the full list is visible so an unwanted one can be
+unticked. Candidates are ticked OFF, and a ticked one joins the ordinary
+locations proposal, running the same propose-then-confirm path every other
+location does.
+
+Tested at the seam as well as the layer: `ImportScreen.divisionSupport.test.jsx`
+drives parse -> match -> confirm -> commit, asserting that Slingshots is never
+offered a range, that a file-stated place is never overridden, that unticking
+Sports keeps it out of the commit, and that a ticked candidate creates a place
+without asserting anything happens there.
+
+## Non-goals
+
+- Guessing indoor/outdoor. Rejected in T114 on the reasoning that outdoor-ness is
+  a property of the PLACE, and nothing in a schedule cell carries it. Unchanged.
+- Capacity from co-occurrence. Three groups at the Lake in one block is equally
+  evidence that the camp overbooked the Lake. Not the same claim.
+- Any fuzzy, stemmed, or semantic name match. The whole point is that `Slingshots`
+  and `Slingshot Range` are similar strings and unrelated facts.
