@@ -72,6 +72,47 @@ architecture — stop and re-read `SECURITY.md`.
 - **XSS via user input:** React's JSX escapes by default — flag `dangerouslySetInnerHTML` only.
 - **Outbound network calls:** Any new `fetch()` or socket to a non-LAN destination in a local-first app is a finding until justified.
 
+### Ingestion / untrusted-file surface (the one input another person authors):
+A camp schedule file (`.xlsx`/`.xlsm`/`.xls` or a text grid) is the one input the director
+routinely receives from someone else and imports. Treat every imported file as fully
+attacker-controlled — the same posture as an LAN message. The parse path runs through SheetJS
+(`xlsx`) and the readers in `src/ingest/**`, `scripts/ingestCli.js`, `scripts/mcp/tools.js`,
+and the per-entity importers in `src/screens/**`.
+
+- **Parser dependency posture — check the *installed* version, never training knowledge.** Run
+  `npm audit` (or read `node_modules/xlsx/package.json`) and confirm the pinned SheetJS version
+  against its current advisories. As of this writing `xlsx@0.18.5` (the npm-published line)
+  carries open **high** advisories — Prototype Pollution (GHSA-4r6h-8v6p-xvw6) and ReDoS
+  (GHSA-5pgg-2g8v-p4x9) — with no fix on npm; the fixed line ships only from SheetJS's own CDN.
+  Prototype pollution triggers inside `XLSX.read` itself and is **not** mitigated by the
+  size/row caps. Flag any diff that adds a new `XLSX.read` on attacker-authorable input while
+  this posture stands, and re-check the advisory list on any dependency bump.
+- **Resource-exhaustion caps must be wired into every read path, not just the primary ones.**
+  `assertImportFileSize` (pre-parse, on byte length) and `assertWorkbookComplexity` (post-parse,
+  pre-walk) in `src/utils/exportSanitize.js` are the boundary. A new file-import handler that
+  calls `XLSX.read` without both is a finding — the control exists precisely so a zip-bomb or
+  million-row sheet never gets walked. (`unescapeRow` alone is the injection control, not the
+  exhaustion control — presence of one does not imply the other.)
+- **Formula/CSV-injection round-trip.** Every import read must map cells through `unescapeRow`
+  and every export must build sheets via `aoaToSanitizedSheet`/`sanitizeCell`. A read path that
+  skips `unescapeRow`, or an export that hand-builds a sheet from user strings, is a finding.
+- **Second-order prompt-injection via MCP output.** `ingest_preview` reads an arbitrary
+  `file_path` and returns entity names *derived from cell content* to the calling agent. Cell
+  text is attacker-authorable and flows into an LLM's context — do not treat preview output as
+  trusted. This is a note, not a code defect, under the director-launched model; flag only if
+  preview output gains a privileged sink (auto-commit, shell-out, tool-chaining without a gate).
+
+### Supply-chain / packaging surface:
+- **Native module integrity (`better-sqlite3`).** A prebuilt/native binary and its build scripts
+  run with full app privilege. Flag a new native dependency, a postinstall/build script added to
+  a dependency, or a change to how `better-sqlite3` is rebuilt/loaded, until justified.
+- **Packaging (`electron-builder`).** `build.files` decides what ships. Flag a change that ships
+  more than intended (dev-only secrets, `.env`, test fixtures, the dev database path) or that
+  weakens Electron hardening (`contextIsolation`, `nodeIntegration`, `sandbox`, a loosened CSP,
+  a new `webPreferences` grant).
+- **Dependency additions.** Any new runtime dependency is a supply-chain decision: check it has
+  no known-vulnerable pinned version and no unexpected transitive network/postinstall behavior.
+
 ### Known accepted exceptions (do not flag):
 - **Plaintext PIN in the WS `login` message, and `ws://` without TLS.** Explicit accepted tradeoffs under the trusted-LAN threat model — documented in `SECURITY.md` "Known limitations". Do not re-report them as findings. *Do* flag any change that widens the exposure (new secrets on the wire, binding beyond the LAN).
 - **Offline `local` tokens surviving revocation until expiry (≤24h).** Documented accepted limitation.
