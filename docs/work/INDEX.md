@@ -39,6 +39,12 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | open | — |
 
+### test-infrastructure
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [The libp2p sync tests fail when the machine is busy, which is when agents work](../../docs/work/tickets/T164-libp2p-sync-tests-fail-under-load.md) | open | — |
+
 ## Decisions
 
 Backlinks are generated. An ADR does not name the tickets it came from; this does.
