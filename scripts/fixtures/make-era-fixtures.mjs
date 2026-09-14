@@ -91,7 +91,14 @@ for (const era of ERAS) {
     try { db.prepare(sql).run(); applied += 1 } catch { /* table/column not in this era — expected */ }
   }
   const version = db.prepare('SELECT MAX(version) AS v FROM schema_migrations').get().v
+  // openLocalDb sets journal_mode=WAL, which leaves -wal/-shm sidecars. A
+  // fixture must be ONE self-contained file: a sidecar that travels separately
+  // (or does not) changes what the fixture contains. Checkpoint everything back
+  // into the main file and drop out of WAL before closing.
+  db.pragma('wal_checkpoint(TRUNCATE)')
+  db.pragma('journal_mode = DELETE')
   db.close()
+  for (const sidecar of ['-wal', '-shm']) fs.rmSync(outPath + sidecar, { force: true })
   if (version !== era.v) {
     throw new Error(`${era.name}: expected schema v${era.v}, the era's own code produced v${version}`)
   }
