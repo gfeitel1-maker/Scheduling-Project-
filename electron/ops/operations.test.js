@@ -15,12 +15,21 @@ import {
   listPendingConflicts,
   DELETE_FIELD,
   MAX_FIELD_VALUE_LENGTH,
+  DOCUMENT_OUTCOME,
+  runAtomic,
 } from './operations.js'
 import { docPath, loadDoc } from '../sync/automerge/docStore.js'
 import { projectAll } from '../automerge/projector.js'
 import { MODELED_ENTITIES, readRecord } from '../automerge/campDocument.js'
 import { setUserDataDirGetter, resetForTests as resetLiveDocForTests } from '../sync/automerge/liveDoc.js'
-import { listDocumentWriteFailures } from './documentWriteFailures.js'
+
+// A writable directory for the Automerge document in the T153 cases below.
+function docDir() {
+  const d = path.join(os.tmpdir(), `shoresh-t153-doc-${Date.now()}-${Math.random()}`)
+  fs.mkdirSync(d, { recursive: true })
+  return d
+}
+import { listDocumentWriteFailures, unsharedWriteCount } from './documentWriteFailures.js'
 
 let tmpFile
 let db
@@ -1290,5 +1299,57 @@ describe('appendBulkReplaceOp — a failed document write is recorded, not just 
       resetLiveDocForTests()
       fs.rmSync(blocker, { force: true })
     }
+  })
+})
+
+// T153 — "applied" has always meant "SQLite has it". These pin that the op also
+// reports what happened on the AUTHORITATIVE side, and that "buffered" is never
+// reported as "done".
+describe('a write says whether the authoritative document has it', () => {
+  it('reports applied for an ordinary modeled write', () => {
+    setUserDataDirGetter(() => docDir())
+    try {
+      const op = appendOp(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A', device_id: 'device-1' })
+      expect(op[DOCUMENT_OUTCOME]).toBe('applied')
+    } finally { resetLiveDocForTests() }
+  })
+
+  it('reports failed — not applied — when the document write fails', () => {
+    const blocker = path.join(os.tmpdir(), `shoresh-t153-blocker-${Date.now()}-${Math.random()}`)
+    fs.writeFileSync(blocker, 'not a directory')
+    setUserDataDirGetter(() => blocker)
+    try {
+      const op = appendOp(db, { entity: 'groups', entity_id: 'g2', field: 'name', value: 'Bunk B', device_id: 'device-1' })
+      expect(op[DOCUMENT_OUTCOME]).toBe('failed')
+      expect(listDocumentWriteFailures(db).map((f) => f.op_id)).toContain(op.id)
+      expect(unsharedWriteCount(db)).toBe(1)
+    } finally {
+      resetLiveDocForTests()
+      fs.rmSync(blocker, { force: true })
+    }
+  })
+
+  it('reports deferred inside a transaction boundary — buffered is not done', () => {
+    setUserDataDirGetter(() => docDir())
+    try {
+      let op
+      runAtomic(db, () => {
+        op = appendOp(db, { entity: 'groups', entity_id: 'g3', field: 'name', value: 'Bunk C', device_id: 'device-1' })
+        // Inside the boundary the document has NOT been written yet, by design
+        // (an Automerge document cannot be rolled back), and the op must say so.
+        expect(op[DOCUMENT_OUTCOME]).toBe('deferred')
+      })
+    } finally { resetLiveDocForTests() }
+  })
+
+  it('reports not-modeled for an entity the document deliberately does not carry', () => {
+    setUserDataDirGetter(() => docDir())
+    try {
+      // template_slots' own flat writes ARE modeled; a host-only entity is not
+      // writable through appendOp at all, so use an entity with no projection —
+      // the silent no-op path — to pin that it is not reported as a failure.
+      const op = appendOp(db, { entity: 'devices', entity_id: 'device-1', field: 'name', value: 'Renamed', device_id: 'device-1' })
+      expect(op[DOCUMENT_OUTCOME]).toBe('not-modeled')
+    } finally { resetLiveDocForTests() }
   })
 })

@@ -42,6 +42,7 @@ import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn } from './db/migrationDomainState.js'
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
+import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import { createMdnsDiscovery } from './sync/automerge/discovery.js'
 import { joinCode as joinCodeForCamp, formatJoinCode } from './sync/joinCode.js'
@@ -547,8 +548,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // joined anything is working correctly; a client that cannot see the Host is
   // not, and the director needs to be able to tell those apart.
   function getSyncStatus() {
-    if (!modeChosen) return { mode: null, connected: false, state: 'standalone' }
-    if (mode === 'host') return { mode: 'host', connected: true, state: 'host' }
+    // Writes this device holds that the authoritative document does not (T153).
+    // Reported on EVERY state including standalone and host, because it is not a
+    // connectivity fact: a lone device with a failed document write is diverged
+    // from the camp whether or not anyone is reachable, and the offline copy
+    // ("your changes will reach it when it is back") is exactly the sentence
+    // that must not be shown for these.
+    const unsharedWrites = unsharedWriteCount(db)
+    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites }
+    if (mode === 'host') return { mode: 'host', connected: true, state: 'host', unsharedWrites }
     // Stage 6c: the honest source of "can this device reach the camp" is the
     // libp2p node's peer set, not a socket. `getPeers()` returns every
     // libp2p-connected peer INCLUDING one that merely completed a noise
@@ -561,7 +569,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const connected = peers.length > 0
     const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
-    return { mode: 'client', connected, authenticated: authed, state }
+    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
