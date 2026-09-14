@@ -160,6 +160,7 @@ Twelve agents. This roster is authoritative; `.claude/agents/` must match it exa
 | **Red Hat** | Broken assumptions and edge cases. Explicitly not bugs and not vulnerabilities. |
 | **Grader** | Calibrated score from the five agent reports (Verifier's deterministic results plus the four opinion reports). Runs nothing, decides nothing. |
 | **Architecture Auditor** | Periodic codebase depth audit. Runs independently — does not plug into the Governor/Maker/Verifier loop. Invoked after significant feature work or on demand. |
+| **Security Assessment** | Periodic deep security assessment. Runs independently, not per-diff. UNLIKE **Security**, it may and must reopen accepted tradeoffs and question the trusted-LAN boundary itself. Invoked before milestones touching auth, sync, the wire protocol, packaging, or the transport boundary. |
 
 **Deprecated terms.** "Reviewer" is an informal alias for **Code Reviewer** — there is no separate
 role. "Styler" names no role in this repository; visual work is specified by **Designer** before
@@ -169,6 +170,13 @@ implementation, never applied as a styling pass afterwards, because that would v
 and reports. Tester judges the experience; Verifier checks machine-verifiable claims. Security finds
 confirmed vulnerabilities; Red Hat finds assumptions everyone believed were safe. Architect designs
 structure; Designer designs appearance and interaction.
+
+**Security vs. Security Assessment** is the newest of these and the easiest to collapse, so it is
+stated plainly: **Security** checks a diff against the threat model this repository has accepted.
+**Security Assessment** checks the threat model itself. A reviewer who may not question the
+"trusted private LAN" premise will faithfully approve every change that respects a boundary which
+has already moved — which is exactly why the second role exists, and why it must not be invoked
+per-diff or treated as a stronger version of the first.
 
 ---
 
