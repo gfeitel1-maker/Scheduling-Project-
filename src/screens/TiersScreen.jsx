@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
-import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { S, useEnterTransition } from '../styles/shared'
@@ -302,7 +302,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     if (!file) return
     const reader = new FileReader()
     reader.onload = ev => {
-      const wb = XLSX.read(ev.target.result, { type: 'array' })
+      try {
+      const wb = readWorkbookSafely(ev.target.result, { type: 'array', byteLength: file.size })
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json(ws, { defval: '' }).map(unescapeRow)
       const parsed = rows.map(r => {
@@ -315,6 +316,9 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       })
       setImportRows(parsed)
       setImportStep('preview')
+      } catch (err) {
+        setError(describeWriteFailure(err, 'That import file could not be read.'))
+      }
     }
     reader.readAsArrayBuffer(file)
     e.target.value = ''

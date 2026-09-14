@@ -30,7 +30,7 @@ import { autoAccepts } from '../ingest/confidence'
 import { emitTwoRowSplit, pinActivityAsserted, DEFAULT_SPLIT_SUFFIX } from '../ingest/twoRowSplit'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
-import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
+import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
 import { downloadWorkbook, META_SHEET } from '../utils/exportWorkbook.js'
 import { workbookToSource } from '../ingest/workbookToSource.js'
 import ReconciliationScreen from './ReconciliationScreen.jsx'
@@ -382,10 +382,10 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         const title = groupNameFromFilename(file.name, prefix)
         if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
           // F4 — fail closed before the bytes reach the parser, then bound the
-          // parsed workbook, so a zip-bomb/oversize file imports nothing.
-          assertImportFileSize(file.size)
-          const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
-          assertWorkbookComplexity(wb)
+          // parsed workbook, so a zip-bomb/oversize file imports nothing. The
+          // shared boundary applies both caps (size on file.size, then sheet/row
+          // counts post-parse).
+          const wb = readWorkbookSafely(await file.arrayBuffer(), { type: 'array', byteLength: file.size })
           // S4b — a Shoresh enrichment workbook (carries the hidden metadata
           // sheet) is a round-trip, NOT a raw schedule. It re-enters through the
           // SAME buildPlan→commit pipeline via the id-match tier, not entity

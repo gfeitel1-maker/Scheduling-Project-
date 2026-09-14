@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import { whitespaceInsensitiveName } from '../ingest/preview'
 import * as XLSX from 'xlsx'
-import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { ChevronIcon, OutdoorIcon } from '../components/icons'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
@@ -756,7 +756,10 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     const file = e.target.files[0]; if (!file) return
     const reader = new FileReader()
     reader.onload = ev => {
-      const wb = XLSX.read(ev.target.result, { type: 'array' })
+      try {
+      // F4 — bound size (on file.size, pre-parse) and sheet/row counts before
+      // any cell is read, so an oversize/zip-bomb file imports nothing.
+      const wb = readWorkbookSafely(ev.target.result, { type: 'array', byteLength: file.size })
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
       const tierMap = Object.fromEntries(tiers.map(t => [t.name.toLowerCase(), t.id]))
       const actMap = Object.fromEntries(activities.map(a => [a.name.toLowerCase(), a.id]))
@@ -820,6 +823,9 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         }
       })
       setImportRows(parsed); setImportStep('preview')
+      } catch (err) {
+        setError(describeWriteFailure(err, 'That import file could not be read.'))
+      }
     }
     reader.readAsArrayBuffer(file); e.target.value = ''
   }

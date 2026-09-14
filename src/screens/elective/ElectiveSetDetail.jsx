@@ -20,7 +20,7 @@ import { populateElectiveSet } from '../../ingest/electiveSetPopulate'
 import { markElectivePermissionTier } from '../../ingest/electivePermissionTier'
 import { clearElectivePermissionOnRemoval } from '../../ingest/electivePermissionClear'
 import { createActivity } from '../schedule/createActivityHelper'
-import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../../utils/exportSanitize.js'
+import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../../utils/exportSanitize.js'
 
 const repository = createSetupCrudRepository({ localClient })
 // createActivityHelper.js's createActivity (and populateElectiveSet, which
@@ -197,9 +197,7 @@ export default function ElectiveSetDetail({ set, role, activities, locations, ti
     try {
       let pages
       if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
-        assertImportFileSize(file.size)
-        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
-        assertWorkbookComplexity(wb)
+        const wb = readWorkbookSafely(await file.arrayBuffer(), { type: 'array', byteLength: file.size })
         const sheets = wb.SheetNames.map((name) => ({
           name,
           rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false }).map(unescapeRow),

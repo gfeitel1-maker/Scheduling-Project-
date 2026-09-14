@@ -4,7 +4,7 @@ import ProvenanceDot from '../components/setup/ProvenanceDot'
 import { provenanceDotStyles } from '../components/setup/provenanceDotStyles.js'
 import * as XLSX from 'xlsx'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
-import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
 import { parseLocationsSheetRows } from '../utils/importLocationsSheet.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
@@ -686,7 +686,8 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     const file = e.target.files[0]; if (!file) return
     const reader = new FileReader()
     reader.onload = ev => {
-      const wb = XLSX.read(ev.target.result, { type: 'array' })
+      try {
+      const wb = readWorkbookSafely(ev.target.result, { type: 'array', byteLength: file.size })
       // T121: a multi-sheet workbook (the setup enrichment export) carries its
       // own Locations sheet, which is not necessarily SheetNames[0] — prefer it
       // by name, falling back to the first sheet for a dedicated single-sheet
@@ -697,6 +698,9 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
       const validKinds = new Set(KIND_OPTIONS.map(k => k.value))
       const parsed = parseLocationsSheetRows(rows, validKinds)
       setImportPreviewRows(parsed); setImportStep('preview')
+      } catch (err) {
+        setError(describeWriteFailure(err, 'That import file could not be read.'))
+      }
     }
     reader.readAsArrayBuffer(file); e.target.value = ''
   }

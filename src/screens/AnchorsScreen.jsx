@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
-import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
@@ -29,8 +29,6 @@ const repository = createSetupCrudRepository({ localClient })
 const BOOL_FIELDS = new Set(['is_all_groups'])
 const ARRAY_FIELDS = new Set(['group_ids'])
 const serializeFieldValue = makeSerializeFieldValue(BOOL_FIELDS, ARRAY_FIELDS)
-
-const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024
 
 // GOVERNOR judgment call (round 2->3 boundary, Sub-plan D Task 1): a
 // client-side Promise.race timeout was tried here and reverted. localClient's
@@ -506,11 +504,6 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
     const file = e.target.files[0]; if (!file) return
     e.target.value = ''
 
-    if (file.size > MAX_IMPORT_FILE_BYTES) {
-      setError('Import file is too large (max 5MB) — please split it into smaller files')
-      return
-    }
-
     try {
       // Always fetch fresh lookups to avoid stale closure
       const [freshDays, freshBlocks, freshTiers, freshGroups] = await Promise.all([
@@ -536,8 +529,10 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
         scopedTiers.map(t => [t.id, scopedGroups.filter(g => g.tier_id === t.id).map(g => g.id)])
       )
 
-      const buffer = await file.arrayBuffer()
-      const wb = XLSX.read(buffer, { type: 'array' })
+      // F4 — shared boundary: size cap (on file.size) before parse, sheet/row
+      // caps after, replacing this screen's former ad-hoc 5MB check so every
+      // importer enforces the SAME limits.
+      const wb = readWorkbookSafely(await file.arrayBuffer(), { type: 'array', byteLength: file.size })
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
 
       // Expand each row into one record per day

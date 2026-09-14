@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
-import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
@@ -396,7 +396,8 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
     const file = e.target.files[0]; if (!file) return
     const reader = new FileReader()
     reader.onload = ev => {
-      const wb = XLSX.read(ev.target.result, { type: 'array' })
+      try {
+      const wb = readWorkbookSafely(ev.target.result, { type: 'array', byteLength: file.size })
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
       const tierMap = Object.fromEntries(tiers.map(t => [t.name.toLowerCase(), t.id]))
       const parsed = rows.map(r => {
@@ -411,6 +412,9 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         return { name, tierName, tierId: tierId || null, availability, warning }
       })
       setImportRows(parsed); setImportStep('preview')
+      } catch (err) {
+        setError(describeWriteFailure(err, 'That import file could not be read.'))
+      }
     }
     reader.readAsArrayBuffer(file); e.target.value = ''
   }
