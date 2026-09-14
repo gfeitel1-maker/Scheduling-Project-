@@ -143,7 +143,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: How a new device joins a camp over libp2p (Stage 6 join flow)](../../docs/adr/2026-09-08-libp2p-join-flow.md) | accepted | in_progress | [2026-09-08-crdt-conflict-reconciliation](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) |
 | [ADR: Carry field provenance in the document — a hand edit says so about itself](../../docs/adr/2026-09-09-field-provenance-in-the-document.md) | accepted | complete | — |
 | [Activities as one entity with a placement axis: retiring the fixed/recurring entity split](../../docs/adr/2026-09-12-activities-as-one-entity-with-placement.md) | proposed | not started | — |
-| [ADR: The camp game talks to Shoresh through a boring explicit contract, never through its data](../../docs/adr/2026-09-13-game-integration-boundary.md) | proposed | not_started | — |
+| [ADR: The camp game talks to Shoresh through a boring explicit contract, never through its data](../../docs/adr/2026-09-13-game-integration-boundary.md) | accepted | not_started | — |
 | [Migrate off npm-published SheetJS (xlsx) to the advisory-fixed line](../../docs/adr/2026-09-13-sheetjs-parser-advisory-migration.md) | accepted | implemented | — |
 
 ## Runs

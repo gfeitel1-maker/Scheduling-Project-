@@ -36,3 +36,11 @@ decision means, whether it can be revoked) are currently doing real work.
 five at once, that is the moment to ask whether a camp-acquired-knowledge
 abstraction has actually emerged. Until then, keeping them separate is the
 cheaper mistake.
+
+## Recommendation (2026-09-14)
+
+**Do nothing.** Five similar things is a pattern to watch, not proof of a shared
+idea, and the differences (what is keyed, what a decision means, whether it can
+be revoked) are currently doing real work. The tripwire is the whole deliverable:
+it makes the decision happen on evidence rather than on whoever notices first.
+Confidence high. See `docs/work/architecture-reports/2026-09-14-open-decisions-brief.md`.
