@@ -50,7 +50,7 @@
 // there is no window where a local write and a remote merge can interleave mid-update. Both sides
 // always read the latest value and write back synchronously before yielding to the event loop.
 import { docPath, loadDoc, saveDoc } from './docStore.js'
-import { recordDocumentWriteFailure } from '../../ops/documentWriteFailures.js'
+import { recordDocumentWriteFailure, documentWriteFailureRecorded } from '../../ops/documentWriteFailures.js'
 import { recordAuditEvent } from '../../audit/auditLog.js'
 import { applyWrite, applyBulkReplace, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../../automerge/campDocument.js'
 import { seedAllFromSqlite } from '../../automerge/seed.js'
@@ -89,6 +89,8 @@ let broadcastCallbacks = new WeakMap()
 // value is `{ db, local }`: `db` so the flush can look up the current doc in `docRegistry`, `local`
 // so the flush knows whether to broadcast (true if ANY write in this window was a local one).
 const SAVE_DEBOUNCE_MS = 250
+// Only ever used to make one incident's console lines greppable together.
+let failureCounter = 0
 let pendingTimer = null
 let pendingSaves = new Map()
 
@@ -283,7 +285,17 @@ export function flushPendingWrites() {
     try {
       saveDoc(userDataDir, campId, doc)
     } catch (err) {
-      console.error(`document save failed for camp ${campId} (SQLite already committed, unaffected):`, err)
+      // A CORRELATION ID, because the recovery can fail too and Red Hat was
+      // right that it fails hardest exactly when it matters most. The motivating
+      // fault is a full disk — and `recordDocumentWriteFailure`/`recordAuditEvent`
+      // are SQLite inserts to the same disk, both deliberately never-throwing. So
+      // under sustained ENOSPC this whole mechanism can degrade to console lines,
+      // which is the pre-fix behaviour. It cannot be fixed by trying harder on
+      // the same disk; what it can have is a tag that ties the three otherwise
+      // unrelated console lines into one incident, and a check below that says
+      // plainly when nothing durable landed rather than implying it did.
+      const incident = `docsave-${campId}-${failureCounter++}`
+      console.error(`[${incident}] document save failed for camp ${campId} (SQLite already committed, unaffected):`, err)
       for (const opId of opIds ?? []) {
         recordDocumentWriteFailure(db, { op_id: opId, entity: 'document', entity_id: campId, field: 'save', error: err })
       }
@@ -298,12 +310,37 @@ export function flushPendingWrites() {
         targetId: campId,
         outcome: 'error',
         reason: String(err?.message ?? err),
-        metadata: { pendingOpCount: opIds?.size ?? 0 },
+        metadata: { pendingOpCount: opIds?.size ?? 0, incident },
       })
+      // Did the durable trace actually land? If the disk is gone, no. Saying so
+      // is the difference between a degraded mechanism and a mechanism that
+      // lies about having worked.
+      if (!documentWriteFailureRecorded(db, opIds)) {
+        console.error(
+          `[${incident}] NOTHING DURABLE WAS RECORDED for this failure — the recovery write failed too ` +
+            `(most likely the same full or unwritable disk). ${opIds?.size ?? 0} write(s) are in SQLite and ` +
+            `not in the document, and this console line is the only trace that exists.`
+        )
+      }
       continue
     }
     const broadcast = broadcastCallbacks.get(db)
-    if (local && broadcast) broadcast(doc)
+    // `broadcast` resolves to syncNode's broadcastLocalDoc, which is async and
+    // is deliberately not awaited (a flush must not block on the network). Both
+    // halves of that need guarding or a failure to PROPAGATE a saved write is
+    // exactly as invisible as a failure to SAVE one used to be: a synchronous
+    // throw would abort this camp's iteration, and a rejection would surface as
+    // an unhandled promise rejection and nothing else.
+    if (local && broadcast) {
+      try {
+        const result = broadcast(doc)
+        if (result && typeof result.catch === 'function') {
+          result.catch((err) => console.error(`document broadcast failed for camp ${campId} (saved locally, peers may be stale):`, err))
+        }
+      } catch (err) {
+        console.error(`document broadcast failed for camp ${campId} (saved locally, peers may be stale):`, err)
+      }
+    }
   }
 }
 

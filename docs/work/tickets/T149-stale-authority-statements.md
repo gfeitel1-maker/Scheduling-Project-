@@ -3,7 +3,7 @@ title: "Comments and UI copy that still name the op-log as the authority"
 document_type: ticket
 status: completed
 created: 2026-09-13
-task_class: documentation
+task_class: documentation-governance
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 archive_when: no comment or user-facing string in the tree describes the op-log, or any single computer, as the source of truth for camp state
 ---
