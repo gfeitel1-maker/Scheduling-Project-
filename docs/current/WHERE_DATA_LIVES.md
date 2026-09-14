@@ -42,6 +42,34 @@ this ("SQLite is demoted from authoritative store to a rebuildable projection").
 
 ---
 
+## "Delete SQLite and rebuild from the document" — the precondition (T151)
+
+The promise is real and is now measured as a system property, not entity by
+entity: `electron/automerge/rebuildFromDocument.test.js` builds a camp through
+the real write paths (an import, parent-scoped children, the bulk-replace
+primitive, a tombstone), seeds a document from it, and projects into a
+**genuinely empty database of the current schema**. Every modeled table comes
+back identical.
+
+It needs one thing the sentence does not say: **the fresh database must already
+hold the `camps` row, with the matching id.** Document replay never creates it —
+`projector.js` says so — and the projection guard rejects every `camp_id` write
+whose value does not match this device's camp. Against a truly empty database
+the rebuild does not degrade into a partial camp, it fails outright, which is
+the better of the two behaviours and is pinned by its own test.
+
+So the operation is: *bootstrap the camps row with the right id, then project.*
+In production that row comes from `bootstrapCamp` or the join flow. **No code
+path performs the full sequence today** — it is a recovery procedure a human
+runs, not a feature.
+
+**What a rebuild does not bring back:** the `operations` table is this device's
+own history ledger and is not in the document (`historyLedger.js`). Trash,
+Restore's prior values, and ingest-undo are lost. Per-field provenance and
+authorship do survive — those live in the document.
+
+---
+
 ## The lookup table
 
 Counts below are computed from a fresh database, not remembered:

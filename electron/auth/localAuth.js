@@ -14,6 +14,61 @@ import { recordAuditEvent } from '../audit/auditLog.js'
 
 const SCRYPT_KEYLEN = 64
 
+// PIN HASHING COST, AND WHAT IT DOES AND DOES NOT BUY (T150).
+//
+// `users.pin_hash`/`pin_salt` are modeled document fields: they replicate to
+// every approved device and sit in a plaintext `.automerge` file on each one.
+// That is deliberate — offline login has to work on a device that cannot reach
+// anyone — but it means the hash is available to anyone holding the file.
+//
+// Be honest about what raising this cost achieves. The PIN is four digits: ten
+// thousand candidates. No KDF parameter makes that space safe; at any cost a
+// determined attacker with the file recovers every PIN eventually. What the
+// cost DOES do is turn a few minutes of work into a few hours, which is worth
+// having and is nearly free (one ~400ms hash at login, not per keystroke).
+//
+// What actually bounds this risk is the trust model (SECURITY.md): whoever has
+// the document already has the camp's data, because the document IS the data.
+// Cracking a PIN buys impersonation — authorship, and staff -> admin role
+// escalation — not access. That is the exposure to weigh, and it is why the
+// open question this leaves is PIN LENGTH and role separation, not scrypt.
+//
+// N is the memory/CPU cost parameter; 2^16 needs 128*r*N = 64MB, which exceeds
+// Node's 32MB default maxmem, so maxmem must be raised with it or scryptSync
+// throws.
+const SCRYPT_PARAMS = { N: 65536, r: 8, p: 1, maxmem: 96 * 1024 * 1024 }
+
+// Hashes produced before T150 are bare hex at Node's DEFAULT scrypt cost, with
+// nothing recorded about the parameters used. New ones are self-describing, so
+// the cost can be raised again later without a second flag day: the parameters
+// travel with the hash.
+const SCRYPT_PREFIX = 'scrypt'
+
+function formatHash(params, hex) {
+  return `${SCRYPT_PREFIX}$N=${params.N},r=${params.r},p=${params.p}$${hex}`
+}
+
+// Returns {params, hex} for either format. A stored value with no prefix is a
+// legacy hash and must be verified at the OLD (Node default) cost, or every
+// existing login breaks.
+function parseStoredHash(stored) {
+  if (typeof stored !== 'string' || !stored.startsWith(`${SCRYPT_PREFIX}$`)) {
+    return { params: null, hex: stored }
+  }
+  const [, paramPart, hex] = stored.split('$')
+  const params = {}
+  for (const pair of paramPart.split(',')) {
+    const [k, v] = pair.split('=')
+    params[k] = Number(v)
+  }
+  if (!Number.isInteger(params.N) || !Number.isInteger(params.r) || !Number.isInteger(params.p)) {
+    return null
+  }
+  // maxmem is not stored: it is a ceiling on this process, not part of the
+  // hash. It must be large enough for whatever N the stored hash used.
+  return { params: { ...params, maxmem: Math.max(SCRYPT_PARAMS.maxmem, 256 * params.r * params.N) }, hex }
+}
+
 const LOGIN_MAX_ATTEMPTS = 5
 const LOGIN_LOCKOUT_MS = 30_000
 
@@ -24,7 +79,7 @@ const LOGIN_LOCKOUT_MS = 30_000
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000
 
 function hashPin(pin, salt) {
-  return scryptSync(pin, salt, SCRYPT_KEYLEN).toString('hex')
+  return formatHash(SCRYPT_PARAMS, scryptSync(pin, salt, SCRYPT_KEYLEN, SCRYPT_PARAMS).toString('hex'))
 }
 
 function assertValidPin(pin) {
@@ -70,8 +125,15 @@ export function verifyPin(db, userId, pin) {
   assertValidPin(pin)
   const row = db.prepare('SELECT pin_hash, pin_salt FROM users WHERE id = ?').get(userId)
   if (!row) return false
-  const candidate = Buffer.from(hashPin(pin, row.pin_salt), 'hex')
-  const stored = Buffer.from(row.pin_hash, 'hex')
+  // Verify at whatever cost this hash was PRODUCED at, not the current one —
+  // a legacy hash carries no parameters and means Node's defaults.
+  const parsed = parseStoredHash(row.pin_hash)
+  if (!parsed) return false
+  const candidateHex = parsed.params
+    ? scryptSync(pin, row.pin_salt, SCRYPT_KEYLEN, parsed.params).toString('hex')
+    : scryptSync(pin, row.pin_salt, SCRYPT_KEYLEN).toString('hex')
+  const candidate = Buffer.from(candidateHex, 'hex')
+  const stored = Buffer.from(parsed.hex, 'hex')
   if (candidate.length !== stored.length) return false
   return timingSafeEqual(candidate, stored)
 }

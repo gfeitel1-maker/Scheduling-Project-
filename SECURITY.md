@@ -150,6 +150,45 @@ valid over the network by design (rejected outright with 4402, revoked or not), 
 that never reconnects to the Host still has no way to learn of a remote revocation until it
 does.
 
+### PIN hashes replicate, and a four-digit PIN is small (T150)
+
+`users.pin_hash` and `users.pin_salt` are modeled document fields: they replicate to every approved
+device and sit in a plaintext `.automerge` file on each one. That is deliberate — a device that
+cannot reach anyone still has to be able to log its staff in — and it is not equivalent to
+replicating plaintext credentials. But it does mean the hash is available to anyone holding the
+file, and the PIN it protects is four numeric digits: ten thousand candidates.
+
+The hygiene is sound: a unique 16-byte salt per user, `timingSafeEqual` comparison, plaintext PINs
+never persisted anywhere, and a 5-attempt / 30-second lockout. The lockout defends the **online**
+path only; it does nothing against someone working offline against the file.
+
+The scrypt cost was raised in T150 (N=2^16, from Node's 2^14 default) and hashes are now
+self-describing, so the cost can be raised again without a flag day. Be clear about what that buys:
+it turns a few minutes of offline work into a few hours. **No KDF parameter makes a four-digit PIN
+safe.**
+
+What bounds the risk is the trust model, not the KDF. Whoever has the document already has the
+camp's data, because the document *is* the data. Cracking a PIN buys **impersonation** — authorship,
+and `staff` -> `admin` role escalation, which matters more given the section below — not access. The
+open questions this leaves are PIN length and role separation. Both are product decisions.
+
+### A camp token is a bearer credential (T155)
+
+`evaluateAuthenticate` binds a token to the `device_id` carried **inside** the token. Nothing binds
+it to the libp2p peer id presenting it, so a valid token replayed from a different machine is
+admitted. Measured, not assumed: `electron/sync/automerge/syncNodeAuthGate.test.js` pins both this
+and its counterweight — revocation is re-checked on every authenticate, so a replayed token stops
+working the moment the device it names is revoked.
+
+`devices.libp2p_peer_id` cannot close this as it stands: libp2p generates a fresh peer id on every
+process start, which is exactly why that column is documented as a routing convenience and never a
+trust signal. Binding a token to a peer would reject every ordinary reconnect. Closing it properly
+means persisting a libp2p identity per device and binding tokens to it — a design decision with its
+own key-management consequences.
+
+Obtaining the token in the first place means reaching a paired device's storage, and anyone who can
+do that already has the camp document.
+
 ### Role enforcement is device-side under CRDT sync
 
 **Accepted tradeoff, decided by the product owner on 2026-09-08** ("accept it and record it"), after
