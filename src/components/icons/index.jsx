@@ -262,7 +262,7 @@ export function GearIcon({ size = 14, style, ...rest }) {
   )
 }
 
-// Star — "this computer is the source of truth" on the mode-select card.
+// Star — "this computer starts the camp" on the mode-select card.
 export function StarIcon({ size = 18, style, ...rest }) {
   return (
     <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"

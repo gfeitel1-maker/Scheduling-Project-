@@ -409,9 +409,18 @@ export function appendBulkReplaceOp(db, { entity, scope_id, rows, author_user_id
   if (isOpLogEngine()) return op
 
   try {
-    recordLocalBulkReplace(db, { entity, scope_id, rows: sanitizedRows })
+    // `op_id` is carried so a failed save at the end of the debounce window can
+    // name the op that was lost (liveDoc.js's flushPendingWrites) — the same
+    // thing appendOp's recordLocalWrite has always passed.
+    recordLocalBulkReplace(db, { entity, scope_id, rows: sanitizedRows, op_id: op.id })
   } catch (err) {
+    // Durable, not just a console line — same reasoning as appendOp's own
+    // dual-write catch above. This was the ONE write primitive whose document
+    // failure left no record at all, and it is the highest-volume write the app
+    // makes (a whole schedule regenerate is one bulk_replace), so it was also
+    // the most consequential one to lose silently.
     console.error('automerge bulk-replace dual-write failed (op-log write already committed, unaffected):', err)
+    recordDocumentWriteFailure(db, { op_id: op.id, entity, entity_id: scope_id, field: BULK_REPLACE_FIELD, error: err })
   }
 
   return op

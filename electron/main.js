@@ -2401,8 +2401,8 @@ if (isElectronEntryPoint()) {
 
       // Stage 5f: NO initial projection here (removed — was `projectAutomergeDoc(db, doc)`, see
       // docs/work/plans/2026-09-06-stage5-live-wiring-design.md §5's revision). At startup, SQLite
-      // is ALREADY correct: it was built by the op-log (the authoritative record regardless of
-      // this flag) and, for any camp that has already run a session with this flag on, by prior
+      // is ALREADY correct: it was built by this device's own committed writes (appendOp writes
+      // SQLite and the document together) and, for any camp that has already synced, by prior
       // remote-merge projections that already landed via syncNode.handleReceived. Projecting `doc`
       // over an already-correct SQLite can only ever be a no-op (doc and SQLite agree) or
       // destructive (delete-reconcile removes a row SQLite has that `doc` is missing — exactly the
@@ -2446,6 +2446,28 @@ if (isElectronEntryPoint()) {
         // Only consulted for a first-join pairing_request; an already-paired
         // device reconnecting never carries a join nonce and is unaffected.
         isJoinWindowOpen: () => liveHandlers?.isJoinWindowOpen?.() ?? false,
+        // A merged document that will not project leaves SQLite silently BEHIND
+        // the authoritative document — the exact mirror of a document write that
+        // fails after SQLite committed, and until now the only one of the pair
+        // with no durable trace: syncNode logs it and calls this, and nothing was
+        // ever wired to it (it existed only in syncNode.test.js). The doc stays
+        // as CRDT truth and sync continues, by design; what was missing was any
+        // way to find out afterwards that this device's tables are not what the
+        // camp agreed on. `projection_failures` cannot hold it — its primary key
+        // is an op id and a merge has no op — so it goes to the device's own
+        // durable event log, which is where support reads from.
+        onProjectionError: (err, _mergedDoc, fromPeerId) => {
+          recordAuditEvent(db, {
+            actorUserId: null,
+            deviceId: null,
+            action: 'automerge.projection_failed',
+            targetType: 'document',
+            targetId: campId,
+            outcome: 'error',
+            reason: String(err?.message ?? err),
+            metadata: { fromPeerId: fromPeerId ?? null },
+          })
+        },
         onAuthRejected: (peerId, reply) => {
           console.error(`automerge sync: peer ${peerId} rejected our authenticate: ${JSON.stringify(reply)}`)
           recordAuditEvent(db, {

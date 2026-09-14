@@ -19,6 +19,8 @@ import {
 import { docPath, loadDoc } from '../sync/automerge/docStore.js'
 import { projectAll } from '../automerge/projector.js'
 import { MODELED_ENTITIES, readRecord } from '../automerge/campDocument.js'
+import { setUserDataDirGetter, resetForTests as resetLiveDocForTests } from '../sync/automerge/liveDoc.js'
+import { listDocumentWriteFailures } from './documentWriteFailures.js'
 
 let tmpFile
 let db
@@ -1263,5 +1265,30 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
     expect(db.prepare('SELECT name FROM groups WHERE id = ?').get('g1').name).toBe('Bunk A')
 
     vi.doUnmock('../sync/automerge/docStore.js')
+  })
+})
+
+// A bulk_replace is the highest-volume write this app makes — one op carries a
+// whole regenerated schedule. Its document dual-write was the only primitive
+// whose failure was a console line and nothing else.
+describe('appendBulkReplaceOp — a failed document write is recorded, not just logged', () => {
+  it('records a store=document failure naming the bulk_replace op', () => {
+    const blocker = path.join(os.tmpdir(), `shoresh-bulk-blocker-${Date.now()}-${Math.random()}`)
+    fs.writeFileSync(blocker, 'not a directory')
+    setUserDataDirGetter(() => blocker)
+    try {
+      const op = appendBulkReplaceOp(db, {
+        entity: 'template_slots',
+        scope_id: 'tpl-1',
+        rows: [],
+        device_id: 'device-1',
+      })
+      const failures = listDocumentWriteFailures(db)
+      expect(failures.map((f) => f.op_id)).toContain(op.id)
+      expect(failures[0].entity).toBe('template_slots')
+    } finally {
+      resetLiveDocForTests()
+      fs.rmSync(blocker, { force: true })
+    }
   })
 })

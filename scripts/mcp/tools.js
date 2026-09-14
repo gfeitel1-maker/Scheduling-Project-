@@ -210,10 +210,28 @@ export function exportScheduleTool(args, { dbPath }) {
 //
 // Omitting the second here would have left them recorded where nothing can read
 // them — a durable trace is only worth having if something surfaces it.
+//   syncHealthEvents  — a merged document that would not project into SQLite, or
+//                       a document save that failed on disk. Neither has an op id
+//                       (a merge has no op; a failed save loses the window), so
+//                       they are recorded in the device's audit log instead. They
+//                       mean SQLite is BEHIND the document, or the document file
+//                       is behind memory — both invisible without this.
 export function checkProjectionHealthTool(_args, { dbPath }) {
   const db = openLocalDb(dbPath)
   try {
-    return { ok: true, ...checkProjectionHealth(db), documentFailures: listDocumentWriteFailures(db) }
+    const syncHealthEvents = db
+      .prepare(
+        `SELECT action, occurred_at, reason, metadata FROM audit_events
+         WHERE action IN ('automerge.projection_failed', 'sync.document_save_failed')
+         ORDER BY occurred_at DESC LIMIT 50`
+      )
+      .all()
+    return {
+      ok: true,
+      ...checkProjectionHealth(db),
+      documentFailures: listDocumentWriteFailures(db),
+      syncHealthEvents,
+    }
   } finally {
     db.close()
   }
