@@ -56,3 +56,11 @@ supposed to have prevented.
 
 Not chosen here. What this ticket records is that the stance now rests on an
 assumption that stopped being true when sync stopped being mediated by a Host.
+
+## Recommendation (2026-09-14), for the owner's decision
+
+**Option 1 — derive `OVERLAP` on both routes.** A director reading a warning does
+not care which route drew it, and the manual route already computes exactly this
+from the same rendered slots. Option 2 is a substantially larger job: it has to
+reconcile fresh engine output against hand edits without undoing them. Confidence
+high. See `docs/work/architecture-reports/2026-09-14-open-decisions-brief.md`.

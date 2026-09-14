@@ -1,11 +1,11 @@
 ---
 title: "ADR: The camp game talks to Shoresh through a boring explicit contract, never through its data"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
 implementation_state: not_started
 date: 2026-09-13
-decided:
+decided: 2026-09-14
 deciders: [product-owner]
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_tickets: []
@@ -13,10 +13,14 @@ related_tickets: []
 
 # ADR: The camp game talks to Shoresh through a boring explicit contract, never through its data
 
-**Status: proposed. This authorizes no work.** It exists because the cheapest
-moment to fix an architectural boundary is before anything crosses it, and the
-game (`~/dev/gesher-mapworld`, see the Camp Map Phaser World memory) is a
-separate project that has not yet been connected.
+**Accepted by the product owner, 2026-09-14.** It still authorizes no
+implementation work — `implementation_state` stays `not_started` — but the
+boundary below is now normative: when the game integration is built, it is built
+this way, and a design that crosses one of these lines needs a superseding ADR
+rather than a judgement call in a pull request.
+
+It was written before anything was connected because that is the cheapest moment
+to fix a boundary. The game (`~/dev/gesher-mapworld`) is a separate project.
 
 ## Context
 
