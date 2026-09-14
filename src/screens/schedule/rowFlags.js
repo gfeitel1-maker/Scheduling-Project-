@@ -17,7 +17,7 @@ export function rowFlagKind(geometry, cells, blockId) {
     if (!flags) continue
     if (flags.UNFILLABLE && !flags.UNFILLABLE_dismissed) return 'unfillable'
     // OVERLAP (over capacity) and WEEK_CLOSED (marked not to run this week) are
-    // both manual-route advisories a folded row must not swallow.
+    // both advisories a folded row must not swallow. Both derive on both routes.
     if (flags.OVERLAP || flags.WEEK_CLOSED) advisory = true
   }
   return advisory ? 'advisory' : null

@@ -56,6 +56,7 @@ export const localClient = {
   chooseMode: (args) => shoresh.chooseMode(args),
   login: (name, pin) => shoresh.login({ name, pin }),
   createUser: (args) => shoresh.createUser(args),
+  promoteToAdmin: (args) => shoresh.promoteToAdmin(args),
   bootstrapCamp: (args) => shoresh.bootstrapCamp(args),
   write: announcing((token, entity, entity_id, field, value, parent_op_id) =>
     shoresh.write({ token, entity, entity_id, field, value, ...(parent_op_id ? { parent_op_id } : {}) })),

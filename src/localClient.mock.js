@@ -462,6 +462,23 @@ export const mockShoresh = {
     saveState(state)
     return { id: user.id, name, role }
   },
+  // T163 — hand-transcribed mirror of electron/ops/promoteToAdmin.js's rule
+  // (admin PINs need 6+ digits), so a dev-mode `npm run dev` session sees the
+  // same refusal a real Electron session would rather than silently
+  // succeeding. See that file for why this must reset the PIN, not just the
+  // role.
+  async promoteToAdmin({ userId, newPin } = {}) {
+    if (typeof newPin !== 'string' || !/^\d{6,32}$/.test(newPin)) {
+      throw new Error('PIN must be at least 6 digits for this role')
+    }
+    const state = loadState()
+    const user = state.users.find((u) => u.id === userId)
+    if (!user) throw new Error('user not found')
+    user.role = 'admin'
+    user.pin = newPin
+    saveState(state)
+    return { userId, role: 'admin' }
+  },
   async bootstrapCamp({ campName, adminName, adminPin }) {
     const state = loadState()
     state.camp = { id: randomId(), name: campName }

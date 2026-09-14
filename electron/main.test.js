@@ -363,9 +363,9 @@ describe('login: lockout persists across a simulated app restart (Round 2 Fix 2)
 
 describe('shoresh:verify-session handler (Round 2 Fix 3)', () => {
   it('returns valid:true with userId/role for a valid session token', async () => {
-    const { user } = await seedCampAndUser({ name: 'Ivan', pin: '7777', role: 'admin' })
+    const { user } = await seedCampAndUser({ name: 'Ivan', pin: '777700', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    const { token } = await handlers.login({ name: 'Ivan', pin: '7777' })
+    const { token } = await handlers.login({ name: 'Ivan', pin: '777700' })
 
     const result = handlers.verifySession({ token })
     expect(result).toEqual({ valid: true, userId: user.id, role: 'admin' })
@@ -387,7 +387,7 @@ describe('bootstrapCamp (Fix A)', () => {
   it('creates the first camp and admin user when no camps exist yet', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
-    const result = await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
+    const result = await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '999999' })
 
     expect(result.campId).toEqual(expect.any(String))
     expect(result.userId).toEqual(expect.any(String))
@@ -399,11 +399,23 @@ describe('bootstrapCamp (Fix A)', () => {
   it('refuses to run again once a camp already exists', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
-    await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
+    await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '999999' })
 
     await expect(
-      handlers.bootstrapCamp({ campName: 'Camp Two', adminName: 'Root2', adminPin: '8888' })
+      handlers.bootstrapCamp({ campName: 'Camp Two', adminName: 'Root2', adminPin: '888888' })
     ).rejects.toThrow('camp already exists')
+  })
+
+  // T163: bootstrapCamp hardcodes role: 'admin' for the very first user — it
+  // must reach the same assertValidPin chokepoint as createUserHandler, not
+  // a separate/weaker check.
+  it('rejects a 4-digit admin PIN (T163 — director PINs need 6+ digits)', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
+
+    await expect(
+      handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '1234' })
+    ).rejects.toThrow(/at least 6 digits/)
   })
 })
 
@@ -411,7 +423,7 @@ describe('bootstrapCamp: device trust (docs/adr/2026-07-25-device-trust-revocati
   it('generates a host_signing_key, sets camps.signing_public_key, and authorizes the bootstrapping device — a write() right after bootstrap succeeds without device_not_authorized', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
-    const result = await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
+    const result = await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '999999' })
 
     const keyRow = db.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()
     expect(keyRow).toBeTruthy()
@@ -427,7 +439,7 @@ describe('bootstrapCamp: device trust (docs/adr/2026-07-25-device-trust-revocati
 
     // The actual behavior this all exists for: an ordinary write right after
     // bootstrap must not be denied as 'device_not_authorized'.
-    const { token } = await handlers.login({ name: 'Root', pin: '9999' })
+    const { token } = await handlers.login({ name: 'Root', pin: '999999' })
     await expect(
       handlers.write({ token, entity: 'cohorts', entity_id: 'c1', field: 'name', value: 'Main' })
     ).resolves.toBeTruthy()
@@ -439,7 +451,7 @@ describe('bootstrapCamp: device trust (docs/adr/2026-07-25-device-trust-revocati
 
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
-    await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
+    await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '999999' })
 
     const rows = db.prepare('SELECT * FROM host_signing_key').all()
     expect(rows).toHaveLength(1)
@@ -460,7 +472,7 @@ describe('createUser handler (Fix A: admin-gated)', () => {
     db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Shoresh', 'a'.repeat(64))
     const handlers = makeHandlers(db, deviceId, {})
     await expect(
-      handlers.createUser({ camp_id: campId, name: 'Mallory', pin: '1234', role: 'admin' })
+      handlers.createUser({ camp_id: campId, name: 'Mallory', pin: '123400', role: 'admin' })
     ).rejects.toThrow('token is required')
   })
 
@@ -470,14 +482,14 @@ describe('createUser handler (Fix A: admin-gated)', () => {
     const { token } = await handlers.login({ name: 'StaffPerson', pin: '1234' })
 
     await expect(
-      handlers.createUser({ token, camp_id: campId, name: 'Mallory', pin: '1234', role: 'admin' })
+      handlers.createUser({ token, camp_id: campId, name: 'Mallory', pin: '123400', role: 'admin' })
     ).rejects.toThrow('admin role required')
   })
 
   it('validates required fields once an admin session is presented', async () => {
-    const { campId } = await seedCampAndUser({ name: 'AdminPerson', pin: '1234', role: 'admin' })
+    const { campId } = await seedCampAndUser({ name: 'AdminPerson', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    const { token } = await handlers.login({ name: 'AdminPerson', pin: '1234' })
+    const { token } = await handlers.login({ name: 'AdminPerson', pin: '123400' })
 
     await expect(handlers.createUser({ token, name: 'Bob', pin: '1234', role: 'staff' })).rejects.toThrow()
     await expect(
@@ -486,20 +498,20 @@ describe('createUser handler (Fix A: admin-gated)', () => {
   })
 
   it('creates a user when an admin session and all fields are valid', async () => {
-    const { campId } = await seedCampAndUser({ name: 'AdminPerson2', pin: '1234', role: 'admin' })
+    const { campId } = await seedCampAndUser({ name: 'AdminPerson2', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
-    const { token } = await handlers.login({ name: 'AdminPerson2', pin: '1234' })
+    const { token } = await handlers.login({ name: 'AdminPerson2', pin: '123400' })
 
     const created = await handlers.createUser({ token, camp_id: campId, name: 'Bob', pin: '1234', role: 'staff' })
     expect(created.name).toBe('Bob')
   })
 
   it('propagates a clear rejection through the IPC handler when the syncClient write resolves a non-applied status', async () => {
-    const { campId } = await seedCampAndUser({ name: 'AdminPerson3', pin: '1234', role: 'admin' })
+    const { campId } = await seedCampAndUser({ name: 'AdminPerson3', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
-    const { token } = await handlers.login({ name: 'AdminPerson3', pin: '1234' })
+    const { token } = await handlers.login({ name: 'AdminPerson3', pin: '123400' })
 
     lastCreatedSyncClient.write.mockImplementationOnce(async () => ({ status: 'disconnected' }))
 
@@ -566,10 +578,10 @@ describe('write handler', () => {
     })
 
     it('allows a delete write from an admin session', async () => {
-      await seedCampAndUser({ name: 'AdminDeleter', pin: '2468', role: 'admin' })
+      await seedCampAndUser({ name: 'AdminDeleter', pin: '246800', role: 'admin' })
       const handlers = makeHandlers(db, deviceId, {})
       await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-      const { token } = await handlers.login({ name: 'AdminDeleter', pin: '2468' })
+      const { token } = await handlers.login({ name: 'AdminDeleter', pin: '246800' })
 
       await handlers.write({ token, entity: 'cohorts', entity_id: 'some-cohort', field: '__deleted__', value: 1 })
 
@@ -622,10 +634,10 @@ describe('bulkReplace handler', () => {
   })
 
   it('delegates to syncClient.writeBulkReplace for an admin session', async () => {
-    const { user } = await seedCampAndUser({ name: 'AdminBulk', pin: '2222', role: 'admin' })
+    const { user } = await seedCampAndUser({ name: 'AdminBulk', pin: '222200', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token } = await handlers.login({ name: 'AdminBulk', pin: '2222' })
+    const { token } = await handlers.login({ name: 'AdminBulk', pin: '222200' })
 
     const rows = [{ id: 'slot-1', template_id: 't1' }]
     await handlers.bulkReplace({ token, entity: 'template_slots', scope_id: 't1', rows })
@@ -636,9 +648,9 @@ describe('bulkReplace handler', () => {
   })
 
   it('rejects with a clear error when no syncClient exists yet', async () => {
-    await seedCampAndUser({ name: 'NoSync', pin: '3333', role: 'admin' })
+    await seedCampAndUser({ name: 'NoSync', pin: '333300', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    const { token } = await handlers.login({ name: 'NoSync', pin: '3333' })
+    const { token } = await handlers.login({ name: 'NoSync', pin: '333300' })
 
     expect(() =>
       handlers.bulkReplace({ token, entity: 'template_slots', scope_id: 't1', rows: [] })
@@ -661,10 +673,10 @@ describe('camps.rename authorization (admin-only, distinct from ordinary write)'
   })
 
   it('allows a camps.name write from an admin session', async () => {
-    await seedCampAndUser({ name: 'AdminRenamer', pin: '1122', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminRenamer', pin: '112200', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token } = await handlers.login({ name: 'AdminRenamer', pin: '1122' })
+    const { token } = await handlers.login({ name: 'AdminRenamer', pin: '112200' })
 
     const campId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
     await handlers.write({ token, entity: 'camps', entity_id: campId, field: 'name', value: 'New Name' })
@@ -683,10 +695,10 @@ describe('camps.rename authorization (admin-only, distinct from ordinary write)'
 // anything cached on the token/session.
 describe('role-change-takes-effect (IPC path, same token reused)', () => {
   it('an admin token is denied for users.create (shoresh:create-user) after being demoted to staff mid-session', async () => {
-    const { campId, user } = await seedCampAndUser({ name: 'DemotedAdmin', pin: '9090', role: 'admin' })
+    const { campId, user } = await seedCampAndUser({ name: 'DemotedAdmin', pin: '909000', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token } = await handlers.login({ name: 'DemotedAdmin', pin: '9090' })
+    const { token } = await handlers.login({ name: 'DemotedAdmin', pin: '909000' })
 
     // Confirm the token starts out genuinely admin-capable.
     await expect(
@@ -801,9 +813,9 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     const campId = randomUUID()
     db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Sweep Camp', 'c'.repeat(64))
     await createUser(db, { camp_id: campId, name: staffName, pin: '1234', role: 'staff' }, localTestWrite())
-    await createUser(db, { camp_id: campId, name: adminName, pin: '1234', role: 'admin' }, localTestWrite())
+    await createUser(db, { camp_id: campId, name: adminName, pin: '123400', role: 'admin' }, localTestWrite())
     const { token: staffToken } = await handlers.login({ name: staffName, pin: '1234' })
-    const { token: adminToken } = await handlers.login({ name: adminName, pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: adminName, pin: '123400' })
     return { staffToken, adminToken }
   }
 
@@ -1411,10 +1423,10 @@ describe('resolveConflict — a CRDT conflict, which has no losing op row', () =
   // validating `chosen_op_id` against `operations` refused the very choice the
   // director was being asked to make — with "chosen operation not found".
   it('accepts a choice whose value exists only in the conflicts row', async () => {
-    await seedCampAndUser({ name: 'DirectorC', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'DirectorC', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token } = await handlers.login({ name: 'DirectorC', pin: '1234' })
+    const { token } = await handlers.login({ name: 'DirectorC', pin: '123400' })
 
     // Give the field a record to belong to, then record a CRDT conflict the way
     // the reconciler does: two competing VALUES, no losing op row anywhere.
@@ -1442,10 +1454,10 @@ describe('resolveConflict — a CRDT conflict, which has no losing op row', () =
   })
 
   it('refuses a side that is not in the conflict', async () => {
-    await seedCampAndUser({ name: 'DirectorD', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'DirectorD', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token } = await handlers.login({ name: 'DirectorD', pin: '1234' })
+    const { token } = await handlers.login({ name: 'DirectorD', pin: '123400' })
     await handlers.write({
       token, entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swimming',
     })
@@ -1508,10 +1520,10 @@ describe('resolveConflict handler (conflicts.resolve, staff+admin)', () => {
   // must stamp source:'import' so the acceptance sticks and future re-imports
   // update quietly; any other resolution stays 'human'.
   it('stale_accept:true stamps source=import on the resolution write; default stays human', async () => {
-    await seedCampAndUser({ name: 'AdminResolver', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminResolver', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token } = await handlers.login({ name: 'AdminResolver', pin: '1234' })
+    const { token } = await handlers.login({ name: 'AdminResolver', pin: '123400' })
 
     // A group whose name was hand-edited (human), plus an op holding the value
     // the director will ACCEPT from the import.
@@ -1561,10 +1573,10 @@ describe('listPendingPairingRequests handler (devices.read, staff+admin)', () =>
   })
 
   it('does not return already-authorized or revoked devices', async () => {
-    await seedCampAndUser({ name: 'AdminLister', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminLister', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token: adminToken } = await handlers.login({ name: 'AdminLister', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminLister', pin: '123400' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('authorized-device', 'Laptop', new Date().toISOString())
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('pending-device-2', 'Phone')
@@ -1582,10 +1594,10 @@ describe('listDevices handler (devices.read, staff+admin)', () => {
   })
 
   it('returns all devices including authorized and pending', async () => {
-    await seedCampAndUser({ name: 'DeviceLister', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'DeviceLister', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token: adminToken } = await handlers.login({ name: 'DeviceLister', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'DeviceLister', pin: '123400' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('ld-pending', 'Tablet')
 
@@ -1596,10 +1608,10 @@ describe('listDevices handler (devices.read, staff+admin)', () => {
   })
 
   it('omits pairing_status=\'unknown\' stub rows (T85 Risk 3a: op-log FK-seed phantoms) while keeping real paired devices', async () => {
-    await seedCampAndUser({ name: 'DeviceLister2', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'DeviceLister2', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token: adminToken } = await handlers.login({ name: 'DeviceLister2', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'DeviceLister2', pin: '123400' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('ld-real-paired', 'Real Laptop', new Date().toISOString())
     // Same shape the op-log FK stub-seed leaves behind for a device this one
@@ -1630,10 +1642,10 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
   })
 
   it('authorizes a pending device for an admin caller, minting device_secret_identifier', async () => {
-    await seedCampAndUser({ name: 'AdminApprover', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminApprover', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token: adminToken } = await handlers.login({ name: 'AdminApprover', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminApprover', pin: '123400' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-2', 'Laptop')
 
@@ -1647,10 +1659,10 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
   })
 
   it('rejects a nonexistent deviceId', async () => {
-    await seedCampAndUser({ name: 'AdminApprover2', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminApprover2', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token: adminToken } = await handlers.login({ name: 'AdminApprover2', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminApprover2', pin: '123400' })
 
     expect(() => handlers.approveDevice({ token: adminToken, deviceId: 'does-not-exist' })).toThrow('device not found')
   })
@@ -1659,9 +1671,9 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
   // `devices` table (same shape as ingestCommit/confirmAlias); on a Client
   // that write can never reach the Host, so it must refuse outright.
   it('refuses on a device in Client mode, and writes nothing', async () => {
-    await seedCampAndUser({ name: 'AdminApproverClient', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminApproverClient', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    const { token: adminToken } = await handlers.login({ name: 'AdminApproverClient', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminApproverClient', pin: '123400' })
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-client', 'iPad')
     await handlers.chooseMode({ mode: 'client' })
 
@@ -1690,10 +1702,10 @@ describe('denyDevice handler (devices.approve, admin-only)', () => {
   })
 
   it('returns denied=true for an admin caller', async () => {
-    await seedCampAndUser({ name: 'AdminDenier', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminDenier', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token: adminToken } = await handlers.login({ name: 'AdminDenier', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminDenier', pin: '123400' })
 
     const result = handlers.denyDevice({ token: adminToken, deviceId: 'deny-target' })
     expect(result).toEqual({ deviceId: 'deny-target', denied: true })
@@ -1701,9 +1713,9 @@ describe('denyDevice handler (devices.approve, admin-only)', () => {
 
   // T86 — same reason as approveDevice's client-mode refusal.
   it('refuses on a device in Client mode, and writes nothing', async () => {
-    await seedCampAndUser({ name: 'AdminDenierClient', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminDenierClient', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    const { token: adminToken } = await handlers.login({ name: 'AdminDenierClient', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminDenierClient', pin: '123400' })
     db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('deny-target-client', 'iPad')
     await handlers.chooseMode({ mode: 'client' })
 
@@ -1733,10 +1745,10 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
   })
 
   it('revokes a device and stamps revoked_at for an admin caller', async () => {
-    await seedCampAndUser({ name: 'AdminRevoker', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminRevoker', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token: adminToken } = await handlers.login({ name: 'AdminRevoker', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminRevoker', pin: '123400' })
 
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('revoke-target-2', 'MacBook', new Date().toISOString())
 
@@ -1750,10 +1762,10 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
   })
 
   it('rejects a nonexistent deviceId', async () => {
-    await seedCampAndUser({ name: 'AdminRevoker2', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminRevoker2', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token: adminToken } = await handlers.login({ name: 'AdminRevoker2', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminRevoker2', pin: '123400' })
 
     expect(() => handlers.revokeDevice({ token: adminToken, deviceId: 'no-such-device' })).toThrow('device not found')
   })
@@ -1762,9 +1774,9 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
   // on a Client soft-bricks that device's own session locally while leaving
   // real Host-enforced trust untouched.
   it('refuses on a device in Client mode, and writes nothing', async () => {
-    await seedCampAndUser({ name: 'AdminRevokerClient', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminRevokerClient', pin: '123400', role: 'admin' })
     const handlers = makeHandlers(db, deviceId, {})
-    const { token: adminToken } = await handlers.login({ name: 'AdminRevokerClient', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminRevokerClient', pin: '123400' })
     db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('revoke-target-client', 'Tablet', new Date().toISOString())
     await handlers.chooseMode({ mode: 'client' })
 
@@ -1786,7 +1798,7 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
   // history — a revoked device that kept syncing was one of the two
   // vulnerabilities this migration found (docs/current/CRDT_SECURITY_GAPS.md).
   it('evicts the revoked device from the libp2p admitted set immediately', async () => {
-    await seedCampAndUser({ name: 'AdminRevokerP2P', pin: '1234', role: 'admin' })
+    await seedCampAndUser({ name: 'AdminRevokerP2P', pin: '123400', role: 'admin' })
     const revokePeer = vi.fn()
     const handlers = makeHandlers(db, deviceId, {
       getAutomergeSyncNode: () => ({
@@ -1794,7 +1806,7 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
       }),
     })
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token: adminToken } = await handlers.login({ name: 'AdminRevokerP2P', pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: 'AdminRevokerP2P', pin: '123400' })
 
     const remoteDeviceId = randomUUID()
     db.prepare(
@@ -1815,8 +1827,8 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
 // docs/work/specs/S-replace-ingest-atomic-transaction.md
 describe('ingestCommit: who may import, and from where', () => {
   async function adminToken(handlers) {
-    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
-    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+    await seedCampAndUser({ name: 'Ruth', pin: '432100', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '432100' })
     return token
   }
 
@@ -1913,8 +1925,8 @@ describe('ingestCommit: placements materialize a version end-to-end (T117 slice 
   it('resolves outcome.version through the Host-local syncClient.write path', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
-    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+    await seedCampAndUser({ name: 'Ruth', pin: '432100', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '432100' })
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
     const weekId = randomUUID()
     db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, 0, 0)').run(weekId, campIdHere, 'Week 1')
@@ -1938,8 +1950,8 @@ describe('ingestCommit: placements materialize a version end-to-end (T117 slice 
   it('returns the catalog outcome unchanged (no thrown error) when placements do not resolve', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
-    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+    await seedCampAndUser({ name: 'Ruth', pin: '432100', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '432100' })
 
     const result = await handlers.ingestCommit({
       token,
@@ -1961,8 +1973,8 @@ describe('ingestCommit: compound-cell decisions (T118 slice 4)', () => {
   it('writes a compound_cell_decisions row and creates only the anchor activity, not the wrapper', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
-    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+    await seedCampAndUser({ name: 'Ruth', pin: '432100', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '432100' })
     const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
 
     const result = await handlers.ingestCommit({
@@ -1990,8 +2002,8 @@ describe('ingestCommit: compound-cell decisions (T118 slice 4)', () => {
   it('does not fail the whole import when one decision write fails (per-item, non-fatal)', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
-    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+    await seedCampAndUser({ name: 'Ruth', pin: '432100', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '432100' })
 
     const result = await handlers.ingestCommit({
       token,
@@ -2011,8 +2023,8 @@ describe('ingestCommit: compound-cell decisions (T118 slice 4)', () => {
 
 describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
   async function adminToken(handlers) {
-    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
-    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+    await seedCampAndUser({ name: 'Ruth', pin: '432100', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '432100' })
     return token
   }
 
@@ -2089,8 +2101,8 @@ describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
 // docs/adr/2026-08-28-persisted-reconciliation-decisions.md §4b.
 describe('listOpenReconciliationDecisions / dismissOpenReconciliationDecisions handlers — host-only, admin-gated', () => {
   async function adminToken(handlers) {
-    await seedCampAndUser({ name: 'RuthORD', pin: '4321', role: 'admin' })
-    const { token } = await handlers.login({ name: 'RuthORD', pin: '4321' })
+    await seedCampAndUser({ name: 'RuthORD', pin: '432100', role: 'admin' })
+    const { token } = await handlers.login({ name: 'RuthORD', pin: '432100' })
     return token
   }
 
@@ -2152,14 +2164,93 @@ describe('the generic write() path refuses source_aliases (S1b)', () => {
   it('throws rather than silently no-opping', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { user } = await seedCampAndUser({ name: 'AdminWriter', pin: '9999', role: 'admin' })
-    const { token } = await handlers.login({ name: 'AdminWriter', pin: '9999' })
+    const { user } = await seedCampAndUser({ name: 'AdminWriter', pin: '999900', role: 'admin' })
+    const { token } = await handlers.login({ name: 'AdminWriter', pin: '999900' })
     void user
 
     await expect(
       handlers.write({ token, entity: 'source_aliases', entity_id: 'a1', field: 'status', value: 'active' })
     ).rejects.toThrow(/source_aliases/)
     expect(db.prepare('SELECT COUNT(*) c FROM source_aliases').get().c).toBe(0)
+  })
+})
+
+// T163 (owner decision 2026-09-14, SECURITY.md T150): a staff -> admin role
+// change must go through promoteToAdmin, never the generic write() path —
+// write() cannot know whether the promoted user's existing PIN meets the
+// admin floor, so it must refuse the field/value combo outright.
+describe('the generic write() path refuses users.role -> admin (T163)', () => {
+  it('throws and names promoteToAdmin, without changing the role', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { campId, user: adminUser } = await seedCampAndUser({ name: 'PromoAdmin', pin: '123456', role: 'admin' })
+    const { token } = await handlers.login({ name: 'PromoAdmin', pin: '123456' })
+    void adminUser
+
+    const staff = await handlers.createUser({ token, camp_id: campId, name: 'PromoStaff', pin: '1234', role: 'staff' })
+
+    // write() is a plain (non-async) function and throws synchronously here
+    // (before ever reaching syncClient.write's Promise), unlike the
+    // source_aliases refusal above which throws inside appendOp deep in an
+    // async chain — so this must be a synchronous toThrow, not .rejects.
+    expect(() =>
+      handlers.write({ token, entity: 'users', entity_id: staff.id, field: 'role', value: 'admin' })
+    ).toThrow(/promoteToAdmin/)
+
+    const row = db.prepare('SELECT role FROM users WHERE id = ?').get(staff.id)
+    expect(row.role).toBe('staff')
+  })
+})
+
+describe('promoteToAdmin handler (T163)', () => {
+  it('rejects without a token', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await expect(handlers.promoteToAdmin({ userId: 'u1', newPin: '123456' })).rejects.toThrow('token is required')
+  })
+
+  it('rejects when called by a staff session (admin-only)', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    await seedCampAndUser({ name: 'PromoStaffCaller', pin: '1234', role: 'staff' })
+    const { token } = await handlers.login({ name: 'PromoStaffCaller', pin: '1234' })
+
+    await expect(
+      handlers.promoteToAdmin({ token, userId: 'someone', newPin: '123456' })
+    ).rejects.toThrow('admin role required')
+  })
+
+  it('rejects without newPin', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { campId } = await seedCampAndUser({ name: 'PromoAdmin2', pin: '123456', role: 'admin' })
+    const { token } = await handlers.login({ name: 'PromoAdmin2', pin: '123456' })
+    const staff = await handlers.createUser({ token, camp_id: campId, name: 'PromoStaff2', pin: '1234', role: 'staff' })
+
+    await expect(handlers.promoteToAdmin({ token, userId: staff.id })).rejects.toThrow(/newPin/)
+
+    const row = db.prepare('SELECT role FROM users WHERE id = ?').get(staff.id)
+    expect(row.role).toBe('staff')
+  })
+
+  it('succeeds with a 6-digit newPin: role and hash both change, and the old PIN no longer verifies', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { campId } = await seedCampAndUser({ name: 'PromoAdmin3', pin: '123456', role: 'admin' })
+    const { token } = await handlers.login({ name: 'PromoAdmin3', pin: '123456' })
+    const staff = await handlers.createUser({ token, camp_id: campId, name: 'PromoStaff3', pin: '1234', role: 'staff' })
+
+    const result = await handlers.promoteToAdmin({ token, userId: staff.id, newPin: '654321' })
+    expect(result).toEqual({ userId: staff.id, role: 'admin' })
+
+    const row = db.prepare('SELECT role FROM users WHERE id = ?').get(staff.id)
+    expect(row.role).toBe('admin')
+
+    const oldPinLogin = await handlers.login({ name: 'PromoStaff3', pin: '1234' })
+    expect(oldPinLogin).toBeNull()
+
+    const newPinLogin = await handlers.login({ name: 'PromoStaff3', pin: '654321' })
+    expect(newPinLogin).toBeTruthy()
+    expect(newPinLogin.role).toBe('admin')
   })
 })
 
@@ -2171,8 +2262,8 @@ describe('mergeLocation handler (locations.delete, admin-only)', () => {
     return token
   }
   async function adminToken(handlers) {
-    await seedCampAndUser({ name: 'AdminMerge', pin: '4321', role: 'admin' })
-    const { token } = await handlers.login({ name: 'AdminMerge', pin: '4321' })
+    await seedCampAndUser({ name: 'AdminMerge', pin: '432100', role: 'admin' })
+    const { token } = await handlers.login({ name: 'AdminMerge', pin: '432100' })
     return token
   }
 

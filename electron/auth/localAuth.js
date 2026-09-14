@@ -149,18 +149,65 @@ const LOGIN_LOCKOUT_MS = 30_000
 // here; a token past this window simply stops verifying.
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000
 
-function hashPin(pin, salt) {
+// Exported for promoteToAdmin (T163), which mints a fresh hash as part of the
+// atomic role change. Reads `activeScryptParams`, not SCRYPT_PARAMS directly
+// (T160) — otherwise every promotion in the test suite would pay the full
+// production cost that T160 exists to avoid, and the two changes would quietly
+// undo each other.
+export function hashPin(pin, salt) {
   return formatHash(activeScryptParams, scryptSync(pin, salt, SCRYPT_KEYLEN, activeScryptParams).toString('hex'))
 }
 
-function assertValidPin(pin) {
-  if (typeof pin !== 'string' || pin.length === 0 || pin.length > 32) {
+const PIN_MAX_LENGTH = 32
+
+// T163 (owner decision 2026-09-14, SECURITY.md T150): a DIRECTOR (role
+// 'admin') PIN must be at least 6 digits; staff keep 4. `users.pin_hash`/
+// `pin_salt` are modeled document fields that replicate in plaintext to
+// every approved device, and a 4-digit PIN is only 10,000 offline guesses —
+// the login lockout (attemptLogin's LOGIN_MAX_ATTEMPTS/LOGIN_LOCKOUT_MS)
+// does not apply to an attacker working offline against the replicated
+// file. ONE constant, not two copies of "6", so the floor can only drift by
+// an explicit edit here.
+const PIN_MIN_LENGTH = { admin: 6, staff: 4 }
+
+// The chokepoint (T163): called from createUser, before any hashing.
+// Renderer validation (CampBootstrapScreen etc.) is a UX affordance only —
+// this is the control. Digits-only is a genuine widening of the original
+// ask (today any non-empty string up to 32 chars passes, so a staff PIN of
+// "a" is currently legal despite the UI promising a numeric keypad); closing
+// that costs nothing extra here and removes a UI/server disagreement.
+export function assertValidPin(pin, role) {
+  if (typeof pin !== 'string' || pin.length === 0 || pin.length > PIN_MAX_LENGTH) {
+    throw new Error('PIN must be a non-empty string of at most 32 characters')
+  }
+  if (!/^\d+$/.test(pin)) {
+    throw new Error('PIN must contain only digits')
+  }
+  const min = PIN_MIN_LENGTH[role] ?? PIN_MIN_LENGTH.staff
+  if (pin.length < min) {
+    throw new Error(`PIN must be at least ${min} digits for this role`)
+  }
+}
+
+// The login-time shape check used by verifyPin — deliberately NOT
+// assertValidPin. Per the owner's decision (T163, no grandfather path, no
+// login-time refusal — there is no live camp data and the standing
+// preference is a clean cutover, not a migration), an EXISTING admin's
+// already-stored 4-digit PIN must keep logging in; enforcing the new
+// digit/length rule here would refuse it. This stays only a basic sanity
+// check so a garbage argument fails fast instead of reaching scryptSync.
+// (Were there live camps, the right compromise would be a flagged-not-
+// blocked login nudge rather than a refusal — that answer does not apply
+// yet, but a future maintainer re-adding grandfathering should know this is
+// why.)
+function assertPinShape(pin) {
+  if (typeof pin !== 'string' || pin.length === 0 || pin.length > PIN_MAX_LENGTH) {
     throw new Error('PIN must be a non-empty string of at most 32 characters')
   }
 }
 
 export async function createUser(db, { camp_id, name, pin, role }, write) {
-  assertValidPin(pin)
+  assertValidPin(pin, role)
 
   const existing = db.prepare('SELECT id FROM users WHERE camp_id = ? AND name = ?').get(camp_id, name)
   if (existing) {
@@ -193,7 +240,7 @@ export async function createUser(db, { camp_id, name, pin, role }, write) {
 }
 
 export function verifyPin(db, userId, pin) {
-  assertValidPin(pin)
+  assertPinShape(pin)
   const row = db.prepare('SELECT pin_hash, pin_salt FROM users WHERE id = ?').get(userId)
   if (!row) return false
   // Verify at whatever cost this hash was PRODUCED at, not the current one —

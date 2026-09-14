@@ -68,8 +68,7 @@ describe('grid legend', () => {
 // The routes share a flag VOCABULARY, not an identical flag SET. A director
 // learns "Overlapping" once and it means the same thing wherever it appears —
 // but "Unfillable" must never appear on the manual grid, where an empty cell
-// is simply not filled yet, and "Overlapping" must not appear on the
-// generated grid, where the engine never makes a clashing placement.
+// is simply not filled yet. It is now the ONLY route-specific entry (T159).
 describe('route-aware legend', () => {
   it('omits Unfillable on the manual route', () => {
     const labels = legendEntriesFor('manual').map(e => e.label)
@@ -77,18 +76,32 @@ describe('route-aware legend', () => {
     expect(labels).toContain('Overlapping')
   })
 
-  it('omits Overlapping on the generated route', () => {
+  it('documents Overlapping on the GENERATED route too (T159)', () => {
+    // It was omitted here until T159, on the reasoning that the engine refuses
+    // to make a clashing placement. Still true of generation; no longer true of
+    // the route — two directors editing offline can each move a group into the
+    // same place and the merge produces a clash nobody generated. A mark on the
+    // grid must never go undocumented, so the legend follows.
     const labels = legendEntriesFor('generated').map(e => e.label)
     expect(labels).toContain('Unfillable')
-    expect(labels).not.toContain('Overlapping')
+    expect(labels).toContain('Overlapping')
   })
 
-  it('documents "Closed this week" on BOTH routes (WEEK_CLOSED is route-agnostic)', () => {
-    // A closed-week placement is equally wrong on either route, so the marker —
-    // and its legend entry — appears on both, unlike the route-specific
-    // Unfillable / Overlapping pair.
-    expect(legendEntriesFor('manual').map(e => e.label)).toContain('Closed this week')
-    expect(legendEntriesFor('generated').map(e => e.label)).toContain('Closed this week')
+  it('documents "Closed this week" and "Overlapping" on BOTH routes (both derive route-agnostically)', () => {
+    for (const route of ['manual', 'generated']) {
+      const labels = legendEntriesFor(route).map(e => e.label)
+      expect(labels, route).toContain('Closed this week')
+      expect(labels, route).toContain('Overlapping')
+    }
+  })
+
+  it('Unfillable is the only route-specific entry left', () => {
+    const manual = new Set(legendEntriesFor('manual').map(e => e.label))
+    const generated = new Set(legendEntriesFor('generated').map(e => e.label))
+    const onlyGenerated = [...generated].filter(l => !manual.has(l))
+    const onlyManual = [...manual].filter(l => !generated.has(l))
+    expect(onlyGenerated).toEqual(['Unfillable'])
+    expect(onlyManual).toEqual([])
   })
 
   it('documents every structural treatment on both routes', () => {

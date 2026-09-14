@@ -12,7 +12,7 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const valid = campName.trim() && adminName.trim() && adminPin.length >= 4
+  const valid = campName.trim() && adminName.trim() && /^\d{6,}$/.test(adminPin)
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -86,13 +86,13 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
             style={S.authField}
             type="password"
             inputMode="numeric"
-            placeholder="4 or more digits"
+            placeholder="6 or more digits"
             value={adminPin}
             onChange={e => setAdminPin(e.target.value)}
           />
           <div style={S.authHint}>
-            You'll use this PIN to log in on this and any connected device. Choose something you'll
-            remember — staff PINs don't need to be complex.
+            You'll use this PIN to log in on this and any connected device. As the director, your PIN
+            needs to be at least 6 digits — staff you add later can use a shorter one.
           </div>
 
           <button
