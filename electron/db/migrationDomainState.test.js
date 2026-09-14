@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import { CURRENT_SCHEMA_VERSION } from './localDb.js'
+import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
 import {
   DOMAIN_STATE_MIGRATIONS,
   SCHEMA_ONLY_MIGRATIONS,
@@ -92,9 +93,12 @@ describe('the classification is checked against the source, not just asserted', 
       const m = line.match(/schema_migrations \(version, applied_at\) VALUES \((\d+),/)
       if (m) stamps.push({ line: i, version: Number(m[1]) })
     })
-    const MODELED = ['groups', 'tiers', 'activities', 'cohorts', 'days_of_operation', 'time_blocks',
-      'anchor_activities', 'schedule_templates', 'schedule_weeks', 'locations', 'special_days',
-      'elective_sets', 'events', 'template_slots']
+    // DERIVED, not hand-listed. A second copy of "which tables the document
+    // owns" is exactly the drift this guard exists to prevent, and the first
+    // draft's hand-typed list was already wrong: it omitted `camp_maps` and
+    // every parent-scoped child, so a migration writing one of those inline
+    // would have passed silently.
+    const MODELED = [...DIRECT_CAMP_ENTITIES, ...Object.keys(PARENT_SCOPED_ENTITIES)]
     const offenders = []
     let start = 0
     for (const { line, version } of stamps) {

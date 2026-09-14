@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer'
 import { PROJECTIONS, applyProjection, sanitizeMutuallyExclusiveRow } from './projections.js'
 import { getStmt } from './stmtCache.js'
 import { recordDocumentWriteFailure } from './documentWriteFailures.js'
+import { DOCUMENT_OUTCOME } from './documentOutcome.js'
 import { MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../automerge/campDocument.js'
 import { isOpLogEngine } from '../sync/automerge/syncEngineFlag.js'
 import {
@@ -112,29 +113,10 @@ export function coerceOpValue(value) {
 // renderer-side downscale. Same shape as MAX_BULK_REPLACE_ROWS above — a
 // registry of hard caps, not a generic limit applied to every field (every
 // other field this codebase writes is small by construction).
-// WHAT "SAVED" ACTUALLY MEANT, and now says (T153).
-//
-// `status: 'applied'` has always meant "SQLite has it". Under the current
-// authority model that is not the same as "the camp has it": the Automerge
-// document is the replicated, authoritative copy, and a write that reaches
-// SQLite and not the document reverts at the next projection. So the op carries
-// what happened on the OTHER side of that boundary:
-//
-//   'applied'      — the document has it too. The ordinary case.
-//   'failed'       — SQLite has it, the document does not, and it is recorded
-//                    in projection_failures (store='document').
-//   'deferred'     — buffered inside runAtomic; the outcome is not known until
-//                    the outermost transaction commits and the queue flushes.
-//                    NOT a synonym for success.
-//   'not-modeled'  — this entity is deliberately op-log-only (host-local tables,
-//                    see campDocument.js's MODELED_ENTITIES). Nothing is missing.
-//   'engine-off'   — SHORESH_SYNC_ENGINE=oplog. The document is not being written
-//                    at all, on purpose.
-//
-// A non-enumerable property, deliberately: the op is read back out of SQLite and
-// is spread into wire payloads and IPC responses in several places, and a new
-// enumerable field on it would silently widen all of them.
-export const DOCUMENT_OUTCOME = Symbol('documentOutcome')
+// Re-exported so callers keep a single import site; defined in its own module
+// because liveDoc.js needs it too and this file already imports liveDoc.js.
+// The vocabulary and the reasoning live there.
+export { DOCUMENT_OUTCOME } from './documentOutcome.js'
 
 export const MAX_FIELD_VALUE_LENGTH = {
   camp_maps: { image_data: 1_400_000 }, // chars; ~1MB base64 + slack, never truncated, hard reject
@@ -237,7 +219,7 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     // off the op that was just written rather than the caller's argument, so the
     // document records exactly what the op-log recorded — including appendOp's
     // own defaulting — and the two can never disagree.
-    const outcome = recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: op.source, author_user_id: op.author_user_id, op_id: op.id })
+    const outcome = recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: op.source, author_user_id: op.author_user_id, op_id: op.id }, op)
     op[DOCUMENT_OUTCOME] = MODELED_ENTITIES.has(entity) ? outcome : 'not-modeled'
   } catch (err) {
     // Durable, not just a console line. SQLite has this write and the document
@@ -445,7 +427,7 @@ export function appendBulkReplaceOp(db, { entity, scope_id, rows, author_user_id
     // `op_id` is carried so a failed save at the end of the debounce window can
     // name the op that was lost (liveDoc.js's flushPendingWrites) — the same
     // thing appendOp's recordLocalWrite has always passed.
-    const outcome = recordLocalBulkReplace(db, { entity, scope_id, rows: sanitizedRows, op_id: op.id })
+    const outcome = recordLocalBulkReplace(db, { entity, scope_id, rows: sanitizedRows, op_id: op.id }, op)
     op[DOCUMENT_OUTCOME] = BULK_REPLACE_MODELED_ENTITIES.has(entity) ? outcome : 'not-modeled'
   } catch (err) {
     // Durable, not just a console line — same reasoning as appendOp's own

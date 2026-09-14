@@ -51,6 +51,7 @@
 // always read the latest value and write back synchronously before yielding to the event loop.
 import { docPath, loadDoc, saveDoc } from './docStore.js'
 import { recordDocumentWriteFailure, documentWriteFailureRecorded } from '../../ops/documentWriteFailures.js'
+import { DOCUMENT_OUTCOME } from '../../ops/documentOutcome.js'
 import { recordAuditEvent } from '../../audit/auditLog.js'
 import { applyWrite, applyBulkReplace, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../../automerge/campDocument.js'
 import { seedAllFromSqlite } from '../../automerge/seed.js'
@@ -498,6 +499,8 @@ export function commitDeferredDocWrites(db) {
       if (item.kind === 'bulk') applyLocalBulkReplaceNow(item.db, item.args)
       else applyLocalWriteNow(item.db, item.args)
     })
+    // Replace 'deferred' with what actually happened. See recordLocalWrite.
+    if (item.op) item.op[DOCUMENT_OUTCOME] = flushed.ok ? 'applied' : 'failed'
     if (!flushed.ok) {
       const err = flushed.error
       console.error(`deferred document write failed after ${flushed.attempts} attempts (SQLite already committed, unaffected):`, err)
@@ -557,10 +560,15 @@ function withRetry(apply) {
 // and 'applied' when it reached the in-memory document. The caller (appendOp)
 // reports that outward: "buffered" and "done" are different answers to "does the
 // authoritative copy have this", and collapsing them is the lie T153 removes.
-export function recordLocalWrite(db, args) {
+export function recordLocalWrite(db, args, op = null) {
   const state = deferStates.get(db)
   if (state && state.depth > 0) {
-    state.queue.push({ kind: 'write', db, args })
+    // The op travels with the queued write so the flush can stamp the REAL
+    // outcome on it. Without that, an op appended inside runAtomic keeps saying
+    // 'deferred' forever — and because runAtomic flushes before it returns, the
+    // caller would be holding a settled write that still reads as unknown. A
+    // value that looks like an answer is worse than no value.
+    state.queue.push({ kind: 'write', db, args, op })
     return 'deferred'
   }
   const result = withRetry(() => applyLocalWriteNow(db, args))
@@ -568,10 +576,10 @@ export function recordLocalWrite(db, args) {
   return 'applied'
 }
 
-export function recordLocalBulkReplace(db, args) {
+export function recordLocalBulkReplace(db, args, op = null) {
   const state = deferStates.get(db)
   if (state && state.depth > 0) {
-    state.queue.push({ kind: 'bulk', db, args })
+    state.queue.push({ kind: 'bulk', db, args, op })
     return 'deferred'
   }
   const result = withRetry(() => applyLocalBulkReplaceNow(db, args))
