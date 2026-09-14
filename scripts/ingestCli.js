@@ -25,7 +25,7 @@ import { parseTextGrid } from '../src/ingest/textGrid.js'
 import { workbookToPages } from '../src/ingest/sheetGrid.js'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../src/ingest/extractEntities.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
-import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../src/utils/exportSanitize.js'
+import { readWorkbookSafely, unescapeRow } from '../src/utils/exportSanitize.js'
 
 const WORKBOOK_EXT = /\.(xlsx|xlsm|xls)$/i
 
@@ -51,9 +51,7 @@ function errorResult(base, message) {
 function readPages(file) {
   const buf = fs.readFileSync(file)
   if (WORKBOOK_EXT.test(file)) {
-    assertImportFileSize(buf.length)
-    const workbook = XLSX.read(buf, { type: 'buffer' })
-    assertWorkbookComplexity(workbook)
+    const workbook = readWorkbookSafely(buf, { type: 'buffer', byteLength: buf.length })
     const sheets = workbook.SheetNames.map((name) => ({
       name,
       rows: XLSX.utils
