@@ -44,6 +44,14 @@ const SCRYPT_PARAMS = { N: 65536, r: 8, p: 1, maxmem: 96 * 1024 * 1024 }
 // travel with the hash.
 const SCRYPT_PREFIX = 'scrypt'
 
+// The ceiling on parameters read back OUT of a stored hash. Comfortably above
+// SCRYPT_PARAMS so a future raise (or a hash written by a slightly newer build)
+// still verifies, and far below anything that could exhaust this process.
+// 128 * r * N at the maximum is 2MB * 128 = 256MB, which MAX_SCRYPT_MAXMEM
+// covers. See parseStoredHash for why this is a clamp and not a convenience.
+const MAX_ACCEPTED_SCRYPT = { N: 1 << 21, r: 16, p: 4 }
+const MAX_SCRYPT_MAXMEM = 512 * 1024 * 1024
+
 function formatHash(params, hex) {
   return `${SCRYPT_PREFIX}$N=${params.N},r=${params.r},p=${params.p}$${hex}`
 }
@@ -64,9 +72,26 @@ function parseStoredHash(stored) {
   if (!Number.isInteger(params.N) || !Number.isInteger(params.r) || !Number.isInteger(params.p)) {
     return null
   }
+  // THE STORED HASH IS ATTACKER-INFLUENCED INPUT, and that is easy to forget
+  // because it looks like our own data. `users.pin_hash` is a MODELED DOCUMENT
+  // FIELD: it replicates, so any peer admitted to the camp can set it to
+  // anything. An earlier draft of this function sized `maxmem` from the stored
+  // N (`256 * r * N`) so that a legitimately raised cost would still fit —
+  // which handed a peer a one-line memory bomb: store N=2^30 and every login
+  // attempt on every device tries to allocate hundreds of gigabytes.
+  //
+  // So the parameters are CLAMPED, not trusted. Anything above what this build
+  // would ever produce is refused outright, which reads as a failed login (the
+  // only honest outcome: we cannot verify a hash we refuse to compute), never
+  // as a crash and never as a successful one.
+  if (params.N > MAX_ACCEPTED_SCRYPT.N || params.r > MAX_ACCEPTED_SCRYPT.r || params.p > MAX_ACCEPTED_SCRYPT.p) {
+    return null
+  }
+  if (params.N < 2 || params.r < 1 || params.p < 1) return null
   // maxmem is not stored: it is a ceiling on this process, not part of the
-  // hash. It must be large enough for whatever N the stored hash used.
-  return { params: { ...params, maxmem: Math.max(SCRYPT_PARAMS.maxmem, 256 * params.r * params.N) }, hex }
+  // hash. It is a FIXED ceiling covering every parameter set this build
+  // accepts, never derived from the stored value.
+  return { params: { ...params, maxmem: MAX_SCRYPT_MAXMEM }, hex }
 }
 
 const LOGIN_MAX_ATTEMPTS = 5

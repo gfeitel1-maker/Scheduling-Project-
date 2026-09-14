@@ -591,3 +591,32 @@ describe('PIN hashing cost and format', () => {
     }
   })
 })
+
+// The stored hash replicates, so a peer can write it. These are the inputs a
+// hostile one would choose.
+describe('PIN hash parsing treats the stored value as untrusted input', () => {
+  it('refuses an absurd cost parameter instead of trying to allocate it', async () => {
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'Bomb', pin: '1234', role: 'staff' }, testWrite())
+    // N=2^30 with the earlier "size maxmem from the stored N" logic asked for
+    // hundreds of GB on every login attempt, on every device that replicated it.
+    db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run(`scrypt$N=${2 ** 30},r=8,p=1$abcd`, user.id)
+    const started = Date.now()
+    expect(verifyPin(db, user.id, '1234')).toBe(false)
+    expect(Date.now() - started).toBeLessThan(2000)
+  })
+
+  it('refuses degenerate parameters (zero, negative, non-integer) as a failed login', async () => {
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'Degenerate', pin: '1234', role: 'staff' }, testWrite())
+    for (const params of ['N=0,r=8,p=1', 'N=-1,r=8,p=1', 'N=16384,r=0,p=1', 'N=16384,r=8,p=0', 'N=1.5,r=8,p=1']) {
+      db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run(`scrypt$${params}$abcd`, user.id)
+      expect(() => verifyPin(db, user.id, '1234')).not.toThrow()
+      expect(verifyPin(db, user.id, '1234')).toBe(false)
+    }
+  })
+
+  it('a non-hex payload is a failed login, not a length coincidence', async () => {
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'NotHex', pin: '1234', role: 'staff' }, testWrite())
+    db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run('scrypt$N=65536,r=8,p=1$zzzz', user.id)
+    expect(verifyPin(db, user.id, '1234')).toBe(false)
+  })
+})
