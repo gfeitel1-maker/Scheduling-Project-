@@ -2,10 +2,10 @@
 title: "Take users' auth fields (role, pin_hash, pin_salt) off the replicated document"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-09-14
 supersedes: []
-implementation_state: proposed
+implementation_state: in_progress
 program: security-hardening
 affects:
   - electron/ops/projections.js
@@ -20,9 +20,7 @@ affects:
 
 # Take users' auth fields (role, pin_hash, pin_salt) off the replicated document
 
-**Status: PROPOSED.** This ADR records a decision for the product owner. Nothing is implemented.
-It exists because the fix has a real, non-obvious cost (offline login for changed/new credentials)
-that the owner — not an agent — should weigh.
+**Status: ACCEPTED 2026-09-14.** Mechanism refined to Host-signed credential fields (see Decision). Implemented in staged, test-first slices; enforcement flips only after backfill + independent review. The refinement resolves the offline-login cost that made the original de-replicate proposal a hard judgment call.
 
 ## Context
 
@@ -53,13 +51,49 @@ cost that must be traded against the security gain. (A device that has already s
 last-known projection, so steady-state offline login is unaffected; only *changed/new* credentials
 are affected.)
 
-## Decision (proposed)
+## Decision (ACCEPTED 2026-09-14 — refined mechanism)
 
-**Take `role`, `pin_hash`, and `pin_salt` out of the shared Automerge document. Route writes to
-those three fields through a Host-side IPC path gated by `authorize()`** (the existing central
-permission check), replicating them to a device only after the Host has authorized the change —
-not as free-form CRDT ops any peer can author. `users.name` and non-auth fields may continue to
-replicate as ordinary document fields. (Evidence-doc "Option 3", scoped to the auth fields.)
+Owner approved the direction ("go with your recommendation; make it secure"). On implementation
+review a **strictly better mechanism than pure de-replication** was found, and is what will be
+built:
+
+**Host-signed credential fields.** The three auth fields keep replicating (so offline and
+new-device login are NOT regressed), but each user's `role`/`pin_hash`/`pin_salt` are covered by an
+Ed25519 signature produced by the **Host's existing signing key** (`host_signing_key` — the same key
+that signs camp tokens; every device already holds the public half via `camps.signing_public_key`).
+A new replicated field, `auth_sig`, carries that signature. On projection, a device **verifies
+`auth_sig` before applying any of the three fields**; an unsigned or invalidly-signed credential
+change is refused and the prior local values are kept. Because only the Host can produce a valid
+signature, a compromised staff-paired device can no longer forge a role change or overwrite a PIN
+hash — while legitimate, Host-signed credentials still replicate to every device including offline
+ones.
+
+This supersedes the original "de-replicate" proposal below (kept for the record) because it closes
+the same attack **without** the offline-login regression that was the deciding cost. Only the Host
+can sign, so credential *changes* still require the Host — but credential *replication* does not,
+which is the property that preserves offline login.
+
+### Staged implementation plan (test-first; enforcement flips only after backfill)
+
+1. **Primitives (safe, isolated):** `signAuthFields` (Host-only) / `verifyAuthFields` (any device,
+   using `camps.signing_public_key`) over a canonical serialization of `{id, role, pin_hash, pin_salt}`.
+   Unit-tested in isolation. No behavior change yet.
+2. **Sign on write + backfill:** `createUser` (the sole credential-write path) emits `auth_sig`;
+   a Host migration backfills `auth_sig` for existing users by signing their current values. The
+   **client-admin wrinkle**: a credential write started on a client must round-trip to the Host to be
+   signed — designed here (a Host-authorized sign step), since a client cannot self-sign.
+3. **Enforce on projection:** once every row is signed (verified by a check), projection rejects
+   unsigned/badly-signed changes to the three fields. This is the slice that closes the attack; it
+   ships behind a guard that confirms backfill completed, so no one is locked out.
+4. **Independent security re-review** (security-assessment + red-hat) before merge, given this is
+   auth+sync+migration core and a wrong enforcement flip locks a camp out.
+
+### Original proposal (superseded, kept for the record)
+
+Take `role`, `pin_hash`, and `pin_salt` out of the shared Automerge document and route writes
+through a Host `authorize()`-gated path. Rejected in favor of signing because de-replication
+regresses offline/new-device login for changed/new credentials (see the tension section above),
+which the signature approach avoids.
 
 ## Options considered
 

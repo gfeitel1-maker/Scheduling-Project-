@@ -146,7 +146,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: The camp game talks to Shoresh through a boring explicit contract, never through its data](../../docs/adr/2026-09-13-game-integration-boundary.md) | accepted | not_started | — |
 | [Migrate off npm-published SheetJS (xlsx) to the advisory-fixed line](../../docs/adr/2026-09-13-sheetjs-parser-advisory-migration.md) | accepted | implemented | — |
 | [Internet-reachable transport requires a full security re-assessment (enforced gate)](../../docs/adr/2026-09-14-internet-transport-security-gate.md) | accepted | implemented | — |
-| [Take users' auth fields (role, pin_hash, pin_salt) off the replicated document](../../docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md) | proposed | proposed | — |
+| [Take users' auth fields (role, pin_hash, pin_salt) off the replicated document](../../docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md) | accepted | in_progress | — |
 
 ## Runs
 
