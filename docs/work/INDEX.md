@@ -31,7 +31,7 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Two offline edits can converge into a generated schedule nothing flags](../../docs/work/tickets/T156-generated-route-validity-after-merge.md) | open | — |
+| [Two offline edits can converge into a generated schedule nothing flags](../../docs/work/tickets/T156-generated-route-validity-after-merge.md) | open | [T159-overlap-on-both-routes](../../docs/work/tickets/T159-overlap-on-both-routes.md) |
 
 ## Decisions
 

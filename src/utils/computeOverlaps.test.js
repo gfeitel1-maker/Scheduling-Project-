@@ -298,3 +298,30 @@ describe('OVERLAP', () => {
     })
   })
 })
+
+// T159 — the scenario the route gate used to hide.
+//
+// This function was always route-agnostic; what changed is that ScheduleScreen
+// now calls it on both routes. These pin the shape of the state a merge can
+// produce, so the reasoning survives even if the call site moves again.
+describe('a clash nobody generated', () => {
+  it('marks the over-booking that two independent offline edits produced', () => {
+    // Device A put g1 in the pool. Device B, offline, put g2 and g3 in the same
+    // pool in the same block. Both documents were individually valid; the merge
+    // is the first moment all three exist together, and no conflict was raised
+    // because no two people wrote the same field.
+    const merged = [slot('a1', 'g1'), slot('b1', 'g2'), slot('b2', 'g3')]
+    const result = computeOverlaps({ slots: merged, activities: [swim], locations: [pool] })
+    expect([...result.keys()].sort()).toEqual(['a1', 'b1', 'b2'])
+    expect(result.get('b1')).toBe('3 groups booked into Pool — it holds 2')
+  })
+
+  it('withOverlapFlags does not care which route it is called from', () => {
+    // The guarantee behind deriving on both routes: nothing in here reads a
+    // route, so the generated grid gets exactly the marker the manual one does.
+    const merged = [slot('a1', 'g1'), slot('b1', 'g2'), slot('b2', 'g3')]
+    const flagged = withOverlapFlags(merged, [swim], [pool], [])
+    expect(flagged.every(s => s.flags?.OVERLAP)).toBe(true)
+    expect(flagged[0].flags.OVERLAP_reason).toContain('it holds 2')
+  })
+})

@@ -16,11 +16,18 @@
 // state), and computing it live is what makes the marker clear from EVERY
 // participating cell the moment any one of them is moved.
 //
-// It exists only on the manual route. There, a clashing placement is ACCEPTED
-// and marked — a director building their own week is never blocked and never
-// has a placement silently corrected (CONSTITUTION.md Art. V). It is a slot
-// `flags` entry only and deliberately does NOT go into buildSchedule()'s
-// `conflicts` array, which stays [] until the multi-cohort engine.
+// It derives on BOTH routes (T159). A clashing placement is ACCEPTED and marked
+// — whoever is building the week is never blocked and never has a placement
+// silently corrected (CONSTITUTION.md Art. V). It is a slot `flags` entry only
+// and deliberately does NOT go into buildSchedule()'s `conflicts` array, which
+// stays [] until the multi-cohort engine.
+//
+// It was manual-only until T159, on the reasoning that the engine refuses to
+// CREATE a clash so the generated route could never hold one. That is still
+// true of generation and stopped being true of the route: two directors editing
+// offline can each move a group into the same place, the two documents merge
+// cleanly, and the result is a clash nobody generated and nobody was told
+// about. A warning follows the state on screen, not the way it got there.
 //
 // Place capacity is a property of the PLACE (ADR D2, docs/adr/2026-08-15-camp-
 // locations-entity.md): keyed by the activity's location_id, checked against
