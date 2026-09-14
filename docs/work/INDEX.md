@@ -145,6 +145,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Activities as one entity with a placement axis: retiring the fixed/recurring entity split](../../docs/adr/2026-09-12-activities-as-one-entity-with-placement.md) | proposed | not started | — |
 | [ADR: The camp game talks to Shoresh through a boring explicit contract, never through its data](../../docs/adr/2026-09-13-game-integration-boundary.md) | accepted | not_started | — |
 | [Migrate off npm-published SheetJS (xlsx) to the advisory-fixed line](../../docs/adr/2026-09-13-sheetjs-parser-advisory-migration.md) | accepted | implemented | — |
+| [Internet-reachable transport requires a full security re-assessment (enforced gate)](../../docs/adr/2026-09-14-internet-transport-security-gate.md) | accepted | implemented | — |
 
 ## Runs
 

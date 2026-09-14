@@ -28,7 +28,8 @@
     "agents:check": "node scripts/generateAgentProfiles.js",
     "agents:generate": "node scripts/generateAgentProfiles.js --write",
     "gate:shadow-check": "node scripts/shadowGateEnvelope.js",
-    "verify": "node scripts/verify.js"
+    "verify": "node scripts/verify.js",
+    "security": "node scripts/security-gate.js"
   },
   "dependencies": {
     "@automerge/automerge": "^3.4.1",

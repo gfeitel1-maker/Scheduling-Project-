@@ -1,4 +1,4 @@
-// The quality gate — lint + test + test:integration + check:governance, in order,
+// The quality gate — lint + test + test:integration + security + check:governance, in order,
 // stopping at the first failure.
 //
 // Why this exists instead of a bare `a && b && c` npm chain: a chain prints no
@@ -10,7 +10,7 @@
 // See memory: feedback-gate-exit-code-not-tail.
 import { spawnSync } from 'node:child_process'
 
-export const VERIFY_STEPS = ['lint', 'test', 'test:integration', 'check:governance']
+export const VERIFY_STEPS = ['lint', 'test', 'test:integration', 'security', 'check:governance']
 
 // Pure: map "which step failed (or null)" → the verdict line + process exit code.
 export function verdict(failedStep) {
