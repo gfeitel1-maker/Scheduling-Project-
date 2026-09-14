@@ -237,6 +237,40 @@ By contrast `WHERE_DATA_LIVES.md` and `PLATFORM_STATE.md` are accurate and curre
 
 ---
 
+## What shipped, 2026-09-13
+
+Everything below landed on `main` behind the full gate (`lint + test +
+test:integration + check:governance`) on the day of the review.
+
+| Review item | Outcome | Where |
+|---|---|---|
+| 1 — authoritative-write semantics | **Closed in two parts.** Three unrecorded sibling paths found and closed (T148); the renderer is now told, and a director can see unshared writes (T153) | PR #388, #391 |
+| 2 — domain-state migrations | **Guarded.** Every version classified; a new migration fails the suite until classified; sync refuses to start on a divergent launch | PR #390 |
+| 3 — rebuild from the document | **Proven**, with its unstated precondition pinned by its own test | PR #389 |
+| 4 — convergence vs. validity | **Mostly already separate.** One real residue, left as an open product decision | T156 |
+| 5 — long-chain migrations | **Closed.** Four real historical databases, built by the code of their era, migrated on every run | PR #390 |
+| 6 — libp2p authorization | **Mostly already covered.** The one open property (bearer tokens) is now measured, not assumed | PR #389 |
+| 7 — relay vs. hole punching | **No work needed.** The shipped transport is TCP + mDNS only; the ADR was already precise | — |
+| 8 — approved-device trust | **Already recorded** in `SECURITY.md`, with the owner's decision and date | — |
+| 9 — replicated PIN material | **A real weakness, now raised and documented honestly** | PR #389 |
+| 10 / 11 / 12 / 13 | Watch items. 12 was treated as defects and fixed; 11 and 13 now have a tripwire and a boundary ADR | T157, ADR 2026-09-13 |
+
+Three things found by doing the work that the review did not ask about, and that
+are worth more than most of what it did ask about:
+
+1. **`appendBulkReplaceOp`'s document failure was a `console.error` and nothing
+   else** — the highest-volume write in the app, since one op carries a whole
+   regenerated schedule.
+2. **A self-inflicted vulnerability, caught in self-review before it merged:**
+   sizing scrypt's `maxmem` from the *stored* hash's `N`, when that hash
+   replicates. A peer could have stored `N=2^30` and made every login on every
+   device try to allocate hundreds of gigabytes.
+3. **`withRetry` was reporting a failed write as a success.** It re-invoked a
+   non-idempotent apply; an attempt that seeded the document and then failed to
+   save it left the document cached, so the retry took the already-seeded path,
+   skipped the save entirely, and logged *"succeeded on attempt 2 after a
+   transient failure"* for a failure that was neither transient nor survived.
+
 ## Recommended sequence
 
 1. **Item 1(b) and 1(c)** — two omissions, small, no design decision required.
