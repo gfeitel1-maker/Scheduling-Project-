@@ -4,7 +4,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
+import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion, migrationSpanFor } from './db/localDb.js'
 import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, issueDeviceToken } from './auth/localAuth.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
@@ -39,8 +39,9 @@ import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
+import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn } from './db/migrationDomainState.js'
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
-import { loadDoc as loadAutomergeDoc } from './sync/automerge/docStore.js'
+import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import { createMdnsDiscovery } from './sync/automerge/discovery.js'
 import { joinCode as joinCodeForCamp, formatJoinCode } from './sync/joinCode.js'
@@ -2382,6 +2383,44 @@ if (isElectronEntryPoint()) {
       // NEVER fabricates a doc itself (that contract is unchanged and unrelaxed) — it only resolves
       // between liveDoc's in-memory copy and the persisted file, both of which are now guaranteed
       // to exist because of the ensureSeeded call directly above it.
+      // A DOMAIN-STATE MIGRATION RAN ON A LAUNCH WHERE A DOCUMENT ALREADY
+      // EXISTS (migrationDomainState.js). SQLite now holds camp meaning the
+      // document does not, and the document is the authority — so the next
+      // merge's delete-reconcile would quietly undo the migration.
+      //
+      // Refuse to sync rather than replicate into that. The device keeps
+      // working on its own, which is the whole point of local-first; what it
+      // will not do is exchange state it is about to lose. Auto-repair is
+      // deliberately not attempted: re-seeding the document from SQLite would
+      // resurrect every tombstone the document holds and SQLite does not.
+      //
+      // Unreachable today by construction — every domain-state migration is
+      // below v52, and a database with a document is already at v57+ — which is
+      // exactly why it is cheap to put the guard in before it is needed.
+      const migrationSpan = migrationSpanFor(db)
+      if (migrationSpan && fs.existsSync(automergeDocPath(userDataPath, campId))) {
+        const risky = domainStateMigrationsIn(migrationSpan.from, migrationSpan.to)
+        if (risky.length > 0) {
+          const detail = risky.map((v) => `v${v} (${DOMAIN_STATE_MIGRATIONS.get(v)})`).join('; ')
+          console.error(
+            `automerge sync: NOT starting. A domain-state migration ran on this launch against a camp ` +
+              `that already has a document: ${detail}. SQLite now holds camp meaning the document does not, ` +
+              `and projecting the document would undo it. See electron/db/migrationDomainState.js.`
+          )
+          recordAuditEvent(db, {
+            actorUserId: null,
+            deviceId: null,
+            action: 'sync.blocked_by_domain_migration',
+            targetType: 'document',
+            targetId: campId,
+            outcome: 'deny',
+            reason: detail,
+            metadata: { from: migrationSpan.from, to: migrationSpan.to, versions: risky },
+          })
+          return
+        }
+      }
+
       ensureAutomergeDocSeeded(db)
       const doc = resolveStartupDoc({
         liveDoc: getDocIfLoaded(db),
