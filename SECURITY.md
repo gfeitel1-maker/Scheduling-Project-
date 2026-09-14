@@ -95,6 +95,20 @@ projection arrives without one. Restore requires `admin`; `listDeleted` and
 `getEntityHistory` withholds PIN values against the same shared list
 (`electron/ops/pinFields.js`).
 
+### Spreadsheet parser (SheetJS) is pinned to the advisory-fixed line
+
+A camp schedule file is attacker-authorable input the director imports from others, and it is
+parsed by SheetJS (`xlsx`). The dependency is pinned to the **CDN tarball**
+(`https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` in `package.json`), **not** the
+npm-registry `xlsx@0.18.5` — the registry line is frozen at 0.18.5 and carries two open high
+advisories with no npm fix (prototype pollution GHSA-4r6h-8v6p-xvw6, ReDoS GHSA-5pgg-2g8v-p4x9).
+The fixes ship only from the SheetJS CDN. A plain `npm install` resolves the tarball, not the
+registry — this is deliberate, per
+`docs/adr/2026-09-13-sheetjs-parser-advisory-migration.md`. Re-check SheetJS advisories against
+the installed version on every bump. Import read paths are additionally bounded by
+`assertImportFileSize` / `assertWorkbookComplexity` (`src/utils/exportSanitize.js`), which cap
+file size, sheet count, and rows before a workbook is walked.
+
 ---
 
 ## Known limitations
