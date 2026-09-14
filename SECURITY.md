@@ -172,6 +172,14 @@ camp's data, because the document *is* the data. Cracking a PIN buys **impersona
 and `staff` -> `admin` role escalation, which matters more given the section below — not access. The
 open questions this leaves are PIN length and role separation. Both are product decisions.
 
+Because the stored hash is now **self-describing**, it is also attacker-influenced: `pin_hash`
+replicates, so a device that edits its own document directly (the exposure the section below already
+accepts) could choose the parameters every other device then verifies at. That is an availability
+angle, not an impersonation one — scrypt run at an absurd cost blocks the single Node thread rather
+than revealing anything. `parseStoredHash` therefore **clamps** the parameters against a fixed
+ceiling and never derives `maxmem` from the stored value; anything out of range, zero, negative or
+non-integer reads as a failed login, since a hash we refuse to compute is a hash we cannot verify.
+
 ### A camp token is a bearer credential (T155)
 
 `evaluateAuthenticate` binds a token to the `device_id` carried **inside** the token. Nothing binds
