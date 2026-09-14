@@ -88,6 +88,29 @@ which is the property that preserves offline login.
 4. **Independent security re-review** (security-assessment + red-hat) before merge, given this is
    auth+sync+migration core and a wrong enforcement flip locks a camp out.
 
+### Interlock with T163 (coordinated with the app-icon-audit / architecture-review program, 2026-09-14)
+
+T163 (merging around the same time; rebase this work onto it) enforces credential **strength and the
+promotion workflow at the API boundary**, complementary to this ADR's **authenticity at the
+projection boundary**. It changes two assumptions this ADR was written under:
+
+- **There is now more than one credential-write call site.** T163 adds `electron/ops/promoteToAdmin.js`
+  — the *only* path that sets `role = 'admin'` — which writes `role` + `pin_hash` + `pin_salt`
+  together inside `runAtomic`, and refuses a bare `users.role → 'admin'` flip through the generic
+  `write()` IPC path. So the set of places that must **mint `auth_sig`** is exactly `createUser`
+  **and** `promoteToAdmin` (the generic write path is closed by T163, not by this ADR). Any credential
+  write that does not mint the signature will produce credentials this ADR's projection correctly
+  *refuses* — a legitimate promotion would fail and look like broken verification. The mint must sit
+  **inside** `promoteToAdmin`'s `runAtomic` step, signing the same three fields it writes as a unit.
+- **T160 (#398, merged) touched `localAuth.js`:** `SCRYPT_PARAMS` is an exported frozen constant,
+  `hashPin` reads a module-level `activeScryptParams`, `SHORESH_TEST_SCRYPT_N=1024` keeps the suite
+  fast, and `attemptLogin` takes an optional `{ now }`. This work must not undo any of it; test users
+  in these slices use those fast params.
+
+Net effect on the plan: the "sole credential-write path is `createUser`" assumption in slice 2 is
+replaced by "`createUser` + `promoteToAdmin`", and the canonical signed payload stays
+`{id, role, pin_hash, pin_salt}` so it covers exactly what `promoteToAdmin` writes atomically.
+
 ### Original proposal (superseded, kept for the record)
 
 Take `role`, `pin_hash`, and `pin_salt` out of the shared Automerge document and route writes
@@ -137,6 +160,23 @@ which is the owner's call.
 - **Tier-4:** this finding is a **hard blocker** on signing off the internet-transport gate
   (`docs/adr/2026-09-14-internet-transport-security-gate.md`). If this ADR is not implemented, that
   gate's re-assessment must resolve it before internet transport ships.
+- **Rebuild-from-document interaction (#401, `electron/automerge/rebuildSupportCommand.js`):** the
+  support command that rebuilds SQLite from the Automerge document restores neither
+  `camps.signing_public_key`/`signing_secret` nor `host_signing_key` — they are host-only/device-local
+  and were never in the document (the command's own confirmation text says they "come back empty").
+  Two consequences for this design: (a) a rebuilt device temporarily **cannot verify `auth_sig`**
+  until it re-obtains `camps.signing_public_key` (which it does re-receive via full-sync/pairing on
+  reconnect) — so the enforcement slice must **degrade gracefully when the public key is absent**
+  (keep last-known credentials / refuse to *newly enforce* rather than lock the user out), not treat
+  "no key" as "invalid signature"; (b) a rebuilt **Host** loses its minting key and must regenerate/
+  re-establish it before it can mint new credential signatures. Both must be covered by the
+  enforcement slice's tests.
+  - **Enforcement-slice task (coordinated with app-icon-audit):** when `auth_sig` enforcement lands,
+    extend `NOT_RECOVERABLE_NOTICE` in `electron/automerge/rebuildSupportCommand.js` to state that a
+    rebuilt device cannot verify credentials until it re-syncs `camps.signing_public_key`, and — if it
+    was the Host — cannot mint at all until re-paired. Deliberately NOT added earlier: a support
+    notice describing a mechanism that does not yet exist is the stale-doc failure T149 just cleaned
+    up. It lands *with* the enforcement slice, accurate, not before.
 
 ## Verification (when implemented)
 
