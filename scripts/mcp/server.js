@@ -23,6 +23,7 @@ import {
   exportScheduleTool,
   checkProjectionHealthTool,
   repairProjectionEntityTool,
+  rebuildProjectionFromDocumentTool,
 } from './tools.js'
 
 function parseArgs(argv) {
@@ -149,6 +150,22 @@ const TOOLS = [
       required: ['entity', 'entity_id'],
     },
     handler: repairProjectionEntityTool,
+  },
+  {
+    name: 'rebuild_projection_from_document',
+    description:
+      "Delete this device's SQLite projection and rebuild it from the synced Automerge document — the recovery procedure for a corrupted or suspect local database. Requires the server to have been launched with --allow-write; otherwise refuses. Support/debugging use, run on purpose by a person (never automatic, never a director-facing action). Refuses loudly rather than half-working: no camps row on this device, no document file for this camp, a document that does not share this camp's genesis, or a camps row whose id does not match the document's camp. Takes a pre-rebuild backup of the SQLite file first. Does NOT restore the operations history ledger (Trash, Restore's prior values, ingest-undo) or this device's signing_secret/signing_public_key/host_signing_key — those are host-only and never left this device's old database.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        user_data_dir: {
+          type: 'string',
+          description:
+            'Optional. The userData directory the Automerge document lives under (automerge/<campId>.automerge). Defaults to the directory containing the db file — override only for a non-default project path.',
+        },
+      },
+    },
+    handler: rebuildProjectionFromDocumentTool,
   },
 ]
 
