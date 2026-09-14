@@ -248,3 +248,26 @@ describe('syncStatusLabel — an unshared write outranks the connection state (T
     expect(syncStatusLabel({ state: 'host', unsharedWrites: 0 }).text).toBe(plain)
   })
 })
+
+describe('syncStatusLabel — a nearly full disk is a warning, not a connection state (T160)', () => {
+  it('says so on any state, including a perfectly healthy one', () => {
+    for (const state of ['host', 'client-connected', 'standalone']) {
+      const label = syncStatusLabel({ state, lowDisk: true })
+      expect(label.text, state).toBe('storage almost full')
+      expect(label.tone, state).toBe('danger')
+      expect(label.title, state).toMatch(/nearly out of storage/)
+    }
+  })
+
+  it('yields to an unshared write — what already went wrong outranks what might', () => {
+    const both = syncStatusLabel({ state: 'host', lowDisk: true, unsharedWrites: 2 })
+    expect(both.text).toBe('2 changes not shared')
+  })
+
+  it('is silent when the disk is fine, or when it could not be measured', () => {
+    const healthy = syncStatusLabel({ state: 'host' }).text
+    expect(syncStatusLabel({ state: 'host', lowDisk: false }).text).toBe(healthy)
+    // `lowDisk` absent is the "could not measure" case — silence, not reassurance.
+    expect(healthy).not.toMatch(/storage/)
+  })
+})

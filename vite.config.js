@@ -10,6 +10,24 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    // PIN hashing cost, lowered for the suite and ONLY for the suite (T160).
+    //
+    // T150 raised scrypt to N=2^16, ~430ms a hash — right for one login a
+    // person waits on, wrong for a suite that creates users constantly.
+    // electron/main.test.js took FIFTEEN MINUTES and several login tests hit
+    // the 20s per-test timeout. Left alone the pressure is always to raise the
+    // timeout, and the end of that road is a suite nobody runs.
+    //
+    // Safe because hashes are SELF-DESCRIBING: one minted cheaply still
+    // verifies at the cost it was minted with, so no verification path is
+    // bypassed. localAuth.test.js pins the production default AND mints one
+    // hash at the real cost end to end, so this can never quietly become what
+    // ships.
+    //
+    // An env var rather than a setup-file import, deliberately — see the note
+    // at the read site in electron/auth/localAuth.js. Importing it into every
+    // test environment cost 6.5 minutes of setup time across ~340 files.
+    env: { SHORESH_TEST_SCRYPT_N: '1024' },
     // electron-builder copies the whole project — including every *.test.js —
     // into release/. Without this, `npm run test` after `npm run electron:build`
     // collects two copies of the suite, and the duplicated syncServer tests

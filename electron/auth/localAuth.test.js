@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomBytes, createPrivateKey, sign as edSign } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
+import { SCRYPT_PARAMS, setScryptParamsForTests } from './localAuth.js'
 import {
   createUser,
   verifyPin,
@@ -18,6 +19,30 @@ import {
 import { appendOp } from '../ops/operations.js'
 
 let tmpFile
+// The suite-wide cost is lowered in vitest.setup.js — see the note there for
+// why, and why it is safe. These two tests are the guard that makes it safe.
+describe('the production hashing cost', () => {
+  it('is the real one — this suite lowers it, and that must never be what ships', () => {
+    expect(SCRYPT_PARAMS.N).toBe(65536)
+    expect(SCRYPT_PARAMS.r).toBe(8)
+    expect(SCRYPT_PARAMS.p).toBe(1)
+  })
+
+  it('mints at the REAL cost when nothing has lowered it, and that hash verifies', async () => {
+    // The one case that pays full price on purpose: proof that the shipped
+    // parameters actually work end to end, not just that the constant says so.
+    setScryptParamsForTests()
+    try {
+      const user = await createUser(db, { camp_id: 'camp-1', name: 'RealCost', pin: '1234', role: 'staff' }, testWrite())
+      const stored = db.prepare('SELECT pin_hash FROM users WHERE id = ?').get(user.id).pin_hash
+      expect(stored).toContain(`N=${SCRYPT_PARAMS.N}`)
+      expect(verifyPin(db, user.id, '1234')).toBe(true)
+    } finally {
+      setScryptParamsForTests({ N: 1024, maxmem: 32 * 1024 * 1024 }) // back to the suite-wide cost
+    }
+  }, 30_000)
+})
+
 let db
 
 const DEVICE_ID = 'device-1'
@@ -477,12 +502,51 @@ describe('attemptLogin', () => {
   it('locks out after 5 failed attempts and reports retryAfterMs', async () => {
     await createUser(db, { camp_id: 'camp-1', name: 'Yara', pin: '5555', role: 'staff' }, testWrite())
 
+    // A FROZEN CLOCK, and the reason is worth stating because it looks like
+    // test convenience and is not. Verifying a PIN costs a real scrypt hash at
+    // T150's raised parameters, so driving five failed attempts spends seconds
+    // of real time. On a loaded machine it once spent MORE than the 30-second
+    // lockout window — so the window expired mid-test, the sixth attempt
+    // succeeded, and the test reported "the lockout does not work" when what
+    // happened was "this machine was too slow to finish setting up".
+    //
+    // That is the worst kind of failing test: it blames the security property
+    // for the harness's problem, and it teaches people to re-run it. With time
+    // held still, the six hashes can take as long as they like and the property
+    // under test is the only thing that can fail.
+    const frozen = () => 1_700_000_000_000
     for (let i = 0; i < 5; i++) {
-      expect(attemptLogin(db, { name: 'Yara', pin: 'wrong', deviceId: 'device-1' })).toBeNull()
+      expect(attemptLogin(db, { name: 'Yara', pin: 'wrong', deviceId: 'device-1' }, { now: frozen })).toBeNull()
     }
-    const result = attemptLogin(db, { name: 'Yara', pin: '5555', deviceId: 'device-1' })
+    const result = attemptLogin(db, { name: 'Yara', pin: '5555', deviceId: 'device-1' }, { now: frozen })
     expect(result).toEqual({ locked: true, retryAfterMs: expect.any(Number) })
-    expect(result.retryAfterMs).toBeGreaterThan(0)
+    // Exactly the window, because nothing has been allowed to elapse.
+    expect(result.retryAfterMs).toBe(30_000)
+  })
+
+  it('the lockout expires — the correct PIN works again once the window has passed', async () => {
+    await createUser(db, { camp_id: 'camp-1', name: 'Yuri', pin: '5555', role: 'staff' }, testWrite())
+
+    let clock = 1_700_000_000_000
+    const now = () => clock
+    for (let i = 0; i < 5; i++) {
+      attemptLogin(db, { name: 'Yuri', pin: 'wrong', deviceId: 'device-1' }, { now })
+    }
+    expect(attemptLogin(db, { name: 'Yuri', pin: '5555', deviceId: 'device-1' }, { now })?.locked).toBe(true)
+
+    // Advance past the window. Free, and deterministic — the old shape of this
+    // test would have had to sleep 30 seconds to cover it, so it never did.
+    clock += 30_001
+    const after = attemptLogin(db, { name: 'Yuri', pin: '5555', deviceId: 'device-1' }, { now })
+    expect(after.locked).toBeUndefined()
+    expect(after.token).toBeTruthy()
+  })
+
+  it('still uses the real clock when nobody injects one', async () => {
+    // The production path. Guards against the injection quietly becoming
+    // required, which would make every caller that forgot it behave oddly.
+    await createUser(db, { camp_id: 'camp-1', name: 'Yoko', pin: '5555', role: 'staff' }, testWrite())
+    expect(attemptLogin(db, { name: 'Yoko', pin: '5555', deviceId: 'device-1' })?.token).toBeTruthy()
   })
 
   it('issues a token bound to the deviceId passed in, not any other device', async () => {

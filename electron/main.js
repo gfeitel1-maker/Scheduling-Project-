@@ -43,6 +43,7 @@ import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn } from './db/migration
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
+import { createDiskSpaceMonitor } from './db/diskSpace.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import { createMdnsDiscovery } from './sync/automerge/discovery.js'
 import { joinCode as joinCodeForCamp, formatJoinCode } from './sync/joinCode.js'
@@ -183,6 +184,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // so backups from within makeHandlers (bulkReplace) land in the same
   // {userData}/backups/ directory as user-initiated backups.
   const handlersUserDataPath = _userDataPath
+  // T160 — the disk this camp is written to. Watching the userData directory
+  // rather than the process cwd: that is where BOTH the SQLite file and the
+  // Automerge document live, and it is the filesystem whose exhaustion takes
+  // the write path down (see diskSpace.js for why the only useful lever is
+  // noticing early). Falls back to the db's own directory, then to cwd, so a
+  // caller that passes neither still gets a real answer instead of silence.
+  const diskMonitor = createDiskSpaceMonitor({
+    dir: handlersUserDataPath || (dbPath ? path.dirname(dbPath) : process.cwd()),
+  })
   ensureDeviceRow(db, deviceId)
 
   let syncClient = null
@@ -548,6 +558,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // joined anything is working correctly; a client that cannot see the Host is
   // not, and the director needs to be able to tell those apart.
   function getSyncStatus() {
+    // The disk filling up, noticed while there is still room to act (T160).
+    // Throttled inside the monitor — getSyncStatus is called on mount and on
+    // every push, and free space does not change meaningfully in a second.
+    // `low: false` covers "could not measure", which must render as silence
+    // rather than as reassurance (diskSpace.js).
+    const disk = diskMonitor.read()
+
     // Writes this device holds that the authoritative document does not (T153).
     // Reported on EVERY state including standalone and host, because it is not a
     // connectivity fact: a lone device with a failed document write is diverged
@@ -555,8 +572,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // ("your changes will reach it when it is back") is exactly the sentence
     // that must not be shown for these.
     const unsharedWrites = unsharedWriteCount(db)
-    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites }
-    if (mode === 'host') return { mode: 'host', connected: true, state: 'host', unsharedWrites }
+    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low }
+    if (mode === 'host') return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low }
     // Stage 6c: the honest source of "can this device reach the camp" is the
     // libp2p node's peer set, not a socket. `getPeers()` returns every
     // libp2p-connected peer INCLUDING one that merely completed a noise
@@ -569,7 +586,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const connected = peers.length > 0
     const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
-    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites }
+    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
