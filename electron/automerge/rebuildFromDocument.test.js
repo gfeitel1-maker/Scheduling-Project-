@@ -169,7 +169,18 @@ describe('rebuild from the document into a FRESH database', () => {
     }
     source.close()
     fresh.close()
-  })
+    // A PER-TEST TIMEOUT, for the same reason parentScoped.test.js's 480-slot
+    // case has one. This builds a whole camp through the REAL write paths — a
+    // full commitIngest plus ~40 further ops, each mirrored into the Automerge
+    // document — and then projects all of it into a second database. Measured
+    // at ~22s in isolation on this machine, i.e. already past the suite's 20s
+    // default before any load at all, and it died at 29s inside a gate.
+    //
+    // That is the nature of the test, not a regression: it is a system property
+    // (T151), and the whole point is that it exercises the expensive path
+    // end to end rather than a unit of it. Scoped here rather than raising the
+    // global budget, which would hide genuinely stuck tests elsewhere.
+  }, 120_000)
 
   it('REFUSES to rebuild into a database with no camps row — the precondition is load-bearing, not incidental', () => {
     const source = newDb('source2')
@@ -186,5 +197,5 @@ describe('rebuild from the document into a FRESH database', () => {
     expect(empty.prepare('SELECT COUNT(*) AS n FROM groups').get().n).toBe(0)
     source.close()
     empty.close()
-  })
+  }, 120_000)
 })

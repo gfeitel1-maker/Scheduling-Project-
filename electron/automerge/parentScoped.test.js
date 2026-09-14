@@ -426,5 +426,18 @@ describe('scale: a realistic-size schedule (hundreds of slots) seeds and project
     expect(appendMs).toBeLessThan(TRIPWIRE_MS)
     expect(seedMs).toBeLessThan(TRIPWIRE_MS)
     expect(rebuildMs).toBeLessThan(TRIPWIRE_MS)
-  })
+    // THE TIMEOUT HAS TO MATCH THE TRIPWIRE, and it did not (T160 follow-up).
+    //
+    // The reasoning above raised the ASSERTION ceiling to 60s so machine load
+    // could not masquerade as an algorithmic regression — but left the test
+    // running under the suite's 20s `testTimeout` (vite.config.js). So under the
+    // load it was explicitly written to tolerate, the test died at 20s before it
+    // could reach its own generous assertions: three separate gate runs failed
+    // here at 26s, 35s and 53s, none of them for the reason this test exists.
+    //
+    // A per-test timeout, deliberately larger than TRIPWIRE_MS, so the thing
+    // that fails first is the tripwire with its explanatory message rather than
+    // an anonymous timeout. Scoped to this one scale test: raising the global
+    // budget would hide genuinely stuck tests everywhere else.
+  }, 120_000)
 })
