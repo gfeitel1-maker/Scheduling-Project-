@@ -88,6 +88,29 @@ which is the property that preserves offline login.
 4. **Independent security re-review** (security-assessment + red-hat) before merge, given this is
    auth+sync+migration core and a wrong enforcement flip locks a camp out.
 
+### Interlock with T163 (coordinated with the app-icon-audit / architecture-review program, 2026-09-14)
+
+T163 (merging around the same time; rebase this work onto it) enforces credential **strength and the
+promotion workflow at the API boundary**, complementary to this ADR's **authenticity at the
+projection boundary**. It changes two assumptions this ADR was written under:
+
+- **There is now more than one credential-write call site.** T163 adds `electron/ops/promoteToAdmin.js`
+  — the *only* path that sets `role = 'admin'` — which writes `role` + `pin_hash` + `pin_salt`
+  together inside `runAtomic`, and refuses a bare `users.role → 'admin'` flip through the generic
+  `write()` IPC path. So the set of places that must **mint `auth_sig`** is exactly `createUser`
+  **and** `promoteToAdmin` (the generic write path is closed by T163, not by this ADR). Any credential
+  write that does not mint the signature will produce credentials this ADR's projection correctly
+  *refuses* — a legitimate promotion would fail and look like broken verification. The mint must sit
+  **inside** `promoteToAdmin`'s `runAtomic` step, signing the same three fields it writes as a unit.
+- **T160 (#398, merged) touched `localAuth.js`:** `SCRYPT_PARAMS` is an exported frozen constant,
+  `hashPin` reads a module-level `activeScryptParams`, `SHORESH_TEST_SCRYPT_N=1024` keeps the suite
+  fast, and `attemptLogin` takes an optional `{ now }`. This work must not undo any of it; test users
+  in these slices use those fast params.
+
+Net effect on the plan: the "sole credential-write path is `createUser`" assumption in slice 2 is
+replaced by "`createUser` + `promoteToAdmin`", and the canonical signed payload stays
+`{id, role, pin_hash, pin_salt}` so it covers exactly what `promoteToAdmin` writes atomically.
+
 ### Original proposal (superseded, kept for the record)
 
 Take `role`, `pin_hash`, and `pin_salt` out of the shared Automerge document and route writes
