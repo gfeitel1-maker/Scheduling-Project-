@@ -2,10 +2,10 @@
 title: "Migrate off npm-published SheetJS (xlsx) to the advisory-fixed line"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-09-13
 supersedes: []
-implementation_state: proposed
+implementation_state: implemented
 program: security-hardening
 affects:
   - package.json
@@ -28,9 +28,10 @@ affects:
 
 # Migrate off npm-published SheetJS (xlsx) to the advisory-fixed line
 
-**Status: PROPOSED.** A standalone security-hardening ticket, separable from any feature work.
-It records a decision the product owner must make (the install source changes), so it is written
-as its own ADR to be reviewed and merged on its own. Nothing in this ADR is implemented yet.
+**Status: ACCEPTED.** A standalone security-hardening ticket, separable from any feature work.
+It records a decision with a supply-chain consequence (the install source changes), accepted and
+implemented together: `package.json` is pinned to the CDN tarball and the ingest test corpus
+re-verified against the new version.
 
 ## Context
 
@@ -67,7 +68,7 @@ Neither control addresses **prototype pollution**, which triggers *inside* `XLSX
 parsing — before any cap or unescape step runs. That advisory is the load-bearing reason for this
 migration; the caps are a partial, not a complete, mitigation.
 
-## Decision (proposed)
+## Decision
 
 Pin SheetJS to the advisory-fixed line (0.20.x or later) installed from the SheetJS CDN tarball
 rather than the npm-registry `xlsx@0.18.5`, and keep it current against future advisories.
