@@ -65,6 +65,25 @@ export function setScryptParamsForTests(params) {
   activeScryptParams = params ? { ...SCRYPT_PARAMS, ...params } : SCRYPT_PARAMS
 }
 
+// THE SUITE-WIDE LOWERING, read from the environment rather than set by an
+// import — and the difference is not stylistic, it is 6.5 minutes.
+//
+// The first attempt called setScryptParamsForTests from `vitest.setup.js`.
+// That file runs in EVERY test file's environment, so the import pulled this
+// module's graph into all ~340 of them, including the jsdom renderer tests that
+// have no business loading auth code: total setup time went from 174s to 561s.
+// An env var costs one string read, in the one process that already imports
+// this file for a real reason.
+//
+// vite.config.js sets it for `npm test`. Nothing else sets it, and production
+// never sees it.
+if (process.env.SHORESH_TEST_SCRYPT_N) {
+  const n = Number(process.env.SHORESH_TEST_SCRYPT_N)
+  if (Number.isInteger(n) && n >= 2 && n <= SCRYPT_PARAMS.N) {
+    activeScryptParams = { ...SCRYPT_PARAMS, N: n, maxmem: 32 * 1024 * 1024 }
+  }
+}
+
 // Hashes produced before T150 are bare hex at Node's DEFAULT scrypt cost, with
 // nothing recorded about the parameters used. New ones are self-describing, so
 // the cost can be raised again later without a second flag day: the parameters

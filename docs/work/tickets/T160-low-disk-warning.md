@@ -48,7 +48,15 @@ seconds to three minutes and one test began **timing out** on six hashes; every
 file that seeds a camp pays the same toll. Unaddressed, the pressure is always to
 raise the timeout, and the end of that road is a suite nobody runs.
 
-`setScryptParamsForTests` lowers the cost suite-wide from `vitest.setup.js`. Safe
+`setScryptParamsForTests` lowers the cost suite-wide, driven by an env var
+(`SHORESH_TEST_SCRYPT_N`) set in `vite.config.js`. The first attempt called the
+setter from `vitest.setup.js` and made things **worse**: that file runs in every
+test file's environment, so the import pulled auth code into all ~340 of them
+including the jsdom renderer tests, and total setup time went from 174s to 561s.
+An env var costs one string read in the one process that already imports the
+module for a real reason.
+
+Measured: `electron/main.test.js` 889s -> 246s, `localAuth.test.js` 186s -> 55s. Safe
 because hashes are self-describing — one minted cheaply still verifies at the
 cost it was minted with — and guarded two ways: a test pins the production
 default, and one test mints at the **real** cost end to end so the shipped
