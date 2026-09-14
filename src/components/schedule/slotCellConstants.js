@@ -63,13 +63,15 @@ export const ACTIVITY_COLORS = ['#121E2B','#203144','#2F455C','#405872','#526B86
 
 export const ANCHOR_COLOR = 'var(--anchor)'
 
-// Per-slot flags are UNFILLABLE (generated route) and OVERLAP (manual route).
+// Per-slot flags are UNFILLABLE (generated route only) and OVERLAP (both
+// routes since T159).
 // UNDERSERVED/DISTRIBUTION are aggregate findings, not slot states, and
 // WEATHER_RISK was removed from the engine entirely
 // (docs/adr/2026-07-28-schedule-flag-findings-reshape.md).
 //
-// OVERLAP is bronze (caution), not red: on the manual route a clash is a
-// consequence the director chose to accept and can resolve, not a failure.
+// OVERLAP is bronze (caution), not red: a clash is a consequence someone chose
+// — or that two people chose independently and a merge combined — and can
+// resolve, not a failure.
 // Red stays reserved so it stays loud (DESIGN_STANDARD.md §4).
 export const FLAG_COLORS = {
   UNFILLABLE: 'var(--danger)',
@@ -143,8 +145,8 @@ const UNFILLABLE_ENTRY = {
   description: 'No eligible activity could be placed here',
 }
 
-// Manual route only, like OVERLAP: the activity or its group is marked not to
-// run this week (week availability). A soft marker — the placement is kept.
+// Both routes, like OVERLAP: the activity or its group is marked not to run
+// this week (week availability). A soft marker — the placement is kept.
 const WEEK_CLOSED_ENTRY = {
   flagKey: 'WEEK_CLOSED',
   label: 'Closed this week',
@@ -274,13 +276,19 @@ export function activityColor(activityId) {
 
 // The two routes share a flag VOCABULARY, not an identical flag SET: a word
 // used on both means the same thing on both, but 'Unfillable' does not exist
-// on the manual route at all — an empty cell there is simply not filled yet —
-// and 'Overlapping' does not exist on the generated route, where the engine
-// refuses a clashing placement rather than making one.
+// on the manual route at all — an empty cell there is simply not filled yet.
+//
+// 'Overlapping' USED to be the mirror of that, absent from the generated route
+// because the engine refuses a clashing placement rather than making one. That
+// is still true of generation and is no longer true of the route (T159): two
+// directors editing offline can each move a group into the same place, and the
+// merged result is a clash nobody generated. The marker follows the state.
 export function legendEntriesFor(route) {
-  // WEEK_CLOSED derives on BOTH routes (a closed-week placement is equally wrong
-  // on either), so it stays in both legends. Only UNFILLABLE (generated) and
-  // OVERLAP (manual) are route-specific.
-  const omit = route === 'manual' ? ['UNFILLABLE'] : ['OVERLAP']
+  // WEEK_CLOSED and, since T159, OVERLAP both derive on BOTH routes — a
+  // closed-week placement and an over-capacity one are equally wrong on either,
+  // and a merge can now produce the second without anyone having generated it.
+  // UNFILLABLE is the only route-specific entry left: it cannot occur on the
+  // manual route, where an empty cell is simply not filled yet.
+  const omit = route === 'manual' ? ['UNFILLABLE'] : []
   return LEGEND_ENTRIES.filter(e => !omit.includes(e.flagKey))
 }

@@ -181,9 +181,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         locationExclusions,
         weekId,
       })
-      return route === 'manual'
-        ? withOverlapFlags(withClosures, activities, locations, electiveSetActivities)
-        : withClosures
+      // T159: OVERLAP derives on BOTH routes now, exactly like WEEK_CLOSED
+      // above and for the same reason. It used to be manual-only because a
+      // clash could only ever arrive by hand — the engine refuses to create
+      // one. Under CRDT sync it can arrive another way: two directors editing
+      // offline each move a group into the same place, the documents merge
+      // cleanly, and nobody is told. The stance ("the engine refuses clashes
+      // rather than making them") is still true of GENERATION and no longer
+      // true of the route, so the marker follows the state, not the origin.
+      return withOverlapFlags(withClosures, activities, locations, electiveSetActivities)
     },
     [route, rawSlots, activities, locations, groups, activityExclusions, groupExclusions, locationExclusions, weekId, electiveSetActivities]
   )
@@ -538,12 +544,14 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const isManual = route === 'manual'
 
   // Flag SET differs by route; flag VOCABULARY does not. The manual route has
-  // no UNFILLABLE (an empty cell there is simply not filled yet) and gains
-  // OVERLAP; the generated route is unchanged.
+  // no UNFILLABLE — an empty cell there is simply not filled yet.
+  //
+  // OVERLAP is no longer the mirror of that (T159): it derives on both routes,
+  // like WEEK_CLOSED, because a merge can produce a clash on either one.
   const unfillableSlots = isManual
     ? []
     : flagSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed)
-  const overlapSlots = isManual ? flagSlots.filter(s => s.flags?.OVERLAP) : []
+  const overlapSlots = flagSlots.filter(s => s.flags?.OVERLAP)
   // WEEK_CLOSED is derived on both routes (see the `slots` memo), so its rail
   // rows and cell markers are not gated to the manual route.
   const weekClosedSlots = flagSlots.filter(s => s.flags?.WEEK_CLOSED)
@@ -1409,7 +1417,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           closed after the week was built), and a mark on the grid must never go
           undocumented (legend.test.js). When shown there, legendEntriesFor
           documents every mark the generated grid can carry. */}
-      {hasSchedule && (isManual || weekClosedSlots.length > 0) && (
+      {hasSchedule && (isManual || weekClosedSlots.length > 0 || overlapSlots.length > 0) && (
         <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-secondary)' }}>
           {legendEntriesFor(route).map(entry => (
             <span key={entry.label} title={entry.description} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'default' }}>
