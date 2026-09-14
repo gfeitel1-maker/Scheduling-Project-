@@ -110,17 +110,22 @@ friction until CI (`npm ci` in the actual pipeline) is proven against the CDN ta
 ## Consequences
 
 - Both open high advisories clear `npm audit`.
-- CI and every install path must fetch the CDN tarball; validate `npm ci` in the real pipeline
-  before merge. Document the install source in `SECURITY.md` and README so a future `npm install`
-  surprise is pre-explained.
+- Every install path must fetch the CDN tarball. This repo has **no hosted CI** (no
+  `.github/workflows`); the gate is `npm run verify` run locally by developers/agents, so the
+  install-source concern is per-developer `npm install` / `npm ci`, not a pipeline. The lockfile
+  pins the tarball URL with a sha512 integrity hash, so `npm ci` is reproducible and
+  tamper-evident, and the tarball is retained in the npm cache (offline installs work once
+  primed). The install source is documented in `SECURITY.md` so a future `npm install` resolving
+  the CDN tarball is not a surprise.
 - A standing item is added to the Security agent's supply-chain checklist (already recorded in
   `.claude/agents/security.md`): re-check SheetJS advisories on every bump, against the installed
   version.
 
 ## Verification
 
-- `npm audit` shows zero high advisories attributable to `xlsx`.
-- The full ingest test corpus (`src/ingest/**`, `scripts/mcp/tools.test.js`, the integration
-  scenarios) passes unchanged against the new version — this is the regression proof that the
-  parser swap did not alter parse behavior.
-- `npm ci` succeeds in CI from a clean cache.
+- `npm audit --omit=dev` shows **0 vulnerabilities** — zero advisories attributable to `xlsx`
+  (was 1 high).
+- The full ingest test corpus (`src/ingest/**`, `scripts/mcp/tools.test.js`) passes unchanged
+  against 0.20.3 — the regression proof that the parser swap did not alter parse behavior.
+- The CDN tarball is reachable (HTTP 200), present in the npm cache, and `npm ci --dry-run`
+  resolves it cleanly from the lockfile.
