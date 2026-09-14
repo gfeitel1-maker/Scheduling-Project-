@@ -1353,3 +1353,54 @@ describe('a write says whether the authoritative document has it', () => {
     } finally { resetLiveDocForTests() }
   })
 })
+
+// A 'deferred' that never resolves is worse than no answer at all: it reads as
+// information. runAtomic flushes before it returns, so by the time a caller has
+// the op back the real outcome is known — and the op must say it.
+describe('a deferred write is resolved by the time the boundary returns', () => {
+  it('reads applied after a successful runAtomic, not deferred', () => {
+    setUserDataDirGetter(() => docDir())
+    try {
+      let op
+      runAtomic(db, () => {
+        op = appendOp(db, { entity: 'groups', entity_id: 'g10', field: 'name', value: 'Bunk J', device_id: 'device-1' })
+        expect(op[DOCUMENT_OUTCOME]).toBe('deferred')
+      })
+      expect(op[DOCUMENT_OUTCOME]).toBe('applied')
+    } finally { resetLiveDocForTests() }
+  })
+
+  it('reads failed when the flush could not apply it', () => {
+    const blocker = path.join(os.tmpdir(), `shoresh-deferred-blocker-${Date.now()}-${Math.random()}`)
+    fs.writeFileSync(blocker, 'not a directory')
+    setUserDataDirGetter(() => blocker)
+    try {
+      let op
+      runAtomic(db, () => {
+        op = appendOp(db, { entity: 'groups', entity_id: 'g11', field: 'name', value: 'Bunk K', device_id: 'device-1' })
+      })
+      expect(op[DOCUMENT_OUTCOME]).toBe('failed')
+      expect(unsharedWriteCount(db)).toBeGreaterThan(0)
+    } finally {
+      resetLiveDocForTests()
+      fs.rmSync(blocker, { force: true })
+    }
+  })
+
+  it('a rolled-back boundary leaves the write nowhere, and says nothing misleading', () => {
+    setUserDataDirGetter(() => docDir())
+    try {
+      let op
+      expect(() => runAtomic(db, () => {
+        op = appendOp(db, { entity: 'groups', entity_id: 'g12', field: 'name', value: 'Bunk L', device_id: 'device-1' })
+        throw new Error('caller aborts')
+      })).toThrow('caller aborts')
+      // SQLite rolled back and the document write was dropped, so the op is not
+      // in either store. It still reads 'deferred' — which is correct here: the
+      // write never settled anywhere, and claiming otherwise in either direction
+      // would be the lie.
+      expect(op[DOCUMENT_OUTCOME]).toBe('deferred')
+      expect(db.prepare('SELECT COUNT(*) AS n FROM groups WHERE id = ?').get('g12').n).toBe(0)
+    } finally { resetLiveDocForTests() }
+  })
+})
