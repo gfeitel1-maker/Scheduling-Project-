@@ -15,11 +15,23 @@ Regenerate with `npm run index:work`.
 
 ## Open work
 
+### architecture
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [Watch: five mechanisms now remember what the director taught the app](../../docs/work/tickets/T157-camp-acquired-knowledge-pattern.md) | open | — |
+
 ### documentation-governance
 
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
+
+### scheduling-engine
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [Two offline edits can converge into a generated schedule nothing flags](../../docs/work/tickets/T156-generated-route-validity-after-merge.md) | open | — |
 
 ## Decisions
 
@@ -124,13 +136,14 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Projection failures must be detected as a distinct, queryable ledger and recoverable by entity-scoped replay from the op-log](../../docs/adr/2026-09-04-projection-failure-detection-and-recovery.md) | accepted | implemented | [2026-09-06-productionize-automerge-libp2p-sync](../../docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md) |
 | [Generated route gains render-time location-contention detection (extends OVERLAP, does not touch UNFILLABLE)](../../docs/adr/2026-09-05-generated-route-render-time-location-contention.md) | proposed | proposed | — |
 | [ADR: An unresolved-location decision is remembered per camp via a compound_cell_decisions-shaped table, and every held-conflict reason gets a triage card](../../docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-conflict-triage-coverage.md) | proposed | implemented | — |
-| [ADR: Membership and identity mapping for Automerge/libp2p sync (Stage 5d)](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) | accepted | in_progress | [2026-09-08-libp2p-join-flow](../../docs/adr/2026-09-08-libp2p-join-flow.md) |
-| [ADR: Productionize Automerge + libp2p as the sync/data layer; SQLite becomes a rebuildable projection](../../docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md) | accepted | in_progress | [2026-09-06-libp2p-membership-mapping](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) · [2026-09-08-crdt-conflict-reconciliation](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) · [2026-09-08-flat-record-shape](../../docs/adr/2026-09-08-flat-record-shape.md) · [2026-09-08-libp2p-join-flow](../../docs/adr/2026-09-08-libp2p-join-flow.md) · [2026-09-09-field-provenance-in-the-document](../../docs/adr/2026-09-09-field-provenance-in-the-document.md) |
-| [ADR: Reconciling concurrent edits under the CRDT — union what doesn't overlap, surface what does](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) | accepted | in_progress | [2026-09-08-flat-record-shape](../../docs/adr/2026-09-08-flat-record-shape.md) |
+| [ADR: Membership and identity mapping for Automerge/libp2p sync (Stage 5d)](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) | accepted | in_progress | [2026-09-08-libp2p-join-flow](../../docs/adr/2026-09-08-libp2p-join-flow.md) · [T155-admission-gate-characterized-limits](../../docs/work/tickets/T155-admission-gate-characterized-limits.md) |
+| [ADR: Productionize Automerge + libp2p as the sync/data layer; SQLite becomes a rebuildable projection](../../docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md) | accepted | in_progress | [2026-09-06-libp2p-membership-mapping](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) · [2026-09-08-crdt-conflict-reconciliation](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) · [2026-09-08-flat-record-shape](../../docs/adr/2026-09-08-flat-record-shape.md) · [2026-09-08-libp2p-join-flow](../../docs/adr/2026-09-08-libp2p-join-flow.md) · [2026-09-09-field-provenance-in-the-document](../../docs/adr/2026-09-09-field-provenance-in-the-document.md) · [T148-document-write-loss-becomes-visible](../../docs/work/tickets/T148-document-write-loss-becomes-visible.md) |
+| [ADR: Reconciling concurrent edits under the CRDT — union what doesn't overlap, surface what does](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) | accepted | in_progress | [2026-09-08-flat-record-shape](../../docs/adr/2026-09-08-flat-record-shape.md) · [T156-generated-route-validity-after-merge](../../docs/work/tickets/T156-generated-route-validity-after-merge.md) |
 | [ADR: Flatten the record shape — a field is its own document key](../../docs/adr/2026-09-08-flat-record-shape.md) | accepted | complete | [2026-09-09-field-provenance-in-the-document](../../docs/adr/2026-09-09-field-provenance-in-the-document.md) |
 | [ADR: How a new device joins a camp over libp2p (Stage 6 join flow)](../../docs/adr/2026-09-08-libp2p-join-flow.md) | accepted | in_progress | [2026-09-08-crdt-conflict-reconciliation](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) |
 | [ADR: Carry field provenance in the document — a hand edit says so about itself](../../docs/adr/2026-09-09-field-provenance-in-the-document.md) | accepted | complete | — |
 | [Activities as one entity with a placement axis: retiring the fixed/recurring entity split](../../docs/adr/2026-09-12-activities-as-one-entity-with-placement.md) | proposed | not started | — |
+| [ADR: The camp game talks to Shoresh through a boring explicit contract, never through its data](../../docs/adr/2026-09-13-game-integration-boundary.md) | accepted | not_started | — |
 | [Migrate off npm-published SheetJS (xlsx) to the advisory-fixed line](../../docs/adr/2026-09-13-sheetjs-parser-advisory-migration.md) | accepted | implemented | — |
 
 ## Runs

@@ -26,7 +26,7 @@ import { parseTextGrid } from '../../ingest/textGrid'
 import { workbookToPages } from '../../ingest/sheetGrid'
 import { parseGridSchedule } from '../../ingest/parseGridSchedule'
 import { populateEventGrid } from '../../ingest/eventGridPopulate'
-import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../../utils/exportSanitize.js'
+import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../../utils/exportSanitize.js'
 import EventCell from './EventCell'
 import '../../components/schedule/scheduleGrid.css'
 
@@ -414,9 +414,7 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
     try {
       let pages
       if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
-        assertImportFileSize(file.size)
-        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
-        assertWorkbookComplexity(wb)
+        const wb = readWorkbookSafely(await file.arrayBuffer(), { type: 'array', byteLength: file.size })
         const sheets = wb.SheetNames.map((name) => ({
           name,
           rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false }).map(unescapeRow),

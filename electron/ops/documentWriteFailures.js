@@ -54,3 +54,49 @@ export function listDocumentWriteFailures(db) {
     )
     .all(STORE_DOCUMENT)
 }
+
+/**
+ * Did the durable trace actually land for these ops?
+ *
+ * `recordDocumentWriteFailure` never throws — correct, since failing to record
+ * a failure must not escalate a write that already succeeded as far as SQLite.
+ * But "never throws" and "always worked" are different claims, and the fault
+ * this whole mechanism exists for (a full or unwritable disk) is exactly the
+ * one that can take the recording write down with the original. The caller
+ * needs to be able to tell the difference and say so.
+ *
+ * Returns true when there was nothing to record.
+ */
+export function documentWriteFailureRecorded(db, opIds) {
+  const ids = [...(opIds ?? [])]
+  if (ids.length === 0) return true
+  try {
+    const placeholders = ids.map(() => '?').join(', ')
+    const row = db
+      .prepare(`SELECT COUNT(*) AS n FROM projection_failures WHERE store = ? AND op_id IN (${placeholders})`)
+      .get(STORE_DOCUMENT, ...ids)
+    return row.n === ids.length
+  } catch {
+    // If we cannot even READ the ledger, we certainly cannot claim it was written.
+    return false
+  }
+}
+
+/**
+ * How many writes this device has that the authoritative document does not.
+ *
+ * The number behind an honest acknowledgement (T153). `status: 'applied'` has
+ * always meant "SQLite has it", which is not the same as "the camp has it" —
+ * and the sidebar's offline copy ("your changes are saved here and will reach it
+ * when it is back") is true for an ordinary disconnection and FALSE for these,
+ * which will never reach anyone unless the divergence is repaired.
+ */
+export function unsharedWriteCount(db) {
+  try {
+    return db
+      .prepare(`SELECT COUNT(*) AS n FROM projection_failures WHERE resolved_at IS NULL AND store = ?`)
+      .get(STORE_DOCUMENT).n
+  } catch {
+    return 0
+  }
+}

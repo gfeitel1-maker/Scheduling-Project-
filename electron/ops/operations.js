@@ -3,6 +3,8 @@ import { Buffer } from 'node:buffer'
 import { PROJECTIONS, applyProjection, sanitizeMutuallyExclusiveRow } from './projections.js'
 import { getStmt } from './stmtCache.js'
 import { recordDocumentWriteFailure } from './documentWriteFailures.js'
+import { DOCUMENT_OUTCOME } from './documentOutcome.js'
+import { MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../automerge/campDocument.js'
 import { isOpLogEngine } from '../sync/automerge/syncEngineFlag.js'
 import {
   recordLocalWrite, recordLocalBulkReplace,
@@ -111,6 +113,11 @@ export function coerceOpValue(value) {
 // renderer-side downscale. Same shape as MAX_BULK_REPLACE_ROWS above — a
 // registry of hard caps, not a generic limit applied to every field (every
 // other field this codebase writes is small by construction).
+// Re-exported so callers keep a single import site; defined in its own module
+// because liveDoc.js needs it too and this file already imports liveDoc.js.
+// The vocabulary and the reasoning live there.
+export { DOCUMENT_OUTCOME } from './documentOutcome.js'
+
 export const MAX_FIELD_VALUE_LENGTH = {
   camp_maps: { image_data: 1_400_000 }, // chars; ~1MB base64 + slack, never truncated, hard reject
 }
@@ -201,7 +208,10 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
   // default path — this is the whole reversibility guarantee: flag-OFF runs zero new code, not
   // "the same result via a different path." Never allowed to affect the op-log write above, which
   // has already committed and returned by the time this runs.
-  if (isOpLogEngine()) return op
+  if (isOpLogEngine()) {
+    op[DOCUMENT_OUTCOME] = 'engine-off'
+    return op
+  }
 
   try {
     // `source` carries the human/import ownership of this write into the shared
@@ -209,7 +219,8 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     // off the op that was just written rather than the caller's argument, so the
     // document records exactly what the op-log recorded — including appendOp's
     // own defaulting — and the two can never disagree.
-    recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: op.source, author_user_id: op.author_user_id, op_id: op.id })
+    const outcome = recordLocalWrite(db, { entity, entity_id, field, value: storedValue, source: op.source, author_user_id: op.author_user_id, op_id: op.id }, op)
+    op[DOCUMENT_OUTCOME] = MODELED_ENTITIES.has(entity) ? outcome : 'not-modeled'
   } catch (err) {
     // Durable, not just a console line. SQLite has this write and the document
     // does not, so `projectAll` will silently revert it at the next projection
@@ -217,6 +228,7 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     // for a projection failure) would be wrong here: SQLite is already correct.
     console.error('automerge dual-write failed (op-log write already committed, unaffected):', err)
     recordDocumentWriteFailure(db, { op_id: op.id, entity, entity_id, field, error: err })
+    op[DOCUMENT_OUTCOME] = 'failed'
   }
 
   return op
@@ -406,12 +418,26 @@ export function appendBulkReplaceOp(db, { entity, scope_id, rows, author_user_id
   // mirrored into the doc, but a full schedule regenerate — the single highest-volume write this
   // app makes — silently never reached it. Uses sanitizedRows (not the raw `rows` argument) so the
   // doc and the op-log/operations.value always agree, exactly like the DB insert above.
-  if (isOpLogEngine()) return op
+  if (isOpLogEngine()) {
+    op[DOCUMENT_OUTCOME] = 'engine-off'
+    return op
+  }
 
   try {
-    recordLocalBulkReplace(db, { entity, scope_id, rows: sanitizedRows })
+    // `op_id` is carried so a failed save at the end of the debounce window can
+    // name the op that was lost (liveDoc.js's flushPendingWrites) — the same
+    // thing appendOp's recordLocalWrite has always passed.
+    const outcome = recordLocalBulkReplace(db, { entity, scope_id, rows: sanitizedRows, op_id: op.id }, op)
+    op[DOCUMENT_OUTCOME] = BULK_REPLACE_MODELED_ENTITIES.has(entity) ? outcome : 'not-modeled'
   } catch (err) {
+    // Durable, not just a console line — same reasoning as appendOp's own
+    // dual-write catch above. This was the ONE write primitive whose document
+    // failure left no record at all, and it is the highest-volume write the app
+    // makes (a whole schedule regenerate is one bulk_replace), so it was also
+    // the most consequential one to lose silently.
     console.error('automerge bulk-replace dual-write failed (op-log write already committed, unaffected):', err)
+    recordDocumentWriteFailure(db, { op_id: op.id, entity, entity_id: scope_id, field: BULK_REPLACE_FIELD, error: err })
+    op[DOCUMENT_OUTCOME] = 'failed'
   }
 
   return op

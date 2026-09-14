@@ -223,3 +223,28 @@ describe('syncStatusLabel (T27)', () => {
     expect(syncStatusLabel({ mode: 'client', connected: true, state: 'client-connected' }).text).toBe('linked')
   })
 })
+
+describe('syncStatusLabel — an unshared write outranks the connection state (T153)', () => {
+  it('reports the count instead of the reassuring offline copy', () => {
+    const offline = syncStatusLabel({ state: 'client-disconnected', unsharedWrites: 0 })
+    expect(offline.title).toMatch(/will reach it when it is back/)
+
+    const diverged = syncStatusLabel({ state: 'client-disconnected', unsharedWrites: 2 })
+    expect(diverged.text).toBe('2 changes not shared')
+    expect(diverged.tone).toBe('danger')
+    // The specific promise that must NOT be made about these.
+    expect(diverged.title).not.toMatch(/will reach it when it is back/)
+    expect(diverged.title).toMatch(/will not reach the other computers/)
+  })
+
+  it('overrides even a healthy connected state — this is not a connectivity fact', () => {
+    expect(syncStatusLabel({ state: 'host', unsharedWrites: 1 }).text).toBe('1 change not shared')
+    expect(syncStatusLabel({ state: 'client-connected', unsharedWrites: 3 }).text).toBe('3 changes not shared')
+  })
+
+  it('is unchanged when there is nothing unshared, including when the field is absent', () => {
+    const plain = syncStatusLabel({ state: 'host' }).text
+    expect(plain).not.toMatch(/not shared/)
+    expect(syncStatusLabel({ state: 'host', unsharedWrites: 0 }).text).toBe(plain)
+  })
+})

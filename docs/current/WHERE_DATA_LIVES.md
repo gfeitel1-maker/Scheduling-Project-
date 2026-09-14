@@ -42,6 +42,34 @@ this ("SQLite is demoted from authoritative store to a rebuildable projection").
 
 ---
 
+## "Delete SQLite and rebuild from the document" — the precondition (T151)
+
+The promise is real and is now measured as a system property, not entity by
+entity: `electron/automerge/rebuildFromDocument.test.js` builds a camp through
+the real write paths (an import, parent-scoped children, the bulk-replace
+primitive, a tombstone), seeds a document from it, and projects into a
+**genuinely empty database of the current schema**. Every modeled table comes
+back identical.
+
+It needs one thing the sentence does not say: **the fresh database must already
+hold the `camps` row, with the matching id.** Document replay never creates it —
+`projector.js` says so — and the projection guard rejects every `camp_id` write
+whose value does not match this device's camp. Against a truly empty database
+the rebuild does not degrade into a partial camp, it fails outright, which is
+the better of the two behaviours and is pinned by its own test.
+
+So the operation is: *bootstrap the camps row with the right id, then project.*
+In production that row comes from `bootstrapCamp` or the join flow. **No code
+path performs the full sequence today** — it is a recovery procedure a human
+runs, not a feature.
+
+**What a rebuild does not bring back:** the `operations` table is this device's
+own history ledger and is not in the document (`historyLedger.js`). Trash,
+Restore's prior values, and ingest-undo are lost. Per-field provenance and
+authorship do survive — those live in the document.
+
+---
+
 ## The lookup table
 
 Counts below are computed from a fresh database, not remembered:
@@ -80,7 +108,7 @@ Stated plainly, because a page that quietly overclaims is worse than no page.
 | Gap | What it means | Status |
 |---|---|---|
 | **A document write can fail on its own** | The edit is in A, not B, so it silently reverts at the next projection — or a new row disappears outright. | **Open, but no longer silent.** Now recorded durably in `projection_failures` with `store='document'`. Measured: `electron/ops/operations.loneWriteFailure.test.js`. Recording it is not preventing it. |
-| **Migrations write synced tables with raw SQL** and no document write (`localDb.js` v11–v32 re-points, the v27 week backfill, `backfillLocations`) | If a document already exists, `projectAll` reverts those edits. | **Open.** Protected only by seeding order. |
+| **Migrations write synced tables with raw SQL** and no document write (`localDb.js` v11–v32 re-points, the v27 week backfill, `backfillLocations`) | If a document already exists, `projectAll` reverts those edits. | **Guarded (T152).** Still true of those migrations, but they are unreachable for a document-bearing camp (all are ≤ v32; a camp with a document is at v57+), every version is now classified in `migrationDomainState.js`, a new migration fails the suite until it is classified, and sync refuses to start if a domain-state migration ran against a camp that already has a document. |
 | **`projectionRepair` rebuilds A from C**, not from B | Running it produces state the document disagrees with, which the next `projectAll` reverts. | **Open**, and now fenced: it scopes to `store='projection'`, so it can no longer mark a document failure resolved by replaying ops that were never the problem. Reachable only via the MCP tool with `--allow-write`. |
 | **The empty-document guard is deliberately narrow** | It refuses a *totally* empty document, but a *partially* empty one passes and can delete-reconcile away whichever entities it is missing. | **Known and accepted**, stated in `projector.js`. |
 | **`SHORESH_SYNC_ENGINE=oplog`** skips every document write | That device silently stops syncing while looking completely normal. Nothing on screen says which engine is running. | **Open.** Default is safe. |

@@ -10,6 +10,7 @@ import {
   IMPORT_LIMITS,
   assertImportFileSize,
   assertWorkbookComplexity,
+  readWorkbookSafely,
 } from './exportSanitize.js'
 
 const TRIGGERS = ['=', '+', '-', '@', '\t', '\r', '\n']
@@ -175,6 +176,46 @@ describe('import caps — fail closed (F4)', () => {
   })
 })
 
+describe('readWorkbookSafely — single import-read boundary (F4)', () => {
+  // Build a tiny, valid xlsx byte array for the happy-path / complexity cases.
+  const makeWorkbookBytes = (sheetCount = 1) => {
+    const wb = XLSX.utils.book_new()
+    for (let i = 0; i < sheetCount; i++) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['name'], ['Swim']]), `S${i}`)
+    }
+    return XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
+  }
+
+  it('rejects an over-size file (explicit byteLength) BEFORE parsing', () => {
+    // Pass valid bytes but an over-cap byteLength: the size gate must fire first,
+    // so the value the caller measured (file.size) is what bounds the read.
+    expect(() =>
+      readWorkbookSafely(makeWorkbookBytes(), { type: 'array', byteLength: IMPORT_LIMITS.maxBytes + 1 })
+    ).toThrow(/too large/i)
+  })
+
+  it('rejects an over-size file when byteLength is DERIVED from the data', () => {
+    // No explicit byteLength: it falls back to the data's own length. An oversize
+    // buffer is rejected before XLSX.read even though the bytes are not valid xlsx
+    // (proving the size gate runs first, not the parser).
+    const oversize = new Uint8Array(IMPORT_LIMITS.maxBytes + 1)
+    expect(() => readWorkbookSafely(oversize, { type: 'array' })).toThrow(/too large/i)
+  })
+
+  it('rejects an over-complex workbook (too many sheets) after parse, before walk', () => {
+    const bytes = makeWorkbookBytes(IMPORT_LIMITS.maxSheets + 1)
+    expect(() => readWorkbookSafely(bytes, { type: 'array', byteLength: bytes.byteLength }))
+      .toThrow(/too many sheets/i)
+  })
+
+  it('returns the parsed workbook for a normal file', () => {
+    const bytes = makeWorkbookBytes(1)
+    const wb = readWorkbookSafely(bytes, { type: 'array', byteLength: bytes.byteLength })
+    expect(wb.SheetNames).toEqual(['S0'])
+    expect(XLSX.utils.sheet_to_json(wb.Sheets.S0, { defval: '' })).toEqual([{ name: 'Swim' }])
+  })
+})
+
 // Structural gate (ADR §4 / §2a): no export path may build a sheet from user
 // data with raw aoa_to_sheet, and no export module may assign .v directly on a
 // hand-built cell object (that bypasses the escape). All user-data sheets go
@@ -210,6 +251,53 @@ describe('grep gate — export paths route through the sanitizer', () => {
     for (const rel of EXPORT_FILES) {
       const src = readFileSync(join(root, rel), 'utf8')
       expect(src, `${rel} does not use aoaToSanitizedSheet`).toMatch(/aoaToSanitizedSheet/)
+    }
+  })
+})
+
+// Structural gate (Finding 2): every file that reads an UPLOADED workbook must
+// route through readWorkbookSafely — the single boundary that applies the F4
+// exhaustion caps (assertImportFileSize + assertWorkbookComplexity). No import
+// read path may call raw XLSX.read directly, or it would parse an attacker-
+// authorable file with no size/sheet/row bound (xlsx@0.18.5 has open proto-
+// pollution + ReDoS advisories). The seven per-entity setup importers and the
+// primary ingest paths are held to the same rule.
+describe('grep gate — import read paths route through readWorkbookSafely', () => {
+  // Paths relative to the repo root (some live outside src/).
+  const repoRoot = process.cwd()
+  const IMPORT_READ_FILES = [
+    'src/screens/ActivitiesScreen.jsx',
+    'src/screens/TimeBlocksScreen.jsx',
+    'src/screens/TiersScreen.jsx',
+    'src/screens/LocationsScreen.jsx',
+    'src/screens/DaysScreen.jsx',
+    'src/screens/GroupsScreen.jsx',
+    'src/screens/AnchorsScreen.jsx',
+    'src/screens/ImportScreen.jsx',
+    'src/screens/elective/ElectiveSetDetail.jsx',
+    'src/screens/event/EventGridEditor.jsx',
+    'scripts/ingestCli.js',
+  ]
+
+  it('no import file calls raw XLSX.read (bypassing the size/complexity caps)', () => {
+    for (const rel of IMPORT_READ_FILES) {
+      const src = readFileSync(join(repoRoot, rel), 'utf8')
+      expect(src, `${rel} still calls raw XLSX.read — route it through readWorkbookSafely`)
+        .not.toMatch(/XLSX\.read\s*\(/)
+    }
+  })
+
+  it('every import file reads workbooks via readWorkbookSafely', () => {
+    for (const rel of IMPORT_READ_FILES) {
+      const src = readFileSync(join(repoRoot, rel), 'utf8')
+      expect(src, `${rel} does not use readWorkbookSafely`).toMatch(/readWorkbookSafely/)
+    }
+  })
+
+  it('every import file still applies unescapeRow to imported cells', () => {
+    for (const rel of IMPORT_READ_FILES) {
+      const src = readFileSync(join(repoRoot, rel), 'utf8')
+      expect(src, `${rel} dropped unescapeRow`).toMatch(/unescapeRow/)
     }
   })
 })

@@ -30,8 +30,9 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
           <div style={{ flex: 1 }}>
             <div style={S.authChoiceTitle}>Host this camp's schedule</div>
             <div style={S.authChoiceDesc}>
-              This computer becomes the source of truth. Other staff devices on your network will
-              connect to it. Choose this on the camp office computer, or the one that stays on.
+              This computer starts the camp. Other staff devices on your network join it, and every
+              device keeps its own full copy. Choose this on the camp office computer, or the one
+              that stays on.
             </div>
           </div>
           <div style={S.authChoiceChevron}><ChevronIcon size={14} style={{ transform: 'rotate(-90deg)' }} /></div>

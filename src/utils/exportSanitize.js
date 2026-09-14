@@ -71,6 +71,25 @@ export function assertImportFileSize(byteLength, limits = IMPORT_LIMITS) {
   }
 }
 
+// The single import-read boundary (Finding 2). Every uploaded-workbook read
+// path — the seven per-entity setup importers AND the primary ingest paths —
+// goes through here so the F4 caps are applied from ONE place rather than each
+// call site re-implementing the assert/read/assert triad (and drifting). Order
+// matters: size gate BEFORE the parser runs, then parse, then complexity gate
+// BEFORE any cell is walked. `byteLength` is passed explicitly by callers that
+// hold the File (file.size) or a Buffer, so the size cap can reject on the
+// measured length exactly as ImportScreen already did; it falls back to the
+// data's own byteLength/length when omitted. Throws a clear message on a breach;
+// the caller imports nothing. This owns the read only — callers still run their
+// own sheet_to_json + .map(unescapeRow) on the returned workbook.
+export function readWorkbookSafely(data, { type, byteLength, limits = IMPORT_LIMITS } = {}) {
+  const len = typeof byteLength === 'number' ? byteLength : (data?.byteLength ?? data?.length ?? 0)
+  assertImportFileSize(len, limits)
+  const workbook = XLSX.read(data, { type })
+  assertWorkbookComplexity(workbook, limits)
+  return workbook
+}
+
 // Fail closed AFTER parse but BEFORE reading any cell — bound sheet and per-sheet
 // row counts so a decompressed bomb cannot be walked. Throws; imports nothing.
 export function assertWorkbookComplexity(workbook, limits = IMPORT_LIMITS) {

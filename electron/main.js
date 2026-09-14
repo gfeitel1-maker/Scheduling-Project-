@@ -4,7 +4,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
+import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion, migrationSpanFor } from './db/localDb.js'
 import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, issueDeviceToken } from './auth/localAuth.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
@@ -39,8 +39,10 @@ import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
+import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn } from './db/migrationDomainState.js'
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
-import { loadDoc as loadAutomergeDoc } from './sync/automerge/docStore.js'
+import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
+import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import { createMdnsDiscovery } from './sync/automerge/discovery.js'
 import { joinCode as joinCodeForCamp, formatJoinCode } from './sync/joinCode.js'
@@ -546,8 +548,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // joined anything is working correctly; a client that cannot see the Host is
   // not, and the director needs to be able to tell those apart.
   function getSyncStatus() {
-    if (!modeChosen) return { mode: null, connected: false, state: 'standalone' }
-    if (mode === 'host') return { mode: 'host', connected: true, state: 'host' }
+    // Writes this device holds that the authoritative document does not (T153).
+    // Reported on EVERY state including standalone and host, because it is not a
+    // connectivity fact: a lone device with a failed document write is diverged
+    // from the camp whether or not anyone is reachable, and the offline copy
+    // ("your changes will reach it when it is back") is exactly the sentence
+    // that must not be shown for these.
+    const unsharedWrites = unsharedWriteCount(db)
+    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites }
+    if (mode === 'host') return { mode: 'host', connected: true, state: 'host', unsharedWrites }
     // Stage 6c: the honest source of "can this device reach the camp" is the
     // libp2p node's peer set, not a socket. `getPeers()` returns every
     // libp2p-connected peer INCLUDING one that merely completed a noise
@@ -560,7 +569,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const connected = peers.length > 0
     const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
-    return { mode: 'client', connected, authenticated: authed, state }
+    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
@@ -2382,6 +2391,44 @@ if (isElectronEntryPoint()) {
       // NEVER fabricates a doc itself (that contract is unchanged and unrelaxed) — it only resolves
       // between liveDoc's in-memory copy and the persisted file, both of which are now guaranteed
       // to exist because of the ensureSeeded call directly above it.
+      // A DOMAIN-STATE MIGRATION RAN ON A LAUNCH WHERE A DOCUMENT ALREADY
+      // EXISTS (migrationDomainState.js). SQLite now holds camp meaning the
+      // document does not, and the document is the authority — so the next
+      // merge's delete-reconcile would quietly undo the migration.
+      //
+      // Refuse to sync rather than replicate into that. The device keeps
+      // working on its own, which is the whole point of local-first; what it
+      // will not do is exchange state it is about to lose. Auto-repair is
+      // deliberately not attempted: re-seeding the document from SQLite would
+      // resurrect every tombstone the document holds and SQLite does not.
+      //
+      // Unreachable today by construction — every domain-state migration is
+      // below v52, and a database with a document is already at v57+ — which is
+      // exactly why it is cheap to put the guard in before it is needed.
+      const migrationSpan = migrationSpanFor(db)
+      if (migrationSpan && fs.existsSync(automergeDocPath(userDataPath, campId))) {
+        const risky = domainStateMigrationsIn(migrationSpan.from, migrationSpan.to)
+        if (risky.length > 0) {
+          const detail = risky.map((v) => `v${v} (${DOMAIN_STATE_MIGRATIONS.get(v)})`).join('; ')
+          console.error(
+            `automerge sync: NOT starting. A domain-state migration ran on this launch against a camp ` +
+              `that already has a document: ${detail}. SQLite now holds camp meaning the document does not, ` +
+              `and projecting the document would undo it. See electron/db/migrationDomainState.js.`
+          )
+          recordAuditEvent(db, {
+            actorUserId: null,
+            deviceId: null,
+            action: 'sync.blocked_by_domain_migration',
+            targetType: 'document',
+            targetId: campId,
+            outcome: 'deny',
+            reason: detail,
+            metadata: { from: migrationSpan.from, to: migrationSpan.to, versions: risky },
+          })
+          return
+        }
+      }
+
       ensureAutomergeDocSeeded(db)
       const doc = resolveStartupDoc({
         liveDoc: getDocIfLoaded(db),
@@ -2401,8 +2448,8 @@ if (isElectronEntryPoint()) {
 
       // Stage 5f: NO initial projection here (removed — was `projectAutomergeDoc(db, doc)`, see
       // docs/work/plans/2026-09-06-stage5-live-wiring-design.md §5's revision). At startup, SQLite
-      // is ALREADY correct: it was built by the op-log (the authoritative record regardless of
-      // this flag) and, for any camp that has already run a session with this flag on, by prior
+      // is ALREADY correct: it was built by this device's own committed writes (appendOp writes
+      // SQLite and the document together) and, for any camp that has already synced, by prior
       // remote-merge projections that already landed via syncNode.handleReceived. Projecting `doc`
       // over an already-correct SQLite can only ever be a no-op (doc and SQLite agree) or
       // destructive (delete-reconcile removes a row SQLite has that `doc` is missing — exactly the
@@ -2446,6 +2493,28 @@ if (isElectronEntryPoint()) {
         // Only consulted for a first-join pairing_request; an already-paired
         // device reconnecting never carries a join nonce and is unaffected.
         isJoinWindowOpen: () => liveHandlers?.isJoinWindowOpen?.() ?? false,
+        // A merged document that will not project leaves SQLite silently BEHIND
+        // the authoritative document — the exact mirror of a document write that
+        // fails after SQLite committed, and until now the only one of the pair
+        // with no durable trace: syncNode logs it and calls this, and nothing was
+        // ever wired to it (it existed only in syncNode.test.js). The doc stays
+        // as CRDT truth and sync continues, by design; what was missing was any
+        // way to find out afterwards that this device's tables are not what the
+        // camp agreed on. `projection_failures` cannot hold it — its primary key
+        // is an op id and a merge has no op — so it goes to the device's own
+        // durable event log, which is where support reads from.
+        onProjectionError: (err, _mergedDoc, fromPeerId) => {
+          recordAuditEvent(db, {
+            actorUserId: null,
+            deviceId: null,
+            action: 'automerge.projection_failed',
+            targetType: 'document',
+            targetId: campId,
+            outcome: 'error',
+            reason: String(err?.message ?? err),
+            metadata: { fromPeerId: fromPeerId ?? null },
+          })
+        },
         onAuthRejected: (peerId, reply) => {
           console.error(`automerge sync: peer ${peerId} rejected our authenticate: ${JSON.stringify(reply)}`)
           recordAuditEvent(db, {

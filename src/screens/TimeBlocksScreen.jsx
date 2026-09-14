@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
-import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { S, useEnterTransition } from '../styles/shared'
@@ -307,7 +307,8 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
     const file = e.target.files[0]; if (!file) return
     const reader = new FileReader()
     reader.onload = ev => {
-      const wb = XLSX.read(ev.target.result, { type: 'array' })
+      try {
+      const wb = readWorkbookSafely(ev.target.result, { type: 'array', byteLength: file.size })
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
       const parsed = rows.map(r => {
         const name = String(r.name || '').trim()
@@ -323,6 +324,9 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         return { name, start_time, end_time, part_of_day: pod, sort_order, warning }
       })
       setImportRows(parsed); setImportStep('preview')
+      } catch (err) {
+        setError(describeWriteFailure(err, 'That import file could not be read.'))
+      }
     }
     reader.readAsArrayBuffer(file); e.target.value = ''
   }

@@ -551,3 +551,72 @@ describe('attemptLogin', () => {
     fs.unlinkSync(otherFile)
   })
 })
+
+// --- PIN hashing cost, and the legacy format that must keep verifying (T150) ---
+//
+// `users.pin_hash`/`pin_salt` are modeled document fields: they replicate to
+// every approved device and sit in a plaintext file on each one. Raising the
+// scrypt cost does not make a four-digit PIN safe — nothing does — but it is
+// nearly free and it is the only lever available without changing the product.
+// What these pin is that the raise cannot silently break existing logins, and
+// that the parameters travel WITH the hash so the next raise needs no flag day.
+describe('PIN hashing cost and format', () => {
+  it('a new hash is self-describing — it carries the parameters it was made with', async () => {
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'Costed', pin: '1234', role: 'staff' }, testWrite())
+    const row = db.prepare('SELECT pin_hash FROM users WHERE id = ?').get(user.id)
+    expect(row.pin_hash).toMatch(/^scrypt\$N=\d+,r=\d+,p=\d+\$[0-9a-f]+$/)
+    expect(verifyPin(db, user.id, '1234')).toBe(true)
+    expect(verifyPin(db, user.id, '4321')).toBe(false)
+  })
+
+  it('a LEGACY bare-hex hash still verifies — at the cost it was produced with, not the current one', async () => {
+    const { scryptSync } = await import('node:crypto')
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'Legacy', pin: '1234', role: 'staff' }, testWrite())
+    // Overwrite with exactly what pre-T150 code wrote: Node's DEFAULT cost, no
+    // parameters recorded. Written directly rather than through the op-log,
+    // because this is simulating a row that predates the format.
+    const salt = db.prepare('SELECT pin_salt FROM users WHERE id = ?').get(user.id).pin_salt
+    const legacy = scryptSync('1234', salt, 64).toString('hex')
+    db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run(legacy, user.id)
+    expect(verifyPin(db, user.id, '1234')).toBe(true)
+    expect(verifyPin(db, user.id, '9999')).toBe(false)
+  })
+
+  it('a malformed stored hash is a failed login, never a throw', async () => {
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'Corrupt', pin: '1234', role: 'staff' }, testWrite())
+    for (const junk of ['scrypt$N=notanumber,r=8,p=1$abcd', 'scrypt$$', '']) {
+      db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run(junk, user.id)
+      expect(() => verifyPin(db, user.id, '1234')).not.toThrow()
+      expect(verifyPin(db, user.id, '1234')).toBe(false)
+    }
+  })
+})
+
+// The stored hash replicates, so a peer can write it. These are the inputs a
+// hostile one would choose.
+describe('PIN hash parsing treats the stored value as untrusted input', () => {
+  it('refuses an absurd cost parameter instead of trying to allocate it', async () => {
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'Bomb', pin: '1234', role: 'staff' }, testWrite())
+    // N=2^30 with the earlier "size maxmem from the stored N" logic asked for
+    // hundreds of GB on every login attempt, on every device that replicated it.
+    db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run(`scrypt$N=${2 ** 30},r=8,p=1$abcd`, user.id)
+    const started = Date.now()
+    expect(verifyPin(db, user.id, '1234')).toBe(false)
+    expect(Date.now() - started).toBeLessThan(2000)
+  })
+
+  it('refuses degenerate parameters (zero, negative, non-integer) as a failed login', async () => {
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'Degenerate', pin: '1234', role: 'staff' }, testWrite())
+    for (const params of ['N=0,r=8,p=1', 'N=-1,r=8,p=1', 'N=16384,r=0,p=1', 'N=16384,r=8,p=0', 'N=1.5,r=8,p=1']) {
+      db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run(`scrypt$${params}$abcd`, user.id)
+      expect(() => verifyPin(db, user.id, '1234')).not.toThrow()
+      expect(verifyPin(db, user.id, '1234')).toBe(false)
+    }
+  })
+
+  it('a non-hex payload is a failed login, not a length coincidence', async () => {
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'NotHex', pin: '1234', role: 'staff' }, testWrite())
+    db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run('scrypt$N=65536,r=8,p=1$zzzz', user.id)
+    expect(verifyPin(db, user.id, '1234')).toBe(false)
+  })
+})
