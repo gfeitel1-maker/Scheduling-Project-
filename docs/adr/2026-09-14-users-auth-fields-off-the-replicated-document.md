@@ -160,6 +160,23 @@ which is the owner's call.
 - **Tier-4:** this finding is a **hard blocker** on signing off the internet-transport gate
   (`docs/adr/2026-09-14-internet-transport-security-gate.md`). If this ADR is not implemented, that
   gate's re-assessment must resolve it before internet transport ships.
+- **Rebuild-from-document interaction (#401, `electron/automerge/rebuildSupportCommand.js`):** the
+  support command that rebuilds SQLite from the Automerge document restores neither
+  `camps.signing_public_key`/`signing_secret` nor `host_signing_key` — they are host-only/device-local
+  and were never in the document (the command's own confirmation text says they "come back empty").
+  Two consequences for this design: (a) a rebuilt device temporarily **cannot verify `auth_sig`**
+  until it re-obtains `camps.signing_public_key` (which it does re-receive via full-sync/pairing on
+  reconnect) — so the enforcement slice must **degrade gracefully when the public key is absent**
+  (keep last-known credentials / refuse to *newly enforce* rather than lock the user out), not treat
+  "no key" as "invalid signature"; (b) a rebuilt **Host** loses its minting key and must regenerate/
+  re-establish it before it can mint new credential signatures. Both must be covered by the
+  enforcement slice's tests.
+  - **Enforcement-slice task (coordinated with app-icon-audit):** when `auth_sig` enforcement lands,
+    extend `NOT_RECOVERABLE_NOTICE` in `electron/automerge/rebuildSupportCommand.js` to state that a
+    rebuilt device cannot verify credentials until it re-syncs `camps.signing_public_key`, and — if it
+    was the Host — cannot mint at all until re-paired. Deliberately NOT added earlier: a support
+    notice describing a mechanism that does not yet exist is the stale-doc failure T149 just cleaned
+    up. It lands *with* the enforcement slice, accurate, not before.
 
 ## Verification (when implemented)
 
