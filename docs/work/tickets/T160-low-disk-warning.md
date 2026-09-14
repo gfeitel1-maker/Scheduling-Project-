@@ -54,6 +54,17 @@ cost it was minted with — and guarded two ways: a test pins the production
 default, and one test mints at the **real** cost end to end so the shipped
 parameters are proven to work rather than merely asserted.
 
+A third fix came from the same place. `parentScoped.test.js`'s 480-slot scale
+test had already raised its own ASSERTION ceiling to 60s, with a comment
+explaining that machine load must not masquerade as an algorithmic regression —
+but left itself running under the suite's 20s `testTimeout`. So under exactly the
+load it was written to tolerate it died before reaching its own assertions:
+three gate runs failed there at 26s, 35s and 53s, none for the reason the test
+exists. It now carries a per-test timeout larger than its tripwire, so the thing
+that fails first is the tripwire with its explanatory message rather than an
+anonymous timeout. Scoped to that one test — raising the global budget would hide
+genuinely stuck tests everywhere else.
+
 `attemptLogin` also gained an injected clock. Not convenience: the lockout is a
 wall-clock window, and at the raised cost five failed attempts took long enough
 on a loaded machine that the window **expired mid-test** — so the test reported
