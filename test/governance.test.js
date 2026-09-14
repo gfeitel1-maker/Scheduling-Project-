@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { join, dirname, resolve, relative, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { AGENTS, INDEPENDENT_AGENTS } from '../scripts/check-governance.js'
 
 // Deterministic governance safeguards.
 //
@@ -86,6 +87,26 @@ describe('agent roster integrity', () => {
     const refs = [...governor.matchAll(/`(\.claude\/agents\/[a-z-]+\.md)`/g)].map((m) => m[1])
     expect(refs.length).toBeGreaterThan(0)
     expect(refs.filter((r) => !existsSync(p(r)))).toEqual([])
+  })
+
+  // check-governance.js's AGENTS is Article VII's *loop* roster, not Article VI's full
+  // roster: every name in it must be selected-or-omitted in every run record, so adding
+  // one retroactively invalidates every older record. The three independent agents belong
+  // to Article VI but not to the loop. Pinning the partition means a newly added agent
+  // fails here until someone consciously places it on one side or the other, instead of
+  // being silently absent from both (or, worse, added to AGENTS and breaking the corpus).
+  it('the loop roster and the independent agents together are exactly the Article VI roster', () => {
+    const constitution = read(p('docs', 'governance', 'constitution', 'CONSTITUTION.md'))
+    const section = constitution.slice(
+      constitution.indexOf('## Article VI'),
+      constitution.indexOf('## Article VII'),
+    )
+    const roster = [...section.matchAll(/^\| \*\*([A-Za-z ]+)\*\*/gm)]
+      .map((m) => m[1].trim().toLowerCase().replace(/\s+/g, '-'))
+      .sort()
+    expect(roster.length).toBeGreaterThan(0)
+    expect([...AGENTS, ...INDEPENDENT_AGENTS].sort()).toEqual(roster)
+    expect(AGENTS.filter((a) => INDEPENDENT_AGENTS.includes(a))).toEqual([])
   })
 })
 

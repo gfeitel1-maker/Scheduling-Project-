@@ -26,6 +26,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
+| [A merged change should leave a run record, and the gate should notice when it does not](../../docs/work/tickets/T167-a-merged-change-should-leave-a-run-record.md) | open | — |
 
 ### scheduling-engine
 
@@ -44,6 +45,9 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [The libp2p sync tests fail when the machine is busy, which is when agents work](../../docs/work/tickets/T164-libp2p-sync-tests-fail-under-load.md) | open | — |
+| [Decouple agents:check from the unversioned home organization package](../../docs/work/tickets/T165-decouple-agents-check-from-the-home-organization-package.md) | open | — |
+| [Put agents:check in the gate once green is reachable everywhere](../../docs/work/tickets/T166-put-agents-check-in-the-gate.md) | open | — |
+| [The two unattended jobs delete directories and write memory, and neither has a test](../../docs/work/tickets/T168-shell-test-harness-for-the-unattended-jobs.md) | open | — |
 
 ## Decisions
 
@@ -144,7 +148,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Retire the schedule overlay/stamp subsystem (template_overlays)](../../docs/adr/2026-08-30-retire-overlay-stamp-subsystem.md) | accepted | implemented | [T116-retire-overlay-stamp-subsystem](../../docs/work/tickets/T116-retire-overlay-stamp-subsystem.md) |
 | [Importing a prior-year schedule materializes it as a saved version, not the working grid](../../docs/adr/2026-09-02-imported-schedule-materializes-as-a-version.md) | accepted | in-progress | [T117-imported-schedule-as-version-slice2](../../docs/work/tickets/T117-imported-schedule-as-version-slice2.md) · [T117-imported-schedule-as-version-slice2](../../docs/work/tickets/T117-imported-schedule-as-version-slice2.md) |
 | [Ingest asks the director to interpret compound schedule cells, and remembers the answer per camp](../../docs/adr/2026-09-03-compound-cell-interpretation.md) | accepted | shipped | [2026-09-05-unresolved-location-remembered-decisions-and-held-conflict-triage-coverage](../../docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-conflict-triage-coverage.md) · [T118-compound-cell-interpretation](../../docs/work/tickets/T118-compound-cell-interpretation.md) · [T118-compound-cell-interpretation](../../docs/work/tickets/T118-compound-cell-interpretation.md) |
-| [Portable agent-team compatibility layer: generate the twelve native agent profiles from a reusable role source plus a Shoresh adapter](../../docs/adr/2026-09-04-portable-agent-team-compatibility-layer.md) | accepted | in-progress | — |
+| [Portable agent-team compatibility layer: generate the twelve native agent profiles from a reusable role source plus a Shoresh adapter](../../docs/adr/2026-09-04-portable-agent-team-compatibility-layer.md) | accepted | in-progress | [T165-decouple-agents-check-from-the-home-organization-package](../../docs/work/tickets/T165-decouple-agents-check-from-the-home-organization-package.md) · [T166-put-agents-check-in-the-gate](../../docs/work/tickets/T166-put-agents-check-in-the-gate.md) |
 | [ADR: Projection failures must be detected as a distinct, queryable ledger and recoverable by entity-scoped replay from the op-log](../../docs/adr/2026-09-04-projection-failure-detection-and-recovery.md) | accepted | implemented | [2026-09-06-productionize-automerge-libp2p-sync](../../docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md) |
 | [Generated route gains render-time location-contention detection (extends OVERLAP, does not touch UNFILLABLE)](../../docs/adr/2026-09-05-generated-route-render-time-location-contention.md) | proposed | proposed | — |
 | [ADR: An unresolved-location decision is remembered per camp via a compound_cell_decisions-shaped table, and every held-conflict reason gets a triage card](../../docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-conflict-triage-coverage.md) | proposed | implemented | — |
@@ -168,6 +172,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-09-14 | [harness reliability — classify non-retryable nightly failures, make the morning check ask whether the pass succeeded, protect application-leased worktrees from pruning, and pin the loop-roster/Article VI partition](../../docs/work/runs/2026-09-14-harness-reliability-repairs.md) | test-infrastructure | in-progress | in-progress |
 | 2026-08-17 | [One-workspace merge (Option A) — fold the upstream ticking step into the reconciliation workspace; low-confidence creates + fixed events become decisions; F2 from→to; F3 required-gap cards; gauntlet compression](../../docs/work/runs/2026-08-17-reconciliation-onescreen-merge.md) | ui-ux-design | pass | pass |
 | 2026-08-17 | [R2′b — one-screen ReconciliationScreen (compose single surface + staged-tray-as-dry-run wiring + cutover/deletions + PLATFORM_STATE refresh)](../../docs/work/runs/2026-08-17-reconciliation-r2b-onescreen.md) | ui-ux-design | pass | pass |
 | 2026-08-17 | [R7 — legacy-priority: verify handling in the one-workspace flow; render the batch decision meaningfully](../../docs/work/runs/2026-08-17-reconciliation-r7-legacy-priority.md) | ui-ux-design | pass | pass |

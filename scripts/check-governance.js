@@ -32,10 +32,26 @@ try {
 }
 
 
-/** CONSTITUTION.md Article VI. Kebab-case, matching .claude/agents/*.md. */
+/**
+ * CONSTITUTION.md **Article VII — the loop**. Kebab-case, matching .claude/agents/*.md.
+ *
+ * This is NOT the full Article VI roster, and the difference is load-bearing: every agent
+ * named here must be either selected or omitted-with-a-reason in every run record, so
+ * adding a name to this list retroactively invalidates every run record that predates it.
+ * The agents in INDEPENDENT_AGENTS are in Article VI but deliberately absent here — they
+ * run on their own cadence rather than inside a task's loop, so a run record has nothing
+ * to say about them. `test/governance.test.js` pins the partition: the two lists together
+ * must equal the Article VI roster exactly, which makes a new agent a conscious placement
+ * rather than a silent omission from either side.
+ */
 export const AGENTS = [
   'governor', 'architect', 'designer', 'maker', 'code-reviewer',
   'verifier', 'tester', 'security', 'red-hat', 'grader',
+]
+
+/** Article VI roles that run outside the loop, so run records do not account for them. */
+export const INDEPENDENT_AGENTS = [
+  'architecture-auditor', 'design-auditor', 'security-assessment',
 ]
 
 /** GOVERNANCE_INDEX.md §3–8. */

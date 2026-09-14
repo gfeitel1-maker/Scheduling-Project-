@@ -168,6 +168,27 @@ fi
 
 pruned=0
 typeset -a READY NEEDS_REBASE ACTIVE PROTECTED
+# --- Claude Desktop's worktree ledger (READ ONLY — application-owned state) ---
+LEDGER="$HOME/Library/Application Support/Claude/git-worktrees.json"
+LEASED_PATHS=""
+if [[ -f "$LEDGER" ]]; then
+  LEASED_PATHS=$(/usr/bin/python3 - "$LEDGER" 2>/dev/null <<'PYEOF'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)                      # absent, truncated or mid-write: protect nothing, never abort
+for w in (d.get("worktrees") or {}).values():
+    p = w.get("path")
+    if p: print(p)
+PYEOF
+)
+  n=$(print -r -- "$LEASED_PATHS" | grep -c . )
+  { print -- "worktree ledger: $n path(s) protected from pruning"; } >> "$LOG"
+else
+  { print -- "worktree ledger absent at $LEDGER — pruning unchanged"; } >> "$LOG"
+fi
+
 # --- Walk worktrees ---
 git worktree list --porcelain 2>/dev/null | awk '
   /^worktree /{wt=$2}
@@ -187,6 +208,15 @@ git worktree list --porcelain 2>/dev/null | awk '
   ephemeral=0; [[ "$wt" == "$REPO/.claude/worktrees/"* ]] && ephemeral=1
   protected=0
   [[ "$wt" == "$REPO" || "$wt" == "$HOME/dev/shoresh-config" || "$br" == "main" ]] && protected=1
+  # Claude Desktop owns the worktrees under $REPO/.claude/worktrees and tracks them in its
+  # own ledger. A pooled worktree (leasedBy: null + pooledAt) is clean, 0 ahead and idle by
+  # design — bit-for-bit the shape this prune rule targets — so pruning one deletes a
+  # directory the application still believes it can reuse. We READ the ledger and never
+  # write it; if it is missing or mid-write, LEASED_PATHS is empty and behaviour is exactly
+  # what it was before.
+  if [[ -n "$LEASED_PATHS" ]] && print -r -- "$LEASED_PATHS" | grep -qxF "$wt"; then
+    protected=1
+  fi
 
   if (( protected )); then
     print -- "- 🔒 \`$br\` — protected ($wt)" >> "$REPORT.protected"
@@ -231,13 +261,55 @@ fi
 # Self-heal: back up the 3 AM nightly memory pass. If it did not run for yesterday (e.g. the Mac was
 # asleep at 03:00 and launchd did not catch up the missed run), run it now — this 06:30 job runs
 # reliably because the machine is awake by then. Recovers a slept-through night automatically.
+#
+# The predicate is the point. This used to ask "is there a `=== run <day>` header in
+# run.log" — but run.sh writes that header as its FIRST action, before it does any work.
+# The header is therefore present on a night that started and failed, which is why eight
+# consecutive authentication failures (2026-09-06..13) produced no morning signal at all.
+# "Started" is not "succeeded". Four outcomes, not two:
 YDAY=$(date -v-1d +%F)
-if ! grep -q "=== run $YDAY " "$CONS/run.log" 2>/dev/null; then
+PEND="$HOME/.claude/projects/$SLUG/memory/_pending"
+if [[ -f "$PEND/proposal-$YDAY.md" ]]; then
+  :                                                    # 1. succeeded — nothing to say
+elif grep -q "no signal for $YDAY" "$CONS/run.log" 2>/dev/null; then
+  :                                                    # 2. genuinely quiet day — not a failure
+elif [[ -f "$PEND/NEEDS-AUTH-proposal-$YDAY.md" || -f "$PEND/FAILED-proposal-$YDAY.md" ]]; then
+  # 3. ran and failed. Do NOT re-run: it already retried, and for a non-retryable class
+  #    (expired login) another attempt only burns another failure. Surface it instead.
+  print -- "\n## 🔴 Nightly memory pass FAILED for $YDAY" >> "$REPORT"
+  if [[ -f "$PEND/NEEDS-AUTH-proposal-$YDAY.md" ]]; then
+    print -- "- **not authenticated** — sign in once with \`claude /login\`, then recover the backlog" >> "$REPORT"
+  else
+    print -- "- mining failed after retries — see \`$CONS/run.log\`" >> "$REPORT"
+  fi
+elif ! grep -q "=== run $YDAY " "$CONS/run.log" 2>/dev/null; then
+  # 4. never started (Mac asleep at 03:00). Safe to run now: yesterday's transcript mtimes
+  #    are still accurate, so gather.sh selects the right files. This is the ONLY case where
+  #    run.sh may be invoked for a past day — see the backlog note below.
   print -- "\n## 🩹 Self-heal: recovered a missed nightly memory pass" >> "$REPORT"
   print -- "- the 3 AM consolidation had not run for $YDAY (Mac likely asleep) — ran it now" >> "$REPORT"
   { print -- "self-heal: nightly memory pass for $YDAY missing; running run.sh $YDAY"; } >> "$LOG"
   RES=$("$CONS/run.sh" "$YDAY" 2>>"$LOG")
   print -- "- result: \`${RES:t}\` (review it with the morning proposals)" >> "$REPORT"
+fi
+
+# Outstanding backlog — every failed night, surfaced every morning until cleared, so a
+# failure can no longer go quiet for nine days. Recovery is mineFromPacket.sh, never
+# `run.sh <old-day>`: run.sh re-runs gather.sh, which selects transcripts by mtime and
+# truncates the packet, so re-running it for an old day DESTROYS the preserved evidence.
+BACKLOG=("$PEND"/NEEDS-AUTH-proposal-*.md(N) "$PEND"/FAILED-proposal-*.md(N))
+if (( ${#BACKLOG} > 0 )); then
+  print -- "\n## 📥 Unmined nights awaiting recovery (${#BACKLOG})" >> "$REPORT"
+  typeset -a DAYS
+  for f in "${BACKLOG[@]}"; do
+    d="${${f:t:r}##*proposal-}"
+    DAYS+=("$d")
+    print -- "- \`$d\` — evidence packet preserved ($(wc -c < "$PEND/evidence-$d.md" 2>/dev/null | tr -d " ") bytes)" >> "$REPORT"
+  done
+  print -- "\nRecover all of them with:" >> "$REPORT"
+  print -- '\n```bash' >> "$REPORT"
+  print -- "$CONS/mineFromPacket.sh ${DAYS}" >> "$REPORT"
+  print -- '```' >> "$REPORT"
 fi
 
 git worktree prune 2>>"$LOG"  # clean metadata for any removed dirs
