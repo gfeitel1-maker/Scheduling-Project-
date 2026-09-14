@@ -37,9 +37,13 @@
       "adapter_hash": "7f6bab7536f9f9b4",
       "generated_hash": "67b4a3cec88f19b8"
     },
+    "security-assessment": {
+      "adapter_hash": "a9a65aba1a2644a3",
+      "generated_hash": "e703600ea5f110e9"
+    },
     "security": {
-      "adapter_hash": "b8cc03b3b0715e41",
-      "generated_hash": "95c17cc79b781708"
+      "adapter_hash": "84fbee8717cd76d9",
+      "generated_hash": "42e341a3111cd8f3"
     },
     "tester": {
       "adapter_hash": "92d28efede65f9d0",

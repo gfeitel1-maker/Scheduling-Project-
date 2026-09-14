@@ -42,14 +42,22 @@ Invoke these in order:
 
 ## Architecture you are auditing
 
-Electron + SQLite (`better-sqlite3`), local-first, no cloud backend. One device is the **Host**
-(WebSocket server, `electron/sync/syncServer.js`); others are **Clients** that discover it via mDNS
-and sync over `ws://`. Auth is local, PIN-based, per-camp. Data isolation is one-camp-per-device-db
-(`SELECT ... FROM camps LIMIT 1`), not a database policy engine.
+Electron + SQLite (`better-sqlite3`), local-first, no cloud backend. Sync is **Automerge (CRDT)
+over libp2p** — `electron/sync/automerge/` (transport, auth gate, wire protocol, mutual auth) and
+`electron/automerge/` (document, projection, reconciliation). The transport today is
+`@libp2p/tcp` bound to a loopback default with `@libp2p/mdns` LAN discovery — **not** the retired
+custom WebSocket server (`syncServer.js`/`syncClient.js` are deleted; if a doc still describes a
+`ws://` Host/Client sync server it is stale — trust the code). Auth is local, PIN-based, per-camp.
+Data isolation is one-camp-per-device-db (`SELECT ... FROM camps LIMIT 1`), not a database policy
+engine.
 
-**Threat model:** trusted private LAN. Read `SECURITY.md` — deployment boundary, hardened areas,
-and known accepted limitations — before your first finding. The tradeoffs recorded there are
-decisions, not defects.
+**Threat model:** trusted private LAN — **an assumption with an expiry, not a permanent fact.**
+Read `SECURITY.md` — deployment boundary, hardened areas, and known accepted limitations — before
+your first finding. For *incremental code review* the tradeoffs recorded there are decisions, not
+defects. But the boundary itself is roadmap-fragile: internet-reachable transport (relay/DHT/
+non-loopback listen) would dissolve it, which is why `docs/adr/2026-09-14-internet-transport-security-gate.md`
+gates that change. Questioning the boundary is the **`security-assessment`** agent's job, not this
+reviewer's — see "Scope" under Known accepted exceptions.
 
 This app has **no Supabase, no RLS, no anon/service-role keys, and no cloud multi-tenancy.** If you
 find yourself reasoning about any of those, you are reading an archived document from the retired
@@ -61,12 +69,13 @@ architecture — stop and re-read `SECURITY.md`.
 
 ### Always check:
 - **Host private-key containment:** The Ed25519 private key in `host_signing_key` must never leave the Host — not into `full_sync`, not into an op, not into a log, not into the renderer. Only `camps.signing_public_key` (the public half) is replicated. A Client that could obtain the private key can forge camp tokens for every device.
-- **Token type confusion:** `camp` tokens (Ed25519, Host-minted) and `local` tokens (HMAC-SHA256, keyed to that device's own `device_secret_identifier`) are verified by different paths in `verifySessionToken`. The Host's WS `handleAuthenticate` must reject `local` tokens outright — a `local` token granting network trust is a critical finding.
-- **`authorize()` coverage:** Every *mutating* IPC handler and every *mutating* WS handler must route through `authorize()` (`electron/auth/authorize.js`) before acting. A new mutating handler that skips it, or that trusts a role from the token payload instead of re-querying `users`/`devices`, defeats immediate role-change and revocation enforcement. Note the deliberate exceptions below.
+- **Token type confusion:** `camp` tokens (Ed25519, Host-minted) and `local` tokens (HMAC-SHA256, keyed to that device's own `device_secret_identifier`) are verified by different paths in `verifySessionToken`. The network auth path (`electron/sync/automerge/authGate.js` via `connectionAuth.js`'s `evaluateAuthenticate`) must reject `local` tokens outright — a `local` token granting network trust is a critical finding.
+- **libp2p peer-auth & CRDT-merge trust:** The auth gate (`authGate.js`) admits a peer only after a valid `authenticate` frame; malformed frames must never reach the decision function; admission must be cleared on `peer:disconnect` (a stale entry lets an unauthenticated reconnection skip the handshake). The Noise handshake proves a *channel*, not *membership* — check that membership is verified separately. Because role enforcement is **device-side under CRDT sync** (accepted limitation, `SECURITY.md`), treat a compromised paired peer's ops as attacker-controlled: flag any merge path that trusts op contents without the same guards the IPC path applies.
+- **`authorize()` coverage:** Every *mutating* IPC handler must route through `authorize()` (`electron/auth/authorize.js`) before acting. A new mutating handler that skips it, or that trusts a role from the token payload instead of re-querying `users`/`devices`, defeats immediate role-change and revocation enforcement. Note the deliberate exceptions below, and the CRDT-sync limitation above (the Automerge engine does not route merges through `authorize()` — that is the documented tradeoff, not a new finding).
 - **Revocation and pairing bypass:** `authorize()` re-reads `devices.authorized_at` / `revoked_at` on every call. Flag any path that caches this, or that lets a device act while `authorized_at` is null or `revoked_at` is set.
 - **Permission-matrix drift:** `electron/auth/permissions.js` — `admin: ['*']`, `staff` is an explicit allowlist, default-deny. A new entity added to `ENTITIES` grants staff read+write automatically; confirm that is intended. Admin-only actions (`devices.approve`, `devices.revoke`) must not leak into the staff array.
 - **SQL injection:** **Applicable.** `better-sqlite3` executes real SQL throughout `electron/`. Every query must use bound parameters (`?`). Flag any string-interpolated SQL, especially where an entity, table, or column name is derived from a message or IPC argument.
-- **Unauthenticated WS message handling:** `pairing_request` and `login` are handled *before* authentication, by design. Audit them as fully attacker-controlled input from anyone on the LAN: malformed payloads must fail closed, and neither may leak whether a user exists beyond what the lockout already reveals.
+- **Unauthenticated pre-auth message handling:** `pairing_request` and `login` are handled *before* authentication, by design, on the libp2p auth protocol (`authGate.js`, mirroring the retired WS path through the SAME shared decision functions in `connectionAuth.js`). Audit them as fully attacker-controlled input from anyone who can reach the node: malformed payloads must fail closed (they do — `decodeMessage` is caught and the stream aborted), neither may leak whether a user exists beyond what the lockout reveals, and both must stay rate-limited (`rateLimit.js`, keyed by both peer id and claimed device_id — see `authGate.js`'s comment for the case each key closes).
 - **Secret leakage into logs and audit metadata:** `electron/audit/auditLog.js` scrubs a fixed `SECRET_KEYS` set. A new secret-bearing field name not in that set will be written to `audit_events` in the clear. Also flag PINs, tokens, or key material reaching `console.*`.
 - **camp_id / scope integrity:** Ops and projections must not let a write cross camp or template scope. `applyProjection`'s `camp_id` overwrite guard exists for this reason.
 - **XSS via user input:** React's JSX escapes by default — flag `dangerouslySetInnerHTML` only.
@@ -114,7 +123,14 @@ and the per-entity importers in `src/screens/**`.
   no known-vulnerable pinned version and no unexpected transitive network/postinstall behavior.
 
 ### Known accepted exceptions (do not flag):
-- **Plaintext PIN in the WS `login` message, and `ws://` without TLS.** Explicit accepted tradeoffs under the trusted-LAN threat model — documented in `SECURITY.md` "Known limitations". Do not re-report them as findings. *Do* flag any change that widens the exposure (new secrets on the wire, binding beyond the LAN).
+
+**Scope:** this "do not flag" list applies to *incremental code review* — your job here. It does
+**not** bind the periodic `security-assessment` agent (`.claude/agents/security-assessment.md`),
+which is explicitly permitted and expected to reopen these tradeoffs and question the boundary
+itself. Do not treat "it's an accepted tradeoff" as a reason the *assessment* can't revisit it —
+only as a reason *this review* doesn't re-report it.
+
+- **Plaintext PIN in the pre-auth `login` message, and no transport TLS.** Explicit accepted tradeoffs under the trusted-LAN threat model — documented in `SECURITY.md` "Known limitations". Do not re-report them as findings. *Do* flag any change that widens the exposure (new secrets on the wire, or any move toward an internet-reachable transport — that trips the Tier-4 gate, `docs/adr/2026-09-14-internet-transport-security-gate.md`).
 - **Offline `local` tokens surviving revocation until expiry (≤24h).** Documented accepted limitation.
 - **IPC handlers deliberately outside `authorize()`:** `chooseMode`, `discoverHosts`, `verifySession`, `bootstrapCamp`, `getDeviceId`, `getCamp`. These run before a session exists or take no caller-controlled authority. Each carries an in-code comment explaining why. Flag only if one of them gains a privileged side effect.
 - **The Host self-authorizing its own device row at bootstrap** — the device that created the camp is the root of trust.

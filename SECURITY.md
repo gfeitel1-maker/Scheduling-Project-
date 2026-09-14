@@ -1,6 +1,19 @@
 # Shoresh — Security Model
 
-_Last updated: 2026-07-26_
+_Last updated: 2026-09-14_
+
+The standing security program that governs how this model is maintained and tested lives at
+[docs/work/security/2026-09-14-security-program.md](docs/work/security/2026-09-14-security-program.md)
+(four tiers: automated gate, fuzzing, periodic assessment, and the enforced internet-transport
+boundary trigger).
+
+**Transport note (read first):** sync now runs on **Automerge over libp2p**
+(`electron/sync/automerge/`), with peer connections encrypted and mutually authenticated by the
+Noise protocol. The retired custom WebSocket server (`syncServer.js`/`syncClient.js`) is deleted.
+Some sections below still say "WebSocket"/"WS" for the *mechanism* — pairing, revocation, token
+rejection, the pre-auth `login`/`pairing_request` handling — because the auth **semantics** carried
+over unchanged (the same shared decision functions in `connectionAuth.js` serve both). Read those
+as "the network auth path", now the libp2p auth gate (`authGate.js`).
 
 ---
 
@@ -9,6 +22,13 @@ _Last updated: 2026-07-26_
 Shoresh is designed for a **trusted private LAN** — a small, known group of collaborators
 (camp directors, scheduling staff) on a network they control: a camp office router, a direct
 switch, or equivalent. It is not hardened for the public internet.
+
+**This boundary is an assumption with an expiry, not a permanent fact.** The current transport is
+loopback + mDNS-discovered LAN peers only (verified: no relay, DHT, or non-loopback listen). Any
+move to an internet-reachable transport dissolves the assumptions the rest of this document rests
+on and requires a full re-assessment first — enforced by
+[docs/adr/2026-09-14-internet-transport-security-gate.md](docs/adr/2026-09-14-internet-transport-security-gate.md)
+and its build-failing guard.
 
 ---
 
@@ -113,22 +133,30 @@ file size, sheet count, and rows before a workbook is walked.
 
 ## Known limitations
 
-### No TLS on the sync connection
+### No TLS / certificate trust on the sync connection
 
-The WebSocket sync protocol uses `ws://`, not `wss://`. All sync traffic — including the raw
-PIN sent in the `login` message when a Client logs in for the first time — is transmitted in
-plaintext on the LAN. This is an explicit accepted tradeoff under the trusted-LAN threat
-model, not a bug. If your LAN is shared with untrusted devices, this is a meaningful
-exposure.
+libp2p peer connections are encrypted and mutually authenticated by the **Noise protocol**, so
+sync traffic is *not* sent in cleartext on the wire (this corrects the pre-libp2p description,
+which said `ws://` plaintext — that transport is gone). What Noise does **not** provide is
+TLS-style certificate trust or any protection once traffic leaves the local network: Noise
+authenticates the *channel between two peers*, not *camp membership* (membership is proven
+separately by the session token at the auth gate). Under the trusted-LAN model this is accepted.
+The residual exposures that remain are the application-layer ones below (the PIN reaching the Host
+process, and camp-membership trust), not wire-plaintext.
 
-**Do not port-forward the Host's WebSocket port to the internet.**
+**Do not expose the sync transport to the internet.** Doing so requires the re-assessment gated by
+[docs/adr/2026-09-14-internet-transport-security-gate.md](docs/adr/2026-09-14-internet-transport-security-gate.md)
+— including whether Noise-only channel encryption is sufficient off-LAN and whether relays must be
+independently authenticated.
 
-### Raw PIN sent over the network for initial login
+### Raw PIN reaches the Host process on initial login
 
-A Client verifies its PIN against the Host by sending it in plaintext in the `login` WebSocket
-message. The Host runs `scryptSync` on the received PIN. This is necessary for the lockout
-mechanism to work correctly and so the Host can issue the token. Under a trusted-LAN model
-this is accepted; it is a risk on a shared or monitored network.
+A Client verifies its PIN against the Host by sending it in the pre-auth `login` message (now over
+the libp2p auth gate). The message travels inside the Noise-encrypted peer channel, so it is not
+exposed on the wire — but the **Host process receives the PIN in cleartext** to run `scryptSync` on
+it. This is necessary for the lockout mechanism and so the Host can issue the token. Under a
+trusted-LAN model this is accepted; the exposure is the Host device itself and grows on a shared or
+monitored network, and off-LAN it must be revisited (Tier-4 gate).
 
 ### Offline local tokens cannot be remotely invalidated
 
