@@ -33,8 +33,11 @@ import {
   exportScheduleTool,
   checkProjectionHealthTool,
   repairProjectionEntityTool,
+  rebuildProjectionFromDocumentTool,
   ENTITY_MAP,
 } from './tools.js'
+import { seedAllFromSqlite } from '../../electron/automerge/seed.js'
+import { saveDoc } from '../../electron/sync/automerge/docStore.js'
 import buildSchedule from '../../src/engine/buildSchedule.js'
 
 const SAMPLE = path.join(process.cwd(), 'docs/work/specs/samples/campB-by-day.txt')
@@ -515,6 +518,65 @@ describe('scripts/mcp/tools.js', () => {
       const row = after.prepare('SELECT name FROM groups WHERE id = ?').get(groupId)
       after.close()
       expect(row.name).toBe('Bears')
+    })
+  })
+
+  describe('rebuildProjectionFromDocumentTool', () => {
+    it('refuses to run when allowWrite is false, without touching the db', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath } = bootstrapDb(dir)
+
+      const result = rebuildProjectionFromDocumentTool({}, { dbPath, allowWrite: false })
+
+      expect(result.ok).toBe(false)
+      expect(result.error).toMatch(/--allow-write/)
+    })
+
+    it('refuses with a specific reason (not a throw) when this camp has no document file yet', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath } = bootstrapDb(dir)
+
+      const result = rebuildProjectionFromDocumentTool({}, { dbPath, allowWrite: true })
+
+      expect(result.ok).toBe(false)
+      expect(result.error).toMatch(/no Automerge document file/)
+    })
+
+    it('deletes and rebuilds the SQLite file from the synced document, backing it up first', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath, campId, deviceId } = bootstrapDb(dir)
+
+      const db = openLocalDb(dbPath)
+      const groupId = randomUUID()
+      db.prepare(
+        `INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp)
+         VALUES (?, 'groups', ?, 'camp_id', ?, ?, ?)`
+      ).run(randomUUID(), groupId, campId, deviceId, new Date().toISOString())
+      db.prepare(
+        `INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp)
+         VALUES (?, 'groups', ?, 'name', 'Bears', ?, ?)`
+      ).run(randomUUID(), groupId, deviceId, new Date().toISOString())
+      db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(groupId, campId, 'Bears')
+      const doc = seedAllFromSqlite(db)
+      saveDoc(dir, campId, doc) // dbPath === <dir>/shoresh.sqlite, so user_data_dir defaults to dir
+      db.close()
+
+      const result = rebuildProjectionFromDocumentTool({}, { dbPath, allowWrite: true })
+
+      expect(result.ok).toBe(true)
+      expect(result.campId).toBe(campId)
+      expect(result.after.groups).toBe(1)
+      expect(fs.existsSync(result.backupPath)).toBe(true)
+      expect(result.notRecoverable).toMatch(/operations table/)
+
+      const after = openLocalDb(dbPath)
+      const row = after.prepare('SELECT name FROM groups WHERE id = ?').get(groupId)
+      after.close()
+      expect(row.name).toBe('Bears')
+      fs.unlinkSync(result.backupPath)
     })
   })
 })

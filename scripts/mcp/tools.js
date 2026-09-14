@@ -20,6 +20,11 @@ import { buildScheduleExport } from '../../src/utils/exportScheduleJson.js'
 import { PROJECTIONS } from '../../electron/ops/projections.js'
 import { repairProjectionForEntity, checkProjectionHealth } from '../../electron/ops/projectionRepair.js'
 import { listDocumentWriteFailures } from '../../electron/ops/documentWriteFailures.js'
+import path from 'node:path'
+import {
+  rebuildProjectionFromDocumentAtPath,
+  RebuildRefusalError,
+} from '../../electron/automerge/rebuildSupportCommand.js'
 
 export const ENTITY_MAP = {
   age_divisions: 'tiers',
@@ -258,5 +263,32 @@ export function repairProjectionEntityTool(args, { dbPath, allowWrite }) {
     return { ...repairProjectionForEntity(db, args.entity, args.entity_id), entity: args.entity, entity_id: args.entity_id }
   } finally {
     db.close()
+  }
+}
+
+// T161: the support-command entry point for "delete this computer's SQLite
+// and rebuild it from the Automerge document" (T151 proved the property; this
+// is the first thing that actually runs it). Deliberately mutating and gated
+// like repair_projection_entity — this is a recovery procedure a person runs
+// on purpose (docs/current/WHERE_DATA_LIVES.md's rebuild-precondition
+// section), never a director-facing action. `user_data_dir` defaults to the
+// db file's own directory (the normal case — dbPath is
+// `<userDataDir>/shoresh.sqlite`, see electron/main.js); pass it explicitly
+// only for a non-default layout (a custom --project path).
+export function rebuildProjectionFromDocumentTool(args, { dbPath, allowWrite }) {
+  if (!allowWrite) {
+    return {
+      ok: false,
+      error: 'rebuild is disabled — relaunch the server with --allow-write to enable rebuild_projection_from_document',
+    }
+  }
+  const userDataDir = args.user_data_dir ?? path.dirname(dbPath)
+  try {
+    return rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir })
+  } catch (err) {
+    if (err instanceof RebuildRefusalError) {
+      return { ok: false, error: err.message }
+    }
+    throw err
   }
 }
