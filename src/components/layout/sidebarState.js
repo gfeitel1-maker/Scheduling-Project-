@@ -156,7 +156,26 @@ const SYNC_STATUS_COPY = {
   standalone: { text: 'on its own', tone: 'secondary', title: 'This computer is not sharing with any other yet.' },
 }
 
+// A write this device holds that the shared copy does not (T153). This OVERRIDES
+// every connectivity label, and it has to: 'client-disconnected' promises that
+// "your changes are saved here and will reach it when it is back", which is true
+// of an ordinary disconnection and false of these — they will not reach anyone
+// unless the divergence is repaired. A number the director can see beats a
+// reassurance that is wrong.
+//
+// Deliberately not a banner (the standing rule): it is the same one-line label
+// slot beside Devices that every other sync state already uses.
 export function syncStatusLabel(status) {
+  const unshared = status?.unsharedWrites ?? 0
+  if (unshared > 0) {
+    return {
+      text: unshared === 1 ? '1 change not shared' : `${unshared} changes not shared`,
+      tone: 'danger',
+      title:
+        'Some changes were saved on this computer but could not be added to the copy the camp shares. ' +
+        'They will not reach the other computers on their own.',
+    }
+  }
   return SYNC_STATUS_COPY[status?.state] ?? SYNC_STATUS_COPY.standalone
 }
 

@@ -40,6 +40,7 @@ import {
   appendOp,
   appendBulkReplaceOp,
   detectUniqueFieldCollision,
+  DOCUMENT_OUTCOME,
 } from '../ops/operations.js'
 
 // Shared shape for the collision payload handed to a caller/listener — matches
@@ -123,7 +124,11 @@ export function createLocalWriteClient(db, { device_id, author_user_id = null, o
       })
       notifyOpApplied(op)
       if (onOpWritten) onOpWritten(op)
-      return { status: 'applied', op }
+      // `status` has always meant "this device's SQLite has it". `document` says
+      // whether the AUTHORITATIVE copy has it, which is a different question and
+      // the one a caller actually cares about (T153). See operations.js's
+      // DOCUMENT_OUTCOME for the vocabulary.
+      return { status: 'applied', op, document: op[DOCUMENT_OUTCOME] ?? null }
     },
     // Same author_user_id reasoning as write() above, same consequence.
     //
@@ -142,7 +147,7 @@ export function createLocalWriteClient(db, { device_id, author_user_id = null, o
       })
       notifyOpApplied(op)
       if (onOpWritten) onOpWritten(op)
-      return { status: 'applied', op }
+      return { status: 'applied', op, document: op[DOCUMENT_OUTCOME] ?? null }
     },
     onOpApplied(callback) {
       opAppliedListeners.push(callback)

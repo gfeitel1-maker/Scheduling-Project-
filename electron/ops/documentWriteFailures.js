@@ -81,3 +81,22 @@ export function documentWriteFailureRecorded(db, opIds) {
     return false
   }
 }
+
+/**
+ * How many writes this device has that the authoritative document does not.
+ *
+ * The number behind an honest acknowledgement (T153). `status: 'applied'` has
+ * always meant "SQLite has it", which is not the same as "the camp has it" —
+ * and the sidebar's offline copy ("your changes are saved here and will reach it
+ * when it is back") is true for an ordinary disconnection and FALSE for these,
+ * which will never reach anyone unless the divergence is repaired.
+ */
+export function unsharedWriteCount(db) {
+  try {
+    return db
+      .prepare(`SELECT COUNT(*) AS n FROM projection_failures WHERE resolved_at IS NULL AND store = ?`)
+      .get(STORE_DOCUMENT).n
+  } catch {
+    return 0
+  }
+}

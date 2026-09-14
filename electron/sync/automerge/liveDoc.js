@@ -392,7 +392,19 @@ function applyLocalWriteNow(db, { entity, entity_id, field, value, source, autho
   if (seeding) {
     // One synchronous save, once per camp per process — the same one-time cost
     // the seed already paid, just moved to after the write instead of before.
-    saveDoc(userDataDir, campId, nextDoc)
+    //
+    // ON FAILURE, UNDO THE REGISTRY. Without this, `withRetry`'s second attempt
+    // finds the doc already cached, takes the `seeding = false` path, skips the
+    // save entirely, and returns SUCCESS — reporting a genuinely failed write as
+    // "succeeded on attempt 2 after a transient failure". Measured, not
+    // theorised: it is what this function did before this line existed.
+    // Retrying is only honest if each attempt starts from the same state.
+    try {
+      saveDoc(userDataDir, campId, nextDoc)
+    } catch (err) {
+      docRegistry.delete(db)
+      throw err
+    }
   }
   scheduleSave(db, userDataDir, campId, { local: true, opId: op_id })
 }
@@ -541,24 +553,30 @@ function withRetry(apply) {
   return { ok: false, attempts: DOCUMENT_WRITE_ATTEMPTS, error: lastErr }
 }
 
+// Returns 'deferred' when the write is buffered inside a transaction boundary
+// and 'applied' when it reached the in-memory document. The caller (appendOp)
+// reports that outward: "buffered" and "done" are different answers to "does the
+// authoritative copy have this", and collapsing them is the lie T153 removes.
 export function recordLocalWrite(db, args) {
   const state = deferStates.get(db)
   if (state && state.depth > 0) {
     state.queue.push({ kind: 'write', db, args })
-    return
+    return 'deferred'
   }
   const result = withRetry(() => applyLocalWriteNow(db, args))
   if (!result.ok) throw result.error
+  return 'applied'
 }
 
 export function recordLocalBulkReplace(db, args) {
   const state = deferStates.get(db)
   if (state && state.depth > 0) {
     state.queue.push({ kind: 'bulk', db, args })
-    return
+    return 'deferred'
   }
   const result = withRetry(() => applyLocalBulkReplaceNow(db, args))
   if (!result.ok) throw result.error
+  return 'applied'
 }
 
 export function docPathForTests(userDataDir, campId) {
