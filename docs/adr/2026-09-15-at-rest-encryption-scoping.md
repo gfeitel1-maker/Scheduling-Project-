@@ -2,8 +2,8 @@
 title: "At-rest encryption of the camp document and SQLite — scoping"
 document_type: adr
 authority: normative
-status: proposed
-implementation_state: proposed
+status: accepted
+implementation_state: in_progress
 date: 2026-09-15
 program: security-hardening
 affects:
@@ -15,8 +15,7 @@ affects:
 
 # At-rest encryption of the camp document and SQLite — scoping
 
-**Status: PROPOSED (scoping only).** Owner asked to scope at-rest encryption alongside the WAN work.
-This lays out the threat, the options, the key-management crux, and a recommendation — no code.
+**Status: ACCEPTED 2026-09-15.** Owner's requirement is unambiguous: the data must be *encrypted*, and the owner has delegated the how ("you can figure it out, I trust you"). DECISION: **app-level encryption** — the camp SQLite is encrypted with a SQLCipher-family driver and the `.automerge` document is encrypted on write, with the key held in the **OS keychain** (macOS Keychain / Windows DPAPI), released only to this app under the logged-in user. This is chosen over relying on OS full-disk encryption because the requirement is that WE encrypt the data, not that it is contingent on a user toggling FileVault. A director passphrase is explicitly rejected (forget it = lose the camp). SAFETY: implemented as a staged, test-first change with a pre-migration backup (`writePreMigrationBackup` already exists) and independent review before it ships — a botched encryption migration must never risk a camp's data. The scoping below records the reasoning.
 
 ## What is unencrypted today, and the threat
 Each device stores its camp state as **plaintext files on disk**: the SQLite db (`shoresh.sqlite`
@@ -54,30 +53,27 @@ plaintext next to the data, encryption is theater. The real options:
    a worse day than the theft it guards against. Recovery/escrow reintroduces a stored key. High UX
    burden for the threat model.
 
-## Recommendation
-**Primary: option 1 (rely on OS full-disk encryption) + a startup check that warns when it is off,**
-and document it as the at-rest posture in SECURITY.md. It matches the actual threat (offline device
-theft), adds no fragile app crypto, and cannot lock a director out of their own camp.
+## Decision: option 2 (app-level encryption), with option 1 as a complementary belt
+**Chosen: option 2 — app-level encryption keyed to the OS keychain.** The requirement is that the
+data *is* encrypted, so it must not depend on the user having toggled FileVault (option 1 alone is
+contingent). We still *also* check for and warn about OS full-disk encryption being off (option 1 as
+a cheap complementary layer), but the guarantee comes from option 2. **Option 3 (director passphrase)
+is rejected** — for this user base, "forget the passphrase = the camp's data is gone" is a worse
+outcome than the theft it guards against.
 
-**If that is judged insufficient, option 2 (SQLCipher + keychain) is the next step** — real
-protection against a copied file without a passphrase-loss failure mode. I'd treat it as its own
-project (native-module swap, `.automerge` wrapper, migration of existing plaintext dbs, and tests),
-not a quick add.
+Confidence: high. The only real cost is implementation effort and migration care, both manageable
+(see safety below).
 
-**Do not do option 3** unless the owner explicitly accepts "forget the passphrase = the camp's data
-is gone," because for this user base that outcome is worse than the threat.
+## Implementation plan (staged, safe)
+1. Swap `better-sqlite3` → a SQLCipher-family driver (`better-sqlite3-multiple-ciphers`), keyed from
+   the OS keychain; keep the ABI-rebuild discipline the repo already documents.
+2. Encrypt the `.automerge` document on write / decrypt on read in `docStore.js` with the same
+   keychain key.
+3. Migrate existing plaintext dbs/docs **behind a pre-migration backup** (`writePreMigrationBackup`),
+   idempotent, with a test proving a plaintext camp opens, re-encrypts, and reads back identically.
+4. Independent review (`security-assessment`) before it ships — a botched encryption migration must
+   never risk a camp's data. Ships behind the same discipline as the other auth-core changes.
 
-Confidence: high that option 1 is the right *default* and option 3 is wrong for this user base;
-medium on whether the owner wants option 2's extra assurance — that's the decision this doc surfaces.
-
-## Consequences / open decision
-- If option 1: a small startup check (FileVault: `fdesetup status`; BitLocker: `manage-bde`/WMI) +
-  a non-blocking warning + a SECURITY.md paragraph. Cheap.
-- If option 2: scope a follow-up ticket for the SQLCipher swap + `.automerge` wrapper + keychain key
-  lifecycle + plaintext-db migration. Meaningful effort; its own ADR.
-- Either way, note that at-rest encryption does not change the CRDT trust model between *paired*
-  devices (each holds the data by design); it only protects a device's bytes at rest from an
-  offline thief.
-
-**Decision needed from the owner:** option 1 (OS-FDE + warn) as the posture, or invest in option 2
-(app-level SQLCipher + keychain)?
+- Note: at-rest encryption does not change the CRDT trust model between *paired* devices (each holds
+  the data by design); it protects a device's bytes at rest from an offline thief, and stops the
+  replicated PIN hashes from being crackable off a stolen file.

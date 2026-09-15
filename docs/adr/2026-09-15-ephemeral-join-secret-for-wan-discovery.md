@@ -2,7 +2,7 @@
 title: "Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) discovery"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 implementation_state: proposed
 date: 2026-09-15
 program: security-hardening
@@ -17,7 +17,7 @@ affects:
 
 # Ephemeral, rotating, KDF-hardened join secret for WAN discovery
 
-**Status: PROPOSED.** WAN blocker #1 (`docs/work/security/2026-09-15-wan-dht-boundary-assessment.md`),
+**Status: ACCEPTED 2026-09-15** (owner: "go, 10 chars"). Code length fixed at 10 Crockford chars/50 bits. Implementation also builds the currently-missing Host window-scoped rendezvous advertising (the joiner searches a tag the Host does not advertise today). Test-first + independent review before it ships. WAN blocker #1 (`docs/work/security/2026-09-15-wan-dht-boundary-assessment.md`),
 prerequisite to enabling public-DHT discovery. A protocol + UX change to the join flow, so it gets a
 design pass before code. Records one UX decision for the owner.
 
