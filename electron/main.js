@@ -954,6 +954,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (writeArgs.entity === 'users' && writeArgs.field === 'role' && writeArgs.value === 'admin') {
       throw new Error('users.role cannot be set to admin via write() — use promoteToAdmin, which also resets the PIN to the director floor')
     }
+    // Q1 fix (docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md): credential
+    // fields (role/pin_hash/pin_salt) must ONLY change through createUser / promoteToAdmin, because
+    // those are the paths that mint the Host `auth_sig` the projection layer now verifies. A generic
+    // write() to one of these fields would produce an UNSIGNED change that every other device
+    // correctly refuses on the merge path — a silent, camp-wide revert. Closing that path here makes
+    // the two signing sites the only way to change credentials, which is exactly the invariant the
+    // enforcement relies on. (Red Hat review of the enforcement slice.)
+    if (writeArgs.entity === 'users' && (writeArgs.field === 'pin_hash' || writeArgs.field === 'pin_salt' || writeArgs.field === 'role')) {
+      throw new Error(`users.${writeArgs.field} cannot be changed via write() — credential fields are Host-signed; use createUser or promoteToAdmin`)
+    }
     // Three distinct actions dispatched from this one handler, per the ADR's
     // IPC table — matching the three distinct gates that used to be inline
     // checks here:
