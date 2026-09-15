@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 60
+export const CURRENT_SCHEMA_VERSION = 61
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2387,6 +2387,24 @@ export function initSchema(db) {
     )
   }
 
+  // v61 — bind a monotonic per-user credential version into the signature (T165 replay defense,
+  // docs/work/tickets/T165-credential-signature-replay-and-degrade-permanence.md). Adds
+  // users.cred_version and RE-SIGNS every user at the v2 signature shape (which now covers
+  // cred_version); v1 signatures written by v60 no longer verify, which is why the backfill re-runs
+  // here. On a Client (no host key) both are no-ops and the re-signed values arrive via replication.
+  //
+  // Guard is `>= 60 && < 61`, NOT a bare `< 61` — see the v50 block's comment.
+  if (getSchemaVersion(db) >= 60 && getSchemaVersion(db) < 61) {
+    const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
+    if (!cols.includes('cred_version')) {
+      db.exec('ALTER TABLE users ADD COLUMN cred_version INTEGER NOT NULL DEFAULT 0')
+    }
+    backfillAuthSignatures(db)
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (61, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -2397,11 +2415,20 @@ export function initSchema(db) {
 export function backfillAuthSignatures(db) {
   const hasHostKey = db.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()
   if (!hasHostKey) return
-  const users = db.prepare('SELECT id, role, pin_hash, pin_salt FROM users').all()
-  const update = db.prepare('UPDATE users SET auth_sig = ? WHERE id = ?')
+  // `cred_version` may not exist yet when the v60 block calls this (it is added in v61); read it
+  // defensively so this one helper serves both migration blocks.
+  const hasVersion = db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'cred_version')
+  const users = db.prepare(`SELECT id, role, pin_hash, pin_salt${hasVersion ? ', cred_version' : ''} FROM users`).all()
+  const update = hasVersion
+    ? db.prepare('UPDATE users SET auth_sig = ?, cred_version = ? WHERE id = ?')
+    : db.prepare('UPDATE users SET auth_sig = ? WHERE id = ?')
   for (const u of users) {
-    const sig = signAuthFields(db, { id: u.id, role: u.role, pin_hash: u.pin_hash, pin_salt: u.pin_salt })
-    update.run(sig, u.id)
+    // Baseline every existing user at cred_version >= 1 (a freshly-signed floor); never lower an
+    // already-higher version, so re-running the backfill (v60 then v61) is idempotent.
+    const cred_version = hasVersion ? Math.max(Number(u.cred_version) || 0, 1) : 1
+    const sig = signAuthFields(db, { id: u.id, role: u.role, pin_hash: u.pin_hash, pin_salt: u.pin_salt, cred_version })
+    if (hasVersion) update.run(sig, cred_version, u.id)
+    else update.run(sig, u.id)
   }
 }
 

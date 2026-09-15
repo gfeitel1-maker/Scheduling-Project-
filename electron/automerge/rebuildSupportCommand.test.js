@@ -141,6 +141,7 @@ describe('rebuildIntoFreshDb — the T151 property, from this module\'s own entr
     expect(result.notRecoverable).toMatch(/operations table/)
     expect(result.notRecoverable).toMatch(/Trash/)
     expect(result.notRecoverable).toMatch(/signing_secret/)
+    expect(result.notRecoverable).toMatch(/cannot VERIFY credential changes/) // T165: rebuilt device credential-verify guidance
     fresh.close()
   })
 })

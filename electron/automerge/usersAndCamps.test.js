@@ -19,7 +19,8 @@ import * as A from '@automerge/automerge'
 import { scryptSync, randomBytes } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { PROJECTIONS } from '../ops/projections.js'
-import { verifyPin } from '../auth/localAuth.js'
+import { verifyPin, ensureHostSigningKey } from '../auth/localAuth.js'
+import { signAuthFields } from '../auth/authSignature.js'
 import {
   createEmptyDoc,
   applyWrite,
@@ -53,12 +54,15 @@ afterEach(() => {
   files = []
 })
 
-function writeUser(doc, { id, camp_id, name, pin_hash, pin_salt, role }) {
+function writeUser(doc, { id, camp_id, name, pin_hash, pin_salt, role }, signerDb, cred_version = 1) {
+  const auth_sig = signerDb ? signAuthFields(signerDb, { id, role, pin_hash, pin_salt, cred_version }) : ''
   doc = applyWrite(doc, { entity: 'users', entity_id: id, field: 'camp_id', value: camp_id })
   doc = applyWrite(doc, { entity: 'users', entity_id: id, field: 'name', value: name })
   doc = applyWrite(doc, { entity: 'users', entity_id: id, field: 'pin_hash', value: pin_hash })
   doc = applyWrite(doc, { entity: 'users', entity_id: id, field: 'pin_salt', value: pin_salt })
   doc = applyWrite(doc, { entity: 'users', entity_id: id, field: 'role', value: role })
+  doc = applyWrite(doc, { entity: 'users', entity_id: id, field: 'auth_sig', value: auth_sig })
+  doc = applyWrite(doc, { entity: 'users', entity_id: id, field: 'cred_version', value: cred_version })
   return doc
 }
 
@@ -72,6 +76,11 @@ describe('users/camps modeled in the Automerge document (Stage 6 prep)', () => {
     const dbA = freshDb('a')
     const dbB = freshDb('b')
     dbs.push(dbA, dbB)
+    // The Host (dbA) signs its users; the public key reaches dbB the real way (pairing/full-sync),
+    // NOT via the document — mirror both so projection-time enforcement (Q1) verifies and applies.
+    const hostKey = ensureHostSigningKey(dbA)
+    dbA.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, 'camp-1')
+    dbB.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, 'camp-1')
 
     let docA = createEmptyDoc()
     docA = writeUser(docA, {
@@ -81,7 +90,7 @@ describe('users/camps modeled in the Automerge document (Stage 6 prep)', () => {
       pin_hash: 'hash-value',
       pin_salt: 'salt-value',
       role: 'admin',
-    })
+    }, dbA)
     projectAll(dbA, docA)
 
     // Simulate the doc reaching device B over sync (Automerge merge), mirroring syncNode's
@@ -98,6 +107,9 @@ describe('users/camps modeled in the Automerge document (Stage 6 prep)', () => {
     const dbA = freshDb('login-a')
     const dbB = freshDb('login-b')
     dbs.push(dbA, dbB)
+    const hostKey = ensureHostSigningKey(dbA)
+    dbA.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, 'camp-1')
+    dbB.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, 'camp-1')
 
     // Real scrypt hash/salt, exactly as localAuth.hashPin/createUser would produce.
     const salt = randomBytes(16).toString('hex')
@@ -112,7 +124,7 @@ describe('users/camps modeled in the Automerge document (Stage 6 prep)', () => {
       pin_hash: pinHash,
       pin_salt: salt,
       role: 'staff',
-    })
+    }, dbA)
     projectAll(dbA, docA)
 
     const merged = A.merge(createEmptyDoc(), A.load(saveDoc(docA)))

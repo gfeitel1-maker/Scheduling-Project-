@@ -29,9 +29,9 @@ function insertUser(db, { camp_id, name, pin, role }) {
   const salt = randomBytes(16).toString('hex')
   const pin_hash = scryptSync(pin, salt, 64).toString('hex')
   const _hasKey = db.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()
-  const auth_sig = _hasKey ? signAuthFields(db, { id, role, pin_hash, pin_salt: salt }) : ''
+  const auth_sig = _hasKey ? signAuthFields(db, { id, role, pin_hash, pin_salt: salt, cred_version: 1 }) : ''
   db.prepare(
-    'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig, cred_version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
   ).run(id, camp_id, name, pin_hash, salt, role, auth_sig)
   return { id, name, role }
 }

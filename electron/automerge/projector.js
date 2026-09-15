@@ -177,7 +177,9 @@ function upsertCampsEntity(db, doc) {
 
 // Q1 ENFORCEMENT (docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md, slice 3).
 // The credential fields a compromised paired device could otherwise forge on the merge path.
-const CREDENTIAL_FIELDS = new Set(['role', 'pin_hash', 'pin_salt'])
+// `cred_version` is included so a refused change also keeps the local version (T165) — the version
+// only advances together with a verified credential change, never on its own.
+const CREDENTIAL_FIELDS = new Set(['role', 'pin_hash', 'pin_salt', 'cred_version'])
 
 // Project `users`, refusing a forged credential CHANGE. The rule (see the ADR) closes the Q1 attack
 // without ever locking anyone out:
@@ -200,18 +202,34 @@ function upsertUsersEntity(db, doc) {
 
     const presentCred = [...CREDENTIAL_FIELDS].filter((f) => f in row)
     const current = presentCred.length
-      ? db.prepare('SELECT role, pin_hash, pin_salt FROM users WHERE id = ?').get(id)
+      ? db.prepare('SELECT role, pin_hash, pin_salt, cred_version FROM users WHERE id = ?').get(id)
       : null
     const credChanged = presentCred.length > 0 && (!current || presentCred.some((f) => current[f] !== row[f]))
 
     let acceptCred = true
-    if (credChanged && pub) {
-      acceptCred = verifyAuthFields(
-        pub,
-        { id, role: row.role, pin_hash: row.pin_hash, pin_salt: row.pin_salt },
-        row.auth_sig
-      )
-      if (!acceptCred) {
+    if (credChanged) {
+      if (!pub) {
+        // No signing key on this device (e.g. a device rebuilt from the document before it has
+        // re-synced camps.signing_public_key, #401). We cannot verify, so we DO NOT apply an
+        // unverifiable credential CHANGE — we keep the current local values instead of accepting a
+        // possibly-forged one (T165 finding 2: accepting here made forgeries permanent). This does
+        // not lock anyone out: camps projects before users in the same projectAll pass, so on any
+        // real sync that carries users the key is already present; the no-key branch is only the
+        // brief pre-first-sync window, where there is no legitimate credential to apply yet anyway.
+        acceptCred = false
+      } else {
+        const verified = verifyAuthFields(
+          pub,
+          { id, role: row.role, pin_hash: row.pin_hash, pin_salt: row.pin_salt, cred_version: row.cred_version },
+          row.auth_sig
+        )
+        // Monotonicity (T165 finding 1): even a genuinely Host-signed tuple is refused if its version
+        // is not newer than what we already have — this defeats a REPLAY of an older signed tuple
+        // (e.g. re-introducing a pre-promotion staff record to demote an admin or roll back a PIN).
+        const monotonic = Number(row.cred_version ?? 0) >= Number(current?.cred_version ?? 0)
+        acceptCred = verified && monotonic
+      }
+      if (!acceptCred && pub) {
         // Surface it — a silently-dropped credential change is exactly what "surface every failure"
         // forbids. This is the Q1 attack being blocked in the act.
         recordAuditEvent(db, {

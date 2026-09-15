@@ -23,19 +23,19 @@ let db, tmpFile
 // call — mirroring liveDoc.recordLocalWrite). Sign with `signerDb` (the Host) for a genuine change,
 // or pass `forgedSig` to simulate an attacker's merge with no valid Host signature. Returns the new
 // doc plus the values written.
-function putUser(doc, { id, name = 'U', role, pin, camp_id = 'camp-1', signerDb, forgedSig, salt }) {
+function putUser(doc, { id, name = 'U', role, pin, camp_id = 'camp-1', signerDb, forgedSig, salt, cred_version = 1 }) {
   const useSalt = salt ?? randomBytes(16).toString('hex')
   const pin_hash = hashPin(pin, useSalt)
   const auth_sig = signerDb
-    ? signAuthFields(signerDb, { id, role, pin_hash, pin_salt: useSalt })
+    ? signAuthFields(signerDb, { id, role, pin_hash, pin_salt: useSalt, cred_version })
     : (forgedSig ?? '')
   for (const [f, v] of [
     ['camp_id', camp_id], ['name', name], ['pin_hash', pin_hash],
-    ['pin_salt', useSalt], ['role', role], ['auth_sig', auth_sig],
+    ['pin_salt', useSalt], ['role', role], ['auth_sig', auth_sig], ['cred_version', cred_version],
   ]) {
     doc = applyWrite(doc, { entity: 'users', entity_id: id, field: f, value: v })
   }
-  return { doc, id, role, pin_hash, pin_salt: useSalt, auth_sig }
+  return { doc, id, role, pin_hash, pin_salt: useSalt, auth_sig, cred_version }
 }
 
 const roleOf = (id) => db.prepare('SELECT role FROM users WHERE id = ?').get(id)?.role
@@ -78,11 +78,25 @@ describe('Q1 enforcement — attack blocked on the projection path', () => {
 })
 
 describe('Q1 enforcement — never locks anyone out', () => {
-  it('applies a GENUINE Host-signed promotion', () => {
+  it('applies a GENUINE Host-signed promotion (higher cred_version)', () => {
     const id = randomUUID()
-    projectAll(db, putUser(createEmptyDoc(), { id, role: 'staff', pin: '1234', signerDb: db }).doc)
-    projectAll(db, putUser(createEmptyDoc(), { id, role: 'admin', pin: '123456', signerDb: db }).doc)
+    projectAll(db, putUser(createEmptyDoc(), { id, role: 'staff', pin: '1234', signerDb: db, cred_version: 1 }).doc)
+    projectAll(db, putUser(createEmptyDoc(), { id, role: 'admin', pin: '123456', signerDb: db, cred_version: 2 }).doc)
     expect(roleOf(id)).toBe('admin')
+  })
+
+  it('REPLAY DEFENSE: a genuinely Host-signed OLD tuple (lower cred_version) is refused (T165)', () => {
+    const id = randomUUID()
+    // Establish staff@v1, then a real promotion to admin@v2.
+    const staffV1 = putUser(createEmptyDoc(), { id, role: 'staff', pin: '1234', signerDb: db, cred_version: 1 })
+    projectAll(db, staffV1.doc)
+    projectAll(db, putUser(createEmptyDoc(), { id, role: 'admin', pin: '123456', signerDb: db, cred_version: 2 }).doc)
+    expect(roleOf(id)).toBe('admin')
+
+    // Attacker replays the OLD, genuinely-Host-signed staff@v1 tuple to demote the admin. The
+    // signature verifies (it is real), but cred_version 1 < local 2, so monotonicity refuses it.
+    projectAll(db, staffV1.doc)
+    expect(roleOf(id)).toBe('admin') // NOT rolled back to staff
   })
 
   it('an UNCHANGED legacy-unsigned row is never rejected (re-projects as a no-op)', () => {
@@ -101,10 +115,29 @@ describe('Q1 enforcement — never locks anyone out', () => {
     expect(pinHashOf(id)).toBe(ph)
   })
 
-  it('DEGRADES to accepting when this device has no signing_public_key (rebuilt device, #401)', () => {
+  it('with no signing_public_key (rebuilt device, #401): SKIPS an unverifiable credential change, does not lock out', () => {
+    // T165 finding 2: the no-key branch now SKIPS the credential change (keeps local) rather than
+    // ACCEPTING it — so a forgery arriving during the key-less window is never applied and cannot
+    // become permanent. This does not lock anyone out: camps (carrying signing_public_key) projects
+    // before users on any real sync, so the key is present when a legitimate credential lands; the
+    // credential fields here just stay at the safe ensureExists default until then.
     db.prepare('UPDATE camps SET signing_public_key = NULL').run()
     const id = randomUUID()
     projectAll(db, putUser(createEmptyDoc(), { id, role: 'admin', pin: '123456', forgedSig: 'unverifiable' }).doc)
-    expect(roleOf(id)).toBe('admin') // no key → accept, never lock out
+    expect(roleOf(id)).not.toBe('admin') // forgery NOT accepted during the no-key window
+  })
+
+  it('recovers once the key returns: the real Host-signed value then applies', () => {
+    // The other half of finding 2: after the key re-syncs (camps projects it), the genuine signed
+    // credential is a *change* vs the skipped default, verifies, and applies — no permanent lockout.
+    const key = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key
+    db.prepare('UPDATE camps SET signing_public_key = NULL').run()
+    const id = randomUUID()
+    const u = putUser(createEmptyDoc(), { id, role: 'admin', pin: '123456', signerDb: db, cred_version: 1 })
+    projectAll(db, u.doc)                                   // no key → skipped
+    expect(roleOf(id)).not.toBe('admin')
+    db.prepare('UPDATE camps SET signing_public_key = ?').run(key) // key re-syncs
+    projectAll(db, u.doc)                                   // now verifiable → applies
+    expect(roleOf(id)).toBe('admin')
   })
 })

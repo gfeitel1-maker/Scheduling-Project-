@@ -32,8 +32,11 @@ export const NOT_RECOVERABLE_NOTICE =
   'prior values, and ingest-undo history are gone for good; (2) this device\'s signing_secret ' +
   'and signing_public_key, and the host_signing_key if this device is the sync Host — those are ' +
   'host-only/device-local and were never written to the document, so they come back empty and ' +
-  "must be re-established through the normal pairing/host flow. Only what the document currently " +
-  'holds comes back.'
+  "must be re-established through the normal pairing/host flow. Until this device re-syncs " +
+  "camps.signing_public_key, it cannot VERIFY credential changes (role/PIN) arriving over sync — it " +
+  "keeps its current values and applies them once the key returns; and if this device was the Host, " +
+  "it cannot MINT credential changes (add users, promote admins) until its signing key is " +
+  're-established. Only what the document currently holds comes back.'
 
 function tableRowCounts(db) {
   const counts = {}

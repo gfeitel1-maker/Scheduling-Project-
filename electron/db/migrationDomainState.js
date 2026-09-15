@@ -78,6 +78,8 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // values already present — it changes no domain row value and no camp meaning. A Client's backfill
   // is a no-op (no host key), so it is also not a value change there.
   60,
+  // v61 adds users.cred_version + re-signs (T165 replay defense) — derived attestation, not a domain-meaning change.
+  61,
 ])
 
 /** True if applying `version` can change what the camp means. */

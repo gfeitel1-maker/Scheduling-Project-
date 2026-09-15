@@ -39,7 +39,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | open | — |
-| [Credential-signature replay + degrade-window permanence — hard blockers before internet transport](../../docs/work/tickets/T165-credential-signature-replay-and-degrade-permanence.md) | open | — |
 
 ### test-infrastructure
 

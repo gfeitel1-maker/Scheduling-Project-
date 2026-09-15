@@ -35,7 +35,7 @@ describe('PROJECTIONS registry', () => {
   it('registers users with a fields allowlist and ensureExists', () => {
     expect(PROJECTIONS.users.table).toBe('users')
     expect(PROJECTIONS.users.key).toBe('id')
-    expect(PROJECTIONS.users.fields).toEqual(['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig'])
+    expect(PROJECTIONS.users.fields).toEqual(['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig', 'cred_version'])
     expect(typeof PROJECTIONS.users.ensureExists).toBe('function')
   })
 
