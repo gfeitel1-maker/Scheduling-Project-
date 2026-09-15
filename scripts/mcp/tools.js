@@ -20,6 +20,7 @@ import { buildScheduleExport } from '../../src/utils/exportScheduleJson.js'
 import { PROJECTIONS } from '../../electron/ops/projections.js'
 import { repairProjectionForEntity, checkProjectionHealth } from '../../electron/ops/projectionRepair.js'
 import { listDocumentWriteFailures } from '../../electron/ops/documentWriteFailures.js'
+import { listSyncHealthEvents } from '../../electron/ops/syncHealthEvents.js'
 import path from 'node:path'
 import {
   rebuildProjectionFromDocumentAtPath,
@@ -224,13 +225,11 @@ export function exportScheduleTool(args, { dbPath }) {
 export function checkProjectionHealthTool(_args, { dbPath }) {
   const db = openLocalDb(dbPath)
   try {
-    const syncHealthEvents = db
-      .prepare(
-        `SELECT action, occurred_at, reason, metadata FROM audit_events
-         WHERE action IN ('automerge.projection_failed', 'sync.document_save_failed')
-         ORDER BY occurred_at DESC LIMIT 50`
-      )
-      .all()
+    // T174: this used to read audit_events for two actions that could never be
+    // written there (its outcome CHECK rejects 'error'), so it always returned []
+    // and the tool reported HEALTHY because nothing could be recorded. Reads the
+    // table those events actually land in now.
+    const syncHealthEvents = listSyncHealthEvents(db)
     return {
       ok: true,
       ...checkProjectionHealth(db),

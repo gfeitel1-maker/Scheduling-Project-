@@ -52,7 +52,7 @@
 import { docPath, loadDoc, saveDoc } from './docStore.js'
 import { recordDocumentWriteFailure, documentWriteFailureRecorded } from '../../ops/documentWriteFailures.js'
 import { DOCUMENT_OUTCOME } from '../../ops/documentOutcome.js'
-import { recordAuditEvent } from '../../audit/auditLog.js'
+import { recordSyncHealthEvent, SYNC_HEALTH } from '../../ops/syncHealthEvents.js'
 import { applyWrite, applyBulkReplace, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../../automerge/campDocument.js'
 import { seedAllFromSqlite } from '../../automerge/seed.js'
 
@@ -304,19 +304,21 @@ export function flushPendingWrites() {
       // local was written). Losing THAT save is still a real divergence — the
       // in-memory document is ahead of the file — and would otherwise leave no
       // trace at all, so it is recorded as a device event rather than nothing.
-      recordAuditEvent(db, {
+      // T174: this used to call recordAuditEvent with outcome:'error', which
+      // audit_events' CHECK constraint rejects — so the "durable trace" advertised
+      // here never landed a row, and check_projection_health reported healthy
+      // because it could read nothing back. Its own table now, and the return
+      // value is checked below rather than assumed.
+      const healthRecorded = recordSyncHealthEvent(db, {
         campId,
-        action: 'sync.document_save_failed',
-        targetType: 'document',
-        targetId: campId,
-        outcome: 'error',
-        reason: String(err?.message ?? err),
-        metadata: { pendingOpCount: opIds?.size ?? 0, incident },
+        kind: SYNC_HEALTH.DOCUMENT_SAVE_FAILED,
+        incident,
+        detail: JSON.stringify({ pendingOpCount: opIds?.size ?? 0, error: String(err?.message ?? err) }),
       })
       // Did the durable trace actually land? If the disk is gone, no. Saying so
       // is the difference between a degraded mechanism and a mechanism that
       // lies about having worked.
-      if (!documentWriteFailureRecorded(db, opIds)) {
+      if (!documentWriteFailureRecorded(db, opIds) || !healthRecorded) {
         console.error(
           `[${incident}] NOTHING DURABLE WAS RECORDED for this failure — the recovery write failed too ` +
             `(most likely the same full or unwritable disk). ${opIds?.size ?? 0} write(s) are in SQLite and ` +

@@ -76,6 +76,7 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'declined_two_row_splits', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity (host-local decline-memory, never undone)' },
   { table: 'compound_cell_decisions', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity (host-local compound-cell-interpretation memory, never undone)' },
   { table: 'location_word_decisions', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity (host-local not-a-place memory, never undone)' },
+  { table: 'sync_health_events', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity (host-local device-health diagnostics, T174 — never undone, never replicated)' },
   { table: 'import_evidence', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'groups', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'tiers', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },

@@ -44,6 +44,7 @@ import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn } from './db/migration
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
+import { recordSyncHealthEvent, SYNC_HEALTH } from './ops/syncHealthEvents.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import { createMdnsDiscovery } from './sync/automerge/discovery.js'
@@ -2559,15 +2560,12 @@ if (isElectronEntryPoint()) {
         // is an op id and a merge has no op — so it goes to the device's own
         // durable event log, which is where support reads from.
         onProjectionError: (err, _mergedDoc, fromPeerId) => {
-          recordAuditEvent(db, {
-            actorUserId: null,
-            deviceId: null,
-            action: 'automerge.projection_failed',
-            targetType: 'document',
-            targetId: campId,
-            outcome: 'error',
-            reason: String(err?.message ?? err),
-            metadata: { fromPeerId: fromPeerId ?? null },
+          // T174: was recordAuditEvent with outcome:'error', which audit_events'
+          // CHECK constraint rejects — the trace never landed. Its own table now.
+          recordSyncHealthEvent(db, {
+            campId,
+            kind: SYNC_HEALTH.PROJECTION_FAILED,
+            detail: JSON.stringify({ fromPeerId: fromPeerId ?? null, error: String(err?.message ?? err) }),
           })
         },
         onAuthRejected: (peerId, reply) => {

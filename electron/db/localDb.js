@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 61
+export const CURRENT_SCHEMA_VERSION = 62
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2394,6 +2394,26 @@ export function initSchema(db) {
   // here. On a Client (no host key) both are no-ops and the re-signed values arrive via replication.
   //
   // Guard is `>= 60 && < 61`, NOT a bare `< 61` — see the v50 block's comment.
+// v62 — sync_health_events (T174). See the table comment in schema.sql for WHY this
+// is not audit_events: `audit_events.outcome` is CHECK-constrained to
+// ('allow','deny'), so T148's two "durable traces" for a failed document save and
+// a failed merge projection wrote NOTHING — `recordAuditEvent` caught the CHECK
+// violation and turned it into a console line, which is the exact defect T148
+// existed to remove, reintroduced inside its own fix.
+const SYNC_HEALTH_EVENTS_DDL = `
+  CREATE TABLE IF NOT EXISTS sync_health_events (
+    id TEXT PRIMARY KEY,
+    camp_id TEXT,
+    kind TEXT NOT NULL,
+    detail TEXT,
+    incident TEXT,
+    occurred_at TEXT NOT NULL,
+    resolved_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_sync_health_events_unresolved
+    ON sync_health_events(kind, occurred_at) WHERE resolved_at IS NULL;
+`
+
   if (getSchemaVersion(db) >= 60 && getSchemaVersion(db) < 61) {
     const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
     if (!cols.includes('cred_version')) {
@@ -2401,6 +2421,16 @@ export function initSchema(db) {
     }
     backfillAuthSignatures(db)
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (61, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v62 — the events T148 thought it was already recording. Additive: a new
+  // table, no rebuild, and nothing to migrate because the rows it is for have
+  // never existed. See SYNC_HEALTH_EVENTS_DDL above.
+  if (getSchemaVersion(db) >= 61 && getSchemaVersion(db) < 62) {
+    db.exec(SYNC_HEALTH_EVENTS_DDL)
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (62, ?)').run(
       new Date().toISOString()
     )
   }
