@@ -8,7 +8,8 @@
 // produce records that read as diligence and mean nothing — which is worse than
 // the 283 commits with no record at all, because at least absence is honest.
 import { describe, it, expect } from 'vitest'
-import { ticketRefsFrom, gateSummaryFrom, buildRunRecord, NEEDS_JUDGEMENT } from './newRunRecord.js'
+import { ticketRefsFrom, mentionedTicketsFrom, gateSummaryFrom, buildRunRecord, NEEDS_JUDGEMENT } from './newRunRecord.js'
+import { AGENTS } from './check-governance.js'
 
 describe('ticketRefsFrom — the completion vocabulary, not any mention', () => {
   it('picks up closes/Merge references, case-insensitively, without duplicates', () => {
@@ -79,7 +80,10 @@ describe('buildRunRecord — fills facts, refuses judgement', () => {
     // record that looks like diligence and is not.
     const r = buildRunRecord(base)
     expect(r).toMatch(new RegExp(`^selected_agents: ${NEEDS_JUDGEMENT}$`, 'm'))
-    expect(r).toMatch(new RegExp(`^omitted_agents: ${NEEDS_JUDGEMENT}$`, 'm'))
+    // omitted_agents is a pre-listed roster of stubs rather than one marker —
+    // see the roster describe block below for why that is stronger.
+    expect(r).toMatch(/^omitted_agents:$/m)
+    expect(r).toMatch(new RegExp(`- agent: maker\\n    reason: ${NEEDS_JUDGEMENT}`))
     expect(r).toMatch(new RegExp(`^verdict: ${NEEDS_JUDGEMENT}$`, 'm'))
     expect(r).toMatch(new RegExp(`^archive_when: ${NEEDS_JUDGEMENT}$`, 'm'))
   })
@@ -103,5 +107,51 @@ describe('buildRunRecord — fills facts, refuses judgement', () => {
     // "generated and forgotten" cannot be confused with "filled in".
     const r = buildRunRecord(base)
     expect(r.split(NEEDS_JUDGEMENT).length - 1).toBeGreaterThanOrEqual(5)
+  })
+})
+
+describe('mentionedTicketsFrom — association, not closure', () => {
+  it('picks up a bare mention that ticketRefsFrom deliberately ignores', () => {
+    // Found by using the tool on its own first commit: the subject was
+    // "T167 part 1: ..." — plainly about T167, and not a closure claim — which
+    // produced an empty related_tickets.
+    const subjects = ['T167 part 1: make filing cheap']
+    expect(ticketRefsFrom(subjects)).toEqual([])
+    expect(mentionedTicketsFrom(subjects)).toEqual(['T167'])
+  })
+
+  it('feeds association only, so it cannot change how a closure gate reads', () => {
+    // The looser match is safe precisely because nothing downstream of it is a
+    // closure check. ticketRefsFrom remains the single definition of "closes".
+    expect(ticketRefsFrom(['perf: relates to T40'])).toEqual([])
+    expect(mentionedTicketsFrom(['perf: relates to T40'])).toEqual(['T40'])
+  })
+
+  it('does not match a bare number or a word that merely starts with T', () => {
+    expect(mentionedTicketsFrom(['fix: bump to 167', 'Tidy up the Thing'])).toEqual([])
+  })
+})
+
+describe('the full roster is pre-listed, so an agent cannot be forgotten', () => {
+  it('emits a stub for every Article VII agent', () => {
+    // Found by filing this generator's own first record: check:governance
+    // rejected it because `maker` and `grader` were simply forgotten. Article
+    // VII requires every agent selected or omitted-with-a-reason, and a blank
+    // template relies on someone remembering ten roles at the moment they are
+    // least inclined to.
+    const r = buildRunRecord({ subjects: ['x'], shas: ['a1'], ticketPaths: [], taskClass: 't', date: '2026-09-15', gateSummary: 'g' })
+    for (const agent of AGENTS) {
+      expect(r, `${agent} must be pre-listed`).toMatch(new RegExp(`- agent: ${agent}\\n`))
+    }
+    expect((r.match(/- agent: /g) || []).length).toBe(AGENTS.length)
+  })
+
+  it('every stub demands a reason rather than defaulting to one', () => {
+    // The generator must not pick `not-applicable` for anyone. Turning
+    // remembering into deleting is the goal; turning it into rubber-stamping is
+    // the failure this whole ticket is about.
+    const r = buildRunRecord({ subjects: ['x'], shas: ['a1'], ticketPaths: [], taskClass: 't', date: '2026-09-15', gateSummary: 'g' })
+    expect(r).not.toMatch(/reason: (not-applicable|no-predicate|human-waived)/)
+    expect((r.match(new RegExp(`reason: ${NEEDS_JUDGEMENT}`, 'g')) || []).length).toBe(AGENTS.length)
   })
 })

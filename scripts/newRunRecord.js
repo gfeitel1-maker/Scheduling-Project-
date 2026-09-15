@@ -21,6 +21,7 @@
 // that T167 rules out. Those fields are emitted as NEEDS_JUDGEMENT markers, so a
 // half-filled record cannot pass for a complete one — by eye or by gate.
 import { execFileSync } from 'node:child_process'
+import { AGENTS } from './check-governance.js'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -65,6 +66,29 @@ export function gateSummaryFrom(text) {
   return parts.join(' — ')
 }
 
+/**
+ * Any ticket the range MENTIONS, closure or not.
+ *
+ * Deliberately separate from ticketRefsFrom. `closes T123` is a CLOSURE CLAIM
+ * and check-governance gates on it; a bare `T123` is an association and gates on
+ * nothing. A run record wants both — found by using this tool on its own first
+ * commit, whose subject is "T167 part 1: ..." and which therefore produced an
+ * empty `related_tickets` while plainly being about T167.
+ *
+ * Kept as association only: nothing here feeds a closure check, so a looser
+ * match cannot make the status-drift gate read differently.
+ */
+export function mentionedTicketsFrom(subjects) {
+  const out = []
+  for (const s of subjects || []) {
+    for (const m of String(s).matchAll(/\b([TS]\d+[a-z]?)\b/gi)) {
+      const id = m[1].toUpperCase()
+      if (!out.includes(id)) out.push(id)
+    }
+  }
+  return out
+}
+
 function ticketPathFor(root, id) {
   const dir = path.join(root, 'docs/work/tickets')
   if (!fs.existsSync(dir)) return null
@@ -81,6 +105,15 @@ function taskClassFrom(root, ticketPaths) {
   return NEEDS_JUDGEMENT
 }
 
+// EVERY roster agent is pre-listed in omitted_agents, each with NEEDS_JUDGEMENT
+// for its reason — found by filing this generator's own first record and having
+// `check:governance` reject it: `maker` and `grader` were simply forgotten.
+//
+// Article VII requires every agent to be selected or omitted-with-a-reason. A
+// blank template relies on the author remembering ten roles at the moment they
+// are least inclined to; pre-listing them turns remembering into deleting, which
+// is the same subtraction principle as the rest of this file. An agent that DID
+// run is moved up to selected_agents and its stub removed.
 export function buildRunRecord({ subjects, shas, ticketPaths, taskClass, date, gateSummary }) {
   const task = (subjects && subjects[0]) || NEEDS_JUDGEMENT
   const evidence = [
@@ -99,7 +132,8 @@ related_tickets: [${(ticketPaths || []).join(', ')}]
 related_specs: []
 related_adrs: []
 selected_agents: ${NEEDS_JUDGEMENT}
-omitted_agents: ${NEEDS_JUDGEMENT}
+omitted_agents:
+${AGENTS.map((a) => `  - agent: ${a}\n    reason: ${NEEDS_JUDGEMENT}\n    note: ${NEEDS_JUDGEMENT}`).join('\n')}
 deterministic_checks: [npm run verify]
 human_gates: []
 verdict: ${NEEDS_JUDGEMENT}
@@ -135,9 +169,10 @@ export function generate({ root, range, gateLogPath, date }) {
   if (!entries.length) throw new Error(`no commits in range ${range} — nothing to record`)
   const shas = entries.map((e) => e[0])
   const subjects = entries.map((e) => e[1])
-  const ticketPaths = ticketRefsFrom(subjects)
-    .map((id) => ticketPathFor(root, id))
-    .filter(Boolean)
+  // Closure references first (they are the authoritative link), then any other
+  // ticket the range merely mentions — see mentionedTicketsFrom.
+  const ids = [...new Set([...ticketRefsFrom(subjects), ...mentionedTicketsFrom(subjects)])]
+  const ticketPaths = ids.map((id) => ticketPathFor(root, id)).filter(Boolean)
   const gateSummary =
     gateLogPath && fs.existsSync(gateLogPath)
       ? gateSummaryFrom(fs.readFileSync(gateLogPath, 'utf8'))
