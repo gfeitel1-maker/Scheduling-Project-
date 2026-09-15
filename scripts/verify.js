@@ -10,6 +10,7 @@
 // output text — so the truth survives any tail-piping — and exits with the real code.
 // See memory: feedback-gate-exit-code-not-tail.
 import { spawnSync } from 'node:child_process'
+import os from 'node:os'
 
 export const VERIFY_STEPS = [
   'lint',
@@ -20,9 +21,36 @@ export const VERIFY_STEPS = [
   'check:governance',
 ]
 
-// Pure: map "which step failed (or null)" → the verdict line + process exit code.
-export function verdict(failedStep) {
+// T164: a test run on a badly oversubscribed machine has not discovered anything about the CODE —
+// several ordinary synchronous tests were measured at 400-500s each at load 66 on 4 cores (16x),
+// purely because the machine was swamped, and a per-test timeout is an absolute number the machine's
+// speed is not. A red under that condition trains people to re-run, and re-running is the habit that
+// lets a real regression through. So a failure under extreme load is reported as a THIRD answer —
+// INCONCLUSIVE — not FAILED: it is still non-zero (never a false green, never masks a real red), it
+// just tells a human "the machine was swamped; re-run in isolation before concluding a defect."
+// Same 0/1/2 shape gateResultCode.sh already uses (T171).
+//
+// The threshold is deliberately high: normal concurrent-session load in this repo runs a few times
+// oversubscribed by design (vitest.setup.js/vite.config.js say so), so only GENUINE swamping — the
+// 1-minute load average at 4x the core count or more — trips it. `factor` is injectable for tests.
+export function machineLoadVerdict(load1, cores, { factor = 4 } = {}) {
+  if (!Number.isFinite(load1) || !Number.isFinite(cores) || cores <= 0) return 'ok' // unknown → don't relabel
+  return load1 >= cores * factor ? 'oversubscribed' : 'ok'
+}
+
+// Pure: map "which step failed (or null)" + machine state → the verdict line + process exit code.
+// oversubscribed is only consulted WHEN a step failed — a passing run is always a clean exit 0.
+export function verdict(failedStep, { oversubscribed = false } = {}) {
   if (failedStep) {
+    if (oversubscribed) {
+      return {
+        line:
+          `⚠️  VERIFY INCONCLUSIVE — step "${failedStep}" failed, but this machine was oversubscribed ` +
+          `(1-min load ≥ 4× cores). This is very likely a load timeout, not a defect. Re-run the ` +
+          `failing step in isolation before concluding anything. This is NOT a pass.`,
+        code: 2,
+      }
+    }
     return { line: `❌ VERIFY FAILED at step: ${failedStep}`, code: 1 }
   }
   return {
@@ -52,7 +80,11 @@ const invokedDirectly =
   process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('scripts/verify.js')
 if (invokedDirectly) {
   const failed = runVerify()
-  const v = verdict(failed)
+  // Measure load AFTER the run: the 1-minute average at this point reflects the load the suite just
+  // ran under (a verify run takes minutes). Only consulted if something failed.
+  const oversubscribed =
+    !!failed && machineLoadVerdict(os.loadavg()[0], os.cpus().length) === 'oversubscribed'
+  const v = verdict(failed, { oversubscribed })
   // eslint-disable-next-line no-console
   console.log('\n' + '═'.repeat(60) + '\n' + v.line)
   process.exit(v.code)

@@ -38,7 +38,6 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Every timeout in the suite is a bet on machine speed, and the bet is silently lost under load](../../docs/work/tickets/T164-libp2p-sync-tests-fail-under-load.md) | open | [2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-](../../docs/work/runs/2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-.md) |
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 
 ## Decisions
