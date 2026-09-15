@@ -1,7 +1,7 @@
 ---
 title: "A merged change should leave a run record, and the gate should notice when it does not"
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-14
 task_class: documentation-governance
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
@@ -146,3 +146,75 @@ statement is: **the artifacts are missing and the reason is not established.**
 Yes, but for a smaller reason than claimed. Deriving the Verifier report removes real clerical
 work and carries T169's commit binding into every GateReport. It does not, on its own, close the
 artifact gap — because the gap is not now known to be caused by transcription cost.
+
+## Both parts landed, 2026-09-15
+
+**Part 1** — `scripts/newRunRecord.js` fills everything git and the gate already
+know and refuses to fill judgement, emitting `<<NEEDS JUDGEMENT>>` where a
+machine must not guess. Two improvements came from *using* it: bare ticket
+mentions now feed `related_tickets` (its own first commit produced an empty
+list), and every roster agent is pre-listed because `check:governance` rejected
+its first record for forgetting `maker` and `grader`.
+
+**Part 2** — two rules in `scripts/check-governance.js`:
+
+- `checkRunRecordFiled` — a change claiming `closes T###` must **add** a record.
+  Deliberately about the CHANGE, not the ticket: "some record somewhere mentions
+  T167" would be satisfied by the part-1 record when part 2 lands, which is this
+  author's own next commit and is how the rule would first have been evaded.
+- `checkRunRecordsFilledIn` — no record may keep its `<<NEEDS JUDGEMENT>>`
+  markers. Without it, making filing cheap would only make producing EMPTY
+  records cheap, and the artifact becomes decoration — worse than the 283 missing
+  ones, because decoration looks like evidence.
+
+New completions only. 81 tickets are already closed without a record, and
+applying this retroactively would mean fabricating history or a permanently red
+gate. The scope falls out for free: `origin/main..HEAD` is unmerged work by
+construction.
+
+A skip is announced rather than silent — an unreported skip would read as a pass,
+which is the defect class this ticket is about.
+
+## Why rule 1 is per-change — the better argument, from review
+
+The original justification was "it is the loophole this author would have walked
+through first." True, but incidental. The reviewing session supplied the real
+reason:
+
+> A run record attests to the VERIFICATION of one merged change — which agents
+> ran, what the gate said. A part-1 record physically cannot attest to part-2's
+> gate run or to part-2's review. Evidence must be per-verification-event, and
+> the merge IS that event.
+
+So a two-PR ticket filing two records is not a cost to tolerate; it is two
+verifications having earned two pieces of evidence. Granularity follows from the
+same point: the PR is the unit that runs the gate and gets reviewed, so it is the
+unit that leaves evidence. Per-ticket under-documents a three-PR ticket;
+per-commit buries a five-commit branch in noise.
+
+## Known looseness, recorded rather than discovered later
+
+**Rule 1 does not verify that the added record REFERENCES the ticket being
+closed** — any added run record satisfies it. Deliberate: content-linkage is
+brittle, and `newRunRecord.js` pre-fills `related_tickets` so in practice the
+link is there. Raised in review and left in knowingly.
+
+## Watch-item
+
+A trivial closing change (a docs typo that happens to close a doc ticket) still
+has to file a record with an honest "no agents ran because X" — rule 2 forbids
+leaving the marker, so it costs one real sentence. That is the right discipline
+at a fair price.
+
+The failure mode to watch is people dropping `closes` from commit subjects to
+dodge the record. That evasion is self-defeating and visible, because it breaks
+the status-drift gate in the same breath — but if it starts happening, the rule
+needs revisiting rather than enforcing harder.
+
+## Verification
+
+`npm run verify` — 5,679 passed, all steps green. Reviewed cross-session before
+merge, including a range check this author had argued for but not performed:
+`git log origin/main..HEAD` and `git diff --diff-filter=A origin/main..HEAD`
+resolve consistently, so a record added on `main` meanwhile shows as `D` and
+never as a false `A`.
