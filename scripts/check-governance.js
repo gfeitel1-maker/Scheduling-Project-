@@ -345,6 +345,65 @@ export function isClosed(doc) {
   }
 }
 
+/**
+ * Two tickets must never share a number.
+ *
+ * WHY THIS IS A GATE AND NOT AN ANNOYANCE. `resolveIds` resolves `closes T175`
+ * by matching the number against the PATH, so a duplicated number resolves to
+ * every file that carries it. `checkStatusDrift` then reports drift for each
+ * match that is not closed — which is the strict behaviour, and correct as far
+ * as it goes: a duplicate can never make the gate falsely PASS.
+ *
+ * The hazard is the other direction, and it is worse than a false pass because
+ * it is actionable. Closing YOUR ticket demands closure of SOMEONE ELSE'S,
+ * unrelated, still-open ticket — and the obvious way to make a red gate go green
+ * is to flip the status it names. The gate that exists to stop a ticket silently
+ * looking closed can, through a number collision, push someone into closing one.
+ *
+ * It has happened twice in two days across concurrent sessions (T165, then
+ * T175), for a structural reason rather than a careless one: each session picks
+ * "the next free number" by listing this directory, and neither can see the
+ * other's uncommitted file. Announcing numbers to each other worked and is not
+ * a mechanism. This is.
+ *
+ * Scoped to tickets: ADRs and specs are addressed by filename, not by number.
+ */
+// Numbers that were already doubled up before this check existed, all of whose
+// tickets are closed. Renumbering them would break references in commit
+// messages and ADRs that cannot be rewritten, for no live benefit.
+//
+// GRANDFATHERED CONDITIONALLY, NOT EXEMPTED. The hazard is dormant for these
+// ONLY because every ticket sharing the number is closed — nothing can demand
+// the closure of something already closed. If one is ever reopened the hazard
+// returns, so the pass is re-earned on every run rather than granted once.
+const HISTORICAL_DUPLICATE_NUMBERS = new Set(['82', '107', '110'])
+
+export function checkTicketNumberUniqueness(docs) {
+  const byNumber = new Map()
+  for (const doc of docs) {
+    if (!doc.path.startsWith('docs/work/tickets/')) continue
+    const m = doc.path.split('/').pop().match(/^T(\d+)[-.]/)
+    if (!m) continue
+    const n = m[1]
+    if (!byNumber.has(n)) byNumber.set(n, [])
+    byNumber.get(n).push({ path: doc.path, data: doc.data })
+  }
+
+  const out = []
+  for (const [n, entries] of [...byNumber].sort((a, b) => Number(a[0]) - Number(b[0]))) {
+    if (entries.length < 2) continue
+    const paths = entries.map((e) => e.path)
+    // See HISTORICAL_DUPLICATE_NUMBERS: the pass is conditional on every one of
+    // them still being closed, and is re-checked here on every run.
+    if (HISTORICAL_DUPLICATE_NUMBERS.has(n) && entries.every((e) => isClosed(e.data))) continue
+    out.push(finding('duplicate-ticket-number',
+      `T${n} is used by ${paths.length} tickets — ${paths.sort().join(' and ')}. ` +
+      `A completion reference cannot say which one it closes, and the status-drift gate will ` +
+      `demand closure of whichever is still open. Renumber all but the one already on main.`))
+  }
+  return out
+}
+
 export function checkStatusDrift(subjects, docs) {
   const out = []
   // WORK_RECORD_STANDARD.md §3.2 — a `Revert "..."` subject quotes a prior
@@ -370,6 +429,96 @@ export function checkStatusDrift(subjects, docs) {
   }
 
   return out
+}
+
+/**
+ * A merged change that CLOSES something must ADD a run record (T167 part 2).
+ *
+ * THE MEASUREMENT: 283 commits landed between 2026-08-25 and 2026-09-14 with
+ * zero run records. The reviewers ran; nobody transcribed the result. This file
+ * could not detect that, because it validates records that EXIST and had no rule
+ * that work must produce one — a gate that checks what is there cannot see what
+ * is missing.
+ *
+ * NEW COMPLETIONS ONLY, and that is not a softening. 81 tickets are already
+ * closed without a record; applying this retroactively would mean either
+ * fabricating history or a permanently red gate, and the first is exactly what
+ * the run-record standard exists to prevent. The scope falls out for free —
+ * `origin/main..HEAD` is unmerged work by construction.
+ *
+ * THE RULE IS ABOUT THE CHANGE, NOT THE TICKET. "Some record somewhere mentions
+ * T167" would be satisfied by a part-1 record when part 2 lands. That is a real
+ * case rather than a hypothetical: it is this author's own next commit, and it
+ * is how this author would first have evaded the rule without noticing.
+ */
+export function checkRunRecordFiled(subjects, addedRunRecords) {
+  const claims = (subjects || []).filter((s) => !s.startsWith('Revert "'))
+  const ids = [...new Set(claims.flatMap((s) => parseCompletionRefs(s)))]
+  if (!ids.length) return []
+  // TEMPLATE.md is filtered here as well as in the gatherer, deliberately. A
+  // pure predicate should enforce its own contract: a caller that forgot to
+  // filter must not be able to pass the template off as a filed record, and
+  // "adding" the template is the most obvious way to satisfy this rule without
+  // doing anything. Found by a test, not by inspection.
+  const filed = (addedRunRecords || []).filter((p) => p.endsWith('.md') && !p.endsWith('TEMPLATE.md'))
+  if (filed.length) return []
+  return [finding('run-record-missing',
+    `this change claims to close ${ids.join(', ')} but adds no run record under docs/work/runs/. ` +
+    `Generate one with \`node scripts/newRunRecord.js\` — it fills everything git and the gate ` +
+    `already know and leaves only the judgement to you.`)]
+}
+
+/**
+ * A record generated and then forgotten must not pass for a filed one.
+ *
+ * `newRunRecord.js` emits NEEDS_JUDGEMENT wherever a machine must not guess:
+ * which agents ran, why the others did not, the verdict. Those markers are what
+ * makes the generator safe to have. Without this check, making filing cheap
+ * would only make producing EMPTY records cheap — and the artifact would become
+ * decoration, which is worse than the 283 missing ones, because decoration looks
+ * like evidence.
+ */
+export function checkRunRecordsFilledIn(root, docs, readFile = readFileSync) {
+  const out = []
+  for (const doc of docs) {
+    if (!doc.path.startsWith('docs/work/runs/')) continue
+    if (doc.path.endsWith('TEMPLATE.md')) continue
+    let text
+    try {
+      text = readFile(join(root, doc.path), 'utf8')
+    } catch {
+      continue // unreadable is checkDoc's problem, not this one
+    }
+    // A MARKER IN A VALUE POSITION, not a mention of one anywhere in the file.
+    //
+    // The first version matched the bare string, and flagged this very ticket's
+    // own run record — which DISCUSSES the markers in prose while being fully
+    // filled in. A check that cannot tell a placeholder from a description of a
+    // placeholder makes writing about the mechanism impossible, and the record
+    // explaining the rule is exactly the one most likely to mention it.
+    //
+    // So: a frontmatter field whose value is the marker (`verdict: <<...>>`, or
+    // a list item's `reason: <<...>>`), or a body line that BEGINS with it —
+    // which is the shape the generator's own "## Agents" stub takes. An inline
+    // mention inside a sentence is left alone.
+    const unfilled = /^\s*(?:-\s*)?[A-Za-z_]+:\s*<<NEEDS JUDGEMENT>>|^<<NEEDS JUDGEMENT>>/m
+    if (!unfilled.test(text)) continue
+    out.push(finding('run-record-unfilled',
+      `${doc.path} still contains <<NEEDS JUDGEMENT>> markers — generated and not filled in. ` +
+      `A record naming no agents and no verdict is decoration, not evidence.`))
+  }
+  return out
+}
+
+function gatherAddedRunRecords(root, execFn) {
+  try {
+    return execFn(`git -C ${root} diff --name-only --diff-filter=A origin/main..HEAD -- docs/work/runs`)
+      .split('\n')
+      .map((s) => s.trim())
+      .filter((s) => s.endsWith('.md') && !s.endsWith('TEMPLATE.md'))
+  } catch {
+    return null
+  }
 }
 
 function gatherCompletionSubjects(root, execFn) {
@@ -436,9 +585,18 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   // announced, never silent — an unreported skip would read as a pass.
   findings.push(...checkWritableEntitiesCanSync(projectionsRegistry, modeledEntities))
 
+  findings.push(...checkTicketNumberUniqueness(docs))
+
+  findings.push(...checkRunRecordsFilledIn(root, docs))
+
   const subjects = gatherCompletionSubjects(root, execFn)
   if (subjects !== null) {
     findings.push(...checkStatusDrift(subjects, docs))
+    const added = gatherAddedRunRecords(root, execFn)
+    // A skip is announced, never silent. An unreported skip would read as a
+    // pass, which is the defect class this whole ticket is about.
+    if (added !== null) findings.push(...checkRunRecordFiled(subjects, added))
+    else console.warn('check:governance — run-record check skipped (could not diff docs/work/runs)')
   } else {
     console.warn('check:governance — status-drift check skipped (no origin/main to diff against)')
   }

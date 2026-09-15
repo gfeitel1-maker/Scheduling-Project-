@@ -1,5 +1,5 @@
 ---
-title: "The libp2p sync tests fail when the machine is busy, which is when agents work"
+title: "Every timeout in the suite is a bet on machine speed, and the bet is silently lost under load"
 document_type: ticket
 status: open
 created: 2026-09-14
@@ -65,3 +65,49 @@ regression through.
 Nothing is broken in the product. What is broken is the signal, and signal decay
 is the kind of thing that is only ever cheap to fix before someone has learned to
 ignore it.
+
+## Better measurement, 2026-09-15 — the diagnosis in this ticket is too narrow
+
+Filed as "the libp2p sync tests bind real ports and race real timers, so they
+fail when the machine is busy." A gate run at **load average 66.13** on a 4-core
+machine (16x oversubscribed) shows that is not the shape of it.
+
+What actually failed, with durations:
+
+| test | duration |
+|---|---|
+| `main.test.js` — staff CANNOT delete (permissions) | **497s** |
+| ingest — clamps to 1 when the head is the day's last block | **409s** |
+| ingest — an undecided candidate ships in neither list | **410s** |
+| electives — clears all offerings after confirmation | 21s |
+
+None of those bind a port. None races a network timer. They are ordinary
+synchronous tests that normally finish in well under a second.
+
+**So the class is not "libp2p tests are timing-sensitive". It is "every timeout
+in the suite is a bet on machine speed, and the bet is silently lost under
+load."** A per-test timeout is an absolute number; the machine's speed is not.
+Fixing `syncProtocol.test.js` with an injected clock — the direction this ticket
+recommends — would not have saved a permission test at 497 seconds.
+
+### The direction that follows, and it is one this repo has taken three times now
+
+A test run on a 16x oversubscribed machine has not discovered anything about the
+code. It should report **INCONCLUSIVE**, not FAILED.
+
+That is the same third answer already adopted in:
+- `gateResultCode.sh` — 0 passed / 1 failed / **2 cannot tell** (T171)
+- `recordSyncHealthEvent` — returns whether the row landed rather than assuming (T174)
+- `isLowDisk(null)` — unknown is not low; silence, never reassurance (T160)
+
+A red that means "your machine was busy" trains people to re-run, and re-running
+is the habit that lets a real regression through. That is the actual cost, and it
+is why this is worth fixing rather than tolerating.
+
+### Not the missing connection bound
+
+Recorded because a hand-off was expected and should not be: this was flagged as
+possibly the same seam as the internet-scale rate-limit work (a connection flood
+and a load-flake both living in `syncNode`). On this evidence they are
+**unrelated** — the failures are spread across permissions, ingest and electives,
+nowhere near the transport.

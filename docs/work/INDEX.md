@@ -20,7 +20,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
-| [A merged change should leave a run record, and the gate should notice when it does not](../../docs/work/tickets/T167-a-merged-change-should-leave-a-run-record.md) | in-progress | — |
 
 ### scheduling-engine
 
@@ -39,9 +38,7 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [The libp2p sync tests fail when the machine is busy, which is when agents work](../../docs/work/tickets/T164-libp2p-sync-tests-fail-under-load.md) | open | — |
-| [Decouple agents:check from the unversioned home organization package](../../docs/work/tickets/T165-decouple-agents-check-from-the-home-organization-package.md) | open | — |
-| [Put agents:check in the gate once green is reachable everywhere](../../docs/work/tickets/T166-put-agents-check-in-the-gate.md) | open | — |
+| [Every timeout in the suite is a bet on machine speed, and the bet is silently lost under load](../../docs/work/tickets/T164-libp2p-sync-tests-fail-under-load.md) | open | [2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-](../../docs/work/runs/2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-.md) |
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 
 ## Decisions
@@ -159,7 +156,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Persistent per-device libp2p identity, binding a session token to the peer presenting it](../../docs/adr/2026-09-14-device-identity-and-token-binding.md) | accepted | not_started | [T162-device-identity-and-token-binding](../../docs/work/tickets/T162-device-identity-and-token-binding.md) |
 | [Internet-reachable transport requires a full security re-assessment (enforced gate)](../../docs/adr/2026-09-14-internet-transport-security-gate.md) | accepted | implemented | [2026-09-15-ephemeral-join-secret-for-wan-discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) · [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) |
 | [Take users' auth fields (role, pin_hash, pin_salt) off the replicated document](../../docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md) | accepted | implemented | [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) |
-| [At-rest encryption of the camp document and SQLite — scoping](../../docs/adr/2026-09-15-at-rest-encryption-scoping.md) | accepted | in_progress | [T175-at-rest-encryption-activation](../../docs/work/tickets/T175-at-rest-encryption-activation.md) |
+| [At-rest encryption of the camp document and SQLite — scoping](../../docs/adr/2026-09-15-at-rest-encryption-scoping.md) | accepted | in_progress | [T175-at-rest-encryption-activation](../../docs/work/tickets/T175-at-rest-encryption-activation.md) · [T176-only-this-computer-warning](../../docs/work/tickets/T176-only-this-computer-warning.md) |
 | [Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) | accepted | proposed | — |
 | [Opinion GateReport inputs are bound to a real, completed subagent dispatch](../../docs/adr/2026-09-15-opinion-report-dispatch-provenance.md) | accepted | shipped | — |
 
@@ -170,6 +167,8 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-09-15 | [T167 part 1: make filing a run record cheap, and correct T164's diagnosis](../../docs/work/runs/2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-.md) | documentation-governance | pass | pass |
+| 2026-09-15 | [closes T167 part 2: a change that closes something must file a run record](../../docs/work/runs/2026-09-15-t167-part-2-require-a-run-record.md) | documentation-governance | pass | pass |
 | 2026-09-14 | [harness reliability — classify non-retryable nightly failures, make the morning check ask whether the pass succeeded, protect application-leased worktrees from pruning, and pin the loop-roster/Article VI partition](../../docs/work/runs/2026-09-14-harness-reliability-repairs.md) | test-infrastructure | pass | merged-under-human-waiver |
 | 2026-08-17 | [One-workspace merge (Option A) — fold the upstream ticking step into the reconciliation workspace; low-confidence creates + fixed events become decisions; F2 from→to; F3 required-gap cards; gauntlet compression](../../docs/work/runs/2026-08-17-reconciliation-onescreen-merge.md) | ui-ux-design | pass | pass |
 | 2026-08-17 | [R2′b — one-screen ReconciliationScreen (compose single surface + staged-tray-as-dry-run wiring + cutover/deletions + PLATFORM_STATE refresh)](../../docs/work/runs/2026-08-17-reconciliation-r2b-onescreen.md) | ui-ux-design | pass | pass |

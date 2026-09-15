@@ -591,8 +591,36 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // ("your changes will reach it when it is back") is exactly the sentence
     // that must not be shown for these.
     const unsharedWrites = unsharedWriteCount(db)
-    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low }
-    if (mode === 'host') return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low }
+
+    // Is any OTHER computer holding a copy of this camp (T176)?
+    //
+    // This became load-bearing when at-rest encryption was scoped
+    // (docs/current/KEY_RECOVERY_STORY.md). That page's one real-loss case is a
+    // camp whose only device is lost: the storage key goes with the machine and
+    // the data is unreadable even to its owner, by design, because a
+    // director-remembered passphrase was rejected as the worse day. Its
+    // mitigation is operational rather than cryptographic — *keep more than one
+    // device paired and synced* — and a second synced device is not a backup
+    // step someone has to remember, it IS the backup, continuously.
+    //
+    // That advice is only actionable if a director can tell at a glance that
+    // they have not followed it. Until now the count lived behind the Devices
+    // screen, which is where you go once you already suspect something.
+    //
+    // COUNTED, DELIBERATELY, as "authorized and not revoked" — not "a row
+    // exists". `devices` carries inert `pairing_status='unknown'` stubs for any
+    // peer this device merely HEARD an op from (see listDevices), and a revoked
+    // device is one the director deliberately cut off. Neither holds a usable
+    // copy, and counting either would answer "you have a second copy" when the
+    // camp does not. The question is about a SURVIVING COPY, not about rows.
+    const otherDeviceCount = db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM devices WHERE id != ? AND authorized_at IS NOT NULL AND revoked_at IS NULL"
+      )
+      .get(deviceId).n
+
+    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low, otherDeviceCount }
+    if (mode === 'host') return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount }
     // Stage 6c: the honest source of "can this device reach the camp" is the
     // libp2p node's peer set, not a socket. `getPeers()` returns every
     // libp2p-connected peer INCLUDING one that merely completed a noise
@@ -605,7 +633,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const connected = peers.length > 0
     const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
-    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low }
+    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
