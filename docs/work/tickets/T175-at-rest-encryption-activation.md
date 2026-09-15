@@ -33,6 +33,25 @@ Steps 1 and 2 may be separate PRs; the CLAIM may not precede step 2.
   main.js:2510; rebuildSupportCommand ✅ threaded + undecryptable refusal). campDocument/syncNode are
   in-memory encode/decode, not file readers.
 - [x] Finding 2 (rebuild "no file" vs "undecryptable") — closed, test-covered.
+- [x] **Document-encryption activation wired + tested, behind a staged flag.** `electron/db/atRestEncryption.js`
+  (`SHORESH_AT_REST_ENCRYPTION`, default OFF, exactly-"on" to enable; `acquireDocCipher` fail-closed).
+  main.js acquires the cipher, injects it into liveDoc, passes it to the second reader, and surfaces
+  the recovery story instead of a raw crash on key failure (finding 3, document side). Provably inert
+  when off. Nothing on disk is encrypted until the flag is set for the reviewed real-app rollout.
+
+## SQLite-at-rest thread — DESIGNED + dependency-matched, BUILD/VERIFY environment-blocked (2026-09-15)
+The encrypting driver is identified and version-matched: **`better-sqlite3-multiple-ciphers@12.11.1`**
+pairs exactly with the installed `better-sqlite3@12.11.1` (same underlying engine — the ideal pin per
+the assessment). An install was attempted; the native module compiles `sqlite3.c` from source (no
+Node-25 prebuilt), and at attempt time the machine was at **load average 338 on 4 cores (~85×
+oversubscribed)** — after 35 minutes not one object file had been produced. The build cannot complete
+under that load, and a data-migration verified under it would (by T164's own new rule) be INCONCLUSIVE.
+The partial artifact was removed and package.json/lock left unchanged; **no unverified migration code
+was committed** (test-first at a data seam is non-negotiable). To finish on a quiet machine: install
+the pinned driver (exact + integrity + `npm audit`-clean, electron-rebuild), key `openLocalDb` from
+`acquireDocCipher`'s key (SQLCipher `PRAGMA key` as the FIRST op after `new Database`), add the
+test-only `{ plaintext: true }` opt-in + finding-5 gate, and migrate plaintext→encrypted via
+`sqlcipher_export` behind a FATAL backup that is verified-then-shredded (finding 4).
 
 ## Gaps to close BEFORE the flip
 - [ ] **Finding 3 (MEDIUM) — startup hard-fail is uncaught.** A lost keychain makes `openLocalDb`
