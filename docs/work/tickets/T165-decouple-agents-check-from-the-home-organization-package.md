@@ -1,7 +1,7 @@
 ---
 title: "Decouple agents:check from the unversioned home organization package"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-14
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-09-04-portable-agent-team-compatibility-layer.md]
@@ -34,3 +34,24 @@ splicing, so a whitespace change there re-renders all 13 profiles.
 `--check` never reads `docs/governance/agent-bindings/manifest.json` — it is written only under
 `--write`. The recorded `adapter_hash`/`generated_hash` values can therefore be arbitrarily stale
 and nothing notices. Making the manifest load-bearing belongs with this work.
+
+## Closed 2026-09-15 — verified, not assumed
+
+Implemented at some point without a closing reference, so the ticket sat `open`
+while the code had moved. Found by checking the premise before rebuilding it.
+
+`scripts/generateAgentProfiles.js` now resolves fragments to
+`docs/governance/agent-fragments/` **by default** (same `VERSION` + `fragments/*.md`
+shape as the home package, so an override behaves identically), with
+`SHORESH_ORG_DIR` as the override for fragment development against a live
+`~/.claude/organization`.
+
+Verified rather than read: `node scripts/generateAgentProfiles.js` with **no**
+environment variable exits 0 — *"All generated profiles are byte-identical to the
+committed .claude/agents/*.md files."* The vendored `fragments/SKILL_MANDATE_WRAPPER.md`
+is present in the repo.
+
+A near-miss worth recording: pointing `SHORESH_ORG_DIR` at a nonexistent path
+still exits 1, which is correct, and briefly looked like a live gate-breaking
+defect until the default path was tested. The check that matters is the one with
+no override set.

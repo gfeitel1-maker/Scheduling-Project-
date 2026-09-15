@@ -40,8 +40,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [The libp2p sync tests fail when the machine is busy, which is when agents work](../../docs/work/tickets/T164-libp2p-sync-tests-fail-under-load.md) | open | — |
-| [Decouple agents:check from the unversioned home organization package](../../docs/work/tickets/T165-decouple-agents-check-from-the-home-organization-package.md) | open | — |
-| [Put agents:check in the gate once green is reachable everywhere](../../docs/work/tickets/T166-put-agents-check-in-the-gate.md) | open | — |
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 
 ## Decisions
