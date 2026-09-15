@@ -271,39 +271,3 @@ describe('syncStatusLabel — a nearly full disk is a warning, not a connection 
     expect(healthy).not.toMatch(/storage/)
   })
 })
-
-describe('syncStatusLabel — no second copy of the camp (T176)', () => {
-  it('says so, in terms that are true today and stay true after encryption', () => {
-    const label = syncStatusLabel({ state: 'host', otherDeviceCount: 0 })
-    expect(label.text).toBe('only this computer')
-    expect(label.title).toMatch(/no second copy to restore from/)
-    // NOT "cannot be recovered" — that only becomes true once at-rest
-    // encryption is switched on, and writing it early would be a claim the code
-    // does not yet support (the T149 defect class).
-    expect(label.title).not.toMatch(/cannot be recovered|unrecoverable/i)
-  })
-
-  it('is quiet — a standing condition, not an incident', () => {
-    // Deliberately not `danger`: unlike an unshared write or a filling disk,
-    // nothing has gone wrong. It is the answer to "is anything else holding
-    // this?", and shouting it would train people to ignore the tones that mean
-    // something IS wrong.
-    expect(syncStatusLabel({ state: 'host', otherDeviceCount: 0 }).tone).toBe('secondary')
-  })
-
-  it('yields to both of the things that are actually going wrong', () => {
-    expect(syncStatusLabel({ state: 'host', otherDeviceCount: 0, unsharedWrites: 2 }).text).toBe('2 changes not shared')
-    expect(syncStatusLabel({ state: 'host', otherDeviceCount: 0, lowDisk: true }).text).toBe('storage almost full')
-  })
-
-  it('goes away as soon as a second device is paired', () => {
-    const paired = syncStatusLabel({ state: 'host', otherDeviceCount: 1 })
-    expect(paired.text).not.toMatch(/only this computer/)
-  })
-
-  it('UNKNOWN is not zero — a caller that did not report the count says nothing', () => {
-    // The same discipline as lowDisk: "we could not measure" must never render
-    // as an assertion about the camp.
-    expect(syncStatusLabel({ state: 'host' }).text).not.toMatch(/only this computer/)
-  })
-})

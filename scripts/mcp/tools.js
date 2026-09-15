@@ -20,7 +20,6 @@ import { buildScheduleExport } from '../../src/utils/exportScheduleJson.js'
 import { PROJECTIONS } from '../../electron/ops/projections.js'
 import { repairProjectionForEntity, checkProjectionHealth } from '../../electron/ops/projectionRepair.js'
 import { listDocumentWriteFailures } from '../../electron/ops/documentWriteFailures.js'
-import { listDeviceHealthEvents } from '../../electron/ops/deviceHealthEvents.js'
 import path from 'node:path'
 import {
   rebuildProjectionFromDocumentAtPath,
@@ -216,7 +215,7 @@ export function exportScheduleTool(args, { dbPath }) {
 //
 // Omitting the second here would have left them recorded where nothing can read
 // them — a durable trace is only worth having if something surfaces it.
-//   deviceHealthEvents — a merged document that would not project into SQLite, a
+//   syncHealthEvents  — a merged document that would not project into SQLite, or
 //                       a document save that failed on disk. Neither has an op id
 //                       (a merge has no op; a failed save loses the window), so
 //                       they are recorded in the device's audit log instead. They
@@ -225,16 +224,18 @@ export function exportScheduleTool(args, { dbPath }) {
 export function checkProjectionHealthTool(_args, { dbPath }) {
   const db = openLocalDb(dbPath)
   try {
-    // T174: this used to read audit_events for two actions that could never be
-    // written there (its outcome CHECK rejects 'error'), so it always returned []
-    // and the tool reported HEALTHY because nothing could be recorded. Reads the
-    // table those events actually land in now.
-    const deviceHealthEvents = listDeviceHealthEvents(db)
+    const syncHealthEvents = db
+      .prepare(
+        `SELECT action, occurred_at, reason, metadata FROM audit_events
+         WHERE action IN ('automerge.projection_failed', 'sync.document_save_failed')
+         ORDER BY occurred_at DESC LIMIT 50`
+      )
+      .all()
     return {
       ok: true,
       ...checkProjectionHealth(db),
       documentFailures: listDocumentWriteFailures(db),
-      deviceHealthEvents,
+      syncHealthEvents,
     }
   } finally {
     db.close()

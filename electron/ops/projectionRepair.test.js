@@ -238,11 +238,3 @@ describe('repairProjectionForEntity', () => {
     expect(db.prepare('SELECT name FROM groups WHERE id = ?').get(groupId).name).toBe('Bears')
   })
 })
-
-// Q1/T172 (Red Hat review): the op-log repair path must NOT touch users credentials — that would
-// bypass the signature verification that only the document-replay path enforces.
-describe('repairProjectionForEntity refuses users (Q1/T172 credential integrity)', () => {
-  it('throws for entity "users" rather than replaying credential ops through applyProjection', () => {
-    expect(() => repairProjectionForEntity(db, 'users', 'some-user-id')).toThrow(/refusing entity 'users'|Host-signed/)
-  })
-})

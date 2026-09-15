@@ -2,8 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { join, dirname, resolve, relative, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { AGENTS, INDEPENDENT_AGENTS, checkTicketNumberUniqueness } from '../scripts/check-governance.js'
-import { readDocs } from '../scripts/build-work-index.js'
+import { AGENTS, INDEPENDENT_AGENTS } from '../scripts/check-governance.js'
 
 // Deterministic governance safeguards.
 //
@@ -289,78 +288,5 @@ describe('dev mock fidelity', () => {
 
   it('the pinned gap does not grow', () => {
     expect(invoked.filter((m) => !mocked.includes(m)).length).toBeLessThanOrEqual(KNOWN_UNIMPLEMENTED.length)
-  })
-})
-
-// T177 — two tickets must never share a number.
-//
-// The reason this is a gate rather than tidiness: `resolveIds` matches a
-// completion reference against the PATH, so a duplicated number resolves to
-// every file carrying it, and `checkStatusDrift` then reports drift for each
-// unclosed match. That is strict and correct — a duplicate can never make the
-// gate falsely PASS.
-//
-// The hazard runs the other way, and is worse because it is actionable: closing
-// YOUR ticket demands closure of SOMEONE ELSE'S unrelated open one, and the
-// obvious way to turn a red gate green is to flip the status it names. The gate
-// that exists to stop a ticket silently looking closed can, through a number
-// collision, push someone into closing one.
-//
-// Measured twice in two days across concurrent sessions (T165, then T175), for a
-// structural reason: each picks "the next free number" by listing the directory
-// and cannot see the other's uncommitted file.
-describe('ticket numbers are unique', () => {
-  const ticket = (path, status = 'open') => ({ path, data: { document_type: 'ticket', status } })
-
-  it('is silent when every number is used once', () => {
-    expect(checkTicketNumberUniqueness([ticket('docs/work/tickets/T900-a.md'), ticket('docs/work/tickets/T901-b.md')])).toEqual([])
-  })
-
-  it('reports a collision, naming both files', () => {
-    const out = checkTicketNumberUniqueness([ticket('docs/work/tickets/T900-a.md'), ticket('docs/work/tickets/T900-b.md')])
-    expect(out).toHaveLength(1)
-    expect(out[0].message).toMatch(/T900-a\.md and docs\/work\/tickets\/T900-b\.md/)
-  })
-
-  it('reports a collision even when both are CLOSED, unless grandfathered', () => {
-    // Closed-and-closed is dormant rather than safe: the ambiguity is still in
-    // the history, and a reopen brings it back. New ones are never waved through
-    // on the grounds that nothing is demanded today.
-    const out = checkTicketNumberUniqueness([
-      ticket('docs/work/tickets/T900-a.md', 'completed'),
-      ticket('docs/work/tickets/T900-b.md', 'completed'),
-    ])
-    expect(out).toHaveLength(1)
-  })
-
-  it('grandfathers the historical duplicates ONLY while all of them stay closed', () => {
-    // T82/T107/T110 predate this check and all their tickets are closed;
-    // renumbering would break references in commits and ADRs that cannot be
-    // rewritten. The pass is conditional and re-earned every run.
-    const closed = [
-      ticket('docs/work/tickets/T82-one.md', 'completed'),
-      ticket('docs/work/tickets/T82-two.md', 'completed'),
-    ]
-    expect(checkTicketNumberUniqueness(closed)).toEqual([])
-
-    // Reopen one and the hazard is live again, so the gate speaks up.
-    const reopened = [
-      ticket('docs/work/tickets/T82-one.md', 'completed'),
-      ticket('docs/work/tickets/T82-two.md', 'in-progress'),
-    ]
-    expect(checkTicketNumberUniqueness(reopened)).toHaveLength(1)
-  })
-
-  it('ignores ADRs and specs, which are addressed by filename rather than number', () => {
-    expect(checkTicketNumberUniqueness([
-      { path: 'docs/adr/T900-a.md', data: { document_type: 'adr' } },
-      { path: 'docs/adr/T900-b.md', data: { document_type: 'adr' } },
-    ])).toEqual([])
-  })
-
-  it('THE REAL REPO PASSES — the check reflects the corpus, not an aspiration', () => {
-    // If this fails, two tickets in this repository share a number right now.
-    const docs = readDocs(process.cwd())
-    expect(checkTicketNumberUniqueness(docs).map((f) => f.message)).toEqual([])
   })
 })

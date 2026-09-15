@@ -6,12 +6,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../../db/localDb.js'
 import { appendOp } from '../../ops/operations.js'
-import { docPath, loadDoc, saveDoc } from './docStore.js'
+import { docPath, loadDoc } from './docStore.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import {
   recordLocalWrite,
   setUserDataDirGetter,
-  setDocCipher,
   resetForTests,
   ensureSeeded,
   getDocIfLoaded,
@@ -329,54 +328,5 @@ describe('flushPendingWrites — a failing save is contained and recorded', () =
     flushPendingWrites()
     expect(listDocumentWriteFailures(db).map((f) => f.op_id)).toEqual([op2.id])
     fs.rmSync(blocker, { force: true })
-  })
-})
-
-// At-rest encryption seam (ADR 2026-09-15). When main.js injects a cipher via setDocCipher, the
-// .automerge file liveDoc writes must be encrypted on disk and read back correctly through the SAME
-// module — and a legacy plaintext file (written before the cipher was set) must still load. These
-// pin the liveDoc half of the wiring; docCipher.js's own crypto is pinned in electron/db/docCipher.test.js.
-// The default (no cipher set) stays plaintext, which every other test above relies on.
-describe('at-rest document cipher (setDocCipher)', () => {
-  // A minimal fake cipher: prefix-tag on encrypt, strip on decrypt, passthrough for anything not
-  // tagged (mirrors docCipher's legacy-plaintext passthrough). Enough to prove the bytes on disk are
-  // transformed and that liveDoc threads the SAME cipher through save AND load.
-  const TAG = Buffer.from('FAKEENC:', 'ascii')
-  const fakeCipher = {
-    encrypt: (buf) => Buffer.concat([TAG, buf]),
-    decrypt: (buf) =>
-      buf.length >= TAG.length && buf.subarray(0, TAG.length).equals(TAG) ? buf.subarray(TAG.length) : buf,
-  }
-
-  it('writes an ENCRYPTED file to disk and reads the data back through liveDoc', () => {
-    setDocCipher(fakeCipher)
-    recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A' })
-    flushPendingWrites()
-
-    // On disk: the raw bytes carry the cipher tag, i.e. it is NOT the plaintext Automerge document.
-    const raw = fs.readFileSync(docPath(userDataDir, 'camp-1'))
-    expect(raw.subarray(0, TAG.length).equals(TAG)).toBe(true)
-
-    // Read back through docStore WITH the cipher: the data round-trips.
-    expect(readRecord(loadDoc(userDataDir, 'camp-1', fakeCipher), 'groups', 'g1').name).toBe('Bunk A')
-  })
-
-  it('loads a LEGACY plaintext file even after a cipher is injected (passthrough on read)', () => {
-    // Simulate a device that has a plaintext .automerge from the pre-encryption era.
-    let legacy = createEmptyDoc()
-    legacy = applyWrite(legacy, { entity: 'groups', entity_id: 'g9', field: 'name', value: 'Old Bunk' })
-    saveDoc(userDataDir, 'camp-1', legacy) // written with no cipher = plaintext
-
-    setDocCipher(fakeCipher)
-    ensureSeeded(db) // liveDoc loads the existing (plaintext) file rather than re-seeding
-    expect(readRecord(getDocIfLoaded(db), 'groups', 'g9').name).toBe('Old Bunk')
-  })
-
-  it('default (no cipher) writes plaintext — unchanged behavior', () => {
-    recordLocalWrite(db, { entity: 'groups', entity_id: 'g1', field: 'name', value: 'Bunk A' })
-    flushPendingWrites()
-    const raw = fs.readFileSync(docPath(userDataDir, 'camp-1'))
-    expect(raw.subarray(0, TAG.length).equals(TAG)).toBe(false) // not our fake-cipher tag
-    expect(readRecord(loadDoc(userDataDir, 'camp-1'), 'groups', 'g1').name).toBe('Bunk A')
   })
 })

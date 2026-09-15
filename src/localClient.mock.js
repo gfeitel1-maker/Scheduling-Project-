@@ -337,7 +337,7 @@ function coerceIntegerAffinity(entity, field, value) {
 
 export const MOCK_WRITE_ALLOWLIST = {
   camps: ['name'],
-  users: ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig', 'cred_version'],
+  users: ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig'],
   cohorts: [
     'camp_id',
     'name',
@@ -1426,12 +1426,6 @@ export const mockShoresh = {
   async listDeclinedSplitNames() {
     const state = loadState()
     return Array.isArray(state.__declinedTwoRowSplits) ? state.__declinedTwoRowSplits.slice() : []
-  },
-  // T173 slice 1 — mock stand-in for recordImportDecisions
-  // (electron/ops/decisionJournal.js). Ships dark: nothing reads this back
-  // yet, so the mock only proves the call is wired, not real persistence.
-  async recordImportDecisions() {
-    return { ok: true }
   },
   // T118 slice 4 — mock stand-in for listCompoundCellDecisions
   // (electron/ops/ingest.js), returning entries in the same [pattern, value]

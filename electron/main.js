@@ -29,7 +29,6 @@ import { materializeImportedVersion } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { confirmCompoundCellPattern } from './ops/confirmCompoundCellPattern.js'
 import { recordDeclinedSplit, listDeclinedSplitNames } from './ops/declinedSplits.js'
-import { recordImportDecisions } from './ops/decisionJournal.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
@@ -45,7 +44,6 @@ import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn } from './db/migration
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
-import { recordDeviceHealthEvent, DEVICE_HEALTH } from './ops/deviceHealthEvents.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import { createMdnsDiscovery } from './sync/automerge/discovery.js'
@@ -519,22 +517,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ok: true }
   }
 
-  // T173 slice 1 — best-effort journal of what the importer ASKED and what
-  // the director did about it (docs/superpowers/specs/
-  // 2026-09-15-seedlings-importer-learning-design.md). Same 'groups.import'
-  // gate as ingestCommit/listCompoundCellDecisions: only the director running
-  // an import calls this. `recordImportDecisions` itself never throws — this
-  // handler can still throw on a bad token/permission, same as every other
-  // gated handler, but never on the journal write itself.
-  function recordImportDecisionsHandler({ token, entries } = {}) {
-    if (!isNonEmptyString(token)) throw new Error('token is required')
-    const session = requireAuthorized(db, { token, action: 'groups.import' })
-    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
-    if (!camp) return { ok: true }
-    recordImportDecisions(db, { campId: camp.id, actorUserId: session.userId, entries })
-    return { ok: true }
-  }
-
   // Slice 2a — the names ImportScreen filters dualUseNames through before
   // rendering the split-suggestion affordance. Read-only, same staff-reachable
   // gate as the write above. NOTE: import review is NOT admin-gated end to
@@ -591,36 +573,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // ("your changes will reach it when it is back") is exactly the sentence
     // that must not be shown for these.
     const unsharedWrites = unsharedWriteCount(db)
-
-    // Is any OTHER computer holding a copy of this camp (T176)?
-    //
-    // This became load-bearing when at-rest encryption was scoped
-    // (docs/current/KEY_RECOVERY_STORY.md). That page's one real-loss case is a
-    // camp whose only device is lost: the storage key goes with the machine and
-    // the data is unreadable even to its owner, by design, because a
-    // director-remembered passphrase was rejected as the worse day. Its
-    // mitigation is operational rather than cryptographic — *keep more than one
-    // device paired and synced* — and a second synced device is not a backup
-    // step someone has to remember, it IS the backup, continuously.
-    //
-    // That advice is only actionable if a director can tell at a glance that
-    // they have not followed it. Until now the count lived behind the Devices
-    // screen, which is where you go once you already suspect something.
-    //
-    // COUNTED, DELIBERATELY, as "authorized and not revoked" — not "a row
-    // exists". `devices` carries inert `pairing_status='unknown'` stubs for any
-    // peer this device merely HEARD an op from (see listDevices), and a revoked
-    // device is one the director deliberately cut off. Neither holds a usable
-    // copy, and counting either would answer "you have a second copy" when the
-    // camp does not. The question is about a SURVIVING COPY, not about rows.
-    const otherDeviceCount = db
-      .prepare(
-        "SELECT COUNT(*) AS n FROM devices WHERE id != ? AND authorized_at IS NOT NULL AND revoked_at IS NULL"
-      )
-      .get(deviceId).n
-
-    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low, otherDeviceCount }
-    if (mode === 'host') return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount }
+    if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low }
+    if (mode === 'host') return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low }
     // Stage 6c: the honest source of "can this device reach the camp" is the
     // libp2p node's peer set, not a socket. `getPeers()` returns every
     // libp2p-connected peer INCLUDING one that merely completed a noise
@@ -633,7 +587,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const connected = peers.length > 0
     const authed = peers.some((peerId) => node.isPeerAuthenticated(peerId))
     const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
-    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low, otherDeviceCount }
+    return { mode: 'client', connected, authenticated: authed, state, unsharedWrites, lowDisk: disk.low }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
@@ -1841,7 +1795,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     ingestUndo: ingestUndoHandler,
     confirmAlias: confirmAliasHandler,
     recordDeclinedSplit: recordDeclinedSplitHandler,
-    recordImportDecisions: recordImportDecisionsHandler,
     listDeclinedSplitNames: listDeclinedSplitNamesHandler,
     listCompoundCellDecisions: listCompoundCellDecisionsHandler,
     latestOpSeq: latestOpSeqHandler,
@@ -2036,7 +1989,6 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
     ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
     ipcMain.handle('shoresh:record-declined-split', (_event, args) => handlers.recordDeclinedSplit(args))
-    ipcMain.handle('shoresh:record-import-decisions', (_event, args) => handlers.recordImportDecisions(args))
     ipcMain.handle('shoresh:list-declined-split-names', (_event, args) => handlers.listDeclinedSplitNames(args))
     ipcMain.handle('shoresh:list-compound-cell-decisions', (_event, args) => handlers.listCompoundCellDecisions(args))
     ipcMain.handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
@@ -2607,12 +2559,15 @@ if (isElectronEntryPoint()) {
         // is an op id and a merge has no op — so it goes to the device's own
         // durable event log, which is where support reads from.
         onProjectionError: (err, _mergedDoc, fromPeerId) => {
-          // T174: was recordAuditEvent with outcome:'error', which audit_events'
-          // CHECK constraint rejects — the trace never landed. Its own table now.
-          recordDeviceHealthEvent(db, {
-            campId,
-            kind: DEVICE_HEALTH.PROJECTION_FAILED,
-            detail: JSON.stringify({ fromPeerId: fromPeerId ?? null, error: String(err?.message ?? err) }),
+          recordAuditEvent(db, {
+            actorUserId: null,
+            deviceId: null,
+            action: 'automerge.projection_failed',
+            targetType: 'document',
+            targetId: campId,
+            outcome: 'error',
+            reason: String(err?.message ?? err),
+            metadata: { fromPeerId: fromPeerId ?? null },
           })
         },
         onAuthRejected: (peerId, reply) => {

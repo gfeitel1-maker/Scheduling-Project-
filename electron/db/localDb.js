@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 64
+export const CURRENT_SCHEMA_VERSION = 60
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2387,112 +2387,6 @@ export function initSchema(db) {
     )
   }
 
-  // v61 — bind a monotonic per-user credential version into the signature (T172 replay defense,
-  // docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md). Adds
-  // users.cred_version and RE-SIGNS every user at the v2 signature shape (which now covers
-  // cred_version); v1 signatures written by v60 no longer verify, which is why the backfill re-runs
-  // here. On a Client (no host key) both are no-ops and the re-signed values arrive via replication.
-  //
-  // Guard is `>= 60 && < 61`, NOT a bare `< 61` — see the v50 block's comment.
-// v62 — sync_health_events (T174). See the table comment in schema.sql for WHY this
-// is not audit_events: `audit_events.outcome` is CHECK-constrained to
-// ('allow','deny'), so T148's two "durable traces" for a failed document save and
-// a failed merge projection wrote NOTHING — `recordAuditEvent` caught the CHECK
-// violation and turned it into a console line, which is the exact defect T148
-// existed to remove, reintroduced inside its own fix.
-const DEVICE_HEALTH_EVENTS_DDL = `
-  CREATE TABLE IF NOT EXISTS device_health_events (
-    id TEXT PRIMARY KEY,
-    camp_id TEXT,
-    kind TEXT NOT NULL,
-    detail TEXT,
-    incident TEXT,
-    occurred_at TEXT NOT NULL,
-    resolved_at TEXT
-  );
-  CREATE INDEX IF NOT EXISTS idx_device_health_events_unresolved
-    ON device_health_events(kind, occurred_at) WHERE resolved_at IS NULL;
-`
-
-  if (getSchemaVersion(db) >= 60 && getSchemaVersion(db) < 61) {
-    const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
-    if (!cols.includes('cred_version')) {
-      db.exec('ALTER TABLE users ADD COLUMN cred_version INTEGER NOT NULL DEFAULT 0')
-    }
-    backfillAuthSignatures(db)
-    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (61, ?)').run(
-      new Date().toISOString()
-    )
-  }
-
-  // v62 — the events T148 thought it was already recording. Additive: a new
-  // table, no rebuild, and nothing to migrate because the rows it is for have
-  // never existed. See DEVICE_HEALTH_EVENTS_DDL above.
-  if (getSchemaVersion(db) >= 61 && getSchemaVersion(db) < 62) {
-    db.exec(DEVICE_HEALTH_EVENTS_DDL)
-    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (62, ?)').run(
-      new Date().toISOString()
-    )
-  }
-
-  // v63 — import_decisions, the host-local journal of what the importer ASKED
-  // and what the director did about it (T173 slice 1,
-  // docs/superpowers/specs/2026-09-15-seedlings-importer-learning-design.md).
-  //
-  // Both-places DDL, following the v54/compound_cell_decisions precedent: the
-  // table is declared here AND in schema.sql, byte-identical text
-  // (IMPORT_DECISIONS_DDL), so a fresh install and a migrated db agree on
-  // PRAGMA table_info(import_decisions). DDL only, no data movement —
-  // reapplying this migration is harmless (CREATE TABLE IF NOT EXISTS).
-  //
-  // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
-  // DIRECT_CAMP_ENTITIES, full_sync) — same reasoning as compound_cell_
-  // decisions: exactly one writer (electron/ops/decisionJournal.js),
-  // host-only, never replicated.
-  if (getSchemaVersion(db) >= 62 && getSchemaVersion(db) < 63) {
-    db.transaction(() => {
-      db.exec(IMPORT_DECISIONS_DDL)
-    })()
-
-    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (63, ?)').run(
-      new Date().toISOString()
-    )
-  }
-
-  // v64 — one table for "this device failed to record something", not three.
-  //
-  // T174 created `sync_health_events` for the two document/projection traces.
-  // Slice 1 then needed a third (an import journal write that fails) and a
-  // Maker proposed `import_decision_failures` — a table with the SAME columns
-  // minus the discriminator, which is the one thing that would have let it live
-  // in the existing table. Three tables for three instances of one shape, with
-  // the differences doing no work.
-  //
-  // The objection behind it was really about the NAME: `sync_health_events`
-  // does not describe an import failure. The answer to a naming problem is to
-  // rename, not to duplicate. The table was hours old with zero rows anywhere,
-  // so this costs one RENAME and removes a table, a migration, a rollback, a
-  // test file and a set of parity registrations.
-  //
-  // The general concept is what the table always meant: a host-local record of
-  // something this device could not write down, keyed by `kind`, for events
-  // with no op id to hang from.
-  if (getSchemaVersion(db) >= 63 && getSchemaVersion(db) < 64) {
-    const hasOld = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sync_health_events'")
-      .get()
-    const hasNew = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='device_health_events'")
-      .get()
-    if (hasOld && !hasNew) db.exec('ALTER TABLE sync_health_events RENAME TO device_health_events')
-    // A db created at the current schema already has the new name; one with
-    // neither gets it created. Both arms keep this idempotent.
-    db.exec(DEVICE_HEALTH_EVENTS_DDL)
-    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (64, ?)').run(
-      new Date().toISOString()
-    )
-  }
-
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -2503,20 +2397,11 @@ const DEVICE_HEALTH_EVENTS_DDL = `
 export function backfillAuthSignatures(db) {
   const hasHostKey = db.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()
   if (!hasHostKey) return
-  // `cred_version` may not exist yet when the v60 block calls this (it is added in v61); read it
-  // defensively so this one helper serves both migration blocks.
-  const hasVersion = db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'cred_version')
-  const users = db.prepare(`SELECT id, role, pin_hash, pin_salt${hasVersion ? ', cred_version' : ''} FROM users`).all()
-  const update = hasVersion
-    ? db.prepare('UPDATE users SET auth_sig = ?, cred_version = ? WHERE id = ?')
-    : db.prepare('UPDATE users SET auth_sig = ? WHERE id = ?')
+  const users = db.prepare('SELECT id, role, pin_hash, pin_salt FROM users').all()
+  const update = db.prepare('UPDATE users SET auth_sig = ? WHERE id = ?')
   for (const u of users) {
-    // Baseline every existing user at cred_version >= 1 (a freshly-signed floor); never lower an
-    // already-higher version, so re-running the backfill (v60 then v61) is idempotent.
-    const cred_version = hasVersion ? Math.max(Number(u.cred_version) || 0, 1) : 1
-    const sig = signAuthFields(db, { id: u.id, role: u.role, pin_hash: u.pin_hash, pin_salt: u.pin_salt, cred_version })
-    if (hasVersion) update.run(sig, cred_version, u.id)
-    else update.run(sig, u.id)
+    const sig = signAuthFields(db, { id: u.id, role: u.role, pin_hash: u.pin_hash, pin_salt: u.pin_salt })
+    update.run(sig, u.id)
   }
 }
 
@@ -2906,29 +2791,6 @@ export const LOCATION_WORD_DECISIONS_DDL = `CREATE TABLE IF NOT EXISTS location_
   confirmed_at TEXT NOT NULL,
   UNIQUE(camp_id, word_key)
 )`
-
-// Byte-identical duplicate of the import_decisions block in schema.sql
-// (docs/superpowers/specs/2026-09-15-seedlings-importer-learning-design.md).
-// Kept as a constant so the v62 migration cannot drift from it by a stray
-// space — the same discipline as COMPOUND_CELL_DECISIONS_DDL above.
-export const IMPORT_DECISIONS_DDL = `CREATE TABLE IF NOT EXISTS import_decisions (
-  id TEXT PRIMARY KEY,
-  camp_id TEXT NOT NULL REFERENCES camps(id),
-  import_id TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  seedling_key TEXT,
-  lane TEXT,
-  proposed TEXT,
-  outcome TEXT NOT NULL,
-  chosen TEXT,
-  learned_from_id TEXT,
-  decided_at TEXT NOT NULL,
-  actor_user_id TEXT
-)`
-
-// Byte-identical duplicate of the import_decision_failures block in
-// schema.sql. Kept as a constant so the v64 migration cannot drift from it by
-// a stray space — the same discipline as IMPORT_DECISIONS_DDL above.
 
 // Byte-identical duplicate of the import_evidence block in schema.sql
 // (docs/adr/2026-08-10-ingestion-evidence-persistence.md). Kept as a constant

@@ -14,28 +14,17 @@ export function docPath(userDataDir, campId) {
 // Atomic write: write to a temp file in the same directory, then rename over the target. A crash
 // mid-write leaves either the old file or the temp file, never a truncated/corrupt target, since
 // rename is atomic on the same filesystem.
-//
-// `cipher` (optional): a { encrypt, decrypt } from electron/db/docCipher.js. When present the
-// document bytes are encrypted at rest under the per-device key (at-rest encryption, ADR
-// 2026-09-15). When ABSENT the file is written plaintext exactly as before — the default is
-// unchanged, so this seam is inert until a caller injects the cipher (which main.js/liveDoc will,
-// once the key is wired). The passthrough on the read side (docCipher.decrypt) also means a legacy
-// plaintext file still loads and is re-written encrypted on the next save.
-export function saveDoc(userDataDir, campId, doc, cipher = null) {
+export function saveDoc(userDataDir, campId, doc) {
   const targetPath = docPath(userDataDir, campId)
   fs.mkdirSync(path.dirname(targetPath), { recursive: true })
 
-  const bytes = Buffer.from(encodeDoc(doc))
-  const out = cipher ? cipher.encrypt(bytes) : bytes
   const tmpPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`
-  fs.writeFileSync(tmpPath, out)
+  fs.writeFileSync(tmpPath, encodeDoc(doc))
   fs.renameSync(tmpPath, targetPath)
 }
 
-export function loadDoc(userDataDir, campId, cipher = null) {
+export function loadDoc(userDataDir, campId) {
   const targetPath = docPath(userDataDir, campId)
   if (!fs.existsSync(targetPath)) return null
-  const raw = fs.readFileSync(targetPath)
-  const bytes = cipher ? cipher.decrypt(raw) : raw
-  return decodeDoc(bytes)
+  return decodeDoc(fs.readFileSync(targetPath))
 }

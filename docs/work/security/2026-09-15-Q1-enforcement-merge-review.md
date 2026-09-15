@@ -90,13 +90,3 @@ match issueCampToken/verifySessionToken.
 Security posture: 4 — the primary Q1 escalation is correctly and tightly closed; two residual
 merge-path credential-mutation gaps (replay/rollback, degrade-permanence) remain and must be fixed
 before the internet-transport (Tier-4) gate, but do not block merge under the current LAN boundary.
-
----
-
-# RE-REVIEW — T172 fixes for findings 1 & 2 (2026-09-15)
-Assessed against: 10224b0 (branch claude/security-testing-agent-8e9c63)
-
-Verdict: BOTH findings CONFIRMED CLOSED. Branch is safe to merge under the LAN boundary and
-materially safer against internet-reachable transport. Two NEW low/medium items introduced (one
-stale contradictory comment; one fail-closed rebuild/mixed-fleet recovery consequence) — neither
-blocks merge; both should be tracked. Details in the assessment returned to the parent/Grader.

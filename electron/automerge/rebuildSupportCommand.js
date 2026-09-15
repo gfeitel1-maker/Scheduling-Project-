@@ -25,21 +25,6 @@ import { projectAll, MODELED_ORDER } from './projector.js'
 
 export class RebuildRefusalError extends Error {}
 
-// At-rest encryption (ADR 2026-09-15, constraint 2). "No document file" and "document file present
-// but undecryptable" need OPPOSITE support advice, and until this they were indistinguishable: an
-// undecryptable file EXISTS, so the existsSync check passed and the load threw a raw GCM-auth error
-// that bypassed the "no file" refusal below. This is the second case — the bytes are here but this
-// device's storage key is gone (keychain wiped, restored to a different machine/login). Rebuild
-// cannot help: the key is what is missing, not the data, and there is nothing to rebuild FROM that
-// this device can read. Same answer as a lost key everywhere else — see docs/current/KEY_RECOVERY_STORY.md.
-export const UNDECRYPTABLE_NOTICE = (campId) =>
-  `Refusing: the Automerge document file for camp ${campId} exists on this device but cannot be ` +
-  'decrypted — this device\'s at-rest storage key is missing (the OS keychain entry was wiped, or ' +
-  'this data was moved to a different machine or login). Rebuild cannot recover it: the key is what ' +
-  'is gone, not the data, and this is by design (see the "three keys, one event" recovery story). ' +
-  'Re-sync this device from a paired peer that still holds the camp, or re-pair it fresh — do NOT ' +
-  'try to repair this file. This is a DIFFERENT situation from "no document file exists".'
-
 export const NOT_RECOVERABLE_NOTICE =
   "This rebuild restores this device's current setup and schedule state from the synced " +
   "document — the same state every other synced device already has. It does NOT restore: " +
@@ -47,13 +32,8 @@ export const NOT_RECOVERABLE_NOTICE =
   'prior values, and ingest-undo history are gone for good; (2) this device\'s signing_secret ' +
   'and signing_public_key, and the host_signing_key if this device is the sync Host — those are ' +
   'host-only/device-local and were never written to the document, so they come back empty and ' +
-  "must be re-established through the normal pairing/host flow. Until this device re-syncs " +
-  "camps.signing_public_key, it cannot VERIFY credential changes (role/PIN) arriving over sync: on a " +
-  "fresh rebuild the users table starts at safe defaults (no admin, unusable PINs) and NO ONE can " +
-  "log in on this device until the key returns and the signed credentials re-apply — for a rebuilt " +
-  "CLIENT the key arrives on its next re-join; a rebuilt HOST also lost its signing key, so it cannot " +
-  "MINT credentials (add users, promote admins) and must re-establish its identity first. Only what " +
-  'the document currently holds comes back.'
+  "must be re-established through the normal pairing/host flow. Only what the document currently " +
+  'holds comes back.'
 
 function tableRowCounts(db) {
   const counts = {}
@@ -123,25 +103,13 @@ export function rebuildIntoFreshDb(freshDb, doc, campId, campName) {
 // the resolved userData path explicitly, the same injected-path discipline
 // userDataPath.js and docStore.js already use; do not infer it from dbPath,
 // which may live elsewhere (a custom project path, a smoke-test override).
-export function rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, cipher = null }) {
+export function rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir }) {
   const oldDb = openLocalDb(dbPath)
   let campId, campName, doc
   try {
     const campRow = oldDb.prepare('SELECT id FROM camps LIMIT 1').get()
     const resolvedDocPath = campRow ? automergeDocPath(userDataDir, campRow.id) : null
-    if (resolvedDocPath && fs.existsSync(resolvedDocPath)) {
-      // File-present-but-undecryptable must NOT fall through to the "no file" refusal (finding 2).
-      // A decrypt/decode failure here means the bytes exist but this device cannot read them —
-      // opposite support advice from "no file". Catch it and refuse distinctly. A successful load
-      // (plaintext when cipher is null, or decrypted when a cipher is passed) proceeds as before.
-      try {
-        doc = loadAutomergeDoc(userDataDir, campRow.id, cipher)
-      } catch {
-        throw new RebuildRefusalError(UNDECRYPTABLE_NOTICE(campRow.id))
-      }
-    } else {
-      doc = null
-    }
+    doc = resolvedDocPath && fs.existsSync(resolvedDocPath) ? loadAutomergeDoc(userDataDir, campRow.id) : null
     ;({ campId, campName } = validateRebuildSource(oldDb, doc))
   } finally {
     oldDb.close()
