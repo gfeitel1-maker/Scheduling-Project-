@@ -33,11 +33,13 @@ R="${1:-${TMPDIR:-/tmp}/shoresh-gate-$(git rev-parse --short HEAD).txt}"
 mkdir -p "${R:h}"
 print -- "# gate run against $SHA dirty=$DIRTY" > "$R"
 
-CHUNKS=$(mktemp -d)
-trap 'rm -rf "$CHUNKS"' EXIT INT TERM
-find . -path ./node_modules -prune -o \( -name '*.test.js' -o -name '*.test.jsx' \) -print \
-  | sed 's|^\./||' | sort > "$CHUNKS/all"
-split -l 45 "$CHUNKS/all" "$CHUNKS/c_"
+# Chunks live in an ARRAY, not a temp directory. The first version used `mktemp -d` plus an
+# EXIT trap, and the chunk files vanished between creation and the loop — every run died after
+# `lint` with "no matches found: .../c_*". Rather than keep guessing which fork ran the trap,
+# the temp directory is gone: there is nothing to clean up, so nothing can clean it up early.
+# Slicing an array is what the code meant anyway.
+SPECS=(${(f)"$(find . -path ./node_modules -prune -o \( -name '*.test.js' -o -name '*.test.jsx' \) -print | sed 's|^\./||' | sort)"})
+CHUNK_SIZE=45
 
 step() {
   local name=$1; shift
@@ -50,10 +52,12 @@ step() {
 }
 
 step lint npm run lint
-i=0
-for c in "$CHUNKS"/c_*; do
+i=0; start=1
+while (( start <= ${#SPECS} )); do
   i=$((i+1))
-  step "tests-$i" npx vitest run ${(f)"$(<$c)"} --no-file-parallelism --maxWorkers=1
+  end=$(( start + CHUNK_SIZE - 1 )); (( end > ${#SPECS} )) && end=${#SPECS}
+  step "tests-$i" npx vitest run ${SPECS[start,end]} --no-file-parallelism --maxWorkers=1
+  start=$(( end + 1 ))
 done
 step integration npm run test:integration
 step security npm run security
