@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 63
+export const CURRENT_SCHEMA_VERSION = 64
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2459,6 +2459,18 @@ const SYNC_HEALTH_EVENTS_DDL = `
     )
   }
 
+  // v64 — import_decision_failures, a durable trace for when recordImportDecisions
+  // (electron/ops/decisionJournal.js) fails to write import_decisions. Its own
+  // small table, not sync_health_events (T174) and not audit_events — see the
+  // table comment in schema.sql for why. Both-places DDL (IMPORT_DECISION_
+  // FAILURES_DDL), same v54/compound_cell_decisions precedent.
+  if (getSchemaVersion(db) >= 63 && getSchemaVersion(db) < 64) {
+    db.exec(IMPORT_DECISION_FAILURES_DDL)
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (64, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -2890,6 +2902,17 @@ export const IMPORT_DECISIONS_DDL = `CREATE TABLE IF NOT EXISTS import_decisions
   learned_from_id TEXT,
   decided_at TEXT NOT NULL,
   actor_user_id TEXT
+)`
+
+// Byte-identical duplicate of the import_decision_failures block in
+// schema.sql. Kept as a constant so the v64 migration cannot drift from it by
+// a stray space — the same discipline as IMPORT_DECISIONS_DDL above.
+export const IMPORT_DECISION_FAILURES_DDL = `CREATE TABLE IF NOT EXISTS import_decision_failures (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT,
+  detail TEXT,
+  incident TEXT,
+  occurred_at TEXT NOT NULL
 )`
 
 // Byte-identical duplicate of the import_evidence block in schema.sql

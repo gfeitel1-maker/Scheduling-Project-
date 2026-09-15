@@ -85,6 +85,9 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // v63 adds import_decisions (T173 slice 1) — a new host-local, never-replicated table (like v54's
   // compound_cell_decisions). Table shape only; the document does not model it and never will.
   63,
+  // v64 adds import_decision_failures (T173 slice 1) — a new host-local, never-replicated table.
+  // Table shape only; the document does not model it and never will.
+  64,
 ])
 
 /** True if applying `version` can change what the camp means. */

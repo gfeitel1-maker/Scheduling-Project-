@@ -374,6 +374,26 @@ CREATE TABLE IF NOT EXISTS sync_health_events (
 CREATE INDEX IF NOT EXISTS idx_sync_health_events_unresolved
   ON sync_health_events(kind, occurred_at) WHERE resolved_at IS NULL;
 
+-- Host-local, never replicated: a durable trace when recordImportDecisions
+-- (electron/ops/decisionJournal.js) fails to write import_decisions. NOT
+-- routed to sync_health_events, even though the shape is the same T148
+-- lesson — this is a different domain (an import-diagnostics write, not a
+-- SQLite/document divergence), and folding it in would mislead
+-- check_projection_health, which reads sync_health_events as SYNC state.
+-- NOT audit_events either, for the reason T174 found: its outcome column is
+-- an authorization vocabulary ('allow'/'deny' only), and a write failure is
+-- neither. No `resolved_at` — unlike a sync divergence, nothing repairs a
+-- missed journal entry; it is a point-in-time record, not open state.
+CREATE TABLE IF NOT EXISTS import_decision_failures (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT,
+  detail TEXT,                -- compact: entry count + error message
+  incident TEXT,               -- the tag that ties this row to its console line
+  occurred_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_import_decision_failures_camp
+  ON import_decision_failures(camp_id, occurred_at);
+
 CREATE TABLE IF NOT EXISTS projection_failures (
   op_id TEXT PRIMARY KEY REFERENCES operations(id),
   entity TEXT NOT NULL,

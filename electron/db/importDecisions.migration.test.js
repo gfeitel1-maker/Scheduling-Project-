@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// Migration v62 — import_decisions, the host-local journal of what the
+// Migration v63 — import_decisions, the host-local journal of what the
 // importer asked and what the director did about it (T173 slice 1).
 // docs/superpowers/specs/2026-09-15-seedlings-importer-learning-design.md
 //
@@ -34,15 +34,15 @@ function tmpFile(tag) {
 }
 
 function freshDb() {
-  return openLocalDb(tmpFile('v62-fresh'))
+  return openLocalDb(tmpFile('v63-fresh'))
 }
 
 function migratedDb() {
-  const db = new Database(tmpFile('v62-migrated'))
+  const db = new Database(tmpFile('v63-migrated'))
   db.pragma('foreign_keys = ON')
   initSchema(db)
   db.exec('DROP TABLE IF EXISTS import_decisions')
-  db.prepare('DELETE FROM schema_migrations WHERE version >= 62').run()
+  db.prepare('DELETE FROM schema_migrations WHERE version >= 63').run()
   return db
 }
 
@@ -60,19 +60,19 @@ const indexes = (db) =>
 const tableSql = (db) =>
   db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'import_decisions'").get()?.sql
 
-describe('migration v62: import_decisions', () => {
-  it('creates the table on a fresh database and declares schema version 62', () => {
+describe('migration v63: import_decisions', () => {
+  it('creates the table on a fresh database and declares schema version 63', () => {
     const db = freshDb()
-    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 62').get().c).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 63').get().c).toBe(1)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(62)
+    expect(CURRENT_SCHEMA_VERSION).toBe(64)
     expect(db.prepare('SELECT COUNT(*) c FROM import_decisions').get().c).toBe(0)
     db.close()
   })
 
-  it('migrates a pre-v62 database forward, adding only this table', () => {
+  it('migrates a pre-v63 database forward, adding only this table', () => {
     const db = migratedDb()
-    expect(getSchemaVersion(db)).toBe(61)
+    expect(getSchemaVersion(db)).toBe(62)
     expect(tableSql(db)).toBeUndefined()
 
     initSchema(db)
@@ -90,7 +90,7 @@ describe('migration v62: import_decisions', () => {
     expect(tableInfo(migrated)).toEqual(tableInfo(fresh))
     expect(indexes(migrated)).toEqual(indexes(fresh))
 
-    // The DDL is written twice — schema.sql and localDb.js's v62 block — and
+    // The DDL is written twice — schema.sql and localDb.js's v63 block — and
     // the two copies can drift silently. sqlite_master stores the original
     // statement text, so this is the only assertion that catches it.
     expect(tableSql(migrated)).toBe(tableSql(fresh))
@@ -113,7 +113,7 @@ describe('migration v62: import_decisions', () => {
     migrated.close()
   }, 30000)
 
-  it('is idempotent — re-running v62 on an already-migrated db does not error', () => {
+  it('is idempotent — re-running v63 on an already-migrated db does not error', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)

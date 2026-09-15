@@ -1,11 +1,12 @@
 // @vitest-environment node
 //
-// Migration v56 — location_word_decisions, the host-local per-camp memory
-// of a director's "not a place" answer for an unresolved location word.
-// docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-conflict-triage-coverage.md
+// Migration v64 — import_decision_failures, the durable trace for when
+// recordImportDecisions (electron/ops/decisionJournal.js) fails to write
+// import_decisions. See that file and electron/ops/importDecisionFailures.js
+// for why this is its own table, not sync_health_events or audit_events.
 //
-// Same shape as compoundCellDecisions.migration.test.js (v54): fresh-vs-migrated
-// schema equivalence and the LOCAL-ONLY guarantee this whole design rests on.
+// Same shape as importDecisions.migration.test.js (v63): fresh-vs-migrated
+// schema equivalence and the LOCAL-ONLY guarantee this design rests on.
 import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -15,6 +16,7 @@ import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } fro
 import { PROJECTIONS } from '../ops/projections.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
 import { ENTITIES } from '../auth/permissions.js'
+import { MODELED_ENTITIES } from '../automerge/campDocument.js'
 
 const files = []
 
@@ -33,55 +35,55 @@ function tmpFile(tag) {
 }
 
 function freshDb() {
-  return openLocalDb(tmpFile('v56-fresh'))
+  return openLocalDb(tmpFile('v64-fresh'))
 }
 
 function migratedDb() {
-  const db = new Database(tmpFile('v56-migrated'))
+  const db = new Database(tmpFile('v64-migrated'))
   db.pragma('foreign_keys = ON')
   initSchema(db)
-  db.exec('DROP TABLE IF EXISTS location_word_decisions')
-  db.prepare('DELETE FROM schema_migrations WHERE version >= 56').run()
+  db.exec('DROP TABLE IF EXISTS import_decision_failures')
+  db.prepare('DELETE FROM schema_migrations WHERE version >= 64').run()
   return db
 }
 
 const tableInfo = (db) =>
-  db.pragma('table_info(location_word_decisions)').map((c) => ({
+  db.pragma('table_info(import_decision_failures)').map((c) => ({
     cid: c.cid, name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value, pk: c.pk,
   }))
 
 const indexes = (db) =>
   db
-    .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'location_word_decisions'")
+    .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'import_decision_failures'")
     .all()
     .sort((a, b) => a.name.localeCompare(b.name))
 
 const tableSql = (db) =>
-  db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'location_word_decisions'").get()?.sql
+  db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'import_decision_failures'").get()?.sql
 
-describe('migration v56: location_word_decisions', () => {
-  it('creates the table on a fresh database and declares schema version 56', () => {
+describe('migration v64: import_decision_failures', () => {
+  it('creates the table on a fresh database and declares schema version 64', () => {
     const db = freshDb()
-    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 56').get().c).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 64').get().c).toBe(1)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(CURRENT_SCHEMA_VERSION).toBe(64)
-    expect(db.prepare('SELECT COUNT(*) c FROM location_word_decisions').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM import_decision_failures').get().c).toBe(0)
     db.close()
   })
 
-  it('migrates a pre-v56 database forward, adding only this table', () => {
+  it('migrates a pre-v64 database forward, adding only this table', () => {
     const db = migratedDb()
-    expect(getSchemaVersion(db)).toBe(55)
+    expect(getSchemaVersion(db)).toBe(63)
     expect(tableSql(db)).toBeUndefined()
 
     initSchema(db)
 
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(db.prepare('SELECT COUNT(*) c FROM location_word_decisions').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM import_decision_failures').get().c).toBe(0)
     db.close()
   })
 
-  it('gives a fresh db and a migrated db identical location_word_decisions columns, indexes and DDL', () => {
+  it('gives a fresh db and a migrated db identical import_decision_failures columns, indexes and DDL', () => {
     const fresh = freshDb()
     const migrated = migratedDb()
     initSchema(migrated)
@@ -89,7 +91,7 @@ describe('migration v56: location_word_decisions', () => {
     expect(tableInfo(migrated)).toEqual(tableInfo(fresh))
     expect(indexes(migrated)).toEqual(indexes(fresh))
 
-    // The DDL is written twice — schema.sql and localDb.js's v56 block — and
+    // The DDL is written twice — schema.sql and localDb.js's v64 block — and
     // the two copies can drift silently. sqlite_master stores the original
     // statement text, so this is the only assertion that catches it.
     expect(tableSql(migrated)).toBe(tableSql(fresh))
@@ -112,22 +114,21 @@ describe('migration v56: location_word_decisions', () => {
     migrated.close()
   }, 30000)
 
-  it('is idempotent — re-running v56 on an already-migrated db does not error', () => {
+  it('is idempotent — re-running v64 on an already-migrated db does not error', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(db.prepare('SELECT COUNT(*) c FROM location_word_decisions').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM import_decision_failures').get().c).toBe(0)
     db.close()
   })
 })
 
-describe('location_word_decisions is host-local and cannot replicate', () => {
+describe('import_decision_failures is host-local and cannot replicate', () => {
   it('is absent from every registry that would give it a sync or read path', () => {
-    expect(Object.keys(PROJECTIONS)).not.toContain('location_word_decisions')
-    expect(DIRECT_CAMP_ENTITIES.has('location_word_decisions')).toBe(false)
-    expect(Object.keys(PARENT_SCOPED_ENTITIES)).not.toContain('location_word_decisions')
-    expect(ENTITIES).not.toContain('location_word_decisions')
+    expect(Object.keys(PROJECTIONS)).not.toContain('import_decision_failures')
+    expect(DIRECT_CAMP_ENTITIES.has('import_decision_failures')).toBe(false)
+    expect(Object.keys(PARENT_SCOPED_ENTITIES)).not.toContain('import_decision_failures')
+    expect(ENTITIES).not.toContain('import_decision_failures')
+    expect(MODELED_ENTITIES.has('import_decision_failures')).toBe(false)
   })
-
-
 })

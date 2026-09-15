@@ -91,29 +91,31 @@ describe('recordImportDecisions', () => {
     db.close()
   })
 
-  it('is a no-op for an empty entry list — no journal row, no incident', () => {
+  it('is a no-op for an empty entry list — no journal row, no failure trace', () => {
     const db = testDb()
     recordImportDecisions(db, { campId: 'camp1', actorUserId: 'user1', entries: [] })
     const rows = db.prepare('SELECT * FROM import_decisions').all()
     expect(rows).toHaveLength(0)
-    const events = db.prepare("SELECT * FROM audit_events WHERE action LIKE 'import.decision_journal%'").all()
-    expect(events).toHaveLength(0)
+    const failures = db.prepare('SELECT * FROM import_decision_failures').all()
+    expect(failures).toHaveLength(0)
     db.close()
   })
 
-  it('durably records a failure instead of swallowing it silently — a closed db still gets an audit trace on a FRESH connection', () => {
+  it('durably records a failure instead of swallowing it silently — a closed db still gets a trace on a FRESH connection', () => {
     // The closed-db case above proves recordImportDecisions cannot write its
-    // own failure record (the same closed handle can't accept the audit
-    // insert either) — that mirrors liveDoc.js's documented degraded case
-    // ("nothing durable was recorded... this console line is the only
-    // trace"). Here the db stays OPEN so the audit trail CAN land, proving
-    // the contract holds whenever the disk/handle allows it: a genuine
-    // failure (a bad entry) is recorded in audit_events, not just logged.
+    // own failure record either (the same closed handle can't accept that
+    // insert) — that mirrors liveDoc.js's documented degraded case ("nothing
+    // durable was recorded... this console line is the only trace"). Here
+    // the db stays OPEN so the trace CAN land, proving the contract holds
+    // whenever the disk/handle allows it: a genuine failure (a bad entry) is
+    // recorded in import_decision_failures, not just logged — and NOT in
+    // audit_events, whose outcome column would silently reject it (T174).
     const db = testDb()
     recordImportDecisions(db, { campId: 'camp1', actorUserId: 'user1', entries: [null] })
-    const events = db.prepare("SELECT * FROM audit_events WHERE action = 'import.decision_journal_write_failed'").all()
-    expect(events).toHaveLength(1)
-    expect(events[0].outcome).toBe('deny')
+    const failures = db.prepare('SELECT * FROM import_decision_failures WHERE camp_id = ?').all('camp1')
+    expect(failures).toHaveLength(1)
+    expect(failures[0].incident).toMatch(/^decisionjournal-camp1-/)
+    expect(JSON.parse(failures[0].detail).entryCount).toBe(1)
     db.close()
   })
 })

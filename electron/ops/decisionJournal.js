@@ -11,13 +11,31 @@
 // after SQLite already committed (documentWriteFailures.js,
 // electron/sync/automerge/liveDoc.js's flush): NEVER throw back into the
 // caller — an import that already succeeded must stay succeeded — but never
-// let the failure vanish into a bare console.error either. Contain it, tag
-// it with a correlation id so the (possibly several) related log lines can
-// be tied together, and record it durably via the audit log, which is
-// itself already never-throwing and survives a full-or-unwritable disk no
-// worse than this write does.
+// let the failure vanish into a bare console.error either.
+//
+// WHERE THE FAILURE TRACE GOES, and why it changed once already. The first
+// version of this file routed a failure through recordAuditEvent with
+// outcome: 'error' — the exact route T148's liveDoc.js flush used. T174 (a
+// Governor review of this file, 2026-09-15) found that audit_events.outcome
+// is CHECK-constrained to ('allow', 'deny') only, so that insert was always
+// silently rejected and the "durable trace" never landed a row — the same
+// defect T148 existed to remove, reintroduced inside T148's own fix, and
+// reintroduced again here by copying it. T174 fixed its own instance with a
+// dedicated table (sync_health_events) rather than widening audit_events'
+// vocabulary, on the grounds that audit_events is a security log and a
+// non-denial row in it would mislead a future security review.
+//
+// That reasoning applies here too, and doubly: this failure is not even the
+// same DOMAIN as sync_health_events (a SQLite/Automerge-document
+// divergence) — it is an import-diagnostics write failing, which
+// check_projection_health has no business reading as sync state. So this
+// uses its own table, import_decision_failures
+// (electron/ops/importDecisionFailures.js), recorded via
+// recordImportDecisionFailure — which, like recordSyncHealthEvent, REPORTS
+// whether the row landed rather than assuming it, because assuming it is
+// exactly what hid the original defect for a week.
 import { randomUUID } from 'node:crypto'
-import { recordAuditEvent } from '../audit/auditLog.js'
+import { recordImportDecisionFailure } from './importDecisionFailures.js'
 
 let failureCounter = 0
 
@@ -54,28 +72,13 @@ export function recordImportDecisions(db, { campId, actorUserId, entries } = {})
     console.error(
       `[${incident}] recordImportDecisions failed (import already succeeded, unaffected):`, err
     )
-    // recordAuditEvent is itself never-throwing (auditLog.js catches and
-    // console.warns), so this cannot escalate the failure — it can only
-    // either land the durable trace or, on the same broken disk/handle that
-    // just failed the insert above, degrade to that one console line, same
-    // as liveDoc.js's documented worst case.
-    //
-    // outcome: 'deny', not 'error' — audit_events.outcome has a CHECK
-    // constraint of ('allow', 'deny') only (localDb.js). liveDoc.js's own
-    // recordAuditEvent call passes 'error', which that CHECK silently
-    // rejects — recordAuditEvent's own catch then downgrades it to a
-    // console.warn, so that call has never actually landed a durable row.
-    // Confirmed empirically while writing this module's tests. Using 'deny'
-    // here is a deliberate deviation from the letter of that precedent to
-    // honor its intent (a durable trace that actually durably lands).
-    recordAuditEvent(db, {
+    const landed = recordImportDecisionFailure(db, {
       campId,
-      actorUserId,
-      action: 'import.decision_journal_write_failed',
-      targetType: 'import_decisions',
-      outcome: 'deny',
-      reason: String(err?.message ?? err),
-      metadata: { entryCount: entries.length, incident },
+      detail: JSON.stringify({ entryCount: entries.length, error: String(err?.message ?? err) }),
+      incident,
     })
+    if (!landed) {
+      console.error(`[${incident}] NOTHING DURABLE WAS RECORDED for this failure — this console line is the only trace that exists.`)
+    }
   }
 }
