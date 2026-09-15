@@ -84,7 +84,7 @@ _Prior: 2026-08-20 (**Roots is now the app home/dashboard** — PR #113/#114. Th
 
 **Architecture note:** the app's migration off Supabase (Postgres + Auth + RLS) to the local-first Electron/SQLite/LAN-sync design is **fully complete**, including retirement of the legacy backend itself (not just every screen). Each device has its own SQLite db plus an Automerge document; one device acts as a LAN "Host," others are "Clients" that discover it via libp2p mDNS and sync peer-to-peer over Noise-encrypted, mutually authenticated libp2p connections (see LAN sync above and the header note — this replaced a custom WebSocket protocol, not just a detail of it). Data isolation that used to be enforced by Postgres RLS is now enforced by the app being fundamentally single-camp-per-device-db (see Database Tables below) plus signed session tokens. New engineering work should target the Electron/SQLite path — `legacy/supabase/` is historical reference only, and the ESLint rule above blocks reintroducing it. The previously-CRITICAL `bulk_replace` cross-device seq bug (see Key Architectural Decisions) is now **fixed** — the Schedule screen's Regenerate flow no longer spuriously conflicts.
 
-**Security posture:** governed by a standing four-tier program (`docs/work/security/2026-09-14-security-program.md`): an automated gate in `npm run verify` (`scripts/security-gate.js` — npm-audit + secret + dangerous-pattern), seeded fuzzing (`test/fuzz/`), a periodic boundary-questioning `security-assessment` agent, and an **enforced internet-transport boundary gate** (`electron/sync/automerge/transportBoundary.guard.test.js`, ADR `2026-09-14-internet-transport-security-gate.md`) that fails the build if sync gains any internet-reachable transport without a recorded re-assessment. One **known HIGH open finding** (`docs/work/security/2026-09-14-Q1-crdt-merge-blast-radius-assessment.md`): because `users` (incl. `role`/`pin_hash`/`pin_salt`) replicates and merges are not `authorize()`-gated, a compromised *paired* device can escalate its role or overwrite the admin credential camp-wide — a Tier-4 blocker. Mitigation ADR `2026-09-14-users-auth-fields-off-the-replicated-document.md` is **accepted** (Host-signed credential fields: `role`/`pin_hash`/`pin_salt` keep replicating but carry an Ed25519 `auth_sig` the Host alone can produce, verified on projection — closes the attack without regressing offline login) and **in progress** (staged, test-first; enforcement flips only after backfill + independent review). Signing call sites are the closed set `createUser` + `promoteToAdmin` (T163 refuses role→admin via generic `write()`); enforcement must degrade gracefully on a rebuilt device that has lost `signing_public_key` (#401) rather than lock anyone out.
+**Security posture:** governed by a standing four-tier program (`docs/work/security/2026-09-14-security-program.md`): an automated gate in `npm run verify` (`scripts/security-gate.js` — npm-audit + secret + dangerous-pattern; `verify` also runs `agents:check` so an agent added without its constitution roster row can no longer ship undetected), seeded fuzzing (`test/fuzz/`), a periodic boundary-questioning `security-assessment` agent, and an **enforced internet-transport boundary gate** (`electron/sync/automerge/transportBoundary.guard.test.js`, ADR `2026-09-14-internet-transport-security-gate.md`) that fails the build if sync gains any internet-reachable transport without a recorded re-assessment. One **known HIGH open finding** (`docs/work/security/2026-09-14-Q1-crdt-merge-blast-radius-assessment.md`): because `users` (incl. `role`/`pin_hash`/`pin_salt`) replicates and merges are not `authorize()`-gated, a compromised *paired* device can escalate its role or overwrite the admin credential camp-wide — a Tier-4 blocker. Mitigation ADR `2026-09-14-users-auth-fields-off-the-replicated-document.md` is **accepted** (Host-signed credential fields: `role`/`pin_hash`/`pin_salt` keep replicating but carry an Ed25519 `auth_sig` the Host alone can produce, verified on projection — closes the attack without regressing offline login) and **in progress**. Landed: the sign/verify primitives (`electron/auth/authSignature.js`) and, at schema **v60**, the `users.auth_sig` column plus minting at the closed set of credential-write sites `createUser` + `promoteToAdmin` (T163 refuses role→admin via generic `write()`), with a Host-side backfill of existing users. **Not yet landed: projection-time enforcement** (the slice that actually refuses a forged credential change) — it flips only after backfill + independent review, and must degrade gracefully on a rebuilt device that has lost `signing_public_key` (#401) rather than lock anyone out.
 
 ---
 
@@ -531,37 +531,6 @@ Managed by `electron/db/projectManager.js`. A "project" is a named SQLite file o
 | `shoresh:get-current-project` | Return metadata (path, name) for the currently open project |
 
 **Backup rotation**: maximum 10 backups kept per project; oldest are pruned automatically. Pre-migration and pre-restore backups are taken automatically before any destructive operation.
-
----
-
-## The quality harness (how work gets verified and recorded)
-
-Not app code — the machinery that decides whether a change is done. Added across 2026-09-14/15.
-
-| piece | what it is |
-|---|---|
-| `npm run gate` (`scripts/gate.sh`) | Batched runner for the same steps as `npm run verify`, split so each reports independently and a long run survives an interrupted watcher. Writes a machine-readable results file **outside the repo** — writing it inside dirtied the tree being measured. |
-| The stamp | `# gate run against <sha> dirty=<n> chunks=<m>`, written when the run **starts**. A run read after a rebase would otherwise claim the wrong commit. |
-| `scripts/verifierReport.js` | Derives Verifier's `PerGateReport` from that results file. `UNVERIFIED` — never `PASS` — when the run did not finish, when the evidence does not bind to the commit under review, when the tree was dirty, or when fewer test chunks ran than the stamp declared. |
-| `scripts/opinionReportProvenance.js` | Binds each opinion report to a real, completed subagent dispatch found in the session transcript. ADR `docs/adr/2026-09-15-opinion-report-dispatch-provenance.md`. |
-| `scripts/observeRun.js` | Incremental transcript report: skills invoked, agents dispatched, completion, and — the point — **its own coverage**, so a percentage can't be quoted without its denominator. |
-| `scripts/generateAgentProfiles.js` | Generates the 13 `.claude/agents/*.md` from vendored fragments + per-role bindings. In the gate as `agents:check`, so a hand-edited profile fails. |
-| Shell predicates | `gateResultCode.sh`, `gateSpecCount.sh`, `classifyMineOutput.sh`, `parseWorktreePorcelain.sh`, `worktreeDecision.sh`, `selfHealDecision.sh` — logic lifted out of the unattended jobs so it is testable against fixtures. |
-
-**`scripts/gateReportReduce.js` is deliberately untouched by all of it.** Every check runs upstream
-and feeds the reducer verified inputs; its unchanged semantics are the property being protected.
-
-**The nightly consolidation** (`scripts/consolidation/`, 03:00 via launchd) mines each day's
-sessions into a quarantined memory proposal. Scripts are versioned here; the DATA it writes
-(`~/.claude/projects/<slug>/`) is a live store that must never be checked in. `README.md` there
-carries the one rule that matters: **never run `run.sh <old-day>` to recover a failed night** — it
-re-runs a mtime-selected, truncating gather and destroys the preserved evidence. Use
-`mineFromPacket.sh`.
-
-**Why any of this exists.** Between 2026-08-25 and 2026-09-14, 292 commits produced one run record
-and two gate reports. The repairs are documented in T165-T171; the cause of the artifact gap is
-**not established**, and T170 records three contradictory attempts to explain it rather than
-asserting a fourth.
 
 ---
 

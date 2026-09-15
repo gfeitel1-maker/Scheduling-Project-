@@ -8,13 +8,14 @@ import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
 import { deriveLocationId } from '../ops/locationId.js'
 import { applyProjection } from '../ops/projections.js'
 import { isBulkReplaceOp, applyBulkReplaceProjection } from '../ops/operations.js'
+import { signAuthFields } from '../auth/authSignature.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 59
+export const CURRENT_SCHEMA_VERSION = 60
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2363,6 +2364,45 @@ export function initSchema(db) {
     )
   }
 
+  // v60 — Host-signed credential fields (Q1 fix,
+  // docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md). Adds
+  // users.auth_sig: a Host Ed25519 signature over {id, role, pin_hash, pin_salt}
+  // so a compromised paired device cannot forge credentials it cannot sign.
+  //
+  // Backfill: on the HOST (the device holding host_signing_key), sign every
+  // existing user's current values so no legitimate row is left unsigned when
+  // enforcement (a later slice) turns on. On a Client (no host key) auth_sig
+  // stays '' here and arrives, signed, via replication from the Host — so a
+  // Client is never blocked on key material it does not have. Idempotent.
+  //
+  // Guard is `>= 59 && < 60`, NOT a bare `< 60` — see the v50 block's comment.
+  if (getSchemaVersion(db) >= 59 && getSchemaVersion(db) < 60) {
+    const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
+    if (!cols.includes('auth_sig')) {
+      db.exec("ALTER TABLE users ADD COLUMN auth_sig TEXT NOT NULL DEFAULT ''")
+    }
+    backfillAuthSignatures(db)
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (60, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+}
+
+// v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
+// row), stamp a valid Host signature onto every user's current credential values,
+// so no legitimate row is left unsigned when enforcement lands. A no-op on a Client
+// (signAuthFields throws with no host key) — that device receives signed values via
+// replication. Idempotent: re-signing the same values yields the same signature.
+export function backfillAuthSignatures(db) {
+  const hasHostKey = db.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()
+  if (!hasHostKey) return
+  const users = db.prepare('SELECT id, role, pin_hash, pin_salt FROM users').all()
+  const update = db.prepare('UPDATE users SET auth_sig = ? WHERE id = ?')
+  for (const u of users) {
+    const sig = signAuthFields(db, { id: u.id, role: u.role, pin_hash: u.pin_hash, pin_salt: u.pin_salt })
+    update.run(sig, u.id)
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct

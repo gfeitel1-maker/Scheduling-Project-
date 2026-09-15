@@ -337,7 +337,7 @@ function coerceIntegerAffinity(entity, field, value) {
 
 export const MOCK_WRITE_ALLOWLIST = {
   camps: ['name'],
-  users: ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role'],
+  users: ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig'],
   cohorts: [
     'camp_id',
     'name',

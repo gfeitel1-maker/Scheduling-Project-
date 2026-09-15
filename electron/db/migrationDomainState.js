@@ -73,6 +73,11 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 16, 17, 18, 19, 20, 22, 25, 28, 29, 30,
   31, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
   51, 52, 53, 54, 55, 56, 57, 58, 59,
+  // v60 adds users.auth_sig (a Host signature over existing credential fields) and backfills it on
+  // the Host. Schema-only: the column is table shape, and the backfill DERIVES an attestation from
+  // values already present — it changes no domain row value and no camp meaning. A Client's backfill
+  // is a no-op (no host key), so it is also not a value change there.
+  60,
 ])
 
 /** True if applying `version` can change what the camp means. */

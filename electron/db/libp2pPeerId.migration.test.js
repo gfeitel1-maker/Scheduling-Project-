@@ -91,11 +91,11 @@ const indexes = (db) =>
 describe('migration v57: devices.libp2p_peer_id', () => {
   it('a fresh install has the column, nullable, and has passed schema version 57', () => {
     const db = freshDb()
-    // A fresh db runs every migration, so it lands on CURRENT (58 since the
-    // projection_failures.store split), not on 57. What this test owns is that
-    // v57 itself ran — asserted by its schema_migrations row below.
-    expect(CURRENT_SCHEMA_VERSION).toBe(59)
-    expect(getSchemaVersion(db)).toBe(59)
+    // A fresh db runs every migration, so it lands on CURRENT, not on 57. What
+    // this test owns is that v57 itself ran — asserted by its schema_migrations
+    // row below.
+    expect(CURRENT_SCHEMA_VERSION).toBe(60)
+    expect(getSchemaVersion(db)).toBe(60)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 57').get().c).toBe(1)
 
     const col = columnInfo(db)

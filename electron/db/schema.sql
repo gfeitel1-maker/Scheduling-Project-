@@ -50,7 +50,12 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   pin_hash TEXT NOT NULL,
   pin_salt TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin', 'staff'))
+  role TEXT NOT NULL CHECK (role IN ('admin', 'staff')),
+  -- Host Ed25519 signature over {id, role, pin_hash, pin_salt} (docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md).
+  -- Replicates like the other credential fields; a device verifies it before applying them, so a
+  -- compromised paired device cannot forge a role/PIN change it cannot sign (Q1). Empty = unsigned
+  -- (legacy/pre-backfill); enforcement treats that per the ADR's graceful-degradation rules.
+  auth_sig TEXT NOT NULL DEFAULT ''
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_camp_name ON users(camp_id, name);
