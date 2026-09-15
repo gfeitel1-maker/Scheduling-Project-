@@ -92,7 +92,12 @@ while [ $attempt -lt 3 ]; do
     > "$MINETMP" 2>>"$LOG"
   rc=$?
   bytes=$(wc -c <"$MINETMP" 2>/dev/null); bytes=${bytes:-0}
-  if [ $rc -eq 0 ] && [ "$bytes" -gt 500 ] && ! grep -qaiE '^(API Error|Connection closed|Execution error)' "$MINETMP"; then
+  # Classification is scripts/consolidation/classifyMineOutput.sh (T168) — extracted so the
+  # success/auth-fail/retry decision is testable against fixture files instead of only by
+  # reading. Ordering and anchoring (success check first, auth check anchored to the first
+  # line, reached only after success is rejected) are preserved exactly inside that script.
+  CLASS=$("$SCRIPTS/classifyMineOutput.sh" "$rc" "$MINETMP")
+  if [ "$CLASS" = "SUCCESS" ]; then
     # A later success for this day retires any marker an earlier attempt parked. Without this,
     # integration.sh's backlog block reports a day that is actually done, every morning, forever —
     # which trains the reader to ignore the one surface whose whole job is "never go silent".
@@ -115,10 +120,7 @@ while [ $attempt -lt 3 ]; do
   # on size or exit code: the transient failures (35/48/81/115/162 bytes) recovered on
   # retry and must keep doing so. Parked under a distinct name the morning report can
   # tell apart from a transient failure.
-  # Anchored to the START of the output, and only reachable after the success check above has
-  # already rejected this attempt. Both matter: a successful proposal about a day whose sessions
-  # discussed a login failure legitimately contains these phrases mid-document.
-  if head -n 1 "$MINETMP" | grep -qaiE '^(Failed to authenticate|Invalid API key|Credit balance)'; then
+  if [ "$CLASS" = "AUTH-FAIL" ]; then
     { print -- "mine FAILED non-retryably for $DAY (authentication) after $attempt attempt(s) — not retrying. Fix: claude /login, then mineFromPacket.sh $DAY"; } >> "$LOG"
     if ! mv "$MINETMP" "$OUT/NEEDS-AUTH-proposal-$DAY.md" 2>/dev/null; then trap - EXIT INT TERM; { print -- "ERROR: could not park $MINETMP for $DAY — left in place, not deleted"; } >> "$LOG"; fi
     print -- "NEEDS-AUTH"; exit 2

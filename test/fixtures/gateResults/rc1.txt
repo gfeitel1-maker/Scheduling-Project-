@@ -1,0 +1,4 @@
+# gate run against abc123 dirty=0 chunks=1
+STEP lint | rc=1 |
+STEP tests-1 | rc=0 |Tests 40 passed
+DONE

@@ -1,7 +1,7 @@
 ---
 title: "The two unattended jobs delete directories and write memory, and neither has a test"
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-14
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/WORKING_COPY_STANDARD.md]
@@ -49,3 +49,37 @@ Testing them needs a fixture `git worktree list --porcelain` table and a fixture
 directory, which is tractable but bigger than this slice. The failure classifiers in `run.sh` and
 `mineFromPacket.sh` remain duplicated and untested because those files live outside the repo;
 that is T165's problem to unblock.
+
+## Slice 2 completed (2026-09-15)
+
+All four remaining predicates named in the brief are extracted into small sourceable scripts and
+tested against fixtures, none touching a real worktree, `_pending` directory, or gate run:
+
+- `scripts/gateResultCode.sh` — the gate's exit-code contract (`STEP ... rc=<non-zero>` -> exit
+  1). Tested by `test/gatePredicates.test.js` against fixture results files (rc=1/127/143/all-0),
+  including a test that demonstrates the historical `grep ... && exit 0 || exit 0` bug directly.
+- `scripts/gateSpecCount.sh` — the zero-spec abort. Tested against fixture directories with and
+  without test files; confirms exit 2 and no stdout on an empty tree.
+- `scripts/consolidation/classifyMineOutput.sh` — `run.sh`'s SUCCESS/AUTH-FAIL/RETRY classifier,
+  extracted with the success check first and the auth-failure match anchored to the first line.
+  Tested by `test/classifyMineOutput.test.js`, including the exact regression this predicate
+  exists for: a successful, >500-byte proposal whose body merely mentions "Failed to
+  authenticate" classifies as SUCCESS, not AUTH-FAIL.
+- `scripts/parseWorktreePorcelain.sh` + `scripts/worktreeDecision.sh` — `integration.sh`'s
+  porcelain parsing and its `PROTECTED/READY/PRUNE/ACTIVE` decision, split so each is testable
+  independently. Tested by `test/worktreePrunePredicate.test.js` against a fixture porcelain
+  table (including a path with a space) and hand-picked decision cases (ledger-protected beats
+  everything, `ahead > 0` is always surfaced, a dirty tree is never pruned).
+- `scripts/selfHealDecision.sh` — the four-outcome self-heal predicate. Tested by
+  `test/selfHealDecision.test.js` against fixture `_pending` dirs and `run.log`s, including the
+  exact historical defect: a night that started (header written) but produced neither a proposal
+  nor a failure marker must classify as `NONE`, never `SUCCESS` or `SELFHEAL`.
+
+`gate.sh`, `run.sh`, and `integration.sh` now call these scripts instead of carrying the logic
+inline; each extraction is behaviour-identical, verified by reading the diff line-for-line
+against the original inline logic before wiring it in.
+
+Every predicate test above includes at least one assertion that reproduces the historical bug
+directly (the buggy grep, the unanchored auth match, the $2-split path truncation, the
+header-only self-heal check) and shows the extracted predicate does not repeat it — the
+`archive_when` condition on this ticket is met.

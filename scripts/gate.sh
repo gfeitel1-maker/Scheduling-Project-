@@ -38,17 +38,13 @@ mkdir -p "${R:h}"
 # `lint` with "no matches found: .../c_*". Rather than keep guessing which fork ran the trap,
 # the temp directory is gone: there is nothing to clean up, so nothing can clean it up early.
 # Slicing an array is what the code meant anyway.
-SPECS=(${(f)"$(find . -path ./node_modules -prune -o \( -name '*.test.js' -o -name '*.test.jsx' \) -print | sed 's|^\./||' | sort)"})
+# The find + zero-spec abort is scripts/gateSpecCount.sh (T168) — extracted so the "no test
+# files discoverable" abort is testable against a fixture directory instead of only by hand.
+# See test/gateSpecCount.test.js.
+RAW_SPECS=$("${0:A:h}/gateSpecCount.sh" .)
+(( $? != 0 )) && exit 2
+SPECS=(${(f)"$(print -r -- "$RAW_SPECS" | sed 's|^\./||')"})
 CHUNK_SIZE=45
-
-# Refuse to produce evidence for a run with nothing to run. Red Hat, 2026-09-15: lint +
-# integration + security + governance alone satisfy "steps ran and DONE is terminal", so a gate
-# that executed ZERO unit tests reported PASS. Failing here means no DONE is ever written, and
-# the declared chunk count below lets the reader check completeness instead of trusting it.
-if (( ${#SPECS} == 0 )); then
-  print -u2 -- "gate ABORTED: found no test files under $(pwd). Refusing to write evidence for a run with nothing to run."
-  exit 2
-fi
 CHUNKS=$(( (${#SPECS} + CHUNK_SIZE - 1) / CHUNK_SIZE ))
 
 # The stamp declares what this run INTENDED: which commit, whether the tree was clean, and how
@@ -82,15 +78,12 @@ step governance npm run check:governance
 print -- "DONE" >> "$R"
 print -- "results -> $R"
 print -- "to keep it as evidence:  cp \"$R\" docs/work/runs/evidence/gate-$(git rev-parse --short HEAD).txt"
-# Exit non-zero when any step failed. The previous line was
+# Exit non-zero when any step failed. This is scripts/gateResultCode.sh (T168), extracted so
+# the exit-code contract is testable against a fixture results file. The previous line was
 #   grep -c ... >/dev/null 2>&1 && exit 0 || exit 0
 # which exits 0 on BOTH branches — the gate reported success no matter what was in the results
 # file. That is precisely the defect this whole program exists to remove ("started" taken for
 # "succeeded"), sitting in the tool built to detect it, and it shipped through a 13/13 green run
-# because the gate never runs itself. See T171.
-if grep -q '^STEP .* rc=[1-9]' "$R"; then
-  print -u2 -- "gate FAILED — failing steps:"
-  grep '^STEP .* rc=[1-9]' "$R" >&2
-  exit 1
-fi
-exit 0
+# because the gate never runs itself. See T171 / test/gateResultCode.test.js.
+"${0:A:h}/gateResultCode.sh" "$R"
+exit $?

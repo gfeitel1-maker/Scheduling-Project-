@@ -207,15 +207,9 @@ else
 fi
 
 # --- Walk worktrees ---
-# substr, not $2: awk's default whitespace split truncates a path at its first space, and real
-# worktree paths contain them (e.g. ~/dev/Mobile Prototype/...). Pre-existing, but it would have
-# silently defeated the ledger match below. (Red Hat, 44b49c6.)
-git worktree list --porcelain 2>/dev/null | awk '
-  /^worktree /{wt=substr($0, 10)}
-  /^HEAD /{h=$2}
-  /^branch /{print wt"\t"$2"\t"h; wt=""}
-  /^detached/{print wt"\tDETACHED\t"h; wt=""}
-' | while IFS=$'\t' read wt ref head; do
+# Parsing is scripts/parseWorktreePorcelain.sh (T168), extracted so the space-in-path handling
+# is testable against a fixture porcelain table. See test/worktreePrunePredicate.test.js.
+git worktree list --porcelain 2>/dev/null | "${0:A:h}/parseWorktreePorcelain.sh" | while IFS=$'\t' read wt ref head; do
   br=${ref#refs/heads/}
   # ahead/behind vs origin/main
   ab=$(git rev-list --left-right --count origin/main...$head 2>/dev/null)
@@ -247,24 +241,36 @@ git worktree list --porcelain 2>/dev/null | awk '
     protected=1
   fi
 
-  if (( protected )); then
-    print -- "- 🔒 \`$br\` — protected ($wt)" >> "$REPORT.protected"
-  elif (( ahead > 0 )); then
-    tag="ready to merge"; (( behind > 0 )) && tag="ahead $ahead / behind $behind — rebase then merge"
-    print -- "- ⬆️ \`$br\` — **$tag** (ahead $ahead, last $lastrel) → $wt" >> "$REPORT.ready"
-  elif (( ephemeral )) && [[ -z "$dirty" ]] && (( idle_days >= IDLE_DAYS )); then
-    # PRUNE: abandoned ephemeral worktree, no unmerged work, clean, idle
-    if git worktree remove "$wt" 2>>"$LOG"; then
-      print -- "- 🧹 pruned \`$br\` (0 ahead, clean, idle ${idle_days}d) — $wt" >> "$REPORT.pruned"
-      { print -- "pruned $wt ($br)"; } >> "$LOG"
-    else
-      print -- "- ⚠️ prune of \`$br\` failed (see log) — $wt" >> "$REPORT.pruned"
-    fi
-  elif [[ -n "$dirty" ]]; then
-    print -- "- 🔓 \`$br\` — uncommitted work, likely active (0 ahead) — left alone" >> "$REPORT.active"
-  else
-    print -- "- ⚪ \`$br\` — no work ahead, idle ${idle_days}d (kept; not yet at ${IDLE_DAYS}d or non-ephemeral)" >> "$REPORT.active"
-  fi
+  dirtyflag=0; [[ -n "$dirty" ]] && dirtyflag=1
+  # Decision is scripts/worktreeDecision.sh (T168), extracted so the
+  # `ephemeral && clean && 0-ahead && idle` prune rule is testable against fixtures — this loop
+  # DELETES directories and had zero coverage before this ticket. See
+  # test/worktreePrunePredicate.test.js.
+  DECISION=$("${0:A:h}/worktreeDecision.sh" "$protected" "$ahead" "$ephemeral" "$dirtyflag" "$idle_days" "$IDLE_DAYS")
+  case "$DECISION" in
+    PROTECTED)
+      print -- "- 🔒 \`$br\` — protected ($wt)" >> "$REPORT.protected"
+      ;;
+    READY)
+      tag="ready to merge"; (( behind > 0 )) && tag="ahead $ahead / behind $behind — rebase then merge"
+      print -- "- ⬆️ \`$br\` — **$tag** (ahead $ahead, last $lastrel) → $wt" >> "$REPORT.ready"
+      ;;
+    PRUNE)
+      # PRUNE: abandoned ephemeral worktree, no unmerged work, clean, idle
+      if git worktree remove "$wt" 2>>"$LOG"; then
+        print -- "- 🧹 pruned \`$br\` (0 ahead, clean, idle ${idle_days}d) — $wt" >> "$REPORT.pruned"
+        { print -- "pruned $wt ($br)"; } >> "$LOG"
+      else
+        print -- "- ⚠️ prune of \`$br\` failed (see log) — $wt" >> "$REPORT.pruned"
+      fi
+      ;;
+    ACTIVE-DIRTY)
+      print -- "- 🔓 \`$br\` — uncommitted work, likely active (0 ahead) — left alone" >> "$REPORT.active"
+      ;;
+    *)
+      print -- "- ⚪ \`$br\` — no work ahead, idle ${idle_days}d (kept; not yet at ${IDLE_DAYS}d or non-ephemeral)" >> "$REPORT.active"
+      ;;
+  esac
 done
 
 # assemble sections in order
@@ -291,36 +297,37 @@ fi
 # asleep at 03:00 and launchd did not catch up the missed run), run it now — this 06:30 job runs
 # reliably because the machine is awake by then. Recovers a slept-through night automatically.
 #
-# The predicate is the point. This used to ask "is there a `=== run <day>` header in
-# run.log" — but run.sh writes that header as its FIRST action, before it does any work.
-# The header is therefore present on a night that started and failed, which is why eight
-# consecutive authentication failures (2026-09-06..13) produced no morning signal at all.
-# "Started" is not "succeeded". Four outcomes, not two:
+# The decision is scripts/selfHealDecision.sh (T168), extracted so the four-outcome predicate
+# is testable against a fixture _pending directory and run.log instead of only by reading. See
+# test/selfHealDecision.test.js for the defect it guards ("started" read as "succeeded").
 YDAY=$(date -v-1d +%F)
 PEND="$HOME/.claude/projects/$SLUG/memory/_pending"
-if [[ -f "$PEND/proposal-$YDAY.md" ]]; then
-  :                                                    # 1. succeeded — nothing to say
-elif grep -q "no signal for $YDAY" "$CONS/run.log" 2>/dev/null; then
-  :                                                    # 2. genuinely quiet day — not a failure
-elif [[ -f "$PEND/NEEDS-AUTH-proposal-$YDAY.md" || -f "$PEND/FAILED-proposal-$YDAY.md" ]]; then
-  # 3. ran and failed. Do NOT re-run: it already retried, and for a non-retryable class
-  #    (expired login) another attempt only burns another failure. Surface it instead.
-  print -- "\n## 🔴 Nightly memory pass FAILED for $YDAY" >> "$REPORT"
-  if [[ -f "$PEND/NEEDS-AUTH-proposal-$YDAY.md" ]]; then
-    print -- "- **not authenticated** — sign in once with \`claude /login\`, then recover the backlog" >> "$REPORT"
-  else
-    print -- "- mining failed after retries — see \`$CONS/run.log\`" >> "$REPORT"
-  fi
-elif ! grep -q "=== run $YDAY " "$CONS/run.log" 2>/dev/null; then
-  # 4. never started (Mac asleep at 03:00). Safe to run now: yesterday's transcript mtimes
-  #    are still accurate, so gather.sh selects the right files. This is the ONLY case where
-  #    run.sh may be invoked for a past day — see the backlog note below.
-  print -- "\n## 🩹 Self-heal: recovered a missed nightly memory pass" >> "$REPORT"
-  print -- "- the 3 AM consolidation had not run for $YDAY (Mac likely asleep) — ran it now" >> "$REPORT"
-  { print -- "self-heal: nightly memory pass for $YDAY missing; running consolidation/run.sh $YDAY"; } >> "$LOG"
-  RES=$("$CONSCRIPTS/run.sh" "$YDAY" 2>>"$LOG")
-  print -- "- result: \`${RES:t}\` (review it with the morning proposals)" >> "$REPORT"
-fi
+HEALDEC=$("${0:A:h}/selfHealDecision.sh" "$PEND" "$CONS/run.log" "$YDAY")
+case "$HEALDEC" in
+  SUCCESS|QUIET|NONE)
+    :
+    ;;
+  FAILED-AUTH|FAILED-MINE)
+    # ran and failed. Do NOT re-run: it already retried, and for a non-retryable class
+    # (expired login) another attempt only burns another failure. Surface it instead.
+    print -- "\n## 🔴 Nightly memory pass FAILED for $YDAY" >> "$REPORT"
+    if [[ "$HEALDEC" == "FAILED-AUTH" ]]; then
+      print -- "- **not authenticated** — sign in once with \`claude /login\`, then recover the backlog" >> "$REPORT"
+    else
+      print -- "- mining failed after retries — see \`$CONS/run.log\`" >> "$REPORT"
+    fi
+    ;;
+  SELFHEAL)
+    # never started (Mac asleep at 03:00). Safe to run now: yesterday's transcript mtimes
+    # are still accurate, so gather.sh selects the right files. This is the ONLY case where
+    # run.sh may be invoked for a past day — see the backlog note below.
+    print -- "\n## 🩹 Self-heal: recovered a missed nightly memory pass" >> "$REPORT"
+    print -- "- the 3 AM consolidation had not run for $YDAY (Mac likely asleep) — ran it now" >> "$REPORT"
+    { print -- "self-heal: nightly memory pass for $YDAY missing; running consolidation/run.sh $YDAY"; } >> "$LOG"
+    RES=$("$CONSCRIPTS/run.sh" "$YDAY" 2>>"$LOG")
+    print -- "- result: \`${RES:t}\` (review it with the morning proposals)" >> "$REPORT"
+    ;;
+esac
 
 # Outstanding backlog — every failed night, surfaced every morning until cleared, so a
 # failure can no longer go quiet for nine days. Recovery is mineFromPacket.sh, never
