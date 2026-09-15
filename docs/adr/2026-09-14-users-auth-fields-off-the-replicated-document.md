@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-09-14
 supersedes: []
-implementation_state: in_progress
+implementation_state: implemented
 program: security-hardening
 affects:
   - electron/ops/projections.js
@@ -177,6 +177,29 @@ which is the owner's call.
     was the Host — cannot mint at all until re-paired. Deliberately NOT added earlier: a support
     notice describing a mechanism that does not yet exist is the stale-doc failure T149 just cleaned
     up. It lands *with* the enforcement slice, accurate, not before.
+
+## Implementation outcome (2026-09-15) + independent review
+
+All slices implemented and merged: primitives (#407), mint-on-write + schema v60 + backfill (#408),
+and projection-time enforcement (this slice). Enforcement lives in `projector.js`'s
+`upsertUsersEntity` and runs on the MERGE path only (local writes project via `appendOp`'s direct
+`applyProjection`, which the enforcement does not gate — correct, since local writes are already
+`authorize()`-gated and the Q1 attack is on the merge path). `write()` also now refuses generic
+`users.pin_hash`/`pin_salt`/`role` writes, so `createUser` + `promoteToAdmin` are the only credential
+mint sites.
+
+Independent review before merge (`security-assessment` + `red-hat`): **safe to merge under the
+trusted-LAN boundary**; the primary Q1 escalation + credential-overwrite attack is confirmed closed
+(verified by trace + test; the key-swap bypass is impossible because `signing_public_key` is not a
+replicable projection field). Two MEDIUM residuals remain, safe under LAN and tracked as **hard
+Tier-4 blockers** in `docs/work/tickets/T165-...` and the internet-transport ADR: (1) signature
+replay/rollback (no freshness binding) and (2) degrade-window forgeries becoming permanent on a
+key-less rebuilt device. Full review: `docs/work/security/2026-09-15-Q1-enforcement-merge-review.md`.
+
+Note on the ADR's earlier "enforcement ships behind a backfill-completed guard" plan: the shipped
+per-row rule ("a *change* needs a valid signature; an *unchanged* value always applies; no key →
+degrade to accept") is strictly safer than a camp-wide flag — an unbackfilled/legacy row is never
+rejected because its value is unchanged, so no separate completion guard is needed.
 
 ## Verification (when implemented)
 

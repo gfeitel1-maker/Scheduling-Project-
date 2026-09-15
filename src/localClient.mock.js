@@ -496,6 +496,14 @@ export const mockShoresh = {
   async write({ entity, entity_id, field, value } = {}) {
     if (!entity || !entity_id) return { status: 'applied' }
 
+    // Mirror the real write() guard (electron/main.js): credential fields are Host-signed and must
+    // only change via createUser / promoteToAdmin (Q1 fix). A generic write() to one of them would
+    // produce an unsigned change the real app refuses on the merge path — reject it here too so dev
+    // mode surfaces the same boundary rather than silently diverging.
+    if (entity === 'users' && (field === 'pin_hash' || field === 'pin_salt' || field === 'role')) {
+      throw new Error(`mockShoresh.write: users.${field} cannot be changed via write() — credential fields are Host-signed; use createUser or promoteToAdmin`)
+    }
+
     // Enforcement is stricter than the real path, deliberately. The real path
     // is asymmetric: appendOp (electron/ops/operations.js) THROWS for a
     // registered entity with a bad field, but applyProjection SILENTLY

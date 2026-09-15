@@ -2200,6 +2200,26 @@ describe('the generic write() path refuses users.role -> admin (T163)', () => {
     const row = db.prepare('SELECT role FROM users WHERE id = ?').get(staff.id)
     expect(row.role).toBe('staff')
   })
+
+  // Q1 fix (Red Hat review of the enforcement slice): credential fields are Host-signed, so a
+  // generic write() to any of them would produce an UNSIGNED change every device refuses on the
+  // merge path — a silent camp-wide revert. write() must close that path, leaving createUser /
+  // promoteToAdmin (the two mint sites) as the only way to change credentials.
+  it('refuses a generic write() to users.pin_hash / pin_salt / role', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { campId } = await seedCampAndUser({ name: 'CredAdmin', pin: '123456', role: 'admin' })
+    const { token } = await handlers.login({ name: 'CredAdmin', pin: '123456' })
+    const staff = await handlers.createUser({ token, camp_id: campId, name: 'CredStaff', pin: '1234', role: 'staff' })
+    const before = db.prepare('SELECT pin_hash, pin_salt, role FROM users WHERE id = ?').get(staff.id)
+
+    for (const [field, value] of [['pin_hash', 'x'], ['pin_salt', 'y'], ['role', 'staff']]) {
+      expect(() => handlers.write({ token, entity: 'users', entity_id: staff.id, field, value }))
+        .toThrow(/credential fields are Host-signed|use createUser or promoteToAdmin|promoteToAdmin/)
+    }
+    const after = db.prepare('SELECT pin_hash, pin_salt, role FROM users WHERE id = ?').get(staff.id)
+    expect(after).toEqual(before) // nothing changed
+  })
 })
 
 describe('promoteToAdmin handler (T163)', () => {

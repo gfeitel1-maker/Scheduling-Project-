@@ -57,6 +57,13 @@ The re-assessment must cover, at minimum:
    auto-update; unsigned update is an RCE vector once the app talks to the internet at all.
 5. **Device-side role enforcement under CRDT sync** — re-evaluate whether a compromised paired
    peer's writes are acceptable when peers are no longer all on a trusted LAN.
+6. **Credential-signature replay + degrade-window permanence (T165)** — the Q1 enforcement closes
+   credential *forgery* but two merge-path credential-*mutation* residuals (a paired peer replaying
+   an old Host-signed tuple to demote an admin / roll back a PIN; and forgeries accepted on a
+   key-less rebuilt device becoming permanent) are MEDIUM under the LAN boundary and rise to HIGH
+   once a peer can be remote. Both MUST be fixed before this gate is signed off. See
+   `docs/work/tickets/T165-credential-signature-replay-and-degrade-permanence.md` and
+   `docs/work/security/2026-09-15-Q1-enforcement-merge-review.md`.
 
 ### Enforcement (this is not just prose)
 
