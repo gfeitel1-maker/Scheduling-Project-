@@ -240,7 +240,11 @@ function upsertUsersEntity(db, doc) {
           targetType: 'users',
           targetId: id,
           action: 'users.credential_change',
-          outcome: 'denied',
+          // 'deny', NOT 'denied' — audit_events.outcome is CHECK (outcome IN ('allow','deny')).
+          // The wrong value made every one of these inserts fail the constraint and get swallowed to
+          // a console.warn, so the record of a BLOCKED Q1 attack silently never landed (caught by
+          // app-icon-audit's review; same class of bug as #388/#414). Tested by read-back below.
+          outcome: 'deny',
           reason: 'auth_sig missing or invalid on a credential change — refused on the merge path (Q1 enforcement)',
         })
         // eslint-disable-next-line no-console
