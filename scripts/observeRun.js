@@ -26,9 +26,14 @@ export function parseLine(rawLine) {
         if (block.name === 'Skill' && typeof block.input?.skill === 'string') {
           events.push({ kind: 'skill', name: block.input.skill })
         } else if (block.name === 'Agent' && typeof block.input?.subagent_type === 'string') {
-          const ev = { kind: 'dispatch', subagent_type: block.input.subagent_type }
-          if (typeof block.id === 'string') ev.toolUseId = block.id
-          events.push(ev)
+          // tool_use_id is carried alongside subagent_type (additive, optional) so a consumer that
+          // needs to join a dispatch to its later resolution can do so without re-parsing the
+          // transcript itself — see opinionReportProvenance.js, which is the reason this exists.
+          events.push({
+            kind: 'dispatch',
+            subagent_type: block.input.subagent_type,
+            tool_use_id: typeof block.id === 'string' ? block.id : null,
+          })
         }
       }
     }
@@ -37,33 +42,37 @@ export function parseLine(rawLine) {
   if (record.type === 'user') {
     const tur = record.toolUseResult
     if (tur && typeof tur === 'object' && typeof tur.agentId === 'string' && typeof tur.status === 'string') {
-      const ev = { kind: 'resolution', agentId: tur.agentId, status: tur.status }
-      // The launch acknowledgment record's own tool_use_id ties this resolution back to the
-      // specific Agent dispatch that produced it (see correlateDispatches) — without it, an
-      // agentId can be counted but never attributed to the dispatch that requested it.
+      // The launch-ack record carries BOTH toolUseResult (agentId/status) and, in the same
+      // message's content array, the tool_result block whose tool_use_id names the dispatch that
+      // produced it. Joining the two here — rather than in a second pass — is what lets a
+      // consumer answer "which subagent_type did this agentId come from" without inventing its
+      // own correlation pass over the same records.
+      let toolUseId = null
       const content = record.message?.content
       if (Array.isArray(content)) {
-        const toolResult = content.find((b) => b && b.type === 'tool_result' && typeof b.tool_use_id === 'string')
-        if (toolResult) ev.toolUseId = toolResult.tool_use_id
+        const resultBlock = content.find((b) => b && b.type === 'tool_result' && typeof b.tool_use_id === 'string')
+        if (resultBlock) toolUseId = resultBlock.tool_use_id
       }
-      events.push(ev)
+      events.push({ kind: 'resolution', agentId: tur.agentId, status: tur.status, tool_use_id: toolUseId })
     }
   }
 
   if (record.type === 'attachment') {
     const att = record.attachment
     if (att && att.type === 'task_status' && typeof att.taskId === 'string' && typeof att.status === 'string') {
-      events.push({ kind: 'resolution', agentId: att.taskId, status: att.status })
+      events.push({ kind: 'resolution', agentId: att.taskId, status: att.status, tool_use_id: null })
     }
   }
 
   return events
 }
 
-const TERMINAL_STATUSES = new Set(['completed', 'failed', 'error'])
+// Exported (not just module-local) so opinionReportProvenance.js applies the exact same
+// "what counts as done" rule Observer already uses, instead of restating it and risking drift.
+export const TERMINAL_STATUSES = new Set(['completed', 'failed', 'error'])
 
 // Pairs an Agent dispatch's tool_use id with the agentId reported in its launch-acknowledgment
-// record (see parseLine — both are stamped with the same toolUseId). This is what lets a
+// record (see parseLine — both are stamped with the same tool_use_id). This is what lets a
 // dispatch be attributed to a specific agentId, rather than just counted by subagent_type.
 //
 // Only correlates within one flat event list, i.e. one file's events: a dispatch and its
@@ -75,15 +84,15 @@ export function correlateDispatches(events) {
   const launchesByToolUseId = new Map() // toolUseId -> subagent_type
   const correlated = []
   for (const ev of events) {
-    if (ev.kind === 'dispatch' && ev.toolUseId) {
-      launchesByToolUseId.set(ev.toolUseId, ev.subagent_type)
-    } else if (ev.kind === 'resolution' && ev.toolUseId && launchesByToolUseId.has(ev.toolUseId)) {
+    if (ev.kind === 'dispatch' && ev.tool_use_id) {
+      launchesByToolUseId.set(ev.tool_use_id, ev.subagent_type)
+    } else if (ev.kind === 'resolution' && ev.tool_use_id && launchesByToolUseId.has(ev.tool_use_id)) {
       correlated.push({
-        subagent_type: launchesByToolUseId.get(ev.toolUseId),
-        toolUseId: ev.toolUseId,
+        subagent_type: launchesByToolUseId.get(ev.tool_use_id),
+        tool_use_id: ev.tool_use_id,
         agentId: ev.agentId,
       })
-      launchesByToolUseId.delete(ev.toolUseId) // one launch ack per dispatch
+      launchesByToolUseId.delete(ev.tool_use_id) // one launch ack per dispatch
     }
   }
   return correlated

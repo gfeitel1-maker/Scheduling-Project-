@@ -18,18 +18,20 @@ const skillUse = (name) => line({
   message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill: name } }] },
 })
 
-const agentDispatch = (subagent_type) => line({
+const agentDispatch = (subagent_type, id) => line({
   type: 'assistant',
-  message: { content: [{ type: 'tool_use', name: 'Agent', input: { subagent_type } }] },
+  message: { content: [{ type: 'tool_use', id, name: 'Agent', input: { subagent_type } }] },
 })
 
-const asyncLaunchResult = (agentId) => line({
+const asyncLaunchResult = (agentId, toolUseId) => line({
   type: 'user',
+  message: toolUseId ? { content: [{ type: 'tool_result', tool_use_id: toolUseId }] } : undefined,
   toolUseResult: { status: 'async_launched', agentId },
 })
 
-const syncCompletedResult = (agentId) => line({
+const syncCompletedResult = (agentId, toolUseId) => line({
   type: 'user',
+  message: toolUseId ? { content: [{ type: 'tool_result', tool_use_id: toolUseId }] } : undefined,
   toolUseResult: { status: 'completed', agentId, content: 'DONE — did the thing' },
 })
 
@@ -61,7 +63,12 @@ describe('parseLine', () => {
 
   it('extracts an Agent dispatch by subagent_type', () => {
     const events = parseLine(agentDispatch('maker'))
-    expect(events).toEqual([{ kind: 'dispatch', subagent_type: 'maker' }])
+    expect(events).toEqual([{ kind: 'dispatch', subagent_type: 'maker', tool_use_id: null }])
+  })
+
+  it('carries the tool_use id on a dispatch, when present, for later resolution join', () => {
+    const events = parseLine(agentDispatch('maker', 'toolu_1'))
+    expect(events).toEqual([{ kind: 'dispatch', subagent_type: 'maker', tool_use_id: 'toolu_1' }])
   })
 
   it('extracts multiple tool_use blocks from one assistant message', () => {
@@ -76,23 +83,28 @@ describe('parseLine', () => {
     }))
     expect(events).toEqual([
       { kind: 'skill', name: 'a' },
-      { kind: 'dispatch', subagent_type: 'red-hat' },
+      { kind: 'dispatch', subagent_type: 'red-hat', tool_use_id: null },
     ])
   })
 
   it('extracts an async-launched dispatch resolution marker', () => {
     const events = parseLine(asyncLaunchResult('abc123'))
-    expect(events).toEqual([{ kind: 'resolution', agentId: 'abc123', status: 'async_launched' }])
+    expect(events).toEqual([{ kind: 'resolution', agentId: 'abc123', status: 'async_launched', tool_use_id: null }])
+  })
+
+  it('joins a launch-ack resolution back to its dispatch via the tool_result tool_use_id', () => {
+    const events = parseLine(asyncLaunchResult('abc123', 'toolu_1'))
+    expect(events).toEqual([{ kind: 'resolution', agentId: 'abc123', status: 'async_launched', tool_use_id: 'toolu_1' }])
   })
 
   it('extracts a synchronously completed dispatch resolution', () => {
     const events = parseLine(syncCompletedResult('abc123'))
-    expect(events).toEqual([{ kind: 'resolution', agentId: 'abc123', status: 'completed' }])
+    expect(events).toEqual([{ kind: 'resolution', agentId: 'abc123', status: 'completed', tool_use_id: null }])
   })
 
   it('extracts a task_status completion attachment', () => {
     const events = parseLine(taskStatusAttachment('abc123', 'completed'))
-    expect(events).toEqual([{ kind: 'resolution', agentId: 'abc123', status: 'completed' }])
+    expect(events).toEqual([{ kind: 'resolution', agentId: 'abc123', status: 'completed', tool_use_id: null }])
   })
 
   it('ignores unrelated record types', () => {
@@ -238,22 +250,27 @@ describe('cursor safety when a transcript shrinks', () => {
 // each silently excluded part of the population and quoted a percentage as if it covered all of
 // it. These tests pin the pure logic that instead reports what it could and could not resolve.
 
-describe('parseLine toolUseId capture', () => {
+describe('parseLine tool_use_id capture', () => {
   it('carries the dispatch tool_use id through as toolUseId', () => {
     const events = parseLine(dispatchWithId('grader', 'toolu_abc'))
-    expect(events).toEqual([{ kind: 'dispatch', subagent_type: 'grader', toolUseId: 'toolu_abc' }])
+    expect(events).toEqual([{ kind: 'dispatch', subagent_type: 'grader', tool_use_id: 'toolu_abc' }])
   })
 
   it('carries the launch-acknowledgment tool_use_id through as toolUseId', () => {
     const events = parseLine(launchAck('toolu_abc', 'agent123'))
     expect(events).toEqual([
-      { kind: 'resolution', agentId: 'agent123', status: 'async_launched', toolUseId: 'toolu_abc' },
+      { kind: 'resolution', agentId: 'agent123', status: 'async_launched', tool_use_id: 'toolu_abc' },
     ])
   })
 
-  it('omits toolUseId when the acknowledgment record has no matching tool_result block', () => {
+  // Explicitly null rather than omitted. "We looked and found no tool_result block" is a
+  // different statement from "this code path never sets the field", and only one of the two can
+  // be distinguished from a typo by a later reader. Consumers treat both as falsy regardless.
+  // (T170 and the provenance work implemented this join independently and disagreed here; the
+  // explicit form won on that reasoning, not on which landed first.)
+  it('sets tool_use_id to null when the acknowledgment record has no matching tool_result block', () => {
     const events = parseLine(asyncLaunchResult('agent123'))
-    expect(events).toEqual([{ kind: 'resolution', agentId: 'agent123', status: 'async_launched' }])
+    expect(events).toEqual([{ kind: 'resolution', agentId: 'agent123', status: 'async_launched', tool_use_id: null }])
   })
 })
 
@@ -264,7 +281,7 @@ describe('correlateDispatches', () => {
       ...parseLine(launchAck('toolu_1', 'agentA')),
     ]
     expect(correlateDispatches(events)).toEqual([
-      { subagent_type: 'grader', toolUseId: 'toolu_1', agentId: 'agentA' },
+      { subagent_type: 'grader', tool_use_id: 'toolu_1', agentId: 'agentA' },
     ])
   })
 
@@ -286,8 +303,8 @@ describe('correlateDispatches', () => {
       ...parseLine(launchAck('toolu_1', 'agentG')),
     ]
     expect(correlateDispatches(events)).toEqual([
-      { subagent_type: 'maker', toolUseId: 'toolu_2', agentId: 'agentM' },
-      { subagent_type: 'grader', toolUseId: 'toolu_1', agentId: 'agentG' },
+      { subagent_type: 'maker', tool_use_id: 'toolu_2', agentId: 'agentM' },
+      { subagent_type: 'grader', tool_use_id: 'toolu_1', agentId: 'agentG' },
     ])
   })
 })
