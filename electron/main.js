@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, safeStorage } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -42,8 +42,9 @@ import { PROJECTIONS } from './ops/projections.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn } from './db/migrationDomainState.js'
-import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
+import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
+import { acquireDocCipher, isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { recordDeviceHealthEvent, DEVICE_HEALTH } from './ops/deviceHealthEvents.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
@@ -1925,6 +1926,32 @@ if (isElectronEntryPoint()) {
   // ensureSeeded the same way). Flag-off therefore still executes zero new logic.
   setAutomergeUserDataDirGetter(() => userDataPath)
 
+  // At-rest encryption (ADR 2026-09-15, ticket T175): acquire the per-device document cipher and
+  // inject it into liveDoc, so every .automerge read/write goes through it. Default OFF
+  // (SHORESH_AT_REST_ENCRYPTION!='on') → acquireDocCipher returns null → liveDoc stays plaintext,
+  // so this whole block is inert until the flag is deliberately turned on for the reviewed
+  // real-app rollout. When ON, a missing/unavailable keychain key is fatal by design (no key = no
+  // data), but it must arrive as the human recovery story, not a raw stack trace (assessment
+  // finding 3) — see docs/current/KEY_RECOVERY_STORY.md.
+  let docCipher = null
+  try {
+    docCipher = acquireDocCipher(userDataPath, safeStorage)
+  } catch (err) {
+    console.error(
+      'At-rest encryption is enabled but this device\'s storage key could not be obtained ' +
+        `(${err?.message ?? err}). The camp data on this device cannot be read without it. This is ` +
+        'by design — the key lives in the OS keychain and is not recoverable if that entry is gone. ' +
+        'Recover by re-syncing this device from a paired peer, or re-pairing it fresh; see the ' +
+        '"three keys, one event" recovery story (docs/current/KEY_RECOVERY_STORY.md). The app will ' +
+        'not start with encryption on and no key.'
+    )
+    throw err // fail closed — never fall back to reading plaintext when encryption is on
+  }
+  setAutomergeDocCipher(docCipher)
+  if (isAtRestEncryptionEnabled()) {
+    console.log('At-rest encryption: ON — the camp document is encrypted on disk under the OS-keychain key.')
+  }
+
   // Mutable state — swapped by project-lifecycle handlers (open/create/restore).
   let dbPath = getCurrentProjectPath(userDataPath, defaultDbPath)
   let db = openLocalDb(dbPath)
@@ -2535,7 +2562,10 @@ if (isElectronEntryPoint()) {
       ensureAutomergeDocSeeded(db)
       const doc = resolveStartupDoc({
         liveDoc: getDocIfLoaded(db),
-        persistedDoc: loadAutomergeDoc(userDataPath, campId),
+        // Same cipher liveDoc was given above — this direct read is the second of the three
+        // .automerge readers (assessment finding B), and all three must agree or an encrypted file
+        // fails to load. docCipher is null when encryption is off (plaintext, unchanged).
+        persistedDoc: loadAutomergeDoc(userDataPath, campId, docCipher),
       })
       if (!doc) {
         // Defense in depth, not the expected path: ensureAutomergeDocSeeded only returns null when
