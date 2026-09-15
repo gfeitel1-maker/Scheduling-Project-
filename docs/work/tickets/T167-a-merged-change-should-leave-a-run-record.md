@@ -107,3 +107,42 @@ before making it required" for a reason. The reusable mechanism is Mobile Protot
 `checkRunRecordNodes` (routing accounting), and the rule must apply to new completions only — 81
 tickets are already closed without a run record, so applying it retroactively means either
 fabricating history or a permanently red gate.
+
+## Correction, 2026-09-15 — the dispatch number in this ticket is wrong
+
+This ticket (and the commit messages and PR #404 body that quote it) says the reviewers run and
+**"grader 3"** does not. That number came from a recursive glob over a single project slug and is
+not representative. Corrected count over the full corpus — 1,936 `.jsonl` files, 335,658 records,
+every shoresh-family slug:
+
+| maker | code-reviewer | red-hat | architect | designer | tester | **grader** | verifier | security | governor |
+|---|---|---|---|---|---|---|---|---|---|
+| 438 | 241 | 228 | 136 | 92 | 87 | **74** | 72 | 67 | 62 |
+
+**Grader is dispatched slightly more often than Verifier.** The story this ticket told — "the
+reviewers run, nobody transcribes, so the evidence is discarded at the last step" — is an
+explanation invented to fit a bad measurement, and it should not be repeated.
+
+### What is still true, measured from git rather than transcripts
+
+292 commits on `origin/main` since 2026-08-25 produced **1** run record and **2** gate reports.
+25 gate-report artifacts exist in total. The artifact gap is real and large.
+
+### What is now unknown
+
+Grader is dispatched ~74 times; ~25 committed artifacts exist. **Why the remaining dispatches
+leave nothing behind has not been determined.** The obvious hypothesis — reports written into
+worktrees that never merge — was checked and is false: zero uncommitted gate reports across all
+ten worktrees. Candidates not yet tested: dispatches that reason but never reach
+`gateReportCli.js`; runs whose `runsDir` was a scratch path; multiple rounds against one task
+where only the last is kept.
+
+`scripts/observeRun.js` is the instrument that should answer this — extended to record, per
+Grader dispatch, whether `gateReportCli.js` was invoked and where it wrote. Until then the honest
+statement is: **the artifacts are missing and the reason is not established.**
+
+### Does slice 2 still earn its place
+
+Yes, but for a smaller reason than claimed. Deriving the Verifier report removes real clerical
+work and carries T169's commit binding into every GateReport. It does not, on its own, close the
+artifact gap — because the gap is not now known to be caused by transcription cost.
