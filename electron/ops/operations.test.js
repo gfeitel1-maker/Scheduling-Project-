@@ -4,8 +4,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
-import { ensureHostSigningKey } from '../auth/localAuth.js'
-import { signAuthFields } from '../auth/authSignature.js'
 import {
   appendOp,
   appendBulkReplaceOp,
@@ -44,13 +42,6 @@ beforeEach(() => {
   db.prepare(
     'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
   ).run('user-1', 'camp-1', 'Alice', 'hash', 'salt', 'staff')
-  // The Host signs its users (Q1). Without this, user-1 (which the first dual-write seeds into the
-  // doc from SQLite) would be an UNSIGNED credential row that projection-time enforcement refuses on
-  // the doc→SQLite path, diverging from the direct op-log projection. Sign it as the real Host does.
-  const _hostKey = ensureHostSigningKey(db)
-  db.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(_hostKey.public_key, 'camp-1')
-  db.prepare('UPDATE users SET auth_sig = ?, cred_version = 1 WHERE id = ?')
-    .run(signAuthFields(db, { id: 'user-1', role: 'staff', pin_hash: 'hash', pin_salt: 'salt', cred_version: 1 }), 'user-1')
 })
 
 afterEach(() => {
@@ -1214,11 +1205,6 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
     const targetDb = openLocalDb(targetTmpFile)
     try {
       targetDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
-      // The verifying key reaches a device via pairing/full-sync, not the document — mirror that so
-      // the doc→SQLite projection can verify user-1's Host signature and apply its credentials,
-      // matching the op-log db (Q1 enforcement).
-      const _pub = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key
-      targetDb.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(_pub, 'camp-1')
       projectAll(targetDb, doc)
 
       for (const entity of MODELED_ENTITIES) {

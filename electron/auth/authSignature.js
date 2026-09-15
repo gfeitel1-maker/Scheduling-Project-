@@ -14,17 +14,12 @@
 import { sign as edSign, verify as edVerify, createPrivateKey, createPublicKey } from 'node:crypto'
 
 // Domain-separation prefix: an auth-field signature must never be interchangeable with a session
-// token signature (which signs a base64url payload). Bumped v1→v2 when `cred_version` joined the
-// signed tuple (T172 replay defense) — a v1 signature no longer verifies, which is intended: the
-// v61 migration re-signs every user at v2. Bump again if the signed shape changes.
-const AUTH_SIG_CONTEXT = 'shoresh-auth-sig-v2'
+// token signature (which signs a base64url payload). Bump the version if the signed shape changes.
+const AUTH_SIG_CONTEXT = 'shoresh-auth-sig-v1'
 
-// The fields the signature binds, in fixed order. Binding `id` stops a signature being moved to
-// another user; binding the three credential fields stops any one being altered independently; and
-// binding `cred_version` — a monotonic per-user counter minted by the Host — stops a REPLAY of an
-// older genuinely-signed tuple (T172): projection rejects a verified tuple whose version is not
-// newer than the local row's, so an attacker cannot roll an admin back to a prior signed state.
-const SIGNED_FIELDS = ['id', 'role', 'pin_hash', 'pin_salt', 'cred_version']
+// The four fields the signature binds, in fixed order. Binding `id` stops a signature being moved
+// to another user; binding all three credential fields stops any one being altered independently.
+const SIGNED_FIELDS = ['id', 'role', 'pin_hash', 'pin_salt']
 
 // Canonical, deterministic, UNAMBIGUOUS serialization of the signed fields. Uses JSON.stringify of
 // a fixed-order ARRAY (not the input object) so the result cannot depend on the caller's key order,

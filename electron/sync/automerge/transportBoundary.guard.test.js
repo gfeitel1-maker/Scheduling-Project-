@@ -53,28 +53,15 @@ describe('Tier-4 internet-transport boundary guard', () => {
     ).toEqual([])
   })
 
-  it('the REAL production node uses mDNS-only discovery, no internet rendezvous (unless signed off)', () => {
+  it('the default listen address stays loopback (unless signed off)', () => {
     if (INTERNET_TRANSPORT_SIGNOFF) return
-    // CORRECTION (2026-09-15 WAN assessment, finding 1): the earlier version of this test asserted
-    // transport.js's DEFAULT_LISTEN stays loopback — but that constant is DEAD in production. The
-    // real node (electron/main.js) binds `/ip4/0.0.0.0/tcp/0` (all interfaces — necessary for LAN
-    // sync; loopback would let nothing connect). So "loopback" was never the boundary. The boundary
-    // that actually keeps this off the internet is DISCOVERY: the production node is wired with
-    // `createMdnsDiscovery` (link-local multicast) and NOTHING that performs internet rendezvous
-    // (DHT/bootstrap/relay). This test asserts that real wiring, so the guard can no longer be
-    // satisfied while the actual bind/discovery has already widened.
-    const mainSrc = readFileSync(join(repoRoot, 'electron', 'main.js'), 'utf8')
-    expect(/peerDiscovery:\s*\[\s*createMdnsDiscovery\(/.test(mainSrc),
-      'electron/main.js no longer wires mDNS-only discovery (createMdnsDiscovery) into startSyncNode — ' +
-      'if internet discovery (DHT/bootstrap/relay rendezvous) was added, the trusted-LAN boundary is gone; ' +
-      'complete docs/adr/2026-09-14-internet-transport-security-gate.md and set INTERNET_TRANSPORT_SIGNOFF=true.'
-    ).toBe(true)
-    for (const marker of ['kadDHT', 'circuitRelay', 'bootstrap(', 'dcutr', 'autonat', 'webRTC']) {
-      expect(mainSrc.includes(marker),
-        `electron/main.js references '${marker}' — an internet rendezvous/transport was wired into the ` +
-        `production node. That is the boundary change this gate exists to catch.`
-      ).toBe(false)
-    }
+    // The shipped default binds loopback only; real-LAN listening is passed in explicitly by a
+    // caller, not baked into the default. A non-loopback default is a boundary change.
+    const m = transportSrc.match(/const DEFAULT_LISTEN\s*=\s*(\[[^\]]*\])/)
+    expect(m, 'Could not find DEFAULT_LISTEN in transport.js — the guard needs to see it').toBeTruthy()
+    expect(m[1], `DEFAULT_LISTEN changed away from loopback: ${m?.[1]}. If intentional, complete the ` +
+      `ADR re-assessment and set INTERNET_TRANSPORT_SIGNOFF=true.`
+    ).toContain('127.0.0.1')
   })
 
   it('transport.js imports no internet-transport package directly (unless signed off)', () => {

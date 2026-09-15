@@ -195,38 +195,6 @@ export function syncStatusLabel(status) {
         'records what failed. Free up space before it runs out.',
     }
   }
-  // T176 — no other computer holds a copy of this camp.
-  //
-  // Lowest priority of the three, and that ordering is the point: an unshared
-  // write is something already lost, a full disk is something about to fail,
-  // and this is a standing condition. It is not an incident and must not read
-  // like one — it is the quiet answer to "is anything else holding this?".
-  //
-  // WHY IT IS HERE AT ALL. `docs/current/KEY_RECOVERY_STORY.md` has exactly one
-  // case where a camp loses data it cannot get back: the only device is lost.
-  // Its mitigation is operational, not cryptographic — keep a second device
-  // paired and synced — and a second synced device is not a backup chore, it IS
-  // the backup, continuously. That advice is useless if a director cannot tell
-  // they have not followed it, and until now the count lived behind the Devices
-  // screen, which is where you go once you already suspect something.
-  //
-  // THE COPY IS TRUE TODAY AND STAYS TRUE AFTER ENCRYPTION. It says there is no
-  // second copy — which is a fact about this camp right now — rather than "the
-  // data cannot be recovered", which only becomes true once at-rest encryption
-  // is switched on. Writing the stronger sentence early would be a claim the
-  // code does not yet support, which is the T149 defect class.
-  //
-  // `undefined` is not zero: a caller that never reported the count must render
-  // silence, not an assertion that the camp is alone.
-  if (status?.otherDeviceCount === 0) {
-    return {
-      text: 'only this computer',
-      tone: 'secondary',
-      title:
-        'No other computer has a copy of this camp. If this one is lost, stolen or replaced, there is ' +
-        'no second copy to restore from. Adding another device keeps the two in step automatically.',
-    }
-  }
   return SYNC_STATUS_COPY[status?.state] ?? SYNC_STATUS_COPY.standalone
 }
 

@@ -21,11 +21,8 @@ affects:
 ## Context
 
 Every security decision in Shoresh rests on one load-bearing assumption: **the sync transport is
-reachable only on the local network.** CORRECTION (2026-09-15 WAN assessment, finding 1): the
-production node does NOT bind loopback — `electron/main.js` passes `listen: ['/ip4/0.0.0.0/tcp/0']`
-(all interfaces, necessary for LAN sync; loopback would let nothing connect). `transport.js`'s
-loopback `DEFAULT_LISTEN` is dead in production. So the boundary is **not** the bind; it is
-**discovery**: the shipped node uses `@libp2p/mdns` (link-local multicast) only — no relay, no DHT,
+reachable only on the local network.** The shipped libp2p node uses `@libp2p/tcp` bound to a
+loopback default (`/ip4/127.0.0.1/tcp/0`) with `@libp2p/mdns` LAN discovery — no relay, no DHT,
 no WebRTC/WebSocket/WebTransport, no bootstrap list, no NAT traversal. Under that assumption a
 set of real, documented tradeoffs are *acceptable*: no TLS on the wire (`ws://`-era reasoning
 carried forward), the plaintext PIN in the first-login message, device-side role enforcement
@@ -60,20 +57,19 @@ The re-assessment must cover, at minimum:
    auto-update; unsigned update is an RCE vector once the app talks to the internet at all.
 5. **Device-side role enforcement under CRDT sync** — re-evaluate whether a compromised paired
    peer's writes are acceptable when peers are no longer all on a trusted LAN.
-6. **Credential-signature replay + degrade-window permanence (T172) — RESOLVED 2026-09-15.** The two
-   merge-path credential-*mutation* residuals the Q1 enforcement review found (replaying an old
-   Host-signed tuple to demote an admin / roll back a PIN; forgeries accepted on a key-less rebuilt
-   device becoming permanent) are fixed: a monotonic `cred_version` bound into the signature defeats
-   replay, and the no-key branch now *skips* rather than accepts an unverifiable change. Done ahead
-   of this gate (the owner reclassified them as present risks — devices connect over paths beyond the
-   LAN). Re-verify remains part of any internet-transport re-assessment, but the known findings are
-   closed. See `docs/work/tickets/T172-...` and `docs/work/security/2026-09-15-Q1-enforcement-merge-review.md`.
+6. **Credential-signature replay + degrade-window permanence (T165)** — the Q1 enforcement closes
+   credential *forgery* but two merge-path credential-*mutation* residuals (a paired peer replaying
+   an old Host-signed tuple to demote an admin / roll back a PIN; and forgeries accepted on a
+   key-less rebuilt device becoming permanent) are MEDIUM under the LAN boundary and rise to HIGH
+   once a peer can be remote. Both MUST be fixed before this gate is signed off. See
+   `docs/work/tickets/T165-credential-signature-replay-and-degrade-permanence.md` and
+   `docs/work/security/2026-09-15-Q1-enforcement-merge-review.md`.
 
 ### Enforcement (this is not just prose)
 
 `electron/sync/automerge/transportBoundary.guard.test.js` fails the test suite — and therefore
 `npm run verify` — if any internet-transport package is added to `package.json`, if `transport.js`
-imports one, or if `electron/main.js` stops wiring mDNS-only discovery (i.e. an internet rendezvous — DHT/bootstrap/relay — is added to the production node). The guard is disabled only by flipping its
+imports one, or if `DEFAULT_LISTEN` moves off loopback. The guard is disabled only by flipping its
 `INTERNET_TRANSPORT_SIGNOFF` constant to `true`, which a reviewer may do **only after** the
 re-assessment above is recorded (as an ADR or an entry in the security-program doc). Flipping the
 switch forces someone to open the guard file, which points back here — the checkpoint is
@@ -91,6 +87,6 @@ unavoidable by construction.
 ## Verification
 
 - The guard passes on the current LAN-only tree (3 assertions green).
-- Adding any listed package, importing one in `transport.js`, or wiring an internet rendezvous
-  (DHT/bootstrap/relay) into `electron/main.js`'s discovery turns the suite red with a message pointing here — confirmed by construction (the
+- Adding any listed package, importing one in `transport.js`, or changing `DEFAULT_LISTEN` off
+  loopback turns the suite red with a message pointing here — confirmed by construction (the
   assertions read the live `package.json` and `transport.js`).

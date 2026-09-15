@@ -56,15 +56,15 @@ describe('gateResultCode.sh — passed, failed, and cannot tell', () => {
   })
 
   it('THE HISTORICAL DEFECT: a failing step can never read as a pass', () => {
-    // The regression that shipped through a green run. Kept as its own named
-    // case so a future "simplification" of the exit logic has to break a test
+    // The regression that shipped through a green run. Kept as its own case,
+    // named, so a future "simplification" of the exit logic has to break a test
     // that says what it is protecting.
     expect(run(resultsFile('regression.txt', 'STEP test rc=1\nDONE\n'))).not.toBe(0)
   })
 
-  it('catches a multi-digit failure code (127, 137), not just rc=1..9', () => {
-    // command-not-found is 127; an OOM kill is 137. Matching a single digit
-    // only would call both of those a pass.
+  it('catches a multi-digit failure code (rc=127), not just rc=1..9', () => {
+    // A command-not-found is rc=127; an OOM kill is 137. Matching only a single
+    // digit would call both of those a pass.
     expect(run(resultsFile('rc127.txt', 'STEP security rc=127\nDONE\n'))).toBe(1)
     expect(run(resultsFile('rc137.txt', 'STEP test rc=137\nDONE\n'))).toBe(1)
   })
@@ -82,7 +82,7 @@ describe('gateResultCode.sh — passed, failed, and cannot tell', () => {
     expect(run(resultsFile('empty.txt', ''))).toBe(2)
   })
 
-  it('output with no STEP lines is inconclusive, never a pass', () => {
+  it('a results file with output but no STEP lines is inconclusive, never a pass', () => {
     // The realistic shape of the above: the runner crashed partway and left
     // whatever it had already printed.
     expect(run(resultsFile('noisy.txt', 'starting gate\nnpm error ENOENT\n'))).toBe(2)
@@ -94,9 +94,12 @@ describe('gateResultCode.sh — passed, failed, and cannot tell', () => {
 
   it('distinguishes FAILED from CANNOT TELL, because a human responds differently', () => {
     // A failed gate means read the failures. An inconclusive one means the gate
-    // itself is broken. Collapsing both to "non-zero" would lose the difference
+    // itself is broken. Collapsing them to "non-zero" would lose the difference
     // at the exact moment it matters.
-    expect(run(resultsFile('f.txt', 'STEP test rc=1\nDONE\n'))).toBe(1)
-    expect(run(path.join(dir, 'absent.txt'))).toBe(2)
+    const failed = run(resultsFile('f.txt', 'STEP test rc=1\nDONE\n'))
+    const inconclusive = run(path.join(dir, 'absent.txt'))
+    expect(failed).toBe(1)
+    expect(inconclusive).toBe(2)
+    expect(failed).not.toBe(inconclusive)
   })
 })

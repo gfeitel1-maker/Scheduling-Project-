@@ -16,19 +16,6 @@ import { applyProjection } from './projections.js'
 import { STORE_PROJECTION } from './documentWriteFailures.js'
 
 export function repairProjectionForEntity(db, entity, entity_id) {
-  // Q1/T172: `users` credential fields (role/pin_hash/pin_salt) are trusted ONLY through the
-  // signature-verifying doc-replay path (projector.js `upsertUsersEntity`). This function replays
-  // raw `operations` rows straight through `applyProjection`, which does NO signature/cred_version
-  // check — so repairing `users` here would be a parallel, unenforced write onto the one table whose
-  // integrity the whole Q1 mitigation protects. Refuse it. (A user's projection is rebuilt the
-  // enforced way, from the document, not via this op-log repair tool.) Red Hat review of T172.
-  if (entity === 'users') {
-    throw new Error(
-      "repairProjectionForEntity: refusing entity 'users' — user credentials are Host-signed and " +
-        'may only be projected through the signature-verifying document path, never replayed raw ' +
-        'through applyProjection. Rebuild the user from the document instead.'
-    )
-  }
   const ops = db
     .prepare('SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq ASC')
     .all(entity, entity_id)

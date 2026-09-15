@@ -109,11 +109,11 @@ export const PROJECTIONS = {
   users: {
     table: 'users',
     key: 'id',
-    fields: ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig', 'cred_version'],
+    fields: ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig'],
     ensureExists: (db, id) =>
       db
         .prepare(
-          "INSERT OR IGNORE INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig, cred_version) VALUES (?, NULL, '', '', '', 'staff', '', 0)"
+          "INSERT OR IGNORE INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig) VALUES (?, NULL, '', '', '', 'staff', '')"
         )
         .run(id),
   },

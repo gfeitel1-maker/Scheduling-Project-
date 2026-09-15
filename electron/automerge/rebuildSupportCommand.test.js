@@ -141,7 +141,6 @@ describe('rebuildIntoFreshDb — the T151 property, from this module\'s own entr
     expect(result.notRecoverable).toMatch(/operations table/)
     expect(result.notRecoverable).toMatch(/Trash/)
     expect(result.notRecoverable).toMatch(/signing_secret/)
-    expect(result.notRecoverable).toMatch(/cannot VERIFY credential changes/) // T172: rebuilt device credential-verify guidance
     fresh.close()
   })
 })
@@ -182,50 +181,6 @@ describe('rebuildProjectionFromDocumentAtPath — file-path wrapper', () => {
 
     const dirEntries = fs.readdirSync(path.dirname(dbPath)).filter((f) => f.startsWith(path.basename(dbPath)))
     expect(dirEntries.some((f) => f.includes('pre-migration'))).toBe(false)
-  })
-
-  it('refuses DISTINCTLY when the document file exists but cannot be decrypted (finding 2)', async () => {
-    // A present-but-undecryptable file must NOT fall through to the "no file" refusal — opposite
-    // support advice (re-sync/re-pair, not "seed the document"). Write an ENCRYPTED doc under one
-    // key, then attempt the rebuild with a DIFFERENT key: the decrypt throws inside the load and the
-    // wrapper turns it into the undecryptable refusal, without backing up or touching the db.
-    const { makeDocCipher } = await import('../db/docCipher.js')
-    const { randomBytes } = await import('node:crypto')
-    const { db, dbPath } = newDb('wrapper-undecryptable')
-    const campId = randomUUID()
-    buildCamp(db, campId, 'device-1')
-    const doc = seedAllFromSqlite(db)
-    const userDataDir = newUserDataDir('wrapper-undecryptable')
-    saveDoc(userDataDir, campId, doc, makeDocCipher(randomBytes(32))) // encrypted with key A
-    db.close()
-
-    const wrongKeyCipher = makeDocCipher(randomBytes(32)) // key B — cannot decrypt
-    expect(() => rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, cipher: wrongKeyCipher }))
-      .toThrow(/cannot be decrypted/)
-    // Distinct from the no-file case, and no backup written on a refusal.
-    expect(() => rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, cipher: wrongKeyCipher }))
-      .toThrow(RebuildRefusalError)
-    const dirEntries = fs.readdirSync(path.dirname(dbPath)).filter((f) => f.startsWith(path.basename(dbPath)))
-    expect(dirEntries.some((f) => f.includes('pre-migration'))).toBe(false)
-  })
-
-  it('still succeeds when a cipher is passed and the key is correct (round-trip through the wrapper)', async () => {
-    const { makeDocCipher } = await import('../db/docCipher.js')
-    const { randomBytes } = await import('node:crypto')
-    const key = randomBytes(32)
-    const cipher = makeDocCipher(key)
-    const { db, dbPath } = newDb('wrapper-cipher-happy')
-    const campId = randomUUID()
-    buildCamp(db, campId, 'device-1')
-    const doc = seedAllFromSqlite(db)
-    const userDataDir = newUserDataDir('wrapper-cipher-happy')
-    saveDoc(userDataDir, campId, doc, cipher)
-    db.close()
-
-    const result = rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, cipher: makeDocCipher(key) })
-    expect(result.ok).toBe(true)
-    expect(result.after.locations).toBe(1)
-    fs.unlinkSync(result.backupPath)
   })
 
   it('refuses without touching or backing up the database when there is no camps row', () => {

@@ -42,20 +42,20 @@ describe('promoteToAdmin mints a verifiable Host signature (Q1 slice 2)', () => 
     seedStaff(id, '1234')
     promoteToAdmin(db, { userId: id, newPin: '654321', actorUserId: null, deviceId: 'device-1' })
 
-    const row = db.prepare('SELECT role, pin_hash, pin_salt, auth_sig, cred_version FROM users WHERE id = ?').get(id)
+    const row = db.prepare('SELECT role, pin_hash, pin_salt, auth_sig FROM users WHERE id = ?').get(id)
     expect(row.role).toBe('admin')
     expect(row.auth_sig).not.toBe('')
-    expect(verifyAuthFields(publicKeyHex, { id, role: 'admin', pin_hash: row.pin_hash, pin_salt: row.pin_salt, cred_version: row.cred_version }, row.auth_sig)).toBe(true)
+    expect(verifyAuthFields(publicKeyHex, { id, role: 'admin', pin_hash: row.pin_hash, pin_salt: row.pin_salt }, row.auth_sig)).toBe(true)
   })
 
   it('the signature does NOT verify against the pre-promotion (staff) role — it binds the new state', () => {
     const id = randomUUID()
     seedStaff(id, '1234')
     promoteToAdmin(db, { userId: id, newPin: '654321', actorUserId: null, deviceId: 'device-1' })
-    const row = db.prepare('SELECT pin_hash, pin_salt, auth_sig, cred_version FROM users WHERE id = ?').get(id)
+    const row = db.prepare('SELECT pin_hash, pin_salt, auth_sig FROM users WHERE id = ?').get(id)
     // A forger who kept the admin signature but tried to pair it with role 'staff' (or any other
     // field value) must fail — the signature binds all four fields together.
-    expect(verifyAuthFields(publicKeyHex, { id, role: 'staff', pin_hash: row.pin_hash, pin_salt: row.pin_salt, cred_version: row.cred_version }, row.auth_sig)).toBe(false)
+    expect(verifyAuthFields(publicKeyHex, { id, role: 'staff', pin_hash: row.pin_hash, pin_salt: row.pin_salt }, row.auth_sig)).toBe(false)
   })
 
   it('fails loudly on a non-Host db rather than writing an unsigned admin row', () => {

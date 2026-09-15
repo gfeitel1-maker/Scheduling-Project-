@@ -192,7 +192,7 @@ Independent review before merge (`security-assessment` + `red-hat`): **safe to m
 trusted-LAN boundary**; the primary Q1 escalation + credential-overwrite attack is confirmed closed
 (verified by trace + test; the key-swap bypass is impossible because `signing_public_key` is not a
 replicable projection field). Two MEDIUM residuals remain, safe under LAN and tracked as **hard
-Tier-4 blockers** in `docs/work/tickets/T172-...` and the internet-transport ADR: (1) signature
+Tier-4 blockers** in `docs/work/tickets/T165-...` and the internet-transport ADR: (1) signature
 replay/rollback (no freshness binding) and (2) degrade-window forgeries becoming permanent on a
 key-less rebuilt device. Full review: `docs/work/security/2026-09-15-Q1-enforcement-merge-review.md`.
 

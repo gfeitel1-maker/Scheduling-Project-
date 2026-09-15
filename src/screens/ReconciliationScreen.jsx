@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { localClient } from '../localClient'
-import { journalEntriesFor } from '../ingest/decisionJournal.js'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
 import { applyTrayState } from './reconciliationTray'
@@ -206,21 +205,6 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
       // success) — outcome.invertibleOps/createdEntityIds ride along on the
       // same onCommitted callback ImportScreen already consumes.
       await confirmRemembers(identityRememberCalls(decisions, answersForApply, baseInputs.cohort_id))
-      // T173 slice 1 — best-effort journal of what was asked and what the
-      // director did about it (docs/superpowers/specs/
-      // 2026-09-15-seedlings-importer-learning-design.md). Ships dark:
-      // nothing the director sees changes. Same posture as confirmRemembers
-      // above — after a successful commit, never blocking, never thrown back
-      // into apply() (recordImportDecisions itself never throws either, so
-      // this is only guarding the IPC round-trip).
-      try {
-        const importId = crypto.randomUUID()
-        await localClient.recordImportDecisions({
-          entries: journalEntriesFor(decisions, answersForApply, importId),
-        })
-      } catch {
-        /* diagnostics only — never surfaced, never blocking */
-      }
       onCommitted?.(outcome)
     } catch (err) {
       setError(mapCommitError(err))

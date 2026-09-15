@@ -37,9 +37,9 @@ function insertUser(db, { camp_id, name, pin, role }) {
   // The Host signs its users (Q1 fix) — a user replicated to a joiner without a valid Host signature
   // is (correctly) refused by projection-time enforcement. `db` here is the Host, which holds the
   // signing key, so mirror what createUser/promoteToAdmin do for real.
-  const auth_sig = signAuthFields(db, { id, role, pin_hash, pin_salt: salt, cred_version: 1 })
+  const auth_sig = signAuthFields(db, { id, role, pin_hash, pin_salt: salt })
   db.prepare(
-    'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig, cred_version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
+    'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig) VALUES (?, ?, ?, ?, ?, ?, ?)'
   ).run(id, camp_id, name, pin_hash, salt, role, auth_sig)
   return { id, name, role }
 }
