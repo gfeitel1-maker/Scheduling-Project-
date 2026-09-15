@@ -1,7 +1,7 @@
 ---
 title: "Every timeout in the suite is a bet on machine speed, and the bet is silently lost under load"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-14
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
@@ -9,6 +9,20 @@ archive_when: a loaded machine no longer turns the libp2p sync tests red, or the
 ---
 
 # T164 — The libp2p sync tests fail when the machine is busy
+
+**RESOLVED 2026-09-15 (the second clause of archive_when).** The gate now says PLAINLY when a red is
+a load timeout rather than a defect, instead of leaving a human to re-run and guess. `scripts/verify.js`
+gained `machineLoadVerdict(load1, cores)` and a third verdict: when a step fails AND the 1-minute load
+average is ≥ 4× the core count, the run reports **⚠️ VERIFY INCONCLUSIVE (exit 2)**, not ❌ FAILED —
+the same 0/1/2 "cannot tell" shape gateResultCode.sh (T171), recordSyncHealthEvent (T174) and
+isLowDisk (T160) already use. It is still non-zero, so it never masks a real red or becomes a false
+green; it just tells a human "the machine was swamped — re-run the failing step in isolation before
+concluding a defect," which is exactly the 20-minute dance this ticket was filed to remove. A passing
+run is never relabelled, and normal multi-session load (a few× oversubscribed, which this repo runs by
+design) does not trip it. Chosen over the deterministic-clock rewrite (direction 3) because, as the
+"better measurement" section below establishes, the failures were spread across permissions/ingest/
+electives — ordinary synchronous tests — not the libp2p timers, so a per-test clock would not have
+saved a permission test at 497s. Test-covered in scripts/verify.test.js.
 
 Filed from the architecture-review program (T148-T163), where this cost real
 time three separate times and each time had to be re-diagnosed from scratch.

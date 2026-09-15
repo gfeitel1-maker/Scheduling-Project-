@@ -28,6 +28,7 @@ import { identify } from '@libp2p/identify'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { PROTO, AUTH_PROTO, SYNC_PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
 import { registerAuthGate } from './authGate.js'
+import { makeConnectionRateLimiter, ipFromMultiaddr } from './connectionRateLimiter.js'
 
 // Accept either a PeerId/Multiaddr object (as returned by getPeers()'s
 // underlying node, or by getMultiaddrs()) or transport.js's own stringified
@@ -62,7 +63,15 @@ const MAX_CONNECTIONS = 200
 // scoped discovery; omitted by default so tests keep dialing directly over
 // loopback (mDNS needs a real network interface — see discovery.js's own
 // module comment).
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter } = {}) {
+  // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
+  // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
+  // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
+  // This denies BEFORE the noise handshake (the earliest inbound hook), so it also bounds the
+  // handshake cost of a flood. It exempts loopback + every private range, so it is INERT on the LAN
+  // (all-private) and in tests (loopback) — it can only ever limit a PUBLIC source, which appears
+  // only once internet transport is enabled. Injectable for tests; a real limiter by default.
+  const rateLimiter = connectionRateLimiter ?? makeConnectionRateLimiter(now ? { now } : {})
   const node = await createLibp2p({
     addresses: { listen: listen ?? DEFAULT_LISTEN },
     transports: [tcp()],
@@ -75,8 +84,29 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     // Stage-5 pre-wiring item per the Security review; the frame-SIZE cap lives
     // in wireProtocol.js's MAX_FRAME_BYTES.)
     connectionManager: { maxConnections: MAX_CONNECTIONS },
+    // Per-source-IP flood cap — see rateLimiter above. Returns true to DENY.
+    connectionGater: {
+      denyInboundConnection: (maConn) => {
+        try {
+          return !rateLimiter.allow(ipFromMultiaddr(maConn?.remoteAddr?.toString()))
+        } catch {
+          return false // never let a classification error block a connection (fail open)
+        }
+      },
+    },
     services: { identify: identify() },
     ...(peerDiscovery ? { peerDiscovery } : {}),
+  })
+
+  // Free a source's concurrent slot when an inbound connection closes. Only inbound connections were
+  // counted (denyInboundConnection above), so only inbound closes release. Outbound closes are
+  // ignored; a private/loopback ip is a no-op inside release().
+  node.addEventListener('connection:close', (evt) => {
+    try {
+      if (evt.detail?.direction === 'inbound') {
+        rateLimiter.release(ipFromMultiaddr(evt.detail?.remoteAddr?.toString()))
+      }
+    } catch { /* release must never throw into libp2p's event dispatch */ }
   })
 
   const { authenticatedPeers, sendPairingApproved, sendPairingDenied } = registerAuthGate(node, {

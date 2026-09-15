@@ -38,7 +38,6 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Every timeout in the suite is a bet on machine speed, and the bet is silently lost under load](../../docs/work/tickets/T164-libp2p-sync-tests-fail-under-load.md) | open | [2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-](../../docs/work/runs/2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-.md) |
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 
 ## Decisions
@@ -167,6 +166,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-09-15 | [closes T164 — verify reports INCONCLUSIVE (exit 2) when a step fails under machine oversubscription](../../docs/work/runs/2026-09-15-closes-t164-verify-reports-inconclusive-exit-2-when-a-step-f.md) | test-infrastructure | pass | PASS |
 | 2026-09-15 | [T167 part 1: make filing a run record cheap, and correct T164's diagnosis](../../docs/work/runs/2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-.md) | documentation-governance | pass | pass |
 | 2026-09-15 | [closes T167 part 2: a change that closes something must file a run record](../../docs/work/runs/2026-09-15-t167-part-2-require-a-run-record.md) | documentation-governance | pass | pass |
 | 2026-09-14 | [harness reliability — classify non-retryable nightly failures, make the morning check ask whether the pass succeeded, protect application-leased worktrees from pruning, and pin the loop-roster/Article VI partition](../../docs/work/runs/2026-09-14-harness-reliability-repairs.md) | test-infrastructure | pass | merged-under-human-waiver |
