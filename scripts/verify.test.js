@@ -50,7 +50,14 @@ describe('verify gate wrapper', () => {
     })
   })
 
-  it('gates the canonical four steps in the documented order', () => {
-    expect(VERIFY_STEPS).toEqual(['lint', 'test', 'test:integration', 'security', 'check:governance'])
+  it('gates the canonical steps in the documented order', () => {
+    expect(VERIFY_STEPS).toEqual([
+      'lint',
+      'agents:check',
+      'test',
+      'test:integration',
+      'security',
+      'check:governance',
+    ])
   })
 })

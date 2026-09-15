@@ -1,0 +1,17 @@
+# gate run against 5d9e0597c568028a97e8cbf9d60c8c83e460500a dirty=0 chunks=10
+STEP lint | rc=0 |✖ 26 problems (0 errors, 26 warnings)
+STEP agents-check | rc=0 |
+STEP tests-1 | rc=0 | Tests 537 passed (537)
+STEP tests-2 | rc=0 | Tests 612 passed (612)
+STEP tests-3 | rc=0 | Tests 647 passed (647)
+STEP tests-4 | rc=0 | Tests 500 passed (500)
+STEP tests-5 | rc=0 | Tests 584 passed (584)
+STEP tests-6 | rc=0 | Tests 675 passed (675)
+STEP tests-7 | rc=0 | Tests 569 passed | 1 skipped (570)
+STEP tests-8 | rc=0 | Tests 743 passed (743)
+STEP tests-9 | rc=0 | Tests 624 passed (624)
+STEP tests-10 | rc=0 | Tests 57 passed (57)
+STEP integration | rc=0 | 20/20 passed (20 libp2p scenarios; they cover 20 of the 27 WS originals — 17 collapses 17/25/26/27)
+STEP security | rc=0 |✅ security-gate: 0 findings (deps + secrets + dangerous patterns)
+STEP governance | rc=0 |check:governance — no findings.
+DONE

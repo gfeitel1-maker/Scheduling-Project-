@@ -38,7 +38,11 @@ export default defineConfig({
     // up another branch's suite alongside this one. Observed 2026-07-28 — the
     // count went 678 -> 1367 and the duplicated sync tests contended for the
     // same WebSocket ports, failing exactly as the release/ copies did.
-    exclude: ['**/node_modules/**', '**/dist/**', 'release/**', '**/.claude/worktrees/**'],
+    // 'test/fixtures/**' matters more than it looks: a fixture file named *.test.js is collected
+    // as a REAL spec otherwise. test/fixtures/specDirs/has-tests/src/foo.test.js is the literal
+    // word `test`, existing only so a predicate can be asked whether a directory contains a test
+    // file — and it was being handed to vitest as part of the suite.
+    exclude: ['**/node_modules/**', '**/dist/**', 'release/**', '**/.claude/worktrees/**', 'test/fixtures/**'],
     // T25: the default 5000ms per-test budget made a green run depend on how
     // busy the machine was. Six identical full runs on 2026-07-31 produced
     // three greens and three reds, with a different set of tests failing each

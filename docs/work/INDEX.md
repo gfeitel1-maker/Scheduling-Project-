@@ -47,8 +47,6 @@ Regenerate with `npm run index:work`.
 | [The libp2p sync tests fail when the machine is busy, which is when agents work](../../docs/work/tickets/T164-libp2p-sync-tests-fail-under-load.md) | open | — |
 | [Decouple agents:check from the unversioned home organization package](../../docs/work/tickets/T165-decouple-agents-check-from-the-home-organization-package.md) | open | — |
 | [Put agents:check in the gate once green is reachable everywhere](../../docs/work/tickets/T166-put-agents-check-in-the-gate.md) | open | — |
-| [The two unattended jobs delete directories and write memory, and neither has a test](../../docs/work/tickets/T168-shell-test-harness-for-the-unattended-jobs.md) | in-progress | — |
-| [Make the agent-team activity report a standing measurement, not an ad-hoc probe](../../docs/work/tickets/T170-standing-agent-activity-report.md) | open | — |
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 
 ## Decisions
@@ -166,6 +164,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Persistent per-device libp2p identity, binding a session token to the peer presenting it](../../docs/adr/2026-09-14-device-identity-and-token-binding.md) | accepted | not_started | [T162-device-identity-and-token-binding](../../docs/work/tickets/T162-device-identity-and-token-binding.md) |
 | [Internet-reachable transport requires a full security re-assessment (enforced gate)](../../docs/adr/2026-09-14-internet-transport-security-gate.md) | accepted | implemented | — |
 | [Take users' auth fields (role, pin_hash, pin_salt) off the replicated document](../../docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md) | accepted | in_progress | — |
+| [Opinion GateReport inputs are bound to a real, completed subagent dispatch](../../docs/adr/2026-09-15-opinion-report-dispatch-provenance.md) | accepted | shipped | — |
 
 ## Runs
 

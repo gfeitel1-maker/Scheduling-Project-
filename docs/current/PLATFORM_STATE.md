@@ -534,6 +534,37 @@ Managed by `electron/db/projectManager.js`. A "project" is a named SQLite file o
 
 ---
 
+## The quality harness (how work gets verified and recorded)
+
+Not app code — the machinery that decides whether a change is done. Added across 2026-09-14/15.
+
+| piece | what it is |
+|---|---|
+| `npm run gate` (`scripts/gate.sh`) | Batched runner for the same steps as `npm run verify`, split so each reports independently and a long run survives an interrupted watcher. Writes a machine-readable results file **outside the repo** — writing it inside dirtied the tree being measured. |
+| The stamp | `# gate run against <sha> dirty=<n> chunks=<m>`, written when the run **starts**. A run read after a rebase would otherwise claim the wrong commit. |
+| `scripts/verifierReport.js` | Derives Verifier's `PerGateReport` from that results file. `UNVERIFIED` — never `PASS` — when the run did not finish, when the evidence does not bind to the commit under review, when the tree was dirty, or when fewer test chunks ran than the stamp declared. |
+| `scripts/opinionReportProvenance.js` | Binds each opinion report to a real, completed subagent dispatch found in the session transcript. ADR `docs/adr/2026-09-15-opinion-report-dispatch-provenance.md`. |
+| `scripts/observeRun.js` | Incremental transcript report: skills invoked, agents dispatched, completion, and — the point — **its own coverage**, so a percentage can't be quoted without its denominator. |
+| `scripts/generateAgentProfiles.js` | Generates the 13 `.claude/agents/*.md` from vendored fragments + per-role bindings. In the gate as `agents:check`, so a hand-edited profile fails. |
+| Shell predicates | `gateResultCode.sh`, `gateSpecCount.sh`, `classifyMineOutput.sh`, `parseWorktreePorcelain.sh`, `worktreeDecision.sh`, `selfHealDecision.sh` — logic lifted out of the unattended jobs so it is testable against fixtures. |
+
+**`scripts/gateReportReduce.js` is deliberately untouched by all of it.** Every check runs upstream
+and feeds the reducer verified inputs; its unchanged semantics are the property being protected.
+
+**The nightly consolidation** (`scripts/consolidation/`, 03:00 via launchd) mines each day's
+sessions into a quarantined memory proposal. Scripts are versioned here; the DATA it writes
+(`~/.claude/projects/<slug>/`) is a live store that must never be checked in. `README.md` there
+carries the one rule that matters: **never run `run.sh <old-day>` to recover a failed night** — it
+re-runs a mtime-selected, truncating gather and destroys the preserved evidence. Use
+`mineFromPacket.sh`.
+
+**Why any of this exists.** Between 2026-08-25 and 2026-09-14, 292 commits produced one run record
+and two gate reports. The repairs are documented in T165-T171; the cause of the artifact gap is
+**not established**, and T170 records three contradictory attempts to explain it rather than
+asserting a fourth.
+
+---
+
 ## Test Coverage
 
 - **Vitest unit tests**: run with `npm run test` (`vitest run`) — auth, ops, projections, the Automerge document/reconciler/history-ledger, the libp2p transport/auth-gate/discovery/join-flow layer (now the live sync path, not additive — see header note), IPC handlers, schedule engine, ingest, plus the events/electives/recurrence/location-contention/projection-repair/inline-add-setup-screen surfaces. **370 test files** as of 2026-09-12 (299 `.test.js` + 71 `.test.jsx`), running ~5,000 tests (the last full gate: 371 files / 5,024 passing / 1 skipped — 371 rather than 370 because one file is counted per project config, not per path). Up from the pre-Stage-6 count despite deletions — the retired `electron/sync/syncServer.js`/`syncClient.js`/`discovery.js` WS files and their tests are deleted, not replaced 1:1, since a real libp2p node covers some of the same ground differently).

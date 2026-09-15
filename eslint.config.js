@@ -15,7 +15,11 @@ export default defineConfig([
   // inside the project, so linting it reports another branch's in-progress
   // code as errors on this one. Observed 2026-07-28 — 16 errors, none of
   // them in the working tree.
-  globalIgnores(['dist', 'release', '.claude/worktrees']),
+  // 'test/fixtures' is the same defect class a THIRD time, from a third direction: fixtures are
+  // DATA that happens to be shaped like code. test/fixtures/specDirs/has-tests/src/foo.test.js
+  // contains the single word `test` — it exists so a predicate can be asked "does this directory
+  // contain a test file", and linting it reports a fixture's deliberate shape as a source error.
+  globalIgnores(['dist', 'release', '.claude/worktrees', 'test/fixtures']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [

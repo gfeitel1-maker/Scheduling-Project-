@@ -23,14 +23,50 @@ const writeInput = (name, data) => {
 const verifier = { gate_name: 'verifier', verdict: 'PASS', score: null, na_reason: null, findings: [], evidence_ref: 'x' }
 const opinion = (gate_name, score) => ({ gate_name, verdict: 'PASS', score, na_reason: null, findings: [], evidence_ref: null })
 
+// T171 fixtures: a session transcript in which all four opinion gates were genuinely dispatched
+// and completed, so provenance binding succeeds and the pre-existing CLI behavior is preserved.
+const dispatchLine = (toolUseId, subagentType) => JSON.stringify({
+  type: 'assistant',
+  message: { role: 'assistant', content: [{ type: 'tool_use', id: toolUseId, name: 'Agent', input: { subagent_type: subagentType } }] },
+})
+const launchAckLine = (toolUseId, agentId) => JSON.stringify({
+  type: 'user',
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'ok' }] },
+  toolUseResult: { isAsync: true, status: 'async_launched', agentId },
+})
+const terminalLine = (agentId, status) => JSON.stringify({
+  type: 'attachment',
+  attachment: { type: 'task_status', taskId: agentId, status },
+})
+const boundDispatch = (toolUseId, agentId, subagentType) =>
+  [dispatchLine(toolUseId, subagentType), launchAckLine(toolUseId, agentId), terminalLine(agentId, 'completed')].join('\n')
+
+const ALL_BOUND_TRANSCRIPT = [
+  boundDispatch('toolu_sec', 'agent-sec', 'security'),
+  boundDispatch('toolu_rh', 'agent-rh', 'red-hat'),
+  boundDispatch('toolu_test', 'agent-test', 'tester'),
+  boundDispatch('toolu_cr', 'agent-cr', 'code-reviewer'),
+].join('\n')
+
+const writeTranscript = (name, text) => {
+  const path = join(scratch, name)
+  writeFileSync(path, text)
+  return path
+}
+
 const validInput = {
   taskId: 'T200', round: 1, expectedOpinionGates: ['security', 'red_hat', 'tester', 'code_reviewer'],
   reports: [verifier, opinion('security', 4), opinion('red_hat', 4), opinion('tester', 4), opinion('code_reviewer', 4)],
 }
 
+// Every pre-existing test below represents a caller that genuinely dispatched its reviewers —
+// attach the bound transcript so this module's mandatory provenance check doesn't change what
+// those tests are meant to prove.
+const withBoundTranscript = (input) => ({ ...input, sessionTranscript: writeTranscript('transcript.jsonl', ALL_BOUND_TRANSCRIPT) })
+
 describe('runGateReportCli', () => {
   it('1. valid input produces the exact GateReport plus gate_report_ref, and persists it', () => {
-    const inputPath = writeInput('input.json', validInput)
+    const inputPath = writeInput('input.json', withBoundTranscript(validInput))
     const result = runGateReportCli(inputPath, { runsDir: scratch })
 
     expect(result.task_id).toBe('T200')
@@ -46,14 +82,14 @@ describe('runGateReportCli', () => {
   })
 
   it('2. re-running the same (task_id, round) overwrites rather than erroring or duplicating', () => {
-    const inputPath = writeInput('input.json', validInput)
+    const inputPath = writeInput('input.json', withBoundTranscript(validInput))
     const first = runGateReportCli(inputPath, { runsDir: scratch })
 
     const changedInput = {
       ...validInput,
       reports: [verifier, opinion('security', 5), opinion('red_hat', 4), opinion('tester', 4), opinion('code_reviewer', 4)],
     }
-    const inputPath2 = writeInput('input2.json', changedInput)
+    const inputPath2 = writeInput('input2.json', withBoundTranscript(changedInput))
     const second = runGateReportCli(inputPath2, { runsDir: scratch })
 
     expect(second.gate_report_ref).toBe(first.gate_report_ref)
@@ -89,8 +125,8 @@ describe('runGateReportCli', () => {
   })
 
   it('4. two distinct (task_id, round) inputs never collide', () => {
-    const inputA = writeInput('a.json', { ...validInput, taskId: 'TA', round: 1 })
-    const inputB = writeInput('b.json', { ...validInput, taskId: 'TB', round: 1 })
+    const inputA = writeInput('a.json', withBoundTranscript({ ...validInput, taskId: 'TA', round: 1 }))
+    const inputB = writeInput('b.json', withBoundTranscript({ ...validInput, taskId: 'TB', round: 1 }))
     const resultA = runGateReportCli(inputA, { runsDir: scratch })
     const resultB = runGateReportCli(inputB, { runsDir: scratch })
 
@@ -117,8 +153,10 @@ describe('deriving the verifier report from a gate results file', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gaterep-'))
     const results = join(dir, 'gate.txt')
     writeFileSync(results, resultsText)
+    const transcript = join(dir, 'transcript.jsonl')
+    writeFileSync(transcript, boundDispatch('toolu_cr', 'agent-cr', 'code-reviewer'))
     const inputPath = join(dir, 'in.json')
-    writeFileSync(inputPath, JSON.stringify({ ...input, gateResults: results }))
+    writeFileSync(inputPath, JSON.stringify({ ...input, gateResults: results, sessionTranscript: transcript }))
     try { return fn(inputPath, join(dir, 'runs')) } finally { rmSync(dir, { recursive: true, force: true }) }
   }
 
@@ -153,5 +191,68 @@ describe('deriving the verifier report from a gate results file', () => {
     writeFileSync(inputPath, JSON.stringify({ ...base, gateResults: join(dir, 'nope.txt') }))
     expect(() => runGateReportCli(inputPath, { runsDir: join(dir, 'runs') })).toThrow(CliUsageError)
     rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+// ─── T171: opinion report dispatch provenance ─────────────────────────────────
+// The exact scenario that motivated this module: an orchestrator hand-writes plausible
+// Code Reviewer and Red Hat findings with invented 4/4 scores, and feeds them straight into the
+// CLI. No reviewer ever saw a line of the diff. Before this change the reducer had no way to see
+// that and returned a clean PASS_ELIGIBLE.
+describe('opinion report dispatch provenance (T171)', () => {
+  it('THE ACCEPTANCE SCENARIO: a hand-fabricated opinion report with an invented score is refused, not passed through as PASS_ELIGIBLE', () => {
+    const fabricated = {
+      taskId: 'T-FAB', round: 1, expectedOpinionGates: ['security', 'red_hat', 'tester', 'code_reviewer'],
+      // sessionTranscript deliberately omitted — the fabricator never dispatched anyone at all,
+      // which is exactly what happened: the orchestrator typed this JSON directly.
+      reports: [verifier, opinion('security', 4), opinion('red_hat', 4), opinion('tester', 4), opinion('code_reviewer', 4)],
+    }
+    const inputPath = writeInput('fabricated.json', fabricated)
+    const result = runGateReportCli(inputPath, { runsDir: scratch })
+
+    expect(result.decision_eligibility).toBe('BLOCK')
+    expect(result.malformed.length).toBeGreaterThan(0)
+    expect(result.malformed.some((m) => m.gate_name === 'code_reviewer')).toBe(true)
+    expect(result.malformed.some((m) => m.gate_name === 'security')).toBe(true)
+  })
+
+  it('a genuinely dispatched-and-completed opinion report is bound and counts normally', () => {
+    const inputPath = writeInput('bound.json', withBoundTranscript(validInput))
+    const result = runGateReportCli(inputPath, { runsDir: scratch })
+    expect(result.decision_eligibility).toBe('PASS_ELIGIBLE')
+    expect(result.malformed).toEqual([])
+  })
+
+  it('a report from a gate that was dispatched but never reached a completed status is refused', () => {
+    const transcript = writeTranscript('pending.jsonl', [
+      dispatchLine('toolu_sec', 'security'),
+      launchAckLine('toolu_sec', 'agent-sec'),
+      // no terminal status — the dispatch is still pending, or the transcript was captured early
+      dispatchLine('toolu_rh', 'red-hat'), launchAckLine('toolu_rh', 'agent-rh'), terminalLine('agent-rh', 'completed'),
+      dispatchLine('toolu_test', 'tester'), launchAckLine('toolu_test', 'agent-test'), terminalLine('agent-test', 'completed'),
+      dispatchLine('toolu_cr', 'code-reviewer'), launchAckLine('toolu_cr', 'agent-cr'), terminalLine('agent-cr', 'completed'),
+    ].join('\n'))
+    const inputPath = writeInput('partial.json', { ...validInput, sessionTranscript: transcript })
+    const result = runGateReportCli(inputPath, { runsDir: scratch })
+
+    expect(result.decision_eligibility).toBe('BLOCK')
+    expect(result.malformed.some((m) => m.gate_name === 'security')).toBe(true)
+    expect(result.malformed.some((m) => m.gate_name === 'code_reviewer')).toBe(false)
+  })
+
+  it('a report claiming a gate that was dispatched for a DIFFERENT role is refused (wrong-type dispatch does not launder a claim)', () => {
+    const transcript = writeTranscript('wrongtype.jsonl', ALL_BOUND_TRANSCRIPT + '\n' + boundDispatch('toolu_maker', 'agent-maker', 'maker'))
+    // Only 3 of 4 opinion gates are expected/dispatched; a 4th, fabricated one is added by hand.
+    const input = {
+      taskId: 'T-WRONG', round: 1, expectedOpinionGates: ['security', 'red_hat', 'tester', 'code_reviewer'],
+      reports: [verifier, opinion('security', 4), opinion('red_hat', 4), opinion('tester', 4), opinion('code_reviewer', 4)],
+      sessionTranscript: transcript,
+    }
+    const inputPath = writeInput('wrongtype.json', input)
+    const result = runGateReportCli(inputPath, { runsDir: scratch })
+    // All four ARE genuinely bound here (ALL_BOUND_TRANSCRIPT covers them); the extra 'maker'
+    // dispatch is irrelevant noise. This asserts the check doesn't false-positive on unrelated
+    // dispatches sharing the transcript.
+    expect(result.decision_eligibility).toBe('PASS_ELIGIBLE')
   })
 })

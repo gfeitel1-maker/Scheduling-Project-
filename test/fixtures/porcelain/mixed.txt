@@ -1,0 +1,15 @@
+worktree /Users/x/dev/shoresh
+HEAD abcdef1234567890
+branch refs/heads/main
+
+worktree /Users/x/dev/shoresh/.claude/worktrees/ephemeral-1
+HEAD 1111111111111111
+branch refs/heads/agent-1
+
+worktree /Users/x/dev/Mobile Prototype/.claude/worktrees/b
+HEAD 2222222222222222
+branch refs/heads/agent-space
+
+worktree /Users/x/dev/shoresh/.claude/worktrees/detached-1
+HEAD 3333333333333333
+detached
