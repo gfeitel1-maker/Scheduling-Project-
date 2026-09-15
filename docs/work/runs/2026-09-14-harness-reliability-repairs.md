@@ -4,7 +4,7 @@ document_type: run
 date: 2026-09-14
 round: 2
 escalated: true
-status: escalated
+status: pass
 task_class: test-infrastructure
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md, docs/governance/GOVERNANCE_INDEX.md]
 related_tickets: []
@@ -32,8 +32,9 @@ omitted_agents:
     note: no auth, secret, PIN, LAN-protocol, IPC, or packaging surface is touched. The one new external read (Claude Desktop's worktree ledger) is read-only, parsed in a subprocess that exits 0 on any malformed input, and grants only the ability to SKIP a deletion.
 deterministic_checks: [lint, test, test:integration, security, check:governance]
 human_gates:
+  - "MERGE WAIVER, 2026-09-14. The GateReport returned decision_eligibility BLOCK (overall_score 3.5 against a 4.0 floor, lowest_dimension 3). CONSTITUTION.md Article VII escalated it to the owner rather than allowing a third round. The owner's decision, verbatim: \"merge it with the waiver recorded\". This is a WAIVER of the score threshold, not a pass: the reducer's verdict stands unchanged at BLOCK in docs/work/runs/gate-reports/harness-reliability-r2.json, and nothing in this record may be read as the score having been met."
   - "Owner directed this work in-session and authorized proceeding without the loop: \"you can do this and do it safely and correctly\" and \"the floor is all yours. wrok through this until you are done\". That authorizes execution; it does not retroactively supply independent review, which is recorded above as a gap rather than a waiver."
-verdict: blocked
+verdict: merged-under-human-waiver
 completion_evidence:
   - "Final gate 13/13 rc=0 on 55c3782 (clean tree): 5434 tests passed + 1 skipped, integration 20/20, security 0 findings, check:governance no findings. Evidence stamped with the SHA the run started against; stamp verified matching HEAD. docs/work/runs/evidence/2026-09-14-harness-gate.txt"
   - "GateReport docs/work/runs/gate-reports/harness-reliability-r2.json — verifier_pass true, blocking_findings none, malformed none, gap none, incomplete false; overall_score 3.5, lowest_dimension 3, decision_eligibility BLOCK."
@@ -172,6 +173,29 @@ are true at once, and the second is why this is a human decision rather than an 
 partial mitigation (the results file is stamped with the SHA the run started against, and the
 stamp was verified against HEAD for this run) but nothing yet *checks* the stamp, so a stale green
 results file from an unrelated commit would still validate.
+
+## Merged under human waiver — read this before citing this record
+
+The reducer said **BLOCK** and that verdict was not revised. It was **waived**, by the owner, on
+2026-09-14, in these words: *"merge it with the waiver recorded"*.
+
+What the waiver covers and what it does not:
+
+- **Waived:** the 4.0 score floor. `overall_score` was 3.5, `lowest_dimension` 3.
+- **Not waived, because they never failed:** `verifier_pass` was true, `blocking_findings` empty,
+  `malformed` empty, `gap` empty, `incomplete` false. The deterministic gate was 13/13 green on
+  this exact tree, with the evidence file stamped with the SHA the run started against and that
+  stamp verified against HEAD.
+- **Still open:** T169. Gate evidence is not bound to the commit it verifies. A partial mitigation
+  shipped (the stamp); nothing checks it yet.
+
+The judgement the owner made: Red Hat's score of 3 assessed `76d91fb`, and all four of its
+round-2 findings were fixed in `55c3782` — so the score is stale. The counter-fact, which does not
+go away: **no reviewer has read `55c3782`.** A future reader deciding whether to trust this work
+should weigh both, not just the first.
+
+If this record is ever cited as precedent, cite it as *"merged at 3.5 by explicit owner waiver
+with one open ticket"*, never as *"passed"*.
 
 ## Known gaps carried forward
 

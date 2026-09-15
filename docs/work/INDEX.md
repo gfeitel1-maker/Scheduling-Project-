@@ -173,7 +173,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
-| 2026-09-14 | [harness reliability — classify non-retryable nightly failures, make the morning check ask whether the pass succeeded, protect application-leased worktrees from pruning, and pin the loop-roster/Article VI partition](../../docs/work/runs/2026-09-14-harness-reliability-repairs.md) | test-infrastructure | escalated | blocked |
+| 2026-09-14 | [harness reliability — classify non-retryable nightly failures, make the morning check ask whether the pass succeeded, protect application-leased worktrees from pruning, and pin the loop-roster/Article VI partition](../../docs/work/runs/2026-09-14-harness-reliability-repairs.md) | test-infrastructure | pass | merged-under-human-waiver |
 | 2026-08-17 | [One-workspace merge (Option A) — fold the upstream ticking step into the reconciliation workspace; low-confidence creates + fixed events become decisions; F2 from→to; F3 required-gap cards; gauntlet compression](../../docs/work/runs/2026-08-17-reconciliation-onescreen-merge.md) | ui-ux-design | pass | pass |
 | 2026-08-17 | [R2′b — one-screen ReconciliationScreen (compose single surface + staged-tray-as-dry-run wiring + cutover/deletions + PLATFORM_STATE refresh)](../../docs/work/runs/2026-08-17-reconciliation-r2b-onescreen.md) | ui-ux-design | pass | pass |
 | 2026-08-17 | [R7 — legacy-priority: verify handling in the one-workspace flow; render the batch decision meaningfully](../../docs/work/runs/2026-08-17-reconciliation-r7-legacy-priority.md) | ui-ux-design | pass | pass |
