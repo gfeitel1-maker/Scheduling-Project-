@@ -1,5 +1,9 @@
 {
+  "fragment_source": "docs/governance/agent-fragments",
   "org_version": "0.1.0",
+  "fragments": {
+    "SKILL_MANDATE_WRAPPER": "2666d51d847caf07"
+  },
   "roles": {
     "architect": {
       "adapter_hash": "11029372130d3e39",
