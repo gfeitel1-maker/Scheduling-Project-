@@ -3,13 +3,14 @@ task: harness reliability — classify non-retryable nightly failures, make the 
 document_type: run
 date: 2026-09-14
 round: 2
-status: in-progress
+escalated: true
+status: escalated
 task_class: test-infrastructure
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md, docs/governance/GOVERNANCE_INDEX.md]
 related_tickets: []
 related_specs: []
 related_adrs: []
-selected_agents: [maker, code-reviewer, red-hat]
+selected_agents: [maker, code-reviewer, red-hat, grader]
 omitted_agents:
   - agent: governor
     reason: human-waived
@@ -29,14 +30,14 @@ omitted_agents:
   - agent: security
     reason: not-applicable
     note: no auth, secret, PIN, LAN-protocol, IPC, or packaging surface is touched. The one new external read (Claude Desktop's worktree ledger) is read-only, parsed in a subprocess that exits 0 on any malformed input, and grants only the ability to SKIP a deletion.
-  - agent: grader
-    reason: no-predicate
-    note: pending — round 2 produced two real opinion reports (Code Reviewer, Red Hat) for it to reduce. Blocked only on the gate finishing.
 deterministic_checks: [lint, test, test:integration, security, check:governance]
 human_gates:
   - "Owner directed this work in-session and authorized proceeding without the loop: \"you can do this and do it safely and correctly\" and \"the floor is all yours. wrok through this until you are done\". That authorizes execution; it does not retroactively supply independent review, which is recorded above as a gap rather than a waiver."
-verdict: in-progress
-completion_evidence: []
+verdict: blocked
+completion_evidence:
+  - "Final gate 13/13 rc=0 on 55c3782 (clean tree): 5434 tests passed + 1 skipped, integration 20/20, security 0 findings, check:governance no findings. Evidence stamped with the SHA the run started against; stamp verified matching HEAD. docs/work/runs/evidence/2026-09-14-harness-gate.txt"
+  - "GateReport docs/work/runs/gate-reports/harness-reliability-r2.json — verifier_pass true, blocking_findings none, malformed none, gap none, incomplete false; overall_score 3.5, lowest_dimension 3, decision_eligibility BLOCK."
+  - "Three review rounds: Code Reviewer (5 findings, all fixed), Red Hat round 1 (Resilience 2, 7 findings, all fixed), Red Hat round 2 (Resilience 3, 5 findings — 4 fixed in 55c3782, 1 ticketed as T169)." 
 archive_when: "Code Reviewer, Red Hat, and an independent Verifier have each reported on this diff; Grader has reduced those reports through scripts/gateReportCli.js producing a gate report under docs/work/runs/gate-reports/; the full gate is green on this branch; and the branch is merged."
 ---
 
@@ -147,6 +148,30 @@ advertising `run.sh <day>` — the destructive recovery path this change exists 
   slice) — the ledger reader is extracted from an inline heredoc and tested against fixtures for
   healthy, empty, torn, schema-drift, ragged, and space-containing paths. It is the only guard
   between an unattended prune and a directory the application still expects.
+
+## Round 2 outcome — BLOCKED, escalated to the human
+
+`decision_eligibility: BLOCK`. The block is **purely on the score threshold**: overall 3.5 against
+a 4.0 floor, lowest dimension 3. `verifier_pass` is true, `blocking_findings` is empty, nothing is
+malformed, and no expected gate is missing.
+
+Per `CONSTITUTION.md` Article VII — *"Maximum two rounds. Round 2 failure escalates to the user
+with open findings; it does not become a third round"* — this does not become round 3. It stops
+here.
+
+**The material fact for whoever decides.** Red Hat's score of 3 assessed `76d91fb`. HEAD is
+`55c3782`. All four of its round-2 findings were fixed *after* it scored — the unchecked `mv`
+whose trap deleted the only copy of a mined analysis, the `case` arm for exit 4 that was
+unreachable because `*)` preceded it, the `/^DONE$/m` check that a stray line could satisfy into a
+false PASS, and the lock released before the `mv` it protected. The score is therefore stale.
+
+It does not follow that the work is verified. **No reviewer has read `55c3782`.** Both statements
+are true at once, and the second is why this is a human decision rather than an arithmetic one.
+
+**Open, not fixed:** T169 — gate evidence is not bound to the commit it verifies. `55c3782` ships a
+partial mitigation (the results file is stamped with the SHA the run started against, and the
+stamp was verified against HEAD for this run) but nothing yet *checks* the stamp, so a stale green
+results file from an unrelated commit would still validate.
 
 ## Known gaps carried forward
 
