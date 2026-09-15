@@ -31,11 +31,11 @@
 // check_projection_health has no business reading as sync state. So this
 // uses its own table, import_decision_failures
 // (electron/ops/importDecisionFailures.js), recorded via
-// recordImportDecisionFailure — which, like recordSyncHealthEvent, REPORTS
+// recordDeviceHealthEvent — which REPORTS
 // whether the row landed rather than assuming it, because assuming it is
 // exactly what hid the original defect for a week.
 import { randomUUID } from 'node:crypto'
-import { recordImportDecisionFailure } from './importDecisionFailures.js'
+import { recordDeviceHealthEvent, DEVICE_HEALTH } from './deviceHealthEvents.js'
 
 let failureCounter = 0
 
@@ -72,8 +72,9 @@ export function recordImportDecisions(db, { campId, actorUserId, entries } = {})
     console.error(
       `[${incident}] recordImportDecisions failed (import already succeeded, unaffected):`, err
     )
-    const landed = recordImportDecisionFailure(db, {
+    const landed = recordDeviceHealthEvent(db, {
       campId,
+      kind: DEVICE_HEALTH.IMPORT_JOURNAL_WRITE_FAILED,
       detail: JSON.stringify({ entryCount: entries.length, error: String(err?.message ?? err) }),
       incident,
     })

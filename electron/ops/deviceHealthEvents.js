@@ -1,5 +1,6 @@
-// The two device-health events that have no op id to hang from — and that T148
-// believed it was already recording.
+// Every event where this device failed to write something down, and had no op id
+// to hang the record from. Two of them are what T148 believed it was already
+// recording; the third is T173's import journal.
 //
 // WHAT WENT WRONG, because the shape of the mistake is the useful part.
 //
@@ -28,9 +29,15 @@
 // tests assert the row is READ BACK rather than that the call returned.
 import { randomUUID } from 'node:crypto'
 
-export const SYNC_HEALTH = Object.freeze({
+export const DEVICE_HEALTH = Object.freeze({
   DOCUMENT_SAVE_FAILED: 'document_save_failed',
   PROJECTION_FAILED: 'projection_failed',
+  // T173 slice 1. The import journal is diagnostics about diagnostics: it
+  // records what the importer asked the director, and a failure to record THAT
+  // must not fail an import. Same shape as the two above — host-local, no op id
+  // to hang from, written on a failure path — which is exactly why it lives
+  // here rather than in a third table of its own (see the v64 migration).
+  IMPORT_JOURNAL_WRITE_FAILED: 'import_journal_write_failed',
 })
 
 /**
@@ -41,11 +48,11 @@ export const SYNC_HEALTH = Object.freeze({
  * reported rather than assumed, because assuming it is what hid the original
  * defect for a week.
  */
-export function recordSyncHealthEvent(db, { campId, kind, detail, incident } = {}) {
+export function recordDeviceHealthEvent(db, { campId, kind, detail, incident } = {}) {
   if (!db || !kind) return false
   try {
     db.prepare(
-      `INSERT INTO sync_health_events (id, camp_id, kind, detail, incident, occurred_at)
+      `INSERT INTO device_health_events (id, camp_id, kind, detail, incident, occurred_at)
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(
       randomUUID(),
@@ -59,17 +66,17 @@ export function recordSyncHealthEvent(db, { campId, kind, detail, incident } = {
   } catch (err) {
     // The disk that just refused the document save can refuse this too. Nothing
     // can be done about that here; what matters is not CLAIMING it worked.
-    console.error(`[${incident ?? 'sync-health'}] could not record a sync health event (${kind}):`, err?.message ?? err)
+    console.error(`[${incident ?? 'device-health'}] could not record a sync health event (${kind}):`, err?.message ?? err)
     return false
   }
 }
 
 /** Unresolved health events, newest first — what `check_projection_health` reports. */
-export function listSyncHealthEvents(db, { limit = 50 } = {}) {
+export function listDeviceHealthEvents(db, { limit = 50 } = {}) {
   try {
     return db
       .prepare(
-        `SELECT id, camp_id, kind, detail, incident, occurred_at FROM sync_health_events
+        `SELECT id, camp_id, kind, detail, incident, occurred_at FROM device_health_events
          WHERE resolved_at IS NULL ORDER BY occurred_at DESC LIMIT ?`
       )
       .all(limit)

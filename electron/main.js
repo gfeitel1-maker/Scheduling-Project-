@@ -45,7 +45,7 @@ import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn } from './db/migration
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
-import { recordSyncHealthEvent, SYNC_HEALTH } from './ops/syncHealthEvents.js'
+import { recordDeviceHealthEvent, DEVICE_HEALTH } from './ops/deviceHealthEvents.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import { createMdnsDiscovery } from './sync/automerge/discovery.js'
@@ -2581,9 +2581,9 @@ if (isElectronEntryPoint()) {
         onProjectionError: (err, _mergedDoc, fromPeerId) => {
           // T174: was recordAuditEvent with outcome:'error', which audit_events'
           // CHECK constraint rejects — the trace never landed. Its own table now.
-          recordSyncHealthEvent(db, {
+          recordDeviceHealthEvent(db, {
             campId,
-            kind: SYNC_HEALTH.PROJECTION_FAILED,
+            kind: DEVICE_HEALTH.PROJECTION_FAILED,
             detail: JSON.stringify({ fromPeerId: fromPeerId ?? null, error: String(err?.message ?? err) }),
           })
         },

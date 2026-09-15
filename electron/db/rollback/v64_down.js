@@ -1,44 +1,21 @@
-// Inverse of migration v64 (electron/db/localDb.js): drops the
-// `import_decision_failures` table.
+// Rollback for v64 — renames device_health_events back to sync_health_events.
 //
-//   1. DROP TABLE import_decision_failures — schema-only. Every row is a
-//      diagnostic (a decision-journal write that failed), never director-
-//      authored camp data, so nothing here is unrecoverable in the way a
-//      camp entity would be.
-//   2. No registry membership to undo — never added to PROJECTIONS,
-//      DIRECT_CAMP_ENTITIES, or campDocument.js's MODELED_ENTITIES
-//      (host-local by design, like sync_health_events / T174).
-//   3. `>= 64`, not `= 64` (v32_down/v46_down/v59_down/v63_down precedent):
-//      a later migration's schema_migrations row surviving this rollback
-//      would make getSchemaVersion() report higher than 64, defeating the
-//      v64 migration's own `>= 63 && < 64` guard on the next initSchema().
-//
-// Usage:  node electron/db/rollback/v64_down.js <path-to-shoresh.sqlite>
+// v64 folded three diagnostic tables into one and renamed it to match what it
+// actually holds. Rolling back restores the old name; rows whose `kind` is
+// 'import_journal_write_failed' will then sit in a table named for sync health,
+// which is the inaccuracy v64 existed to remove. They are diagnostics, so this
+// is untidy rather than harmful — but it is why rolling back past v64 is not
+// something to do casually.
+import Database from 'better-sqlite3'
 
-export function rollbackV64(db) {
-  const discarded = db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='import_decision_failures'").get().c
-    ? db.prepare('SELECT COUNT(*) c FROM import_decision_failures').get().c
-    : 0
-
-  db.transaction(() => {
-    db.exec('DROP TABLE IF EXISTS import_decision_failures')
+export function down(dbPath) {
+  const db = new Database(dbPath)
+  try {
+    const hasNew = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='device_health_events'").get()
+    const hasOld = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sync_health_events'").get()
+    if (hasNew && !hasOld) db.exec('ALTER TABLE device_health_events RENAME TO sync_health_events')
     db.prepare('DELETE FROM schema_migrations WHERE version >= 64').run()
-  })()
-
-  return { discardedRows: discarded, dataRestored: false }
-}
-
-// Direct invocation (node electron/db/rollback/v64_down.js <file>).
-if (process.argv[1] && process.argv[1].endsWith('v64_down.js')) {
-  const file = process.argv[2]
-  if (!file) {
-    console.error('usage: node electron/db/rollback/v64_down.js <path-to-shoresh.sqlite>')
-    process.exit(1)
+  } finally {
+    db.close()
   }
-  const { default: Database } = await import('better-sqlite3')
-  const db = new Database(file)
-  db.pragma('foreign_keys = ON')
-  const result = rollbackV64(db)
-  console.log(JSON.stringify(result))
-  db.close()
 }

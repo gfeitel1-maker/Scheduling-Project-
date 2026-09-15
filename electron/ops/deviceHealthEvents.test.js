@@ -18,7 +18,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
-import { recordSyncHealthEvent, listSyncHealthEvents, SYNC_HEALTH } from './syncHealthEvents.js'
+import { recordDeviceHealthEvent, listDeviceHealthEvents, DEVICE_HEALTH } from './deviceHealthEvents.js'
 
 let db, file
 beforeEach(() => {
@@ -49,60 +49,60 @@ describe('the original defect, pinned so it cannot come back', () => {
   })
 })
 
-describe('recordSyncHealthEvent — the row lands, and says so', () => {
+describe('recordDeviceHealthEvent — the row lands, and says so', () => {
   it('records a failed document save and reads it back', () => {
-    expect(recordSyncHealthEvent(db, {
+    expect(recordDeviceHealthEvent(db, {
       campId: 'camp-1',
-      kind: SYNC_HEALTH.DOCUMENT_SAVE_FAILED,
+      kind: DEVICE_HEALTH.DOCUMENT_SAVE_FAILED,
       incident: 'docsave-camp-1-3',
       detail: JSON.stringify({ pendingOpCount: 4 }),
     })).toBe(true)
 
-    const rows = listSyncHealthEvents(db)
+    const rows = listDeviceHealthEvents(db)
     expect(rows).toHaveLength(1)
-    expect(rows[0].kind).toBe(SYNC_HEALTH.DOCUMENT_SAVE_FAILED)
+    expect(rows[0].kind).toBe(DEVICE_HEALTH.DOCUMENT_SAVE_FAILED)
     expect(rows[0].incident).toBe('docsave-camp-1-3')
     expect(JSON.parse(rows[0].detail).pendingOpCount).toBe(4)
   })
 
   it('records a failed merge projection and reads it back', () => {
-    expect(recordSyncHealthEvent(db, {
+    expect(recordDeviceHealthEvent(db, {
       campId: 'camp-1',
-      kind: SYNC_HEALTH.PROJECTION_FAILED,
+      kind: DEVICE_HEALTH.PROJECTION_FAILED,
       detail: JSON.stringify({ fromPeerId: '12D3KooW' }),
     })).toBe(true)
-    expect(listSyncHealthEvents(db).map((r) => r.kind)).toEqual([SYNC_HEALTH.PROJECTION_FAILED])
+    expect(listDeviceHealthEvents(db).map((r) => r.kind)).toEqual([DEVICE_HEALTH.PROJECTION_FAILED])
   })
 
   it('REPORTS failure rather than assuming success — the property audit_events lacks', () => {
     // The distinction that hid the original defect for a week. A writer that
     // cannot throw needs a caller that can ask whether it worked.
     db.close()
-    expect(recordSyncHealthEvent(db, { campId: 'camp-1', kind: SYNC_HEALTH.PROJECTION_FAILED })).toBe(false)
+    expect(recordDeviceHealthEvent(db, { campId: 'camp-1', kind: DEVICE_HEALTH.PROJECTION_FAILED })).toBe(false)
   })
 
   it('never throws, even on a closed db or junk input — the caller is already handling a failure', () => {
-    expect(() => recordSyncHealthEvent(null, { kind: SYNC_HEALTH.PROJECTION_FAILED })).not.toThrow()
-    expect(() => recordSyncHealthEvent(db, {})).not.toThrow()
-    expect(recordSyncHealthEvent(db, {})).toBe(false)
+    expect(() => recordDeviceHealthEvent(null, { kind: DEVICE_HEALTH.PROJECTION_FAILED })).not.toThrow()
+    expect(() => recordDeviceHealthEvent(db, {})).not.toThrow()
+    expect(recordDeviceHealthEvent(db, {})).toBe(false)
   })
 
   it('truncates a runaway detail rather than refusing the row', () => {
     // A stack trace is worth keeping; an unbounded one is not worth losing the
     // record over.
-    expect(recordSyncHealthEvent(db, { campId: 'camp-1', kind: SYNC_HEALTH.PROJECTION_FAILED, detail: 'x'.repeat(20000) })).toBe(true)
-    expect(listSyncHealthEvents(db)[0].detail.length).toBe(4000)
+    expect(recordDeviceHealthEvent(db, { campId: 'camp-1', kind: DEVICE_HEALTH.PROJECTION_FAILED, detail: 'x'.repeat(20000) })).toBe(true)
+    expect(listDeviceHealthEvents(db)[0].detail.length).toBe(4000)
   })
 
-  it('listSyncHealthEvents returns [] rather than throwing when the table is absent', () => {
-    db.exec('DROP TABLE sync_health_events')
-    expect(listSyncHealthEvents(db)).toEqual([])
+  it('listDeviceHealthEvents returns [] rather than throwing when the table is absent', () => {
+    db.exec('DROP TABLE device_health_events')
+    expect(listDeviceHealthEvents(db)).toEqual([])
   })
 
   it('newest first, and resolved events are excluded', () => {
-    recordSyncHealthEvent(db, { campId: 'camp-1', kind: SYNC_HEALTH.PROJECTION_FAILED, detail: 'first' })
-    recordSyncHealthEvent(db, { campId: 'camp-1', kind: SYNC_HEALTH.DOCUMENT_SAVE_FAILED, detail: 'second' })
-    db.prepare("UPDATE sync_health_events SET resolved_at = ? WHERE detail = 'first'").run(new Date().toISOString())
-    expect(listSyncHealthEvents(db).map((r) => r.detail)).toEqual(['second'])
+    recordDeviceHealthEvent(db, { campId: 'camp-1', kind: DEVICE_HEALTH.PROJECTION_FAILED, detail: 'first' })
+    recordDeviceHealthEvent(db, { campId: 'camp-1', kind: DEVICE_HEALTH.DOCUMENT_SAVE_FAILED, detail: 'second' })
+    db.prepare("UPDATE device_health_events SET resolved_at = ? WHERE detail = 'first'").run(new Date().toISOString())
+    expect(listDeviceHealthEvents(db).map((r) => r.detail)).toEqual(['second'])
   })
 })

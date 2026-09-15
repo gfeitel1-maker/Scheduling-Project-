@@ -96,7 +96,7 @@ describe('recordImportDecisions', () => {
     recordImportDecisions(db, { campId: 'camp1', actorUserId: 'user1', entries: [] })
     const rows = db.prepare('SELECT * FROM import_decisions').all()
     expect(rows).toHaveLength(0)
-    const failures = db.prepare('SELECT * FROM import_decision_failures').all()
+    const failures = db.prepare('SELECT * FROM device_health_events').all()
     expect(failures).toHaveLength(0)
     db.close()
   })
@@ -108,11 +108,11 @@ describe('recordImportDecisions', () => {
     // durable was recorded... this console line is the only trace"). Here
     // the db stays OPEN so the trace CAN land, proving the contract holds
     // whenever the disk/handle allows it: a genuine failure (a bad entry) is
-    // recorded in import_decision_failures, not just logged — and NOT in
+    // recorded in device_health_events, not just logged — and NOT in
     // audit_events, whose outcome column would silently reject it (T174).
     const db = testDb()
     recordImportDecisions(db, { campId: 'camp1', actorUserId: 'user1', entries: [null] })
-    const failures = db.prepare('SELECT * FROM import_decision_failures WHERE camp_id = ?').all('camp1')
+    const failures = db.prepare('SELECT * FROM device_health_events WHERE camp_id = ?').all('camp1')
     expect(failures).toHaveLength(1)
     expect(failures[0].incident).toMatch(/^decisionjournal-camp1-/)
     expect(JSON.parse(failures[0].detail).entryCount).toBe(1)
