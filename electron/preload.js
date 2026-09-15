@@ -99,6 +99,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   // multipattern-split.md) — record/read a director's "not now" on a split
   // suggestion, so re-import does not re-suggest it.
   recordDeclinedSplit: (args) => ipcRenderer.invoke('shoresh:record-declined-split', args),
+  recordImportDecisions: (args) => ipcRenderer.invoke('shoresh:record-import-decisions', args),
   listDeclinedSplitNames: (args) => ipcRenderer.invoke('shoresh:list-declined-split-names', args),
   // T118 slice 4 — read the camp's confirmed compound-cell-pattern decisions
   // (docs/adr/2026-09-03-compound-cell-interpretation.md), so a resolved

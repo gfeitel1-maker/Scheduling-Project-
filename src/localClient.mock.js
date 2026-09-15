@@ -1427,6 +1427,12 @@ export const mockShoresh = {
     const state = loadState()
     return Array.isArray(state.__declinedTwoRowSplits) ? state.__declinedTwoRowSplits.slice() : []
   },
+  // T173 slice 1 — mock stand-in for recordImportDecisions
+  // (electron/ops/decisionJournal.js). Ships dark: nothing reads this back
+  // yet, so the mock only proves the call is wired, not real persistence.
+  async recordImportDecisions() {
+    return { ok: true }
+  },
   // T118 slice 4 — mock stand-in for listCompoundCellDecisions
   // (electron/ops/ingest.js), returning entries in the same [pattern, value]
   // shape the real IPC boundary does (localClient.js re-wraps into a Map).

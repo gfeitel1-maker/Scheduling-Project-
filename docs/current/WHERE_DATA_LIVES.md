@@ -73,7 +73,7 @@ authorship do survive — those live in the document.
 ## The lookup table
 
 Counts below are computed from a fresh database, not remembered:
-**49 tables — 28 synced, 1 projected-but-never-synced, 20 SQLite-only.**
+**50 tables — 28 synced, 1 projected-but-never-synced, 21 SQLite-only.**
 
 | Data | Wins | Written by | If two devices disagree | Check |
 |---|---|---|---|---|
@@ -83,7 +83,7 @@ Counts below are computed from a fresh database, not remembered:
 | **`conflicts`** | **A** only | `conflictStore.js` | Never syncs — each device tracks its own | The computed diff below reports exactly one such entity |
 | **`projection_failures`** | **A** only | `projectionRepair.js` (`store='projection'`), `documentWriteFailures.js` (`store='document'`) | Never syncs — this device's own diagnostics | The MCP tool `check_projection_health` reports both kinds separately; they need opposite remedies (replay the op-log vs re-seed the document) |
 | **`operations`** (history) | **C**, derived | `appendOp` locally; `historyLedger.js` from an incoming merge | Not a sync input since Stage 6 — a record, not a mechanism | `syncNode.js` synthesizes rows *from* the merged document |
-| **The 20 SQLite-only tables** — `source_aliases`, `compound_cell_decisions`, `declined_two_row_splits`, `location_word_decisions`, `open_reconciliation_decisions`, `location_migration_reviews`, `import_evidence`, `projection_failures`, `audit_events`, `login_attempts`, `host_signing_key`, `devices`, `device_identity`, `locks`, `pending_writes`, `pending_restores`, `schema_migrations`, the two migration logs, `operations` | **A**, deliberately | Direct SQL | Never syncs, by design — these are *this device's* answers, keys and bookkeeping | `appendOp` hard-throws for `source_aliases`; the rest are convention, **not enforced** |
+| **The 23 SQLite-only tables** — `source_aliases`, `compound_cell_decisions`, `declined_two_row_splits`, `location_word_decisions`, `open_reconciliation_decisions`, `location_migration_reviews`, `import_evidence`, `import_decisions`, `device_health_events`, `device_health_events`, `projection_failures`, `audit_events`, `login_attempts`, `host_signing_key`, `devices`, `device_identity`, `locks`, `pending_writes`, `pending_restores`, `schema_migrations`, the two migration logs, `operations` | **A**, deliberately | Direct SQL | Never syncs, by design — these are *this device's* answers, keys and bookkeeping | `appendOp` hard-throws for `source_aliases`; the rest are convention, **not enforced** |
 
 ### The computed check
 

@@ -29,6 +29,7 @@ import { materializeImportedVersion } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { confirmCompoundCellPattern } from './ops/confirmCompoundCellPattern.js'
 import { recordDeclinedSplit, listDeclinedSplitNames } from './ops/declinedSplits.js'
+import { recordImportDecisions } from './ops/decisionJournal.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
@@ -44,7 +45,7 @@ import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn } from './db/migration
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
-import { recordSyncHealthEvent, SYNC_HEALTH } from './ops/syncHealthEvents.js'
+import { recordDeviceHealthEvent, DEVICE_HEALTH } from './ops/deviceHealthEvents.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import { createMdnsDiscovery } from './sync/automerge/discovery.js'
@@ -515,6 +516,22 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) throw new Error('no camp on this device')
     recordDeclinedSplit(db, { campId: camp.id, activityName })
+    return { ok: true }
+  }
+
+  // T173 slice 1 — best-effort journal of what the importer ASKED and what
+  // the director did about it (docs/superpowers/specs/
+  // 2026-09-15-seedlings-importer-learning-design.md). Same 'groups.import'
+  // gate as ingestCommit/listCompoundCellDecisions: only the director running
+  // an import calls this. `recordImportDecisions` itself never throws — this
+  // handler can still throw on a bad token/permission, same as every other
+  // gated handler, but never on the journal write itself.
+  function recordImportDecisionsHandler({ token, entries } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'groups.import' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return { ok: true }
+    recordImportDecisions(db, { campId: camp.id, actorUserId: session.userId, entries })
     return { ok: true }
   }
 
@@ -1796,6 +1813,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     ingestUndo: ingestUndoHandler,
     confirmAlias: confirmAliasHandler,
     recordDeclinedSplit: recordDeclinedSplitHandler,
+    recordImportDecisions: recordImportDecisionsHandler,
     listDeclinedSplitNames: listDeclinedSplitNamesHandler,
     listCompoundCellDecisions: listCompoundCellDecisionsHandler,
     latestOpSeq: latestOpSeqHandler,
@@ -1990,6 +2008,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
     ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
     ipcMain.handle('shoresh:record-declined-split', (_event, args) => handlers.recordDeclinedSplit(args))
+    ipcMain.handle('shoresh:record-import-decisions', (_event, args) => handlers.recordImportDecisions(args))
     ipcMain.handle('shoresh:list-declined-split-names', (_event, args) => handlers.listDeclinedSplitNames(args))
     ipcMain.handle('shoresh:list-compound-cell-decisions', (_event, args) => handlers.listCompoundCellDecisions(args))
     ipcMain.handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
@@ -2562,9 +2581,9 @@ if (isElectronEntryPoint()) {
         onProjectionError: (err, _mergedDoc, fromPeerId) => {
           // T174: was recordAuditEvent with outcome:'error', which audit_events'
           // CHECK constraint rejects — the trace never landed. Its own table now.
-          recordSyncHealthEvent(db, {
+          recordDeviceHealthEvent(db, {
             campId,
-            kind: SYNC_HEALTH.PROJECTION_FAILED,
+            kind: DEVICE_HEALTH.PROJECTION_FAILED,
             detail: JSON.stringify({ fromPeerId: fromPeerId ?? null, error: String(err?.message ?? err) }),
           })
         },

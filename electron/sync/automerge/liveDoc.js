@@ -52,7 +52,7 @@
 import { docPath, loadDoc, saveDoc } from './docStore.js'
 import { recordDocumentWriteFailure, documentWriteFailureRecorded } from '../../ops/documentWriteFailures.js'
 import { DOCUMENT_OUTCOME } from '../../ops/documentOutcome.js'
-import { recordSyncHealthEvent, SYNC_HEALTH } from '../../ops/syncHealthEvents.js'
+import { recordDeviceHealthEvent, DEVICE_HEALTH } from '../../ops/deviceHealthEvents.js'
 import { applyWrite, applyBulkReplace, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES } from '../../automerge/campDocument.js'
 import { seedAllFromSqlite } from '../../automerge/seed.js'
 
@@ -309,9 +309,9 @@ export function flushPendingWrites() {
       // here never landed a row, and check_projection_health reported healthy
       // because it could read nothing back. Its own table now, and the return
       // value is checked below rather than assumed.
-      const healthRecorded = recordSyncHealthEvent(db, {
+      const healthRecorded = recordDeviceHealthEvent(db, {
         campId,
-        kind: SYNC_HEALTH.DOCUMENT_SAVE_FAILED,
+        kind: DEVICE_HEALTH.DOCUMENT_SAVE_FAILED,
         incident,
         detail: JSON.stringify({ pendingOpCount: opIds?.size ?? 0, error: String(err?.message ?? err) }),
       })

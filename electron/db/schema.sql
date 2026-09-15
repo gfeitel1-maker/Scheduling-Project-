@@ -198,6 +198,35 @@ CREATE TABLE IF NOT EXISTS declined_two_row_splits (
   UNIQUE(camp_id, activity_name_normalized)
 );
 
+-- Host-local, like source_aliases/compound_cell_decisions/declined_two_row_
+-- splits above. NEVER included in any full-sync SELECT/payload, NEVER sent
+-- over the wire, NEVER added to DIRECT_CAMP_ENTITIES or PROJECTIONS. T173
+-- slice 1 — the journal of what the importer ASKED and what the director did
+-- about it, not another answer cache: one row per decision PRESENTED (not
+-- per decision answered), so a question skipped every import is visible as
+-- data, not lost as silence.
+-- docs/superpowers/specs/2026-09-15-seedlings-importer-learning-design.md.
+-- Written only from electron/ops/decisionJournal.js's single writer
+-- (recordImportDecisions), best-effort after a successful commit — a journal
+-- write failure must never fail the import (see that file's header comment).
+CREATE TABLE IF NOT EXISTS import_decisions (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  import_id TEXT NOT NULL,       -- groups one commit's entries together
+  kind TEXT NOT NULL,            -- decision kind, e.g. 'confirm_value', 'resolve_conflict'
+  seedling_key TEXT,             -- generalized learning key — unused (NULL) until slice 3
+  lane TEXT,                     -- 'express' | 'standard' | 'hold', as PRESENTED
+  proposed TEXT,                 -- compact JSON — what the app suggested
+  outcome TEXT NOT NULL,         -- 'accepted' | 'changed' | 'rejected' | 'unanswered'
+  chosen TEXT,                   -- compact JSON — what the director ended with
+  learned_from_id TEXT,          -- id of the camp_seedlings row that pre-filled this — unused (NULL) until slice 3
+  decided_at TEXT NOT NULL,
+  actor_user_id TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_import_decisions_camp_import
+  ON import_decisions (camp_id, import_id);
+
 -- Host-only table, like source_aliases and host_signing_key. NEVER included
 -- in any full-sync SELECT/payload, NEVER sent over the wire, NEVER added to
 -- DIRECT_CAMP_ENTITIES or PROJECTIONS. Written only from inside commitPlan's
@@ -314,7 +343,8 @@ CREATE INDEX IF NOT EXISTS idx_operations_entity ON operations(entity, entity_id
 -- op_id is the primary key: re-encountering the same failure (e.g. a repair
 -- attempt that fails again) is an idempotent upsert, never a duplicate row.
 -- docs/adr/2026-09-04-projection-failure-detection-and-recovery.md.
--- Device health events that have NO op id to hang from (schema v62, T174).
+-- Every event where this device failed to write something down and had no op id
+-- to hang the record from (schema v62 as sync_health_events, renamed v64 — T174/T173).
 --
 -- WHY NOT audit_events, which is where T148 put these. `audit_events.outcome` is
 -- CHECK-constrained to ('allow','deny') — an authorization vocabulary, correctly
@@ -333,17 +363,17 @@ CREATE INDEX IF NOT EXISTS idx_operations_entity ON operations(entity, entity_id
 --
 -- So: its own small table, host-local, never replicated, additive (there were no
 -- rows to migrate, since none could ever be written).
-CREATE TABLE IF NOT EXISTS sync_health_events (
+CREATE TABLE IF NOT EXISTS device_health_events (
   id TEXT PRIMARY KEY,
   camp_id TEXT,
-  kind TEXT NOT NULL,        -- 'document_save_failed' | 'projection_failed'
+  kind TEXT NOT NULL,        -- 'document_save_failed' | 'projection_failed' | 'import_journal_write_failed'
   detail TEXT,               -- compact JSON: peer, pending op count, error message
   incident TEXT,             -- the tag that ties this row to its console lines
   occurred_at TEXT NOT NULL,
   resolved_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_sync_health_events_unresolved
-  ON sync_health_events(kind, occurred_at) WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_device_health_events_unresolved
+  ON device_health_events(kind, occurred_at) WHERE resolved_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS projection_failures (
   op_id TEXT PRIMARY KEY REFERENCES operations(id),
