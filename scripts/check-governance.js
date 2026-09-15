@@ -345,6 +345,65 @@ export function isClosed(doc) {
   }
 }
 
+/**
+ * Two tickets must never share a number.
+ *
+ * WHY THIS IS A GATE AND NOT AN ANNOYANCE. `resolveIds` resolves `closes T175`
+ * by matching the number against the PATH, so a duplicated number resolves to
+ * every file that carries it. `checkStatusDrift` then reports drift for each
+ * match that is not closed — which is the strict behaviour, and correct as far
+ * as it goes: a duplicate can never make the gate falsely PASS.
+ *
+ * The hazard is the other direction, and it is worse than a false pass because
+ * it is actionable. Closing YOUR ticket demands closure of SOMEONE ELSE'S,
+ * unrelated, still-open ticket — and the obvious way to make a red gate go green
+ * is to flip the status it names. The gate that exists to stop a ticket silently
+ * looking closed can, through a number collision, push someone into closing one.
+ *
+ * It has happened twice in two days across concurrent sessions (T165, then
+ * T175), for a structural reason rather than a careless one: each session picks
+ * "the next free number" by listing this directory, and neither can see the
+ * other's uncommitted file. Announcing numbers to each other worked and is not
+ * a mechanism. This is.
+ *
+ * Scoped to tickets: ADRs and specs are addressed by filename, not by number.
+ */
+// Numbers that were already doubled up before this check existed, all of whose
+// tickets are closed. Renumbering them would break references in commit
+// messages and ADRs that cannot be rewritten, for no live benefit.
+//
+// GRANDFATHERED CONDITIONALLY, NOT EXEMPTED. The hazard is dormant for these
+// ONLY because every ticket sharing the number is closed — nothing can demand
+// the closure of something already closed. If one is ever reopened the hazard
+// returns, so the pass is re-earned on every run rather than granted once.
+const HISTORICAL_DUPLICATE_NUMBERS = new Set(['82', '107', '110'])
+
+export function checkTicketNumberUniqueness(docs) {
+  const byNumber = new Map()
+  for (const doc of docs) {
+    if (!doc.path.startsWith('docs/work/tickets/')) continue
+    const m = doc.path.split('/').pop().match(/^T(\d+)[-.]/)
+    if (!m) continue
+    const n = m[1]
+    if (!byNumber.has(n)) byNumber.set(n, [])
+    byNumber.get(n).push({ path: doc.path, data: doc.data })
+  }
+
+  const out = []
+  for (const [n, entries] of [...byNumber].sort((a, b) => Number(a[0]) - Number(b[0]))) {
+    if (entries.length < 2) continue
+    const paths = entries.map((e) => e.path)
+    // See HISTORICAL_DUPLICATE_NUMBERS: the pass is conditional on every one of
+    // them still being closed, and is re-checked here on every run.
+    if (HISTORICAL_DUPLICATE_NUMBERS.has(n) && entries.every((e) => isClosed(e.data))) continue
+    out.push(finding('duplicate-ticket-number',
+      `T${n} is used by ${paths.length} tickets — ${paths.sort().join(' and ')}. ` +
+      `A completion reference cannot say which one it closes, and the status-drift gate will ` +
+      `demand closure of whichever is still open. Renumber all but the one already on main.`))
+  }
+  return out
+}
+
 export function checkStatusDrift(subjects, docs) {
   const out = []
   // WORK_RECORD_STANDARD.md §3.2 — a `Revert "..."` subject quotes a prior
@@ -435,6 +494,8 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   // module could not be imported (a native-module ABI mismatch, say). A skip is
   // announced, never silent — an unreported skip would read as a pass.
   findings.push(...checkWritableEntitiesCanSync(projectionsRegistry, modeledEntities))
+
+  findings.push(...checkTicketNumberUniqueness(docs))
 
   const subjects = gatherCompletionSubjects(root, execFn)
   if (subjects !== null) {
