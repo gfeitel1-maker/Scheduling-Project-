@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   checkDoc, checkIndexFreshness, checkPlatformStateFreshness, PLATFORM_STATE_PATH, AGENTS,
   parseCompletionRefs, resolveIds, isClosed, checkStatusDrift, checkAll,
+  checkDocFileRefs,
+  DELIBERATELY_ABSENT,
 } from './check-governance.js'
 
 // The checker's whole job is to fail on things a human reading one file would
@@ -366,6 +368,73 @@ describe('checkPlatformStateFreshness', () => {
 
     const throws = () => { throw new Error('not a git repository') }
     expect(checkPlatformStateFreshness(process.cwd(), throws)).toEqual([])
+  })
+})
+
+describe('checkDocFileRefs', () => {
+  // The rot this catches, measured 2026-09-15: PLATFORM_STATE.md named ~25 files
+  // that no longer existed (seven whole screens), SECURITY.md still named the
+  // deleted WebSocket transport, and CLAUDE.md described `syncServer.js` and
+  // `JoinScreen` — all deleted. The existing status-drift and freshness checks
+  // could not see any of it: they check metadata and mtimes, never whether a
+  // sentence names real code. A doc that is specific and WRONG is trusted
+  // BECAUSE it is specific, which is what makes this class expensive.
+  const doc = (path, text) => ({ path, text })
+
+  it('reports nothing when every named file resolves', () => {
+    const docs = [doc('CLAUDE.md', 'see `src/App.jsx` and `electron/main.js`')]
+    const resolve = (t) => ['src/App.jsx', 'electron/main.js'].includes(t)
+    expect(checkDocFileRefs(docs, resolve)).toEqual([])
+  })
+
+  it('reports a named file that does not exist, naming BOTH the doc and the file', () => {
+    const docs = [doc('docs/current/PLATFORM_STATE.md', 'the `src/screens/JoinScreen.jsx` screen')]
+    const [f] = checkDocFileRefs(docs, () => false)
+    expect(f.code).toBe('doc-names-missing-file')
+    expect(f.message).toContain('docs/current/PLATFORM_STATE.md')
+    expect(f.message).toContain('src/screens/JoinScreen.jsx')
+  })
+
+  it('reports each missing file once per doc, not once per mention', () => {
+    const docs = [doc('a.md', '`x/gone.js` and again `x/gone.js`')]
+    expect(checkDocFileRefs(docs, () => false)).toHaveLength(1)
+  })
+
+  it('reports the same file separately in each doc that names it', () => {
+    const docs = [doc('a.md', '`x/gone.js`'), doc('b.md', '`x/gone.js`')]
+    const out = checkDocFileRefs(docs, () => false)
+    expect(out).toHaveLength(2)
+    expect(out.map((f) => f.message.includes('a.md')).filter(Boolean)).toHaveLength(1)
+  })
+
+  it('ignores glob and placeholder patterns, which are not claims about a real file', () => {
+    // These are how the docs legitimately describe FAMILIES of files. A crude
+    // regex flagged all three as missing when this check was first measured by
+    // hand; treating them as claims would make the gate cry wolf and be turned off.
+    const docs = [doc('a.md', 'see `*.test.js`, `src/**/*.jsx`, `v3N_down.js` and `.test.jsx`')]
+    expect(checkDocFileRefs(docs, () => false)).toEqual([])
+  })
+
+  it('allows a file named EXPLICITLY to say it is gone, when allowlisted with a reason', () => {
+    // CLAUDE.md's whole point in naming `src/hooks/useSession.js` is that it no
+    // longer exists. Deleting that sentence would LOSE information, so the gate
+    // must have a way to say "absent on purpose" — with a reason, in the same
+    // idiom as SQLITE_ONLY_BY_DESIGN.
+    const docs = [doc('CLAUDE.md', '`src/hooks/useSession.js` no longer exists')]
+    expect(checkDocFileRefs(docs, () => false)).toEqual([])
+    for (const reason of DELIBERATELY_ABSENT.values()) expect(reason.length).toBeGreaterThan(20)
+  })
+
+  it('still flags an allowlisted path in a doc that is NOT making the it-is-gone point', () => {
+    // The allowlist is per-path, so this is a deliberate, documented limit: it
+    // cannot tell "useSession.js is gone" from "call useSession.js". Recorded
+    // here so the next reader knows it is a known edge, not an oversight.
+    expect(DELIBERATELY_ABSENT.has('src/hooks/useSession.js')).toBe(true)
+  })
+
+  it('does not treat prose words or version numbers as filenames', () => {
+    const docs = [doc('a.md', 'schema is v61, and node 20.js is not a thing')]
+    expect(checkDocFileRefs(docs, () => false)).toEqual([])
   })
 })
 

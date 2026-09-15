@@ -12,7 +12,7 @@
 // downgrades to print-and-exit-0 for a local sweep, and is not for CI or for
 // getting a branch through.
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -419,6 +419,127 @@ export function checkWritableEntitiesCanSync(projections, modeled) {
         'docs/current/WHERE_DATA_LIVES.md'))
 }
 
+/**
+ * A descriptive doc must not name code that does not exist.
+ *
+ * Measured 2026-09-15: PLATFORM_STATE.md named ~25 files that had been deleted
+ * (seven whole screens), SECURITY.md still named the removed WebSocket transport,
+ * and CLAUDE.md described `syncServer.js`/`syncClient.js` and `JoinScreen`. None of
+ * it was visible to the existing checks — `checkStatusDrift` reads frontmatter
+ * status, `checkPlatformStateFreshness` compares commit dates, and neither can see
+ * whether a SENTENCE names real code. A stale doc that is specific is trusted
+ * BECAUSE it is specific; that is what makes this class expensive rather than
+ * merely untidy.
+ *
+ * Scope is deliberately narrow — only the docs that claim to describe what IS.
+ * ADRs, tickets, handoffs and archives legitimately name deleted code: that is
+ * what a historical record is for, and flagging it would make the gate noise.
+ *
+ * Known limit, stated so it is not mistaken for an oversight: this catches
+ * DELETED files only. A doc describing a file that still exists but now behaves
+ * differently passes clean — `DEFAULT_LISTEN` being loopback while the shipped
+ * app overrides it was exactly that kind of error, and no mechanical check of
+ * this shape would have caught it.
+ */
+export const DESCRIPTIVE_DOC_PATHS = ['CLAUDE.md', 'README.md', 'SECURITY.md']
+export const DESCRIPTIVE_DOC_DIRS = ['docs/current/']
+
+/** Paths a descriptive doc names in order to say they are GONE. Reason required. */
+export const DELIBERATELY_ABSENT = new Map([
+  ['src/hooks/useSession.js',
+    'removed when the Supabase path was retired; CLAUDE.md names it precisely to record that it no longer exists'],
+  ['src/supabase.js',
+    'moved to legacy/supabase/supabase.js; CLAUDE.md names the old path to document where it went'],
+  ['syncServer.js',
+    'the WebSocket sync layer deleted in the Stage 6 cutover; SECURITY.md and PLATFORM_STATE.md both name it to record that it is gone'],
+  ['syncClient.js',
+    'the WebSocket sync layer deleted in the Stage 6 cutover; SECURITY.md and PLATFORM_STATE.md both name it to record that it is gone'],
+  ['electron/sync/syncServer.js',
+    'same deletion, named by full path in PLATFORM_STATE.md\'s "Removed / Replaced" section'],
+  ['electron/sync/syncClient.js',
+    'same deletion, named by full path in PLATFORM_STATE.md\'s "Removed / Replaced" section'],
+  ['provenance.s2a.test.js',
+    'retired with the WebSocket transport; CRDT_SECURITY_GAPS.md names it to record which test went away and why'],
+])
+
+// A backticked token that looks like a source file. Requires a stem before the
+// extension, so a bare `.test.js` (a naming CONVENTION, not a file) is not a claim.
+const FILE_REF = /`([A-Za-z0-9_][A-Za-z0-9_./-]*\.(?:js|jsx|sql|css))`/g
+
+// Families and placeholders, not claims about one real file.
+const isPattern = (t) => t.includes('*') || /(?:^|\/)v\d+N_/.test(t) || /(?:^|\/)\d/.test(t)
+
+export function checkDocFileRefs(docs, resolve) {
+  const findings = []
+  for (const { path, text } of docs) {
+    const seen = new Set()
+    for (const [, token] of String(text).matchAll(FILE_REF)) {
+      if (seen.has(token) || isPattern(token) || DELIBERATELY_ABSENT.has(token)) continue
+      seen.add(token)
+      if (resolve(token)) continue
+      findings.push(finding('doc-names-missing-file',
+        `${path} names \`${token}\`, which does not exist — the doc describes code that was ` +
+        'deleted or moved. Correct the sentence (do not just delete the reference if the ' +
+        'absence is the point: allowlist it in DELIBERATELY_ABSENT with a reason).'))
+    }
+  }
+  return findings
+}
+
+/** The descriptive corpus: files that claim to describe what the code IS. */
+function readDescriptiveDocs(root) {
+  const out = []
+  for (const rel of DESCRIPTIVE_DOC_PATHS) {
+    const abs = join(root, rel)
+    if (existsSync(abs)) out.push({ path: rel, text: readFileSync(abs, 'utf8') })
+  }
+  for (const dir of DESCRIPTIVE_DOC_DIRS) {
+    const abs = join(root, dir)
+    if (!existsSync(abs)) continue
+    for (const name of readdirSync(abs)) {
+      if (!name.endsWith('.md')) continue
+      out.push({ path: dir + name, text: readFileSync(join(abs, name), 'utf8') })
+    }
+  }
+  return out
+}
+
+const SEARCH_ROOTS = ['src', 'electron', 'test', 'scripts', 'legacy']
+
+/**
+ * Resolves a doc's file reference. Exact path first; then by basename, because
+ * docs legitimately name a module without its full path (`buildSchedule.js`).
+ * Basename matching is deliberately lenient — this gate exists to catch DELETED
+ * files, and a false positive would get it switched off.
+ */
+function makeResolver(root) {
+  let index = null
+  const build = () => {
+    const names = new Set()
+    const walk = (dir, depth) => {
+      if (depth > 8) return
+      let entries
+      try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
+      for (const e of entries) {
+        if (e.name === 'node_modules' || e.name.startsWith('.')) continue
+        const abs = join(dir, e.name)
+        if (e.isDirectory()) walk(abs, depth + 1)
+        else names.add(e.name)
+      }
+    }
+    for (const r of SEARCH_ROOTS) {
+      const abs = join(root, r)
+      if (existsSync(abs) && statSync(abs).isDirectory()) walk(abs, 0)
+    }
+    return names
+  }
+  return (token) => {
+    if (existsSync(join(root, token))) return true
+    index ??= build()
+    return index.has(token.split('/').pop())
+  }
+}
+
 export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8' })) {
   const exists = (p) => existsSync(join(root, p))
   const docs = readDocs(root)
@@ -429,6 +550,8 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   findings.push(...checkIndexFreshness(committed, generate(root)))
 
   findings.push(...checkPlatformStateFreshness(root, execFn))
+
+  findings.push(...checkDocFileRefs(readDescriptiveDocs(root), makeResolver(root)))
 
   // Loaded lazily and defensively: this check reads application modules rather
   // than documents, and a doc-hygiene run must not hard-fail because an app
