@@ -1,0 +1,35 @@
+{
+  "task_id": "harness-reliability",
+  "round": 2,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": null,
+    "red_hat": 3,
+    "tester": null,
+    "code_reviewer": 4
+  },
+  "overall_score": 3.5,
+  "lowest_dimension": 3,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [
+    {
+      "ref": "scripts/integration.sh",
+      "gate_names": [
+        "code_reviewer",
+        "red_hat"
+      ]
+    },
+    {
+      "ref": "scripts/run.sh",
+      "gate_names": [
+        "code_reviewer",
+        "red_hat"
+      ]
+    }
+  ],
+  "decision_eligibility": "BLOCK",
+  "malformed": [],
+  "self_declared_na": []
+}

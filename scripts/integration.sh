@@ -32,7 +32,8 @@ set -u
 REPO="$HOME/dev/shoresh"
 SLUG="-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project"
 OUTDIR="$HOME/.claude/projects/$SLUG/_integration"
-CONS="$HOME/.claude/projects/$SLUG/_consolidation"
+CONS="$HOME/.claude/projects/$SLUG/_consolidation"   # DATA (run.log) — a live store, never in the repo
+CONSCRIPTS="${0:A:h}/consolidation"                    # SCRIPTS — version-controlled siblings
 mkdir -p "$OUTDIR/reports"
 DAY=$(date +%F)
 REPORT="$OUTDIR/reports/integration-$DAY.md"
@@ -168,13 +169,47 @@ fi
 
 pruned=0
 typeset -a READY NEEDS_REBASE ACTIVE PROTECTED
+# --- Claude Desktop's worktree ledger (READ ONLY — application-owned state) ---
+LEDGER="$HOME/Library/Application Support/Claude/git-worktrees.json"
+LEASED_PATHS=""
+if [[ -f "$LEDGER" ]]; then
+  # scripts/readWorktreeLeases.py, not an inline heredoc: this is the only guard between the
+  # prune rule and a worktree the application still expects, and inline shell cannot be tested.
+  # Its exit codes are the contract — 0 healthy / 3 unreadable / 4 schema moved. See
+  # test/worktreeLeases.test.js.
+  LEASED_PATHS=$("${0:A:h}/readWorktreeLeases.py" "$LEDGER" 2>/dev/null)
+  LRC=$?
+  n=$(print -r -- "$LEASED_PATHS" | grep -c . )
+  case $LRC in
+    0) { print -- "worktree ledger: $n path(s) protected from pruning"; } >> "$LOG" ;;
+    3) { print -- "WARN: worktree ledger unreadable (torn or malformed read) — protecting nothing this run"; } >> "$LOG"
+       print -- "\n## ⚠️ Worktree ledger unreadable this run" >> "$REPORT"
+       print -- "- \`$LEDGER\` could not be parsed; lease protection was OFF for this prune pass." >> "$REPORT" ;;
+    4) # The failure this whole feature exists to prevent, reintroduced by a schema change, would
+       # otherwise log a line byte-identical to a healthy empty ledger. Make it impossible to miss.
+       { print -- "ERROR: worktree ledger schema changed — no 'worktrees' object. Lease protection is OFF."; } >> "$LOG"
+       print -- "\n## 🔴 Worktree ledger schema changed — lease protection is OFF" >> "$REPORT"
+       print -- "- \`$LEDGER\` parsed, but has no \`worktrees\` object. Claude Desktop's format moved." >> "$REPORT"
+       print -- "- Pruning is running **unprotected**: a pooled worktree the app still expects can be deleted." >> "$REPORT"
+       print -- "- Fix the parser in \`scripts/integration.sh\` before the next 06:30 run." >> "$REPORT"
+       LEASED_PATHS="" ;;
+    *) # Anything else — most likely 127, the reader missing because this script is running from
+       # a checkout that does not have it yet. Without this arm an unknown code falls through
+       # every case, LEASED_PATHS stays empty, and protection turns off silently: the same class
+       # of failure as arm 4, arriving by a different road.
+       { print -- "ERROR: lease reader exited $LRC (unexpected). Lease protection is OFF."; } >> "$LOG"
+       print -- "\n## 🔴 Worktree lease reader failed (exit $LRC) — protection is OFF" >> "$REPORT"
+       print -- "- \`${0:A:h}/readWorktreeLeases.py\` did not run as expected. Pruning is **unprotected**." >> "$REPORT"
+       LEASED_PATHS="" ;;
+  esac
+else
+  { print -- "worktree ledger absent at $LEDGER — pruning unchanged"; } >> "$LOG"
+fi
+
 # --- Walk worktrees ---
-git worktree list --porcelain 2>/dev/null | awk '
-  /^worktree /{wt=$2}
-  /^HEAD /{h=$2}
-  /^branch /{print wt"\t"$2"\t"h; wt=""}
-  /^detached/{print wt"\tDETACHED\t"h; wt=""}
-' | while IFS=$'\t' read wt ref head; do
+# Parsing is scripts/parseWorktreePorcelain.sh (T168), extracted so the space-in-path handling
+# is testable against a fixture porcelain table. See test/worktreePrunePredicate.test.js.
+git worktree list --porcelain 2>/dev/null | "${0:A:h}/parseWorktreePorcelain.sh" | while IFS=$'\t' read wt ref head; do
   br=${ref#refs/heads/}
   # ahead/behind vs origin/main
   ab=$(git rev-list --left-right --count origin/main...$head 2>/dev/null)
@@ -187,25 +222,55 @@ git worktree list --porcelain 2>/dev/null | awk '
   ephemeral=0; [[ "$wt" == "$REPO/.claude/worktrees/"* ]] && ephemeral=1
   protected=0
   [[ "$wt" == "$REPO" || "$wt" == "$HOME/dev/shoresh-config" || "$br" == "main" ]] && protected=1
-
-  if (( protected )); then
-    print -- "- 🔒 \`$br\` — protected ($wt)" >> "$REPORT.protected"
-  elif (( ahead > 0 )); then
-    tag="ready to merge"; (( behind > 0 )) && tag="ahead $ahead / behind $behind — rebase then merge"
-    print -- "- ⬆️ \`$br\` — **$tag** (ahead $ahead, last $lastrel) → $wt" >> "$REPORT.ready"
-  elif (( ephemeral )) && [[ -z "$dirty" ]] && (( idle_days >= IDLE_DAYS )); then
-    # PRUNE: abandoned ephemeral worktree, no unmerged work, clean, idle
-    if git worktree remove "$wt" 2>>"$LOG"; then
-      print -- "- 🧹 pruned \`$br\` (0 ahead, clean, idle ${idle_days}d) — $wt" >> "$REPORT.pruned"
-      { print -- "pruned $wt ($br)"; } >> "$LOG"
-    else
-      print -- "- ⚠️ prune of \`$br\` failed (see log) — $wt" >> "$REPORT.pruned"
-    fi
-  elif [[ -n "$dirty" ]]; then
-    print -- "- 🔓 \`$br\` — uncommitted work, likely active (0 ahead) — left alone" >> "$REPORT.active"
-  else
-    print -- "- ⚪ \`$br\` — no work ahead, idle ${idle_days}d (kept; not yet at ${IDLE_DAYS}d or non-ephemeral)" >> "$REPORT.active"
+  # Claude Desktop owns the worktrees under $REPO/.claude/worktrees and tracks them in its
+  # own ledger. A pooled worktree (leasedBy: null + pooledAt) is clean, 0 ahead and idle by
+  # design — bit-for-bit the shape this prune rule targets — so pruning one deletes a
+  # directory the application still believes it can reuse. We READ the ledger and never
+  # write it; if it is missing or mid-write, LEASED_PATHS is empty and behaviour is exactly
+  # what it was before.
+  #
+  # NOTE the predicate is ANY membership in the ledger, not the pooled shape specifically.
+  # That is deliberate — protecting a superset can only ever fail safe — but it has a cost:
+  # the ledger has no expiry, so an entry Desktop has abandoned exempts that directory from
+  # the idle-prune rule permanently, and the report shows only "🔒 protected" with no hint
+  # that the protection came from an external file. If worktrees start accumulating, look
+  # here first. Reported by Code Reviewer on 44b49c6 as an undisclosed narrowing; recorded
+  # rather than "fixed", because tightening it to the pooled shape would trade a silent
+  # accumulation for a silent deletion, which is the worse of the two.
+  if [[ -n "$LEASED_PATHS" ]] && print -r -- "$LEASED_PATHS" | grep -qxF "$wt"; then
+    protected=1
   fi
+
+  dirtyflag=0; [[ -n "$dirty" ]] && dirtyflag=1
+  # Decision is scripts/worktreeDecision.sh (T168), extracted so the
+  # `ephemeral && clean && 0-ahead && idle` prune rule is testable against fixtures — this loop
+  # DELETES directories and had zero coverage before this ticket. See
+  # test/worktreePrunePredicate.test.js.
+  DECISION=$("${0:A:h}/worktreeDecision.sh" "$protected" "$ahead" "$ephemeral" "$dirtyflag" "$idle_days" "$IDLE_DAYS")
+  case "$DECISION" in
+    PROTECTED)
+      print -- "- 🔒 \`$br\` — protected ($wt)" >> "$REPORT.protected"
+      ;;
+    READY)
+      tag="ready to merge"; (( behind > 0 )) && tag="ahead $ahead / behind $behind — rebase then merge"
+      print -- "- ⬆️ \`$br\` — **$tag** (ahead $ahead, last $lastrel) → $wt" >> "$REPORT.ready"
+      ;;
+    PRUNE)
+      # PRUNE: abandoned ephemeral worktree, no unmerged work, clean, idle
+      if git worktree remove "$wt" 2>>"$LOG"; then
+        print -- "- 🧹 pruned \`$br\` (0 ahead, clean, idle ${idle_days}d) — $wt" >> "$REPORT.pruned"
+        { print -- "pruned $wt ($br)"; } >> "$LOG"
+      else
+        print -- "- ⚠️ prune of \`$br\` failed (see log) — $wt" >> "$REPORT.pruned"
+      fi
+      ;;
+    ACTIVE-DIRTY)
+      print -- "- 🔓 \`$br\` — uncommitted work, likely active (0 ahead) — left alone" >> "$REPORT.active"
+      ;;
+    *)
+      print -- "- ⚪ \`$br\` — no work ahead, idle ${idle_days}d (kept; not yet at ${IDLE_DAYS}d or non-ephemeral)" >> "$REPORT.active"
+      ;;
+  esac
 done
 
 # assemble sections in order
@@ -231,13 +296,75 @@ fi
 # Self-heal: back up the 3 AM nightly memory pass. If it did not run for yesterday (e.g. the Mac was
 # asleep at 03:00 and launchd did not catch up the missed run), run it now — this 06:30 job runs
 # reliably because the machine is awake by then. Recovers a slept-through night automatically.
+#
+# The decision is scripts/selfHealDecision.sh (T168), extracted so the four-outcome predicate
+# is testable against a fixture _pending directory and run.log instead of only by reading. See
+# test/selfHealDecision.test.js for the defect it guards ("started" read as "succeeded").
 YDAY=$(date -v-1d +%F)
-if ! grep -q "=== run $YDAY " "$CONS/run.log" 2>/dev/null; then
-  print -- "\n## 🩹 Self-heal: recovered a missed nightly memory pass" >> "$REPORT"
-  print -- "- the 3 AM consolidation had not run for $YDAY (Mac likely asleep) — ran it now" >> "$REPORT"
-  { print -- "self-heal: nightly memory pass for $YDAY missing; running run.sh $YDAY"; } >> "$LOG"
-  RES=$("$CONS/run.sh" "$YDAY" 2>>"$LOG")
-  print -- "- result: \`${RES:t}\` (review it with the morning proposals)" >> "$REPORT"
+PEND="$HOME/.claude/projects/$SLUG/memory/_pending"
+HEALDEC=$("${0:A:h}/selfHealDecision.sh" "$PEND" "$CONS/run.log" "$YDAY")
+# What to SAY about the outcome is its own predicate (scripts/healReport.sh) because the bug was
+# here, not in selfHealDecision.sh: NONE was bucketed with SUCCESS|QUIET as a silent no-op,
+# discarding the very distinction the predicate exists to draw. Only SUCCESS and QUIET are silent.
+HEALREPORT=$("${0:A:h}/healReport.sh" "$HEALDEC")
+HEALSEV="${HEALREPORT%%|*}"
+HEALMSG="${HEALREPORT#*|}"
+case "$HEALSEV" in
+  silent)
+    :
+    ;;
+  alert)
+    print -- "\n## $HEALMSG" >> "$REPORT"
+    print -- "- day: \`$YDAY\` — see \`$CONS/run.log\`" >> "$REPORT"
+    { print -- "morning: $HEALDEC for $YDAY — $HEALMSG"; } >> "$LOG"
+    ;;
+  heal)
+    { print -- "self-heal: nightly memory pass for $YDAY missing; running consolidation/run.sh $YDAY"; } >> "$LOG"
+    RES=$("$CONSCRIPTS/run.sh" "$YDAY" 2>>"$LOG"); HEALRC=$?
+    # Report what actually happened, not what was attempted. The header used to assert
+    # "recovered" before this ran, so a failed recovery was announced as a success with the real
+    # outcome buried in an unstyled sub-bullet. (Red Hat, 2026-09-15.)
+    if (( HEALRC == 0 )) && [[ -f "$PEND/proposal-$YDAY.md" ]]; then
+      print -- "\n## 🩹 Self-heal: recovered a missed nightly memory pass" >> "$REPORT"
+      print -- "- \`$YDAY\` had not run (machine likely asleep) — ran it now: \`${RES:t}\`" >> "$REPORT"
+    else
+      print -- "\n## 🔴 Self-heal ATTEMPTED and FAILED for $YDAY" >> "$REPORT"
+      print -- "- \`consolidation/run.sh $YDAY\` exited $HEALRC and produced no proposal (result: \`${RES:t}\`)" >> "$REPORT"
+      print -- "- see \`$CONS/run.log\`" >> "$REPORT"
+    fi
+    ;;
+esac
+
+# Outstanding backlog — every failed night, surfaced every morning until cleared, so a
+# failure can no longer go quiet for nine days. Recovery is mineFromPacket.sh, never
+# `run.sh <old-day>`: run.sh re-runs gather.sh, which selects transcripts by mtime and
+# truncates the packet, so re-running it for an old day DESTROYS the preserved evidence.
+# A marker whose day now has a real proposal is RESOLVED — recovered by mineFromPacket.sh, or by
+# a later successful attempt. Reporting it anyway is the mirror of the bug this whole change fixes:
+# instead of a failure going silent, a success keeps shouting, and the reader learns to ignore the
+# one surface that is supposed to be trustworthy. Filter those out, and retire the stale marker.
+typeset -a BACKLOG
+for f in "$PEND"/NEEDS-AUTH-proposal-*.md(N) "$PEND"/FAILED-proposal-*.md(N); do
+  d="${${f:t:r}##*proposal-}"
+  if [[ -f "$PEND/proposal-$d.md" ]]; then
+    rm -f "$f"
+    { print -- "retired stale marker ${f:t} — proposal-$d.md exists"; } >> "$LOG"
+    continue
+  fi
+  BACKLOG+=("$f")
+done
+if (( ${#BACKLOG} > 0 )); then
+  print -- "\n## 📥 Unmined nights awaiting recovery (${#BACKLOG})" >> "$REPORT"
+  typeset -a DAYS
+  for f in "${BACKLOG[@]}"; do
+    d="${${f:t:r}##*proposal-}"
+    DAYS+=("$d")
+    print -- "- \`$d\` — evidence packet preserved ($(wc -c < "$PEND/evidence-$d.md" 2>/dev/null | tr -d " ") bytes)" >> "$REPORT"
+  done
+  print -- "\nRecover all of them with:" >> "$REPORT"
+  print -- '\n```bash' >> "$REPORT"
+  print -- "$CONSCRIPTS/mineFromPacket.sh ${DAYS}" >> "$REPORT"
+  print -- '```' >> "$REPORT"
 fi
 
 git worktree prune 2>>"$LOG"  # clean metadata for any removed dirs
