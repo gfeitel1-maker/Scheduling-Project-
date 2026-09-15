@@ -21,6 +21,22 @@ export function toLines(text) {
   return String(text ?? '').replace(/\r\n?/g, '\n').split('\n')
 }
 
+/**
+ * The run's self-identification: `# gate run against <sha> dirty=<n>`, written by the gate runner
+ * when the run STARTS. Start, not finish — a run that begins on one commit and is read after a
+ * rebase would otherwise claim the wrong one, which is this project's recurring defect wearing
+ * yet another hat: the identity drifting rather than the outcome.
+ *
+ * @returns {{sha: string, dirty: number}|null} null when the file carries no stamp.
+ */
+export function parseGateStamp(text) {
+  for (const line of toLines(text)) {
+    const m = /^#\s*gate run against\s+([0-9a-f]{7,40})\s+dirty=(\d+)\s*$/i.exec(line.trim())
+    if (m) return { sha: m[1].toLowerCase(), dirty: Number(m[2]) }
+  }
+  return null
+}
+
 /** One `STEP <name> | rc=<n> | <summary>` line per gate step. */
 export function parseGateResults(text) {
   if (!text) return []
@@ -38,9 +54,11 @@ export function parseGateResults(text) {
  * @param {string|null} input.evidenceRef - repo-relative path to that file; the reducer
  *   rejects a verifier report without one, deliberately: a deterministic verdict with no
  *   artifact behind it is exactly the unfalsifiable claim this whole program exists to stop.
+ * @param {string} [input.expectedSha] - the commit this report is FOR. Supply it and the run
+ *   must prove it verified that commit; omit it and the report is explicitly unbound (T169).
  * @returns {object} PerGateReport
  */
-export function buildVerifierReport({ text, evidenceRef }) {
+export function buildVerifierReport({ text, evidenceRef, expectedSha }) {
   const steps = parseGateResults(text)
   const failed = steps.filter((s) => s.rc !== 0)
 
@@ -54,20 +72,49 @@ export function buildVerifierReport({ text, evidenceRef }) {
   // marker means "the harness reached the end", and only a terminal marker can mean that.
   const lines = toLines(text).filter((l) => l.trim() !== '')
   const complete = lines.length > 0 && lines[lines.length - 1].trim() === 'DONE'
+
+  // T169. A green results file proves a green run happened at SOME point; only the stamp ties it
+  // to THIS commit. Unbound, mismatched, or run against a dirty tree all mean the same thing —
+  // we do not know that this diff was verified — so they downgrade to UNVERIFIED rather than
+  // being allowed to read as a pass.
+  const stamp = parseGateStamp(text)
+  const bindingProblems = []
+  if (expectedSha) {
+    if (!stamp) {
+      bindingProblems.push(`results file carries no commit stamp, so it cannot be bound to ${expectedSha.slice(0, 12)}`)
+    } else if (!stamp.sha.startsWith(expectedSha.toLowerCase()) && !expectedSha.toLowerCase().startsWith(stamp.sha)) {
+      bindingProblems.push(
+        `results file was produced against a different commit (${stamp.sha.slice(0, 12)}), not ${expectedSha.slice(0, 12)} — it does not verify this diff`,
+      )
+    }
+  }
+  if (stamp && stamp.dirty > 0) {
+    bindingProblems.push(`run was made against a dirty tree (${stamp.dirty} uncommitted file(s)) — that tree exists in no commit`)
+  }
+
   let verdict
+  // A real failure is never softened into "we cannot tell": FAIL outranks a binding problem.
   if (failed.length > 0) verdict = 'FAIL'
   else if (steps.length === 0 || !complete) verdict = 'UNVERIFIED'
+  else if (bindingProblems.length > 0) verdict = 'UNVERIFIED'
   else verdict = 'PASS'
 
   return {
     gate_name: 'verifier',
     verdict,
     score: null,
-    findings: failed.map((s) => ({
-      severity: 'BLOCKING',
-      ref: s.name,
-      summary: `gate step "${s.name}" exited ${s.rc}${s.summary ? ` — ${s.summary}` : ''}`,
-    })),
+    findings: [
+      ...failed.map((s) => ({
+        severity: 'BLOCKING',
+        ref: s.name,
+        summary: `gate step "${s.name}" exited ${s.rc}${s.summary ? ` — ${s.summary}` : ''}`,
+      })),
+      ...bindingProblems.map((problem) => ({
+        severity: 'BLOCKING',
+        ref: evidenceRef ?? 'evidence',
+        summary: `evidence binding: ${problem}`,
+      })),
+    ],
     evidence_ref: evidenceRef,
   }
 }
