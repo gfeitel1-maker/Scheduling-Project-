@@ -141,3 +141,23 @@ describe('Q1 enforcement — never locks anyone out', () => {
     expect(roleOf(id)).toBe('admin')
   })
 })
+
+describe('Q1 enforcement — a refused change leaves a durable, queryable audit record', () => {
+  // Read the ROW BACK, do not merely assert recordAuditEvent was called (app-icon-audit's lesson:
+  // audit_events.outcome is CHECK IN ('allow','deny'); the wrong value 'denied' silently failed the
+  // insert and got swallowed to a console.warn, so a blocked attack left no trace). The control
+  // proves an empty result means "no denial recorded", not "the writer is broken".
+  const denials = (id) =>
+    db.prepare("SELECT * FROM audit_events WHERE action = 'users.credential_change' AND outcome = 'deny' AND target_id = ?").all(id)
+
+  it('writes a deny row when a forged credential change is refused', () => {
+    const id = randomUUID()
+    projectAll(db, putUser(createEmptyDoc(), { id, role: 'staff', pin: '1234', signerDb: db }).doc)
+    expect(denials(id)).toHaveLength(0) // control: a legit signed change records no denial
+
+    projectAll(db, putUser(createEmptyDoc(), { id, role: 'admin', pin: '1234', forgedSig: 'AAAAAAAA' }).doc)
+    const rows = denials(id)
+    expect(rows).toHaveLength(1) // the block is now durably recorded, not swallowed
+    expect(rows[0].reason).toMatch(/auth_sig|Q1 enforcement/)
+  })
+})
