@@ -166,6 +166,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-09-15 | [closes T164 — verify reports INCONCLUSIVE (exit 2) when a step fails under machine oversubscription](../../docs/work/runs/2026-09-15-closes-t164-verify-reports-inconclusive-exit-2-when-a-step-f.md) | test-infrastructure | pass | PASS |
 | 2026-09-15 | [T167 part 1: make filing a run record cheap, and correct T164's diagnosis](../../docs/work/runs/2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-.md) | documentation-governance | pass | pass |
 | 2026-09-15 | [closes T167 part 2: a change that closes something must file a run record](../../docs/work/runs/2026-09-15-t167-part-2-require-a-run-record.md) | documentation-governance | pass | pass |
 | 2026-09-14 | [harness reliability — classify non-retryable nightly failures, make the morning check ask whether the pass succeeded, protect application-leased worktrees from pruning, and pin the loop-roster/Article VI partition](../../docs/work/runs/2026-09-14-harness-reliability-repairs.md) | test-infrastructure | pass | merged-under-human-waiver |
