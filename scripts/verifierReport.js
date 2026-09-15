@@ -109,8 +109,13 @@ export function buildVerifierReport({ text, evidenceRef, expectedSha }) {
         ref: s.name,
         summary: `gate step "${s.name}" exited ${s.rc}${s.summary ? ` — ${s.summary}` : ''}`,
       })),
+      // HIGH, not BLOCKING. gateReportSchema.js rejects a BLOCKING finding unless the verdict
+      // is FAIL, and a binding problem is not a failure — it is "we cannot tell whether this
+      // passed", which is UNVERIFIED. Marking it BLOCKING made the whole report MALFORMED, so
+      // the reducer reached BLOCK by accident and discarded the explanation. UNVERIFIED already
+      // forces BLOCK through §5.2, so the verdict does the blocking and the finding explains it.
       ...bindingProblems.map((problem) => ({
-        severity: 'BLOCKING',
+        severity: 'HIGH',
         ref: evidenceRef ?? 'evidence',
         summary: `evidence binding: ${problem}`,
       })),

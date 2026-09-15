@@ -70,3 +70,40 @@ reappearing one level up, in the evidence layer:
 **Still open:** the four opinion gates. Transcribing a prose review into a typed `PerGateReport`
 needs a model, but it is the only part that does. Part 2 of this ticket — requiring a run record
 for new completions — remains untouched and should not start until filing is demonstrably cheap.
+
+## Slice 2 shipped (2026-09-15) — the clerical half is gone
+
+`scripts/gateReportCli.js` now derives the Verifier `PerGateReport` itself. The input names a
+gate results file and the commit under review; Grader writes only the **opinion** reports, which
+is the part that genuinely needs a model.
+
+```json
+{ "gateResults": "docs/work/runs/evidence/<file>.txt", "commit": "<sha>" }
+```
+
+`commit` carries T169's binding through: a results file produced against a different tree, or a
+dirty one, is refused rather than accepted. Supplying both `gateResults` and a hand-written
+`verifier` report is a usage error — silently preferring either would hide which evidence was
+actually used. `docs/governance/agent-bindings/grader.md` now says all of this, so the instruction
+and the tool agree.
+
+**A contract violation found while wiring this up.** The T169 binding findings were tagged
+`BLOCKING`, and `gateReportSchema.js` rejects a `BLOCKING` finding unless the verdict is `FAIL`.
+An `UNVERIFIED` report carrying one was therefore *malformed* — the reducer reached `BLOCK` by
+accident rather than through §5.2, and threw the explanation away. The severity is now `HIGH`,
+which is what a binding problem actually is: "we cannot tell whether this passed", not "it
+failed". The verdict does the blocking; the finding explains it.
+
+Because the reducer's output carries `blocking_findings` only — and that shape is deliberately
+not being widened, since its unchanged semantics are the thing worth protecting — the CLI prints
+a non-`PASS` derived Verifier verdict and its reason to stderr. 32 tests across
+`gateReportCli.test.js` and `verifierReport.test.js`.
+
+## Still open — part 2 of the original ticket
+
+Requiring a run record for new completions. Untouched, deliberately: filing is now much cheaper
+but not yet demonstrably cheap *in practice*, and the ordering in this ticket was "make it cheap
+before making it required" for a reason. The reusable mechanism is Mobile Prototype's
+`checkRunRecordNodes` (routing accounting), and the rule must apply to new completions only — 81
+tickets are already closed without a run record, so applying it retroactively means either
+fabricating history or a permanently red gate.

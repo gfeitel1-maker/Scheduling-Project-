@@ -125,6 +125,11 @@ describe('binding evidence to a commit (T169)', () => {
     const r = buildVerifierReport({ text: stamped('2222222222222222222222222222222222222222'), evidenceRef: ref, expectedSha: '1111111111111111111111111111111111111111' })
     expect(r.verdict).toBe('UNVERIFIED')
     expect(r.findings.some((f) => /different commit|does not match/i.test(f.summary))).toBe(true)
+    // Contract: gateReportSchema rejects a BLOCKING finding unless the verdict is FAIL. An
+    // UNVERIFIED report carrying one is MALFORMED, which would reach BLOCK by accident and
+    // throw the reason away. The severity has to match the verdict.
+    expect(validatePerGateReport(r).malformed).toBe(false)
+    expect(r.findings.every((f) => f.severity !== 'BLOCKING')).toBe(true)
   })
 
   it('REJECTS an unstamped file when a commit was specified — unbound is not verified', () => {
@@ -136,6 +141,7 @@ describe('binding evidence to a commit (T169)', () => {
     const r = buildVerifierReport({ text: stamped('1111111111111111111111111111111111111111', 2), evidenceRef: ref, expectedSha: '1111111111111111111111111111111111111111' })
     expect(r.verdict).toBe('UNVERIFIED')
     expect(r.findings.some((f) => /dirty/i.test(f.summary))).toBe(true)
+    expect(validatePerGateReport(r).malformed).toBe(false)
   })
 
   it('accepts a short sha against the full stamp and vice versa', () => {
