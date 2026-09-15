@@ -77,3 +77,41 @@ Confidence: high. The only real cost is implementation effort and migration care
 - Note: at-rest encryption does not change the CRDT trust model between *paired* devices (each holds
   the data by design); it protects a device's bytes at rest from an offline thief, and stops the
   replicated PIN hashes from being crackable off a stolen file.
+
+## Constraints surfaced by review (app-icon-audit) — must be honored by the implementation
+
+These are recorded now because they shape the remaining slices (SQLite key wiring + migration), and
+one is a gate-breaker:
+
+1. **Era fixtures need an explicit, narrow plaintext-open path.** `test/fixtures/eras/*.sqlite`
+   (v10/v23/v34/v48) are committed PLAINTEXT historical dbs that `eraMigration.test.js` opens via
+   `openLocalDb`; they are not regenerable and must not be re-encrypted. When `openLocalDb` takes a
+   key it will break that test. The fix must be an **opt-in the test passes** (e.g. `openLocalDb(path,
+   { plaintext: true })`), NOT a silent "open unencrypted if no key" fallback — a silent fallback
+   makes the encryption bypassable by moving a file. Explicit and narrow.
+2. **The rebuild command's promise changes.** Once BOTH the SQLite db and the `.automerge` doc are
+   encrypted under the same keychain key, a device whose keychain entry is gone has *both*
+   unreadable and `rebuild_projection_from_document` cannot help (nothing to rebuild from). Its
+   `notRecoverable` report needs a line for this, and its refusal check must distinguish **"no file"**
+   from **"file present but undecryptable"** — those need opposite advice from a support person.
+3. **Three keys, one event.** `host_signing_key` (Ed25519, host-only), T162's persistent device
+   identity key (accepted, unbuilt), and this storage key are all touched — differently — by one
+   real event: "I lost my laptop / reinstalled / restored a backup." They should be answered by ONE
+   recovery page, not three flows the director meets as one. Argues for designing this alongside
+   T162; at minimum, write the single recovery story.
+4. **The guarantee is narrower than "encrypted at rest," and SECURITY.md must say so.** A keychain
+   entry is per-OS-user. On the realistic shared-login camp-office Mac, this defends against a
+   **powered-off stolen machine**, and NOT against the person at the next desk on the same login.
+   That is the right tradeoff under the trusted-device model, but the doc must state the boundary
+   rather than let "encrypted at rest" imply more (the T149 stale-claim lesson, applied up front).
+
+## The hard-fail exception (explicit, on purpose)
+
+Every recent decision in this codebase has held to *a missing thing must not become a hard failure*
+(T162 reinstall re-pairs; Q1's absent-key keeps last-known; T174's "cannot tell" is a third answer).
+**Encryption inverts that: no key means no data, and there is no graceful version.** That is
+unavoidable for real encryption, and it is accepted here — but it is the codebase's FIRST deliberate
+hard-fail, so it is recorded as an explicit exception rather than discovered later. The mitigations
+that keep it humane: the key is minted and sealed automatically (no passphrase to forget), it
+survives app reinstalls (it is in the OS keychain, not app files), and the loss cases are exactly
+the "three keys, one event" recovery story above.
