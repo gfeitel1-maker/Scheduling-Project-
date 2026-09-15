@@ -51,11 +51,15 @@ CREATE TABLE IF NOT EXISTS users (
   pin_hash TEXT NOT NULL,
   pin_salt TEXT NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('admin', 'staff')),
-  -- Host Ed25519 signature over {id, role, pin_hash, pin_salt} (docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md).
+  -- Host Ed25519 signature over {id, role, pin_hash, pin_salt, cred_version} (docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md, T172).
   -- Replicates like the other credential fields; a device verifies it before applying them, so a
   -- compromised paired device cannot forge a role/PIN change it cannot sign (Q1). Empty = unsigned
   -- (legacy/pre-backfill); enforcement treats that per the ADR's graceful-degradation rules.
-  auth_sig TEXT NOT NULL DEFAULT ''
+  auth_sig TEXT NOT NULL DEFAULT '',
+  -- Monotonic per-user credential version, minted+incremented by the Host on each credential change
+  -- (createUser=1, promoteToAdmin=prev+1) and bound into auth_sig. Projection rejects a verified
+  -- tuple whose version is older than the local row's — this is the T172 replay/rollback defense.
+  cred_version INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_camp_name ON users(camp_id, name);

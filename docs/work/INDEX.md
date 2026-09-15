@@ -39,7 +39,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | open | — |
-| [Credential-signature replay + degrade-window permanence — hard blockers before internet transport](../../docs/work/tickets/T165-credential-signature-replay-and-degrade-permanence.md) | open | — |
 
 ### test-infrastructure
 
@@ -163,8 +162,8 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: The camp game talks to Shoresh through a boring explicit contract, never through its data](../../docs/adr/2026-09-13-game-integration-boundary.md) | accepted | not_started | — |
 | [Migrate off npm-published SheetJS (xlsx) to the advisory-fixed line](../../docs/adr/2026-09-13-sheetjs-parser-advisory-migration.md) | accepted | implemented | — |
 | [ADR: Persistent per-device libp2p identity, binding a session token to the peer presenting it](../../docs/adr/2026-09-14-device-identity-and-token-binding.md) | accepted | not_started | [T162-device-identity-and-token-binding](../../docs/work/tickets/T162-device-identity-and-token-binding.md) |
-| [Internet-reachable transport requires a full security re-assessment (enforced gate)](../../docs/adr/2026-09-14-internet-transport-security-gate.md) | accepted | implemented | [T165-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T165-credential-signature-replay-and-degrade-permanence.md) |
-| [Take users' auth fields (role, pin_hash, pin_salt) off the replicated document](../../docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md) | accepted | implemented | [T165-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T165-credential-signature-replay-and-degrade-permanence.md) |
+| [Internet-reachable transport requires a full security re-assessment (enforced gate)](../../docs/adr/2026-09-14-internet-transport-security-gate.md) | accepted | implemented | [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) |
+| [Take users' auth fields (role, pin_hash, pin_salt) off the replicated document](../../docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md) | accepted | implemented | [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) |
 | [Opinion GateReport inputs are bound to a real, completed subagent dispatch](../../docs/adr/2026-09-15-opinion-report-dispatch-provenance.md) | accepted | shipped | — |
 
 ## Runs

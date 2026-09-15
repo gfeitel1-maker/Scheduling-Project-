@@ -113,12 +113,12 @@ describe('createUser / verifyPin', () => {
   // Q1 slice 2: a created user carries a Host signature that verifies over its credential fields.
   it('stamps a Host auth_sig that verifies over {id, role, pin_hash, pin_salt}', async () => {
     const user = await createUser(db, { camp_id: 'camp-1', name: 'Signed', pin: '1234', role: 'staff' }, testWrite())
-    const row = db.prepare('SELECT role, pin_hash, pin_salt, auth_sig FROM users WHERE id = ?').get(user.id)
+    const row = db.prepare('SELECT role, pin_hash, pin_salt, auth_sig, cred_version FROM users WHERE id = ?').get(user.id)
     const pub = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key
     expect(row.auth_sig).not.toBe('')
-    expect(verifyAuthFields(pub, { id: user.id, role: row.role, pin_hash: row.pin_hash, pin_salt: row.pin_salt }, row.auth_sig)).toBe(true)
+    expect(verifyAuthFields(pub, { id: user.id, role: row.role, pin_hash: row.pin_hash, pin_salt: row.pin_salt, cred_version: row.cred_version }, row.auth_sig)).toBe(true)
     // tamper: the same signature must not validate a smuggled admin role
-    expect(verifyAuthFields(pub, { id: user.id, role: 'admin', pin_hash: row.pin_hash, pin_salt: row.pin_salt }, row.auth_sig)).toBe(false)
+    expect(verifyAuthFields(pub, { id: user.id, role: 'admin', pin_hash: row.pin_hash, pin_salt: row.pin_salt, cred_version: row.cred_version }, row.auth_sig)).toBe(false)
   })
 })
 
@@ -237,7 +237,7 @@ describe('unique username per camp', () => {
 })
 
 describe('createUser op-log integration', () => {
-  it('routes all 6 field writes through the provided write function instead of calling appendOp directly', async () => {
+  it('routes all 7 field writes through the provided write function instead of calling appendOp directly', async () => {
     const calls = []
     const write = async ({ entity, entity_id, field, value }) => {
       calls.push({ entity, entity_id, field, value })
@@ -255,12 +255,12 @@ describe('createUser op-log integration', () => {
 
     const user = await createUser(db, { camp_id: 'camp-1', name: 'Opuser0', pin: '1234', role: 'staff' }, write)
 
-    expect(calls).toHaveLength(6)
+    expect(calls).toHaveLength(7)
     expect(calls.every((c) => c.entity === 'users' && c.entity_id === user.id)).toBe(true)
-    expect(calls.map((c) => c.field).sort()).toEqual(['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig'].sort())
+    expect(calls.map((c) => c.field).sort()).toEqual(['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig', 'cred_version'].sort())
   })
 
-  it('emits exactly 6 operations rows for the new user, one per field, all with parent_op_id null', async () => {
+  it('emits exactly 7 operations rows for the new user, one per field, all with parent_op_id null', async () => {
     const user = await createUser(
       db,
       { camp_id: 'camp-1', name: 'Opuser', pin: '1234', role: 'staff' },
@@ -271,9 +271,9 @@ describe('createUser op-log integration', () => {
       .prepare('SELECT field, parent_op_id FROM operations WHERE entity = ? AND entity_id = ?')
       .all('users', user.id)
 
-    expect(ops).toHaveLength(6)
+    expect(ops).toHaveLength(7)
     expect(ops.map((op) => op.field).sort()).toEqual(
-      ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig'].sort()
+      ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig', 'cred_version'].sort()
     )
     expect(ops.every((op) => op.parent_op_id === null)).toBe(true)
   })

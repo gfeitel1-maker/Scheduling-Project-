@@ -30,6 +30,8 @@ import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { appendOp, appendBulkReplaceOp, DELETE_FIELD } from '../ops/operations.js'
 import { commitIngest } from '../ops/ingest.js'
+import { ensureHostSigningKey } from '../auth/localAuth.js'
+import { signAuthFields } from '../auth/authSignature.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { seedAllFromSqlite } from './seed.js'
@@ -61,6 +63,12 @@ function buildRichCamp(db, campId, deviceId) {
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Probe', 'a'.repeat(64))
   db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device One')
   db.prepare("INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, 'Ruth', 'h', 's', 'admin')").run('u1', campId)
+  // The Host signs its users (Q1) — an unsigned admin would be refused when the document is
+  // projected into the rebuilt db (which is exactly what this test does), diverging from the source.
+  const _hostKey = ensureHostSigningKey(db)
+  db.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(_hostKey.public_key, campId)
+  db.prepare('UPDATE users SET auth_sig = ?, cred_version = 1 WHERE id = ?')
+    .run(signAuthFields(db, { id: 'u1', role: 'admin', pin_hash: 'h', pin_salt: 's', cred_version: 1 }), 'u1')
 
   commitIngest(db, {
     approved: {
@@ -160,6 +168,10 @@ describe('rebuild from the document into a FRESH database', () => {
     // first. In production that is bootstrapCamp or the join flow, never
     // document replay.
     fresh.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Camp Probe')
+    // The verifying key arrives via pairing/full-sync, not the document — mirror that so the rebuilt
+    // db can verify u1's Host signature and apply its admin credentials (Q1 enforcement).
+    const pub = source.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key
+    fresh.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(pub, campId)
 
     projectAll(fresh, doc)
 

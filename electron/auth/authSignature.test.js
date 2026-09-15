@@ -29,7 +29,7 @@ function hostDbWithKey() {
   return { db, publicKeyHex: pub }
 }
 
-const FIELDS = { id: 'user-1', role: 'admin', pin_hash: 'scrypt$deadbeef', pin_salt: 'cafebabe' }
+const FIELDS = { id: 'user-1', role: 'admin', pin_hash: 'scrypt$deadbeef', pin_salt: 'cafebabe', cred_version: 2 }
 
 describe('canonicalAuthMessage', () => {
   it('is deterministic and order-independent of the input object keys', () => {
@@ -38,12 +38,13 @@ describe('canonicalAuthMessage', () => {
     expect(a).toBe(b)
   })
 
-  it('changes if any of the four bound fields changes', () => {
+  it('changes if any of the five bound fields changes (incl cred_version — replay defense)', () => {
     const base = canonicalAuthMessage(FIELDS)
     expect(canonicalAuthMessage({ ...FIELDS, role: 'staff' })).not.toBe(base)
     expect(canonicalAuthMessage({ ...FIELDS, id: 'user-2' })).not.toBe(base)
     expect(canonicalAuthMessage({ ...FIELDS, pin_hash: 'x' })).not.toBe(base)
     expect(canonicalAuthMessage({ ...FIELDS, pin_salt: 'x' })).not.toBe(base)
+    expect(canonicalAuthMessage({ ...FIELDS, cred_version: 3 })).not.toBe(base)
   })
 
   it('is unambiguous across a field-boundary shift (no delimiter collision)', () => {
@@ -76,6 +77,7 @@ describe('signAuthFields / verifyAuthFields', () => {
     expect(verifyAuthFields(publicKeyHex, { ...FIELDS, pin_hash: 'other' }, sig)).toBe(false) // PIN overwrite
     expect(verifyAuthFields(publicKeyHex, { ...FIELDS, pin_salt: 'other' }, sig)).toBe(false)
     expect(verifyAuthFields(publicKeyHex, { ...FIELDS, id: 'user-2' }, sig)).toBe(false)     // moved to another user
+    expect(verifyAuthFields(publicKeyHex, { ...FIELDS, cred_version: 99 }, sig)).toBe(false) // version tamper (replay defense)
   })
 
   it('rejects a signature from a DIFFERENT host key', () => {
