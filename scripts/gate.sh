@@ -67,4 +67,15 @@ step governance npm run check:governance
 print -- "DONE" >> "$R"
 print -- "results -> $R"
 print -- "to keep it as evidence:  cp \"$R\" docs/work/runs/evidence/gate-$(git rev-parse --short HEAD).txt"
-grep -c '^STEP .* rc=[1-9]' "$R" >/dev/null 2>&1 && exit 0 || exit 0
+# Exit non-zero when any step failed. The previous line was
+#   grep -c ... >/dev/null 2>&1 && exit 0 || exit 0
+# which exits 0 on BOTH branches — the gate reported success no matter what was in the results
+# file. That is precisely the defect this whole program exists to remove ("started" taken for
+# "succeeded"), sitting in the tool built to detect it, and it shipped through a 13/13 green run
+# because the gate never runs itself. See T171.
+if grep -q '^STEP .* rc=[1-9]' "$R"; then
+  print -u2 -- "gate FAILED — failing steps:"
+  grep '^STEP .* rc=[1-9]' "$R" >&2
+  exit 1
+fi
+exit 0

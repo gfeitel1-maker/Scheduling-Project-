@@ -7,6 +7,38 @@ governing_docs: [docs/governance/standards/WORKING_COPY_STANDARD.md]
 
 # Nightly consolidation
 
+## ⚠️ Two copies exist right now — launchd still runs the OLD one
+
+Moving these scripts into the repo did **not** repoint the scheduler. As of this commit:
+
+| | path | run by launchd? |
+|---|---|---|
+| repo copy (this directory) | `scripts/consolidation/*.sh` | **no** |
+| original | `~/.claude/projects/<slug>/_consolidation/*.sh` | **yes, at 03:00** |
+
+So editing a script here, seeing the gate pass, and merging **does not change what runs tonight**.
+The two copies are independently editable and will drift.
+
+The repoint is deliberately deferred: `com.shoresh.memory-consolidation.plist` can only point at
+`~/dev/shoresh/scripts/consolidation/run.sh` once that path exists on the checkout launchd reads,
+which means after this branch merges *and* the main checkout advances. Pointing it early breaks
+the 03:00 run outright — which was tried, caught, and reverted on 2026-09-15.
+
+**To finish the move** (after merge, with the main checkout on the merged commit):
+
+```bash
+P=~/Library/LaunchAgents/com.shoresh.memory-consolidation.plist
+cp -n "$P" "$P.bak-$(date +%F)"
+# replace the _consolidation/run.sh path with ~/dev/shoresh/scripts/consolidation/run.sh
+plutil -lint "$P"                        # must print OK
+launchctl unload "$P" && launchctl load "$P"
+```
+
+Then delete the old copies so they cannot drift, leaving a marker in their place. Until that is
+done, **the original directory is the source of truth for what actually runs.** Tracked as T171.
+
+---
+
 `com.shoresh.memory-consolidation` (03:00) runs `run.sh`. `com.shoresh.integration-report`
 (06:30) runs `../integration.sh`, which calls back into `run.sh` and `mineFromPacket.sh`.
 

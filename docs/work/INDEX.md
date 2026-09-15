@@ -49,6 +49,7 @@ Regenerate with `npm run index:work`.
 | [Put agents:check in the gate once green is reachable everywhere](../../docs/work/tickets/T166-put-agents-check-in-the-gate.md) | open | — |
 | [The two unattended jobs delete directories and write memory, and neither has a test](../../docs/work/tickets/T168-shell-test-harness-for-the-unattended-jobs.md) | in-progress | — |
 | [Make the agent-team activity report a standing measurement, not an ad-hoc probe](../../docs/work/tickets/T170-standing-agent-activity-report.md) | open | — |
+| [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 
 ## Decisions
 
