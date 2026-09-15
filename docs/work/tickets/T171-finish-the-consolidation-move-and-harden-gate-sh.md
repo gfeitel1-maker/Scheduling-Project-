@@ -26,8 +26,29 @@ contract is now three-valued — 0 passed, 1 failed, **2 cannot tell** — becau
 human responds differently to "the gate failed" than to "the gate never
 reported".
 
-**Item 3 (format-coupled summary grep) — still open.** Low severity; `rc` is
-still authoritative, only the human-readable summary column can go blank.
+**Item 3 (format-coupled summary grep) — done, and it found a real instance on
+its first run.** Extracted to `scripts/gateStepSummary.sh` with
+`test/gateStepSummary.test.js`. An unsummarisable step now prints `UNMATCHED`
+instead of a blank column, the same three-valued honesty as item 2's `2 = cannot
+tell`: a reader acts differently on "nothing to report" than on "I could not read
+the report". `rc` stays authoritative and an unsummarisable step does NOT fail the
+gate — loud, not fatal.
+
+Two things the work turned up, both the ticket's own defect class:
+
+- **`agents-check` had been blank in every gate run ever recorded.** Its summary
+  line (`All generated profiles are byte-identical...`) was never in the pattern,
+  so that column was silently empty for the life of the script — indistinguishable
+  from a clean step with nothing to say. The `UNMATCHED` marker surfaced it on its
+  first real run. The pattern now covers it.
+- **The first fix reintroduced the bug it was fixing.** Calling the new script as
+  `"${0:A:h}/gateStepSummary.sh"` from inside `step()` is wrong: `$0` inside a zsh
+  function is the FUNCTION NAME (`FUNCTION_ARGZERO` is on by default), so `:A`
+  resolved against the cwd and pointed at a file that does not exist — the pipeline
+  would fail and the column would go silently blank. Caught by running `gate.sh`
+  from a foreign cwd via a relative path rather than trusting it. `SCRIPT_DIR` is
+  now resolved once at top level, and deliberately BEFORE the `cd`, because `:A`
+  resolves a relative `$0` against the current directory.
 
 Raised by Code Reviewer against `f3c5c16..31ba59e` (scored 3/5).
 
