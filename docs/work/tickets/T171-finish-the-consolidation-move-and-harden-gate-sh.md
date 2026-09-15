@@ -10,6 +10,25 @@ archive_when: launchd runs the in-repo consolidation scripts, the out-of-repo co
 
 # T171 — Finish the consolidation move; harden `gate.sh`
 
+## Status, 2026-09-15
+
+**Item 1 (plist repoint) — done, verified on disk.** `com.shoresh.memory-consolidation.plist`
+runs `/Users/gregfeitel/dev/shoresh/scripts/consolidation/run.sh` and the
+`~/.claude/projects/.../_consolidation/` copies are gone. Still owed: confirming
+one 03:00 run has actually succeeded through the new path — the ticket's own
+"done when" asks for that and it has not been observed.
+
+**Item 2 (`gate.sh` exit code) — done, and the test it owed found more.** #410
+added `test/gateResultCode.test.js`. Writing it found the SAME defect twice more:
+a MISSING results file and an EMPTY one also exited 0, so "I could not find the
+results" and "the gate died before its first step" both read as success. The
+contract is now three-valued — 0 passed, 1 failed, **2 cannot tell** — because a
+human responds differently to "the gate failed" than to "the gate never
+reported".
+
+**Item 3 (format-coupled summary grep) — still open.** Low severity; `rc` is
+still authoritative, only the human-readable summary column can go blank.
+
 Raised by Code Reviewer against `f3c5c16..31ba59e` (scored 3/5).
 
 ## 1. The plist repoint is not done — two copies exist
