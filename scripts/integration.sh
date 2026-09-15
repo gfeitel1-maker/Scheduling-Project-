@@ -184,14 +184,6 @@ if [[ -f "$LEDGER" ]]; then
     3) { print -- "WARN: worktree ledger unreadable (torn or malformed read) — protecting nothing this run"; } >> "$LOG"
        print -- "\n## ⚠️ Worktree ledger unreadable this run" >> "$REPORT"
        print -- "- \`$LEDGER\` could not be parsed; lease protection was OFF for this prune pass." >> "$REPORT" ;;
-    *) # Anything else — most likely 127, the reader missing because this script is running from
-       # a checkout that does not have it yet. Without this arm an unknown code falls through
-       # every case, LEASED_PATHS stays empty, and protection turns off silently: the same class
-       # of failure as arm 4, arriving by a different road.
-       { print -- "ERROR: lease reader exited $LRC (unexpected). Lease protection is OFF."; } >> "$LOG"
-       print -- "\n## 🔴 Worktree lease reader failed (exit $LRC) — protection is OFF" >> "$REPORT"
-       print -- "- \`${0:A:h}/readWorktreeLeases.py\` did not run as expected. Pruning is **unprotected**." >> "$REPORT"
-       LEASED_PATHS="" ;;
     4) # The failure this whole feature exists to prevent, reintroduced by a schema change, would
        # otherwise log a line byte-identical to a healthy empty ledger. Make it impossible to miss.
        { print -- "ERROR: worktree ledger schema changed — no 'worktrees' object. Lease protection is OFF."; } >> "$LOG"
@@ -199,6 +191,14 @@ if [[ -f "$LEDGER" ]]; then
        print -- "- \`$LEDGER\` parsed, but has no \`worktrees\` object. Claude Desktop's format moved." >> "$REPORT"
        print -- "- Pruning is running **unprotected**: a pooled worktree the app still expects can be deleted." >> "$REPORT"
        print -- "- Fix the parser in \`scripts/integration.sh\` before the next 06:30 run." >> "$REPORT"
+       LEASED_PATHS="" ;;
+    *) # Anything else — most likely 127, the reader missing because this script is running from
+       # a checkout that does not have it yet. Without this arm an unknown code falls through
+       # every case, LEASED_PATHS stays empty, and protection turns off silently: the same class
+       # of failure as arm 4, arriving by a different road.
+       { print -- "ERROR: lease reader exited $LRC (unexpected). Lease protection is OFF."; } >> "$LOG"
+       print -- "\n## 🔴 Worktree lease reader failed (exit $LRC) — protection is OFF" >> "$REPORT"
+       print -- "- \`${0:A:h}/readWorktreeLeases.py\` did not run as expected. Pruning is **unprotected**." >> "$REPORT"
        LEASED_PATHS="" ;;
   esac
 else

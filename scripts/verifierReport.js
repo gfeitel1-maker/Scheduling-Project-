@@ -14,11 +14,18 @@
 // consumable directly by scripts/gateReportCli.js. Verifier carries no score by contract
 // (gateReportSchema.js: "verifier must not carry a score") — it executes, it does not opine.
 
+/** Normalise line endings once, so every consumer sees the same shape. A trailing \r defeats
+ *  an unanchored `$`, which silently produced ZERO parsed steps on a CRLF results file — and
+ *  zero steps with no failures is one `DONE` away from reading as a pass. */
+export function toLines(text) {
+  return String(text ?? '').replace(/\r\n?/g, '\n').split('\n')
+}
+
 /** One `STEP <name> | rc=<n> | <summary>` line per gate step. */
 export function parseGateResults(text) {
   if (!text) return []
   const out = []
-  for (const line of String(text).split('\n')) {
+  for (const line of toLines(text)) {
     const m = /^STEP\s+(\S+)\s*\|\s*rc=(\d+)\s*\|(.*)$/.exec(line)
     if (m) out.push({ name: m[1], rc: Number(m[2]), summary: m[3].trim() })
   }
@@ -41,7 +48,12 @@ export function buildVerifierReport({ text, evidenceRef }) {
   // pass — it established nothing. Reporting that as PASS would be the same defect this work
   // was written to close ("started" read as "succeeded"), reappearing in the evidence layer.
   // A failure already observed is still a failure: truncation cannot launder it into UNVERIFIED.
-  const complete = /^DONE\s*$/m.test(String(text ?? ''))
+  // DONE must be the LAST non-blank line — not merely present somewhere. Red Hat found that a
+  // bare "DONE" in captured step output (build tools print it as a stage marker) let a run that
+  // died after step 1 report PASS, because nothing tied the marker to the end of the run. The
+  // marker means "the harness reached the end", and only a terminal marker can mean that.
+  const lines = toLines(text).filter((l) => l.trim() !== '')
+  const complete = lines.length > 0 && lines[lines.length - 1].trim() === 'DONE'
   let verdict
   if (failed.length > 0) verdict = 'FAIL'
   else if (steps.length === 0 || !complete) verdict = 'UNVERIFIED'

@@ -70,6 +70,25 @@ describe('buildVerifierReport', () => {
     expect(rep.verdict).toBe('FAIL')
   })
 
+  // Red Hat, round 2: `/^DONE$/m` matched a standalone DONE ANYWHERE, so a run that died after
+  // step 1 — whose captured output happened to contain a bare "DONE" line, which build tools
+  // print — read as PASS while 4 of 5 gates never ran. "Started" read as "succeeded", one level
+  // up, in the evidence layer, and validatePerGateReport would have accepted it.
+  it('a DONE that is not the terminal line does NOT mean complete', () => {
+    const stray = 'STEP lint | rc=0 | ok\nDONE\nSTEP tests-1 | rc=0 | Tests 10 passed (10)'
+    expect(buildVerifierReport({ text: stray, evidenceRef: 'e.txt' }).verdict).toBe('UNVERIFIED')
+  })
+
+  it('a bare DONE inside captured step output cannot manufacture a PASS', () => {
+    const noisy = 'STEP tests-1 | rc=0 | Tests 10 passed (10)\nbuild stage: DONE\n'
+    expect(buildVerifierReport({ text: noisy, evidenceRef: 'e.txt' }).verdict).toBe('UNVERIFIED')
+  })
+
+  it('tolerates trailing blank lines and CRLF around the terminal DONE', () => {
+    const crlf = 'STEP lint | rc=0 | ok\r\nSTEP tests-1 | rc=0 | Tests 10 passed (10)\r\nDONE\r\n\r\n'
+    expect(buildVerifierReport({ text: crlf, evidenceRef: 'e.txt' }).verdict).toBe('PASS')
+  })
+
   it('requires an evidence_ref — the reducer rejects a verifier report without one', () => {
     const rep = buildVerifierReport({ text: GREEN, evidenceRef: null })
     expect(validatePerGateReport(rep).malformed).toBe(true)
