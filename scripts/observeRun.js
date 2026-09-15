@@ -3,7 +3,7 @@
 // Pure parse/fold logic below; I/O (file walking, cursor) is in main().
 
 import { createReadStream, readFileSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
 
 // One JSONL line -> zero or more events. Never throws.
@@ -26,7 +26,9 @@ export function parseLine(rawLine) {
         if (block.name === 'Skill' && typeof block.input?.skill === 'string') {
           events.push({ kind: 'skill', name: block.input.skill })
         } else if (block.name === 'Agent' && typeof block.input?.subagent_type === 'string') {
-          events.push({ kind: 'dispatch', subagent_type: block.input.subagent_type })
+          const ev = { kind: 'dispatch', subagent_type: block.input.subagent_type }
+          if (typeof block.id === 'string') ev.toolUseId = block.id
+          events.push(ev)
         }
       }
     }
@@ -35,7 +37,16 @@ export function parseLine(rawLine) {
   if (record.type === 'user') {
     const tur = record.toolUseResult
     if (tur && typeof tur === 'object' && typeof tur.agentId === 'string' && typeof tur.status === 'string') {
-      events.push({ kind: 'resolution', agentId: tur.agentId, status: tur.status })
+      const ev = { kind: 'resolution', agentId: tur.agentId, status: tur.status }
+      // The launch acknowledgment record's own tool_use_id ties this resolution back to the
+      // specific Agent dispatch that produced it (see correlateDispatches) — without it, an
+      // agentId can be counted but never attributed to the dispatch that requested it.
+      const content = record.message?.content
+      if (Array.isArray(content)) {
+        const toolResult = content.find((b) => b && b.type === 'tool_result' && typeof b.tool_use_id === 'string')
+        if (toolResult) ev.toolUseId = toolResult.tool_use_id
+      }
+      events.push(ev)
     }
   }
 
@@ -51,9 +62,39 @@ export function parseLine(rawLine) {
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'error'])
 
+// Pairs an Agent dispatch's tool_use id with the agentId reported in its launch-acknowledgment
+// record (see parseLine — both are stamped with the same toolUseId). This is what lets a
+// dispatch be attributed to a specific agentId, rather than just counted by subagent_type.
+//
+// Only correlates within one flat event list, i.e. one file's events: a dispatch and its
+// acknowledgment are adjacent records in the same session transcript in every case observed in
+// the corpus (see T170). A dispatch whose acknowledgment record falls in a different file (e.g.
+// split by compaction) will not correlate — it is counted as unresolved, not silently dropped;
+// see the coverage numbers this produces in main().
+export function correlateDispatches(events) {
+  const launchesByToolUseId = new Map() // toolUseId -> subagent_type
+  const correlated = []
+  for (const ev of events) {
+    if (ev.kind === 'dispatch' && ev.toolUseId) {
+      launchesByToolUseId.set(ev.toolUseId, ev.subagent_type)
+    } else if (ev.kind === 'resolution' && ev.toolUseId && launchesByToolUseId.has(ev.toolUseId)) {
+      correlated.push({
+        subagent_type: launchesByToolUseId.get(ev.toolUseId),
+        toolUseId: ev.toolUseId,
+        agentId: ev.agentId,
+      })
+      launchesByToolUseId.delete(ev.toolUseId) // one launch ack per dispatch
+    }
+  }
+  return correlated
+}
+
 // Fold a flat list of events into a report. Optionally merge in prior partial
 // reports (for incremental, cross-file accumulation) via `priorReports`.
-export function foldEvents(events, priorReports = []) {
+// `correlated`, when supplied, is the result of correlateDispatches(events) for this same
+// events list — callers that already computed it (main(), to also pull agentIds by role) can
+// pass it through instead of paying for the correlation twice.
+export function foldEvents(events, priorReports = [], correlated = null) {
   const skills = {}
   const dispatches = {}
   const completion = { completed: 0, truncated: 0 }
@@ -80,7 +121,16 @@ export function foldEvents(events, priorReports = []) {
     else completion.truncated += 1
   }
 
-  let report = { skills, dispatches, completion }
+  // Per role, how many dispatches resolved an agentId at all (regardless of transcript/CLI
+  // checks, which are Grader-only and done in main()). This is the coverage denominator the
+  // ticket asks for: dispatches[role] is the population, agentIdCoverage[role] is how much of
+  // it this instrument could actually attribute to an agentId.
+  const agentIdCoverage = {}
+  for (const c of correlated || correlateDispatches(events)) {
+    agentIdCoverage[c.subagent_type] = (agentIdCoverage[c.subagent_type] || 0) + 1
+  }
+
+  let report = { skills, dispatches, completion, agentIdCoverage }
 
   for (const prior of priorReports) {
     report = mergeReports(report, prior)
@@ -101,7 +151,33 @@ function mergeReports(a, b) {
     truncated: a.completion.truncated + b.completion.truncated,
   }
 
-  return { skills, dispatches, completion }
+  const agentIdCoverage = { ...a.agentIdCoverage }
+  for (const [k, v] of Object.entries(b.agentIdCoverage)) agentIdCoverage[k] = (agentIdCoverage[k] || 0) + v
+
+  return { skills, dispatches, completion, agentIdCoverage }
+}
+
+// scripts/gateReportCli.js's own CLI entrypoint hardcodes runsDir to 'docs/work/runs' — there is
+// no --runs-dir flag, so this is a known constant when the CLI form is detected, not something
+// parsed off the command line. (`runGateReportCli()` called directly from JS could pass a
+// different runsDir, but that call is invisible from a transcript's Bash command text either way.)
+const GATE_REPORT_CLI_RE = /\bnode\s+(?:\.\/)?scripts\/gateReportCli\.js\b/
+const GATE_REPORT_CLI_RUNS_DIR = 'docs/work/runs'
+
+// Scans one subagent transcript's raw text for a Bash invocation of gateReportCli.js. Pure
+// string -> object; the file read itself happens in main().
+export function detectGateReportCliInvocation(transcriptText) {
+  if (typeof transcriptText === 'string' && GATE_REPORT_CLI_RE.test(transcriptText)) {
+    return { invoked: true, runsDir: GATE_REPORT_CLI_RUNS_DIR }
+  }
+  return { invoked: false, runsDir: null }
+}
+
+// Subagent transcripts live at <sessionDir>/<sessionId>/subagents/agent-<agentId>.jsonl, sibling
+// to the main transcript file <sessionDir>/<sessionId>.jsonl. Pure path arithmetic, no I/O.
+export function subagentTranscriptPath(mainTranscriptPath, agentId) {
+  const sessionId = basename(mainTranscriptPath, '.jsonl')
+  return join(dirname(mainTranscriptPath), sessionId, 'subagents', `agent-${agentId}.jsonl`)
 }
 
 // ---- I/O: file walking + cursor (not unit tested; exercised by the real-corpus run) ----
@@ -235,6 +311,12 @@ export async function main() {
   // reads with a bounded concurrency so the OS/disk can service many at once.
   const CONCURRENCY = 16
   const rewoundFiles = []
+  // Grader is the role that produces the durable artifact (a committed gate report), so it's
+  // the one dispatch stream we follow all the way to "did the CLI run and where did it write" —
+  // see T170. Collected as (filePath, agentId) pairs here (foldEvents/mergeReports only keep
+  // per-role counts, not identities) so the per-dispatch filesystem check below has enough to
+  // find the right subagent transcript.
+  const graderDispatchSources = []
   let nextIndex = 0
   async function worker() {
     while (nextIndex < files.length) {
@@ -251,13 +333,44 @@ export async function main() {
       if (bytesRead > 0) filesTouched += 1
       totalBytesRead += bytesRead
       cursor[filePath] = endByte
-      if (events.length > 0) perFileReports.push(foldEvents(events))
+      if (events.length > 0) {
+        const correlated = correlateDispatches(events)
+        perFileReports.push(foldEvents(events, [], correlated))
+        for (const c of correlated) {
+          if (c.subagent_type === 'grader') graderDispatchSources.push({ filePath, agentId: c.agentId })
+        }
+      }
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, worker))
 
   const report = foldEvents([], perFileReports)
   saveCursor(cursor)
+
+  // Per-Grader-dispatch detail: does its subagent transcript exist, and did it invoke
+  // gateReportCli.js. Only Grader gets this (transcript-content) level of check — reading and
+  // regexing ~74 multi-MB files is cheap; doing it for all 947 dispatches would not be "cheap".
+  const graderPerDispatch = graderDispatchSources.map(({ filePath, agentId }) => {
+    const transcriptPath = subagentTranscriptPath(filePath, agentId)
+    const transcriptExists = existsSync(transcriptPath)
+    let cli = { invoked: false, runsDir: null }
+    if (transcriptExists) {
+      try {
+        cli = detectGateReportCliInvocation(readFileSync(transcriptPath, 'utf8'))
+      } catch {
+        // Unreadable (permissions, deleted between existsSync and readFileSync): report as
+        // found-but-unchecked rather than silently counting it as "did not invoke".
+        cli = { invoked: false, runsDir: null, unreadable: true }
+      }
+    }
+    return { agentId, sourceFile: filePath, transcriptExists, gateReportCliInvoked: cli.invoked, runsDir: cli.runsDir }
+  })
+
+  const graderDispatchTotal = report.dispatches.grader || 0
+  const graderResolvedAgentId = report.agentIdCoverage.grader || 0
+  const graderUnresolvedAgentId = graderDispatchTotal - graderResolvedAgentId
+  const graderTranscriptFound = graderPerDispatch.filter((d) => d.transcriptExists).length
+  const graderCliInvoked = graderPerDispatch.filter((d) => d.gateReportCliInvoked).length
 
   const elapsedMs = Date.now() - start
 
@@ -271,6 +384,25 @@ export async function main() {
     bytesRead: totalBytesRead,
     elapsedMs,
     report,
+    grader: {
+      coverage:
+        `${graderDispatchTotal} grader dispatches this run; ${graderResolvedAgentId} resolved an ` +
+        `agentId, ${graderUnresolvedAgentId} did not (no launch-acknowledgment record correlated ` +
+        `to the dispatch's tool_use id in this file — see correlateDispatches). Of the ` +
+        `${graderResolvedAgentId} with a resolved agentId, ${graderTranscriptFound} have a subagent ` +
+        `transcript on disk and ${graderCliInvoked} of those invoked gateReportCli.js. ` +
+        `Percentages below cover only the ${graderResolvedAgentId} resolved dispatches, not the ` +
+        `full ${graderDispatchTotal} — read totalDispatches/resolvedAgentId/unresolvedAgentId ` +
+        `together, not the invocation count alone.`,
+      totalDispatches: graderDispatchTotal,
+      resolvedAgentId: graderResolvedAgentId,
+      unresolvedAgentId: graderUnresolvedAgentId,
+      transcriptFound: graderTranscriptFound,
+      transcriptMissing: graderPerDispatch.length - graderTranscriptFound,
+      gateReportCliInvoked: graderCliInvoked,
+      gateReportCliNotInvoked: graderPerDispatch.length - graderCliInvoked,
+      perDispatch: graderPerDispatch,
+    },
   }, null, 2))
 }
 
