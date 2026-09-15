@@ -303,29 +303,35 @@ fi
 YDAY=$(date -v-1d +%F)
 PEND="$HOME/.claude/projects/$SLUG/memory/_pending"
 HEALDEC=$("${0:A:h}/selfHealDecision.sh" "$PEND" "$CONS/run.log" "$YDAY")
-case "$HEALDEC" in
-  SUCCESS|QUIET|NONE)
+# What to SAY about the outcome is its own predicate (scripts/healReport.sh) because the bug was
+# here, not in selfHealDecision.sh: NONE was bucketed with SUCCESS|QUIET as a silent no-op,
+# discarding the very distinction the predicate exists to draw. Only SUCCESS and QUIET are silent.
+HEALREPORT=$("${0:A:h}/healReport.sh" "$HEALDEC")
+HEALSEV="${HEALREPORT%%|*}"
+HEALMSG="${HEALREPORT#*|}"
+case "$HEALSEV" in
+  silent)
     :
     ;;
-  FAILED-AUTH|FAILED-MINE)
-    # ran and failed. Do NOT re-run: it already retried, and for a non-retryable class
-    # (expired login) another attempt only burns another failure. Surface it instead.
-    print -- "\n## 🔴 Nightly memory pass FAILED for $YDAY" >> "$REPORT"
-    if [[ "$HEALDEC" == "FAILED-AUTH" ]]; then
-      print -- "- **not authenticated** — sign in once with \`claude /login\`, then recover the backlog" >> "$REPORT"
-    else
-      print -- "- mining failed after retries — see \`$CONS/run.log\`" >> "$REPORT"
-    fi
+  alert)
+    print -- "\n## $HEALMSG" >> "$REPORT"
+    print -- "- day: \`$YDAY\` — see \`$CONS/run.log\`" >> "$REPORT"
+    { print -- "morning: $HEALDEC for $YDAY — $HEALMSG"; } >> "$LOG"
     ;;
-  SELFHEAL)
-    # never started (Mac asleep at 03:00). Safe to run now: yesterday's transcript mtimes
-    # are still accurate, so gather.sh selects the right files. This is the ONLY case where
-    # run.sh may be invoked for a past day — see the backlog note below.
-    print -- "\n## 🩹 Self-heal: recovered a missed nightly memory pass" >> "$REPORT"
-    print -- "- the 3 AM consolidation had not run for $YDAY (Mac likely asleep) — ran it now" >> "$REPORT"
+  heal)
     { print -- "self-heal: nightly memory pass for $YDAY missing; running consolidation/run.sh $YDAY"; } >> "$LOG"
-    RES=$("$CONSCRIPTS/run.sh" "$YDAY" 2>>"$LOG")
-    print -- "- result: \`${RES:t}\` (review it with the morning proposals)" >> "$REPORT"
+    RES=$("$CONSCRIPTS/run.sh" "$YDAY" 2>>"$LOG"); HEALRC=$?
+    # Report what actually happened, not what was attempted. The header used to assert
+    # "recovered" before this ran, so a failed recovery was announced as a success with the real
+    # outcome buried in an unstyled sub-bullet. (Red Hat, 2026-09-15.)
+    if (( HEALRC == 0 )) && [[ -f "$PEND/proposal-$YDAY.md" ]]; then
+      print -- "\n## 🩹 Self-heal: recovered a missed nightly memory pass" >> "$REPORT"
+      print -- "- \`$YDAY\` had not run (machine likely asleep) — ran it now: \`${RES:t}\`" >> "$REPORT"
+    else
+      print -- "\n## 🔴 Self-heal ATTEMPTED and FAILED for $YDAY" >> "$REPORT"
+      print -- "- \`consolidation/run.sh $YDAY\` exited $HEALRC and produced no proposal (result: \`${RES:t}\`)" >> "$REPORT"
+      print -- "- see \`$CONS/run.log\`" >> "$REPORT"
+    fi
     ;;
 esac
 
