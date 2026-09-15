@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { randomBytes, createPrivateKey, sign as edSign } from 'node:crypto'
+import { randomBytes, randomUUID, createPrivateKey, sign as edSign } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { SCRYPT_PARAMS, setScryptParamsForTests } from './localAuth.js'
 import {
@@ -15,8 +15,10 @@ import {
   verifySessionToken,
   attemptLogin,
   ensureHostSigningKey,
+  hashPin,
 } from './localAuth.js'
 import { appendOp } from '../ops/operations.js'
+import { verifyAuthFields } from './authSignature.js'
 
 let tmpFile
 // The suite-wide cost is lowered in vitest.setup.js — see the note there for
@@ -106,6 +108,17 @@ describe('createUser / verifyPin', () => {
     const row = db.prepare('SELECT pin_hash, pin_salt FROM users WHERE id = ?').get(user.id)
     expect(row.pin_hash).not.toBe('5678')
     expect(row.pin_salt).not.toBe('5678')
+  })
+
+  // Q1 slice 2: a created user carries a Host signature that verifies over its credential fields.
+  it('stamps a Host auth_sig that verifies over {id, role, pin_hash, pin_salt}', async () => {
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'Signed', pin: '1234', role: 'staff' }, testWrite())
+    const row = db.prepare('SELECT role, pin_hash, pin_salt, auth_sig FROM users WHERE id = ?').get(user.id)
+    const pub = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key
+    expect(row.auth_sig).not.toBe('')
+    expect(verifyAuthFields(pub, { id: user.id, role: row.role, pin_hash: row.pin_hash, pin_salt: row.pin_salt }, row.auth_sig)).toBe(true)
+    // tamper: the same signature must not validate a smuggled admin role
+    expect(verifyAuthFields(pub, { id: user.id, role: 'admin', pin_hash: row.pin_hash, pin_salt: row.pin_salt }, row.auth_sig)).toBe(false)
   })
 })
 
@@ -224,7 +237,7 @@ describe('unique username per camp', () => {
 })
 
 describe('createUser op-log integration', () => {
-  it('routes all 5 field writes through the provided write function instead of calling appendOp directly', async () => {
+  it('routes all 6 field writes through the provided write function instead of calling appendOp directly', async () => {
     const calls = []
     const write = async ({ entity, entity_id, field, value }) => {
       calls.push({ entity, entity_id, field, value })
@@ -242,12 +255,12 @@ describe('createUser op-log integration', () => {
 
     const user = await createUser(db, { camp_id: 'camp-1', name: 'Opuser0', pin: '1234', role: 'staff' }, write)
 
-    expect(calls).toHaveLength(5)
+    expect(calls).toHaveLength(6)
     expect(calls.every((c) => c.entity === 'users' && c.entity_id === user.id)).toBe(true)
-    expect(calls.map((c) => c.field).sort()).toEqual(['camp_id', 'name', 'pin_hash', 'pin_salt', 'role'].sort())
+    expect(calls.map((c) => c.field).sort()).toEqual(['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig'].sort())
   })
 
-  it('emits exactly 5 operations rows for the new user, one per field, all with parent_op_id null', async () => {
+  it('emits exactly 6 operations rows for the new user, one per field, all with parent_op_id null', async () => {
     const user = await createUser(
       db,
       { camp_id: 'camp-1', name: 'Opuser', pin: '1234', role: 'staff' },
@@ -258,9 +271,9 @@ describe('createUser op-log integration', () => {
       .prepare('SELECT field, parent_op_id FROM operations WHERE entity = ? AND entity_id = ?')
       .all('users', user.id)
 
-    expect(ops).toHaveLength(5)
+    expect(ops).toHaveLength(6)
     expect(ops.map((op) => op.field).sort()).toEqual(
-      ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role'].sort()
+      ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig'].sort()
     )
     expect(ops.every((op) => op.parent_op_id === null)).toBe(true)
   })
@@ -648,10 +661,13 @@ describe('attemptLogin', () => {
        VALUES (?, ?, ?, ?, 'authorized')`
     ).run('device-1', 'Test Device', new Date().toISOString(), randomBytes(32).toString('hex'))
 
-    await createUser(clientDb, { camp_id: 'camp-1', name: 'ClientUser', pin: '444444', role: 'admin' }, async (args) => {
-      const op = appendOp(clientDb, { ...args, author_user_id: null, device_id: 'device-1', parent_op_id: null })
-      return { status: 'applied', op }
-    })
+    // A Client device does not run createUser (that is a Host-only operation now — only the Host can
+    // sign credential fields, Q1 fix). It receives user rows via REPLICATION from the Host. Seed the
+    // row directly to mirror that: an already-synced admin the client can authenticate offline.
+    const salt = randomBytes(16).toString('hex')
+    clientDb.prepare(
+      "INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig) VALUES (?, 'camp-1', 'ClientUser', ?, ?, 'admin', '')"
+    ).run(randomUUID(), hashPin('444444', salt), salt)
 
     const result = attemptLogin(clientDb, { name: 'ClientUser', pin: '444444', deviceId: 'device-1' })
     const verified = verifySessionToken(clientDb, result.token)

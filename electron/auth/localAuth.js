@@ -11,6 +11,7 @@ import {
   createPublicKey,
 } from 'node:crypto'
 import { recordAuditEvent } from '../audit/auditLog.js'
+import { signAuthFields } from './authSignature.js'
 
 const SCRYPT_KEYLEN = 64
 
@@ -217,7 +218,13 @@ export async function createUser(db, { camp_id, name, pin, role }, write) {
   const id = randomUUID()
   const salt = randomBytes(16).toString('hex')
   const pin_hash = hashPin(pin, salt)
-  const fields = { camp_id, name, pin_hash, pin_salt: salt, role }
+  // Q1 fix (docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md): the credential
+  // fields carry a Host signature so other devices trust them when they replicate. signAuthFields
+  // requires the Host key, so creating a user is a Host-device operation — a Client that tried would
+  // produce credentials every device (correctly) refuses. Fail loudly here rather than write an
+  // unsigned row that surfaces later as a phantom verification failure.
+  const auth_sig = signAuthFields(db, { id, role, pin_hash, pin_salt: salt })
+  const fields = { camp_id, name, pin_hash, pin_salt: salt, role, auth_sig }
 
   try {
     for (const [field, value] of Object.entries(fields)) {
