@@ -23,12 +23,21 @@ Shoresh is designed for a **trusted private LAN** — a small, known group of co
 (camp directors, scheduling staff) on a network they control: a camp office router, a direct
 switch, or equivalent. It is not hardened for the public internet.
 
-**This boundary is an assumption with an expiry, not a permanent fact.** The current transport is
-loopback + mDNS-discovered LAN peers only (verified: no relay, DHT, or non-loopback listen). Any
-move to an internet-reachable transport dissolves the assumptions the rest of this document rests
-on and requires a full re-assessment first — enforced by
+**This boundary is an assumption with an expiry, and it is enforced by network topology, not by
+code — be precise about how.** The production node binds **all interfaces** (`/ip4/0.0.0.0/tcp/0`,
+`electron/main.js`) — NOT loopback (loopback would break LAN sync). What keeps it off the internet
+today is **discovery**: peers are found only via `@libp2p/mdns` (link-local multicast); no DHT,
+relay, or bootstrap is installed or wired. So the pre-auth surface is reachable by anything that can
+route to the host's ephemeral port — shielded by NAT/firewall topology + an unadvertised port, not
+by a code boundary. The intended next step (owner decision 2026-09-15) is **cross-internet sync,
+direct hole-punch, NO relay** ("no server of any kind") — which a WAN security assessment
+(`docs/work/security/2026-09-15-wan-dht-boundary-assessment.md`) found has hard blockers that must
+be fixed first (a 40-bit non-rotating join code, LAN-sized rate limits, unsigned builds) and one
+networking invariant (symmetric-NAT/CGNAT pairs cannot be punched directly without a relay). Any
+move to internet-reachable discovery requires that re-assessment first — enforced by
 [docs/adr/2026-09-14-internet-transport-security-gate.md](docs/adr/2026-09-14-internet-transport-security-gate.md)
-and its build-failing guard.
+and its build-failing guard (which now checks the real `main.js` discovery wiring, not a dead
+loopback constant).
 
 ---
 
