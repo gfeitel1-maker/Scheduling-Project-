@@ -64,6 +64,41 @@ that device; the Host's WebSocket server rejects them outright.
 Token lifetime is 24 hours. The Host re-checks revocation status before issuing a renewal
 (`renew_token` WS message).
 
+### Host-signed user credentials (`auth_sig`)
+
+User credential fields — `role`, `pin_hash`, `pin_salt` — replicate to every approved device like
+any other data, so they cannot be protected by a check on the write path alone: they arrive by
+**merge**, which is not `authorize()`-gated (see "Role enforcement is device-side under CRDT sync"
+below). They are protected cryptographically instead.
+
+Each `users` row carries `auth_sig` (`electron/auth/authSignature.js`): an Ed25519 signature, made
+with the same Host-only private key that mints camp tokens, over
+`{id, role, pin_hash, pin_salt, cred_version}`. `cred_version` is a monotonic per-user counter
+(`createUser` = 1, `promoteToAdmin` = previous + 1). Only two call sites mint a signature —
+`createUser` and `electron/ops/promoteToAdmin.js` — and the generic `write()` path refuses
+`users.role`/`pin_hash`/`pin_salt` outright, which makes that a closed set.
+
+On the merge path, `projector.js`'s `upsertUsersEntity` applies a credential **change** only if:
+
+1. the signature verifies against `camps.signing_public_key`, **and**
+2. its `cred_version` is not older than the local row's — which is what defeats a **replay** of a
+   genuinely-signed older tuple (an attacker re-sending a previous signed state to demote an admin
+   or roll a PIN back to one they know).
+
+Unchanged values always apply, so this never blocks ordinary sync. A device that holds no verifying
+key — a rebuilt or restored device before `camps` has projected — **skips** an unverifiable
+credential change rather than accepting it, so a forgery can never be applied during that window;
+a legitimate value still lands once the key is present (`camps` projects before `users`).
+
+**What this closes.** A compromised *paired* device cannot forge a role, escalate itself to admin,
+overwrite the director's PIN camp-wide, or replay an old credential state. Independent
+`security-assessment` and `red-hat` review confirmed the primary escalation and overwrite attack
+closed; the two MEDIUM residuals that review found (replay, and permanence of a forgery accepted
+during the key-less window) are also fixed. Schema **v61** — read `CURRENT_SCHEMA_VERSION` in
+`electron/db/localDb.js` rather than trusting this number. Background:
+`docs/work/security/2026-09-14-Q1-crdt-merge-blast-radius-assessment.md` and
+`docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md`.
+
 ### Centralized `authorize()`
 
 Every mutating IPC handler and every mutating WebSocket handler calls `authorize()` in
@@ -273,6 +308,12 @@ on revocation. What changed is the trust placed in a device the director has alr
 now trusted for whatever it writes. The realistic exposure is a staff member with a legitimately
 paired device who bypasses the app itself, by editing the local database or running modified code, to
 make a change their role forbids.
+
+**Credentials specifically are NOT left to this.** The general tradeoff above is about ordinary
+domain writes. The one class where a device-side-only check would have been camp-wide privilege
+escalation — a peer forging `role`/`pin_hash`/`pin_salt` through a merge — is closed
+cryptographically by Host-signed credentials; see "Host-signed user credentials (`auth_sig`)" above.
+Read this section as scoped to domain data, not to accounts.
 
 **Why it is accepted rather than fixed.** Validating a merged document per change means re-deriving
 who wrote what and whether they were allowed to, on every merge — most of the way back to the central
