@@ -1,3 +1,12 @@
+---
+title: "Q1 enforcement merge review — security-assessment"
+document_type: reference
+authority: descriptive
+status: active
+date: 2026-09-15
+program: security-hardening
+---
+
 # SECURITY ASSESSMENT — Q1 CRDT-merge credential-forgery enforcement (pre-merge review)
 Date: 2026-09-15   Assessed against commit: 07903cd (branch claude/security-testing-agent-8e9c63)
 
