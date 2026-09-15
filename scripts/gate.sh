@@ -63,6 +63,10 @@ step() {
 }
 
 step lint npm run lint
+# T166: the same list as VERIFY_STEPS, in the same order. These are two separate lists by
+# deliberate choice (gate.sh chunks tests and uses short labels), so they must be kept in step
+# by hand — a divergence here is exactly the drift class this program keeps finding.
+step agents-check npm run agents:check
 i=0; start=1
 while (( start <= ${#SPECS} )); do
   i=$((i+1))
