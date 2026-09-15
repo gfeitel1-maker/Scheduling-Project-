@@ -64,6 +64,15 @@ import { seedAllFromSqlite } from '../../automerge/seed.js'
 let userDataDirGetter = null
 let warnedUnconfigured = false
 
+// At-rest encryption (ADR 2026-09-15). null until main.js injects the per-device document cipher
+// (electron/db/docCipher.js) via setDocCipher — parallel to userDataDirGetter, and for the same
+// reason: this module stays Electron-free and testable, the real key/keychain wiring lives in
+// main.js. When null, loadDoc/saveDoc run plaintext exactly as before, so the mechanism is inert
+// until wired and every existing test (which never sets a cipher) is unaffected. docStore's read
+// side is passthrough for a legacy plaintext file, so injecting a cipher onto a device that has
+// plaintext .automerge files on disk is safe: they load, and the next save re-writes them encrypted.
+let docCipher = null
+
 // db -> current in-memory Automerge doc for that db's camp (Stage 5f). Keyed by db identity, not
 // campId — see module comment above for why. In production there is exactly one db per process, so
 // this is effectively a single entry, same as before.
@@ -99,6 +108,13 @@ export function setUserDataDirGetter(getter) {
   userDataDirGetter = getter
 }
 
+// Inject the per-device document cipher ({ encrypt, decrypt } from electron/db/docCipher.js). Pass
+// null (the default state) to run plaintext. Set once at startup by main.js after the keychain key
+// is available; never per-write.
+export function setDocCipher(cipher) {
+  docCipher = cipher
+}
+
 export function setLocalWriteBroadcaster(db, fn) {
   if (!db) throw new Error('setLocalWriteBroadcaster: db is required — the broadcaster is per-device')
   broadcastCallbacks.set(db, fn)
@@ -127,6 +143,7 @@ export function resetForTests() {
   pendingSaves = new Map()
   docRegistry = new WeakMap()
   userDataDirGetter = null
+  docCipher = null
   warnedUnconfigured = false
   broadcastCallbacks = new WeakMap()
   // Without this, a test whose transaction throws leaves a depth > 0 and every
@@ -180,14 +197,14 @@ export function getDocIfLoaded(db) {
 function getDoc(db, userDataDir, campId, { persistSeed = true } = {}) {
   const cached = getCurrentDoc(db)
   if (cached) return cached
-  let doc = loadDoc(userDataDir, campId)
+  let doc = loadDoc(userDataDir, campId, docCipher)
   if (!doc) {
     doc = seedAllFromSqlite(db)
     // `persistSeed: false` when this seed is happening INSIDE a write — see
     // recordLocalWrite. Saving the seed there writes a document that is missing
     // the very write that triggered it, and that partial document is what a
     // crash inside the debounce window would leave on disk.
-    if (persistSeed) saveDoc(userDataDir, campId, doc)
+    if (persistSeed) saveDoc(userDataDir, campId, doc, docCipher)
   }
   docRegistry.set(db, doc)
   return doc
@@ -284,7 +301,7 @@ export function flushPendingWrites() {
     // identical — SQLite has it, the document does not — and so is the repair),
     // and never let one camp's failure skip another's save or its broadcast.
     try {
-      saveDoc(userDataDir, campId, doc)
+      saveDoc(userDataDir, campId, doc, docCipher)
     } catch (err) {
       // A CORRELATION ID, because the recovery can fail too and Red Hat was
       // right that it fails hardest exactly when it matters most. The motivating
@@ -403,7 +420,7 @@ function applyLocalWriteNow(db, { entity, entity_id, field, value, source, autho
     // theorised: it is what this function did before this line existed.
     // Retrying is only honest if each attempt starts from the same state.
     try {
-      saveDoc(userDataDir, campId, nextDoc)
+      saveDoc(userDataDir, campId, nextDoc, docCipher)
     } catch (err) {
       docRegistry.delete(db)
       throw err
