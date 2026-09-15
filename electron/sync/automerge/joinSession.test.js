@@ -21,6 +21,7 @@ import { openLocalDb } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import { seedAllFromSqlite } from '../../automerge/seed.js'
 import { ensureHostSigningKey } from '../../auth/localAuth.js'
+import { signAuthFields } from '../../auth/authSignature.js'
 import { startSyncNode } from './syncNode.js'
 import { startJoinSession } from './joinSession.js'
 import { joinCode } from '../joinCode.js'
@@ -33,9 +34,13 @@ function insertUser(db, { camp_id, name, pin, role }) {
   const id = randomUUID()
   const salt = randomBytes(16).toString('hex')
   const pin_hash = scryptSync(pin, salt, 64).toString('hex')
+  // The Host signs its users (Q1 fix) — a user replicated to a joiner without a valid Host signature
+  // is (correctly) refused by projection-time enforcement. `db` here is the Host, which holds the
+  // signing key, so mirror what createUser/promoteToAdmin do for real.
+  const auth_sig = signAuthFields(db, { id, role, pin_hash, pin_salt: salt })
   db.prepare(
-    'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, camp_id, name, pin_hash, salt, role)
+    'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, camp_id, name, pin_hash, salt, role, auth_sig)
   return { id, name, role }
 }
 

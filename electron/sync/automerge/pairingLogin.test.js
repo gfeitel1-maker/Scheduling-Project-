@@ -13,6 +13,7 @@ import path from 'node:path'
 import { randomBytes, randomUUID, scryptSync } from 'node:crypto'
 import * as A from '@automerge/automerge'
 import { openLocalDb } from '../../db/localDb.js'
+import { signAuthFields } from '../../auth/authSignature.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import { ensureHostSigningKey, issueCampToken, issueLocalToken, issueDeviceToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
@@ -27,9 +28,11 @@ function insertUser(db, { camp_id, name, pin, role }) {
   const id = randomUUID()
   const salt = randomBytes(16).toString('hex')
   const pin_hash = scryptSync(pin, salt, 64).toString('hex')
+  const _hasKey = db.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()
+  const auth_sig = _hasKey ? signAuthFields(db, { id, role, pin_hash, pin_salt: salt }) : ''
   db.prepare(
-    'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, camp_id, name, pin_hash, salt, role)
+    'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, camp_id, name, pin_hash, salt, role, auth_sig)
   return { id, name, role }
 }
 

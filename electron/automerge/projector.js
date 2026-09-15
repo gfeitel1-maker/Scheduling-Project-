@@ -27,6 +27,8 @@ import { DELETE_FIELD, applyBulkReplaceProjection } from '../ops/operations.js'
 import { DOMAIN_SNAPSHOT_ORDER, BULK_REPLACE_ENTITIES } from '../ops/campScopedEntities.js'
 import { assertNoUnrecordedConflicts } from './reconcile.js'
 import { listRecordIds, readRecord, hasAnyRecord } from './campDocument.js'
+import { verifyAuthFields } from '../auth/authSignature.js'
+import { recordAuditEvent } from '../audit/auditLog.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
 
@@ -173,11 +175,76 @@ function upsertCampsEntity(db, doc) {
   }
 }
 
+// Q1 ENFORCEMENT (docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md, slice 3).
+// The credential fields a compromised paired device could otherwise forge on the merge path.
+const CREDENTIAL_FIELDS = new Set(['role', 'pin_hash', 'pin_salt'])
+
+// Project `users`, refusing a forged credential CHANGE. The rule (see the ADR) closes the Q1 attack
+// without ever locking anyone out:
+//   - A CHANGE to role/pin_hash/pin_salt (differs from the current local row, or a brand-new row)
+//     is applied only if the row carries a Host signature (`auth_sig`) that verifies over the full
+//     {id, role, pin_hash, pin_salt} tuple. A change that fails to verify is REFUSED — the current
+//     local credential values are kept (a brand-new refused row stays at the safe ensureExists
+//     default: role 'staff', empty pin, which cannot authenticate). Non-credential fields still apply.
+//   - An UNCHANGED credential value always applies (a no-op) regardless of signature, so a legacy
+//     pre-signing row that never changes is never rejected.
+//   - When this device has no `camps.signing_public_key` (e.g. freshly rebuilt from the document,
+//     #401), it cannot verify, so it DEGRADES to accepting — keep-last-known / do-not-newly-enforce,
+//     never lock out. It re-enforces once it re-syncs the public key.
+function upsertUsersEntity(db, doc) {
+  const pub = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()?.signing_public_key || null
+  const fields = PROJECTIONS.users.fields
+  for (const id of listRecordIds(doc, 'users')) {
+    const row = readRecord(doc, 'users', id)
+    if (!row) continue
+
+    const presentCred = [...CREDENTIAL_FIELDS].filter((f) => f in row)
+    const current = presentCred.length
+      ? db.prepare('SELECT role, pin_hash, pin_salt FROM users WHERE id = ?').get(id)
+      : null
+    const credChanged = presentCred.length > 0 && (!current || presentCred.some((f) => current[f] !== row[f]))
+
+    let acceptCred = true
+    if (credChanged && pub) {
+      acceptCred = verifyAuthFields(
+        pub,
+        { id, role: row.role, pin_hash: row.pin_hash, pin_salt: row.pin_salt },
+        row.auth_sig
+      )
+      if (!acceptCred) {
+        // Surface it — a silently-dropped credential change is exactly what "surface every failure"
+        // forbids. This is the Q1 attack being blocked in the act.
+        recordAuditEvent(db, {
+          targetType: 'users',
+          targetId: id,
+          action: 'users.credential_change',
+          outcome: 'denied',
+          reason: 'auth_sig missing or invalid on a credential change — refused on the merge path (Q1 enforcement)',
+        })
+        // eslint-disable-next-line no-console
+        console.error(
+          `projector: REFUSED an unsigned/forged credential change for user ${id} (auth_sig did not verify) — keeping current local credentials. Q1 enforcement.`
+        )
+      }
+    }
+
+    for (const field of fields) {
+      if (!(field in row)) continue
+      if (!acceptCred && CREDENTIAL_FIELDS.has(field)) continue // keep the current local credential value
+      applyProjection(db, { entity: 'users', entity_id: id, field, value: row[field], knownRow: row })
+    }
+  }
+}
+
 function upsertEntity(db, doc, entity) {
   if (BULK_REPLACE_MODELED_ENTITIES.has(entity)) upsertBulkReplaceEntity(db, doc, entity)
   if (!MODELED_ENTITIES.has(entity)) return
   if (entity === 'camps') {
     upsertCampsEntity(db, doc)
+    return
+  }
+  if (entity === 'users') {
+    upsertUsersEntity(db, doc)
     return
   }
   const fields = PROJECTIONS[entity].fields
