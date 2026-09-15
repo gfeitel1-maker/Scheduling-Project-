@@ -15,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 62
+export const CURRENT_SCHEMA_VERSION = 63
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2435,6 +2435,30 @@ const SYNC_HEALTH_EVENTS_DDL = `
     )
   }
 
+  // v63 — import_decisions, the host-local journal of what the importer ASKED
+  // and what the director did about it (T173 slice 1,
+  // docs/superpowers/specs/2026-09-15-seedlings-importer-learning-design.md).
+  //
+  // Both-places DDL, following the v54/compound_cell_decisions precedent: the
+  // table is declared here AND in schema.sql, byte-identical text
+  // (IMPORT_DECISIONS_DDL), so a fresh install and a migrated db agree on
+  // PRAGMA table_info(import_decisions). DDL only, no data movement —
+  // reapplying this migration is harmless (CREATE TABLE IF NOT EXISTS).
+  //
+  // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
+  // DIRECT_CAMP_ENTITIES, full_sync) — same reasoning as compound_cell_
+  // decisions: exactly one writer (electron/ops/decisionJournal.js),
+  // host-only, never replicated.
+  if (getSchemaVersion(db) >= 62 && getSchemaVersion(db) < 63) {
+    db.transaction(() => {
+      db.exec(IMPORT_DECISIONS_DDL)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (63, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -2847,6 +2871,25 @@ export const LOCATION_WORD_DECISIONS_DDL = `CREATE TABLE IF NOT EXISTS location_
   confirmed_by TEXT,             -- plain TEXT user id, provenance only
   confirmed_at TEXT NOT NULL,
   UNIQUE(camp_id, word_key)
+)`
+
+// Byte-identical duplicate of the import_decisions block in schema.sql
+// (docs/superpowers/specs/2026-09-15-seedlings-importer-learning-design.md).
+// Kept as a constant so the v62 migration cannot drift from it by a stray
+// space — the same discipline as COMPOUND_CELL_DECISIONS_DDL above.
+export const IMPORT_DECISIONS_DDL = `CREATE TABLE IF NOT EXISTS import_decisions (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  import_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  seedling_key TEXT,
+  lane TEXT,
+  proposed TEXT,
+  outcome TEXT NOT NULL,
+  chosen TEXT,
+  learned_from_id TEXT,
+  decided_at TEXT NOT NULL,
+  actor_user_id TEXT
 )`
 
 // Byte-identical duplicate of the import_evidence block in schema.sql

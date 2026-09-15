@@ -198,6 +198,35 @@ CREATE TABLE IF NOT EXISTS declined_two_row_splits (
   UNIQUE(camp_id, activity_name_normalized)
 );
 
+-- Host-local, like source_aliases/compound_cell_decisions/declined_two_row_
+-- splits above. NEVER included in any full-sync SELECT/payload, NEVER sent
+-- over the wire, NEVER added to DIRECT_CAMP_ENTITIES or PROJECTIONS. T173
+-- slice 1 — the journal of what the importer ASKED and what the director did
+-- about it, not another answer cache: one row per decision PRESENTED (not
+-- per decision answered), so a question skipped every import is visible as
+-- data, not lost as silence.
+-- docs/superpowers/specs/2026-09-15-seedlings-importer-learning-design.md.
+-- Written only from electron/ops/decisionJournal.js's single writer
+-- (recordImportDecisions), best-effort after a successful commit — a journal
+-- write failure must never fail the import (see that file's header comment).
+CREATE TABLE IF NOT EXISTS import_decisions (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  import_id TEXT NOT NULL,       -- groups one commit's entries together
+  kind TEXT NOT NULL,            -- decision kind, e.g. 'confirm_value', 'resolve_conflict'
+  seedling_key TEXT,             -- generalized learning key — unused (NULL) until slice 3
+  lane TEXT,                     -- 'express' | 'standard' | 'hold', as PRESENTED
+  proposed TEXT,                 -- compact JSON — what the app suggested
+  outcome TEXT NOT NULL,         -- 'accepted' | 'changed' | 'rejected' | 'unanswered'
+  chosen TEXT,                   -- compact JSON — what the director ended with
+  learned_from_id TEXT,          -- id of the camp_seedlings row that pre-filled this — unused (NULL) until slice 3
+  decided_at TEXT NOT NULL,
+  actor_user_id TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_import_decisions_camp_import
+  ON import_decisions (camp_id, import_id);
+
 -- Host-only table, like source_aliases and host_signing_key. NEVER included
 -- in any full-sync SELECT/payload, NEVER sent over the wire, NEVER added to
 -- DIRECT_CAMP_ENTITIES or PROJECTIONS. Written only from inside commitPlan's
