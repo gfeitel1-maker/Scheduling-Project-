@@ -168,9 +168,49 @@ fi
 
 pruned=0
 typeset -a READY NEEDS_REBASE ACTIVE PROTECTED
+# --- Claude Desktop's worktree ledger (READ ONLY — application-owned state) ---
+LEDGER="$HOME/Library/Application Support/Claude/git-worktrees.json"
+LEASED_PATHS=""
+if [[ -f "$LEDGER" ]]; then
+  # scripts/readWorktreeLeases.py, not an inline heredoc: this is the only guard between the
+  # prune rule and a worktree the application still expects, and inline shell cannot be tested.
+  # Its exit codes are the contract — 0 healthy / 3 unreadable / 4 schema moved. See
+  # test/worktreeLeases.test.js.
+  LEASED_PATHS=$("${0:A:h}/readWorktreeLeases.py" "$LEDGER" 2>/dev/null)
+  LRC=$?
+  n=$(print -r -- "$LEASED_PATHS" | grep -c . )
+  case $LRC in
+    0) { print -- "worktree ledger: $n path(s) protected from pruning"; } >> "$LOG" ;;
+    3) { print -- "WARN: worktree ledger unreadable (torn or malformed read) — protecting nothing this run"; } >> "$LOG"
+       print -- "\n## ⚠️ Worktree ledger unreadable this run" >> "$REPORT"
+       print -- "- \`$LEDGER\` could not be parsed; lease protection was OFF for this prune pass." >> "$REPORT" ;;
+    4) # The failure this whole feature exists to prevent, reintroduced by a schema change, would
+       # otherwise log a line byte-identical to a healthy empty ledger. Make it impossible to miss.
+       { print -- "ERROR: worktree ledger schema changed — no 'worktrees' object. Lease protection is OFF."; } >> "$LOG"
+       print -- "\n## 🔴 Worktree ledger schema changed — lease protection is OFF" >> "$REPORT"
+       print -- "- \`$LEDGER\` parsed, but has no \`worktrees\` object. Claude Desktop's format moved." >> "$REPORT"
+       print -- "- Pruning is running **unprotected**: a pooled worktree the app still expects can be deleted." >> "$REPORT"
+       print -- "- Fix the parser in \`scripts/integration.sh\` before the next 06:30 run." >> "$REPORT"
+       LEASED_PATHS="" ;;
+    *) # Anything else — most likely 127, the reader missing because this script is running from
+       # a checkout that does not have it yet. Without this arm an unknown code falls through
+       # every case, LEASED_PATHS stays empty, and protection turns off silently: the same class
+       # of failure as arm 4, arriving by a different road.
+       { print -- "ERROR: lease reader exited $LRC (unexpected). Lease protection is OFF."; } >> "$LOG"
+       print -- "\n## 🔴 Worktree lease reader failed (exit $LRC) — protection is OFF" >> "$REPORT"
+       print -- "- \`${0:A:h}/readWorktreeLeases.py\` did not run as expected. Pruning is **unprotected**." >> "$REPORT"
+       LEASED_PATHS="" ;;
+  esac
+else
+  { print -- "worktree ledger absent at $LEDGER — pruning unchanged"; } >> "$LOG"
+fi
+
 # --- Walk worktrees ---
+# substr, not $2: awk's default whitespace split truncates a path at its first space, and real
+# worktree paths contain them (e.g. ~/dev/Mobile Prototype/...). Pre-existing, but it would have
+# silently defeated the ledger match below. (Red Hat, 44b49c6.)
 git worktree list --porcelain 2>/dev/null | awk '
-  /^worktree /{wt=$2}
+  /^worktree /{wt=substr($0, 10)}
   /^HEAD /{h=$2}
   /^branch /{print wt"\t"$2"\t"h; wt=""}
   /^detached/{print wt"\tDETACHED\t"h; wt=""}
@@ -187,6 +227,24 @@ git worktree list --porcelain 2>/dev/null | awk '
   ephemeral=0; [[ "$wt" == "$REPO/.claude/worktrees/"* ]] && ephemeral=1
   protected=0
   [[ "$wt" == "$REPO" || "$wt" == "$HOME/dev/shoresh-config" || "$br" == "main" ]] && protected=1
+  # Claude Desktop owns the worktrees under $REPO/.claude/worktrees and tracks them in its
+  # own ledger. A pooled worktree (leasedBy: null + pooledAt) is clean, 0 ahead and idle by
+  # design — bit-for-bit the shape this prune rule targets — so pruning one deletes a
+  # directory the application still believes it can reuse. We READ the ledger and never
+  # write it; if it is missing or mid-write, LEASED_PATHS is empty and behaviour is exactly
+  # what it was before.
+  #
+  # NOTE the predicate is ANY membership in the ledger, not the pooled shape specifically.
+  # That is deliberate — protecting a superset can only ever fail safe — but it has a cost:
+  # the ledger has no expiry, so an entry Desktop has abandoned exempts that directory from
+  # the idle-prune rule permanently, and the report shows only "🔒 protected" with no hint
+  # that the protection came from an external file. If worktrees start accumulating, look
+  # here first. Reported by Code Reviewer on 44b49c6 as an undisclosed narrowing; recorded
+  # rather than "fixed", because tightening it to the pooled shape would trade a silent
+  # accumulation for a silent deletion, which is the worse of the two.
+  if [[ -n "$LEASED_PATHS" ]] && print -r -- "$LEASED_PATHS" | grep -qxF "$wt"; then
+    protected=1
+  fi
 
   if (( protected )); then
     print -- "- 🔒 \`$br\` — protected ($wt)" >> "$REPORT.protected"
@@ -231,13 +289,68 @@ fi
 # Self-heal: back up the 3 AM nightly memory pass. If it did not run for yesterday (e.g. the Mac was
 # asleep at 03:00 and launchd did not catch up the missed run), run it now — this 06:30 job runs
 # reliably because the machine is awake by then. Recovers a slept-through night automatically.
+#
+# The predicate is the point. This used to ask "is there a `=== run <day>` header in
+# run.log" — but run.sh writes that header as its FIRST action, before it does any work.
+# The header is therefore present on a night that started and failed, which is why eight
+# consecutive authentication failures (2026-09-06..13) produced no morning signal at all.
+# "Started" is not "succeeded". Four outcomes, not two:
 YDAY=$(date -v-1d +%F)
-if ! grep -q "=== run $YDAY " "$CONS/run.log" 2>/dev/null; then
+PEND="$HOME/.claude/projects/$SLUG/memory/_pending"
+if [[ -f "$PEND/proposal-$YDAY.md" ]]; then
+  :                                                    # 1. succeeded — nothing to say
+elif grep -q "no signal for $YDAY" "$CONS/run.log" 2>/dev/null; then
+  :                                                    # 2. genuinely quiet day — not a failure
+elif [[ -f "$PEND/NEEDS-AUTH-proposal-$YDAY.md" || -f "$PEND/FAILED-proposal-$YDAY.md" ]]; then
+  # 3. ran and failed. Do NOT re-run: it already retried, and for a non-retryable class
+  #    (expired login) another attempt only burns another failure. Surface it instead.
+  print -- "\n## 🔴 Nightly memory pass FAILED for $YDAY" >> "$REPORT"
+  if [[ -f "$PEND/NEEDS-AUTH-proposal-$YDAY.md" ]]; then
+    print -- "- **not authenticated** — sign in once with \`claude /login\`, then recover the backlog" >> "$REPORT"
+  else
+    print -- "- mining failed after retries — see \`$CONS/run.log\`" >> "$REPORT"
+  fi
+elif ! grep -q "=== run $YDAY " "$CONS/run.log" 2>/dev/null; then
+  # 4. never started (Mac asleep at 03:00). Safe to run now: yesterday's transcript mtimes
+  #    are still accurate, so gather.sh selects the right files. This is the ONLY case where
+  #    run.sh may be invoked for a past day — see the backlog note below.
   print -- "\n## 🩹 Self-heal: recovered a missed nightly memory pass" >> "$REPORT"
   print -- "- the 3 AM consolidation had not run for $YDAY (Mac likely asleep) — ran it now" >> "$REPORT"
   { print -- "self-heal: nightly memory pass for $YDAY missing; running run.sh $YDAY"; } >> "$LOG"
   RES=$("$CONS/run.sh" "$YDAY" 2>>"$LOG")
   print -- "- result: \`${RES:t}\` (review it with the morning proposals)" >> "$REPORT"
+fi
+
+# Outstanding backlog — every failed night, surfaced every morning until cleared, so a
+# failure can no longer go quiet for nine days. Recovery is mineFromPacket.sh, never
+# `run.sh <old-day>`: run.sh re-runs gather.sh, which selects transcripts by mtime and
+# truncates the packet, so re-running it for an old day DESTROYS the preserved evidence.
+# A marker whose day now has a real proposal is RESOLVED — recovered by mineFromPacket.sh, or by
+# a later successful attempt. Reporting it anyway is the mirror of the bug this whole change fixes:
+# instead of a failure going silent, a success keeps shouting, and the reader learns to ignore the
+# one surface that is supposed to be trustworthy. Filter those out, and retire the stale marker.
+typeset -a BACKLOG
+for f in "$PEND"/NEEDS-AUTH-proposal-*.md(N) "$PEND"/FAILED-proposal-*.md(N); do
+  d="${${f:t:r}##*proposal-}"
+  if [[ -f "$PEND/proposal-$d.md" ]]; then
+    rm -f "$f"
+    { print -- "retired stale marker ${f:t} — proposal-$d.md exists"; } >> "$LOG"
+    continue
+  fi
+  BACKLOG+=("$f")
+done
+if (( ${#BACKLOG} > 0 )); then
+  print -- "\n## 📥 Unmined nights awaiting recovery (${#BACKLOG})" >> "$REPORT"
+  typeset -a DAYS
+  for f in "${BACKLOG[@]}"; do
+    d="${${f:t:r}##*proposal-}"
+    DAYS+=("$d")
+    print -- "- \`$d\` — evidence packet preserved ($(wc -c < "$PEND/evidence-$d.md" 2>/dev/null | tr -d " ") bytes)" >> "$REPORT"
+  done
+  print -- "\nRecover all of them with:" >> "$REPORT"
+  print -- '\n```bash' >> "$REPORT"
+  print -- "$CONS/mineFromPacket.sh ${DAYS}" >> "$REPORT"
+  print -- '```' >> "$REPORT"
 fi
 
 git worktree prune 2>>"$LOG"  # clean metadata for any removed dirs

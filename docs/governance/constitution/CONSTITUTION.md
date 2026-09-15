@@ -143,7 +143,7 @@ Three consequences that bind design and engineering work:
 
 ## Article VI — The agent team
 
-Twelve agents. This roster is authoritative; `.claude/agents/` must match it exactly, and each agent's
+Thirteen agents. This roster is authoritative; `.claude/agents/` must match it exactly, and each agent's
 `name:` frontmatter must equal its filename.
 
 | Agent | The one thing only this role does |
