@@ -2507,3 +2507,60 @@ describe('locationCapacityProvenance handler (locations.read)', () => {
     })
   })
 })
+
+// T176 — "is any OTHER computer holding a copy of this camp?"
+//
+// The count is the whole feature, and the way to get it wrong is to count rows
+// instead of surviving copies. `devices` carries inert pairing_status='unknown'
+// stubs for any peer this device merely HEARD an op from, and a revoked device
+// is one the director deliberately cut off. Counting either would tell a camp it
+// has a second copy when it does not — and the recovery story
+// (docs/current/KEY_RECOVERY_STORY.md) leans on this being right.
+describe('getSyncStatus: otherDeviceCount counts surviving copies, not rows', () => {
+  function addDevice(id, { authorized = true, revoked = false, pairingStatus = 'authorized' } = {}) {
+    db.prepare(
+      "INSERT INTO devices (id, name, pairing_status, authorized_at, revoked_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(
+      id,
+      `Device ${id}`,
+      pairingStatus,
+      authorized ? new Date().toISOString() : null,
+      revoked ? new Date().toISOString() : null
+    )
+  }
+
+  it('is 0 on a camp with only this device', () => {
+    expect(makeHandlers(db, deviceId).getSyncStatus().otherDeviceCount).toBe(0)
+  })
+
+  it('counts another authorized, unrevoked device', () => {
+    addDevice('other-1')
+    expect(makeHandlers(db, deviceId).getSyncStatus().otherDeviceCount).toBe(1)
+  })
+
+  it('does NOT count a heard-of-but-never-paired stub', () => {
+    // These rows exist for any peer an op was heard from. They never paired and
+    // hold nothing.
+    addDevice('stub-1', { authorized: false, pairingStatus: 'unknown' })
+    expect(makeHandlers(db, deviceId).getSyncStatus().otherDeviceCount).toBe(0)
+  })
+
+  it('does NOT count a revoked device', () => {
+    // The director deliberately cut it off. Treating it as a surviving copy
+    // would be the most dangerous possible wrong answer: it would tell a camp
+    // it is safe BECAUSE of a machine they took away on purpose.
+    addDevice('revoked-1', { revoked: true, pairingStatus: 'revoked' })
+    expect(makeHandlers(db, deviceId).getSyncStatus().otherDeviceCount).toBe(0)
+  })
+
+  it('never counts this device itself', () => {
+    expect(makeHandlers(db, deviceId).getSyncStatus().otherDeviceCount).toBe(0)
+  })
+
+  it('is reported on every state, because it is not a connectivity fact', () => {
+    addDevice('other-1')
+    const h = makeHandlers(db, deviceId)
+    // Standalone: nobody is reachable, but a second copy still exists.
+    expect(h.getSyncStatus()).toMatchObject({ state: 'standalone', otherDeviceCount: 1 })
+  })
+})
