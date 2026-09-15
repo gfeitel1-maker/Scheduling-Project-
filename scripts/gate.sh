@@ -18,12 +18,18 @@
 # substring filter, not a directory, so substring "batches" silently overlap. Check the chunk
 # totals sum to a whole-suite count before trusting a batched result.
 #
-# Usage: scripts/gate.sh [results-file]   (default docs/work/runs/evidence/gate-<sha>.txt)
+# The results file defaults OUTSIDE the repo, and that is not incidental. Writing it into
+# docs/work/runs/evidence/ dirties the very tree the run is measuring, so the stamp records
+# dirty>=1 and buildVerifierReport correctly marks the run UNVERIFIED — the gate defeating
+# itself. Found by the T169 check firing on its own author. Copy the file in deliberately
+# AFTER the run, when you want it as durable evidence; by then the stamp is already written.
+#
+# Usage: scripts/gate.sh [results-file]   (default $TMPDIR/shoresh-gate-<short-sha>.txt)
 set -u
 cd "${0:A:h}/.."
 SHA=$(git rev-parse HEAD)
 DIRTY=$(git status --porcelain | wc -l | tr -d ' ')
-R="${1:-docs/work/runs/evidence/gate-$(git rev-parse --short HEAD).txt}"
+R="${1:-${TMPDIR:-/tmp}/shoresh-gate-$(git rev-parse --short HEAD).txt}"
 mkdir -p "${R:h}"
 print -- "# gate run against $SHA dirty=$DIRTY" > "$R"
 
@@ -56,4 +62,5 @@ step governance npm run check:governance
 # Terminal marker, written only once every step above has run.
 print -- "DONE" >> "$R"
 print -- "results -> $R"
+print -- "to keep it as evidence:  cp \"$R\" docs/work/runs/evidence/gate-$(git rev-parse --short HEAD).txt"
 grep -c '^STEP .* rc=[1-9]' "$R" >/dev/null 2>&1 && exit 0 || exit 0
