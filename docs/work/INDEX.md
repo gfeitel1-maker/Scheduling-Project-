@@ -39,7 +39,7 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [The libp2p sync tests fail when the machine is busy, which is when agents work](../../docs/work/tickets/T164-libp2p-sync-tests-fail-under-load.md) | open | — |
+| [Every timeout in the suite is a bet on machine speed, and the bet is silently lost under load](../../docs/work/tickets/T164-libp2p-sync-tests-fail-under-load.md) | open | — |
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 
 ## Decisions
