@@ -113,6 +113,16 @@ const SLUGS_GLOB_PREFIXES = [
 
 const CURSOR_PATH = join(homedir(), '.claude', 'observeRun.cursor.json')
 
+/**
+ * Every `.jsonl` under a matching slug, at ANY depth.
+ *
+ * This walked one level only — `<slug>/*.jsonl` — while its own doc comment claimed
+ * `<slug>/**` + `/*.jsonl`. Most transcripts live one level deeper, in per-session
+ * UUID directories, so it saw 132 files out of 1,936 and reported dispatch counts that were
+ * wrong by a factor of five, plus "isSidechain is essentially absent" when there are 156,802
+ * of them. A report that silently measures a seventh of the corpus is worse than no report:
+ * it is confidently wrong, and it was believed. Recurse.
+ */
 function findJsonlFiles(projectsDir) {
   const out = []
   let entries
@@ -121,19 +131,23 @@ function findJsonlFiles(projectsDir) {
   } catch {
     return out
   }
+  const walk = (dir) => {
+    let items
+    try {
+      items = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const item of items) {
+      const full = join(dir, item.name)
+      if (item.isDirectory()) walk(full)
+      else if (item.isFile() && item.name.endsWith('.jsonl')) out.push(full)
+    }
+  }
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
     if (!SLUGS_GLOB_PREFIXES.some((p) => entry.name.startsWith(p))) continue
-    const dir = join(projectsDir, entry.name)
-    let files
-    try {
-      files = readdirSync(dir, { withFileTypes: true })
-    } catch {
-      continue
-    }
-    for (const f of files) {
-      if (f.isFile() && f.name.endsWith('.jsonl')) out.push(join(dir, f.name))
-    }
+    walk(join(projectsDir, entry.name))
   }
   return out
 }
