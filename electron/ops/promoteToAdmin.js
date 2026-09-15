@@ -43,7 +43,7 @@ export function promoteToAdmin(db, { userId, newPin, actorUserId, deviceId }) {
   const salt = randomBytes(16).toString('hex')
   const pin_hash = hashPin(newPin, salt)
   // Bump the monotonic credential version so this promotion supersedes any prior signed tuple —
-  // a replay of the pre-promotion (staff) tuple carries an older version and is refused (T165).
+  // a replay of the pre-promotion (staff) tuple carries an older version and is refused (T172).
   const cred_version = (Number(user.cred_version) || 0) + 1
   // Q1 fix (docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md): mint the Host
   // signature over the exact three fields this promotion writes, so the promotion is trusted when it

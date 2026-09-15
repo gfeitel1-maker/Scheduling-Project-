@@ -8,7 +8,7 @@ governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-09-14-users-
 archive_when: both findings are fixed (freshness binding + at-rest re-verification) and covered by tests, OR the internet-transport (Tier-4) gate is being signed off and this is resolved as part of that mandatory re-assessment
 ---
 
-# T165 — Credential-signature replay + degrade-window permanence
+# T172 — Credential-signature replay + degrade-window permanence
 
 **RESOLVED 2026-09-15** (the product owner escalated this to present-risk: "there are other pathways
 connecting devices besides LAN"). Both findings are fixed and test-covered; the mechanism differs

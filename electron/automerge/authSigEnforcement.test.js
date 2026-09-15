@@ -85,7 +85,7 @@ describe('Q1 enforcement — never locks anyone out', () => {
     expect(roleOf(id)).toBe('admin')
   })
 
-  it('REPLAY DEFENSE: a genuinely Host-signed OLD tuple (lower cred_version) is refused (T165)', () => {
+  it('REPLAY DEFENSE: a genuinely Host-signed OLD tuple (lower cred_version) is refused (T172)', () => {
     const id = randomUUID()
     // Establish staff@v1, then a real promotion to admin@v2.
     const staffV1 = putUser(createEmptyDoc(), { id, role: 'staff', pin: '1234', signerDb: db, cred_version: 1 })
@@ -116,7 +116,7 @@ describe('Q1 enforcement — never locks anyone out', () => {
   })
 
   it('with no signing_public_key (rebuilt device, #401): SKIPS an unverifiable credential change, does not lock out', () => {
-    // T165 finding 2: the no-key branch now SKIPS the credential change (keeps local) rather than
+    // T172 finding 2: the no-key branch now SKIPS the credential change (keeps local) rather than
     // ACCEPTING it — so a forgery arriving during the key-less window is never applied and cannot
     // become permanent. This does not lock anyone out: camps (carrying signing_public_key) projects
     // before users on any real sync, so the key is present when a legitimate credential lands; the

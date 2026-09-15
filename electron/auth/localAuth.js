@@ -223,7 +223,7 @@ export async function createUser(db, { camp_id, name, pin, role }, write) {
   // requires the Host key, so creating a user is a Host-device operation — a Client that tried would
   // produce credentials every device (correctly) refuses. Fail loudly here rather than write an
   // unsigned row that surfaces later as a phantom verification failure.
-  // cred_version starts at 1 for a new user and is bound into the signature (T165 replay defense).
+  // cred_version starts at 1 for a new user and is bound into the signature (T172 replay defense).
   const cred_version = 1
   const auth_sig = signAuthFields(db, { id, role, pin_hash, pin_salt: salt, cred_version })
   const fields = { camp_id, name, pin_hash, pin_salt: salt, role, auth_sig, cred_version }

@@ -2387,8 +2387,8 @@ export function initSchema(db) {
     )
   }
 
-  // v61 — bind a monotonic per-user credential version into the signature (T165 replay defense,
-  // docs/work/tickets/T165-credential-signature-replay-and-degrade-permanence.md). Adds
+  // v61 — bind a monotonic per-user credential version into the signature (T172 replay defense,
+  // docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md). Adds
   // users.cred_version and RE-SIGNS every user at the v2 signature shape (which now covers
   // cred_version); v1 signatures written by v60 no longer verify, which is why the backfill re-runs
   // here. On a Client (no host key) both are no-ops and the re-signed values arrive via replication.
