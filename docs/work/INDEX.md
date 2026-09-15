@@ -164,8 +164,8 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Persistent per-device libp2p identity, binding a session token to the peer presenting it](../../docs/adr/2026-09-14-device-identity-and-token-binding.md) | accepted | not_started | [T162-device-identity-and-token-binding](../../docs/work/tickets/T162-device-identity-and-token-binding.md) |
 | [Internet-reachable transport requires a full security re-assessment (enforced gate)](../../docs/adr/2026-09-14-internet-transport-security-gate.md) | accepted | implemented | [2026-09-15-ephemeral-join-secret-for-wan-discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) · [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) |
 | [Take users' auth fields (role, pin_hash, pin_salt) off the replicated document](../../docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md) | accepted | implemented | [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) |
-| [At-rest encryption of the camp document and SQLite — scoping](../../docs/adr/2026-09-15-at-rest-encryption-scoping.md) | proposed | proposed | — |
-| [Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) | proposed | proposed | — |
+| [At-rest encryption of the camp document and SQLite — scoping](../../docs/adr/2026-09-15-at-rest-encryption-scoping.md) | accepted | in_progress | — |
+| [Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) | accepted | proposed | — |
 | [Opinion GateReport inputs are bound to a real, completed subagent dispatch](../../docs/adr/2026-09-15-opinion-report-dispatch-provenance.md) | accepted | shipped | — |
 
 ## Runs
