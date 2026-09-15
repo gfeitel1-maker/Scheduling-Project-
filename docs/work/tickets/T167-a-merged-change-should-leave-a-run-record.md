@@ -1,7 +1,7 @@
 ---
 title: "A merged change should leave a run record, and the gate should notice when it does not"
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-09-14
 task_class: documentation-governance
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
@@ -53,3 +53,20 @@ accounting: for each routing-graph predicate that fired in a record, the reviewe
 be named, or the skip recorded with a reason. Port that mechanism only. Its `FORBIDDEN` term list
 is domain-specific and **inverted** for this repo (it bans `electron`, `sqlite`, `camp director`).
 Its roster and broken-link checks are **not** needed — `test/governance.test.js` already has both.
+
+## Slice 1 shipped (2026-09-14)
+
+`scripts/verifierReport.js` + `scripts/verifierReport.test.js` (9 tests). Verifier's half of
+Grader's transcription is a function of exit codes, so it is now derived from the batched gate's
+own results file instead of being typed by hand. `buildVerifierReport({text, evidenceRef})`
+returns a `PerGateReport` that round-trips through the real `validatePerGateReport`.
+
+Three behaviours are deliberate and tested, because each is the "started is not succeeded" defect
+reappearing one level up, in the evidence layer:
+- a gate with no `DONE` marker reports `UNVERIFIED`, never `PASS`;
+- an observed failure stays `FAIL` — truncation cannot launder a red into "we don't know";
+- `evidence_ref` is mandatory, and the reducer rejects the report without one.
+
+**Still open:** the four opinion gates. Transcribing a prose review into a typed `PerGateReport`
+needs a model, but it is the only part that does. Part 2 of this ticket — requiring a run record
+for new completions — remains untouched and should not start until filing is demonstrably cheap.

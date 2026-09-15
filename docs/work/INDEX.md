@@ -26,7 +26,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
-| [A merged change should leave a run record, and the gate should notice when it does not](../../docs/work/tickets/T167-a-merged-change-should-leave-a-run-record.md) | open | — |
+| [A merged change should leave a run record, and the gate should notice when it does not](../../docs/work/tickets/T167-a-merged-change-should-leave-a-run-record.md) | in-progress | — |
 
 ### scheduling-engine
 
@@ -47,7 +47,7 @@ Regenerate with `npm run index:work`.
 | [The libp2p sync tests fail when the machine is busy, which is when agents work](../../docs/work/tickets/T164-libp2p-sync-tests-fail-under-load.md) | open | — |
 | [Decouple agents:check from the unversioned home organization package](../../docs/work/tickets/T165-decouple-agents-check-from-the-home-organization-package.md) | open | — |
 | [Put agents:check in the gate once green is reachable everywhere](../../docs/work/tickets/T166-put-agents-check-in-the-gate.md) | open | — |
-| [The two unattended jobs delete directories and write memory, and neither has a test](../../docs/work/tickets/T168-shell-test-harness-for-the-unattended-jobs.md) | open | — |
+| [The two unattended jobs delete directories and write memory, and neither has a test](../../docs/work/tickets/T168-shell-test-harness-for-the-unattended-jobs.md) | in-progress | — |
 
 ## Decisions
 

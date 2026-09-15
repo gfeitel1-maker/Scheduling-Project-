@@ -101,10 +101,25 @@ describe('agent roster integrity', () => {
       constitution.indexOf('## Article VI'),
       constitution.indexOf('## Article VII'),
     )
-    const roster = [...section.matchAll(/^\| \*\*([A-Za-z ]+)\*\*/gm)]
+    // Require a real two-column table row — `| **Name** | description |` — so a bolded callout
+    // or footer row inside Article VI cannot be smuggled into the roster and surface as a
+    // confusing "the constitution and the code disagree" diff. Names may contain hyphens or
+    // digits; previously such a row was silently dropped instead of failing. (Red Hat, 44b49c6.)
+    const roster = [...section.matchAll(/^\| \*\*([A-Za-z][A-Za-z0-9 -]*)\*\*\s*\|[^|]*\|/gm)]
       .map((m) => m[1].trim().toLowerCase().replace(/\s+/g, '-'))
       .sort()
     expect(roster.length).toBeGreaterThan(0)
+    // Red Hat's real concern was the failure MESSAGE, not the match: a stray two-column bolded
+    // row still parses as a roster entry, and the resulting set-diff reads as "the constitution
+    // and the code disagree about the roster" — inviting someone to delete a legitimate entry to
+    // make it green. Name the culprit first, so the stray row is obvious.
+    const notAnAgent = roster.filter((r) => !existsSync(p('.claude', 'agents', `${r}.md`)))
+    expect(notAnAgent, 'Article VI row(s) with no matching .claude/agents file — a stray bolded '
+      + 'table row, or an agent whose file is missing').toEqual([])
+    // The prose count and the table must agree; they drifted once already (13 rows vs "Twelve").
+    const stated = /^([A-Z][a-z]+) agents\./m.exec(section)?.[1]?.toLowerCase()
+    const words = { ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15 }
+    if (stated && words[stated]) expect(words[stated]).toBe(roster.length)
     expect([...AGENTS, ...INDEPENDENT_AGENTS].sort()).toEqual(roster)
     expect(AGENTS.filter((a) => INDEPENDENT_AGENTS.includes(a))).toEqual([])
   })

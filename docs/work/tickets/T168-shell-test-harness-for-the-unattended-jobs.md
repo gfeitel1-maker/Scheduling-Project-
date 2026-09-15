@@ -1,7 +1,7 @@
 ---
 title: "The two unattended jobs delete directories and write memory, and neither has a test"
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-09-14
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/WORKING_COPY_STANDARD.md]
@@ -28,3 +28,24 @@ Testing shell is awkward, which is why this has not happened. The tractable subs
 predicates: given a fixture worktree table and a fixture ledger, is this path pruned? Given a
 fixture failure body, is it retried or halted? Both are decidable without touching a real
 worktree or a real memory directory, and both are where the damage lives.
+
+## Slice 1 shipped (2026-09-14)
+
+The ledger reader — the single guard between the 06:30 prune and a directory Claude Desktop still
+expects to reuse — is extracted from an inline heredoc into `scripts/readWorktreeLeases.py` and
+tested by `test/worktreeLeases.test.js` (7 tests) against fixtures under
+`test/fixtures/ledgers/`: healthy, empty, torn, schema-drift, ragged entries, and a path
+containing a space.
+
+The exit code is the contract, and the test that matters asserts drift and empty are
+**distinguishable**: both print nothing, and only `rc` separates "nothing is leased" from "the
+schema moved and protection is off". `integration.sh` now has an explicit arm for each code plus
+a catch-all, so an unexpected exit (127, the reader missing from a stale checkout) reports loudly
+instead of silently disabling protection.
+
+**Still open:** the prune predicate itself (`ephemeral && clean && 0-ahead && idle`) and the
+self-heal's four-way branch are still untested — both were verified by hand against real history.
+Testing them needs a fixture `git worktree list --porcelain` table and a fixture `_pending`
+directory, which is tractable but bigger than this slice. The failure classifiers in `run.sh` and
+`mineFromPacket.sh` remain duplicated and untested because those files live outside the repo;
+that is T165's problem to unblock.

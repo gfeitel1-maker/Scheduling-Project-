@@ -2,14 +2,14 @@
 task: harness reliability — classify non-retryable nightly failures, make the morning check ask whether the pass succeeded, protect application-leased worktrees from pruning, and pin the loop-roster/Article VI partition
 document_type: run
 date: 2026-09-14
-round: 1
+round: 2
 status: in-progress
 task_class: test-infrastructure
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md, docs/governance/GOVERNANCE_INDEX.md]
 related_tickets: []
 related_specs: []
 related_adrs: []
-selected_agents: [maker]
+selected_agents: [maker, code-reviewer, red-hat]
 omitted_agents:
   - agent: governor
     reason: human-waived
@@ -23,21 +23,15 @@ omitted_agents:
   - agent: tester
     reason: not-applicable
     note: no director-facing behavior. The changed surfaces are a launchd-scheduled shell script, a governance enum, and a test file; none is reachable from the app.
-  - agent: code-reviewer
-    reason: no-predicate
-    note: NOT YET RUN — this is a genuine gap, not a waiver. See "Independence gap" below. Required before merge.
   - agent: verifier
     reason: no-predicate
-    note: NOT YET RUN by an independent agent. The deterministic gate was executed by the same session that wrote the code, which is not Verifier's role. See "Independence gap" below.
+    note: NOT RUN by an independent agent. The gate was executed by the same session that wrote the code, which is not Verifier's role. Round 2 adds scripts/verifierReport.js so the Verifier PerGateReport is now DERIVED from the gate's own results file rather than asserted — the artifact is deterministic even when the runner is not independent.
   - agent: security
     reason: not-applicable
     note: no auth, secret, PIN, LAN-protocol, IPC, or packaging surface is touched. The one new external read (Claude Desktop's worktree ledger) is read-only, parsed in a subprocess that exits 0 on any malformed input, and grants only the ability to SKIP a deletion.
-  - agent: red-hat
-    reason: no-predicate
-    note: NOT YET RUN — this change alters an unattended job that deletes directories and an unattended job that writes memory proposals. Both are exactly the surface Red Hat exists for. Required before merge.
   - agent: grader
     reason: no-predicate
-    note: NOT YET RUN — there are no opinion reports to reduce, because no opinion agent was dispatched.
+    note: pending — round 2 produced two real opinion reports (Code Reviewer, Red Hat) for it to reduce. Blocked only on the gate finishing.
 deterministic_checks: [lint, test, test:integration, security, check:governance]
 human_gates:
   - "Owner directed this work in-session and authorized proceeding without the loop: \"you can do this and do it safely and correctly\" and \"the floor is all yours. wrok through this until you are done\". That authorizes execution; it does not retroactively supply independent review, which is recorded above as a gap rather than a waiver."
@@ -115,6 +109,44 @@ Not claimed as a flake on vibes; three independent lines of evidence:
 
 This is a load-triggered timeout in a deliberately timing-sensitive test, not a regression. It
 remains a real fragility of the suite and is why T168 exists.
+
+## Round 2 — independent review, and what it caught
+
+Code Reviewer and Red Hat both ran against `44b49c6`. Red Hat scored **Resilience: 2** and
+blocked. Between them they found seven issues; all seven are addressed, none deferred.
+
+Red Hat's three that mattered most — none of which I had found:
+
+1. **`run.sh` wrote straight to `$PROPOSAL` with no guard.** `mineFromPacket.sh` refused to
+   overwrite an existing proposal; `run.sh` did not. A manual re-run silently replaced a good
+   analysis with a fresh one, with no log line distinguishing "created" from "replaced". Now
+   mines to a temp file, `mv`s on outcome, refuses to clobber, cleans up on `trap`.
+2. **Ledger schema drift degraded silently.** `d.get("worktrees") or {}` returns `{}` on a
+   renamed key with no exception, logging a line byte-identical to a healthy empty ledger. That
+   reinstates the exact silent failure the guard exists to prevent, and nothing would notice.
+   Exit codes are now the contract: 0 healthy / 3 unreadable / 4 schema moved / `*` anything
+   else — and 4 writes a 🔴 section into the morning report.
+3. **`awk '/^worktree /{wt=$2}'` truncated paths at the first space.** Pre-existing, but it
+   would have silently defeated the new exact-match protection for exactly the path class the
+   brief named as real. Now `substr($0, 10)`.
+
+Plus: a TOCTOU race in recovery (atomic `mkdir` lock), a brittle roster regex whose failure read
+as "constitution and code disagree" rather than naming the stray row, and the stale-marker
+cry-wolf both reviewers found independently. `run.sh`'s own failure message was also still
+advertising `run.sh <day>` — the destructive recovery path this change exists to warn about.
+
+**Two slices of the harness itself**, rather than only repairs:
+
+- `scripts/verifierReport.js` + 9 tests (**T167**) — the Verifier `PerGateReport` is a function
+  of exit codes, so it needs no judgement and is now computed. That shrinks the clerical step
+  Grader keeps skipping to the four opinion gates. A gate that did not finish reports
+  `UNVERIFIED`, never `PASS`; an observed failure stays `FAIL` rather than being laundered into
+  "unknown" by truncation; `evidence_ref` is mandatory. Every report round-trips through the real
+  `validatePerGateReport`.
+- `scripts/readWorktreeLeases.py` + `test/worktreeLeases.test.js`, 7 tests (**T168** first
+  slice) — the ledger reader is extracted from an inline heredoc and tested against fixtures for
+  healthy, empty, torn, schema-drift, ragged, and space-containing paths. It is the only guard
+  between an unattended prune and a directory the application still expects.
 
 ## Known gaps carried forward
 

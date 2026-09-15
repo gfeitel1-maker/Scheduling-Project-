@@ -172,26 +172,45 @@ typeset -a READY NEEDS_REBASE ACTIVE PROTECTED
 LEDGER="$HOME/Library/Application Support/Claude/git-worktrees.json"
 LEASED_PATHS=""
 if [[ -f "$LEDGER" ]]; then
-  LEASED_PATHS=$(/usr/bin/python3 - "$LEDGER" 2>/dev/null <<'PYEOF'
-import json, sys
-try:
-    d = json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(0)                      # absent, truncated or mid-write: protect nothing, never abort
-for w in (d.get("worktrees") or {}).values():
-    p = w.get("path")
-    if p: print(p)
-PYEOF
-)
+  # scripts/readWorktreeLeases.py, not an inline heredoc: this is the only guard between the
+  # prune rule and a worktree the application still expects, and inline shell cannot be tested.
+  # Its exit codes are the contract — 0 healthy / 3 unreadable / 4 schema moved. See
+  # test/worktreeLeases.test.js.
+  LEASED_PATHS=$("${0:A:h}/readWorktreeLeases.py" "$LEDGER" 2>/dev/null)
+  LRC=$?
   n=$(print -r -- "$LEASED_PATHS" | grep -c . )
-  { print -- "worktree ledger: $n path(s) protected from pruning"; } >> "$LOG"
+  case $LRC in
+    0) { print -- "worktree ledger: $n path(s) protected from pruning"; } >> "$LOG" ;;
+    3) { print -- "WARN: worktree ledger unreadable (torn or malformed read) — protecting nothing this run"; } >> "$LOG"
+       print -- "\n## ⚠️ Worktree ledger unreadable this run" >> "$REPORT"
+       print -- "- \`$LEDGER\` could not be parsed; lease protection was OFF for this prune pass." >> "$REPORT" ;;
+    *) # Anything else — most likely 127, the reader missing because this script is running from
+       # a checkout that does not have it yet. Without this arm an unknown code falls through
+       # every case, LEASED_PATHS stays empty, and protection turns off silently: the same class
+       # of failure as arm 4, arriving by a different road.
+       { print -- "ERROR: lease reader exited $LRC (unexpected). Lease protection is OFF."; } >> "$LOG"
+       print -- "\n## 🔴 Worktree lease reader failed (exit $LRC) — protection is OFF" >> "$REPORT"
+       print -- "- \`${0:A:h}/readWorktreeLeases.py\` did not run as expected. Pruning is **unprotected**." >> "$REPORT"
+       LEASED_PATHS="" ;;
+    4) # The failure this whole feature exists to prevent, reintroduced by a schema change, would
+       # otherwise log a line byte-identical to a healthy empty ledger. Make it impossible to miss.
+       { print -- "ERROR: worktree ledger schema changed — no 'worktrees' object. Lease protection is OFF."; } >> "$LOG"
+       print -- "\n## 🔴 Worktree ledger schema changed — lease protection is OFF" >> "$REPORT"
+       print -- "- \`$LEDGER\` parsed, but has no \`worktrees\` object. Claude Desktop's format moved." >> "$REPORT"
+       print -- "- Pruning is running **unprotected**: a pooled worktree the app still expects can be deleted." >> "$REPORT"
+       print -- "- Fix the parser in \`scripts/integration.sh\` before the next 06:30 run." >> "$REPORT"
+       LEASED_PATHS="" ;;
+  esac
 else
   { print -- "worktree ledger absent at $LEDGER — pruning unchanged"; } >> "$LOG"
 fi
 
 # --- Walk worktrees ---
+# substr, not $2: awk's default whitespace split truncates a path at its first space, and real
+# worktree paths contain them (e.g. ~/dev/Mobile Prototype/...). Pre-existing, but it would have
+# silently defeated the ledger match below. (Red Hat, 44b49c6.)
 git worktree list --porcelain 2>/dev/null | awk '
-  /^worktree /{wt=$2}
+  /^worktree /{wt=substr($0, 10)}
   /^HEAD /{h=$2}
   /^branch /{print wt"\t"$2"\t"h; wt=""}
   /^detached/{print wt"\tDETACHED\t"h; wt=""}
@@ -214,6 +233,15 @@ git worktree list --porcelain 2>/dev/null | awk '
   # directory the application still believes it can reuse. We READ the ledger and never
   # write it; if it is missing or mid-write, LEASED_PATHS is empty and behaviour is exactly
   # what it was before.
+  #
+  # NOTE the predicate is ANY membership in the ledger, not the pooled shape specifically.
+  # That is deliberate — protecting a superset can only ever fail safe — but it has a cost:
+  # the ledger has no expiry, so an entry Desktop has abandoned exempts that directory from
+  # the idle-prune rule permanently, and the report shows only "🔒 protected" with no hint
+  # that the protection came from an external file. If worktrees start accumulating, look
+  # here first. Reported by Code Reviewer on 44b49c6 as an undisclosed narrowing; recorded
+  # rather than "fixed", because tightening it to the pooled shape would trade a silent
+  # accumulation for a silent deletion, which is the worse of the two.
   if [[ -n "$LEASED_PATHS" ]] && print -r -- "$LEASED_PATHS" | grep -qxF "$wt"; then
     protected=1
   fi
@@ -297,7 +325,20 @@ fi
 # failure can no longer go quiet for nine days. Recovery is mineFromPacket.sh, never
 # `run.sh <old-day>`: run.sh re-runs gather.sh, which selects transcripts by mtime and
 # truncates the packet, so re-running it for an old day DESTROYS the preserved evidence.
-BACKLOG=("$PEND"/NEEDS-AUTH-proposal-*.md(N) "$PEND"/FAILED-proposal-*.md(N))
+# A marker whose day now has a real proposal is RESOLVED — recovered by mineFromPacket.sh, or by
+# a later successful attempt. Reporting it anyway is the mirror of the bug this whole change fixes:
+# instead of a failure going silent, a success keeps shouting, and the reader learns to ignore the
+# one surface that is supposed to be trustworthy. Filter those out, and retire the stale marker.
+typeset -a BACKLOG
+for f in "$PEND"/NEEDS-AUTH-proposal-*.md(N) "$PEND"/FAILED-proposal-*.md(N); do
+  d="${${f:t:r}##*proposal-}"
+  if [[ -f "$PEND/proposal-$d.md" ]]; then
+    rm -f "$f"
+    { print -- "retired stale marker ${f:t} — proposal-$d.md exists"; } >> "$LOG"
+    continue
+  fi
+  BACKLOG+=("$f")
+done
 if (( ${#BACKLOG} > 0 )); then
   print -- "\n## 📥 Unmined nights awaiting recovery (${#BACKLOG})" >> "$REPORT"
   typeset -a DAYS

@@ -1,0 +1,14 @@
+STEP lint | rc=0 |✖ 26 problems (0 errors, 26 warnings)
+STEP tests-1 | rc=0 | Tests 537 passed (537)
+STEP tests-2 | rc=0 | Tests 612 passed (612)
+STEP tests-3 | rc=0 | Tests 647 passed (647)
+STEP tests-4 | rc=0 | Tests 441 passed (441)
+STEP tests-5 | rc=0 | Tests 727 passed (727)
+STEP tests-6 | rc=0 | Tests 549 passed (549)
+STEP tests-7 | rc=0 | Tests 583 passed | 1 skipped (584)
+STEP tests-8 | rc=0 | Tests 746 passed (746)
+STEP tests-9 | rc=0 | Tests 573 passed (573)
+STEP integration | rc=0 | 20/20 passed (20 libp2p scenarios; they cover 20 of the 27 WS originals — 17 collapses 17/25/26/27)
+STEP security | rc=0 |✅ security-gate: 0 findings (deps + secrets + dangerous patterns)
+STEP governance | rc=0 |check:governance — no findings.
+DONE
