@@ -314,6 +314,37 @@ CREATE INDEX IF NOT EXISTS idx_operations_entity ON operations(entity, entity_id
 -- op_id is the primary key: re-encountering the same failure (e.g. a repair
 -- attempt that fails again) is an idempotent upsert, never a duplicate row.
 -- docs/adr/2026-09-04-projection-failure-detection-and-recovery.md.
+-- Device health events that have NO op id to hang from (schema v62, T174).
+--
+-- WHY NOT audit_events, which is where T148 put these. `audit_events.outcome` is
+-- CHECK-constrained to ('allow','deny') — an authorization vocabulary, correctly
+-- so — and T148 wrote these with outcome='error'. Every insert was rejected by
+-- the constraint, `recordAuditEvent` caught it and turned it into a console
+-- line, and the "durable trace" it advertised never landed a single row.
+-- Measured, not inferred. The MCP health check then read those two actions back
+-- and reported an empty list, i.e. HEALTHY, because nothing could be written.
+--
+-- That is the exact defect T148 existed to remove — absence read as success —
+-- reintroduced inside its own fix.
+--
+-- WHY NOT projection_failures: its primary key is an op id with a foreign key to
+-- operations(id), and neither of these events has an op. A merge has no op; a
+-- failed debounced save has lost the window by the time it fails.
+--
+-- So: its own small table, host-local, never replicated, additive (there were no
+-- rows to migrate, since none could ever be written).
+CREATE TABLE IF NOT EXISTS sync_health_events (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT,
+  kind TEXT NOT NULL,        -- 'document_save_failed' | 'projection_failed'
+  detail TEXT,               -- compact JSON: peer, pending op count, error message
+  incident TEXT,             -- the tag that ties this row to its console lines
+  occurred_at TEXT NOT NULL,
+  resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sync_health_events_unresolved
+  ON sync_health_events(kind, occurred_at) WHERE resolved_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS projection_failures (
   op_id TEXT PRIMARY KEY REFERENCES operations(id),
   entity TEXT NOT NULL,
