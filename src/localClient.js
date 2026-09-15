@@ -119,6 +119,10 @@ export const localClient = {
     shoresh.recordDeclinedSplit({ token: currentToken(), activityName }),
   listDeclinedSplitNames: () =>
     shoresh.listDeclinedSplitNames({ token: currentToken() }),
+  // T173 slice 1 — best-effort journal write, never blocking; see
+  // ReconciliationScreen.jsx's confirmRemembers for the caller's error posture.
+  recordImportDecisions: ({ entries } = {}) =>
+    shoresh.recordImportDecisions({ token: currentToken(), entries }),
   // T118 slice 4 — the camp's confirmed compound-cell-pattern decisions
   // (docs/adr/2026-09-03-compound-cell-interpretation.md), fetched at parse
   // time so a resolved pattern never asks again. IPC returns plain entries
