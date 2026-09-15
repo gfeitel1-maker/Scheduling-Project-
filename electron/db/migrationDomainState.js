@@ -80,6 +80,8 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   60,
   // v61 adds users.cred_version + re-signs (T172 replay defense) — derived attestation, not a domain-meaning change.
   61,
+  // v62 creates sync_health_events (T174). A new host-local diagnostic table; touches no domain row.
+  62,
 ])
 
 /** True if applying `version` can change what the camp means. */
