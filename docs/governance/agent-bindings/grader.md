@@ -68,9 +68,23 @@ This is a judgment step — mapping a gate's prose findings to a `severity`
 - If a gate declared itself not applicable, `verdict: "N/A"` with a non-empty `na_reason`. A gate that never ran (a pre-dispatch `omitted_agents` entry) is not transcribed at all — it is not one of your five inputs.
 - `findings` may be `[]`. Never omit the field.
 
-Assemble the five `PerGateReport`s, plus `taskId`, `round`, and
-`expectedOpinionGates`, into one input JSON file (a scratch path such as
-`/tmp/gate-report-input-<task_id>-r<round>.json`).
+**Do not transcribe Verifier's report by hand.** Its verdict is a function of exit codes, so the
+CLI derives it. Put the gate's results file and the commit under review in the input instead:
+
+```json
+{ "gateResults": "docs/work/runs/evidence/<file>.txt", "commit": "<sha of the commit reviewed>" }
+```
+
+`commit` is not optional bookkeeping. A green results file proves a green run happened at some
+point, not that it verified *this* work; with `commit` supplied, a file produced against a
+different tree — or against a dirty one — is refused rather than accepted. Supplying both
+`gateResults` and a hand-written `verifier` report is a usage error, because silently preferring
+either would hide which evidence was actually used. Produce the results file with
+`npm run gate`, which writes the stamp the check reads.
+
+Assemble the **opinion** `PerGateReport`s — that transcription is the part that genuinely needs
+judgement — plus `taskId`, `round`, `expectedOpinionGates`, `gateResults` and `commit`, into one
+input JSON file (a scratch path such as `/tmp/gate-report-input-<task_id>-r<round>.json`).
 
 ## Step 2 — Invoke the reducer
 
@@ -85,6 +99,11 @@ it is the source of truth for everything in your Output Format below. Do not
 recompute `overall_score`, `lowest_dimension`, or the verdict yourself — the
 reducer's arithmetic is authoritative (`docs/work/specs/2026-08-09-gatereport-schema-and-reducer.md`
 §5).
+
+If the derived Verifier report is not `PASS`, the CLI prints the reason to stderr — an
+unfinished run, a failed step, or an evidence file that does not bind to `commit`. Read it: the
+`GateReport` carries `blocking_findings` only, so a binding problem (`HIGH`, because it means
+"we cannot tell", not "it failed") will not appear there.
 
 If the CLI exits non-zero, that is a transcription/input error (e.g. a missing
 required field) — fix the input JSON and re-run. It is not a signal about the

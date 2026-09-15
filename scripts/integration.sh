@@ -32,7 +32,8 @@ set -u
 REPO="$HOME/dev/shoresh"
 SLUG="-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project"
 OUTDIR="$HOME/.claude/projects/$SLUG/_integration"
-CONS="$HOME/.claude/projects/$SLUG/_consolidation"
+CONS="$HOME/.claude/projects/$SLUG/_consolidation"   # DATA (run.log) — a live store, never in the repo
+CONSCRIPTS="${0:A:h}/consolidation"                    # SCRIPTS — version-controlled siblings
 mkdir -p "$OUTDIR/reports"
 DAY=$(date +%F)
 REPORT="$OUTDIR/reports/integration-$DAY.md"
@@ -316,8 +317,8 @@ elif ! grep -q "=== run $YDAY " "$CONS/run.log" 2>/dev/null; then
   #    run.sh may be invoked for a past day — see the backlog note below.
   print -- "\n## 🩹 Self-heal: recovered a missed nightly memory pass" >> "$REPORT"
   print -- "- the 3 AM consolidation had not run for $YDAY (Mac likely asleep) — ran it now" >> "$REPORT"
-  { print -- "self-heal: nightly memory pass for $YDAY missing; running run.sh $YDAY"; } >> "$LOG"
-  RES=$("$CONS/run.sh" "$YDAY" 2>>"$LOG")
+  { print -- "self-heal: nightly memory pass for $YDAY missing; running consolidation/run.sh $YDAY"; } >> "$LOG"
+  RES=$("$CONSCRIPTS/run.sh" "$YDAY" 2>>"$LOG")
   print -- "- result: \`${RES:t}\` (review it with the morning proposals)" >> "$REPORT"
 fi
 
@@ -349,7 +350,7 @@ if (( ${#BACKLOG} > 0 )); then
   done
   print -- "\nRecover all of them with:" >> "$REPORT"
   print -- '\n```bash' >> "$REPORT"
-  print -- "$CONS/mineFromPacket.sh ${DAYS}" >> "$REPORT"
+  print -- "$CONSCRIPTS/mineFromPacket.sh ${DAYS}" >> "$REPORT"
   print -- '```' >> "$REPORT"
 fi
 

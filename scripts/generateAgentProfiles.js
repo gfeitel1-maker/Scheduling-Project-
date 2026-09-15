@@ -1,19 +1,33 @@
 #!/usr/bin/env node
 // Portable agent team, Phase 1: generate .claude/agents/*.md from the reusable
-// organization fragment source (~/.claude/organization/fragments/) plus this
-// project's per-role bindings (docs/governance/agent-bindings/).
+// organization fragment source plus this project's per-role bindings
+// (docs/governance/agent-bindings/).
+//
+// T165: the fragment source used to be resolved unconditionally to
+// ~/.claude/organization — an untracked, unversioned directory outside the
+// repo. That made the gate's verdict depend on whatever happened to exist on
+// the machine running it (fresh clone / CI / second machine: hard exit 1).
+// Fragments are now vendored into the repo at docs/governance/agent-fragments/
+// (same VERSION + fragments/*.md shape as the original home package, so an
+// override behaves identically), and that vendored copy is the default. Set
+// SHORESH_ORG_DIR to point at a different fragment source (e.g. a live
+// ~/.claude/organization during fragment development) when needed.
 //
 // --check (default): generate in memory, diff against the committed profiles,
 //   exit 1 on any divergence. This is the acceptance test from
 //   docs/adr/2026-09-04-portable-agent-team-compatibility-layer.md: Phase 1
-//   changes only how the twelve profiles are produced, never their content.
-// --write: write the generated content over .claude/agents/*.md.
+//   changes only how the profiles are produced, never their content. --check
+//   also verifies docs/governance/agent-bindings/manifest.json against
+//   freshly computed hashes, so a manifest that has drifted from the
+//   bindings/fragments it claims to describe fails the gate instead of
+//   rotting silently.
+// --write: write the generated content over .claude/agents/*.md, and refresh
+//   the manifest to match.
 //
 // See docs/adr/2026-09-04-portable-agent-team-compatibility-layer.md.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
@@ -21,7 +35,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const AGENTS_DIR = path.join(ROOT, '.claude', 'agents');
 const BINDINGS_DIR = path.join(ROOT, 'docs', 'governance', 'agent-bindings');
-const ORG_DIR = path.join(os.homedir(), '.claude', 'organization');
+const ORG_DIR = process.env.SHORESH_ORG_DIR
+  ? path.resolve(process.env.SHORESH_ORG_DIR)
+  : path.join(ROOT, 'docs', 'governance', 'agent-fragments');
 const FRAGMENTS_DIR = path.join(ORG_DIR, 'fragments');
 const MANIFEST_PATH = path.join(BINDINGS_DIR, 'manifest.json');
 
@@ -31,14 +47,20 @@ function sha256(content) {
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
 }
 
+// Populated by loadFragment as bindings reference fragments, so it only ever
+// contains the fragments actually spliced into a profile this run.
+const fragmentHashes = {};
+
 function loadFragment(name) {
   const fragPath = path.join(FRAGMENTS_DIR, `${name}.md`);
   if (!fs.existsSync(fragPath)) {
     throw new Error(`Missing organization fragment: ${fragPath}`);
   }
+  const raw = fs.readFileSync(fragPath, 'utf8');
+  fragmentHashes[name] = sha256(raw);
   // Fragment files end with a trailing newline; strip it so splicing back into
   // the binding via a bare placeholder line reproduces the original exactly.
-  return fs.readFileSync(fragPath, 'utf8').replace(/\n$/, '');
+  return raw.replace(/\n$/, '');
 }
 
 function generate(bindingContent) {
@@ -57,7 +79,10 @@ function main() {
     : 'unversioned';
 
   const bindingFiles = fs.readdirSync(BINDINGS_DIR).filter((f) => f.endsWith('.md')).sort();
-  const manifest = { org_version: orgVersion, roles: {} };
+  // fragment_source is relative-to-ROOT when the vendored default is in play,
+  // and an absolute/relative path as given when SHORESH_ORG_DIR overrides it —
+  // either way it records which fragment tree produced this manifest.
+  const manifest = { fragment_source: path.relative(ROOT, ORG_DIR), org_version: orgVersion, fragments: fragmentHashes, roles: {} };
   let mismatches = 0;
 
   for (const f of bindingFiles) {
@@ -96,6 +121,24 @@ function main() {
     fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + '\n');
     console.log(`\nwrote ${MANIFEST_PATH}`);
     return;
+  }
+
+  // The manifest is load-bearing, not just a --write byproduct: verify its
+  // recorded hashes against what this run just computed so a hand-edited or
+  // stale manifest.json fails the gate instead of rotting silently (T165).
+  if (!fs.existsSync(MANIFEST_PATH)) {
+    console.error(`MISSING  ${path.relative(ROOT, MANIFEST_PATH)} — no committed manifest to verify against`);
+    mismatches++;
+  } else {
+    const committed = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+    const committedHashes = JSON.stringify({ fragments: committed.fragments, roles: committed.roles });
+    const freshHashes = JSON.stringify({ fragments: manifest.fragments, roles: manifest.roles });
+    if (committedHashes === freshHashes) {
+      console.log(`match  ${path.relative(ROOT, MANIFEST_PATH)}`);
+    } else {
+      console.error(`DIFFERS  ${path.relative(ROOT, MANIFEST_PATH)} — recorded hashes do not match freshly generated ones`);
+      mismatches++;
+    }
   }
 
   if (mismatches > 0) {

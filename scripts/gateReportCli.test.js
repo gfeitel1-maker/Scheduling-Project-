@@ -99,3 +99,59 @@ describe('runGateReportCli', () => {
     expect(existsSync(resultB.gate_report_ref)).toBe(true)
   })
 })
+
+// ─── T167 part 2 ─────────────────────────────────────────────────────────────
+// Grader is dispatched 3 times against Verifier's 21. The step it skips is clerical — transcribing
+// reports into typed PerGateReports — and it is the step that produces the durable artifact, which
+// is why 283 commits landed in three weeks with no run record. Verifier's report is a function of
+// exit codes, so the CLI can build it from the gate's own results file and Grader never types it.
+describe('deriving the verifier report from a gate results file', () => {
+  const GREEN = [
+    '# gate run against 1111111111111111111111111111111111111111 dirty=0',
+    'STEP lint | rc=0 | ok',
+    'STEP tests-1 | rc=0 | Tests 9 passed (9)',
+    'DONE',
+  ].join('\n')
+
+  function withFiles(resultsText, input, fn) {
+    const dir = mkdtempSync(join(tmpdir(), 'gaterep-'))
+    const results = join(dir, 'gate.txt')
+    writeFileSync(results, resultsText)
+    const inputPath = join(dir, 'in.json')
+    writeFileSync(inputPath, JSON.stringify({ ...input, gateResults: results }))
+    try { return fn(inputPath, join(dir, 'runs')) } finally { rmSync(dir, { recursive: true, force: true }) }
+  }
+
+  const base = { taskId: 'T', round: 1, expectedOpinionGates: ['code_reviewer'],
+    reports: [{ gate_name: 'code_reviewer', verdict: 'PASS', score: 5, findings: [] }] }
+
+  it('synthesises the verifier report so the caller never writes one', () => {
+    const out = withFiles(GREEN, { ...base, commit: '1111111' },
+      (p, runs) => runGateReportCli(p, { runsDir: runs }))
+    expect(out.verifier_pass).toBe(true)
+    expect(out.decision_eligibility).toBe('PASS_ELIGIBLE')
+  })
+
+  // T169 carried through: a results file from a different commit must not certify this one.
+  it('refuses a results file from a different commit', () => {
+    const out = withFiles(GREEN, { ...base, commit: '2222222' },
+      (p, runs) => runGateReportCli(p, { runsDir: runs }))
+    expect(out.verifier_pass).toBe(false)
+    expect(out.decision_eligibility).toBe('BLOCK')
+  })
+
+  // Ambiguity is a usage error, not a silent precedence rule.
+  it('rejects supplying BOTH a gate results file and a hand-written verifier report', () => {
+    expect(() => withFiles(GREEN,
+      { ...base, commit: '1111111', reports: [...base.reports, { gate_name: 'verifier', verdict: 'PASS', score: null, findings: [], evidence_ref: 'x' }] },
+      (p, runs) => runGateReportCli(p, { runsDir: runs }))).toThrow(CliUsageError)
+  })
+
+  it('a missing gate results file is a usage error, not a silent skip', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gaterep-'))
+    const inputPath = join(dir, 'in.json')
+    writeFileSync(inputPath, JSON.stringify({ ...base, gateResults: join(dir, 'nope.txt') }))
+    expect(() => runGateReportCli(inputPath, { runsDir: join(dir, 'runs') })).toThrow(CliUsageError)
+    rmSync(dir, { recursive: true, force: true })
+  })
+})

@@ -48,7 +48,8 @@ Regenerate with `npm run index:work`.
 | [Decouple agents:check from the unversioned home organization package](../../docs/work/tickets/T165-decouple-agents-check-from-the-home-organization-package.md) | open | — |
 | [Put agents:check in the gate once green is reachable everywhere](../../docs/work/tickets/T166-put-agents-check-in-the-gate.md) | open | — |
 | [The two unattended jobs delete directories and write memory, and neither has a test](../../docs/work/tickets/T168-shell-test-harness-for-the-unattended-jobs.md) | in-progress | — |
-| [Gate evidence proves a green run happened, not that it happened for this diff](../../docs/work/tickets/T169-gate-evidence-is-not-bound-to-the-commit-it-verifies.md) | open | — |
+| [Make the agent-team activity report a standing measurement, not an ad-hoc probe](../../docs/work/tickets/T170-standing-agent-activity-report.md) | open | — |
+| [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 
 ## Decisions
 

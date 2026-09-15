@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseGateResults, buildVerifierReport } from './verifierReport.js'
+import { parseGateResults, buildVerifierReport, parseGateStamp } from './verifierReport.js'
 import { validatePerGateReport } from './gateReportSchema.js'
 
 const GREEN = `STEP lint | rc=0 | 26 problems (0 errors, 26 warnings)
@@ -92,5 +92,123 @@ describe('buildVerifierReport', () => {
   it('requires an evidence_ref — the reducer rejects a verifier report without one', () => {
     const rep = buildVerifierReport({ text: GREEN, evidenceRef: null })
     expect(validatePerGateReport(rep).malformed).toBe(true)
+  })
+})
+
+// ─── T169 ────────────────────────────────────────────────────────────────────
+// evidence_ref existing and parsing green proves a green run happened at SOME point. It does not
+// prove it happened for THIS diff. Nothing bound the results file to a commit, so a stale but
+// legitimately green file from an unrelated commit validated cleanly through the reducer.
+
+const stamped = (sha, dirty = 0) =>
+  `# gate run against ${sha} dirty=${dirty}\nSTEP lint | rc=0 | ok\nSTEP tests-1 | rc=0 | Tests 9 passed (9)\nDONE`
+
+describe('parseGateStamp', () => {
+  it('reads the sha and dirty count from the stamp line', () => {
+    expect(parseGateStamp(stamped('1111111111111111111111111111111111111111', 3)))
+      .toEqual({ sha: '1111111111111111111111111111111111111111', dirty: 3, chunks: null })
+  })
+  it('returns null when there is no stamp', () => {
+    expect(parseGateStamp('STEP lint | rc=0 | ok\nDONE')).toBeNull()
+  })
+
+  it('reads the declared chunk count when present', () => {
+    const t = '# gate run against 1111111111111111111111111111111111111111 dirty=0 chunks=9'
+    expect(parseGateStamp(t).chunks).toBe(9)
+  })
+})
+
+describe('binding evidence to a commit (T169)', () => {
+  const ref = 'docs/work/runs/evidence/g.txt'
+
+  it('PASSes when the stamp matches the commit the report is for', () => {
+    const r = buildVerifierReport({ text: stamped('1111111111111111111111111111111111111111'), evidenceRef: ref, expectedSha: '1111111111111111111111111111111111111111' })
+    expect(r.verdict).toBe('PASS')
+  })
+
+  // The exact scenario in the ticket: a stale green run from an unrelated commit.
+  it('REJECTS a green results file stamped with a different commit', () => {
+    const r = buildVerifierReport({ text: stamped('2222222222222222222222222222222222222222'), evidenceRef: ref, expectedSha: '1111111111111111111111111111111111111111' })
+    expect(r.verdict).toBe('UNVERIFIED')
+    expect(r.findings.some((f) => /different commit|does not match/i.test(f.summary))).toBe(true)
+    // Contract: gateReportSchema rejects a BLOCKING finding unless the verdict is FAIL. An
+    // UNVERIFIED report carrying one is MALFORMED, which would reach BLOCK by accident and
+    // throw the reason away. The severity has to match the verdict.
+    expect(validatePerGateReport(r).malformed).toBe(false)
+    expect(r.findings.every((f) => f.severity !== 'BLOCKING')).toBe(true)
+  })
+
+  it('REJECTS an unstamped file when a commit was specified — unbound is not verified', () => {
+    const r = buildVerifierReport({ text: 'STEP lint | rc=0 | ok\nDONE', evidenceRef: ref, expectedSha: '1111111111111111111111111111111111111111' })
+    expect(r.verdict).toBe('UNVERIFIED')
+  })
+
+  it('REJECTS a run made against a dirty tree — that tree exists nowhere', () => {
+    const r = buildVerifierReport({ text: stamped('1111111111111111111111111111111111111111', 2), evidenceRef: ref, expectedSha: '1111111111111111111111111111111111111111' })
+    expect(r.verdict).toBe('UNVERIFIED')
+    expect(r.findings.some((f) => /dirty/i.test(f.summary))).toBe(true)
+    expect(validatePerGateReport(r).malformed).toBe(false)
+  })
+
+  it('accepts a short sha against the full stamp and vice versa', () => {
+    const r = buildVerifierReport({ text: stamped('1111111111111111111111111111111111111111'), evidenceRef: ref, expectedSha: '1111111' })
+    expect(r.verdict).toBe('PASS')
+  })
+
+  // A genuine failure must never be softened into "we cannot tell".
+  it('a FAILED run stays FAIL even when the binding is also wrong', () => {
+    const bad = `# gate run against '2222222222222222222222222222222222222222' dirty=0\nSTEP tests-1 | rc=1 | boom\nDONE`
+    expect(buildVerifierReport({ text: bad, evidenceRef: ref, expectedSha: '1111111111111111111111111111111111111111' }).verdict).toBe('FAIL')
+  })
+
+  it('without expectedSha the old behaviour holds, but a dirty stamp still blocks', () => {
+    expect(buildVerifierReport({ text: stamped('1111111111111111111111111111111111111111'), evidenceRef: ref }).verdict).toBe('PASS')
+    expect(buildVerifierReport({ text: stamped('1111111111111111111111111111111111111111', 5), evidenceRef: ref }).verdict).toBe('UNVERIFIED')
+  })
+})
+
+// ─── Red Hat, 2026-09-15: a gate that ran ZERO unit tests reported PASS ───────
+// lint + integration + security + governance alone satisfy "steps.length > 0 and a terminal
+// DONE". gate.sh's own header says to "check the chunk totals sum to a whole-suite count" — a
+// rule the file stated and never enforced. The stamp now declares how many test chunks the run
+// intended, and the report checks that many actually appear.
+describe('test-chunk completeness (the stamp declares what the run intended)', () => {
+  const head = (chunks) =>
+    `# gate run against 1111111111111111111111111111111111111111 dirty=0 chunks=${chunks}`
+  const tests = (n) =>
+    Array.from({ length: n }, (_, i) => `STEP tests-${i + 1} | rc=0 | Tests 9 passed (9)`).join('\n')
+  const body = 'STEP lint | rc=0 | ok\nSTEP integration | rc=0 | 20/20\nSTEP security | rc=0 | 0 findings'
+
+  it('PASSes when every declared chunk ran', () => {
+    const t = [head(3), body, tests(3), 'DONE'].join('\n')
+    expect(buildVerifierReport({ text: t, evidenceRef: 'e' }).verdict).toBe('PASS')
+  })
+
+  it('a run that executed NO test chunks is UNVERIFIED, not PASS', () => {
+    const t = [head(9), body, 'DONE'].join('\n')
+    const r = buildVerifierReport({ text: t, evidenceRef: 'e' })
+    expect(r.verdict).toBe('UNVERIFIED')
+    expect(r.findings.some((f) => /chunk/i.test(f.summary))).toBe(true)
+    expect(validatePerGateReport(r).malformed).toBe(false)
+  })
+
+  it('a run missing SOME declared chunks is UNVERIFIED', () => {
+    const t = [head(9), body, tests(4), 'DONE'].join('\n')
+    expect(buildVerifierReport({ text: t, evidenceRef: 'e' }).verdict).toBe('UNVERIFIED')
+  })
+
+  it('more chunks than declared is also UNVERIFIED — the file does not match its own header', () => {
+    const t = [head(2), body, tests(5), 'DONE'].join('\n')
+    expect(buildVerifierReport({ text: t, evidenceRef: 'e' }).verdict).toBe('UNVERIFIED')
+  })
+
+  it('a stamp without chunks= keeps the old behaviour, so older evidence still reads', () => {
+    const t = ['# gate run against 1111111111111111111111111111111111111111 dirty=0', body, 'DONE'].join('\n')
+    expect(buildVerifierReport({ text: t, evidenceRef: 'e' }).verdict).toBe('PASS')
+  })
+
+  it('a failing step still FAILs rather than being masked by a chunk mismatch', () => {
+    const t = [head(9), 'STEP tests-1 | rc=1 | boom', 'DONE'].join('\n')
+    expect(buildVerifierReport({ text: t, evidenceRef: 'e' }).verdict).toBe('FAIL')
   })
 })

@@ -1,0 +1,10 @@
+STEP tests-3 | rc=1 | Tests 1 failed | 5446 passed | 1 skipped (5448)
+     × gives up on discovery rather than waiting forever when nobody answers the code 508ms
+ FAIL  electron/sync/automerge/joinSession.test.js > startJoinSession — a camp-less device joins for real > gives up on discovery rather than waiting forever when nobody answers the code
+AssertionError: expected '12D3KooWS5BWP4ggVAgXXU99niRKKtSoNXJQf…' to be null
+STEP tests-4 | rc=1 | Tests 4 failed | 5473 passed | 1 skipped (5478)
+     × gives up on discovery rather than waiting forever when nobody answers the code 412ms
+     × fresh db: camp_maps has kind, locations has map_id 30315ms
+     × is idempotent within a process — a second call returns the same cached doc without re-reading disk 165140ms
+     × restoring the loser does not re-bind the activities that were re-pointed to the winner 677948ms
+STEP tests-5 | rc=0 | Tests 5477 passed | 1 skipped (5478)
