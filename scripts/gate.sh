@@ -15,8 +15,9 @@
 #      recurring defect, "started" taken for "succeeded", reappearing in the evidence layer.
 #
 # Tests are partitioned by explicit file list, never by a path substring: `vitest run src/` is a
-# substring filter, not a directory, so substring "batches" silently overlap. Check the chunk
-# totals sum to a whole-suite count before trusting a batched result.
+# substring filter, not a directory, so substring "batches" silently overlap. The chunk count is
+# declared in the stamp and CHECKED by verifierReport.js — it used to say "check this before
+# trusting a batched result", which was a rule stated and never enforced.
 #
 # The results file defaults OUTSIDE the repo, and that is not incidental. Writing it into
 # docs/work/runs/evidence/ dirties the very tree the run is measuring, so the stamp records
@@ -31,7 +32,6 @@ SHA=$(git rev-parse HEAD)
 DIRTY=$(git status --porcelain | wc -l | tr -d ' ')
 R="${1:-${TMPDIR:-/tmp}/shoresh-gate-$(git rev-parse --short HEAD).txt}"
 mkdir -p "${R:h}"
-print -- "# gate run against $SHA dirty=$DIRTY" > "$R"
 
 # Chunks live in an ARRAY, not a temp directory. The first version used `mktemp -d` plus an
 # EXIT trap, and the chunk files vanished between creation and the loop — every run died after
@@ -40,6 +40,21 @@ print -- "# gate run against $SHA dirty=$DIRTY" > "$R"
 # Slicing an array is what the code meant anyway.
 SPECS=(${(f)"$(find . -path ./node_modules -prune -o \( -name '*.test.js' -o -name '*.test.jsx' \) -print | sed 's|^\./||' | sort)"})
 CHUNK_SIZE=45
+
+# Refuse to produce evidence for a run with nothing to run. Red Hat, 2026-09-15: lint +
+# integration + security + governance alone satisfy "steps ran and DONE is terminal", so a gate
+# that executed ZERO unit tests reported PASS. Failing here means no DONE is ever written, and
+# the declared chunk count below lets the reader check completeness instead of trusting it.
+if (( ${#SPECS} == 0 )); then
+  print -u2 -- "gate ABORTED: found no test files under $(pwd). Refusing to write evidence for a run with nothing to run."
+  exit 2
+fi
+CHUNKS=$(( (${#SPECS} + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+
+# The stamp declares what this run INTENDED: which commit, whether the tree was clean, and how
+# many test chunks should appear below. verifierReport.js checks the count, which is the
+# "chunk totals sum to a whole-suite count" rule this header used to state and never enforce.
+print -- "# gate run against $SHA dirty=$DIRTY chunks=$CHUNKS" > "$R"
 
 step() {
   local name=$1; shift

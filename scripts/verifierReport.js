@@ -31,8 +31,16 @@ export function toLines(text) {
  */
 export function parseGateStamp(text) {
   for (const line of toLines(text)) {
-    const m = /^#\s*gate run against\s+([0-9a-f]{7,40})\s+dirty=(\d+)\s*$/i.exec(line.trim())
-    if (m) return { sha: m[1].toLowerCase(), dirty: Number(m[2]) }
+    const m = /^#\s*gate run against\s+([0-9a-f]{7,40})\s+dirty=(\d+)(?:\s+chunks=(\d+))?\s*$/i.exec(line.trim())
+    if (m) {
+      return {
+        sha: m[1].toLowerCase(),
+        dirty: Number(m[2]),
+        // How many test chunks the run INTENDED to execute. Absent on evidence written before
+        // this existed, in which case completeness cannot be checked and is not claimed.
+        chunks: m[3] === undefined ? null : Number(m[3]),
+      }
+    }
   }
   return null
 }
@@ -85,6 +93,19 @@ export function buildVerifierReport({ text, evidenceRef, expectedSha }) {
     } else if (!stamp.sha.startsWith(expectedSha.toLowerCase()) && !expectedSha.toLowerCase().startsWith(stamp.sha)) {
       bindingProblems.push(
         `results file was produced against a different commit (${stamp.sha.slice(0, 12)}), not ${expectedSha.slice(0, 12)} — it does not verify this diff`,
+      )
+    }
+  }
+  // Red Hat, 2026-09-15: lint + integration + security + governance alone satisfy "some steps ran
+  // and DONE is terminal", so a run that executed ZERO unit tests reported PASS. gate.sh's header
+  // told the reader to "check the chunk totals sum to a whole-suite count" — a rule the file
+  // stated and nothing enforced. The stamp now declares the intended chunk count and this checks
+  // it, which is that manual step automated.
+  if (stamp && stamp.chunks !== null) {
+    const ran = steps.filter((s) => /^tests-\d+$/.test(s.name)).length
+    if (ran !== stamp.chunks) {
+      bindingProblems.push(
+        `run declared ${stamp.chunks} test chunk(s) but ${ran} executed — the results file does not match its own header`,
       )
     }
   }

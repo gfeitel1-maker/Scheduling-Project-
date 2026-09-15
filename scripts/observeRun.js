@@ -176,11 +176,19 @@ function couldContainEvent(line) {
 // parse each. Manual chunked read (rather than readline) to keep per-file
 // overhead low across ~1600 files. Only bytes up to the last complete '\n'
 // are counted as consumed, so a partial trailing line is re-read next run.
-function readEventsFromOffset(filePath, startByte) {
+export function readEventsFromOffset(filePath, startByte) {
   return new Promise((resolve, reject) => {
     const events = []
     const size = statSync(filePath).size
-    if (startByte >= size) {
+    // A file SHORTER than our cursor was truncated, rotated, or replaced — the offset now points
+    // into different content, and `startByte >= size` would silently reset it to the new size,
+    // discarding every event in the first `size` bytes with no symptom. Red Hat, 2026-09-15.
+    // Re-read from zero and say so; a double count is visible and arguable, a silent hole is not.
+    if (startByte > size) {
+      resolve({ events, endByte: size, bytesRead: 0, rewound: true, restartFrom: 0 })
+      return
+    }
+    if (startByte === size) {
       resolve({ events, endByte: size, bytesRead: 0 })
       return
     }
@@ -226,12 +234,20 @@ export async function main() {
   // Sequential awaits left this I/O-bound and slow across ~1600 files; overlap
   // reads with a bounded concurrency so the OS/disk can service many at once.
   const CONCURRENCY = 16
+  const rewoundFiles = []
   let nextIndex = 0
   async function worker() {
     while (nextIndex < files.length) {
       const filePath = files[nextIndex++]
       const startByte = cursor[filePath] || 0
-      const { events, endByte, bytesRead } = await readEventsFromOffset(filePath, startByte)
+      let res = await readEventsFromOffset(filePath, startByte)
+      if (res.rewound) {
+        // Truncated, rotated or replaced since the last run. Re-read the whole file rather than
+        // accept a hole, and COUNT it, so the summary can never look clean while data was lost.
+        rewoundFiles.push(filePath)
+        res = await readEventsFromOffset(filePath, 0)
+      }
+      const { events, endByte, bytesRead } = res
       if (bytesRead > 0) filesTouched += 1
       totalBytesRead += bytesRead
       cursor[filePath] = endByte
@@ -248,6 +264,10 @@ export async function main() {
   console.log(JSON.stringify({
     filesScanned: files.length,
     filesWithNewData: filesTouched,
+    // Coverage, reported rather than assumed. Every probe that preceded this tool silently
+    // excluded part of its population and quoted a percentage as though it covered all of it.
+    filesRewound: rewoundFiles.length,
+    rewoundPaths: rewoundFiles.slice(0, 10),
     bytesRead: totalBytesRead,
     elapsedMs,
     report,

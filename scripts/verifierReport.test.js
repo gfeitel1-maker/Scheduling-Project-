@@ -105,10 +105,16 @@ const stamped = (sha, dirty = 0) =>
 
 describe('parseGateStamp', () => {
   it('reads the sha and dirty count from the stamp line', () => {
-    expect(parseGateStamp(stamped('1111111111111111111111111111111111111111', 3))).toEqual({ sha: '1111111111111111111111111111111111111111', dirty: 3 })
+    expect(parseGateStamp(stamped('1111111111111111111111111111111111111111', 3)))
+      .toEqual({ sha: '1111111111111111111111111111111111111111', dirty: 3, chunks: null })
   })
   it('returns null when there is no stamp', () => {
     expect(parseGateStamp('STEP lint | rc=0 | ok\nDONE')).toBeNull()
+  })
+
+  it('reads the declared chunk count when present', () => {
+    const t = '# gate run against 1111111111111111111111111111111111111111 dirty=0 chunks=9'
+    expect(parseGateStamp(t).chunks).toBe(9)
   })
 })
 
@@ -158,5 +164,51 @@ describe('binding evidence to a commit (T169)', () => {
   it('without expectedSha the old behaviour holds, but a dirty stamp still blocks', () => {
     expect(buildVerifierReport({ text: stamped('1111111111111111111111111111111111111111'), evidenceRef: ref }).verdict).toBe('PASS')
     expect(buildVerifierReport({ text: stamped('1111111111111111111111111111111111111111', 5), evidenceRef: ref }).verdict).toBe('UNVERIFIED')
+  })
+})
+
+// ─── Red Hat, 2026-09-15: a gate that ran ZERO unit tests reported PASS ───────
+// lint + integration + security + governance alone satisfy "steps.length > 0 and a terminal
+// DONE". gate.sh's own header says to "check the chunk totals sum to a whole-suite count" — a
+// rule the file stated and never enforced. The stamp now declares how many test chunks the run
+// intended, and the report checks that many actually appear.
+describe('test-chunk completeness (the stamp declares what the run intended)', () => {
+  const head = (chunks) =>
+    `# gate run against 1111111111111111111111111111111111111111 dirty=0 chunks=${chunks}`
+  const tests = (n) =>
+    Array.from({ length: n }, (_, i) => `STEP tests-${i + 1} | rc=0 | Tests 9 passed (9)`).join('\n')
+  const body = 'STEP lint | rc=0 | ok\nSTEP integration | rc=0 | 20/20\nSTEP security | rc=0 | 0 findings'
+
+  it('PASSes when every declared chunk ran', () => {
+    const t = [head(3), body, tests(3), 'DONE'].join('\n')
+    expect(buildVerifierReport({ text: t, evidenceRef: 'e' }).verdict).toBe('PASS')
+  })
+
+  it('a run that executed NO test chunks is UNVERIFIED, not PASS', () => {
+    const t = [head(9), body, 'DONE'].join('\n')
+    const r = buildVerifierReport({ text: t, evidenceRef: 'e' })
+    expect(r.verdict).toBe('UNVERIFIED')
+    expect(r.findings.some((f) => /chunk/i.test(f.summary))).toBe(true)
+    expect(validatePerGateReport(r).malformed).toBe(false)
+  })
+
+  it('a run missing SOME declared chunks is UNVERIFIED', () => {
+    const t = [head(9), body, tests(4), 'DONE'].join('\n')
+    expect(buildVerifierReport({ text: t, evidenceRef: 'e' }).verdict).toBe('UNVERIFIED')
+  })
+
+  it('more chunks than declared is also UNVERIFIED — the file does not match its own header', () => {
+    const t = [head(2), body, tests(5), 'DONE'].join('\n')
+    expect(buildVerifierReport({ text: t, evidenceRef: 'e' }).verdict).toBe('UNVERIFIED')
+  })
+
+  it('a stamp without chunks= keeps the old behaviour, so older evidence still reads', () => {
+    const t = ['# gate run against 1111111111111111111111111111111111111111 dirty=0', body, 'DONE'].join('\n')
+    expect(buildVerifierReport({ text: t, evidenceRef: 'e' }).verdict).toBe('PASS')
+  })
+
+  it('a failing step still FAILs rather than being masked by a chunk mismatch', () => {
+    const t = [head(9), 'STEP tests-1 | rc=1 | boom', 'DONE'].join('\n')
+    expect(buildVerifierReport({ text: t, evidenceRef: 'e' }).verdict).toBe('FAIL')
   })
 })
