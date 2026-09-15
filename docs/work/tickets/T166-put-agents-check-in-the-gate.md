@@ -1,7 +1,7 @@
 ---
 title: "Put agents:check in the gate once green is reachable everywhere"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-14
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-09-04-portable-agent-team-compatibility-layer.md]
@@ -31,3 +31,19 @@ Two preconditions, both measured 2026-09-14:
 ## Also note
 `VERIFY_STEPS` is pinned exactly by `scripts/verify.test.js`, and it moves — #395 added a
 `security` step. Re-read it at the current `origin/main` rather than from memory before editing.
+
+## Closed 2026-09-15 — verified, not assumed
+
+`agents:check` is in `VERIFY_STEPS` in `scripts/verify.js`, between `lint` and
+`test`, and every gate run in this session reported
+`lint + agents:check + test + test:integration + security + check:governance`.
+
+Its precondition — T165, green reachable everywhere — is also satisfied: the
+fragment source is vendored in the repo and the default path exits 0 with no
+environment variable set. The ordering the ticket insisted on (do not gate on a
+check that cannot pass on a fresh clone) held; both simply landed without a
+closing reference, so both tickets rotted `open` while the code was done.
+
+That rot is the point: `check-governance` cannot detect it, because nothing ever
+claimed `closes T165`. It is the same shape as T167's finding — a gate that
+validates what exists cannot see what is missing.
