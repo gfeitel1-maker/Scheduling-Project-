@@ -15,12 +15,6 @@ Regenerate with `npm run index:work`.
 
 ## Open work
 
-### architecture
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Watch: five mechanisms now remember what the director taught the app](../../docs/work/tickets/T157-camp-acquired-knowledge-pattern.md) | open | — |
-
 ### documentation-governance
 
 | Ticket | Status | Referenced by |
