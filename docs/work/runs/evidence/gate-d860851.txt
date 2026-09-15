@@ -8,3 +8,7 @@ STEP tests-4 | rc=1 | Tests 4 failed | 5473 passed | 1 skipped (5478)
      × is idempotent within a process — a second call returns the same cached doc without re-reading disk 165140ms
      × restoring the loser does not re-bind the activities that were re-pointed to the winner 677948ms
 STEP tests-5 | rc=0 | Tests 5477 passed | 1 skipped (5478)
+STEP tests-6 | rc=137 |
+     × gives up on discovery rather than waiting forever when nobody answers the code 271ms
+     × produces a correct (passing) verdict with no ~/.claude/organization directory present 227ms
+       × fails when the committed manifest has been corrupted 287ms

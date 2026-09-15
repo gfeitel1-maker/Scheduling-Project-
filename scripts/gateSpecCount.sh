@@ -12,7 +12,13 @@
 #   exit 2 — none found; caller must abort without writing evidence
 set -u
 DIR="${1:-.}"
-SPECS=(${(f)"$(find "$DIR" -path "$DIR/node_modules" -prune -o \( -name '*.test.js' -o -name '*.test.jsx' \) -print | sort)"})
+# The prune list must agree with vite.config.js's test.exclude, or the chunk count gate.sh
+# declares describes a corpus vitest will not run. test/fixtures holds files NAMED *.test.js that
+# are data, not specs — test/fixtures/specDirs/has-tests/src/foo.test.js is the single word
+# `test`, and it exists so this very predicate can be asked whether a directory contains one.
+# It was being collected into the real suite. .claude/worktrees is a full checkout inside the
+# checkout, the same defect from another direction (see eslint.config.js's own note).
+SPECS=(${(f)"$(find "$DIR" -path "$DIR/node_modules" -prune -o -path "$DIR/test/fixtures" -prune -o -path "$DIR/.claude/worktrees" -prune -o \( -name '*.test.js' -o -name '*.test.jsx' \) -print | sort)"})
 if (( ${#SPECS} == 0 )); then
   print -u2 -- "gate ABORTED: found no test files under $DIR. Refusing to write evidence for a run with nothing to run."
   exit 2
