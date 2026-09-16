@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { verdict, runVerify, VERIFY_STEPS, machineLoadVerdict } from './verify.js'
+import { verdict, runVerify, VERIFY_STEPS, machineLoadVerdict, MIN_LOAD_TIMEOUT_MS } from './verify.js'
 
 describe('verify gate wrapper', () => {
   describe('verdict()', () => {
@@ -21,17 +21,44 @@ describe('verify gate wrapper', () => {
       expect(verdict('check:governance').line).not.toMatch(/PASSED/)
     })
 
-    // T164: a failure under an oversubscribed machine is INCONCLUSIVE (exit 2), not FAILED.
-    it('reports INCONCLUSIVE with exit code 2 when a step fails under oversubscription', () => {
-      const v = verdict('test', { oversubscribed: true })
+    // T164/T178: INCONCLUSIVE only for a SLOW failure of a LOAD-SENSITIVE step under oversubscription.
+    it('reports INCONCLUSIVE (exit 2) for a slow test failure under oversubscription', () => {
+      const v = verdict({ step: 'test', ms: 40_000 }, { oversubscribed: true })
       expect(v.code).toBe(2)
       expect(v.line).toMatch(/INCONCLUSIVE/)
       expect(v.line).toMatch(/NOT a pass/)
       expect(v.line).not.toMatch(/PASSED/) // still never a false green
     })
 
+    // T178 filter (2): a FAST failure is a real defect, never laundered — the measured 295ms case.
+    it('reports FAILED for a FAST test failure even under oversubscription (295ms defect)', () => {
+      const v = verdict({ step: 'test', ms: 295 }, { oversubscribed: true })
+      expect(v.code).toBe(1)
+      expect(v.line).toMatch(/FAILED/)
+    })
+
+    // T178 filter (1): a deterministic step is never downgraded — the measured check:governance case.
+    it('reports FAILED for a deterministic step even if slow + oversubscribed (check:governance)', () => {
+      const v = verdict({ step: 'check:governance', ms: 60_000 }, { oversubscribed: true })
+      expect(v.code).toBe(1)
+      expect(v.line).toMatch(/FAILED/)
+    })
+    it('never downgrades lint / agents:check / security (deterministic) under load', () => {
+      for (const step of ['lint', 'agents:check', 'security']) {
+        expect(verdict({ step, ms: 99_000 }, { oversubscribed: true }).code).toBe(1)
+      }
+    })
+
+    it('downgrades test:integration too (the other load-sensitive step) when slow', () => {
+      expect(verdict({ step: 'test:integration', ms: MIN_LOAD_TIMEOUT_MS }, { oversubscribed: true }).code).toBe(2)
+    })
+
+    it('an unknown duration (bare string) is never downgraded — conservative', () => {
+      expect(verdict('test', { oversubscribed: true }).code).toBe(1)
+    })
+
     it('still reports FAILED (exit 1) for a failure when the machine was NOT oversubscribed', () => {
-      const v = verdict('test', { oversubscribed: false })
+      const v = verdict({ step: 'test', ms: 40_000 }, { oversubscribed: false })
       expect(v.code).toBe(1)
       expect(v.line).toMatch(/FAILED/)
     })
@@ -70,20 +97,24 @@ describe('verify gate wrapper', () => {
       expect(seen).toEqual(VERIFY_STEPS)
     })
 
-    it('short-circuits at the first failing step and returns its name', () => {
+    it('short-circuits at the first failing step and returns { step, ms }', () => {
       const seen = []
       const failed = runVerify(['a', 'b', 'c'], (s) => {
         seen.push(s)
         return s === 'b' ? 1 : 0
       })
-      expect(failed).toBe('b')
+      expect(failed.step).toBe('b')
+      expect(typeof failed.ms).toBe('number')
       // 'c' must NOT run — a real gate stops at the first failure.
       expect(seen).toEqual(['a', 'b'])
     })
 
-    it('treats a non-zero exit code as failure', () => {
-      const failed = runVerify(['only'], () => 137)
-      expect(failed).toBe('only')
+    it('measures the failing step duration (for the load-timeout verdict)', () => {
+      // injected clock: 1000ms elapses during the failing step
+      let t = 0
+      const clock = () => { const v = t; t += 1000; return v }
+      const failed = runVerify(['only'], () => 137, clock)
+      expect(failed).toEqual({ step: 'only', ms: 1000 })
     })
   })
 

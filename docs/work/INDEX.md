@@ -34,7 +34,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
-| [The INCONCLUSIVE load verdict keys on raw loadavg, which macOS inflates — harden the metric](../../docs/work/tickets/T178-inconclusive-verdict-metric-hardening.md) | open | — |
 
 ## Decisions
 
