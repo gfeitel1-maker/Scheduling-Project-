@@ -95,14 +95,51 @@ backup failure fatal.
   **fatal on backup failure**, verifies the encrypted copy by a keyed re-open+read BEFORE replacing
   the original, shreds the plaintext backup only on success, and aborts-untouched on a failed verify.
   Idempotent (cleans a prior `.enc-migrate`). Unit-tested.
-- [x] **Finding 5 — `{ plaintext: true }` is test-only.** It forces the plaintext driver even if a key
-  is passed, guarding the committed era fixtures from a keyed open migrating them. Production sites
-  pass the real key. **Remaining:** a governance gate asserting `plaintext: true` appears only under
-  `test/` (cheap; not yet added). rebuildSupportCommand's fresh-db rebuild target — see MCP/CLI below.
+- [x] **Finding 5 — `{ plaintext: true }` is test-only, AND gated.** It forces the plaintext driver
+  even if a key is passed, guarding the committed era fixtures from a keyed open migrating them.
+  Production sites pass the real key. **Gate DONE (2026-09-16):** `electron/db/sqliteCipher.test.js`
+  ("finding 5 gate") walks `electron/` + `scripts/`, skips `.test.js`, strips line comments, and fails
+  if any production line matches `plaintext\s*:\s*true`. On origin/main, 10/10 green. The only real
+  `plaintext: true` call sites are the two era-fixture tests; the localDb.js occurrences are the doc
+  comment + the `plaintext = false` default param (neither matches). rebuildSupportCommand's fresh-db
+  rebuild target — see MCP/CLI below.
 - [ ] **Constraint 4 / boundary wording (SECURITY.md).** State the guarantee is narrower than
   "encrypted at rest": per-OS-user keychain; a same-login attacker on a shared office Mac is
-  undefended. Land WITH the flip (making the claim), not before.
-- [x] **Single-device warning precondition — DONE (#424).**
+  undefended. Land WITH the flip (making the claim), not before. **DRAFTED AND READY (2026-09-16)** —
+  drop this into SECURITY.md as part of the flip commit, not before (it makes a claim only true once
+  encryption is on):
+
+  > ### At-rest encryption (what it does and does not protect)
+  > With at-rest encryption enabled, both the camp document (`<campId>.automerge`) and the local
+  > database (`shoresh.sqlite`) are encrypted on disk with a per-device key sealed in the operating
+  > system keychain (macOS Keychain via Electron `safeStorage`). The key is never written beside the
+  > data.
+  >
+  > **This defends one specific thing: a powered-off or stolen device.** Someone who takes the
+  > hardware, or copies the files off it, cannot read a camp's data without also being able to log in
+  > as the same OS user on that machine.
+  >
+  > **It does NOT defend against:** an attacker who is already logged in as the same OS user (a shared
+  > office login is therefore not protected from its own users), a running and unlocked machine, or
+  > malware running as that user. It is a trusted-device model, not full-disk encryption and not a
+  > defense against a live, authenticated attacker. For a shared machine, use separate OS user
+  > accounts — the keychain isolation is per-OS-user.
+  >
+  > **Recovery:** the key lives only in this device's keychain. If the OS keychain is reset or the
+  > device is lost with no other paired device holding a copy, the encrypted data cannot be recovered.
+  > See KEY_RECOVERY_STORY.md.
+- [x] **Single-device warning precondition — DONE (#424, ba259b9).** Confirmed in shipped origin/main
+  by the app-icon-audit session, with two nuances that carry into the flip:
+  - `otherDeviceCount` counts SURVIVING copies (`authorized_at IS NOT NULL AND revoked_at IS NULL`),
+    not rows — it ignores inert `pairing_status='unknown'` stubs and, critically, revoked devices
+    (counting a device the director deliberately cut off would be the worst possible wrong answer).
+    Both cases have tests. Don't regress this when the flip touches sync/sidebar surfaces.
+  - The copy deliberately says "no second copy to **restore from**", NOT "cannot be recovered", and a
+    test asserts the stronger phrase is ABSENT so it can't drift in before encryption exists.
+    **FLIP ACTION ITEM:** when encryption goes on, the stronger "cannot be recovered without this
+    computer" wording may become warranted — but that is a DELIBERATE copy change bundled INTO the flip
+    changeset, with the absence-test updated in the same commit, coordinated with the sidebar surface
+    owner. Not a silent edit, and not before the flip lands.
 
 ## Real-app Electron verification (2026-09-16) — DONE, and it caught three defects
 
@@ -118,14 +155,33 @@ there after fixing three things unit tests could never have caught:
    an async IIFE and `await app.whenReady()` after `applyUserDataPath` (which must stay pre-ready for
    setName), before the key acquisition + keyed db open. Unit tests inject an always-available fake
    safeStorage, so only a real Electron run surfaced this.
-2. **OPEN (build) — the encrypting driver's Electron binary must sit where its loader looks.** The
-   fork loads via `require('bindings')('better_sqlite3.node')`, which searches `build/Release` and the
-   node-pre-gyp path `lib/binding/node-v<ABI>-<platform>-<arch>/`. prebuild-install/electron-rebuild
-   placed the Electron-ABI binary at `bin/darwin-x64-148/better-sqlite3-multiple-ciphers.node` (wrong
-   dir AND wrong name), so `bindings` couldn't find it and the app failed closed. Verified fix (in the
-   worktree): copy it to `lib/binding/node-v148-darwin-x64/better_sqlite3.node`. **The packaged build
-   must guarantee this placement** (the T175 packaged app bundled only `bin/…`, so it would fail to
-   load the driver under encryption). Build-step fix needed before the flip.
+2. **DEV-FIXED (2026-09-16); packaged verification still owed — the encrypting driver's Electron binary
+   must sit where its loader looks.** The fork loads via `require('bindings')('better_sqlite3.node')`,
+   which searches `build/Release` and the node-pre-gyp path `lib/binding/node-v<ABI>-<platform>-<arch>/`.
+   prebuild-install placed the Electron-ABI binary at `bin/darwin-x64-148/better-sqlite3-multiple-ciphers.node`
+   (wrong dir AND wrong name), so `bindings` couldn't find it and the app failed closed.
+   **Fix (`scripts/ensure-abi.js`):** the `preelectron:build` step (`ensure-abi.js electron`) now ALSO
+   rebuilds the fork when it is installed, via `electron-rebuild -f -w better-sqlite3-multiple-ciphers`,
+   which produces `node_modules/better-sqlite3-multiple-ciphers/build/Release/better_sqlite3.node` — the
+   exact path `bindings` resolves, mirroring how the non-fork driver already lands. Pure decision
+   `decideFork()` + `forkIsInstalled()` unit-tested (5 cases in `scripts/ensure-abi.test.js`); the
+   rebuild is NON-FATAL (the fork is an optional dep and encryption is OFF by default — a fork build
+   failure must never break the normal keyless build). **Deterministic proof:** ran the fork rebuild
+   directly, confirmed the binary appears at `build/Release/better_sqlite3.node` (2.3 MB, Electron ABI,
+   exit 0). **STILL OWED before the flip:** a real `electron-builder` packaged run + install to confirm
+   the placement SURVIVES packaging (electron-builder's own npmRebuild step must not push it back to
+   `bin/…`) — that step re-touches the owner's installed app, so schedule it with the owner.
+   **PACKAGED PLACEMENT VERIFIED (2026-09-16) — closed.** Ran `npm run electron:build` (dir target,
+   unsigned) on branch claude/security-testing-agent-8e9c63 (which carries the ensure-abi fork arm).
+   Inspected `release/mac/Shoresh.app/Contents/Resources/app/node_modules/better-sqlite3-multiple-ciphers/`:
+   the Electron-ABI fork binary is present at **`build/Release/better_sqlite3.node`** (the path
+   `require('bindings')('better_sqlite3.node')` resolves first) AND at the node-pre-gyp fallback
+   `lib/binding/node-v148-darwin-x64/better_sqlite3.node` (v148 = Electron 43 ABI). So the placement
+   SURVIVES packaging — electron-builder's npmRebuild + the ensure-abi fork rebuild together land the
+   binary where the loader looks, with asar disabled so node_modules is copied raw. This was the last
+   code-side flip-blocker verifiable without the owner's machine; it is now closed. What remains needs
+   the owner: installing this build + a real-app encryption-on run on their machine (the ticket's
+   "real-app verification … must not be skipped").
 3. **OPEN (free, local — NOT an Apple Developer ID) — key persistence across app UPDATES.**
    CORRECTION (earlier draft of this finding overstated it): at-rest encryption needs **no Apple
    Developer ID and no Apple account**. It uses `safeStorage`, which stores its master key in an
@@ -156,12 +212,14 @@ there after fixing three things unit tests could never have caught:
    *document* refusal (finding 2) already handles the doc side; the SQLite side of the MCP surface is
    the open item.
 
-## Supply chain (assessment open question C)
-`better-sqlite3-multiple-ciphers` v13.0.3 (2026-08-07, sole dep node-addon-api ^8, single maintainer
-m4heshd, versioning mirrors upstream better-sqlite3). This repo pins `better-sqlite3 ^12.11.1`, so the
-fork must be pinned to the **matching 12.x line**, exact-versioned, integrity-hashed, `npm audit`-clean
-on the resolved tree, and confirmed to `electron-rebuild` cleanly under this repo's flow. Settle on a
-branch through the security gate before adopting.
+## Supply chain (assessment open question C) — VERIFIED (2026-09-16)
+`better-sqlite3-multiple-ciphers` is pinned to **12.11.1** — exact (no `^`/`~`), the matching line to
+this repo's `better-sqlite3 ^12.11.1`. Verified: `package.json` optionalDependencies = exact
+`"12.11.1"`; `package-lock.json` carries the resolved npmjs URL + a sha512 `integrity` hash;
+`npm audit --omit=dev` = **0 vulnerabilities** on the resolved tree; and `electron-rebuild` builds it
+cleanly under this repo's flow (the `ensure-abi.js` fork arm + the packaged-build check below both
+exercise it). Single maintainer (m4heshd), sole dep node-addon-api, versioning mirrors upstream
+better-sqlite3. Remaining supply-chain care is ongoing (re-audit on any bump); the pin itself is settled.
 
 ## Verification (both required before ship)
 - Full suite green under the new SQLite driver (openLocalDb is opened by ~270 test files) + the

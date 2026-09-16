@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decide, npmBinaryFor } from './ensure-abi.js'
+import { decide, decideFork, npmBinaryFor } from './ensure-abi.js'
 
 // T44. ensure-abi decided whether to rebuild purely by comparing .abi-target's
 // contents against the wanted signature — it never checked that the compiled
@@ -62,6 +62,43 @@ describe('decide', () => {
     const result = decide({ target: 'electron', want: 'electron:33.0.0', have: 'node:127', binaryClass: 'electron' })
     expect(result.rebuild).toBe(true)
     expect(result.reason).toBe('marker-stale')
+  })
+})
+
+// T175 finding 2. The at-rest-encryption driver (better-sqlite3-multiple-ciphers)
+// is an OPTIONAL fork that loads through the same bindings('better_sqlite3.node')
+// call, so it needs its own Electron-ABI binary at build/Release. It only rides
+// the Electron target, only when installed, and only when not already current —
+// and a fork build failure must never break the normal keyless build.
+describe('decideFork', () => {
+  it('does nothing for the node target (Vitest never touches the fork)', () => {
+    const r = decideFork({ target: 'node', forkInstalled: true, forkBinaryClass: 'missing' })
+    expect(r.rebuild).toBe(false)
+    expect(r.reason).toBe('not-electron')
+  })
+
+  it('does nothing when the optional fork is not installed', () => {
+    const r = decideFork({ target: 'electron', forkInstalled: false, forkBinaryClass: 'missing' })
+    expect(r.rebuild).toBe(false)
+    expect(r.reason).toBe('not-installed')
+  })
+
+  it('skips when the fork binary is already the Electron ABI', () => {
+    const r = decideFork({ target: 'electron', forkInstalled: true, forkBinaryClass: 'electron' })
+    expect(r.rebuild).toBe(false)
+    expect(r.reason).toBe('confirmed')
+  })
+
+  it('rebuilds when installed for Electron but the fork binary is missing (only the bin/ prebuild exists)', () => {
+    const r = decideFork({ target: 'electron', forkInstalled: true, forkBinaryClass: 'missing' })
+    expect(r.rebuild).toBe(true)
+    expect(r.reason).toBe('binary-missing')
+  })
+
+  it('rebuilds when the fork binary on disk is built for the wrong runtime', () => {
+    const r = decideFork({ target: 'electron', forkInstalled: true, forkBinaryClass: 'node' })
+    expect(r.rebuild).toBe(true)
+    expect(r.reason).toBe('binary-mismatch')
   })
 })
 

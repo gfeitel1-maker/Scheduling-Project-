@@ -67,6 +67,35 @@ export function classifyBinary(root) {
   return classifyLoad(probeUnderNode(modulePath))
 }
 
+// The at-rest-encryption driver (better-sqlite3-multiple-ciphers) is a fork of
+// better-sqlite3 and loads through the SAME `require('bindings')('better_sqlite3.node')`
+// call, which resolves `build/Release/better_sqlite3.node` first. The fork ships
+// a prebuild at `bin/darwin-x64-148/better-sqlite3-multiple-ciphers.node` — WRONG
+// dir AND wrong name — so unless it is rebuilt into its own build/Release the
+// packaged app fails to load it under encryption (T175 finding 2, seen in the
+// real-app run). electron-rebuild produces exactly that path, mirroring the
+// non-fork. This only matters for the Electron target: Vitest (node) never
+// touches the fork, and the fork is an OPTIONAL dependency — absent on machines
+// that never installed it. So: rebuild it only when building for Electron, only
+// when it is installed, and only when its binary is not already the Electron ABI.
+export const FORK_MODULE = 'better-sqlite3-multiple-ciphers'
+export const FORK_MODULE_REL = `node_modules/${FORK_MODULE}/build/Release/better_sqlite3.node`
+
+export function classifyForkBinary(root) {
+  const modulePath = path.join(root, FORK_MODULE_REL)
+  if (!existsSync(modulePath)) return 'missing'
+  return classifyLoad(probeUnderNode(modulePath))
+}
+
+// Pure decision, testable without a real build: should we (re)build the fork's
+// Electron-ABI binary into its resolvable build/Release path?
+export function decideFork({ target, forkInstalled, forkBinaryClass }) {
+  if (target !== 'electron') return { rebuild: false, reason: 'not-electron' }
+  if (!forkInstalled) return { rebuild: false, reason: 'not-installed' }
+  if (forkBinaryClass === 'electron') return { rebuild: false, reason: 'confirmed' }
+  return { rebuild: true, reason: forkBinaryClass === 'missing' ? 'binary-missing' : 'binary-mismatch' }
+}
+
 // T44 self-heal: clear out a possibly half-populated build dir before
 // rebuilding. A from-scratch build dir is what rebuild does semantically
 // anyway — this just makes that explicit instead of leaving gyp to build on
@@ -101,12 +130,49 @@ function rebuild(target) {
   }
 }
 
+// Is the optional fork actually installed? Its package dir is present only when
+// `npm install` resolved the optionalDependency (it fails to build on some
+// toolchains and is skipped — that is by design; the default keyless path uses
+// the non-fork driver). Probing the package.json, not the .node, so a
+// not-yet-built-for-electron install still counts as installed.
+export function forkIsInstalled(root) {
+  return existsSync(path.join(root, 'node_modules', FORK_MODULE, 'package.json'))
+}
+
+// Best-effort: rebuild the fork for Electron's ABI into its build/Release. NEVER
+// fatal — the fork is optional and encryption is OFF by default, so a failure
+// here must not break the normal (keyless, non-fork) build. It just means the
+// encrypting driver won't load until the build is fixed, which fails CLOSED with
+// a clear message rather than corrupting anything.
+function rebuildFork() {
+  try {
+    const bin = fileURLToPath(new URL('../node_modules/@electron/rebuild/lib/cli.js', import.meta.url))
+    execFileSync(process.execPath, [bin, '-f', '-w', FORK_MODULE], { stdio: 'inherit' })
+    console.log(`ensure-abi: ${FORK_MODULE} rebuilt for Electron (at-rest-encryption driver).`)
+    return true
+  } catch {
+    console.warn(`ensure-abi: WARNING — could not rebuild ${FORK_MODULE} for Electron. The default`)
+    console.warn('  (unencrypted) driver is unaffected; at-rest encryption would fail closed until fixed:')
+    console.warn(`  npx electron-rebuild -f -w ${FORK_MODULE}`)
+    return false
+  }
+}
+
 function main() {
   const target = process.argv[2]
   if (target !== 'node' && target !== 'electron') {
     console.error(`ensure-abi: expected "node" or "electron", got ${JSON.stringify(target)}`)
     process.exit(2)
   }
+
+  // The fork (at-rest-encryption driver) rides the Electron target too, and can
+  // need its own rebuild even when the non-fork binary is already current — so
+  // decide it separately and run it before any early exit.
+  const forkPlan = decideFork({
+    target,
+    forkInstalled: forkIsInstalled(ROOT),
+    forkBinaryClass: classifyForkBinary(ROOT),
+  })
 
   const want = signatureFor(target)
   const have = existsSync(MARKER) ? readFileSync(MARKER, 'utf8').trim() : null
@@ -115,6 +181,7 @@ function main() {
 
   if (!result.rebuild) {
     console.log(`ensure-abi: better-sqlite3 already built for ${want} — nothing to do.`)
+    if (forkPlan.rebuild) rebuildFork()
     process.exit(0)
   }
 
@@ -135,6 +202,8 @@ function main() {
 
   writeFileSync(MARKER, `${want}\n`)
   console.log(`ensure-abi: done — better-sqlite3 now built for ${want}.`)
+
+  if (forkPlan.rebuild) rebuildFork()
 }
 
 if (process.argv[1] && process.argv[1].endsWith('ensure-abi.js')) {
