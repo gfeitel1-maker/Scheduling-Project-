@@ -52,7 +52,9 @@ const STALE_FLAG_KEYS = new Set([
   'WEEK_CLOSED', 'WEEK_CLOSED_reason', 'WEEK_CLOSED_dismissed',
 ])
 
-// `flags` crosses the LAN op-log sync boundary as JSON.parse'd input, so a
+// `flags` reaches this device as JSON.parse'd input from the replicated
+// Automerge document (the op log stopped being the sync path in Stage 6; it is
+// a local history ledger now). The hazard is unchanged by that move — so a
 // peer device can plant an own-enumerable "__proto__" key (JSON.parse does
 // not treat it specially). Object.create(null) means the assignment below
 // can never reach the real Object.prototype — a spoofed "__proto__" key just

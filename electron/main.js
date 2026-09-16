@@ -79,8 +79,12 @@ const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 //
 // DIRECT_CAMP_ENTITIES/PARENT_SCOPED_ENTITIES now live in
 // ./ops/campScopedEntities.js (imported above) so that this read path and
-// syncServer.js's first-pairing full_sync snapshot are structurally
-// guaranteed to cover the same table set — see that module's own comment.
+// every other consumer of the camp-scoped table set stay structurally in step —
+// see that module's own comment. The original second consumer was
+// syncServer.js's first-pairing full_sync snapshot; that file was deleted in
+// Stage 6, and the registry is now shared by the Automerge seed/projector
+// (./automerge/seed.js, ./automerge/projector.js), the rollback migrations and
+// ./ops/read.js.
 
 // Explicit allowlist for `shoresh:list-by-scope`, deliberately narrower than
 // PARENT_SCOPED_ENTITIES: that registry also contains parent-scoped children

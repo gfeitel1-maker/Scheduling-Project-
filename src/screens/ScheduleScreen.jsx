@@ -167,9 +167,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // placement path — drag, click, paste, inline-create — on both routes.
   // (location exclusions are a fast-follow once slice M5 lands their producer.)
   //
-  // OVERLAP stays manual-only: the generated route surfaces capacity as a
-  // persisted UNFILLABLE at write time, not a derived clash marker — a genuine
-  // product stance (the engine refuses clashes rather than making them).
+  // OVERLAP derives on BOTH routes (T159) — see the fuller note at the
+  // withOverlapFlags call below. This block used to say it was manual-only,
+  // fourteen lines above the code that already did otherwise.
   const slots = useMemo(
     () => {
       const withClosures = withWeekClosureFlags(rawSlots, {
@@ -191,7 +191,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       // true of the route, so the marker follows the state, not the origin.
       return withOverlapFlags(withClosures, activities, locations, electiveSetActivities)
     },
-    [route, rawSlots, activities, locations, groups, activityExclusions, groupExclusions, locationExclusions, weekId, electiveSetActivities]
+    // `route` is deliberately absent: since T159 nothing in this memo reads it
+    // (OVERLAP derives on both routes), and rawSlots already changes when the
+    // route does. It lingered here as a leftover of the same change that left
+    // the stale comment above — flagged by react-hooks/exhaustive-deps.
+    [rawSlots, activities, locations, groups, activityExclusions, groupExclusions, locationExclusions, weekId, electiveSetActivities]
   )
   // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
   // flag-review.md). One piece of state is the single source of truth for both

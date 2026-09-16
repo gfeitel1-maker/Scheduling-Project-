@@ -21,12 +21,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
 
-### scheduling-engine
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Two offline edits can converge into a generated schedule nothing flags](../../docs/work/tickets/T156-generated-route-validity-after-merge.md) | open | [T159-overlap-on-both-routes](../../docs/work/tickets/T159-overlap-on-both-routes.md) |
-
 ### security-auth
 
 | Ticket | Status | Referenced by |
@@ -146,7 +140,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: An unresolved-location decision is remembered per camp via a compound_cell_decisions-shaped table, and every held-conflict reason gets a triage card](../../docs/adr/2026-09-05-unresolved-location-remembered-decisions-and-held-conflict-triage-coverage.md) | proposed | implemented | — |
 | [ADR: Membership and identity mapping for Automerge/libp2p sync (Stage 5d)](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) | accepted | in_progress | [2026-09-08-libp2p-join-flow](../../docs/adr/2026-09-08-libp2p-join-flow.md) · [T155-admission-gate-characterized-limits](../../docs/work/tickets/T155-admission-gate-characterized-limits.md) · [T162-device-identity-and-token-binding](../../docs/work/tickets/T162-device-identity-and-token-binding.md) |
 | [ADR: Productionize Automerge + libp2p as the sync/data layer; SQLite becomes a rebuildable projection](../../docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md) | accepted | in_progress | [2026-09-06-libp2p-membership-mapping](../../docs/adr/2026-09-06-libp2p-membership-mapping.md) · [2026-09-08-crdt-conflict-reconciliation](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) · [2026-09-08-flat-record-shape](../../docs/adr/2026-09-08-flat-record-shape.md) · [2026-09-08-libp2p-join-flow](../../docs/adr/2026-09-08-libp2p-join-flow.md) · [2026-09-09-field-provenance-in-the-document](../../docs/adr/2026-09-09-field-provenance-in-the-document.md) · [2026-09-14-device-identity-and-token-binding](../../docs/adr/2026-09-14-device-identity-and-token-binding.md) · [T148-document-write-loss-becomes-visible](../../docs/work/tickets/T148-document-write-loss-becomes-visible.md) |
-| [ADR: Reconciling concurrent edits under the CRDT — union what doesn't overlap, surface what does](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) | accepted | in_progress | [2026-09-08-flat-record-shape](../../docs/adr/2026-09-08-flat-record-shape.md) · [T156-generated-route-validity-after-merge](../../docs/work/tickets/T156-generated-route-validity-after-merge.md) |
+| [ADR: Reconciling concurrent edits under the CRDT — union what doesn't overlap, surface what does](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) | accepted | in_progress | [2026-09-08-flat-record-shape](../../docs/adr/2026-09-08-flat-record-shape.md) · [2026-09-15-t156-close-and-stale-comment-sweep](../../docs/work/runs/2026-09-15-t156-close-and-stale-comment-sweep.md) · [T156-generated-route-validity-after-merge](../../docs/work/tickets/T156-generated-route-validity-after-merge.md) |
 | [ADR: Flatten the record shape — a field is its own document key](../../docs/adr/2026-09-08-flat-record-shape.md) | accepted | complete | [2026-09-09-field-provenance-in-the-document](../../docs/adr/2026-09-09-field-provenance-in-the-document.md) |
 | [ADR: How a new device joins a camp over libp2p (Stage 6 join flow)](../../docs/adr/2026-09-08-libp2p-join-flow.md) | accepted | in_progress | [2026-09-08-crdt-conflict-reconciliation](../../docs/adr/2026-09-08-crdt-conflict-reconciliation.md) · [2026-09-14-device-identity-and-token-binding](../../docs/adr/2026-09-14-device-identity-and-token-binding.md) |
 | [ADR: Carry field provenance in the document — a hand edit says so about itself](../../docs/adr/2026-09-09-field-provenance-in-the-document.md) | accepted | complete | — |
@@ -168,6 +162,7 @@ They are different facts and a run can carry a bad one of each.
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
 | 2026-09-15 | [closes T164 — verify reports INCONCLUSIVE (exit 2) when a step fails under machine oversubscription](../../docs/work/runs/2026-09-15-closes-t164-verify-reports-inconclusive-exit-2-when-a-step-f.md) | test-infrastructure | pass | PASS |
+| 2026-09-15 | [closes T156: the decision was already made, recorded and built — the ticket did not follow](../../docs/work/runs/2026-09-15-t156-close-and-stale-comment-sweep.md) | scheduling-engine | pass | pass |
 | 2026-09-15 | [T167 part 1: make filing a run record cheap, and correct T164's diagnosis](../../docs/work/runs/2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-.md) | documentation-governance | pass | pass |
 | 2026-09-15 | [closes T167 part 2: a change that closes something must file a run record](../../docs/work/runs/2026-09-15-t167-part-2-require-a-run-record.md) | documentation-governance | pass | pass |
 | 2026-09-14 | [harness reliability — classify non-retryable nightly failures, make the morning check ask whether the pass succeeded, protect application-leased worktrees from pruning, and pin the loop-roster/Article VI partition](../../docs/work/runs/2026-09-14-harness-reliability-repairs.md) | test-infrastructure | pass | merged-under-human-waiver |

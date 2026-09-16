@@ -27,7 +27,15 @@
 #
 # Usage: scripts/gate.sh [results-file]   (default $TMPDIR/shoresh-gate-<short-sha>.txt)
 set -u
-cd "${0:A:h}/.."
+# Resolved BEFORE the cd below, and before any function runs, for two separate reasons:
+#   - `:A` resolves a RELATIVE $0 against the current cwd, so capturing it after the cd can
+#     silently point at the wrong directory when the script is invoked by a relative path.
+#   - $0 inside a zsh FUNCTION is the FUNCTION NAME, not the script (FUNCTION_ARGZERO is on by
+#     default), so `${0:A:h}` inside step() resolves against the cwd and points at a file that
+#     does not exist — the pipeline then fails and the summary column goes silently blank, which
+#     is the exact defect T171 item 3 exists to remove.
+SCRIPT_DIR="${0:A:h}"
+cd "$SCRIPT_DIR/.."
 SHA=$(git rev-parse HEAD)
 DIRTY=$(git status --porcelain | wc -l | tr -d ' ')
 R="${1:-${TMPDIR:-/tmp}/shoresh-gate-$(git rev-parse --short HEAD).txt}"
@@ -41,7 +49,7 @@ mkdir -p "${R:h}"
 # The find + zero-spec abort is scripts/gateSpecCount.sh (T168) — extracted so the "no test
 # files discoverable" abort is testable against a fixture directory instead of only by hand.
 # See test/gateSpecCount.test.js.
-RAW_SPECS=$("${0:A:h}/gateSpecCount.sh" .)
+RAW_SPECS=$("$SCRIPT_DIR/gateSpecCount.sh" .)
 (( $? != 0 )) && exit 2
 SPECS=(${(f)"$(print -r -- "$RAW_SPECS" | sed 's|^\./||')"})
 CHUNK_SIZE=45
@@ -56,8 +64,13 @@ step() {
   local name=$1; shift
   local out rc t
   out=$("$@" 2>&1); rc=$?
-  t=$(print -r -- "$out" | grep -E "Tests +[0-9]|passed \(|no findings|0 findings|✖ [0-9]+ problems" | tail -1 | tr -s ' ')
-  print -- "STEP $name | rc=$rc |$t" >> "$R"
+  # T171 item 3: the summary is extracted by scripts/gateStepSummary.sh, which prints UNMATCHED
+  # rather than going blank when a tool's output format drifts out from under the pattern. A
+  # blank column read as "clean run, nothing to report"; UNMATCHED reads as "I could not read
+  # the report", which is a different thing a human acts on differently. rc stays authoritative
+  # — an unsummarisable step does NOT fail the gate. See test/gateStepSummary.test.js.
+  t=$(print -r -- "$out" | "$SCRIPT_DIR/gateStepSummary.sh")
+  print -- "STEP $name | rc=$rc | $t" >> "$R"
   (( rc != 0 )) && print -r -- "$out" | grep -E "^ +× |FAIL |Error:" | head -4 >> "$R"
   print -- "$name rc=$rc"
 }
@@ -89,5 +102,5 @@ print -- "to keep it as evidence:  cp \"$R\" docs/work/runs/evidence/gate-$(git 
 # file. That is precisely the defect this whole program exists to remove ("started" taken for
 # "succeeded"), sitting in the tool built to detect it, and it shipped through a 13/13 green run
 # because the gate never runs itself. See T171 / test/gateResultCode.test.js.
-"${0:A:h}/gateResultCode.sh" "$R"
+"$SCRIPT_DIR/gateResultCode.sh" "$R"
 exit $?
