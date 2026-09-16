@@ -72,25 +72,38 @@ prebuilt for the fork and no newer compiler here. The integration test — and t
 round-trip + migration — **will run and must pass on any Node-LTS / CI environment** where the driver
 builds; that run is the remaining verification before the flag's default can flip.
 
-## Gaps to close BEFORE the flip
-- [ ] **Finding 3 (MEDIUM) — startup hard-fail is uncaught.** A lost keychain makes `openLocalDb`
-  (main.js:1902) and `loadAutomergeDoc` (main.js:2510) throw at launch — intended, but today a raw
-  crash. Wrap into the "three keys, one event" recovery message (KEY_RECOVERY_STORY.md), not a stack trace.
-- [ ] **Finding 4 (MEDIUM) — migration safety.** `writePreMigrationBackup` is best-effort/swallowed
-  (localDb.js:3067-3071); for the encryption migration, backup failure must be **fatal**. The `.bak`
-  is the only plaintext copy — must verify a key-read of the encrypted result BEFORE deleting the
-  plaintext backup, and shred the `.bak` on success. Migration must be idempotent + crash-safe.
-- [ ] **Finding 5 (MEDIUM) — era-fixture `{ plaintext: true }` opt-in is a bypass primitive.** Must
-  be test-only and unreachable from IPC/renderer. All 5 production `openLocalDb` sites always pass
-  the real key. Add a gate asserting `plaintext: true` appears only under `test/`. Note
-  rebuildSupportCommand.js:131 opens a *fresh* db to rebuild into — that must be opened encrypted
-  once SQLite encryption is on.
-- [ ] **Constraint 4 / boundary wording.** SECURITY.md must state the guarantee is narrower than
+## Gaps — status
+- [x] **Finding 3 — startup hard-fail wrapped.** main.js's key-acquisition block (`acquireDbKey`/
+  `acquireDocCipher`) catches a keychain failure and logs the "three keys, one event" recovery guidance
+  before any db/doc open, then fails closed — not a raw stack trace. (The keychain-lost case is the
+  common one; a corrupt-under-key open still surfaces as a wrapped open error.)
+- [x] **Finding 4 — migration safety.** `migratePlaintextToEncrypted` writes the backup FIRST and is
+  **fatal on backup failure**, verifies the encrypted copy by a keyed re-open+read BEFORE replacing
+  the original, shreds the plaintext backup only on success, and aborts-untouched on a failed verify.
+  Idempotent (cleans a prior `.enc-migrate`). Unit-tested.
+- [x] **Finding 5 — `{ plaintext: true }` is test-only.** It forces the plaintext driver even if a key
+  is passed, guarding the committed era fixtures from a keyed open migrating them. Production sites
+  pass the real key. **Remaining:** a governance gate asserting `plaintext: true` appears only under
+  `test/` (cheap; not yet added). rebuildSupportCommand's fresh-db rebuild target — see MCP/CLI below.
+- [ ] **Constraint 4 / boundary wording (SECURITY.md).** State the guarantee is narrower than
   "encrypted at rest": per-OS-user keychain; a same-login attacker on a shared office Mac is
-  undefended (T149 stale-claim lesson, applied up front). Land with step 3, not before.
-- [ ] **Single-device warning is a precondition.** The sidebar single-device warning (owned by the
-  app-icon-audit session, `syncStatusLabel`/`getSyncStatus`) must land BEFORE the flip — the
-  "pair a second device" advice is only useful while the data is still recoverable.
+  undefended. Land WITH the flip (making the claim), not before.
+- [x] **Single-device warning precondition — DONE (#424).**
+
+## The flip's real blockers (why the default stays OFF even with the crypto verified)
+1. **Real-app (Electron + keychain) verification.** The crypto + migration are verifiable by the
+   integration test on a compatible build env, but the `safeStorage` path and a clean Electron boot
+   with encryption on cannot be proven by unit tests. This is the one check that needs the running app.
+2. **The headless MCP/CLI surface cannot read an encrypted db.** `scripts/mcp/tools.js` (every tool),
+   `scripts/ingestCli.js`, and `rebuildSupportCommand` (its oldDb AND the fresh rebuild target) open
+   `openLocalDb` **without a key** — they run as plain Node with no Electron `safeStorage`, so once the
+   db is encrypted they hit a keyless open and fail (fail-safe: a clear error, never corruption). The
+   owner uses MCP machine-access tools, so enabling encryption **disables those tools against the db**
+   until they have a key-access path (its own design question — a headless process getting the sealed
+   key partially defeats the keychain model; likely needs the app to hand it over deliberately). This
+   was not fully surfaced by the assessment and is a genuine flip precondition. Rebuild's undecryptable
+   *document* refusal (finding 2) already handles the doc side; the SQLite side of the MCP surface is
+   the open item.
 
 ## Supply chain (assessment open question C)
 `better-sqlite3-multiple-ciphers` v13.0.3 (2026-08-07, sole dep node-addon-api ^8, single maintainer
