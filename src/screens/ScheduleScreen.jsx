@@ -37,6 +37,7 @@ import { useGeneration } from './schedule/useGeneration'
 import { useSlotMutations } from './schedule/useSlotMutations'
 import { ROUTES, useRouteState } from './schedule/useRouteState'
 import { useScheduleData, recalcStats as recalcStatsPure, recalcFindings as recalcFindingsPure } from './schedule/useScheduleData'
+import { findingDismissKey } from './schedule/findingKey'
 import { useFlagChangeAck } from './schedule/useFlagChangeAck'
 import { useContentRaceFlag } from './schedule/useContentRaceFlag'
 import ScheduleGroupView from '../components/schedule/ScheduleGroupView'
@@ -526,14 +527,17 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     return tid
   }
 
-  // Findings (UNDERSERVED/DISTRIBUTION) are keyed by (groupId, activityId, kind)
-  // — not by a template_slots row — so dismissal lives in ephemeral component
-  // state (a Set), never persisted. Cleared on every rebuild alongside
-  // `findings` itself. See Architect's ADR §5.
-  function dismissFinding(groupId, activityId, kind) {
+  // Findings dismissal lives in ephemeral component state (a Set), never
+  // persisted. The key is content-addressed by findingDismissKey (T185): for
+  // magnitude-bearing kinds it folds in the material payload, so a dismissal
+  // covers exactly the finding dismissed and a materially-worse one at the same
+  // coordinates is not masked. Reset wholesale on every full rebuild
+  // (generate/placeAnchors/restore/load); the slot-edit recalcFindings path
+  // does NOT reset, which is why the key must carry the payload.
+  function dismissFinding(dismissKey) {
     setDismissedFindingKeys(prev => {
       const next = new Set(prev)
-      next.add(`${groupId}|${activityId}|${kind}`)
+      next.add(dismissKey)
       return next
     })
   }
@@ -564,7 +568,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // WEEK_CLOSED is derived on both routes (see the `slots` memo), so its rail
   // rows and cell markers are not gated to the manual route.
   const weekClosedSlots = flagSlots.filter(s => s.flags?.WEEK_CLOSED)
-  const activeFindings = findings.filter(f => !dismissedFindingKeys.has(`${f.groupId}|${f.activityId}|${f.kind}`))
+  const activeFindings = findings.filter(f => !dismissedFindingKeys.has(findingDismissKey(f)))
   const SEVERITY_ORDER = { danger: 0, caution: 1, info: 2 }
 
   function slotLocator(s) {
@@ -619,6 +623,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     })),
     ...activeFindings.map(f => ({
       key: `${f.groupId}|${f.activityId}|${f.kind}`,
+      // The dismiss handler must reproduce the SAME payload-addressed key the
+      // activeFindings filter reads, so it is computed here from the raw finding
+      // (which still carries the magnitude) rather than re-spelled at dismiss time.
+      dismissKey: findingDismissKey(f),
       kind: f.kind,
       severity: f.severity,
       reason: findingReason(f),
@@ -663,7 +671,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     // nothing to dismiss — they clear when the director moves the clashing /
     // closed-week placement or lifts the exclusion, which is the only honest
     // way for them to go away.
-    else if (row.kind !== 'OVERLAP' && row.kind !== 'WEEK_CLOSED') dismissFinding(row.groupId, row.activityId, row.kind)
+    else if (row.kind !== 'OVERLAP' && row.kind !== 'WEEK_CLOSED') dismissFinding(row.dismissKey)
   }
 
   function locateFindingsRow(row) {
