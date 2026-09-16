@@ -39,22 +39,23 @@ back up at the end. Read this before touching anchor-scope code, migrations, or 
 | #449 | Q5 | A pinned activity stays rotatable on *other days* — anchored-activity exclusion is now keyed **group×day**, not group. `resolveAnchorDayIds` extracted into `anchorScope.js`. |
 | #450 | T183-PR1 | Routes anchor scope through the shared resolver (`resolveAnchorUnitIds` added); kills a spurious re-import "scope changed" warning. AnchorsScreen label + `ingest.js` `liveAnchorScope` read-side. |
 | #451 | T175 | `ensure-abi.js` rebuilds the encrypting fork for the Electron ABI (finding 2); T175 status de-staled. **Inert — does not flip encryption on.** |
+| #452 | T183-PR2 | Write-side preserve — **closes the live Replace-re-import division-scope-flattening exposure.** T183 done end-to-end. |
+| #453 | — | Docs-only: PLATFORM_STATE records T183 completing the anchor-scope resolver on both sides. |
 
-`origin/main` tip after all this: **6049892**. `src/engine/anchorScope.js` now exports three resolvers
+`origin/main` tip after all this: **d920ce8**. `src/engine/anchorScope.js` now exports three resolvers
 (`resolveAnchorGroupIds`, `resolveAnchorDayIds`, `resolveAnchorUnitIds`); its test file has 15 tests / 2
 describe blocks — a guard-worth-knowing if you touch it.
 
 ## Open threads and owners
-1. **T183-PR2 — write-side preserve (LIVE EXPOSURE).** Owner: the `eager-clarke` session (branch
-   `claude/t183-pr2-write-side`, was `a3557c4`). A "Re-import last year" in **Replace** mode deletes and
-   recreates every anchor *and the divisions themselves* (tiers are in `REPLACEABLE_ENTITIES`), so a
-   director's division scope is silently flattened back to a group snapshot — reintroducing exactly what
-   T180 fixed. The fix preserves `unit_ids` across the teardown via an old-tier-id→name→new-tier-id remap
-   (`tierIdByName`), reports residue for renamed/removed divisions, and requires **all** slots restore
-   before claiming "preserved" (a mixed per-day outcome must report `scopeFlattened`, not success). Full
-   design is in the T183 ticket + `docs/adr/2026-09-16-anchor-scope-single-resolver.md` so any session
-   can carry it. **Until it merges, the exposure is live on trunk.**
-2. **At-rest encryption flip (T175) — owner-gated.** See the dedicated section below.
+1. **T183-PR2 — write-side preserve — DONE (#452, merged).** The live Replace-re-import
+   division-scope-flattening exposure is **CLOSED**. (For history: a Replace re-import deletes and
+   recreates every anchor *and the divisions themselves*; the fix preserves `unit_ids` across the
+   teardown via an old-tier-id→name→new-tier-id remap, reports residue, and requires all slots restore
+   before claiming "preserved".) T183 is complete end-to-end (read #450 + write #452). No open work.
+2. **At-rest encryption flip (T175) — owner-DEFERRED (2026-09-16).** NOT an open task to pick up. The
+   owner explicitly chose to defer turning encryption on (see the dedicated section + the decision note
+   at the top of T175). Everything is built, merged, verified, and staged OFF. A new session should not
+   treat this as unfinished — the flip is a future owner action requiring their real-app run.
 3. **cranky's Q5 follow-on** — Q5 was the last open question blocking Slice 0 of
    `docs/adr/2026-09-12-activities-as-one-entity-with-placement.md`; §7.2's `activity_id` FK is still the
    eventual model, unbuilt. Low priority.

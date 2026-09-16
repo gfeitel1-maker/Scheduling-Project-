@@ -20,6 +20,19 @@ backup; no reader is left behind; and SECURITY.md states the (narrower-than-"enc
 boundary. Non-goals: protecting a running/unlocked machine or a same-OS-login attacker (out of scope
 by design — trusted-device model).
 
+> **OWNER DECISION — 2026-09-16: the flip is DEFERRED.** All code is complete, merged (through #451),
+> and gate-verified; the packaging, supply chain, MCP/CLI key path, and finding-5 gate are closed; the
+> SECURITY.md wording is drafted (below). Encryption is built, staged, and **OFF by default — nothing
+> on disk is encrypted yet.** The owner chose to defer turning it on rather than activate a one-way
+> real-data migration without the real-app smoke run on their own machine. This is a legitimate resting
+> state, not an oversight. **To flip later:** (1) build the packaged app, install it, launch with
+> `SHORESH_AT_REST_ENCRYPTION=on` against the real Test Camp, confirm it migrates once + reads back +
+> persists across a relaunch (the "must not be skipped" smoke); (2) get an independent
+> `security-assessment` review of the migration diff; (3) then the one-line default flip in
+> `electron/db/atRestEncryption.js` + land the SECURITY.md wording + the single-device "cannot be
+> recovered" copy change (with its absence-test) in that same commit, smoke evidence recorded. A new
+> session should NOT re-chase this as unfinished work — it is owner-deferred.
+
 ## Order is load-bearing (assessment finding 1, HIGH)
 The crackable PIN hashes live in the **SQLite** file, not the document. So:
 1. Document encryption activation (main.js wiring + readers). Real progress, but does NOT close the
