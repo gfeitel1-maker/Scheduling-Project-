@@ -57,7 +57,6 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Anchor scope is read from raw columns in several places; route every consumer through one shared resolver](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) | in-progress | [2026-09-16-anchor-scope-single-resolver](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) |
 | [T62-engine-schedules-anchor-activities-as-regular-slots](../../docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md) | open | [2026-09-16-anchor-scope-single-resolver](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) · [T180-recurring-event-division-scope-is-snapshotted](../../docs/work/tickets/T180-recurring-event-division-scope-is-snapshotted.md) · [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) · [T63-anchor-group-ids-parsing-belongs-at-the-boundary](../../docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md) · [T65-schedule-stats-bar-accuracy](../../docs/work/tickets/T65-schedule-stats-bar-accuracy.md) |
 
 ## Decisions
@@ -179,7 +178,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) | accepted | proposed | — |
 | [Opinion GateReport inputs are bound to a real, completed subagent dispatch](../../docs/adr/2026-09-15-opinion-report-dispatch-provenance.md) | accepted | shipped | — |
 | [Shared anchor-exclusion helper for the ANCHOR_DUPLICATE finding (T182)](../../docs/adr/2026-09-16-anchor-duplicate-finding.md) | accepted | not_started | [T182-stale-anchor-duplicate-finding](../../docs/work/tickets/T182-stale-anchor-duplicate-finding.md) |
-| [Anchor scope is resolved through one shared module, in two explicit projections, and never re-read from raw columns](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) | proposed | blocked | [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) |
+| [Anchor scope is resolved through one shared module, in two explicit projections, and never re-read from raw columns](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) | accepted | shipped | [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) |
 | [Headless key access for the MCP server and CLI under at-rest encryption](../../docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md) | accepted | in_progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
 
 ## Runs
