@@ -1772,6 +1772,45 @@ export const mockShoresh = {
   // the loser goes. That is the whole observable effect of a merge on this
   // surface.
   // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
+  // Mock stand-in for the Activities duplicate-catcher merge. Mirrors the real
+  // op's OBSERVABLE contract (loser gone, referrers re-pointed, ref_count
+  // reported) without the op log — the mock has no operations table. The real
+  // referrer sweep and its completeness guard live in
+  // electron/ops/mergeActivity.test.js; this exists so the browser-mock dev
+  // path renders the same flow rather than throwing on a missing method.
+  async previewActivityMerge({ loser_id } = {}) {
+    const state = loadState()
+    const slots = Array.isArray(state.template_slots) ? state.template_slots : []
+    return { ok: true, ref_count: slots.filter((s) => s.activity_id === loser_id).length }
+  },
+
+  async mergeActivity({ loser_id, winner_id } = {}) {
+    if (!loser_id || !winner_id || loser_id === winner_id) return { error: 'invalid-winner' }
+    const state = loadState()
+    const activities = Array.isArray(state.activities) ? state.activities : []
+    if (!activities.some((a) => a.id === loser_id)) return { error: 'no-record' }
+    if (!activities.some((a) => a.id === winner_id)) return { error: 'no-winner' }
+
+    let ref_count = 0
+    const repoint = (rows) =>
+      (Array.isArray(rows) ? rows : []).map((r) => {
+        if (r?.activity_id !== loser_id) return r
+        ref_count += 1
+        return { ...r, activity_id: winner_id }
+      })
+    state.template_slots = repoint(state.template_slots)
+    state.special_day_slots = repoint(state.special_day_slots)
+    state.event_slots = repoint(state.event_slots)
+    state.week_activity_exclusions = repoint(state.week_activity_exclusions)
+    state.activities = activities
+      .filter((a) => a.id !== loser_id)
+      .map((a) => (a.weather_alternative_id === loser_id
+        ? { ...a, weather_alternative_id: a.id === winner_id ? null : winner_id }
+        : a))
+    saveState(state)
+    return { ok: true, ref_count, ops_written: ref_count + 1, alias_remembered: true }
+  },
+
   async mergeLocation({ loser_id, winner_id, winner_capacity } = {}) {
     if (!loser_id || !winner_id || loser_id === winner_id) return { error: 'no-record' }
     const state = loadState()

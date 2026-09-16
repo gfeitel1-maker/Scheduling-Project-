@@ -10,6 +10,9 @@ import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
+import ProvenanceDot from '../components/setup/ProvenanceDot'
+import { provenanceDotStyles } from '../components/setup/provenanceDotStyles.js'
+import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -137,6 +140,50 @@ function ProvenancePopover({ activity, rows, popRef, onConfirmField, onChange })
         />
       ))}
     </div>
+  )
+}
+
+// A quiet, derived-at-render-time marker for an activity whose name normalizes
+// the same as another live activity's — "Music" beside the "Musik" a re-imported
+// file created. Never persisted (the computeOverlaps precedent), and it never
+// blocks anything: CONSTITUTION Art. V, FLAG NEVER BLOCK.
+//
+// It exists because the importer does NOT ask. A re-import with a typo'd name
+// silently creates a second activity and raises no decision at all — measured,
+// not assumed (docs/work/evidence/2026-09-15-real-import-journal-probe.md).
+// Adding a question to the import was the alternative and was rejected: it is
+// the blocking shape, at the moment the director has the least context.
+//
+// Mirrors LocationsScreen's DuplicateLocationDot exactly, so a director who has
+// met that marker reads this one the same way.
+function DuplicateActivityDot({ activity, siblings, onMerge, busy }) {
+  const other = siblings[0]
+  return (
+    <ProvenanceDot
+      ariaLabel={`Possible duplicate of ${other.name}`}
+      dialogLabel={`Possible duplicate for ${activity.name}`}
+      title="Possible duplicate"
+      tierLabel={null}
+      actions={(
+        <button
+          type="button"
+          className="press-97"
+          disabled={busy}
+          onClick={() => onMerge(activity, other)}
+          style={provenanceDotStyles.confirmBtn}
+        >{busy ? 'Merging…' : `Merge into "${other.name}"`}</button>
+      )}
+    >
+      <div style={provenanceDotStyles.rowSentence}>
+        {siblings.length === 1
+          ? `This looks like the same activity as "${other.name}".`
+          : `This looks like the same activity as ${siblings.length} others (e.g. "${other.name}").`}
+      </div>
+      <div style={{ ...provenanceDotStyles.rowSentence, color: 'var(--text-secondary)' }}>
+        Merging keeps "{other.name}", moves everything scheduled here onto it, and
+        remembers the name so the next import does not split them again.
+      </div>
+    </ProvenanceDot>
   )
 }
 
@@ -448,10 +495,59 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // a just-confirmed row stays highlighted even while hovered (Slice E review
   // fix: the old imperative onMouseEnter/Leave silently cancelled the settle).
   const [hoveredRow, setHoveredRow] = useState(null)
+  // Which activity is mid-merge, so its own button reads "Merging…" rather than
+  // disabling every duplicate marker on the screen at once.
+  const [mergingId, setMergingId] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
   useEffect(() => { loadExclusions() }, [weekId])
+
+  // Derived at render time from the rows on screen, never stored. Two activities
+  // whose names normalize alike ("Music"/"Musik") each learn about the other.
+  const duplicateSiblings = duplicateSiblingsByIdFor(activities, { near: true })
+
+  // The merge behind the duplicate marker. Re-points every schedule row that
+  // referenced the loser, deletes it, and remembers the name as an alias so the
+  // NEXT import of the same file resolves to the winner instead of splitting
+  // them again — that alias is the point, not a nicety.
+  async function mergeDuplicateActivity(loser, winner) {
+    setMergingId(loser.id)
+    setError(null)
+    try {
+      const preview = await localClient.previewActivityMerge({ loser_id: loser.id })
+      const res = await localClient.mergeActivity({
+        loser_id: loser.id,
+        winner_id: winner.id,
+        // The count the director is implicitly agreeing to. A peer moving a slot
+        // between the preview and this call aborts the merge rather than
+        // silently doing more than was shown.
+        expected_ref_count: Number.isInteger(preview?.ref_count) ? preview.ref_count : undefined,
+      })
+      if (res?.error === 'count-changed') {
+        setError(`"${loser.name}" changed while you were looking at it — nothing was merged. Try again.`)
+        return
+      }
+      if (res?.error) {
+        setError(deleteRefusalMessage(res.error) || `"${loser.name}" could not be merged into "${winner.name}".`)
+        return
+      }
+      // load() clears the error banner on entry, so the warning is set AFTER it.
+      // Setting it first looked correct and showed the director nothing — caught
+      // by the test that asserts the sentence is actually on screen rather than
+      // that the handler called setError.
+      await load()
+      if (res && res.alias_remembered === false) {
+        // The merge worked; the learning did not. Say so rather than implying
+        // the next import is now handled.
+        setError(`Merged "${loser.name}" into "${winner.name}", but the name was not remembered — a future import may split them again.`)
+      }
+    } catch (err) {
+      setError(describeWriteFailure(err, `"${loser.name}" could not be merged into "${winner.name}".`))
+    } finally {
+      setMergingId(null)
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -1063,6 +1159,14 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ activity: a }) } }}
                             style={{ cursor: 'pointer' }}
                           >{a.name}</span>
+                          {(duplicateSiblings.get(a.id)?.length ?? 0) > 0 && (
+                            <DuplicateActivityDot
+                              activity={a}
+                              siblings={duplicateSiblings.get(a.id)}
+                              onMerge={mergeDuplicateActivity}
+                              busy={mergingId === a.id}
+                            />
+                          )}
                           <RuleProvenanceDot
                             activity={a}
                             evidenceByField={evidenceByActivity[a.id] || {}}
