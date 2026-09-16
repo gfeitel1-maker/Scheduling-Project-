@@ -15,6 +15,12 @@ Regenerate with `npm run index:work`.
 
 ## Open work
 
+### database-sync
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [recurrence_level is dead data](../../docs/work/tickets/T181-recurrence-level-is-dead-data.md) | open | — |
+
 ### documentation-governance
 
 | Ticket | Status | Referenced by |
@@ -34,6 +40,12 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
+
+### unclassified
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [T62-engine-schedules-anchor-activities-as-regular-slots](../../docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md) | open | [T63-anchor-group-ids-parsing-belongs-at-the-boundary](../../docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md) · [T65-schedule-stats-bar-accuracy](../../docs/work/tickets/T65-schedule-stats-bar-accuracy.md) |
 
 ## Decisions
 

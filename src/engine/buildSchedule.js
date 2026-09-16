@@ -1,4 +1,5 @@
 import { assertIdListShape } from './assertIdListShape.js'
+import { indexActivitiesByName, resolveAnchorActivityIds } from './anchorActivityLink.js'
 import { isActivityEligibleForGroup } from './eligibility.js'
 import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
 
@@ -118,10 +119,16 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   const anchors = (_legacyAnchors || []).filter(
     (a) => a.schedule_week_id == null || a.schedule_week_id === weekId
   )
-  const anchoredActivityIds = new Set()
-  for (const anchor of anchors) {
-    if (anchor.activity_id != null) anchoredActivityIds.add(anchor.activity_id)
-  }
+  // T62, corrected. An anchor names its activity, it does not link to it (see
+  // anchorActivityLink.js) — so this is keyed by NAME, and scoped PER GROUP
+  // rather than camp-wide. The scope matters: `anchor_activities` holds both
+  // all-camp Fixed events (Lunch) and group-scoped Recurring ones (docs/adr/
+  // 2026-08-28-fixed-vs-recurring-events.md). A camp-wide exclusion would let
+  // one group's recurring Swim delete Swim from every other group's catalog.
+  // Day-agnostic within a group, deliberately: an anchor IS that group's
+  // scheduling of that activity for the week, which is T62's premise.
+  const activitiesByName = indexActivitiesByName(activities)
+  const anchoredActivityIdsByGroup = new Map() // groupId → Set<activityId>
   for (const anchor of anchors) {
     // Scope resolution order: unit_id > is_all_groups > group_ids
     let groupList
@@ -142,7 +149,14 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
       : days.map(d => d.id)
 
     const spanBlocks = anchor.span_blocks || 1
+    const anchoredIds = resolveAnchorActivityIds(anchor, activitiesByName)
+
     for (const gid of groupList) {
+      if (anchoredIds.length > 0) {
+        let set = anchoredActivityIdsByGroup.get(gid)
+        if (!set) { set = new Set(); anchoredActivityIdsByGroup.set(gid, set) }
+        for (const actId of anchoredIds) set.add(actId)
+      }
       for (const did of dayList) {
         // Head block
         anchorLookup.set(`${gid}|${did}|${anchor.time_block_id}`, { ...anchor, _isSpanHead: true })
@@ -283,7 +297,8 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
           continue
         }
 
-        const eligibleActs = activities.filter(a => !anchoredActivityIds.has(a.id) && (eligibility.get(a.id) || new Set()).has(group.id))
+        const anchoredHere = anchoredActivityIdsByGroup.get(group.id)
+        const eligibleActs = activities.filter(a => !anchoredHere?.has(a.id) && (eligibility.get(a.id) || new Set()).has(group.id))
         openSlots.push({ groupId: group.id, dayId: day.id, blockId: block.id, eligibleActs })
       }
     }
