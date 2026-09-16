@@ -26,6 +26,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
+| [CLAUDE.md goes stale by construction — it restates facts nothing checks](../../docs/work/tickets/T186-claude-md-goes-stale-by-construction.md) | open | — |
 
 ### scheduling-engine
 
@@ -46,6 +47,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
+| [Engine fixtures have no schema-parity guard, so the T62 defect class can return silently](../../docs/work/tickets/T187-engine-fixtures-have-no-schema-parity-guard.md) | open | — |
 
 ### ui-ux-design
 
@@ -239,6 +241,7 @@ either the document is stranded or an edge was never declared.
 - [docs/work/handoffs/2026-09-06-automerge-productionization-stage1-handoff.md](../../docs/work/handoffs/2026-09-06-automerge-productionization-stage1-handoff.md)
 - [docs/work/handoffs/2026-09-08-stage6-cutover-handoff.md](../../docs/work/handoffs/2026-09-08-stage6-cutover-handoff.md)
 - [docs/work/handoffs/2026-09-09-post-stage6-handoff.md](../../docs/work/handoffs/2026-09-09-post-stage6-handoff.md)
+- [docs/work/handoffs/2026-09-16-multi-session-day-handoff.md](../../docs/work/handoffs/2026-09-16-multi-session-day-handoff.md)
 - [docs/work/handoffs/slices-2-3-handoff.md](../../docs/work/handoffs/slices-2-3-handoff.md)
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
 - [docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md](../../docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md)
