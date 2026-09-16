@@ -87,7 +87,38 @@ captured correctly and none of the DONE/dirty/binding logic reads the summary �
 same brittle text-matching this repository has been burned by before, and it should fail loudly
 rather than quietly produce an empty column.
 
-## 4. The per-user slug is hardcoded in three scripts
+## 4. The per-user slug is hardcoded in three scripts — DONE 2026-09-16
+
+**It was five in-repo files, not three.** The ticket undercounted: alongside
+`run.sh`, `mineFromPacket.sh` and `integration.sh`, the literal was also in
+`gather.sh` and `scripts/observeRun.js`. Found by grepping for the literal rather
+than by trusting the list — the same reason the merge-referrer sweep reads PRAGMA
+instead of a hand-kept set.
+
+Now written once per language: `scripts/memoryProject.sh` (sourced by the four
+shell scripts) and `scripts/memoryProject.js` (imported by `observeRun.js`), both
+defaulting to the current slug and both overridable with `SHORESH_MEMORY_PROJECT`.
+Two definitions because shell cannot import JS; a test asserts they agree.
+
+**The data path is deliberately a CONSTANT, not a computation.** Claude Code names
+a project directory after the path a session was first started from, and this one
+is named after a directory that no longer holds the repo. It is a live store that
+must not move, so the slug cannot be derived from the checkout — today or ever.
+What it can be is written down once.
+
+`test/memoryProject.test.js` walks `scripts/` from disk and fails on any file
+reintroducing the literal, so a sixth file is caught without anyone maintaining a
+list. Verified non-vacuous by planting the literal back. The pipeline was then run
+for real (`run.sh 2000-01-09` → "no signal, skipping mine", exit 0, written to the
+true `run.log`), which is what proves the sourcing resolves to the same place.
+
+**Still hardcoded, deliberately out of scope: the two launchd plists.**
+`com.shoresh.memory-consolidation.plist` and `com.shoresh.integration-report.plist`
+carry the literal in their `StandardOutPath`/`StandardErrorPath`. They live in
+`~/Library/LaunchAgents`, outside the repo and outside this change; editing a
+user's launchd configuration is the owner's call, not a cleanup.
+
+## 4 (original). The per-user slug is hardcoded in three scripts
 
 `run.sh`, `mineFromPacket.sh` and `integration.sh` each embed
 `-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project`. The move's stated
