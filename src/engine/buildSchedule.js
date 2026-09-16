@@ -2,6 +2,7 @@ import { assertIdListShape } from './assertIdListShape.js'
 import { indexActivitiesByName, resolveAnchorActivityIds } from './anchorActivityLink.js'
 import { isActivityEligibleForGroup } from './eligibility.js'
 import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
+import { resolveWeekCatalog } from './weekCatalog.js'
 
 // Pure function — zero React dependencies, zero Supabase calls.
 //
@@ -85,6 +86,87 @@ function normalizeInput(input) {
   }
 }
 
+// T62, corrected (T182 extraction). An anchor names its activity, it does not
+// link to it (see anchorActivityLink.js) — so this is keyed by NAME, and
+// scoped PER GROUP rather than camp-wide. The scope matters: `anchor_activities`
+// holds both all-camp Fixed events (Lunch) and group-scoped Recurring ones
+// (docs/adr/2026-08-28-fixed-vs-recurring-events.md). A camp-wide exclusion
+// would let one group's recurring Swim delete Swim from every other group's
+// catalog. Day-agnostic within a group, deliberately: an anchor IS that
+// group's scheduling of that activity for the week, which is T62's premise.
+//
+// Extracted from Pass 1 (docs/adr/2026-09-16-anchor-duplicate-finding.md) so
+// Pass 1 and computeFindings() decide "anchored for this group" through the
+// SAME computation — the ADR's anti-drift point. Callers pass UNFILTERED,
+// camp-wide anchors; this function does the schedule_week_id filter itself.
+// `days` is part of the documented signature (ADR/ticket) but unused here —
+// day scoping is placement mechanics that stays Pass-1-local (anchorLookup),
+// never leaking into this group-level exclusion Map.
+// SINGLE SEAM for the ANCHOR_DUPLICATE finding's group-COVERAGE question —
+// "which group ids does this anchor cover?" — used by anchoredActivityIdsByGroup
+// below. The finding's coverage resolution goes through here and nowhere else;
+// reading anchor.group_ids directly for coverage is exactly the mistake that
+// produced several separate scope bugs across buildSchedule / weekCatalog /
+// ingest liveAnchorScope / AnchorsScreen (T182 investigation, 2026-09-16), each
+// from a slightly different direct read.
+//
+// Semantics mirror gracious-thompson's forthcoming (not yet on main)
+// resolveAnchorGroupIds(anchor, groups) contract, minus its unit_ids rule which
+// does not exist here yet: resolution order unit_id > is_all_groups > group_ids,
+// where an empty/absent unit_id is NOT a scope claim and FALLS THROUGH to the
+// next rule (never "no groups"). Returns group IDs, not group objects. The live
+// group list must be passed at evaluation time, never a stale one.
+//
+// SCOPE OF THIS SEAM — read before the T180 rebase: this covers the finding's
+// coverage step only. TWO other scope readers exist and are NOT this function:
+//   1. Pass 1's placement loop (anchorLookup, ~40 lines below) keeps its own
+//      copy — that is gracious-thompson's placement seam to swap, with a
+//      load-bearing DO-NOT-INLINE one-liner at its call site; do not touch it.
+//   2. resolveWeekCatalog (src/engine/weekCatalog.js), which computeFindings now
+//      calls, has its OWN anchor group-scope reader for its suppression rule.
+//      It is a pre-existing shared engine function (used by generation too), so
+//      the finding stays CONSISTENT with a fresh build by reusing it — but it is
+//      a second post-T180 swap point, tracked in the ticket, not this file.
+// POST-T180 REBASE: replace THIS body with `return resolveAnchorGroupIds(anchor,
+// liveGroups)` (import from ./anchorScope.js) — a one-line swap for the coverage
+// step — and separately update weekCatalog.js per the ticket's rebase note.
+// See docs/work/tickets/T182-stale-anchor-duplicate-finding.md.
+function anchorCoveredGroupIds(anchor, liveGroups) {
+  if (anchor.unit_id != null && anchor.unit_id !== '') {
+    return liveGroups.filter(g => g.tier_id === anchor.unit_id).map(g => g.id)
+  }
+  if (anchor.is_all_groups) {
+    return liveGroups.map(g => g.id)
+  }
+  // Contract: group_ids is an array of ids. Callers normalize — this engine
+  // does not deserialize; see src/screens/schedule/useScheduleData.js.
+  if (import.meta.env?.DEV) assertIdListShape(anchor.group_ids, 'group_ids', anchor.id)
+  return anchor.group_ids || []
+}
+
+export function anchoredActivityIdsByGroup(anchors, activities, groups, { days: _days, weekId = null } = {}) {
+  const filtered = (anchors || []).filter(
+    (a) => a.schedule_week_id == null || a.schedule_week_id === weekId
+  )
+  const activitiesByName = indexActivitiesByName(activities)
+  const byGroup = new Map() // groupId → Set<activityId>
+  for (const anchor of filtered) {
+    // Group scope goes through the single seam (anchorCoveredGroupIds) — never
+    // a direct anchor.group_ids read here. `groups` is the live list.
+    const groupList = anchorCoveredGroupIds(anchor, groups)
+
+    const anchoredIds = resolveAnchorActivityIds(anchor, activitiesByName)
+    for (const gid of groupList) {
+      if (anchoredIds.length > 0) {
+        let set = byGroup.get(gid)
+        if (!set) { set = new Set(); byGroup.set(gid, set) }
+        for (const actId of anchoredIds) set.add(actId)
+      }
+    }
+  }
+  return byGroup
+}
+
 function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, anchorsOnly = false, weekId = null }) {
   const { cohort, timeBlocks, tiers: _tiers, groups, preplacedSlots, activityTargets, _legacyAnchors } = cohortEntry
   const cohortId = cohort?.id ?? null
@@ -127,8 +209,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // one group's recurring Swim delete Swim from every other group's catalog.
   // Day-agnostic within a group, deliberately: an anchor IS that group's
   // scheduling of that activity for the week, which is T62's premise.
-  const activitiesByName = indexActivitiesByName(activities)
-  const anchoredActivityIdsByGroup = new Map() // groupId → Set<activityId>
+  const anchoredActivityIdsByGroupMap = anchoredActivityIdsByGroup(anchors, activities, groups, { days, weekId })
   for (const anchor of anchors) {
     // Scope resolution order: unit_id > is_all_groups > group_ids
     let groupList
@@ -149,14 +230,8 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
       : days.map(d => d.id)
 
     const spanBlocks = anchor.span_blocks || 1
-    const anchoredIds = resolveAnchorActivityIds(anchor, activitiesByName)
 
     for (const gid of groupList) {
-      if (anchoredIds.length > 0) {
-        let set = anchoredActivityIdsByGroup.get(gid)
-        if (!set) { set = new Set(); anchoredActivityIdsByGroup.set(gid, set) }
-        for (const actId of anchoredIds) set.add(actId)
-      }
       for (const did of dayList) {
         // Head block
         anchorLookup.set(`${gid}|${did}|${anchor.time_block_id}`, { ...anchor, _isSpanHead: true })
@@ -297,7 +372,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
           continue
         }
 
-        const anchoredHere = anchoredActivityIdsByGroup.get(group.id)
+        const anchoredHere = anchoredActivityIdsByGroupMap.get(group.id)
         const eligibleActs = activities.filter(a => !anchoredHere?.has(a.id) && (eligibility.get(a.id) || new Set()).has(group.id))
         openSlots.push({ groupId: group.id, dayId: day.id, blockId: block.id, eligibleActs })
       }
@@ -598,7 +673,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
 // findings must reflect what's on screen, not just what the last generate()
 // happened to compute. Mirrors the aggregate-findings logic in scheduleCohort's
 // Pass 3, but reads counts off `slots` instead of the live placement maps.
-export function computeFindings({ slots, groups, activities, days }) {
+export function computeFindings({ slots, groups, activities, days, anchors, weekId = null, activityExclusions, groupExclusions, locationExclusions }) {
   const findings = []
   if (!slots || !groups || !activities || !days) return findings
 
@@ -662,6 +737,43 @@ export function computeFindings({ slots, groups, activities, days }) {
         const reason = `Goal: ${act.prefer_before_day_min}× before day ${act.prefer_before_day} — only ${beforeCount}× placed (group: ${group.name}, activity: ${act.name})`
         findings.push({ kind: 'DISTRIBUTION', groupId: group.id, activityId: act.id, severity: 'info', reason, beforeCount, requiredBefore: act.prefer_before_day_min, byDay: act.prefer_before_day })
       }
+    }
+  }
+
+  // T182: a GENERATED schedule persists its template_slots; this is an audit
+  // pass over those rows, not a re-run of Pass 1's exclusion. If a director
+  // re-keys an anchor's name after generating, a fresh build would now
+  // exclude the activity for that group but the persisted regular slot is
+  // never re-checked. Flag it using the SAME shared per-group exclusion the
+  // engine uses in Pass 1 — anti-drift is the point (docs/adr/2026-09-16-
+  // anchor-duplicate-finding.md). Absent/empty anchors → no findings (safe
+  // default for callers that don't yet thread anchors/weekId through).
+  if (anchors && anchors.length > 0) {
+    // Suppress a week-closed activity from the exclusion set: an activity
+    // closed via activityExclusions/groupExclusions/locationExclusions for
+    // this week would not be excluded by a fresh build even though its
+    // all-weeks anchor is still live — flagging it here would be a false
+    // positive. Effective sets are used ONLY for this loop; UNDERSERVED/
+    // DISTRIBUTION above keep reading the raw activities/groups unchanged.
+    const { groups: effGroups, activities: effActivities, anchors: effAnchors } = resolveWeekCatalog({
+      groups, activities, anchors, weekId,
+      activityExclusions: activityExclusions || [],
+      groupExclusions: groupExclusions || [],
+      locationExclusions: locationExclusions || [],
+    })
+    const anchoredByGroup = anchoredActivityIdsByGroup(effAnchors, effActivities, effGroups, { days, weekId })
+    const activityById = new Map(activities.map(a => [a.id, a]))
+    const seen = new Set() // "groupId|activityId" — one finding per pair
+    for (const s of activitySlots) {
+      const anchoredHere = anchoredByGroup.get(s.group_id)
+      if (!anchoredHere?.has(s.activity_id)) continue
+      const key = `${s.group_id}|${s.activity_id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const groupName = groupMap.get(s.group_id)?.name || s.group_id
+      const actName = activityById.get(s.activity_id)?.name || s.activity_id
+      const reason = `${actName} is also a fixed event this week (group: ${groupName}) — regenerate to clear it`
+      findings.push({ kind: 'ANCHOR_DUPLICATE', groupId: s.group_id, activityId: s.activity_id, severity: 'caution', reason })
     }
   }
 

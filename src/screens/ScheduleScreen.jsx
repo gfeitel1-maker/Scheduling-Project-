@@ -373,7 +373,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const { saveSnapshot, deleteSnapshot, restoreSnapshot, renameSnapshot } = useSnapshots({
     routeState, repo, setActionError,
     recalcStats, resetUndoRedo,
-    groups, activities, days, timeBlocks, anchors,
+    groups, activities, days, timeBlocks, anchors, weekId,
+    activityExclusions, groupExclusions, locationExclusions,
   })
 
   // Week mutation orchestration: create/rename/archive/unarchive/duplicate/delete.
@@ -497,7 +498,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   }
 
   function recalcFindings(slotList) {
-    setFindings(recalcFindingsPure(slotList, { groups, activities, days }))
+    // ANCHOR_DUPLICATE is generated-route only — see useScheduleData's route
+    // loop for the same gate and reasoning.
+    setFindings(recalcFindingsPure(slotList, route === 'generated'
+      ? { groups, activities, days, anchors, weekId, activityExclusions, groupExclusions, locationExclusions }
+      : { groups, activities, days }))
   }
 
   // The schedule_templates row for a route is created lazily, on first use.
@@ -629,7 +634,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // highlights (its one flag, OVERLAP, is derived per-cell already).
   const findingsRailOpen = railView !== null
   const highlightedKind = !isManual && railView && railView !== 'ALL' ? railView : null
-  const KIND_COLOR = { UNFILLABLE: 'var(--danger)', UNDERSERVED: 'var(--accent)', DISTRIBUTION: 'var(--secondary)' }
+  const KIND_COLOR = { UNFILLABLE: 'var(--danger)', UNDERSERVED: 'var(--accent)', DISTRIBUTION: 'var(--secondary)', ANCHOR_DUPLICATE: 'var(--accent)' }
   const highlightColor = KIND_COLOR[highlightedKind] || 'var(--danger)'
   const highlightMap = highlightMapForKind(highlightedKind, findingsRows, slots)
   const railRows = railView && railView !== 'ALL'

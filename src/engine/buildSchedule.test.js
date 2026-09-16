@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import buildSchedule, { computeFindings } from './buildSchedule.js'
+import buildSchedule, { computeFindings, anchoredActivityIdsByGroup } from './buildSchedule.js'
 
 const baseGroup = { id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }
 const baseDay = { id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }
@@ -400,6 +400,169 @@ describe('computeFindings (placement-free recompute from persisted slots)', () =
 
   it('returns [] when required inputs are missing rather than throwing', () => {
     expect(computeFindings({})).toEqual([])
+  })
+})
+
+// T182: a GENERATED schedule persists its template_slots; computeFindings is
+// an audit pass over those PERSISTED rows, not a re-run of Pass 1's
+// exclusion. If a director re-keys an anchor's name after generating, the
+// persisted regular slot for the now-anchored activity goes stale — a fresh
+// build would exclude it, but nothing flags the one on screen. See
+// docs/adr/2026-09-16-anchor-duplicate-finding.md.
+describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)', () => {
+  const groups = [baseGroup]
+  const days = [baseDay]
+  const lunch = { id: 'lunch', name: 'Lunch', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+
+  it('flags a persisted regular slot whose activity is anchored for that group (stale case)', () => {
+    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: true, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_anchor: false, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups, activities: [lunch], days, anchors: [anchor], weekId: null })
+    const dup = findings.filter(f => f.kind === 'ANCHOR_DUPLICATE')
+    expect(dup).toHaveLength(1)
+    expect(dup[0]).toMatchObject({ kind: 'ANCHOR_DUPLICATE', groupId: 'g1', activityId: 'lunch', severity: 'caution' })
+    expect(typeof dup[0].reason).toBe('string')
+    expect(dup[0].reason.length).toBeGreaterThan(0)
+    // Must target the regular slot, not the anchor slot itself.
+    expect(dup[0].activityId).not.toBe('anchor-slot')
+  })
+
+  it('emits no ANCHOR_DUPLICATE for a correctly-generated (non-stale) schedule', () => {
+    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, is_anchor: true, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups, activities: [lunch], days, anchors: [anchor], weekId: null })
+    expect(findings.filter(f => f.kind === 'ANCHOR_DUPLICATE')).toHaveLength(0)
+  })
+
+  // Round-2 (Red Hat): the fixtures above hand-build slots directly, which
+  // proves the audit logic in isolation but never exercises the real
+  // staleness path — an anchor renamed AFTER a schedule was generated. These
+  // two run the REAL engine to produce generated slots, then evaluate
+  // computeFindings against the anchor state as it exists NOW (post-rename),
+  // which is exactly what the screen does on reload.
+  it('E2E: a real build with a mismatched anchor name places Lunch as regular, and a post-rename anchor flags it as ANCHOR_DUPLICATE', () => {
+    // A second block so the anchor occupying b1 leaves room for Lunch to
+    // place regularly in b2.
+    const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
+    // At build time the anchor's name ("Lnch") does not match any activity,
+    // so Pass 1's name resolution excludes nothing and Lunch places normally.
+    const staleAnchor = { id: 'anc1', name: 'Lnch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const { slots } = buildSchedule(minimal({ groups, days, timeBlocks: [baseBlock, block2], activities: [{ ...lunch, min_per_week: 1, priority: 'high', max_per_week: 10, eligible_tier_ids: [], eligible_group_ids: [] }], anchors: [staleAnchor] }))
+    const regularLunch = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
+    expect(regularLunch.length).toBeGreaterThan(0)
+
+    // Director renames the anchor to "Lunch" after generation — the schedule
+    // on screen is unchanged (still holds the regular Lunch slot from above).
+    const renamedAnchor = { ...staleAnchor, name: 'Lunch' }
+    const dbSlots = slots.map(s => ({ group_id: s.groupId, day_id: s.dayId, time_block_id: s.blockId, activity_id: s.activityId, is_anchor: s.type === 'anchor', is_span_head: s.is_span_head, flags: {} }))
+    const findings = computeFindings({ slots: dbSlots, groups, activities: [lunch], days, anchors: [renamedAnchor], weekId: null })
+    const dup = findings.filter(f => f.kind === 'ANCHOR_DUPLICATE')
+    expect(dup).toHaveLength(1)
+    expect(dup[0]).toMatchObject({ groupId: 'g1', activityId: 'lunch' })
+  })
+
+  it('E2E: a freshly-generated in-sync schedule (anchor name matching at build time) emits no ANCHOR_DUPLICATE', () => {
+    // Anchor name matches Lunch at build time, so Pass 1 excludes Lunch from
+    // regular placement — the same-named anchor covers it instead.
+    const inSyncAnchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const { slots } = buildSchedule(minimal({ groups, days, timeBlocks: [baseBlock], activities: [{ ...lunch, min_per_week: 1, priority: 'high', max_per_week: 10, eligible_tier_ids: [], eligible_group_ids: [] }], anchors: [inSyncAnchor] }))
+    const regularLunch = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
+    expect(regularLunch).toHaveLength(0)
+
+    const dbSlots = slots.map(s => ({ group_id: s.groupId, day_id: s.dayId, time_block_id: s.blockId, activity_id: s.activityId, is_anchor: s.type === 'anchor', is_span_head: s.is_span_head, flags: {} }))
+    const findings = computeFindings({ slots: dbSlots, groups, activities: [lunch], days, anchors: [inSyncAnchor], weekId: null })
+    expect(findings.filter(f => f.kind === 'ANCHOR_DUPLICATE')).toHaveLength(0)
+  })
+
+  it('does not flag a different group\'s legitimate regular slot when the anchor is scoped to another group', () => {
+    const g2 = { id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }
+    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: true, flags: {} },
+      { group_id: 'g2', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_anchor: false, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups: [baseGroup, g2], activities: [lunch], days, anchors: [anchor], weekId: null })
+    expect(findings.filter(f => f.kind === 'ANCHOR_DUPLICATE')).toHaveLength(0)
+  })
+
+  it('emits no ANCHOR_DUPLICATE when anchors/weekId are omitted (safe default)', () => {
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_anchor: false, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups, activities: [lunch], days })
+    expect(findings.filter(f => f.kind === 'ANCHOR_DUPLICATE')).toHaveLength(0)
+  })
+
+  // Round-2 (Red Hat MEDIUM): an activity week-closed via exclusions whose
+  // all-weeks anchor is NOT itself closed would otherwise still be reported
+  // as a live duplicate — a false positive, since a fresh build for this week
+  // would never place it at all. computeFindings must apply the same
+  // week-effective suppression (resolveWeekCatalog) generation does.
+  it('emits no ANCHOR_DUPLICATE for an activity that is week-closed for this week, even though its all-weeks anchor is live', () => {
+    const swim = { id: 'swim', name: 'Swim', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    // schedule_week_id: null — an all-weeks anchor, unaffected by the week close.
+    const anchor = { id: 'anc-swim', name: 'Swim', schedule_week_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'swim', is_anchor: false, flags: {} },
+    ]
+    const activityExclusions = [{ week_id: 'week-1', activity_id: 'swim' }]
+    const findings = computeFindings({
+      slots, groups, activities: [swim], days, anchors: [anchor], weekId: 'week-1',
+      activityExclusions, groupExclusions: [], locationExclusions: [],
+    })
+    expect(findings.filter(f => f.kind === 'ANCHOR_DUPLICATE')).toHaveLength(0)
+  })
+
+  it('control: the same setup DOES fire when Swim is not week-closed', () => {
+    const swim = { id: 'swim', name: 'Swim', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const anchor = { id: 'anc-swim', name: 'Swim', schedule_week_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'swim', is_anchor: false, flags: {} },
+    ]
+    const findings = computeFindings({
+      slots, groups, activities: [swim], days, anchors: [anchor], weekId: 'week-1',
+      activityExclusions: [], groupExclusions: [], locationExclusions: [],
+    })
+    expect(findings.filter(f => f.kind === 'ANCHOR_DUPLICATE')).toHaveLength(1)
+  })
+})
+
+// The extracted helper must return the same per-group exclusion Set Pass 1
+// used to rely on internally — a direct unit test on the shared function,
+// not just an indirect assertion via buildSchedule's output.
+describe('anchoredActivityIdsByGroup (shared helper, T182)', () => {
+  const groups = [baseGroup]
+  const days = [baseDay]
+  const lunch = { id: 'lunch', name: 'Lunch' }
+
+  it('resolves a name-linked anchor to its activity id, scoped to is_all_groups', () => {
+    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const map = anchoredActivityIdsByGroup([anchor], [lunch], groups, { days })
+    expect(map.get('g1')?.has('lunch')).toBe(true)
+  })
+
+  it('scopes to explicit group_ids when unit_id absent and is_all_groups false', () => {
+    const g2 = { id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }
+    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const map = anchoredActivityIdsByGroup([anchor], [lunch], [baseGroup, g2], { days })
+    expect(map.get('g1')?.has('lunch')).toBe(true)
+    expect(map.get('g2')?.has('lunch')).toBeFalsy()
+  })
+
+  it('filters out an anchor bound to a different schedule_week_id', () => {
+    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: 'week-2' }
+    const map = anchoredActivityIdsByGroup([anchor], [lunch], groups, { days, weekId: 'week-1' })
+    expect(map.get('g1')).toBeUndefined()
+  })
+
+  it('returns an empty Map when anchors is empty', () => {
+    const map = anchoredActivityIdsByGroup([], [lunch], groups, { days })
+    expect(map.size).toBe(0)
   })
 })
 
