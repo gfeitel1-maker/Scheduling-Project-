@@ -293,7 +293,7 @@ const PROJECTION_FIELD_EXCEPTIONS = {
     {
       column: 'unit_id',
       reason:
-        'Dead pre-rename column from an early schema (superseded by time_block_id). Verified: src/engine/buildSchedule.js:107-110 reads anchor.unit_id as its primary scope-resolution key, so this column is NOT dead as a read target — but no code under src/ or electron/ ever WRITES anchor_activities.unit_id (electron/sync/syncClient.js only replicates its raw value, never sets it), so it is exempt as a write target, which is the only thing this table asserts.',
+        'Legacy SINGLE-division scope column. T180/v65 superseded it with `unit_ids` (a JSON array — the division picker has always been multi-select), which IS a writable field. The engine still resolves `unit_id` as a fallback for pre-v65 rows, and the v65 migration backfills it into unit_ids, but no code under src/ or electron/ WRITES it (electron/sync/syncClient.js only replicates its raw value), so it stays exempt as a write target, which is the only thing this table asserts.',
     },
     {
       column: 'span_blocks',

@@ -88,6 +88,13 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // v64 adds import_decision_failures (T173 slice 1) — a new host-local, never-replicated table.
   // Table shape only; the document does not model it and never will.
   64,
+  // v65 (T180) adds anchor_activities.unit_ids and backfills it from the legacy singular
+  // unit_id. Schema-only by the same reading as v51: the backfill RE-EXPRESSES a fact the
+  // row already carried (one division, now written as a one-element list) in a new column —
+  // it does not change what any camp MEANS. Deliberately, a group_ids snapshot row is NOT
+  // converted: inferring the director's division from a group list is the very derivation
+  // T180 exists to remove, and doing it here would be a real domain-state change.
+  65,
 ])
 
 /** True if applying `version` can change what the camp means. */

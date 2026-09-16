@@ -300,6 +300,14 @@ export const PROJECTIONS = {
       // it is implied by which screen/form wrote the row (AnchorsScreen)
       // and set here as an ordinary field-level op, same as is_all_groups.
       'kind',
+      // v65 (T180) — the age DIVISIONS a recurring event is scoped to, as a
+      // JSON array of tier ids, written by AnchorsScreen exactly like
+      // group_ids. This is what makes division scope LIVE: the engine
+      // resolves it at build time, so a group added to one of those divisions
+      // later is covered without re-saving the event. The legacy singular
+      // `unit_id` stays read-only (see the recorded exemption in
+      // electron/ops/projectionsCoverage.test.js).
+      'unit_ids',
     ],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers/activities.ensureExists above.

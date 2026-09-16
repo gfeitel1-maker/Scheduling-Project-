@@ -572,3 +572,74 @@ describe('AnchorsScreen — caution and error banners use shared primitives', ()
     expect(banner.style.background).not.toMatch(/#fff5f5/i)
   })
 })
+
+// ── T180: division scope is stored, not snapshotted ───────────────────────────
+
+describe('AnchorsScreen — recurring event division scope (T180)', () => {
+  const days = [day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 })]
+  const tiers = [
+    { id: 't1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Juniors', sort_order: 0 },
+    { id: 't2', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Seniors', sort_order: 1 },
+  ]
+  const groups = [
+    { id: 'g1', camp_id: CAMP_ID, name: 'Aleph', tier_id: 't1' },
+    { id: 'g2', camp_id: CAMP_ID, name: 'Bet', tier_id: 't2' },
+  ]
+
+  function mount(anchors = []) {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'anchor_activities') return Promise.resolve(anchors)
+      if (entity === 'days_of_operation') return Promise.resolve(days)
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'tiers') return Promise.resolve(tiers)
+      if (entity === 'groups') return Promise.resolve(groups)
+      return Promise.resolve([])
+    })
+    return render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="recurring" />)
+  }
+
+  it('writes the chosen divisions as unit_ids, so scope resolves live', async () => {
+    mount()
+    await waitFor(() => expect(screen.queryByText('No recurring events yet')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('+ Add Recurring Event'))
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Swim' } })
+    fireEvent.click(screen.getByText('Monday'))
+    fireEvent.click(screen.getByText('Juniors'))
+    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Recurring Event' }))
+
+    await waitFor(() => {
+      const call = localClient.write.mock.calls.find(c => c[3] === 'unit_ids')
+      expect(call).toBeTruthy()
+      // Serialized like group_ids — a JSON string, never a raw array.
+      expect(call[4]).toBe(JSON.stringify(['t1']))
+    })
+  })
+
+  it('shows the stored division, not one reverse-derived from group_ids', async () => {
+    // The defect shape: a snapshot that covers ONE group of a two-group
+    // division used to render as the whole division. With unit_ids stored,
+    // the label reads what the row actually says.
+    mount([{
+      id: 'a1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Swim',
+      day_id: 'd1', time_block_id: 'block-1', is_all_groups: 0,
+      group_ids: '[]', unit_ids: JSON.stringify(['t2']), kind: 'recurring',
+    }])
+    await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
+    expect(screen.queryByText('Seniors')).not.toBeNull()
+    expect(screen.queryByText('Juniors')).toBeNull()
+  })
+
+  it('a legacy group_ids-only row still reads as the division it covers', async () => {
+    // Pre-v65 rows carry no unit_ids; the backwards derivation stays as the
+    // fallback for them ONLY, so nothing already on disk starts showing "—".
+    mount([{
+      id: 'a1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Swim',
+      day_id: 'd1', time_block_id: 'block-1', is_all_groups: 0,
+      group_ids: JSON.stringify(['g1']), unit_ids: null, kind: 'recurring',
+    }])
+    await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
+    expect(screen.queryByText('Juniors')).not.toBeNull()
+  })
+})

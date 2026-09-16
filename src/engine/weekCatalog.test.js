@@ -257,3 +257,54 @@ describe('resolveWeekCatalog — anchors linked by NAME (real row shape)', () =>
     expect(result.suppressedAnchors).toEqual([])
   })
 })
+
+// ── T180: division-scoped anchors ────────────────────────────────────────────
+//
+// A recurring event scoped by unit_ids carries an EMPTY group_ids — its groups
+// are resolved from the divisions at build time. Week exclusion has to resolve
+// them the same way, or such an event can never be suppressed.
+
+describe('resolveWeekCatalog — unit_ids (division) scope', () => {
+  const tieredGroups = [
+    { id: 'grp-1', name: 'Bunk 1', tier_id: 't1' },
+    { id: 'grp-2', name: 'Bunk 2', tier_id: 't1' },
+    { id: 'grp-3', name: 'Bunk 3', tier_id: 't2' },
+  ]
+  // Real row shape post-#443: an anchor NAMES its activity, it has no
+  // activity_id column. So this fixture is both name-linked (T62's axis) and
+  // division-scoped (T180's axis) — which is the shape that actually exists
+  // once both land, and the one worth pinning.
+  const divisionAnchor = {
+    id: 'anch-div', name: 'Swim', is_all_groups: false,
+    group_ids: [], unit_ids: ['t1'],
+  }
+
+  it('suppresses a division-scoped anchor when every group in that division is excluded', () => {
+    const result = resolveWeekCatalog({
+      groups: tieredGroups, activities, anchors: [divisionAnchor], weekId: WEEK,
+      activityExclusions: [],
+      groupExclusions: [{ week_id: WEEK, group_id: 'grp-1' }, { week_id: WEEK, group_id: 'grp-2' }],
+    })
+    expect(result.suppressedAnchors).toHaveLength(1)
+    expect(result.suppressedAnchors[0].reason).toBe('all-groups-excluded')
+  })
+
+  it('keeps it when only SOME of the division is excluded', () => {
+    const result = resolveWeekCatalog({
+      groups: tieredGroups, activities, anchors: [divisionAnchor], weekId: WEEK,
+      activityExclusions: [],
+      groupExclusions: [{ week_id: WEEK, group_id: 'grp-1' }],
+    })
+    expect(result.suppressedAnchors).toEqual([])
+    expect(result.anchors.map((a) => a.id)).toContain('anch-div')
+  })
+
+  it('keeps it when a group OUTSIDE the division is excluded', () => {
+    const result = resolveWeekCatalog({
+      groups: tieredGroups, activities, anchors: [divisionAnchor], weekId: WEEK,
+      activityExclusions: [],
+      groupExclusions: [{ week_id: WEEK, group_id: 'grp-3' }],
+    })
+    expect(result.suppressedAnchors).toEqual([])
+  })
+})

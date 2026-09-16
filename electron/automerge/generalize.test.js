@@ -221,7 +221,7 @@ describe('Automerge generalization slice — FK-safe projectAll ordering', () =>
 
     expect(() => projectAll(db, doc)).not.toThrow()
     expect(rowsOf(db, 'anchor_activities')).toEqual([
-      { id: 'anchor-1', camp_id: 'camp-1', cohort_id: 'cohort-1', day_id: 'day-1', time_block_id: null, name: 'Flag', is_all_groups: 1, group_ids: null, notes: null, schedule_week_id: null, recurrence_level: 'daily', location_id: null, span_blocks: null, kind: 'fixed' },
+      { id: 'anchor-1', camp_id: 'camp-1', cohort_id: 'cohort-1', day_id: 'day-1', time_block_id: null, name: 'Flag', is_all_groups: 1, group_ids: null, notes: null, schedule_week_id: null, recurrence_level: 'daily', location_id: null, span_blocks: null, kind: 'fixed', unit_ids: null },
     ])
   })
 

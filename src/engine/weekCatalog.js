@@ -1,5 +1,5 @@
-import { assertIdListShape } from './assertIdListShape.js'
 import { indexActivitiesByName, resolveAnchorActivityIds } from './anchorActivityLink.js'
+import { resolveAnchorGroupIds } from './anchorScope.js'
 
 // Pure pre-pass that resolves the camp-wide catalog against a single week's
 // exclusion rows before handing the filtered sets to buildSchedule.
@@ -76,8 +76,10 @@ export function resolveWeekCatalog({
     // does not deserialize; see src/screens/schedule/useScheduleData.js.
     // Only suppress if EVERY group in the anchor's group list is excluded.
     if (!anchor.is_all_groups) {
-      if (import.meta.env?.DEV) assertIdListShape(anchor.group_ids, 'group_ids', anchor.id)
-      const anchorGroupIds = anchor.group_ids || []
+      // T180: resolve through the SHARED scope resolver, not group_ids
+      // directly — a division-scoped (unit_ids) event carries an empty
+      // group_ids, and reading that raw made it impossible to suppress.
+      const anchorGroupIds = resolveAnchorGroupIds(anchor, groups)
 
       if (
         anchorGroupIds.length > 0 &&

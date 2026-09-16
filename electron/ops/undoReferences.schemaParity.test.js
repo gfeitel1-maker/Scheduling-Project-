@@ -182,7 +182,12 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'open_reconciliation_decisions', column: 'import_run_id', reason: 'groups rows from one commitIngest call, not an entity pointer — mirrors import_evidence.import_run_id' },
 
   // -- documented dead column --
-  { table: 'anchor_activities', column: 'unit_id', reason: 'documented dead/unused legacy column (schema.sql comment above anchor_activities: never read or written), not a live reference despite the name' },
+  // Corrected in T180/v65: this column is NOT dead. src/engine/anchorScope.js reads it as the
+  // pre-v65 fallback for rows migrated before `unit_ids` existed. It stays accepted rather than
+  // registered because nothing WRITES it (v65 backfills OUT of it, never into it) and no new row
+  // can acquire one, so it cannot produce a fresh dangling reference — but the old reason
+  // ("never read or written") was false and would have laundered forward as fact.
+  { table: 'anchor_activities', column: 'unit_id', reason: 'legacy single-division column, read-only: resolved by src/engine/anchorScope.js as the pre-v65 fallback, never written by any code path (v65 backfills out of it into unit_ids)' },
 
   // -- recomputed-on-every-device local journal: regenerated wholesale, not
   //    a live reference the undo/schedule layer reads --

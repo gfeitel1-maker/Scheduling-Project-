@@ -89,7 +89,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
   it('declares schema version 51 on a fresh db and gives anchor_activities the kind column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(64)
+    expect(CURRENT_SCHEMA_VERSION).toBe(65)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 51').get().c).toBe(1)
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
     expect(cols).toContain('kind')
@@ -117,7 +117,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
     const db = freshDb()
     expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).toEqual([
       'id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks',
-      'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'kind',
+      'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'kind', 'unit_ids',
     ])
     db.close()
   })
