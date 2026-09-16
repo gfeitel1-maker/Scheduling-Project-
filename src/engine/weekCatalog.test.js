@@ -218,3 +218,42 @@ describe('resolveWeekCatalog', () => {
     expect(result.suppressedAnchors).toEqual([])
   })
 })
+
+// The anchors above all carry `activity_id`, a column `anchor_activities` has
+// never had (see anchorActivityLink.js). Every suppression assertion built on
+// that shape passed while the production path — a name-only anchor — matched
+// nothing and left the anchor standing. These use the real row shape.
+describe('resolveWeekCatalog — anchors linked by NAME (real row shape)', () => {
+  const nameAnchor = { id: 'anch-name', name: 'Swim', is_all_groups: true, group_ids: null }
+
+  it('suppresses a name-linked anchor when its activity is closed for the week', () => {
+    const result = resolveWeekCatalog({
+      groups, activities, anchors: [nameAnchor], weekId: WEEK,
+      activityExclusions: [{ week_id: WEEK, activity_id: 'act-swim' }],
+      groupExclusions: [], locationExclusions: [],
+    })
+    expect(result.anchors).toHaveLength(0)
+    expect(result.suppressedAnchors).toEqual([{ anchor: nameAnchor, reason: 'activity-excluded' }])
+  })
+
+  it('suppresses a name-linked anchor when its activity’s location is closed for the week', () => {
+    const result = resolveWeekCatalog({
+      groups, activities, anchors: [nameAnchor], weekId: WEEK,
+      activityExclusions: [], groupExclusions: [],
+      locationExclusions: [{ week_id: WEEK, location_id: 'loc-pool' }],
+    })
+    expect(result.anchors).toHaveLength(0)
+    expect(result.suppressedAnchors).toEqual([{ anchor: nameAnchor, reason: 'location-excluded' }])
+  })
+
+  it('keeps an anchor whose name is an event, not an activity, when an unrelated activity closes', () => {
+    const mifkad = { id: 'anch-mifkad', name: 'Mifkad', is_all_groups: true, group_ids: null }
+    const result = resolveWeekCatalog({
+      groups, activities, anchors: [mifkad], weekId: WEEK,
+      activityExclusions: [{ week_id: WEEK, activity_id: 'act-swim' }],
+      groupExclusions: [], locationExclusions: [],
+    })
+    expect(result.anchors).toEqual([mifkad])
+    expect(result.suppressedAnchors).toEqual([])
+  })
+})

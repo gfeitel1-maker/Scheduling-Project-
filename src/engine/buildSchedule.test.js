@@ -19,6 +19,11 @@ function minimal(overrides = {}) {
 }
 
 describe('anchored activities excluded from regular placement', () => {
+  // This first case uses an anchor carrying an explicit `activity_id`. No real
+  // row has that column (see anchorActivityLink.js) — it is kept because the
+  // resolver still honors an explicit link ahead of a name match, and because
+  // it is the fixture T62 shipped against. The name-linked cases below are the
+  // ones that cover what the app actually produces.
   it('never places an anchored activity as a regular slot, only via its anchor', () => {
     const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
     const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
@@ -31,6 +36,52 @@ describe('anchored activities excluded from regular placement', () => {
 
     const anchorSlots = slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc1')
     expect(anchorSlots.length).toBeGreaterThan(0)
+  })
+
+  // T62 regression, real-row shape. The two assertions above use an anchor
+  // carrying `activity_id` — a field `anchor_activities` has never had (no
+  // migration adds it; electron/ops/ingest.js writes name/day/block/scope and
+  // no activity link). A real anchor references its activity BY NAME, so
+  // `anchoredActivityIds` is empty in production and the T62 exclusion never
+  // fires: an activity that is already anchored is placed a second time as a
+  // regular slot. This test uses the row shape the app actually produces.
+  it('never places an anchored activity as a regular slot when the anchor links by NAME (real row shape)', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
+    const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    // No activity_id — exactly what electron/ops/ingest.js writes.
+    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [lunch], anchors: [anchor] }))
+
+    const regularLunchSlots = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
+    expect(regularLunchSlots).toHaveLength(0)
+  })
+
+  // The scope half of the corrected T62 rule. `anchor_activities` holds BOTH
+  // all-camp Fixed events and group-scoped Recurring ones (docs/adr/
+  // 2026-08-28-fixed-vs-recurring-events.md), so a camp-wide exclusion keyed on
+  // name would let one group's recurring Swim delete Swim from the whole camp.
+  it('excludes an anchored activity only for the groups the anchor covers', () => {
+    const g2 = { id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }
+    const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
+    const swim = { id: 'swim', name: 'Swim', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 5, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    // A Recurring event: scoped to g1 only, no activity_id — the real row shape.
+    const anchor = { id: 'anc-rec', name: 'Swim', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const { slots } = buildSchedule(minimal({ groups: [baseGroup, g2], timeBlocks: [baseBlock, block2], activities: [swim], anchors: [anchor] }))
+
+    const regular = slots.filter(s => s.type === 'activity' && s.activityId === 'swim')
+    expect(regular.filter(s => s.groupId === 'g1')).toHaveLength(0)
+    expect(regular.filter(s => s.groupId === 'g2').length).toBeGreaterThan(0)
+  })
+
+  // An anchor's name is free text. Most of them ("Mifkad") are not activities
+  // at all, and must not remove anything from the catalog.
+  it('an anchor whose name matches no activity excludes nothing', () => {
+    const archery = { id: 'archery', name: 'Archery', priority: 'low', max_per_week: 5, min_per_week: 1, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
+    const anchor = { id: 'anc-mifkad', name: 'Mifkad', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const { slots } = buildSchedule(minimal({ timeBlocks: [baseBlock, block2], activities: [archery], anchors: [anchor] }))
+    expect(slots.filter(s => s.type === 'activity' && s.activityId === 'archery').length).toBeGreaterThan(0)
   })
 
   it('still places an activity not referenced by any anchor', () => {

@@ -64,9 +64,12 @@ function makeBase({ withArcheryExclusion = false, anchorGroupIds = null, exclude
     // real array before either resolveWeekCatalog or buildSchedule sees it.
     anchor_activities: anchorGroupIds
       ? [{
-          // A real activity_id, as the app produces: buildSchedule reads
-          // `activity_id ?? unit_id` (:108), so without it the anchor row would
-          // never register in anchoredActivityIds.
+          // SYNTHETIC, not the app's row shape: `anchor_activities` has no
+          // activity_id column and the app never writes one (a real anchor
+          // names its activity — see src/engine/anchorActivityLink.js). Kept
+          // here on purpose to exercise the explicit-link path, which the
+          // resolver still honors ahead of the name match. The name-linked
+          // path is covered in weekCatalog.test.js and buildSchedule.test.js.
           id: ANCHOR_ID, camp_id: CAMP_ID, name: 'Flagpole',
           activity_id: SWIM_ID, unit_id: null,
           is_all_groups: 0, group_ids: JSON.stringify(anchorGroupIds),

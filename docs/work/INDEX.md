@@ -35,6 +35,12 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 
+### unclassified
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [T62-engine-schedules-anchor-activities-as-regular-slots](../../docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md) | open | [T63-anchor-group-ids-parsing-belongs-at-the-boundary](../../docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md) · [T65-schedule-stats-bar-accuracy](../../docs/work/tickets/T65-schedule-stats-bar-accuracy.md) |
+
 ## Decisions
 
 Backlinks are generated. An ADR does not name the tickets it came from; this does.
