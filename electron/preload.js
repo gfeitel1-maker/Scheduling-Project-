@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('shoresh', {
   deleteRecord: (args) => ipcRenderer.invoke('shoresh:delete-record', args),
   // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md (M3c)
   mergeLocation: (args) => ipcRenderer.invoke('shoresh:merge-location', args),
+  mergeActivity: (args) => ipcRenderer.invoke('shoresh:merge-activity', args),
+  previewActivityMerge: (args) => ipcRenderer.invoke('shoresh:preview-activity-merge', args),
   listMigrationReviews: (token) => ipcRenderer.invoke('shoresh:list-migration-reviews', { token }),
   dismissMigrationReviews: (args) => ipcRenderer.invoke('shoresh:dismiss-migration-reviews', args),
   listOpenReconciliationDecisions: (token) => ipcRenderer.invoke('shoresh:list-open-reconciliation-decisions', { token }),

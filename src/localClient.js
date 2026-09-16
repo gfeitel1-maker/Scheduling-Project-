@@ -180,6 +180,10 @@ export const localClient = {
   // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
   mergeLocation: announcing(({ loser_id, winner_id, winner_capacity, expected_ref_count }) =>
     shoresh.mergeLocation({ token: currentToken(), loser_id, winner_id, winner_capacity, expected_ref_count })),
+  mergeActivity: announcing(({ loser_id, winner_id, expected_ref_count }) =>
+    shoresh.mergeActivity({ token: currentToken(), loser_id, winner_id, expected_ref_count })),
+  previewActivityMerge: ({ loser_id }) =>
+    shoresh.previewActivityMerge({ token: currentToken(), loser_id }),
   listMigrationReviews: () => shoresh.listMigrationReviews(currentToken()),
   dismissMigrationReviews: (ids) => shoresh.dismissMigrationReviews({ token: currentToken(), ids }),
   // docs/adr/2026-08-28-persisted-reconciliation-decisions.md §4b.

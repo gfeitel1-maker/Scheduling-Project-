@@ -27,6 +27,7 @@ import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } f
 import { commitIngest, ingestUndo, listImportEvidence, listCompoundCellDecisions } from './ops/ingest.js'
 import { materializeImportedVersion } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
+import { mergeActivity, previewActivityMerge } from './ops/mergeActivity.js'
 import { confirmCompoundCellPattern } from './ops/confirmCompoundCellPattern.js'
 import { recordDeclinedSplit, listDeclinedSplitNames } from './ops/declinedSplits.js'
 import { recordImportDecisions } from './ops/decisionJournal.js'
@@ -1423,6 +1424,71 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // Merging a duplicate activity into the one it duplicates (the Activities
+  // duplicate-catcher's one-click fix). Gated on 'activities.delete' rather
+  // than '.write': the loser is deleted, and the schedule rows that pointed at
+  // it are re-pointed — the same authority mergeLocation requires.
+  //
+  // The alias is the POINT, not a side effect. Writing source_aliases here is
+  // what makes the NEXT import of the same typo'd file resolve silently to the
+  // winner instead of creating the duplicate again (ingest.js's listAliasMap
+  // already reads it). Without it this fixes one import and learns nothing.
+  //
+  // It is deliberately best-effort and AFTER the merge: a camp whose activities
+  // were just merged is in a correct state whether or not the app also
+  // remembers why, and failing the merge because the memory failed would be
+  // the worse trade.
+  function mergeActivityHandler({ token, loser_id, winner_id, expected_ref_count } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'activities.delete' })
+    if (!isNonEmptyString(loser_id)) throw new Error('loser_id is required')
+    if (!isNonEmptyString(winner_id)) throw new Error('winner_id is required')
+    if (expected_ref_count !== undefined && expected_ref_count !== null && !Number.isInteger(expected_ref_count)) {
+      throw new Error('Invalid expected_ref_count')
+    }
+
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp on this device')
+    const loserName = db.prepare('SELECT name FROM activities WHERE id = ?').get(loser_id)?.name ?? null
+
+    const result = mergeActivity(db, {
+      loser_id,
+      winner_id,
+      expected_ref_count,
+      author_user_id: userId,
+      device_id: deviceId,
+    })
+    if (result.error) return result
+
+    let alias_remembered = false
+    if (loserName) {
+      try {
+        confirmAlias(db, {
+          camp_id: camp.id,
+          entity_type: 'activities',
+          source_label: loserName,
+          entity_id: winner_id,
+          confirmed_by: userId,
+        })
+        alias_remembered = true
+      } catch (err) {
+        // Surfaced, never swallowed — a merge that did not teach anything is a
+        // merge the director will have to repeat after the next import.
+        console.error(`[merge-activity] alias not remembered for "${loserName}":`, err)
+      }
+    }
+
+    const { ops, ...reportable } = result
+    return { ...reportable, ops_written: ops.length, alias_remembered }
+  }
+
+  function previewActivityMergeHandler({ token, loser_id } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'activities.read' })
+    if (!isNonEmptyString(loser_id)) throw new Error('loser_id is required')
+    return previewActivityMerge(db, { loser_id })
+  }
+
   // The v32 migration's first-run review journal. HOST-LOCAL-SAFE reads the
   // calling device's own DB directly, regardless of mode — it never routes to
   // the Host like previewDelete/deleteRecord/restoreEntity above, because the
@@ -1812,6 +1878,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     previewDelete: previewDeleteHandler,
     deleteRecord: deleteRecordHandler,
     mergeLocation: mergeLocationHandler,
+    mergeActivity: mergeActivityHandler,
+    previewActivityMerge: previewActivityMergeHandler,
     listMigrationReviews: listMigrationReviewsHandler,
     dismissMigrationReviews: dismissMigrationReviewsHandler,
     listOpenReconciliationDecisions: listOpenReconciliationDecisionsHandler,
@@ -2000,6 +2068,8 @@ if (isElectronEntryPoint()) {
     'shoresh:preview-delete',
     'shoresh:delete-record',
     'shoresh:merge-location',
+    'shoresh:merge-activity',
+    'shoresh:preview-activity-merge',
     'shoresh:list-migration-reviews',
     'shoresh:dismiss-migration-reviews',
     'shoresh:get-device-pairing-status',
@@ -2082,6 +2152,8 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:preview-delete', (_event, args) => handlers.previewDelete(args))
     ipcMain.handle('shoresh:delete-record', (_event, args) => handlers.deleteRecord(args))
     ipcMain.handle('shoresh:merge-location', (_event, args) => handlers.mergeLocation(args))
+    ipcMain.handle('shoresh:merge-activity', (_event, args) => handlers.mergeActivity(args))
+    ipcMain.handle('shoresh:preview-activity-merge', (_event, args) => handlers.previewActivityMerge(args))
     ipcMain.handle('shoresh:list-migration-reviews', (_event, args) => handlers.listMigrationReviews(args && args.token))
     ipcMain.handle('shoresh:dismiss-migration-reviews', (_event, args) => handlers.dismissMigrationReviews(args))
     ipcMain.handle('shoresh:list-open-reconciliation-decisions', (_event, args) => handlers.listOpenReconciliationDecisions(args))
