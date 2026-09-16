@@ -226,6 +226,67 @@ describe('C1a — anchor group-scope drift signal', () => {
     expect(second.fixedEvents.created).toBe(0)
   })
 
+  it('T183: a division-scoped (unit_ids) live anchor, re-imported with its division\'s groups, reports NO scopeChanged', () => {
+    // T180: a live anchor can be scoped to a whole DIVISION via unit_ids, in
+    // which case group_ids is EMPTY by design (scope lives in unit_ids and is
+    // resolved live). The import source is a grid that lists the division's
+    // bunks. Reading the live group_ids raw ([]) against the incoming resolved
+    // bunks produced a spurious "scope changed from (nothing) to Bunk 1, Bunk 2"
+    // on every re-import. Routing the live scope through the shared resolver
+    // (resolveAnchorGroupIds) makes it compare by the division's CURRENT groups.
+    commit({ ...BASE, fixedEvents: [{
+      name: 'Mifkad', time_block: '09:00-09:40', days: ['Monday'],
+      scope: { is_all_groups: false, groups: ['Bunk 1', 'Bunk 2'] },
+    }] })
+
+    // Put both bunks in one division, and re-scope the live anchor to that
+    // division exactly as AnchorsScreen does (unit_ids set, group_ids '[]').
+    const tierId = randomUUID()
+    db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run(tierId, campId, 'Juniors')
+    db.prepare('UPDATE groups SET tier_id = ? WHERE camp_id = ?').run(tierId, campId)
+    const [anchor] = anchorRows()
+    db.prepare("UPDATE anchor_activities SET is_all_groups = 0, group_ids = '[]', unit_ids = ? WHERE id = ?")
+      .run(JSON.stringify([tierId]), anchor.id)
+
+    const second = commit({ ...BASE, fixedEvents: [{
+      name: 'Mifkad', time_block: '09:00-09:40', days: ['Monday'],
+      scope: { is_all_groups: false, groups: ['Bunk 1', 'Bunk 2'] },
+    }] })
+    expect(second.fixedEvents.scopeChanged).toEqual([])
+    expect(second.fixedEvents.unchanged).toBe(1)
+    expect(second.fixedEvents.created).toBe(0)
+    expect(anchorCount()).toBe(1)
+  })
+
+  it('T183/red-hat: a transient is_all_groups=1 + stale unit_ids row (sync-replay window) resolves by division precedence, no spurious drift', () => {
+    // AnchorsScreen writes is_all_groups and unit_ids as SEPARATE op-log
+    // fields; switching a recurring event's scope leaves a replay window where
+    // is_all_groups=1 has landed but unit_ids=[] has not. The shared resolver's
+    // precedence is unit_ids > unit_id > is_all_groups > group_ids, so during
+    // that window the engine still resolves the DIVISION. liveAnchorScope must
+    // honor the SAME precedence (division before all-groups), or it reports a
+    // spurious "scope changed from all groups to <bunks>" on re-import — the
+    // very drift class T183 exists to remove. kind='recurring' keeps the v65
+    // CHECK satisfied for this otherwise-contradictory row.
+    commit({ ...BASE, fixedEvents: [{
+      name: 'Mifkad', time_block: '09:00-09:40', days: ['Monday'],
+      scope: { is_all_groups: false, groups: ['Bunk 1', 'Bunk 2'] },
+    }] })
+    const tierId = randomUUID()
+    db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run(tierId, campId, 'Juniors')
+    db.prepare('UPDATE groups SET tier_id = ? WHERE camp_id = ?').run(tierId, campId)
+    const [anchor] = anchorRows()
+    db.prepare("UPDATE anchor_activities SET kind = 'recurring', is_all_groups = 1, group_ids = '[]', unit_ids = ? WHERE id = ?")
+      .run(JSON.stringify([tierId]), anchor.id)
+
+    const second = commit({ ...BASE, fixedEvents: [{
+      name: 'Mifkad', time_block: '09:00-09:40', days: ['Monday'],
+      scope: { is_all_groups: false, groups: ['Bunk 1', 'Bunk 2'] },
+    }] })
+    expect(second.fixedEvents.scopeChanged).toEqual([])
+    expect(second.fixedEvents.unchanged).toBe(1)
+  })
+
   it('held-path shape: scopeChanged is present as an empty array on a held import', () => {
     // Force a hold via a conflicting duplicate-name group write is out of scope
     // here; instead assert the stub shape directly is covered by the normal

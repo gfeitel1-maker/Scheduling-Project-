@@ -12,6 +12,7 @@ import SetupScreenShell from '../components/setup/SetupScreenShell'
 import { LocationPicker } from '../components/LocationPicker'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
+import { resolveAnchorUnitIds } from '../engine/anchorScope.js'
 import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
 
 // Repository-only migration (not the full useCrudScreen hook): load() fans out
@@ -663,20 +664,24 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
   const dayMap = Object.fromEntries(days.map(d => [d.id, d.label]))
   const blockMap = Object.fromEntries(timeBlocks.map(b => [b.id, `${b.name} (${b.start_time?.slice(0,5)}–${b.end_time?.slice(0,5)})`]))
   const tierById = Object.fromEntries(tiers.map(t => [t.id, t.name]))
-  const groupTierMap = Object.fromEntries(groups.map(g => [g.id, g.tier_id]))
 
+  // T183: the division projection of anchor scope comes from the SHARED
+  // resolver (src/engine/anchorScope.js), the same precedence the engine uses
+  // for group ids — so this label can no longer drift from the schedule. The
+  // resolver flags a pre-v65 group_ids-only derivation as `inferred`; that
+  // stays honest on the tooltip (anchorTierTitle) rather than in the visible
+  // text, which keeps reading the division it covers instead of "—".
   function anchorTierLabel(a) {
-    if (a.is_all_groups) return 'All age divisions'
-    // T180: read the stored divisions. Only a pre-v65 row with no `unit_ids`
-    // falls back to deriving them backwards from the group snapshot — which
-    // is why one group of a division could read as the whole division.
-    if (a.unit_ids?.length) {
-      const stored = a.unit_ids.map(tid => tierById[tid]).filter(Boolean)
-      if (stored.length) return stored.join(', ')
-    }
-    const tierIds = [...new Set((a.group_ids || []).map(gid => groupTierMap[gid]).filter(Boolean))]
-    const names = tierIds.map(tid => tierById[tid]).filter(Boolean)
+    const { mode, unitIds } = resolveAnchorUnitIds(a, groups)
+    if (mode === 'all') return 'All age divisions'
+    const names = unitIds.map(tid => tierById[tid]).filter(Boolean)
     return names.length ? names.join(', ') : '—'
+  }
+
+  function anchorTierTitle(a) {
+    return resolveAnchorUnitIds(a, groups).inferred
+      ? 'Shown from the groups this event covers — not a saved division choice. Re-save it to store the divisions.'
+      : undefined
   }
 
   const readyRows = importRows.filter(r => r.name && !r.warning)
@@ -749,7 +754,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
                   </td>
                   <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>
                   <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>
-                  <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{anchorTierLabel(a)}</td>
+                  <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }} title={anchorTierTitle(a)}>{anchorTierLabel(a)}</td>
                   <td style={{ ...S.td, fontSize: 12 }}>
                     <select
                       value={a.schedule_week_id || ''}
