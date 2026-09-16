@@ -2218,6 +2218,18 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           cohort_id,
           day_id: dayId,
           time_block_id: tbId,
+          // This name is LOAD-BEARING FOR SCHEDULING, not just for display.
+          // An anchor has no activity_id column (there is no such column, and
+          // never has been) — src/engine/anchorActivityLink.js matches an
+          // anchor to its catalog activity by name, and buildSchedule uses
+          // that match to keep an already-anchored activity out of regular
+          // placement. So anything that re-keys this name — a name-variant
+          // merge, a compound-cell resolution ("Lunch + Leave" -> "Lunch") —
+          // changes scheduling eligibility, not merely a label. The match uses
+          // whitespaceInsensitiveName's key (src/ingest/preview.js); the
+          // engine re-spells it locally to stay dependency-free, and
+          // src/engine/anchorActivityLink.keyParity.test.js fails if the two
+          // ever disagree.
           name: String(fe.name ?? '').trim(),
           // Fixed vs Recurring (docs/adr/2026-08-28-fixed-vs-recurring-events.md
           // §6/§9) — re-derived from the same isAll boolean the scope fields
