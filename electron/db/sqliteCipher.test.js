@@ -4,8 +4,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted } from './sqliteCipher.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const tmp = []
 afterEach(() => { for (const f of tmp.splice(0)) { try { fs.rmSync(f, { force: true }) } catch { /* */ } } })
@@ -14,6 +17,29 @@ function tmpFile(tag) {
   tmp.push(f, `${f}-wal`, `${f}-shm`, `${f}.enc-migrate`)
   return f
 }
+
+// Finding 5 gate: the `{ plaintext: true }` opt-out of encryption must be TEST-ONLY. If a production
+// (non-test) file passed it, a keyed db could be silently opened plaintext — the bypass the opt-in
+// must never become. This scans production source and fails if any NON-COMMENT line uses it.
+describe('plaintext:true opt-in is test-only (finding 5 gate)', () => {
+  it('no production (non-test) source passes plaintext: true in code', () => {
+    const roots = [path.resolve(__dirname, '..'), path.resolve(__dirname, '../../scripts')] // electron/, scripts/
+    const offenders = []
+    const walk = (dir) => {
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, ent.name)
+        if (ent.isDirectory()) { if (ent.name !== 'node_modules') walk(p); continue }
+        if (!ent.name.endsWith('.js') || ent.name.endsWith('.test.js')) continue
+        fs.readFileSync(p, 'utf8').split('\n').forEach((line, i) => {
+          const code = line.replace(/\/\/.*$/, '') // strip line comments
+          if (/plaintext\s*:\s*true/.test(code)) offenders.push(`${p}:${i + 1}`)
+        })
+      }
+    }
+    for (const r of roots) walk(r)
+    expect(offenders).toEqual([])
+  })
+})
 
 describe('rawKeyPragma', () => {
   it('formats a 32-byte key as a SQLCipher raw-key pragma (no PBKDF2 stretching)', () => {
