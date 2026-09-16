@@ -81,6 +81,14 @@ describe('the classification is checked against the source, not just asserted', 
     // migration) and not the indirect one. Verified non-vacuous by planting an
     // inline write in a schema-only block and watching it fail.
     //
+    // THE INDIRECT ONE IS NOW COVERED, elsewhere: migrationWriteTrace.test.js
+    // runs the chain with the db handle instrumented and reads the statements
+    // SQLite was actually asked to execute, which no amount of indirection can
+    // hide. This scan stays because it is fast and needs no fixture, and because
+    // two measurements with different blind spots beat either alone — but it is
+    // no longer the only thing standing between a helper-routed backfill and a
+    // silent misclassification.
+    //
     // Coarse but real: read localDb.js, split it at each migration's own
     // `schema_migrations ... VALUES (N,` stamp, and look for writes to modeled
     // tables inside blocks classified as schema-only. A table-RECREATE migration
@@ -107,7 +115,13 @@ describe('the classification is checked against the source, not just asserted', 
       if (!SCHEMA_ONLY_MIGRATIONS.has(version)) continue
       for (const table of MODELED) {
         // `_vNN` shadow tables are shape work; so is a bare CREATE/DROP/ALTER.
-        const write = new RegExp(`(UPDATE|INSERT INTO|INSERT OR \\w+ INTO)\\s+${table}\\b(?!_v)`, 'i')
+        // DELETE belongs here as much as UPDATE/INSERT: removing a row changes
+        // what the camp means at least as much as editing one. Its absence from
+        // the first draft is why v13 — a time_blocks de-duplication, the same
+        // shape as v11/v12/v14/v15 — read as schema-only for as long as it did.
+        // Found by the execution trace (migrationWriteTrace.test.js), which
+        // measures what ran instead of reading what was written.
+        const write = new RegExp(`(UPDATE|INSERT INTO|INSERT OR \\w+ INTO|DELETE FROM)\\s+${table}\\b(?!_v)`, 'i')
         if (write.test(block)) offenders.push(`v${version} writes ${table}`)
       }
     }

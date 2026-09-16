@@ -20,7 +20,11 @@
 //
 //   1. Every version is classified here, and a test fails if a new migration is
 //      added without a classification. That forces the author to decide rather
-//      than to not notice.
+//      than to not notice. The classification is then checked two ways, because
+//      one way had a blind spot: migrationDomainState.test.js reads localDb.js
+//      as text (sees inline SQL only), and migrationWriteTrace.test.js RUNS the
+//      chain against the era fixtures with the db handle instrumented (sees
+//      every statement actually executed, including one a helper issued).
 //   2. At startup, if a migration from this set ran on a launch where a document
 //      already exists, the sync node does not start (main.js). The device keeps
 //      working on its own — this is a local-first app — but it will not
@@ -41,6 +45,7 @@
 export const DOMAIN_STATE_MIGRATIONS = new Map([
   [11, 'cohort de-duplication re-points time_blocks.cohort_id and anchor_activities.cohort_id'],
   [12, 'group de-duplication re-points template_slots.group_id'],
+  [13, 'time_blocks de-duplication DELETEs duplicate rows before adding UNIQUE(camp_id, cohort_id, name)'],
   [14, 'tier de-duplication re-points groups.tier_id'],
   [15, 'activity de-duplication re-points template_slots.activity_id and activities.weather_alternative_id'],
   [21, 'schedule_templates identity repair — re-points template_slots/schedule_snapshots at a kept or re-minted template row'],
@@ -70,7 +75,7 @@ export const DOMAIN_STATE_MIGRATIONS = new Map([
  * mechanism. See migrationDomainState.test.js.
  */
 export const SCHEMA_ONLY_MIGRATIONS = new Set([
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 16, 17, 18, 19, 20, 22, 25, 28, 29, 30,
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 17, 18, 19, 20, 22, 25, 28, 29, 30,
   31, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
   51, 52, 53, 54, 55, 56, 57, 58, 59,
   // v60 adds users.auth_sig (a Host signature over existing credential fields) and backfills it on
