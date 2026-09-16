@@ -241,6 +241,39 @@ cracking one director's PIN still buys every admin-gated action in the camp, not
 director's own. Narrowing that wildcard is a follow-up the owner has been told about and is
 deliberately not built here.
 
+### At-rest encryption — implemented, OFF by default, and narrower than "encrypted at rest" (T175/T179)
+
+Everything above ("whoever has the document already has the camp's data") describes the state with
+at-rest encryption **off**, which is the shipping default today. At-rest encryption is fully
+implemented behind the `SHORESH_AT_REST_ENCRYPTION` flag (default off); **nothing on disk is
+encrypted until it is deliberately turned on.** When it is on, the SQLite database and the
+`.automerge` document are encrypted with a random 32-byte per-device key sealed by Electron
+`safeStorage` in the OS keychain (macOS Keychain / Windows DPAPI) — see
+`docs/adr/2026-09-15-at-rest-encryption-scoping.md`.
+
+**Be precise about the guarantee — it is narrower than the phrase "encrypted at rest" implies:**
+
+- **What it defends:** a *powered-off* stolen or lost device, or a *copied file* (a backup, a synced
+  folder, a discarded disk) — an offline attacker who has the bytes but not a running, unlocked
+  machine logged in as that user. In that case the replicated PIN hashes and the whole camp are
+  ciphertext, not the crackable-off-a-file exposure described above.
+- **What it does NOT defend:** the keychain entry is per-OS-user, so on a realistic shared-login
+  camp-office Mac this does **nothing** against the person at the next desk on the *same* login, and
+  nothing against a running, unlocked device or a compromised OS account — the key is available to
+  anything running as that user by design. It is file-at-rest protection, not running-process
+  protection.
+- **It is a deliberate hard-fail:** no key means no readable data, with no graceful fallback (the
+  key is minted and sealed automatically — no passphrase to forget — and survives app reinstalls, so
+  the loss cases are the "three keys, one event" recovery story in
+  `docs/current/KEY_RECOVERY_STORY.md`).
+- **Headless tools:** the MCP server and CLI reach an encrypted DB only via the protected key channel
+  and the Electron unlock helper (`docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md`); the
+  key is never passed on the command line.
+
+This section states the boundary up front rather than letting "encrypted at rest" imply more than it
+delivers (the T149 stale-claim lesson, applied in advance). The claim will only be made once the flag
+is actually enabled — see T175 for the remaining preconditions before that flip.
+
 ### A camp token is a bearer credential (T155)
 
 `evaluateAuthenticate` binds a token to the `device_id` carried **inside** the token. Nothing binds

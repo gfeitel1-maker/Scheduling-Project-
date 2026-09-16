@@ -37,12 +37,20 @@ Electron unlock helper).
 - [x] Adds no new trust — same OS-user keychain access the app itself uses.
 
 ## Remaining
-- [ ] End-to-end: MCP/CLI open an ENCRYPTED DB via the unlock helper, verified against the real
-  driver on a build env where it compiles (same constraint as T175 — Apple clang 16 can't build the
-  driver for Node 25; verify under a Node-LTS/Electron build). The encrypting driver DID build for
-  Electron's ABI in the T175 packaged build, so the Electron path is promising.
-- [ ] `security-assessment` re-review of the key channel (the sensitive part) before the encryption
-  flag's default flips.
+- [x] **End-to-end verified (2026-09-16, under node@22 + the real driver).** The MCP tool handlers
+  (`setupSummaryTool`/`listEntitiesTool`) and `resolveHeadlessDbKey` were exercised against a REAL
+  encrypted DB via a standalone harness (`scratchpad/e2e-headless-encrypted.mjs`): 7/7 —
+  encrypted-on-disk after keyed open; a tool WITHOUT the key cannot read it (fail-closed); a tool
+  WITH the key (and with the key from `resolveHeadlessDbKey`'s env channel) reads it. Node-level
+  proof; the driver also builds for Electron's ABI (T175 packaged build), so the Electron path holds.
+- [x] `security-assessment` re-review done (`docs/work/security/2026-09-16-headless-key-channel-assessment.md`):
+  resolver sound (no-argv, strict validation, fail-closed all CONFIRMED); **two HIGH findings against
+  the file producer mode** — no `O_EXCL` (symlink/perm window) and the key file was never deleted
+  (unsealed key persisted on disk, defeating safeStorage's offline-theft property). **Both closed** by
+  removing `--to-file` entirely and making env-passing (`--exec`, key only in the spawned child's env,
+  never on disk) the primary channel; `--print` kept for advanced use. 7 helper tests updated.
+- [x] SECURITY.md boundary wording landed (the narrower-than-"encrypted-at-rest" guarantee, framed as
+  implemented-but-off) — T175 constraint 4.
 
 ## Note
 Dev/test harnesses that deliberately use plaintext DBs (`make-era-fixtures.mjs`, `ingest-sweep.mjs`)
