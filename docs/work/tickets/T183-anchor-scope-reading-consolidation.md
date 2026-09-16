@@ -1,7 +1,7 @@
 ---
 title: "Anchor scope is read from raw columns in several places; route every consumer through one shared resolver"
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-16
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_tickets:
@@ -149,7 +149,35 @@ Two LOW items, neither blocking PR-1:
   spurious re-import drift and the label drift. Tested: anchorScope (8),
   AnchorsScreen (+2), ingest.scope-drift (+1), 253 sibling engine/ingest tests
   green. Owner-approved design.
-- **PR-2 — write-side preserve (NEXT).** Owner chose "Preserve + report."
+- **PR-2 — write-side preserve (DONE).** Owner chose "Preserve + report", implemented in `electron/ops/ingest.js`:
+  - Before `replaceScope`'s teardown, snapshot each division-scoped anchor's `unit_ids` as division NAMES, keyed by a label/name **`divisionPreserveKey`** (NOT `anchorSlotKey` — days/time_blocks are also recreated with new ids, so an id-based key can't survive the teardown; the director-visible day label + block name + event name + cohort do).
+  - On recreate, re-resolve those names to the NEW tier ids via the importer's existing `tierIdByName` map (same trimmed-key lookup as the group→unit link). Fully resolved → restore `unit_ids`, `is_all_groups=0`, empty `group_ids` (the AnchorsScreen shape; two scope columns never disagree). kind written first so the v65 CHECK's recurring branch holds.
+  - Any preserved division NOT restored (renamed/removed in the new file, or the event moved off its slot) → reported on `outcome.fixedEvents.scopeFlattened`, never silently lost. Restored ones → `scopePreserved`.
+  - Tests: `electron/ops/ingest.scope-preserve.test.js` (preserve across teardown with tier-id remap; residue reported when the division is gone; and the whitespace-division trim-keying edge — preserved-or-reported, never silent). 194 sibling ingest tests green.
+
+  **PR-2 review hardening (code-reviewer + red-hat):**
+  - **HIGH (fixed):** a multi-day fan-out event whose days had a MIXED outcome
+    (one day's label drifted so it flattened while siblings preserved) was
+    reported as fully `scopePreserved`, hiding the reverted days. Now a name is
+    `scopePreserved` only if EVERY snapshot slot restored; any unrestored slot →
+    `scopeFlattened` with an "N of M day(s)" reason. Pinned by the multi-day
+    mixed test.
+  - **MEDIUM (fixed at root):** `tierIdByName` was written UNTRIMMED
+    (commitCreate) but read TRIMMED (seedNameMaps + the group→unit link + this
+    restore), so a whitespace-padded division name false-flattened. Trimmed the
+    write site to match all readers — one normalization across all three sites;
+    also fixes a pre-existing latent group-link miss for freshly-created
+    whitespace tiers. Pinned by the whitespace-preserve test; divisionEvidence
+    suite green.
+  - **LOW (fixed):** snapshot now scoped to the import's `cohort_id`, so a
+    cohort-scoped Replace no longer mislabels other cohorts' torn-down anchors
+    as flattened.
+  - **Known limitation (accepted):** the survivor key is label-based, so if the
+    new file spells a day differently year-over-year the slot false-flattens
+    (reported, never silent). Inherent to label-keying — day/time_block ids are
+    recreated, so no stable id key exists. See ADR.
+
+  **Prior — PR-2 was NEXT (superseded above).** Owner chose "Preserve + report."
 
   **Finding that resizes PR-2 (verified 2026-09-16):** `replaceScope` deletes
   `REPLACEABLE_ENTITIES = [activities, groups, time_blocks, days_of_operation,

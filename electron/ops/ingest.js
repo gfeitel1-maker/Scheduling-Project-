@@ -1177,6 +1177,20 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const fixedRejected = []
   const fixedMoved = []
   const fixedScopeChanged = []
+  // T183 PR-2 (Replace-mode division-scope preservation). `replaceScope` tears
+  // down every anchor AND every tier, so a director's division scope (unit_ids)
+  // would be silently flattened to a grid group_ids snapshot on re-import. These
+  // record the two outcomes of carrying it across the teardown: preserved (the
+  // division was re-resolved to its recreated tier) vs flattened (the division
+  // is gone from the new file, or the event moved off its slot — reported, never
+  // silently lost; owner decision preserve+report).
+  const fixedScopePreserved = []
+  const fixedScopeFlattened = []
+  // slotKey -> { divisionNames: string[], name } for every live DIVISION-scoped
+  // anchor, captured BEFORE replaceScope deletes it. Division NAMES, not ids:
+  // the tier is recreated with a new id, so the name is what survives.
+  const preservedDivisionScope = new Map()
+  const restoredDivisionSlots = new Set()
   // Slice B one-off path (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
   // addendum) — a director-confirmed multi-block candidate marked "just this
   // once" mints an `events` catalog row only, never a template_slots
@@ -1193,6 +1207,16 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // by the camp-scoped query. Used to recognize-then-skip an anchor already live.
   const anchorSlotKey = (cohortId, dayId, tbId, name) =>
     `${cohortId ?? ''}|${dayId}|${tbId}|${normalizeName(name)}`
+
+  // T183 PR-2: the slot identity that SURVIVES a Replace teardown. anchorSlotKey
+  // keys on day_id/time_block_id, but a Replace recreates days and time_blocks
+  // with NEW ids (they are in REPLACEABLE_ENTITIES), so those ids cannot match
+  // across the teardown. Division-scope preservation therefore keys on the
+  // stable, director-visible coordinates — day LABEL and block NAME — resolved
+  // to the same normalizeName spelling on both the pre-teardown snapshot side
+  // and the recreate side. cohort_id is stable (cohorts are not torn down).
+  const divisionPreserveKey = (cohortId, dayLabel, blockName, name) =>
+    `${cohortId ?? ''}|${normalizeName(dayLabel ?? '')}|${normalizeName(blockName ?? '')}|${normalizeName(name)}`
 
   // C1b: the drift-pairing group is (cohort_id, normalizeName(name)) — the
   // dimension a director's move CAN'T change (saveAnchor mutates day_id/
@@ -1340,7 +1364,15 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     const fields = {}
     for (const [field, delta] of Object.entries(item.fields)) fields[field] = delta.to
 
-    if (entity === 'tiers') tierIdByName.set(name.toLowerCase(), entityId)
+    // Trim to match how tierIdByName is BOTH seeded (seedNameMaps: `.trim()
+    // .toLowerCase()`) and READ (the group→unit link and T183 PR-2's division
+    // restore both look up `.trim().toLowerCase()`). Registering untrimmed here
+    // meant a whitespace-padded tier name — a common spreadsheet artefact —
+    // keyed differently on write than on every read, so a freshly created such
+    // tier could not be found: its groups failed to link, and (T183 PR-2) a
+    // re-imported division-scoped event false-flattened. One normalization, all
+    // three sites.
+    if (entity === 'tiers') tierIdByName.set(name.trim().toLowerCase(), entityId)
     if (entity === 'time_blocks') blockIdByName.set(normalizeName(name), entityId)
     if (entity === 'days_of_operation') dayIdByName.set(normalizeName(name), entityId)
     if (entity === 'groups') groupIdByName.set(normalizeName(name), entityId)
@@ -1606,6 +1638,46 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // creates, which also lets the new records reuse the old names against
     // UNIQUE(camp_id, name).
     if (mode === 'replace') {
+      // T183 PR-2: snapshot division scope BEFORE the teardown erases it. Read
+      // the live anchors' unit_ids and resolve them to division NAMES against
+      // the pre-teardown tiers (ids are about to change). Keyed by the
+      // scope-excluding anchorSlotKey, so an unchanged event re-matches after
+      // recreation. Only division-scoped rows (non-empty unit_ids) matter.
+      const tierNameById = new Map(
+        db.prepare('SELECT id, name FROM tiers WHERE camp_id = ?').all(camp_id).map((t) => [t.id, t.name]),
+      )
+      // Pre-teardown day/block lookups: the anchor stores ids, but the survivor
+      // key is by LABEL/NAME (see divisionPreserveKey). Resolve here, before the
+      // teardown deletes these rows.
+      const dayLabelById = new Map(
+        db.prepare('SELECT id, label FROM days_of_operation WHERE camp_id = ?').all(camp_id).map((d) => [d.id, d.label]),
+      )
+      const blockNameById = new Map(
+        db.prepare('SELECT id, name FROM time_blocks WHERE camp_id = ?').all(camp_id).map((b) => [b.id, b.name]),
+      )
+      // Scoped to THIS import's cohort: replaceScope tears down camp-wide, but
+      // the fixedEvents recreate only touches this cohort, so snapshotting other
+      // cohorts' anchors would report them as "flattened" when the real cause is
+      // simply that this import doesn't cover their cohort (a different, pre-
+      // existing fact this report must not mislabel). `IS` binds null-safely.
+      for (const row of db
+        .prepare('SELECT cohort_id, day_id, time_block_id, name, unit_ids FROM anchor_activities WHERE camp_id = ? AND cohort_id IS ?')
+        .all(camp_id, cohort_id ?? null)) {
+        let unitIds
+        try {
+          const parsed = JSON.parse(row.unit_ids ?? '[]')
+          unitIds = Array.isArray(parsed) ? parsed.filter(Boolean) : []
+        } catch {
+          unitIds = []
+        }
+        if (!unitIds.length) continue
+        const divisionNames = unitIds.map((id) => tierNameById.get(id)).filter(Boolean)
+        if (!divisionNames.length) continue
+        const key = divisionPreserveKey(
+          row.cohort_id, dayLabelById.get(row.day_id), blockNameById.get(row.time_block_id), row.name,
+        )
+        preservedDivisionScope.set(key, { divisionNames, name: row.name })
+      }
       replaced = replaceScope(db, { camp_id, author_user_id, device_id, source: IMPORT_SOURCE })
     }
     seedNameMaps()
@@ -2125,6 +2197,14 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const tbId = blockIdByName.get(normalizeName(fe.time_block))
       const requestedDays = (fe.days ?? []).length
       const dayIds = (fe.days ?? []).map((d) => dayIdByName.get(normalizeName(d))).filter(Boolean)
+      // T183 PR-2: resolved dayId -> its source label, so the per-day create
+      // below can rebuild the label-based divisionPreserveKey (day ids differ
+      // from the pre-teardown snapshot; labels do not).
+      const labelByDayId = new Map()
+      for (const d of (fe.days ?? [])) {
+        const id = dayIdByName.get(normalizeName(d))
+        if (id) labelByDayId.set(id, d)
+      }
       if (!tbId || dayIds.length === 0) {
         fixedSkipped.push({ name: fe.name, reason: 'time block or day not created' })
         continue
@@ -2245,6 +2325,29 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         }
         anchorSlots.add(slotKey)
         const anchorId = randomUUID()
+        // T183 PR-2: if this exact slot was a DIVISION-scoped anchor before the
+        // Replace teardown, restore that scope rather than writing the grid's
+        // group snapshot — the director's division choice outranks a file that
+        // cannot express divisions. Division NAMES are re-resolved to the newly
+        // recreated tier ids through tierIdByName (the same map, and the same
+        // trimmed key form, the group→unit link at commitCreate uses). If a name
+        // no longer resolves (division renamed/removed in the new file), we do
+        // NOT restore — the slot falls through to grid scope and is reported as
+        // residue after the loop, never silently flattened.
+        const preserveKey = divisionPreserveKey(cohort_id, labelByDayId.get(dayId), fe.time_block, fe.name)
+        let preservedUnitIds = null
+        if (mode === 'replace') {
+          const preserved = preservedDivisionScope.get(preserveKey)
+          if (preserved) {
+            const ids = preserved.divisionNames
+              .map((n) => tierIdByName.get(String(n).trim().toLowerCase()))
+              .filter(Boolean)
+            if (ids.length && ids.length === preserved.divisionNames.length) {
+              preservedUnitIds = ids
+              restoredDivisionSlots.add(preserveKey)
+            }
+          }
+        }
         // B4: evidence for a CREATED anchor only (ADR scope: unchanged-anchor
         // recompute is deferred — the skip branch above has only a slotKey,
         // not a live anchor id, resolving it cleanly is a later slice).
@@ -2299,9 +2402,17 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // Writing kind AFTER is_all_groups would violate the CHECK on that
           // very UPDATE for every non-all-groups row (caught by this file's
           // own test suite, not merely theoretical).
-          kind: isAll ? 'fixed' : 'recurring',
-          is_all_groups: isAll,
-          group_ids: JSON.stringify(isAll ? [] : groupIds),
+          // T183 PR-2: a preserved division scope forces kind='recurring',
+          // is_all_groups=0, empty group_ids and the carried unit_ids — the
+          // exact shape AnchorsScreen writes, so the two scope columns never
+          // disagree (the state T180 exists to end). kind stays FIRST so the
+          // v65 CHECK's recurring branch is satisfied before is_all_groups/
+          // group_ids/unit_ids land. Absent a preserved scope, grid scope is
+          // written unchanged.
+          kind: preservedUnitIds ? 'recurring' : (isAll ? 'fixed' : 'recurring'),
+          is_all_groups: preservedUnitIds ? 0 : isAll,
+          group_ids: JSON.stringify(preservedUnitIds ? [] : (isAll ? [] : groupIds)),
+          ...(preservedUnitIds ? { unit_ids: JSON.stringify(preservedUnitIds) } : {}),
           // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
           // addendum): a director-confirmed recurring multi-block candidate
           // is handed in as an ordinary fixedEvents entry with span_blocks
@@ -2327,6 +2438,38 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           })
         }
         fixedCreated.push({ anchorId, name: fe.name, confidence: fe.confidence, time_block: fe.time_block, days: fe.days })
+      }
+    }
+
+    // T183 PR-2: turn the pre-teardown division snapshot into a report, per
+    // EVENT NAME but tracking EACH day-row's outcome. A fan-out event has one
+    // snapshot slot per day; they do NOT always share a fate — a day whose label
+    // drifted between the old row and the new file fails to re-match while its
+    // siblings preserve. `scopePreserved` is claimed ONLY when EVERY slot of the
+    // name restored; if ANY slot did not, the name is `scopeFlattened` — a
+    // partially-preserved event must warn, never read as fully carried across
+    // (that would hide the days that reverted to the grid list; red-hat HIGH).
+    const byName = new Map() // name -> { total, restored, divisionNames }
+    for (const [slotKey, preserved] of preservedDivisionScope) {
+      const e = byName.get(preserved.name) ?? { total: 0, restored: 0, divisionNames: preserved.divisionNames }
+      e.total += 1
+      if (restoredDivisionSlots.has(slotKey)) e.restored += 1
+      byName.set(preserved.name, e)
+    }
+    for (const [name, e] of byName) {
+      const divisions = e.divisionNames.join(', ')
+      if (e.restored === e.total) {
+        fixedScopePreserved.push({ name, divisions: e.divisionNames })
+      } else if (e.restored > 0) {
+        fixedScopeFlattened.push({
+          name,
+          reason: `division scope (${divisions}) carried across on ${e.restored} of ${e.total} day(s); the rest reverted to the imported group list`,
+        })
+      } else {
+        fixedScopeFlattened.push({
+          name,
+          reason: `division scope (${divisions}) could not be carried across the re-import`,
+        })
       }
     }
 
@@ -2465,6 +2608,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       updated: 0,
       fixedEvents: {
         created: 0, unchanged: 0, skipped: [], partial: [], rejected: [], moved: [], scopeChanged: [],
+        scopePreserved: [], scopeFlattened: [],
         createdEntries: [], unchangedEntries: [],
       },
       multiBlockEvents: { created: 0, unchanged: 0, createdEntries: [], unchangedEntries: [] },
@@ -2485,6 +2629,8 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       rejected: fixedRejected,
       moved: fixedMoved,
       scopeChanged: fixedScopeChanged,
+      scopePreserved: fixedScopePreserved,
+      scopeFlattened: fixedScopeFlattened,
       // FIX 1 (2026-08-17 fix round, Red Hat RISK 1): the reconciliation dry-run
       // report needs each created/unchanged fixed event's confidence + time_block/
       // days to classify a sub-majority create as needsAttention rather than

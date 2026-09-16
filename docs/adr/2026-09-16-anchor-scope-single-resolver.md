@@ -2,10 +2,10 @@
 title: "Anchor scope is resolved through one shared module, in two explicit projections, and never re-read from raw columns"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-09-16
 supersedes: []
-implementation_state: blocked
+implementation_state: shipped
 affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-08-28-fixed-vs-recurring-events.md]
 related_tickets:
@@ -204,6 +204,18 @@ Two facts constrain the fix:
    Recommendation: (c) preserve as the real fix, (b) report — well, not as a
    footnote — for the common residue, (a) not built speculatively. Final call is
    an owner check at implement time, not a silent pick.
+
+   **Shipped (PR-2) with this key, and a known limitation of it.** Preservation
+   matches an unchanged event by a LABEL-based key (day label + block name +
+   event name + cohort): the id-based `anchorSlotKey` cannot survive a Replace,
+   since days and time_blocks are recreated with new ids too. Consequence: if
+   next year's file spells a day differently (`"Mon"` vs `"Monday"`, stray
+   whitespace), the slot fails to re-match and its division scope is REPORTED as
+   flattened though it did not truly change — a false alarm, never silent loss,
+   degrading toward the report (the safe direction). No stable id exists to key
+   on instead, so this is inherent, not a defect. A multi-day event whose days
+   partly re-match reports per event with an "N of M day(s)" reason, so a partial
+   revert is never hidden as a clean carry-over.
 
 ## Considered options (item 2)
 
