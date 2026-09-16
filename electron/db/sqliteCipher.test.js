@@ -69,28 +69,31 @@ describe('isPlaintextSqliteFile — header detection, no driver guesswork', () =
 })
 
 describe('migratePlaintextToEncrypted — orchestration safety (fakes; real crypto in the integration test)', () => {
-  // A fake Database that records the SQL it was asked to run and, on the sqlcipher_export step,
-  // creates the encrypted file via the injected fs so the swap has something to rename. The verify
-  // open succeeds by default; set failVerify to exercise the abort path.
-  function fakeDbFactory({ failVerify = false } = {}) {
+  // A fake Database for the rekey-in-place flow: `pragma('rekey…')` "encrypts" by rewriting the file
+  // content (so a later plaintext read would differ), and the verify reopen's read succeeds by
+  // default. failRekey / failVerify exercise the abort+restore paths.
+  function fakeDbFactory({ failRekey = false, failVerify = false } = {}) {
     const calls = []
-    function Fake(p) {
-      this.p = p
-      calls.push(['open', p])
+    let verifyPhase = false
+    function Fake(p) { this.p = p; calls.push(['open', p]) }
+    Fake.prototype.pragma = function (s) {
+      calls.push(['pragma', s])
+      if (/^rekey/.test(s)) {
+        if (failRekey) throw new Error('rekey failed')
+        fs.writeFileSync(this.p, 'FAKE-ENCRYPTED') // in-place encryption rewrote the file
+        verifyPhase = true
+      } else if (/^key/.test(s)) {
+        if (failVerify) throw new Error('wrong key')
+      }
     }
-    Fake.prototype.exec = function (sql) {
-      calls.push(['exec', sql])
-      const m = sql.match(/ATTACH DATABASE '(.+?)' AS enc/)
-      if (m) fs.writeFileSync(m[1], 'FAKE-ENCRYPTED') // the "export" target now exists to be renamed
-    }
-    Fake.prototype.pragma = function (s) { calls.push(['pragma', s]); if (failVerify) throw new Error('wrong key') }
     Fake.prototype.prepare = function () { return { get: () => ({ n: 1 }) } }
     Fake.prototype.close = function () { calls.push(['close', this.p]) }
     Fake._calls = calls
+    void verifyPhase
     return Fake
   }
 
-  it('backs up FIRST, exports, verifies, swaps, and shreds the backup on success', () => {
+  it('backs up FIRST, rekeys in place, verifies, and shreds the backup on success', () => {
     const f = tmpFile('happy'); fs.writeFileSync(f, 'PLAINTEXT-ORIGINAL')
     const backups = []
     const writeBackup = (p) => { const b = `${p}.bak`; fs.copyFileSync(p, b); backups.push(b); tmp.push(b); return b }
@@ -99,11 +102,9 @@ describe('migratePlaintextToEncrypted — orchestration safety (fakes; real cryp
     const res = migratePlaintextToEncrypted(f, Buffer.alloc(32, 1), { Database: Fake, writeBackup })
 
     expect(res.migrated).toBe(true)
-    expect(fs.readFileSync(f, 'utf8')).toBe('FAKE-ENCRYPTED') // encrypted copy swapped into place
+    expect(fs.readFileSync(f, 'utf8')).toBe('FAKE-ENCRYPTED') // encrypted in place
     expect(fs.existsSync(backups[0])).toBe(false) // backup shredded on success
-    // backup happened before any DB open
-    const seq = Fake._calls.map((c) => c[0])
-    expect(seq.includes('exec')).toBe(true)
+    expect(Fake._calls.some((c) => c[0] === 'pragma' && /^rekey/.test(c[1]))).toBe(true)
   })
 
   it('is FATAL if the backup fails — never proceeds to touch the db', () => {
@@ -117,14 +118,23 @@ describe('migratePlaintextToEncrypted — orchestration safety (fakes; real cryp
     expect(fs.readFileSync(f, 'utf8')).toBe('PLAINTEXT') // original untouched
   })
 
-  it('ABORTS without replacing the original if the encrypted copy fails verification', () => {
+  it('RESTORES the plaintext db from backup if rekey fails', () => {
+    const f = tmpFile('rekeyfail'); fs.writeFileSync(f, 'PLAINTEXT-ORIGINAL')
+    const writeBackup = (p) => { const b = `${p}.bak`; fs.copyFileSync(p, b); tmp.push(b); return b }
+    const Fake = fakeDbFactory({ failRekey: true })
+
+    expect(() => migratePlaintextToEncrypted(f, Buffer.alloc(32, 1), { Database: Fake, writeBackup }))
+      .toThrow(/rekey/)
+    expect(fs.readFileSync(f, 'utf8')).toBe('PLAINTEXT-ORIGINAL') // restored from backup
+  })
+
+  it('RESTORES from backup if the encrypted db fails verification', () => {
     const f = tmpFile('badverify'); fs.writeFileSync(f, 'PLAINTEXT-ORIGINAL')
     const writeBackup = (p) => { const b = `${p}.bak`; fs.copyFileSync(p, b); tmp.push(b); return b }
     const Fake = fakeDbFactory({ failVerify: true })
 
     expect(() => migratePlaintextToEncrypted(f, Buffer.alloc(32, 1), { Database: Fake, writeBackup }))
       .toThrow(/verification/)
-    expect(fs.readFileSync(f, 'utf8')).toBe('PLAINTEXT-ORIGINAL') // original NOT replaced
-    expect(fs.existsSync(`${f}.enc-migrate`)).toBe(false) // bad copy cleaned up
+    expect(fs.readFileSync(f, 'utf8')).toBe('PLAINTEXT-ORIGINAL') // rekey rewrote it, verify failed, restored
   })
 })

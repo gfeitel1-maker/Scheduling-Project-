@@ -64,13 +64,27 @@ Built, behind the same staged flag (default OFF). What landed:
   wrong key fails; `{plaintext:true}` does not migrate a fixture). Gated: it SKIPS with a visible
   "driver ABSENT — not a pass" marker where the driver is not usably built.
 
-**Why the integration test skips HERE (definitively diagnosed, not load):** this machine runs Node
-25.8.1 with only Apple clang 16 (no Homebrew LLVM). The driver's from-source build fails because clang
-16 cannot compile Node 25's V8 header syntax (`ReadExternalPointerField<{...}>`) even though binding.gyp
-already sets `-std=c++20`; regular better-sqlite3 only works via a prebuilt. There is no Node-25
-prebuilt for the fork and no newer compiler here. The integration test — and therefore the real crypto
-round-trip + migration — **will run and must pass on any Node-LTS / CI environment** where the driver
-builds; that run is the remaining verification before the flag's default can flip.
+**VERIFIED UNDER NODE (2026-09-16), and it caught a real bug.** The driver cannot build for Node 25.8.1
+here (Apple clang 16 — the only compiler on this Tier-3 Intel Mac, no bottles — cannot compile Node
+25's V8 header syntax `ReadExternalPointerField<{...}>` even at `-std=c++20`; regular better-sqlite3
+only works via a prebuilt). So the driver was built from source for **node@22.23.2** (whose headers
+clang 16 *can* compile) and the real crypto exercised there via a standalone harness
+(`scratchpad/verify-sqlcipher.mjs`, run under node@22 to avoid the node@25-ABI regular driver /
+openLocalDb). Result: **9/9 real-driver assertions PASS** — fresh keyed db is encrypted on disk +
+reads back, wrong key rejected, plaintext→encrypted migration preserves data + shreds the backup,
+backup failure fatal.
+- **The bug it caught (would have broken every real migration):** the migration used
+  `sqlcipher_export()`, which threw *"no such function"* — that is SQLCipher-proper; this driver is
+  SQLite3MultipleCiphers, which encrypts a plaintext db IN PLACE via `PRAGMA rekey`. Fixed
+  (backup→rekey→verify→shred, restore-from-backup on any failure). The unit tests missed it because
+  they used a fake DB; the real driver caught it. This is the whole reason the verification mattered.
+- **Toolchain recorded (per review):** verified with node@22.23.2 + better-sqlite3-multiple-ciphers
+  12.11.1, built by Apple clang 16. A CI build on a Node-LTS image is a different artifact.
+- **Still NOT end-to-end:** this is Node-level proof. It does NOT prove the driver loads under
+  **Electron's** ABI — a module-load failure there would be invisible to any Node/Vitest test. That
+  Electron-ABI load + a real-app boot with encryption on is part of the real-app verification the
+  owner is taking; the committed `sqliteCipher.integration.test.js` runs the same checks on CI where
+  the driver builds for the CI runtime.
 
 ## Gaps — status
 - [x] **Finding 3 — startup hard-fail wrapped.** main.js's key-acquisition block (`acquireDbKey`/

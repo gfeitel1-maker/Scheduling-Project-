@@ -50,10 +50,15 @@ export function isPlaintextSqliteFile(filePath, { fsImpl = fs } = {}) {
 // SAFETY (assessment finding 4), now that there is no live camp data but the code must be right for
 // when there is:
 //   - a pre-migration backup is written FIRST and its failure is FATAL (no backup → do not proceed);
-//   - the encrypted copy is produced beside the original via sqlcipher_export, then verified by
-//     re-opening WITH the key and reading a row BEFORE the plaintext original is replaced;
-//   - only after the swap AND a successful verify is the plaintext backup shredded — a failed verify
-//     restores from backup and throws, never leaving a half-migrated or unreadable db.
+//   - the db is encrypted in place, then verified by re-opening WITH the key and reading a row;
+//   - the plaintext backup is shredded ONLY after a successful verify — any failure (rekey or verify)
+//     restores the plaintext db from the backup and throws, never leaving a half-encrypted db.
+//
+// Encryption is done with `PRAGMA rekey` — the SQLite3MultipleCiphers way to encrypt a plaintext
+// database IN PLACE. (NOT `sqlcipher_export`: that is a SQLCipher-proper function and is not
+// available in this driver — the real-driver integration test proved it throws "no such function".)
+// rekey rewrites the whole file encrypted; because that edits the original, the pre-migration backup
+// is the safety net if it fails partway, and it is restored-from on any failure before we rethrow.
 //
 // `Database` is injected (the better-sqlite3-multiple-ciphers constructor) so this is testable.
 export function migratePlaintextToEncrypted(filePath, key, {
@@ -64,7 +69,8 @@ export function migratePlaintextToEncrypted(filePath, key, {
   if (!Database) throw new Error('migratePlaintextToEncrypted: a Database constructor is required')
   if (!writeBackup) throw new Error('migratePlaintextToEncrypted: a writeBackup fn is required')
 
-  // 1. Backup first — FATAL on failure. This is the only copy of the pre-migration bytes.
+  // 1. Backup first — FATAL on failure. This is the only copy of the pre-migration bytes, and rekey
+  //    edits the original in place, so without it a failed rekey could strand the data.
   let backupPath
   try {
     backupPath = writeBackup(filePath)
@@ -75,53 +81,52 @@ export function migratePlaintextToEncrypted(filePath, key, {
     throw e
   }
 
-  const encPath = `${filePath}.enc-migrate`
-  // Clean any leftover from a prior interrupted attempt (idempotent).
-  for (const p of [encPath, `${encPath}-wal`, `${encPath}-shm`]) {
-    try { if (fsImpl.existsSync(p)) fsImpl.unlinkSync(p) } catch { /* ignore */ }
+  const restoreFromBackup = () => {
+    // rekey may have partially rewritten the file; put the known-good plaintext copy back so the
+    // caller's retry (or the next launch) starts from an intact db, not a half-encrypted one.
+    try {
+      for (const suffix of ['-wal', '-shm']) {
+        const p = `${filePath}${suffix}`
+        if (fsImpl.existsSync(p)) fsImpl.unlinkSync(p)
+      }
+      fsImpl.copyFileSync(backupPath, filePath)
+    } catch { /* best effort — the backup itself still exists at backupPath regardless */ }
   }
 
-  // 2. Open plaintext, export into a new encrypted db beside it.
-  const plain = new Database(filePath)
+  // 2. Open the plaintext db (no key) and encrypt it IN PLACE with rekey.
   try {
-    const hex = key.toString('hex')
-    plain.exec(`ATTACH DATABASE '${encPath.replace(/'/g, "''")}' AS enc KEY "x'${hex}'"`)
-    plain.exec("SELECT sqlcipher_export('enc')")
-    plain.exec('DETACH DATABASE enc')
-  } finally {
-    plain.close()
+    const plain = new Database(filePath)
+    try {
+      plain.pragma(`rekey = "x'${key.toString('hex')}'"`)
+    } finally {
+      plain.close()
+    }
+  } catch (err) {
+    restoreFromBackup()
+    const e = new Error(`at-rest migration aborted: encrypting the database (PRAGMA rekey) failed ` +
+      `(${err?.message ?? err}). Restored the plaintext db from backup; a copy is also at ${backupPath}.`)
+    e.code = 'rekey_failed'
+    throw e
   }
 
-  // 3. VERIFY the encrypted copy opens with the key and reads back before we destroy the original.
+  // 3. VERIFY: reopen WITH the key and read, before we shred the only plaintext copy.
   try {
-    const check = new Database(encPath)
+    const check = new Database(filePath)
     try {
       check.pragma(rawKeyPragma(key))
-      // A read that would fail on a wrong key or a corrupt export.
-      check.prepare("SELECT count(*) AS n FROM sqlite_master").get()
+      check.prepare('SELECT count(*) AS n FROM sqlite_master').get() // fails on a wrong key / corrupt db
     } finally {
       check.close()
     }
   } catch (err) {
-    // Verify failed — leave the plaintext original untouched, remove the bad encrypted copy, restore
-    // nothing (original was never changed), and throw. The backup also still exists.
-    for (const p of [encPath, `${encPath}-wal`, `${encPath}-shm`]) {
-      try { if (fsImpl.existsSync(p)) fsImpl.unlinkSync(p) } catch { /* ignore */ }
-    }
-    const e = new Error(`at-rest migration aborted: the encrypted copy failed verification (${err?.message ?? err}). ` +
-      `The original plaintext db is untouched and a backup is at ${backupPath}.`)
+    restoreFromBackup()
+    const e = new Error(`at-rest migration aborted: the encrypted db failed verification (${err?.message ?? err}). ` +
+      `Restored the plaintext db from backup; a copy is also at ${backupPath}.`)
     e.code = 'verify_failed'
     throw e
   }
 
-  // 4. Swap: remove the plaintext original (and its sidecars), move the encrypted copy into place.
-  for (const suffix of ['-wal', '-shm', '']) {
-    const p = `${filePath}${suffix}`
-    try { if (fsImpl.existsSync(p)) fsImpl.unlinkSync(p) } catch { /* ignore */ }
-  }
-  fsImpl.renameSync(encPath, filePath)
-
-  // 5. Success — shred the plaintext backup (finding 4: the .bak is the only remaining cleartext copy).
+  // 4. Success — shred the plaintext backup (finding 4: the .bak is the only remaining cleartext copy).
   try { if (fsImpl.existsSync(backupPath)) fsImpl.unlinkSync(backupPath) } catch { /* non-fatal — best effort */ }
 
   return { migrated: true, backupPath }
