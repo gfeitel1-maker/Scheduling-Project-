@@ -28,14 +28,19 @@ Electron unlock helper).
 - [x] `runIngestCli` accepts `dbKey` and threads it to its `openLocalDb`.
 - [x] Provably inert: 63 MCP/CLI/rebuild/resolver/cipher tests green with no key (unchanged behavior).
 
-## Remaining — slice 2: producer side (the Electron unlock helper)
-- [ ] A small Electron entry (run as the logged-in user) that unseals the device key via
-  `safeStorage`/`getOrCreateDbKey` and puts it on the protected channel for a single tool invocation
-  (env for a child it spawns, or a `chmod 600` file the tool reads then deletes). Settle env-vs-file
-  ergonomics here.
+## Slice 2: producer side (the Electron unlock helper)
+- [x] `electron/unlockDbKey.js` — an Electron entry (run as the logged-in user) that unseals the
+  device key via `safeStorage`/`getOrCreateDbKey` and emits it on the protected channel:
+  `--print` (hex to stdout, for `SHORESH_DB_KEY="$(...)"`) or `--to-file <path>` (a `0600` file, for
+  `SHORESH_DB_KEY_FILE`). `npm run unlock-key`. The emit/argv logic is pure + unit-tested (6 tests);
+  the safeStorage glue runs only when the file is the Electron entry point (never under vitest).
+- [x] Adds no new trust — same OS-user keychain access the app itself uses.
+
+## Remaining
 - [ ] End-to-end: MCP/CLI open an ENCRYPTED DB via the unlock helper, verified against the real
   driver on a build env where it compiles (same constraint as T175 — Apple clang 16 can't build the
-  driver for Node 25; verify under a Node-LTS/Electron build).
+  driver for Node 25; verify under a Node-LTS/Electron build). The encrypting driver DID build for
+  Electron's ABI in the T175 packaged build, so the Electron path is promising.
 - [ ] `security-assessment` re-review of the key channel (the sensitive part) before the encryption
   flag's default flips.
 
