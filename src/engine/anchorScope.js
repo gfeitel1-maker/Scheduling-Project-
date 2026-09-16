@@ -28,3 +28,27 @@ export function resolveAnchorGroupIds(anchor, groups) {
   if (import.meta.env?.DEV) assertIdListShape(anchor.group_ids, 'group_ids', anchor.id)
   return anchor.group_ids || []
 }
+
+/**
+ * The days a fixed/recurring event covers, resolved against the live day list.
+ *
+ * A null/empty `day_id` means EVERY day — never "no days". That rule existed in
+ * two places the moment the anchored-activity exclusion became day-keyed (Q5):
+ * Pass 1's `anchorLookup` in buildSchedule.js, and the exclusion Map itself.
+ * Extracted here rather than left duplicated, on the same reasoning that
+ * produced resolveAnchorGroupIds one day earlier — two copies of a scope rule
+ * is precisely how weekCatalog came to read `group_ids` raw while the engine
+ * resolved divisions, and how several sibling defects arose on 2026-09-16.
+ *
+ * Deliberately NOT a projection and NOT inferential: unlike the unit/division
+ * question, there is nothing to infer here and no confidence to carry.
+ *
+ * `days` must be the LIVE day list at evaluation time, for the same reason
+ * resolveAnchorGroupIds takes live groups: a snapshot silently reintroduces the
+ * staleness T180 removed, and nothing would fail.
+ */
+export function resolveAnchorDayIds(anchor, days) {
+  const dayId = anchor?.day_id
+  if (dayId != null && dayId !== '') return [dayId]
+  return (days || []).map((d) => d.id)
+}

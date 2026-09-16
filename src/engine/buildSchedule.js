@@ -1,6 +1,6 @@
 import { assertIdListShape } from './assertIdListShape.js'
 import { indexActivitiesByName, resolveAnchorActivityIds } from './anchorActivityLink.js'
-import { resolveAnchorGroupIds } from './anchorScope.js'
+import { resolveAnchorGroupIds, resolveAnchorDayIds } from './anchorScope.js'
 import { isActivityEligibleForGroup } from './eligibility.js'
 import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
 import { resolveWeekCatalog } from './weekCatalog.js'
@@ -156,7 +156,16 @@ export function anchoredActivityIdsByGroupDay(anchors, activities, groups, { day
     (a) => a.schedule_week_id == null || a.schedule_week_id === weekId
   )
   const activitiesByName = indexActivitiesByName(activities)
-  const allDayIds = (days || []).map((d) => d.id)
+  // An empty `days` makes every null-day_id anchor mark NOTHING — a guard that
+  // silently stops guarding. Unreachable-in-effect from scheduleCohort (no days
+  // means no slots to place, so it excludes nothing from nothing), but REACHABLE
+  // from computeFindings, which runs against PERSISTED slots with `days` passed
+  // from screen state: if slots have loaded and days has not, ANCHOR_DUPLICATE
+  // silently under-reports. Loud in DEV, no production behaviour change — the
+  // same convention assertIdListShape uses in buildSchedule.js. (Q5 review.)
+  if (import.meta.env?.DEV && (days || []).length === 0 && (anchors || []).some((a) => a.day_id == null || a.day_id === '')) {
+    console.warn('anchoredActivityIdsByGroupDay: empty `days` with all-day anchors — exclusion will be empty')
+  }
   const byGroupDay = new Map() // "groupId|dayId" → Set<activityId>
   for (const anchor of filtered) {
     // Group scope goes through the single seam (anchorCoveredGroupIds) — never
@@ -165,13 +174,9 @@ export function anchoredActivityIdsByGroupDay(anchors, activities, groups, { day
 
     const anchoredIds = resolveAnchorActivityIds(anchor, activitiesByName)
     if (anchoredIds.length === 0) continue
-    // A null/empty day_id means EVERY day — the same rule Pass 1 applies to
-    // anchorLookup (see dayList below). Kept identical on purpose: two
-    // different readings of "which days does this anchor cover" is how this
-    // area grew its bugs.
-    const dayList = (anchor.day_id != null && anchor.day_id !== '')
-      ? [anchor.day_id]
-      : allDayIds
+    // Same shared atom Pass 1 uses — one reading of "which days does this
+    // anchor cover", not two.
+    const dayList = resolveAnchorDayIds(anchor, days)
     for (const gid of groupList) {
       for (const did of dayList) {
         const k = `${gid}|${did}`
@@ -241,10 +246,9 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     // the one-liner is the correct side.
     const groupList = resolveAnchorGroupIds(anchor, groups)
 
-    // day_id null/undefined means every day
-    const dayList = (anchor.day_id != null && anchor.day_id !== '')
-      ? [anchor.day_id]
-      : days.map(d => d.id)
+    // day_id null/undefined means every day — resolved through the shared atom
+    // so this and the exclusion Map cannot answer it differently (Q5 review).
+    const dayList = resolveAnchorDayIds(anchor, days)
 
     const spanBlocks = anchor.span_blocks || 1
 
@@ -780,6 +784,17 @@ export function computeFindings({ slots, groups, activities, days, anchors, week
     })
     const anchoredByGroupDay = anchoredActivityIdsByGroupDay(effAnchors, effActivities, effGroups, { days, weekId })
     const activityById = new Map(activities.map(a => [a.id, a]))
+    // Dedup stays WEEK-scoped ("groupId|activityId") even though the exclusion
+    // above is now day-scoped, and that asymmetry is deliberate — do not
+    // "fix" it. The dismissal key in the UI is `groupId|activityId|kind` with
+    // NO day (src/screens/ScheduleScreen.jsx:567 and :621). Adding day here
+    // would emit two findings sharing ONE dismissal key: a duplicated row in
+    // the rail, and dismissing either would dismiss both. The `reason` copy is
+    // week-granular ("is also a fixed event this week") for the same reason.
+    // Consequence, accepted: two same-week duplicates on different days surface
+    // one at a time — the director clears one and the next recalc surfaces the
+    // other. Self-healing across iterations, acceptable for a caution.
+    // (Q5 review, gracious-thompson — who went looking to argue the opposite.)
     const seen = new Set() // "groupId|activityId" — one finding per pair
     for (const s of activitySlots) {
       // Day-scoped, matching placement (Q5). Without this the finding would
