@@ -51,6 +51,9 @@
     "ws": "^8.21.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
+  "optionalDependencies": {
+    "better-sqlite3-multiple-ciphers": "12.11.1"
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@modelcontextprotocol/sdk": "^1.30.0",

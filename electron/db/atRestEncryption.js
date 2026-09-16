@@ -26,6 +26,15 @@ export function isAtRestEncryptionEnabled() {
   return AT_REST_ENCRYPTION === 'on'
 }
 
+// acquireDbKey(userDataDir, safeStorage) -> Buffer(32) | null
+// The raw per-device key for SQLite (SQLCipher PRAGMA key), or null when encryption is off. This is
+// the SAME key acquireDocCipher uses — one device key locks both the .automerge document and the
+// SQLite db (ADR decision). Throws (fail-closed) if enabled but the keychain is unavailable.
+export function acquireDbKey(userDataDir, safeStorage) {
+  if (!isAtRestEncryptionEnabled()) return null
+  return getOrCreateDbKey(userDataDir, safeStorage)
+}
+
 // acquireDocCipher(userDataDir, safeStorage) -> { encrypt, decrypt } | null
 // Returns the per-device document cipher when encryption is enabled, else null (plaintext — the
 // caller keeps its existing behavior). Injecting safeStorage keeps this unit-testable without

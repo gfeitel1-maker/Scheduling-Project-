@@ -44,7 +44,7 @@ import { resolveConflictInDoc } from './automerge/reconcile.js'
 import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn } from './db/migrationDomainState.js'
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
-import { acquireDocCipher, isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
+import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { recordDeviceHealthEvent, DEVICE_HEALTH } from './ops/deviceHealthEvents.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
@@ -1934,7 +1934,9 @@ if (isElectronEntryPoint()) {
   // data), but it must arrive as the human recovery story, not a raw stack trace (assessment
   // finding 3) — see docs/current/KEY_RECOVERY_STORY.md.
   let docCipher = null
+  let dbKey = null
   try {
+    dbKey = acquireDbKey(userDataPath, safeStorage) // null when encryption is off → SQLite stays plaintext
     docCipher = acquireDocCipher(userDataPath, safeStorage)
   } catch (err) {
     console.error(
@@ -1954,7 +1956,7 @@ if (isElectronEntryPoint()) {
 
   // Mutable state — swapped by project-lifecycle handlers (open/create/restore).
   let dbPath = getCurrentProjectPath(userDataPath, defaultDbPath)
-  let db = openLocalDb(dbPath)
+  let db = openLocalDb(dbPath, { key: dbKey })
   let deviceId = getOrCreateDeviceId(db)
 
   let mainWindow = null
@@ -2116,7 +2118,7 @@ if (isElectronEntryPoint()) {
   function reinitialize(newPath) {
     // Open new db FIRST — if it throws (schema_too_new, corrupt file, etc.)
     // the old db is still open and all existing handlers remain valid.
-    const newDb = openLocalDb(newPath) // throws schema_too_new if applicable
+    const newDb = openLocalDb(newPath, { key: dbKey }) // throws schema_too_new if applicable; keyed when encryption is on
     const newDeviceId = getOrCreateDeviceId(newDb)
     const newHandlers = makeHandlers(newDb, newDeviceId, {
       getMainWindow: () => mainWindow,
@@ -2349,7 +2351,8 @@ if (isElectronEntryPoint()) {
 
     let newDb
     try {
-      newDb = openLocalDb(dbPath)
+      // Keyed when encryption is on: a restored plaintext backup is migrated to encrypted on open.
+      newDb = openLocalDb(dbPath, { key: dbKey })
     } catch (err) {
       return { error: 'restore_failed', message: err.message }
     }

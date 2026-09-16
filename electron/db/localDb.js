@@ -2,8 +2,15 @@ import Database from 'better-sqlite3'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { writePreMigrationBackup } from './projectManager.js'
+import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted } from './sqliteCipher.js'
+
+// Synchronous, lazy require for the OPTIONAL encrypting driver — only reached when a key is passed
+// (see encryptingDatabaseCtor). ESM has no sync import, and openLocalDb is sync, so createRequire is
+// the right tool; it never loads the fork unless encryption is actually on.
+const _lazyRequire = createRequire(import.meta.url)
 import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
 import { deriveLocationId } from '../ops/locationId.js'
 import { applyProjection } from '../ops/projections.js'
@@ -3033,10 +3040,59 @@ export function migrationSpanFor(db) {
   return migrationSpans.get(db) ?? null
 }
 
-export function openLocalDb(filePath) {
+// At-rest encryption (ADR 2026-09-15, T175). The encrypting driver
+// (better-sqlite3-multiple-ciphers) is loaded LAZILY and only when a key is actually passed, so the
+// default (no-key) path keeps using the statically-imported better-sqlite3 exactly as before — the
+// app and every test that opens a plaintext db are completely unaffected, and the encrypting driver
+// is never even required unless encryption is enabled. If it is enabled but the driver is missing or
+// unbuilt, we fail CLOSED with a clear error rather than silently opening plaintext.
+let _encryptingCtor = null
+function encryptingDatabaseCtor() {
+  if (_encryptingCtor) return _encryptingCtor
+  try {
+    const ctor = _lazyRequire('better-sqlite3-multiple-ciphers')
+    // require() succeeding does NOT prove the native binding is built — better-sqlite3 locates its
+    // .node lazily (via `bindings`) and only fails at construction. Prove usability here, once, so an
+    // unbuilt driver surfaces as a clear "driver missing" fail-closed rather than an opaque
+    // bindings-file error on the first real open.
+    ctor(':memory:').close()
+    _encryptingCtor = ctor
+  } catch (err) {
+    const e = new Error(
+      'At-rest encryption is enabled but the encrypting SQLite driver ' +
+        '(better-sqlite3-multiple-ciphers) is not installed or failed to build for this runtime ' +
+        `(${err?.message ?? err}). Refusing to open the database — encryption on with no driver must ` +
+        'not silently fall back to a plaintext read.'
+    )
+    e.code = 'encrypting_driver_missing'
+    throw e
+  }
+  return _encryptingCtor
+}
+
+// openLocalDb(filePath, { key, plaintext })
+//   key: a Buffer(32) from the OS keychain (electron/db/atRestEncryption.js#acquireDbKey) → the db is
+//     opened encrypted (SQLCipher), migrating an existing plaintext file across first. null/absent →
+//     plaintext via the default driver, unchanged.
+//   plaintext: true → force the plaintext driver even if a key is passed. TEST-ONLY, for the
+//     committed plaintext era fixtures (a gate asserts it appears only under test/). It exists so a
+//     future caller cannot accidentally MIGRATE (mutate) a committed fixture by passing a key.
+export function openLocalDb(filePath, { key = null, plaintext = false } = {}) {
   let db
   try {
-    db = new Database(filePath)
+    if (key && !plaintext) {
+      const EncDatabase = encryptingDatabaseCtor()
+      // Migrate an existing plaintext file to encrypted BEFORE opening it keyed (a keyed open of a
+      // plaintext file would fail). Detection is by file header, not trial-and-error. A new/absent or
+      // already-encrypted file is left for the keyed open below.
+      if (isPlaintextSqliteFile(filePath)) {
+        migratePlaintextToEncrypted(filePath, key, { Database: EncDatabase, writeBackup: writePreMigrationBackup })
+      }
+      db = new EncDatabase(filePath)
+      db.pragma(rawKeyPragma(key)) // MUST be the first statement on the connection
+    } else {
+      db = new Database(filePath)
+    }
     db.pragma('foreign_keys = ON')
     db.pragma('journal_mode = WAL')
     db.pragma('busy_timeout = 5000')
