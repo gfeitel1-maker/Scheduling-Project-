@@ -12,7 +12,7 @@
 // downgrades to print-and-exit-0 for a local sweep, and is not for CI or for
 // getting a branch through.
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -568,6 +568,252 @@ export function checkWritableEntitiesCanSync(projections, modeled) {
         'docs/current/WHERE_DATA_LIVES.md'))
 }
 
+/**
+ * A descriptive doc must not name code that does not exist.
+ *
+ * Measured 2026-09-15: PLATFORM_STATE.md named ~25 files that had been deleted
+ * (seven whole screens), SECURITY.md still named the removed WebSocket transport,
+ * and CLAUDE.md described `syncServer.js`/`syncClient.js` and `JoinScreen`. None of
+ * it was visible to the existing checks — `checkStatusDrift` reads frontmatter
+ * status, `checkPlatformStateFreshness` compares commit dates, and neither can see
+ * whether a SENTENCE names real code. A stale doc that is specific is trusted
+ * BECAUSE it is specific; that is what makes this class expensive rather than
+ * merely untidy.
+ *
+ * Scope is deliberately narrow — only the docs that claim to describe what IS.
+ * ADRs, tickets, handoffs and archives legitimately name deleted code: that is
+ * what a historical record is for, and flagging it would make the gate noise.
+ *
+ * Known limit, stated so it is not mistaken for an oversight: this catches
+ * DELETED files only. A doc describing a file that still exists but now behaves
+ * differently passes clean — `DEFAULT_LISTEN` being loopback while the shipped
+ * app overrides it was exactly that kind of error, and no mechanical check of
+ * this shape would have caught it.
+ */
+export const DESCRIPTIVE_DOC_PATHS = ['CLAUDE.md', 'README.md', 'SECURITY.md']
+export const DESCRIPTIVE_DOC_DIRS = ['docs/current/']
+
+/** Paths a descriptive doc names in order to say they are GONE. Reason required. */
+export const DELIBERATELY_ABSENT = new Map([
+  ['src/hooks/useSession.js',
+    'removed when the Supabase path was retired; CLAUDE.md names it precisely to record that it no longer exists'],
+  ['src/supabase.js',
+    'moved to legacy/supabase/supabase.js; CLAUDE.md names the old path to document where it went'],
+  ['syncServer.js',
+    'the WebSocket sync layer deleted in the Stage 6 cutover; SECURITY.md and PLATFORM_STATE.md both name it to record that it is gone'],
+  ['syncClient.js',
+    'the WebSocket sync layer deleted in the Stage 6 cutover; SECURITY.md and PLATFORM_STATE.md both name it to record that it is gone'],
+  ['electron/sync/syncServer.js',
+    'same deletion, named by full path in PLATFORM_STATE.md\'s "Removed / Replaced" section'],
+  ['electron/sync/syncClient.js',
+    'same deletion, named by full path in PLATFORM_STATE.md\'s "Removed / Replaced" section'],
+  ['provenance.s2a.test.js',
+    'retired with the WebSocket transport; CRDT_SECURITY_GAPS.md names it to record which test went away and why'],
+
+  // Named inside a LIVE section of PLATFORM_STATE.md — a row or sentence whose
+  // job is to say what the current thing replaced. Each is a one-line "X, which
+  // replaced Y" note, which is why it is not inside a historical region marker.
+  ['JoinScreen.jsx',
+    'replaced by JoinByCodeScreen.jsx at Stage 6; the Screens table names it so the row explains what changed'],
+  ['ReconciliationQueue.jsx',
+    'folded into ReconciliationScreen.jsx (R2\'b); named to record which components it replaced'],
+  ['ReconciliationSummary.jsx', 'same R2\'b rebuild — named to record what it replaced'],
+  ['ReconciliationLedger.jsx', 'same R2\'b rebuild — named to record what it replaced'],
+  ['SpecialDaysScreen.jsx',
+    'merged into SpecialEventsScreen.jsx (ADR 2026-08-29); named to record the merge'],
+  ['CalmEmptyState.jsx',
+    'the never-imported empty-state component, named in the imagery section precisely to record that it was removed unused'],
+  ['src/data/deriveOccupancy.js',
+    'deleted with the spatial layer (PR #201); named by full path where the removal is explained'],
+  ['run.js',
+    'the integration runner before Stage 6, now run.automerge.js; the Test Coverage section names the old name to explain the rename'],
+  ['electron/sync/scheduleE2E.sync.test.js',
+    'the WS-transport end-to-end test, retired at Stage 6; named in a historical FIXED note about applyRemoteOp'],
+])
+
+// --- reference extraction ---------------------------------------------------
+//
+// The first implementation (recovered from tag archive/grpc-doc-gate) matched
+// ONLY a `token.ext` sitting alone inside inline backticks, and resolved any
+// slashed path by BASENAME. The anti-vacuity suite in checkDocFileRefs.test.js
+// showed that shape is close to vacuous: a path inside a ```fence```, a
+// `file.js:42` line reference, a directory, a `dir/**` glob tail, a dead
+// markdown link, and a `.mjs`/`.md` file were all invisible — and
+// `electron/sync/discovery.js` resolved CLEAN against the real
+// electron/sync/automerge/discovery.js, which is precisely the wrong claim this
+// gate exists to catch. Extraction is therefore wider and resolution stricter
+// than the recovered code.
+
+const SOURCE_EXT = /\.(?:js|jsx|mjs|cjs|ts|tsx|json|sql|css|md|html|sh|ya?ml)$/
+
+/**
+ * A descriptive doc contains a historical layer inside it, and naming deleted
+ * code there is the POINT — PLATFORM_STATE.md's "Removed / Replaced" section
+ * exists to say what went away. Gating that would make the check pure noise and
+ * get it switched off, so three exemptions are recognised, in rising order of
+ * how explicit the author has to be:
+ *
+ *   1. A line containing a `~~strikethrough~~`. The doc has already marked that
+ *      sentence as describing something struck out.
+ *   2. A line opening with `_Prior:` — this corpus's convention for a dated
+ *      header note kept for the record.
+ *   3. An explicit `<!-- doc-refs:historical -->` … `<!-- /doc-refs:historical -->`
+ *      region, for a whole section of changelog or removal notes.
+ *
+ * Each is line-scoped on purpose: these documents run one paragraph per line, so
+ * the line is the unit an author actually reasons about.
+ */
+const HISTORICAL_OPEN = '<!-- doc-refs:historical -->'
+const HISTORICAL_CLOSE = '<!-- /doc-refs:historical -->'
+
+export function stripHistorical(text) {
+  let inRegion = false
+  return String(text).split('\n').map((line) => {
+    if (line.includes(HISTORICAL_OPEN)) { inRegion = true; return '' }
+    if (line.includes(HISTORICAL_CLOSE)) { inRegion = false; return '' }
+    if (inRegion) return ''
+    if (line.includes('~~')) return ''
+    if (/^\s*_?_?Prior:/.test(line)) return ''
+    return line
+  }).join('\n')
+}
+
+/** Inline code spans, fenced-block bodies, and markdown link targets. */
+function* candidateTokens(text) {
+  const src = String(text)
+  for (const [, body] of src.matchAll(/```[^\n]*\n([\s\S]*?)```/g)) yield* body.split(/\s+/)
+  for (const [, span] of src.matchAll(/`([^`\n]+)`/g)) yield* span.split(/\s+/)
+  for (const [, target] of src.matchAll(/\]\(([^)\s]+)\)/g)) yield target
+}
+
+/** Strip the decoration prose puts around a path. */
+function normalizeToken(raw) {
+  let t = String(raw).trim().replace(/^[([{'"<]+/, '').replace(/[)\]},.;:'">]+$/, '')
+  t = t.replace(/#.*$/, '')                          // path.js#exportName
+  t = t.replace(/:\d+(?::\d+)?$/, '')                // file.js:42 and file.js:42:7
+  t = t.replace(/\/\*\*?$/, '').replace(/\/+$/, '')  // dir/** , dir/* , dir/
+  return t
+}
+
+/** A family or placeholder, not a claim about one real path. */
+const isPattern = (t) => t.includes('*') || t.includes('?') || /(?:^|\/)v\d+N_/.test(t)
+
+/**
+ * Is this token a claim about a path in THIS repo?
+ *
+ * Two admissible shapes, deliberately narrow so shell words, URLs, absolute and
+ * home-relative paths, and scoped package names are never mistaken for claims:
+ *   - it carries a source extension with a real stem before it, or
+ *   - it is a slashed path whose first segment is a top-level entry of the repo.
+ * The second clause is what keeps `Support/shoresh-dev` (the tail of a quoted
+ * ~/Library path, once split on whitespace) and `node_modules/...` out.
+ */
+function isPathClaim(t, topLevel) {
+  if (!t || isPattern(t)) return false
+  if (!/^[A-Za-z0-9_]/.test(t)) return false   // ~/… , /… , ./… , @scope/… , -flag
+  if (t.includes('://')) return false
+  // Code, not a path: `readFileSync('../sync/x.js')` survives whitespace splitting
+  // as one token and must not be read as a claim about `readFileSync('../sync/x.js`.
+  if (/["'()[\]{}<>=]/.test(t)) return false
+  if (t.endsWith('-')) return false            // `docs/adr/2026-08-17-` is a prefix
+  const first = t.split('/')[0]
+  if (first === 'node_modules') return false
+  // A bare `.test.js` is a naming CONVENTION, not a file: require a stem.
+  if (SOURCE_EXT.test(t)) return /[A-Za-z0-9_]\.[A-Za-z0-9]+$/.test(t.split('/').pop())
+  return t.includes('/') && topLevel.has(first)
+}
+
+export function checkDocFileRefs(docs, resolve, topLevel = DEFAULT_TOP_LEVEL) {
+  const findings = []
+  for (const { path, text } of docs) {
+    const seen = new Set()
+    for (const raw of candidateTokens(stripHistorical(text))) {
+      const token = normalizeToken(raw)
+      if (!isPathClaim(token, topLevel) || seen.has(token)) continue
+      seen.add(token)
+      if (DELIBERATELY_ABSENT.has(token) || resolve(token)) continue
+      findings.push(finding('doc-names-missing-file',
+        `${path} names \`${token}\`, which does not exist — the doc describes code that was ` +
+        'deleted or moved. Correct the sentence (do not just delete the reference if the ' +
+        'absence is the point: allowlist it in DELIBERATELY_ABSENT with a reason).'))
+    }
+  }
+  return findings
+}
+
+/** The descriptive corpus: files that claim to describe what the code IS. */
+function readDescriptiveDocs(root) {
+  const out = []
+  for (const rel of DESCRIPTIVE_DOC_PATHS) {
+    const abs = join(root, rel)
+    if (existsSync(abs)) out.push({ path: rel, text: readFileSync(abs, 'utf8') })
+  }
+  for (const dir of DESCRIPTIVE_DOC_DIRS) {
+    const abs = join(root, dir)
+    if (!existsSync(abs)) continue
+    for (const name of readdirSync(abs)) {
+      if (!name.endsWith('.md')) continue
+      out.push({ path: dir + name, text: readFileSync(join(abs, name), 'utf8') })
+    }
+  }
+  return out
+}
+
+// `docs` is in here for the basename index specifically: docs legitimately name
+// a sibling document by bare filename (`DESIGN_STANDARD.md`, an ADR's date-stem)
+// without repeating its directory, and omitting the docs tree made every one of
+// those a false positive.
+const SEARCH_ROOTS = ['src', 'electron', 'test', 'scripts', 'legacy', 'docs']
+
+/** Top-level repo entries a slashed path claim is allowed to start with. */
+export const DEFAULT_TOP_LEVEL = new Set([...SEARCH_ROOTS, 'build', 'public'])
+
+/**
+ * Resolves a doc's path reference.
+ *
+ * Three shapes, resolved differently on purpose:
+ *   - anchored at a repo root (`electron/sync/discovery.js`) — a claim about
+ *     WHERE the file lives, so it must resolve EXACTLY, file or directory. The
+ *     recovered implementation resolved everything by basename, which made a
+ *     wrong-directory claim indistinguishable from a correct one.
+ *   - a partial path (`rollback/v59_down.js`) — a common doc shorthand that was
+ *     never claiming to start at the repo root; resolved by path suffix.
+ *   - a bare module name (`buildSchedule.js`) — resolved by basename.
+ */
+export function makeResolver(root, topLevel = DEFAULT_TOP_LEVEL) {
+  let index = null
+  const build = () => {
+    const names = new Set()
+    const paths = new Set()
+    const walk = (dir, depth) => {
+      if (depth > 8) return
+      let entries
+      try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
+      for (const e of entries) {
+        if (e.name === 'node_modules' || e.name.startsWith('.')) continue
+        const abs = join(dir, e.name)
+        if (e.isDirectory()) { paths.add(abs); walk(abs, depth + 1) }
+        else { names.add(e.name); paths.add(abs) }
+      }
+    }
+    for (const r of SEARCH_ROOTS) {
+      const abs = join(root, r)
+      if (existsSync(abs) && statSync(abs).isDirectory()) walk(abs, 0)
+    }
+    return { names, paths }
+  }
+  return (token) => {
+    if (existsSync(join(root, token))) return true
+    index ??= build()
+    if (!token.includes('/')) return index.names.has(token)
+    // Anchored at a repo root: the exact-path check above was the whole answer.
+    if (topLevel.has(token.split('/')[0])) return false
+    const tail = '/' + token
+    for (const p of index.paths) if (p.endsWith(tail)) return true
+    return false
+  }
+}
+
 export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8' })) {
   const exists = (p) => existsSync(join(root, p))
   const docs = readDocs(root)
@@ -578,6 +824,8 @@ export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8
   findings.push(...checkIndexFreshness(committed, generate(root)))
 
   findings.push(...checkPlatformStateFreshness(root, execFn))
+
+  findings.push(...checkDocFileRefs(readDescriptiveDocs(root), makeResolver(root)))
 
   // Loaded lazily and defensively: this check reads application modules rather
   // than documents, and a doc-hygiene run must not hard-fail because an app
