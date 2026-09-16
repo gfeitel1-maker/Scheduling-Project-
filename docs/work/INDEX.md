@@ -27,6 +27,12 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
 
+### scheduling-engine
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [Surface a stale anchor/regular duplicate in an already-generated schedule (ANCHOR_DUPLICATE finding)](../../docs/work/tickets/T182-stale-anchor-duplicate-finding.md) | in-progress | — |
+
 ### security-auth
 
 | Ticket | Status | Referenced by |
@@ -165,6 +171,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [At-rest encryption of the camp document and SQLite — scoping](../../docs/adr/2026-09-15-at-rest-encryption-scoping.md) | accepted | in_progress | [T175-at-rest-encryption-activation](../../docs/work/tickets/T175-at-rest-encryption-activation.md) · [T176-only-this-computer-warning](../../docs/work/tickets/T176-only-this-computer-warning.md) |
 | [Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) | accepted | proposed | — |
 | [Opinion GateReport inputs are bound to a real, completed subagent dispatch](../../docs/adr/2026-09-15-opinion-report-dispatch-provenance.md) | accepted | shipped | — |
+| [Shared anchor-exclusion helper for the ANCHOR_DUPLICATE finding (T182)](../../docs/adr/2026-09-16-anchor-duplicate-finding.md) | accepted | not_started | [T182-stale-anchor-duplicate-finding](../../docs/work/tickets/T182-stale-anchor-duplicate-finding.md) |
 | [Headless key access for the MCP server and CLI under at-rest encryption](../../docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md) | accepted | in_progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
 
 ## Runs

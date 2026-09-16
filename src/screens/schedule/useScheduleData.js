@@ -53,7 +53,11 @@ export function recalcStats(slotList) {
 // Pure — no setState. `ctx` is exactly what computeFindings needs beyond the
 // slot list: the setup lists it cross-references.
 export function recalcFindings(slotList, ctx) {
-  return computeFindings({ slots: slotList, groups: ctx.groups, activities: ctx.activities, days: ctx.days })
+  return computeFindings({
+    slots: slotList, groups: ctx.groups, activities: ctx.activities, days: ctx.days,
+    anchors: ctx.anchors, weekId: ctx.weekId,
+    activityExclusions: ctx.activityExclusions, groupExclusions: ctx.groupExclusions, locationExclusions: ctx.locationExclusions,
+  })
 }
 
 const EMPTY_SETUP_LISTS = {
@@ -147,7 +151,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
     setLoading(true)
     setLoadError(null)
     setTemplateError(null)
-    let g, a, d, b
+    let g, a, d, b, anc
     try {
       // Cohorts are not used to build a week, only to answer "is setup done"
       // from the same source the sidebar and Camp Setup use. Without it this
@@ -168,7 +172,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       // shape as activities.eligible_group_ids) — normalize once here, at the
       // IPC read boundary, so buildSchedule's pure engine only ever sees a
       // real array. See T63.
-      const anc = (ancd || []).filter(x => x.camp_id === campId)
+      anc = (ancd || []).filter(x => x.camp_id === campId)
         .map(x => ({ ...x, group_ids: parseIdList(x.group_ids) }))
       const t = [...(tierd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
       const sortedTd = [...(td || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
@@ -249,12 +253,19 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       return
     }
     if (!liveWeekId) { if (gen === generationRef.current) setLoading(false); return }
+    // Hoisted to function scope: the generated-route findings pass below needs
+    // this week's exclusions to suppress a week-closed activity from
+    // ANCHOR_DUPLICATE (T182). Kept in a local because setExclusions is async
+    // state and cannot be read back synchronously within this same load.
+    let weekExclusions = EMPTY_EXCLUSIONS
     try {
       const { activityExclusions: ae, groupExclusions: ge, locationExclusions: le } = await repo.loadWeekExclusions(liveWeekId)
       if (gen !== generationRef.current) return
-      setExclusions({ activityExclusions: ae || [], groupExclusions: ge || [], locationExclusions: le || [] })
+      weekExclusions = { activityExclusions: ae || [], groupExclusions: ge || [], locationExclusions: le || [] }
+      setExclusions(weekExclusions)
     } catch {
       if (gen !== generationRef.current) return
+      weekExclusions = EMPTY_EXCLUSIONS
       setExclusions(EMPTY_EXCLUSIONS)
     }
     // Both routes are refreshed on every load. loadAll() re-runs on every
@@ -330,7 +341,20 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
           // read failing, not this additive repair pass).
         }
         nextStats[r] = recalcStats(saved)
-        nextFindings[r] = recalcFindings(saved, { groups: g, activities: a, days: d })
+        // ANCHOR_DUPLICATE is meaningful only on the generated route — a
+        // manual anchor/regular clash already surfaces as OVERLAP at render,
+        // and "regenerate to clear it" is meaningless where there is no
+        // regenerate. Pass anchors/weekId/exclusions only for that route;
+        // computeFindings' safe default (absent anchors → no finding) keeps
+        // manual clean.
+        nextFindings[r] = r === 'generated'
+          ? recalcFindings(saved, {
+              groups: g, activities: a, days: d, anchors: anc, weekId: liveWeekId,
+              activityExclusions: weekExclusions.activityExclusions,
+              groupExclusions: weekExclusions.groupExclusions,
+              locationExclusions: weekExclusions.locationExclusions,
+            })
+          : recalcFindings(saved, { groups: g, activities: a, days: d })
         nextSnaps[r] = (snapData || [])
           .filter(x => x.template_id === tid)
           .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))

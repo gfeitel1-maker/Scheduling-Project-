@@ -220,6 +220,9 @@ export function useGeneration({
     // under its weekly target, as an honest list of what the week owes you.
     // Computed against the week-effective catalog (effGroups/effActivities) so a
     // closed group or activity does not show up owing time it will never run.
+    // No anchors/weekId here — this is the MANUAL route (placeAnchors is the
+    // manual blank-week bootstrap), and ANCHOR_DUPLICATE is generated-route
+    // only (a manual anchor/regular clash already surfaces as OVERLAP).
     setManualFindings(computeFindings({ slots: freshSlots, groups: effGroups, activities: effActivities, days }))
     setManualDismissed(new Set())
     if (groups.length > 0) setSelectedGroup(prev => prev ?? groups[0].id)

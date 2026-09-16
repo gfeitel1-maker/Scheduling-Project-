@@ -23,6 +23,10 @@ export function useSnapshots({
   days,
   timeBlocks,
   anchors,
+  weekId,
+  activityExclusions,
+  groupExclusions,
+  locationExclusions,
 }) {
   const {
     route,
@@ -168,7 +172,11 @@ export function useSnapshots({
     setSlots(freshSlots)
 
     recalcStats(freshSlots)
-    setFindings(computeFindings({ slots: freshSlots, groups, activities, days }))
+    // ANCHOR_DUPLICATE is generated-route only — see useScheduleData's route
+    // loop for the same gate and reasoning.
+    setFindings(computeFindings(route === 'generated'
+      ? { slots: freshSlots, groups, activities, days, anchors, weekId, activityExclusions, groupExclusions, locationExclusions }
+      : { slots: freshSlots, groups, activities, days }))
     setDismissedFindingKeys(new Set())
 
     if (droppedCount > 0) {
