@@ -1908,10 +1908,12 @@ if (isElectronEntryPoint()) {
     app.exit(1)
   }
 
-  // T19: everything below runs at module top level, before whenReady. A throw
-  // here used to abort the module body, leaving an app with no window and no
-  // message anywhere. Wrapped so a fatal startup error is SHOWN rather than
-  // swallowed — see electron/startupFailure.js.
+  // T19 + T175: the setup runs in an async IIFE so it can `await app.whenReady()` before touching
+  // safeStorage (the at-rest key). Empirically, safeStorage.isEncryptionAvailable() is false BEFORE
+  // ready and true after — acquiring the key at module top level (pre-ready) fails closed on a real
+  // device. applyUserDataPath (setName) still runs pre-ready, synchronously, before the await. A
+  // throw here is still SHOWN rather than swallowed (electron/startupFailure.js).
+  ;(async () => {
   try {
   // MUST run before any app.getPath() call and before whenReady(), or setName
   // silently has no effect — see electron/db/userDataPath.js and
@@ -1929,6 +1931,13 @@ if (isElectronEntryPoint()) {
   // on isOpLogEngine() before ever calling it; startAutomergeSyncNodeIfEnabled below gates
   // ensureSeeded the same way). Flag-off therefore still executes zero new logic.
   setAutomergeUserDataDirGetter(() => userDataPath)
+
+  // safeStorage (used by the at-rest key acquisition just below) is only usable AFTER the app is
+  // ready — verified on a real device: isEncryptionAvailable() is false before ready, true after,
+  // with a working encrypt/decrypt round-trip. Await it here. applyUserDataPath above already ran
+  // (setName must precede ready); everything from here down now runs post-ready, which is the normal
+  // place an Electron app opens its resources anyway.
+  await app.whenReady()
 
   // At-rest encryption (ADR 2026-09-15, ticket T175): acquire the per-device document cipher and
   // inject it into liveDoc, so every .automerge read/write goes through it. Default OFF
@@ -2730,4 +2739,5 @@ if (isElectronEntryPoint()) {
   } catch (err) {
     reportStartupFailure(err)
   }
+  })()
 }
