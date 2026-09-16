@@ -15,6 +15,12 @@ Regenerate with `npm run index:work`.
 
 ## Open work
 
+### database-sync
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [recurrence_level is dead data](../../docs/work/tickets/T181-recurrence-level-is-dead-data.md) | open | — |
+
 ### documentation-governance
 
 | Ticket | Status | Referenced by |
