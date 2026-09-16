@@ -1,4 +1,4 @@
-import { normalizeWordKey } from '../utils/normalizeWordKey.js'
+import { groupDuplicatesByName, duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 
 // Location identity is trim-only and case-sensitive by deliberate design
 // (electron/ops/locationId.js, CONSTITUTION Art. V) — "Gym"/"gym" are
@@ -12,31 +12,12 @@ import { normalizeWordKey } from '../utils/normalizeWordKey.js'
 // this comparison never silently disagrees with the "Is <word> a place?"
 // held-conflict card's own notion of "the same word".
 export function groupDuplicateLocations(locations) {
-  const byKey = new Map()
-  for (const loc of locations ?? []) {
-    const key = normalizeWordKey(loc?.name)
-    if (!key) continue
-    if (!byKey.has(key)) byKey.set(key, [])
-    byKey.get(key).push(loc)
-  }
-  const groups = new Map()
-  for (const [key, rows] of byKey) {
-    if (rows.length < 2) continue
-    groups.set(key, [...rows].sort((a, b) => String(a.name).localeCompare(String(b.name))))
-  }
-  return groups
+  return groupDuplicatesByName(locations)
 }
 
 // Per-location lookup of "the other rows sharing my normalized name" — what
 // the render-time marker and its popover need. Empty array for a location
 // with no duplicates.
 export function duplicateSiblingsById(locations) {
-  const groups = groupDuplicateLocations(locations)
-  const map = new Map()
-  for (const rows of groups.values()) {
-    for (const row of rows) {
-      map.set(row.id, rows.filter((r) => r.id !== row.id))
-    }
-  }
-  return map
+  return duplicateSiblingsByIdFor(locations)
 }

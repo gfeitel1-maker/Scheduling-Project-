@@ -11,6 +11,8 @@ vi.mock('../localClient', () => ({
     previewDelete: vi.fn(),
     deleteRecord: vi.fn(),
     listImportEvidence: vi.fn(),
+    mergeActivity: vi.fn(),
+    previewActivityMerge: vi.fn(),
   },
 }))
 
@@ -1138,5 +1140,89 @@ describe('ActivitiesScreen — row-click to edit', () => {
     expect(selected.style.color).toBe('rgb(255, 255, 255)')
     expect(unselected.style.background).toBe('var(--surface)')
     expect(unselected.style.color).toBe('var(--text)')
+  })
+})
+
+
+describe('duplicate-catcher — the typo a re-import creates', () => {
+  // A re-imported file with "Musik" where it used to say "Music" silently
+  // CREATES a second activity and the importer asks nothing (measured:
+  // docs/work/evidence/2026-09-15-real-import-journal-probe.md). This marker is
+  // the only place a director is ever told.
+  function twoNearDuplicates() {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([
+        activity({ id: 'act-music', name: 'Music' }),
+        activity({ id: 'act-musik', name: 'Musik' }),
+      ])
+      return Promise.resolve([])
+    })
+  }
+
+  beforeEach(() => {
+    localClient.previewActivityMerge.mockReset().mockResolvedValue({ ok: true, ref_count: 3 })
+    localClient.mergeActivity.mockReset().mockResolvedValue({ ok: true, ref_count: 3, alias_remembered: true })
+  })
+
+  it('marks each of two activities whose names normalize alike', async () => {
+    twoNearDuplicates()
+    render(<ActivitiesScreen campId={CAMP_ID} />)
+    await waitFor(() => expect(screen.getByText('Music')).toBeTruthy())
+    // Both rows carry the marker — neither is privileged as "the real one".
+    expect(screen.getByLabelText('Possible duplicate of Musik')).toBeTruthy()
+    expect(screen.getByLabelText('Possible duplicate of Music')).toBeTruthy()
+  })
+
+  it('does NOT mark activities that merely look similar to a human', async () => {
+    // The marker follows normalizeWordKey, the same rule the importer uses, so
+    // it can never disagree with the importer about what "the same word" means.
+    // "Swim" and "Swimming" are different words and stay separate.
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([
+        activity({ id: 'a1', name: 'Swim' }),
+        activity({ id: 'a2', name: 'Swimming' }),
+      ])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} />)
+    await waitFor(() => expect(screen.getByText('Swim')).toBeTruthy())
+    expect(screen.queryByLabelText(/Possible duplicate/)).toBeNull()
+  })
+
+  it('merges with the ref count the director was shown, so a peer race aborts', async () => {
+    twoNearDuplicates()
+    render(<ActivitiesScreen campId={CAMP_ID} />)
+    await waitFor(() => expect(screen.getByText('Music')).toBeTruthy())
+    fireEvent.click(screen.getByLabelText('Possible duplicate of Musik'))
+    const merge = await screen.findByRole('button', { name: /Merge into "Musik"/ })
+    fireEvent.click(merge)
+    await waitFor(() => expect(localClient.mergeActivity).toHaveBeenCalled())
+    expect(localClient.mergeActivity.mock.calls[0][0]).toMatchObject({
+      loser_id: 'act-music',
+      winner_id: 'act-musik',
+      expected_ref_count: 3,
+    })
+  })
+
+  it('tells the director when the merge worked but the name was NOT remembered', async () => {
+    // The alias is the whole point — without it the next import splits them
+    // again. A silent success here would promise learning that did not happen.
+    localClient.mergeActivity.mockResolvedValue({ ok: true, ref_count: 0, alias_remembered: false })
+    twoNearDuplicates()
+    render(<ActivitiesScreen campId={CAMP_ID} />)
+    await waitFor(() => expect(screen.getByText('Music')).toBeTruthy())
+    fireEvent.click(screen.getByLabelText('Possible duplicate of Musik'))
+    fireEvent.click(await screen.findByRole('button', { name: /Merge into "Musik"/ }))
+    await waitFor(() => expect(screen.getByText(/was not remembered/)).toBeTruthy())
+  })
+
+  it('surfaces a peer race rather than reporting a merge that did not happen', async () => {
+    localClient.mergeActivity.mockResolvedValue({ error: 'count-changed', ref_count: 9 })
+    twoNearDuplicates()
+    render(<ActivitiesScreen campId={CAMP_ID} />)
+    await waitFor(() => expect(screen.getByText('Music')).toBeTruthy())
+    fireEvent.click(screen.getByLabelText('Possible duplicate of Musik'))
+    fireEvent.click(await screen.findByRole('button', { name: /Merge into "Musik"/ }))
+    await waitFor(() => expect(screen.getByText(/changed while you were looking at it/)).toBeTruthy())
   })
 })
