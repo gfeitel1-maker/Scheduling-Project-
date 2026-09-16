@@ -126,12 +126,20 @@ there after fixing three things unit tests could never have caught:
    worktree): copy it to `lib/binding/node-v148-darwin-x64/better_sqlite3.node`. **The packaged build
    must guarantee this placement** (the T175 packaged app bundled only `bin/…`, so it would fail to
    load the driver under encryption). Build-step fix needed before the flip.
-3. **OPEN (code-signing) — safeStorage key persistence needs a signed app.** The same app relaunched
-   read its key fine, but a *different* Electron process could not decrypt the sealed key
-   ("Error while decrypting the ciphertext"). Ad-hoc/unsigned builds (`mac.identity: null`) get
-   fragile per-context keychain access; robust cross-launch persistence needs a properly code-signed
-   app (Developer ID + keychain entitlement). **This ties code-signing (the old blocker #3) to the
-   encryption flip: no reliable key persistence without it.**
+3. **OPEN (free, local — NOT an Apple Developer ID) — key persistence across app UPDATES.**
+   CORRECTION (earlier draft of this finding overstated it): at-rest encryption needs **no Apple
+   Developer ID and no Apple account**. It uses `safeStorage`, which stores its master key in an
+   ordinary login-keychain item named by app name ("shoresh Safe Storage") — a free, built-in macOS
+   facility. Verified: the same installed app, relaunched, reads its key and the encrypted db fine
+   while UNSIGNED. What the "different process couldn't decrypt" test actually showed is only that the
+   keychain item's ACL is tied to the app's code identity. The one real nuance: after an app UPDATE
+   (a rebuild with a different identity), macOS may show a **one-time "allow keychain access" prompt**
+   (Always Allow) — a click, never a lockout, no data loss, no cost. To eliminate even that prompt,
+   sign the build with a **free self-signed certificate** created locally (Keychain Access →
+   Certificate Assistant → Create a Certificate → Code Signing, or `security`), set as
+   `mac.identity` — no Apple account. Apple Developer ID / notarization is a **distribution**
+   (Gatekeeper) concern for shipping to other Macs, entirely separate from encryption, and is NOT
+   required to turn encryption on.
 
 ## The flip's real blockers (why the default stays OFF even with the crypto verified)
 1. **Real-app (Electron + keychain) verification.** DONE 2026-09-16 (above) — and it produced the
