@@ -31,6 +31,14 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // -- into tiers --
   { fromTable: 'groups', fromColumn: 'tier_id', toEntity: 'tiers', kind: 'scalar', enforced: false },
   { fromTable: 'activities', fromColumn: 'eligible_tier_ids', toEntity: 'tiers', kind: 'json_array', enforced: false },
+  // v65 (T180) — a Recurring Event's DIVISION scope. Same shape and same integrity posture
+  // as anchor_activities.group_ids -> groups below: a JSON id-list with no DB-level FK, so
+  // enforced:false. Division-scoped events are deliberately NOT given stronger integrity
+  // than group-scoped ones — the consequence of deleting a tier is identical in kind to
+  // deleting a group, and resolveAnchorGroupIds (src/engine/anchorScope.js) resolves against
+  // the LIVE group list, so a deleted division simply stops matching groups rather than
+  // leaving a dangling pointer to chase.
+  { fromTable: 'anchor_activities', fromColumn: 'unit_ids', toEntity: 'tiers', kind: 'json_array', enforced: false },
   // -- into groups --
   { fromTable: 'template_slots', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: true },
   { fromTable: 'week_group_exclusions', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: true },

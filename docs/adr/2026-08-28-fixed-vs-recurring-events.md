@@ -592,3 +592,42 @@ no longer open:**
   briefed independently of the eventual nav shape.
 
 **Still open:** none. All questions resolved or deferred as noted above.
+
+---
+
+## Addendum — 2026-09-16 (T180): division scope is stored, not snapshotted
+
+This ADR's §2b scope-resolution order was `unit_id > is_all_groups >
+group_ids`. It is now **`unit_ids > unit_id > is_all_groups > group_ids`**, and
+the resolution itself lives in one shared function,
+`src/engine/anchorScope.js`.
+
+Why: `AnchorsScreen` never wrote `unit_id`. It expanded the director's
+age-division choice to a `group_ids` list at save time, so a group added to
+that division later was silently excluded — while the list and the editor both
+kept displaying the division name, reverse-derived from the groups. See
+[T180](../work/tickets/T180-recurring-event-division-scope-is-snapshotted.md).
+
+`unit_id` could not simply be revived: the division picker has always been
+multi-select and that column holds one id. **v65** therefore adds
+`anchor_activities.unit_ids TEXT` (a JSON array of tier ids), and the §3 CHECK
+grows a fourth clause — a `kind='fixed'` row must also have `unit_ids` NULL or
+`'[]'`:
+
+```sql
+CHECK (
+  kind = 'recurring'
+  OR (kind = 'fixed' AND is_all_groups = 1 AND unit_id IS NULL
+      AND (group_ids IS NULL OR group_ids = '[]')
+      AND (unit_ids IS NULL OR unit_ids = '[]'))
+)
+```
+
+`unit_id` is retained (read-only, a fallback for pre-v65 rows, backfilled into
+`unit_ids`) rather than dropped, so a rollback past v65 cannot lose scope.
+
+§2b's observation that the scope columns are "resolved at read time by
+convention, never validated" was the sharper half of the finding: the
+convention had drifted. `weekCatalog.js` read `group_ids` raw, so a
+division-scoped event — whose `group_ids` is empty by design — could never be
+suppressed by a week exclusion. One resolver, two callers, is the fix.

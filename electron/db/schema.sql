@@ -701,10 +701,16 @@ CREATE TABLE IF NOT EXISTS anchor_activities (
   recurrence_level TEXT NOT NULL DEFAULT 'daily',
   location_id TEXT,
   kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring')),
+  -- v65 (T180): the age DIVISIONS a Recurring Event is scoped to, as a JSON
+  -- array of tier ids. Resolved live by the engine, so a group added to one of
+  -- those divisions later is covered without re-saving the event. `unit_id`
+  -- above is the legacy single-division column, read-only now.
+  unit_ids TEXT,
   CHECK (
     kind = 'recurring'
     OR (kind = 'fixed' AND is_all_groups = 1 AND unit_id IS NULL
-        AND (group_ids IS NULL OR group_ids = '[]'))
+        AND (group_ids IS NULL OR group_ids = '[]')
+        AND (unit_ids IS NULL OR unit_ids = '[]'))
   )
 );
 

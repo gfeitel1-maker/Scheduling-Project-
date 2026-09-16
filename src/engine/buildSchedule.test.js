@@ -1327,6 +1327,58 @@ describe('anchor unit_id scope', () => {
   })
 })
 
+// ── Anchor unit_ids (division) scope — T180 ───────────────────────────────────
+//
+// The director picks age divisions; `unit_ids` stores THAT, so scope resolves
+// live at build time. A group added to the division after the event was saved
+// is covered without re-saving — which is exactly the defect T180 names.
+
+describe('anchor unit_ids scope', () => {
+  const g1 = { id: 'g1', name: 'Aleph', tier_id: 'unit1', availability: 'all' }
+  const g2 = { id: 'g2', name: 'Bet', tier_id: 'unit1', availability: 'all' }
+  const g3 = { id: 'g3', name: 'Gimel', tier_id: 'unit2', availability: 'all' }
+  const tiers = [{ id: 'unit1', name: 'Unit 1' }, { id: 'unit2', name: 'Unit 2' }]
+
+  function run(anchor, groups) {
+    return buildSchedule({
+      groups, tiers, days: [baseDay], timeBlocks: [blockA],
+      activities: [], anchors: [anchor], campId: 'test',
+    })
+  }
+
+  it('covers a group added to the division AFTER the event was saved', () => {
+    // Saved when the division held only g1; g2 joins later. No re-save.
+    const anchor = { id: 'anc1', name: 'Swim', unit_ids: ['unit1'], unit_id: null, is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
+    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2'])
+    expect(anchorSlots.some(s => s.groupId === 'g3')).toBe(false)
+  })
+
+  it('resolves MORE THAN ONE division — the picker is multi-select', () => {
+    const anchor = { id: 'anc1', name: 'Swim', unit_ids: ['unit1', 'unit2'], unit_id: null, is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
+    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2', 'g3'])
+  })
+
+  it('takes precedence over is_all_groups and over a stale group_ids snapshot', () => {
+    const anchor = { id: 'anc1', name: 'Swim', unit_ids: ['unit1'], unit_id: null, is_all_groups: true, group_ids: ['g3'], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
+    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2'])
+  })
+
+  it('an empty unit_ids array is not a scope claim — falls through to group_ids', () => {
+    const anchor = { id: 'anc1', name: 'Swim', unit_ids: [], unit_id: null, is_all_groups: false, group_ids: ['g3'], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
+    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots.map(s => s.groupId)).toEqual(['g3'])
+  })
+
+  it('legacy single unit_id still resolves when unit_ids is absent', () => {
+    const anchor = { id: 'anc1', name: 'Swim', unit_id: 'unit2', is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
+    const anchorSlots = run(anchor, [g1, g2, g3]).slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots.map(s => s.groupId)).toEqual(['g3'])
+  })
+})
+
 describe('anchor group_ids scope', () => {
   const g1 = { id: 'g1', name: 'Aleph', tier_id: 'unit1', availability: 'all' }
   const g2 = { id: 'g2', name: 'Bet', tier_id: 'unit1', availability: 'all' }

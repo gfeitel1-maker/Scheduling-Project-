@@ -51,7 +51,7 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [T62-engine-schedules-anchor-activities-as-regular-slots](../../docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md) | open | [T63-anchor-group-ids-parsing-belongs-at-the-boundary](../../docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md) · [T65-schedule-stats-bar-accuracy](../../docs/work/tickets/T65-schedule-stats-bar-accuracy.md) |
+| [T62-engine-schedules-anchor-activities-as-regular-slots](../../docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md) | open | [T180-recurring-event-division-scope-is-snapshotted](../../docs/work/tickets/T180-recurring-event-division-scope-is-snapshotted.md) · [T63-anchor-group-ids-parsing-belongs-at-the-boundary](../../docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md) · [T65-schedule-stats-bar-accuracy](../../docs/work/tickets/T65-schedule-stats-bar-accuracy.md) |
 
 ## Decisions
 
@@ -144,7 +144,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Indoor/outdoor map pair per camp + Day Simulation reads real placements as a seed](../../docs/adr/2026-08-26-indoor-outdoor-map-pair-and-sim-seed.md) | proposed | proposed | — |
 | [Roots hub — Bento layout for the census/domain map (augment, not replace)](../../docs/adr/2026-08-27-roots-hub-bento-layout.md) | accepted | planned | — |
 | [Roots hub — census tiles are the interface (Bento demoted to the Understood tile's view)](../../docs/adr/2026-08-27-roots-hub-tiles-are-interface.md) | accepted | implemented | [2026-08-28-lifecycle-ia-program](../../docs/work/specs/2026-08-28-lifecycle-ia-program.md) |
-| [Fixed vs Recurring events: un-conflating anchor_activities (WS2 of the lifecycle-IA program)](../../docs/adr/2026-08-28-fixed-vs-recurring-events.md) | proposed | not started | [T141-fixed-event-eligibility-ignores-group-coverage](../../docs/work/tickets/T141-fixed-event-eligibility-ignores-group-coverage.md) |
+| [Fixed vs Recurring events: un-conflating anchor_activities (WS2 of the lifecycle-IA program)](../../docs/adr/2026-08-28-fixed-vs-recurring-events.md) | proposed | not started | [2026-09-16-t180-division-scope-as-unit-ids](../../docs/work/runs/2026-09-16-t180-division-scope-as-unit-ids.md) · [T141-fixed-event-eligibility-ignores-group-coverage](../../docs/work/tickets/T141-fixed-event-eligibility-ignores-group-coverage.md) · [T180-recurring-event-division-scope-is-snapshotted](../../docs/work/tickets/T180-recurring-event-division-scope-is-snapshotted.md) |
 | [Persisted open reconciliation decisions — host-local journal feeding Roots home's attention list](../../docs/adr/2026-08-28-persisted-reconciliation-decisions.md) | accepted | not_started | — |
 | [Roots home is a distinct screen — census tiles stay import-only, structure and attention are live reads](../../docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md) | proposed | not_started | — |
 | [ADR: Stage-Aware Navigation + Landing Routing/State-Machine (WS1)](../../docs/adr/2026-08-28-stage-aware-nav-landing.md) | proposed | proposed | — |
@@ -182,6 +182,7 @@ They are different facts and a run can carry a bad one of each.
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
 | 2026-09-16 | [closes T178 — INCONCLUSIVE verdict two filters (load-sensitive + slow only)](../../docs/work/runs/2026-09-16-closes-t178-inconclusive-verdict-two-filters.md) | test-infrastructure | pass | PASS |
+| 2026-09-16 | [T180 — a Recurring Event stores its age DIVISIONS, not a snapshot of their groups](../../docs/work/runs/2026-09-16-t180-division-scope-as-unit-ids.md) | database-sync | pass | pass |
 | 2026-09-15 | [closes T164 — verify reports INCONCLUSIVE (exit 2) when a step fails under machine oversubscription](../../docs/work/runs/2026-09-15-closes-t164-verify-reports-inconclusive-exit-2-when-a-step-f.md) | test-infrastructure | pass | PASS |
 | 2026-09-15 | [closes T156: the decision was already made, recorded and built — the ticket did not follow](../../docs/work/runs/2026-09-15-t156-close-and-stale-comment-sweep.md) | scheduling-engine | pass | pass |
 | 2026-09-15 | [T167 part 1: make filing a run record cheap, and correct T164's diagnosis](../../docs/work/runs/2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-.md) | documentation-governance | pass | pass |

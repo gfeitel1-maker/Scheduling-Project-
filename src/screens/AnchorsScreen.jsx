@@ -27,7 +27,7 @@ const repository = createSetupCrudRepository({ localClient })
 // boolean/array) — every write must pre-serialize through these before
 // hitting localClient.write. Mirrors ActivitiesScreen.jsx's identical pattern.
 const BOOL_FIELDS = new Set(['is_all_groups'])
-const ARRAY_FIELDS = new Set(['group_ids'])
+const ARRAY_FIELDS = new Set(['group_ids', 'unit_ids'])
 const serializeFieldValue = makeSerializeFieldValue(BOOL_FIELDS, ARRAY_FIELDS)
 
 // GOVERNOR judgment call (round 2->3 boundary, Sub-plan D Task 1): a
@@ -51,6 +51,9 @@ function normalizeAnchor(row) {
     ...row,
     is_all_groups: row.is_all_groups === 1 || row.is_all_groups === true,
     group_ids: parseIdList(row.group_ids),
+    // v65 (T180): the divisions this event is scoped to, stored as a JSON
+    // array — normalized here at the IPC read boundary, same as group_ids.
+    unit_ids: parseIdList(row.unit_ids),
   }
 }
 
@@ -82,7 +85,14 @@ function AnchorModal({ anchor, kind, tiers, groups, days, timeBlocks, locations,
   const [saveError, setSaveError] = useState(null)
   const enterStyle = useEnterTransition('liftFade')
 
+  // T180: `unit_ids` IS the division scope, so it pre-ticks the picker
+  // directly. The reverse derivation below runs only for pre-v65 rows that
+  // have nothing else — it is the very inference this ticket removed, and
+  // keeping it as the sole legacy fallback is what stops those rows from
+  // suddenly reading as unscoped. A legacy row re-saved through this form
+  // gains real `unit_ids`, which is the intended one-way repair.
   const [selectedTiers, setSelectedTiers] = useState(() => {
+    if (anchor?.unit_ids?.length) return [...anchor.unit_ids]
     if (!anchor?.group_ids?.length) return []
     const ids = new Set(
       anchor.group_ids.map(gid => groups.find(g => g.id === gid)?.tier_id).filter(Boolean)
@@ -104,9 +114,14 @@ function AnchorModal({ anchor, kind, tiers, groups, days, timeBlocks, locations,
     if (!canSave) return
     setSaving(true)
     setSaveError(null)
-    const group_ids = isFixed
-      ? []
-      : groups.filter(g => selectedTiers.includes(g.tier_id)).map(g => g.id)
+    // T180: a Recurring Event stores the DIVISIONS the director picked, and
+    // the engine resolves them at build time — so a group added to one of
+    // those divisions later is covered without re-saving. `group_ids` is
+    // written empty rather than as a snapshot: two scope columns that can
+    // disagree is the state this ticket exists to end, and the engine reads
+    // unit_ids first regardless.
+    const unit_ids = isFixed ? [] : [...selectedTiers]
+    const group_ids = []
     // C5: a location_id left dangling (set, but the place it pointed at is
     // gone — deleted, cross-device race, stale import) is never persisted
     // silently on save — mirrors ActivityModal's identical guard.
@@ -131,6 +146,7 @@ function AnchorModal({ anchor, kind, tiers, groups, days, timeBlocks, locations,
         kind,
         is_all_groups: isAllTiers,
         group_ids,
+        unit_ids,
         selectedDays,
         time_block_id: blockId,
         location_id: resolvedLocationId,
@@ -506,11 +522,13 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
 
     try {
       // Always fetch fresh lookups to avoid stale closure
-      const [freshDays, freshBlocks, freshTiers, freshGroups] = await Promise.all([
+      // Groups are deliberately NOT fetched here: since T180 the import stores
+      // the DIVISIONS a row names (unit_ids) and never expands them to a group
+      // list, so it has nothing to look a group up for.
+      const [freshDays, freshBlocks, freshTiers] = await Promise.all([
         localClient.list('days_of_operation'),
         localClient.list('time_blocks'),
         localClient.list('tiers'),
-        localClient.list('groups'),
       ])
 
       const uniqueFreshDays = (freshDays || [])
@@ -524,10 +542,6 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
       )
       const scopedTiers = (freshTiers || []).filter(t => t.camp_id === campId && t.cohort_id === activeCohort?.id)
       const tierMap = Object.fromEntries(scopedTiers.map(t => [t.name.toLowerCase(), t.id]))
-      const scopedGroups = (freshGroups || []).filter(g => g.camp_id === campId)
-      const groupsByTier = Object.fromEntries(
-        scopedTiers.map(t => [t.id, scopedGroups.filter(g => g.tier_id === t.id).map(g => g.id)])
-      )
 
       // F4 — shared boundary: size cap (on file.size) before parse, sheet/row
       // caps after, replacing this screen's former ad-hoc 5MB check so every
@@ -559,9 +573,12 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
           baseWarning = baseWarning || `Age Division(s) not found: ${missing.join(', ')}`
         }
 
-        const group_ids = isAllTiers
-          ? []
-          : resolvedTierIds.flatMap(tid => groupsByTier[tid] || [])
+        // T180: the import resolves Age Division names to divisions and stores
+        // THOSE (unit_ids), for the same reason the modal does — expanding
+        // them to a group list here would re-create the snapshot that silently
+        // excludes any group added to the division afterwards.
+        const unit_ids = isAllTiers ? [] : resolvedTierIds
+        const group_ids = []
 
         const tierLabel = tierNames.join(', ') || (isAllTiers ? 'All age divisions' : '—')
 
@@ -582,7 +599,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
         const rowKind = isAllTiers ? 'fixed' : 'recurring'
         if (dayLabels.length === 0) {
           parsed.push({
-            kind: rowKind, name, day_id: null, time_block_id, is_all_groups: isAllTiers, group_ids,
+            kind: rowKind, name, day_id: null, time_block_id, is_all_groups: isAllTiers, group_ids, unit_ids,
             notes: String(r.notes || '').trim() || null,
             warning: baseWarning || 'Missing day_label',
             _dayLabel: '—', _blockName: blockName, _tierNames: tierLabel,
@@ -592,7 +609,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
             const day_id = dayMap[dayLabel.toLowerCase()] || null
             const warning = baseWarning || (!day_id ? `Day "${dayLabel}" not found` : null)
             parsed.push({
-              kind: rowKind, name, day_id, time_block_id, is_all_groups: isAllTiers, group_ids,
+              kind: rowKind, name, day_id, time_block_id, is_all_groups: isAllTiers, group_ids, unit_ids,
               notes: String(r.notes || '').trim() || null,
               warning,
               _dayLabel: dayLabel, _blockName: blockName, _tierNames: tierLabel,
@@ -650,6 +667,13 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
 
   function anchorTierLabel(a) {
     if (a.is_all_groups) return 'All age divisions'
+    // T180: read the stored divisions. Only a pre-v65 row with no `unit_ids`
+    // falls back to deriving them backwards from the group snapshot — which
+    // is why one group of a division could read as the whole division.
+    if (a.unit_ids?.length) {
+      const stored = a.unit_ids.map(tid => tierById[tid]).filter(Boolean)
+      if (stored.length) return stored.join(', ')
+    }
     const tierIds = [...new Set((a.group_ids || []).map(gid => groupTierMap[gid]).filter(Boolean))]
     const names = tierIds.map(tid => tierById[tid]).filter(Boolean)
     return names.length ? names.join(', ') : '—'

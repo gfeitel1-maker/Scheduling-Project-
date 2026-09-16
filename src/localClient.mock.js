@@ -385,7 +385,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   // of PROJECTIONS.anchor_activities.fields, kept honest by
   // electron/ipcSurfaceParity.test.js's drift check like every other entry
   // in this allowlist.
-  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'span_blocks', 'kind'],
+  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'span_blocks', 'kind', 'unit_ids'],
   week_activity_exclusions: ['week_id', 'activity_id'],
   week_group_exclusions: ['week_id', 'group_id'],
   week_location_exclusions: ['week_id', 'location_id'],

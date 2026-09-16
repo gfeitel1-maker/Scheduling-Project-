@@ -1,5 +1,6 @@
 import { assertIdListShape } from './assertIdListShape.js'
 import { indexActivitiesByName, resolveAnchorActivityIds } from './anchorActivityLink.js'
+import { resolveAnchorGroupIds } from './anchorScope.js'
 import { isActivityEligibleForGroup } from './eligibility.js'
 import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
 import { resolveWeekCatalog } from './weekCatalog.js'
@@ -127,21 +128,17 @@ function normalizeInput(input) {
 //      It is a pre-existing shared engine function (used by generation too), so
 //      the finding stays CONSISTENT with a fresh build by reusing it — but it is
 //      a second post-T180 swap point, tracked in the ticket, not this file.
-// POST-T180 REBASE: replace THIS body with `return resolveAnchorGroupIds(anchor,
-// liveGroups)` (import from ./anchorScope.js) — a one-line swap for the coverage
-// step — and separately update weekCatalog.js per the ticket's rebase note.
+// T180 REBASE DONE: this body was the contract above minus the unit_ids rule,
+// which now exists. It DELEGATES and must never re-implement — a local copy is
+// how this codebase grew several separate scope bugs in the first place, and a
+// re-implementation that omits `unit_ids` compiles, lints clean, and silently
+// drops live division scope. The wrapper is kept rather than inlined at its one
+// call site deliberately (agreed with T182's author): it gives "which groups
+// does this anchor cover" one named home, and an alias is a far smaller target
+// for a merge conflict to mangle than a call-site edit.
 // See docs/work/tickets/T182-stale-anchor-duplicate-finding.md.
 function anchorCoveredGroupIds(anchor, liveGroups) {
-  if (anchor.unit_id != null && anchor.unit_id !== '') {
-    return liveGroups.filter(g => g.tier_id === anchor.unit_id).map(g => g.id)
-  }
-  if (anchor.is_all_groups) {
-    return liveGroups.map(g => g.id)
-  }
-  // Contract: group_ids is an array of ids. Callers normalize — this engine
-  // does not deserialize; see src/screens/schedule/useScheduleData.js.
-  if (import.meta.env?.DEV) assertIdListShape(anchor.group_ids, 'group_ids', anchor.id)
-  return anchor.group_ids || []
+  return resolveAnchorGroupIds(anchor, liveGroups)
 }
 
 export function anchoredActivityIdsByGroup(anchors, activities, groups, { days: _days, weekId = null } = {}) {
@@ -211,18 +208,18 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // scheduling of that activity for the week, which is T62's premise.
   const anchoredActivityIdsByGroupMap = anchoredActivityIdsByGroup(anchors, activities, groups, { days, weekId })
   for (const anchor of anchors) {
-    // Scope resolution order: unit_id > is_all_groups > group_ids
-    let groupList
-    if (anchor.unit_id != null && anchor.unit_id !== '') {
-      groupList = groups.filter(g => g.tier_id === anchor.unit_id).map(g => g.id)
-    } else if (anchor.is_all_groups) {
-      groupList = groups.map(g => g.id)
-    } else {
-      // Contract: group_ids is an array of ids. Callers normalize — this
-      // engine does not deserialize; see src/screens/schedule/useScheduleData.js.
-      if (import.meta.env?.DEV) assertIdListShape(anchor.group_ids, 'group_ids', anchor.id)
-      groupList = anchor.group_ids || []
-    }
+    // Scope resolution order (unit_ids > unit_id > is_all_groups > group_ids)
+    // lives in one place, shared with weekCatalog.js — the two disagreeing is
+    // how a division-scoped event became unsuppressable. See anchorScope.js.
+    //
+    // DO NOT INLINE THIS BACK INTO AN if/else CHAIN. It replaced one here
+    // (T180), and re-inlining it is a silent regression: an inline chain that
+    // omits `unit_ids` still compiles, still lints clean, and drops live
+    // division scope — a group added to a division stops being covered, with
+    // nothing to show for it. Only buildSchedule.test.js's `anchor unit_ids
+    // scope` block catches it. If a merge conflict offers you the old chain,
+    // the one-liner is the correct side.
+    const groupList = resolveAnchorGroupIds(anchor, groups)
 
     // day_id null/undefined means every day
     const dayList = (anchor.day_id != null && anchor.day_id !== '')

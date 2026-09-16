@@ -171,9 +171,15 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       // anchor_activities.group_ids is a JSON-stringified array (same storage
       // shape as activities.eligible_group_ids) — normalize once here, at the
       // IPC read boundary, so buildSchedule's pure engine only ever sees a
-      // real array. See T63.
+      // real array. See T63. unit_ids (v65, T180 — the event's DIVISION
+      // scope, which the engine resolves live) has the same storage shape and
+      // the same treatment.
+      //
+      // NOTE the bare `anc =`: it is declared with `let g, a, d, b, anc` above
+      // and read again further down, so this must NOT become `const anc` — a
+      // re-declaration here shadows it and breaks the later read.
       anc = (ancd || []).filter(x => x.camp_id === campId)
-        .map(x => ({ ...x, group_ids: parseIdList(x.group_ids) }))
+        .map(x => ({ ...x, group_ids: parseIdList(x.group_ids), unit_ids: parseIdList(x.unit_ids) }))
       const t = [...(tierd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
       const sortedTd = [...(td || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
       d = sortedTd.filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)

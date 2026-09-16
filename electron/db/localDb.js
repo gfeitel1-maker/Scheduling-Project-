@@ -22,7 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 64
+export const CURRENT_SCHEMA_VERSION = 65
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2496,6 +2496,79 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     // neither gets it created. Both arms keep this idempotent.
     db.exec(DEVICE_HEALTH_EVENTS_DDL)
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (64, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v65 (T180) — anchor_activities.unit_ids: a Recurring Event stores the
+  // DIVISIONS the director picked, not a snapshot of the groups those
+  // divisions happened to hold at save time. The engine resolves unit_ids
+  // live (src/engine/buildSchedule.js), so a group added to a division later
+  // is covered without a re-save.
+  //
+  // Why a recreate and not `ALTER TABLE ADD COLUMN`: v51's table-level CHECK
+  // (the 'fixed = all-camp' invariant, docs/adr/2026-08-28-fixed-vs-recurring-
+  // events.md §3) has to grow to cover the new column, and SQLite cannot
+  // attach a cross-column CHECK to an existing table. Same shape as v51.
+  //
+  // `unit_id`, the legacy SINGLE-division column, is kept and backfilled INTO
+  // unit_ids rather than replaced by it — the down path must not lose scope.
+  // Guard is `>= 64 && < 65`, NOT a bare `< 65` — see the v50 block's comment.
+  if (getSchemaVersion(db) >= 64 && getSchemaVersion(db) < 65) {
+    const hasUnitIds = db
+      .pragma('table_info(anchor_activities)')
+      .some((c) => c.name === 'unit_ids')
+    if (!hasUnitIds) {
+      db.pragma('foreign_keys = OFF')
+      try {
+        db.exec(`
+          CREATE TABLE anchor_activities_v65 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            cohort_id TEXT REFERENCES cohorts(id),
+            day_id TEXT REFERENCES days_of_operation(id),
+            time_block_id TEXT,
+            name TEXT,
+            unit_id TEXT,
+            span_blocks INTEGER,
+            is_all_groups INTEGER,
+            group_ids TEXT,
+            notes TEXT,
+            schedule_week_id TEXT REFERENCES schedule_weeks(id),
+            recurrence_level TEXT NOT NULL DEFAULT 'daily',
+            location_id TEXT,
+            kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring')),
+            unit_ids TEXT,
+            CHECK (
+              kind = 'recurring'
+              OR (kind = 'fixed' AND is_all_groups = 1 AND unit_id IS NULL
+                  AND (group_ids IS NULL OR group_ids = '[]')
+                  AND (unit_ids IS NULL OR unit_ids = '[]'))
+            )
+          );
+          INSERT INTO anchor_activities_v65
+            SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
+                   is_all_groups, group_ids, notes, schedule_week_id, recurrence_level,
+                   location_id, kind,
+                   -- Backfill: a legacy single-division row becomes a
+                   -- one-element list. A group_ids snapshot row is NOT
+                   -- converted — the division it meant is not recoverable from
+                   -- the groups, and guessing it backwards is the very
+                   -- derivation T180 exists to remove.
+                   CASE
+                     WHEN unit_id IS NOT NULL AND unit_id != '' THEN json_array(unit_id)
+                     ELSE NULL
+                   END
+            FROM anchor_activities;
+          DROP TABLE anchor_activities;
+          ALTER TABLE anchor_activities_v65 RENAME TO anchor_activities;
+        `)
+      } finally {
+        // See the v49/v51 blocks: FK-restore on every path.
+        db.pragma('foreign_keys = ON')
+      }
+    }
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (65, ?)').run(
       new Date().toISOString()
     )
   }
