@@ -14,7 +14,8 @@
 set -u
 export PATH="$HOME/.local/bin:$PATH"
 CLAUDE="$HOME/.local/bin/claude"
-PROJ="$HOME/.claude/projects/-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project"
+source "${0:A:h}/../memoryProject.sh"
+PROJ="$MEMORY_PROJ"
 SCRIPTS="${0:A:h}"
 CONS="$PROJ/_consolidation"   # DATA (run.log) — unchanged
 MEMDIR="$PROJ/memory"

@@ -5,6 +5,7 @@
 import { createReadStream, readFileSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
+import { memoryProjectSlug } from './memoryProject.js'
 
 // One JSONL line -> zero or more events. Never throws.
 export function parseLine(rawLine) {
@@ -191,9 +192,13 @@ export function subagentTranscriptPath(mainTranscriptPath, agentId) {
 
 // ---- I/O: file walking + cursor (not unit tested; exercised by the real-corpus run) ----
 
+// The second entry is the live memory store's slug, which lives in
+// scripts/memoryProject.js so the shell pipeline and this file cannot drift about
+// where it is (T171 item 4). The first is a literal prefix on purpose: it matches
+// ~/dev/shoresh AND every worktree slug beneath it, which is a pattern, not a path.
 const SLUGS_GLOB_PREFIXES = [
   '-Users-gregfeitel-dev-shoresh',
-  '-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project',
+  memoryProjectSlug(),
 ]
 
 const CURSOR_PATH = join(homedir(), '.claude', 'observeRun.cursor.json')

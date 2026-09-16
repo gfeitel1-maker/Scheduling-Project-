@@ -11,8 +11,9 @@ CLAUDE="$HOME/.local/bin/claude"
 #             must not move and must never be checked in
 # Resolve siblings via ${0:A:h} so the scripts work from any checkout without a hardcoded path.
 SCRIPTS="${0:A:h}"
-CONS="$HOME/.claude/projects/-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project/_consolidation"   # DATA (run.log) — unchanged
-PROJ="$HOME/.claude/projects/-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project"
+source "${0:A:h}/../memoryProject.sh"
+CONS="$MEMORY_CONS"   # DATA (run.log) — unchanged
+PROJ="$MEMORY_PROJ"
 MEMDIR="$PROJ/memory"
 REPO="$HOME/dev/shoresh"
 OUT="$MEMDIR/_pending"

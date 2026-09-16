@@ -4,7 +4,8 @@
 # and writes a pending evidence packet. NO LLM, NO writes to real memory.
 set -u
 JQ="$HOME/bin/jq"
-PROJ="$HOME/.claude/projects/-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project"
+source "${0:A:h}/../memoryProject.sh"
+PROJ="$MEMORY_PROJ"
 OUT="$PROJ/memory/_pending"
 mkdir -p "$OUT"
 # Day window: default today; arg1 can override (YYYY-MM-DD) for dry-runs.

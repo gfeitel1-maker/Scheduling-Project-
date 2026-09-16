@@ -30,7 +30,8 @@
 #      Named ~/dev/shoresh-* siblings and any branch with unmerged commits are never touched.
 set -u
 REPO="$HOME/dev/shoresh"
-SLUG="-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project"
+source "${0:A:h}/memoryProject.sh"
+SLUG="$MEMORY_PROJECT_SLUG"
 OUTDIR="$HOME/.claude/projects/$SLUG/_integration"
 CONS="$HOME/.claude/projects/$SLUG/_consolidation"   # DATA (run.log) — a live store, never in the repo
 CONSCRIPTS="${0:A:h}/consolidation"                    # SCRIPTS — version-controlled siblings
