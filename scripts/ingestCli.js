@@ -71,7 +71,7 @@ function readPages(file) {
  *
  * @returns {{ ok, action, mode, file, db, error, summary, conflicts, residual, exitCode }}
  */
-export function runIngestCli({ file, dbPath, mode = 'add', action = 'preview', authorUserId = null }) {
+export function runIngestCli({ file, dbPath, mode = 'add', action = 'preview', authorUserId = null, dbKey = null }) {
   const base = baseResult({ file, dbPath, mode, action })
 
   let buf
@@ -99,7 +99,7 @@ export function runIngestCli({ file, dbPath, mode = 'add', action = 'preview', a
 
   let db
   try {
-    db = openLocalDb(dbPath)
+    db = openLocalDb(dbPath, { key: dbKey })
   } catch (e) {
     return errorResult(base, `cannot open db: ${dbPath} (${e.message})`)
   }

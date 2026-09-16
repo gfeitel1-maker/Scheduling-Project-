@@ -123,8 +123,8 @@ export function rebuildIntoFreshDb(freshDb, doc, campId, campName) {
 // the resolved userData path explicitly, the same injected-path discipline
 // userDataPath.js and docStore.js already use; do not infer it from dbPath,
 // which may live elsewhere (a custom project path, a smoke-test override).
-export function rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, cipher = null }) {
-  const oldDb = openLocalDb(dbPath)
+export function rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, cipher = null, key = null }) {
+  const oldDb = openLocalDb(dbPath, { key })
   let campId, campName, doc
   try {
     const campRow = oldDb.prepare('SELECT id FROM camps LIMIT 1').get()
@@ -155,7 +155,7 @@ export function rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, ciphe
     if (fs.existsSync(sidecarPath)) fs.unlinkSync(sidecarPath)
   }
 
-  const freshDb = openLocalDb(dbPath)
+  const freshDb = openLocalDb(dbPath, { key })
   try {
     const result = rebuildIntoFreshDb(freshDb, doc, campId, campName)
     return { ...result, backupPath, docPath: automergeDocPath(userDataDir, campId) }

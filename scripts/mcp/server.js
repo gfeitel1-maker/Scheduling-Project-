@@ -13,6 +13,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import { resolveHeadlessDbKey } from '../../electron/db/headlessDbKey.js'
 
 import {
   ingestPreviewTool,
@@ -40,7 +41,17 @@ if (!dbPath) {
   console.error('scripts/mcp/server.js: --db <path> is required')
   process.exit(1)
 }
-const ctx = { dbPath, allowWrite, authorUserId }
+// At-rest key for an encrypted DB (ADR 2026-09-16). Read from a protected channel
+// (SHORESH_DB_KEY / SHORESH_DB_KEY_FILE), never argv. null → plaintext open, exactly as before, so
+// this is inert unless encryption is on and the unlock helper has supplied a key.
+let dbKey = null
+try {
+  dbKey = resolveHeadlessDbKey()
+} catch (err) {
+  console.error(`scripts/mcp/server.js: ${err.message}`)
+  process.exit(1)
+}
+const ctx = { dbPath, allowWrite, authorUserId, dbKey }
 
 const TOOLS = [
   {

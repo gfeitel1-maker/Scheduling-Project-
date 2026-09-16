@@ -26,7 +26,8 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | open | — |
-| [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | — |
+| [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
+| [Headless DB key access for the MCP server and CLI (encryption flip-blocker #2)](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) | in-progress | — |
 
 ### test-infrastructure
 
@@ -153,6 +154,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [At-rest encryption of the camp document and SQLite — scoping](../../docs/adr/2026-09-15-at-rest-encryption-scoping.md) | accepted | in_progress | [T175-at-rest-encryption-activation](../../docs/work/tickets/T175-at-rest-encryption-activation.md) · [T176-only-this-computer-warning](../../docs/work/tickets/T176-only-this-computer-warning.md) |
 | [Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) | accepted | proposed | — |
 | [Opinion GateReport inputs are bound to a real, completed subagent dispatch](../../docs/adr/2026-09-15-opinion-report-dispatch-provenance.md) | accepted | shipped | — |
+| [Headless key access for the MCP server and CLI under at-rest encryption](../../docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md) | accepted | in_progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
 
 ## Runs
 
