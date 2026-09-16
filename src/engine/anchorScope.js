@@ -52,3 +52,44 @@ export function resolveAnchorDayIds(anchor, days) {
   if (dayId != null && dayId !== '') return [dayId]
   return (days || []).map((d) => d.id)
 }
+
+/**
+ * The DIVISION projection of the same scope precedence, for display (the
+ * Anchors screen coverage label). Returns a descriptor, not group ids:
+ *
+ *   { mode: 'all' | 'divisions' | 'none', unitIds: string[], inferred: boolean }
+ *
+ * It shares ONE precedence with resolveAnchorGroupIds — unit_ids > unit_id >
+ * is_all_groups > group_ids — so the two projections can never disagree about
+ * WHICH rule fired. `is_all_groups` returns mode 'all' (the word "all", not an
+ * enumeration of every division), so the caller never re-encodes "which rule
+ * wins" in a screen file. T183 exists because that re-encoding drifted.
+ *
+ * `inferred` is true ONLY on the legacy fallback: a pre-v65 row with no
+ * unit_ids/unit_id whose divisions are derived backward from group_ids. That
+ * derivation is lossy — it cannot tell "the whole Juniors division" from "one
+ * Juniors bunk" (both yield ['t1']) — so the answer must be flagged an
+ * inference and never rendered as stored division scope. The group projection
+ * has no such hazard (it returns literal ids) and carries no flag.
+ *
+ * Same no-deserialize contract as resolveAnchorGroupIds: unit_ids/group_ids
+ * must already be arrays, and `groups` must be the live list with tier_id on
+ * every element.
+ */
+export function resolveAnchorUnitIds(anchor, groups) {
+  const unitIds = Array.isArray(anchor.unit_ids) ? anchor.unit_ids.filter(Boolean) : []
+  if (unitIds.length) return { mode: 'divisions', unitIds, inferred: false }
+  if (anchor.unit_id != null && anchor.unit_id !== '') {
+    return { mode: 'divisions', unitIds: [anchor.unit_id], inferred: false }
+  }
+  if (anchor.is_all_groups) return { mode: 'all', unitIds: [], inferred: false }
+  const groupIds = Array.isArray(anchor.group_ids) ? anchor.group_ids.filter(Boolean) : []
+  if (groupIds.length) {
+    const wanted = new Set(groupIds)
+    const derived = [...new Set(
+      groups.filter((g) => wanted.has(g.id)).map((g) => g.tier_id).filter(Boolean),
+    )]
+    if (derived.length) return { mode: 'divisions', unitIds: derived, inferred: true }
+  }
+  return { mode: 'none', unitIds: [], inferred: false }
+}

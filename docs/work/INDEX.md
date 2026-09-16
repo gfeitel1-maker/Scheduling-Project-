@@ -31,7 +31,7 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Surface a stale anchor/regular duplicate in an already-generated schedule (ANCHOR_DUPLICATE finding)](../../docs/work/tickets/T182-stale-anchor-duplicate-finding.md) | in-progress | — |
+| [Surface a stale anchor/regular duplicate in an already-generated schedule (ANCHOR_DUPLICATE finding)](../../docs/work/tickets/T182-stale-anchor-duplicate-finding.md) | in-progress | [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) |
 
 ### security-auth
 
@@ -57,7 +57,8 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [T62-engine-schedules-anchor-activities-as-regular-slots](../../docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md) | open | [T180-recurring-event-division-scope-is-snapshotted](../../docs/work/tickets/T180-recurring-event-division-scope-is-snapshotted.md) · [T63-anchor-group-ids-parsing-belongs-at-the-boundary](../../docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md) · [T65-schedule-stats-bar-accuracy](../../docs/work/tickets/T65-schedule-stats-bar-accuracy.md) |
+| [Anchor scope is read from raw columns in several places; route every consumer through one shared resolver](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) | in-progress | [2026-09-16-anchor-scope-single-resolver](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) |
+| [T62-engine-schedules-anchor-activities-as-regular-slots](../../docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md) | open | [2026-09-16-anchor-scope-single-resolver](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) · [T180-recurring-event-division-scope-is-snapshotted](../../docs/work/tickets/T180-recurring-event-division-scope-is-snapshotted.md) · [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) · [T63-anchor-group-ids-parsing-belongs-at-the-boundary](../../docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md) · [T65-schedule-stats-bar-accuracy](../../docs/work/tickets/T65-schedule-stats-bar-accuracy.md) |
 
 ## Decisions
 
@@ -150,7 +151,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Indoor/outdoor map pair per camp + Day Simulation reads real placements as a seed](../../docs/adr/2026-08-26-indoor-outdoor-map-pair-and-sim-seed.md) | proposed | proposed | — |
 | [Roots hub — Bento layout for the census/domain map (augment, not replace)](../../docs/adr/2026-08-27-roots-hub-bento-layout.md) | accepted | planned | — |
 | [Roots hub — census tiles are the interface (Bento demoted to the Understood tile's view)](../../docs/adr/2026-08-27-roots-hub-tiles-are-interface.md) | accepted | implemented | [2026-08-28-lifecycle-ia-program](../../docs/work/specs/2026-08-28-lifecycle-ia-program.md) |
-| [Fixed vs Recurring events: un-conflating anchor_activities (WS2 of the lifecycle-IA program)](../../docs/adr/2026-08-28-fixed-vs-recurring-events.md) | proposed | not started | [2026-09-16-t180-division-scope-as-unit-ids](../../docs/work/runs/2026-09-16-t180-division-scope-as-unit-ids.md) · [T141-fixed-event-eligibility-ignores-group-coverage](../../docs/work/tickets/T141-fixed-event-eligibility-ignores-group-coverage.md) · [T180-recurring-event-division-scope-is-snapshotted](../../docs/work/tickets/T180-recurring-event-division-scope-is-snapshotted.md) |
+| [Fixed vs Recurring events: un-conflating anchor_activities (WS2 of the lifecycle-IA program)](../../docs/adr/2026-08-28-fixed-vs-recurring-events.md) | proposed | not started | [2026-09-16-anchor-scope-single-resolver](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) · [2026-09-16-t180-division-scope-as-unit-ids](../../docs/work/runs/2026-09-16-t180-division-scope-as-unit-ids.md) · [T141-fixed-event-eligibility-ignores-group-coverage](../../docs/work/tickets/T141-fixed-event-eligibility-ignores-group-coverage.md) · [T180-recurring-event-division-scope-is-snapshotted](../../docs/work/tickets/T180-recurring-event-division-scope-is-snapshotted.md) · [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) |
 | [Persisted open reconciliation decisions — host-local journal feeding Roots home's attention list](../../docs/adr/2026-08-28-persisted-reconciliation-decisions.md) | accepted | not_started | — |
 | [Roots home is a distinct screen — census tiles stay import-only, structure and attention are live reads](../../docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md) | proposed | not_started | — |
 | [ADR: Stage-Aware Navigation + Landing Routing/State-Machine (WS1)](../../docs/adr/2026-08-28-stage-aware-nav-landing.md) | proposed | proposed | — |
@@ -178,6 +179,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) | accepted | proposed | — |
 | [Opinion GateReport inputs are bound to a real, completed subagent dispatch](../../docs/adr/2026-09-15-opinion-report-dispatch-provenance.md) | accepted | shipped | — |
 | [Shared anchor-exclusion helper for the ANCHOR_DUPLICATE finding (T182)](../../docs/adr/2026-09-16-anchor-duplicate-finding.md) | accepted | not_started | [T182-stale-anchor-duplicate-finding](../../docs/work/tickets/T182-stale-anchor-duplicate-finding.md) |
+| [Anchor scope is resolved through one shared module, in two explicit projections, and never re-read from raw columns](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) | proposed | blocked | [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) |
 | [Headless key access for the MCP server and CLI under at-rest encryption](../../docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md) | accepted | in_progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
 
 ## Runs

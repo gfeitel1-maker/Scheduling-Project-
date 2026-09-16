@@ -642,4 +642,30 @@ describe('AnchorsScreen — recurring event division scope (T180)', () => {
     await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
     expect(screen.queryByText('Juniors')).not.toBeNull()
   })
+
+  it('marks a legacy group_ids-derived label as inferred via a title, without changing the visible division text (T183)', async () => {
+    // The backward derivation cannot tell "the whole Juniors division" from
+    // "one Juniors bunk" — so the label must not silently present it as a
+    // saved division choice. The visible text stays "Juniors" (a pre-v65 row
+    // must not start reading as "—"); the honesty rides on a tooltip.
+    mount([{
+      id: 'a1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Swim',
+      day_id: 'd1', time_block_id: 'block-1', is_all_groups: 0,
+      group_ids: JSON.stringify(['g1']), unit_ids: null, kind: 'recurring',
+    }])
+    await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
+    const cell = screen.getByText('Juniors')
+    expect(cell.getAttribute('title')).toBeTruthy()
+  })
+
+  it('does NOT mark a stored unit_ids label as inferred (T183)', async () => {
+    mount([{
+      id: 'a1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Swim',
+      day_id: 'd1', time_block_id: 'block-1', is_all_groups: 0,
+      group_ids: '[]', unit_ids: JSON.stringify(['t2']), kind: 'recurring',
+    }])
+    await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
+    const cell = screen.getByText('Seniors')
+    expect(cell.getAttribute('title')).toBeFalsy()
+  })
 })

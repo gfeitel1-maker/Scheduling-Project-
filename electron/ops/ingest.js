@@ -22,6 +22,7 @@ import { isHumanOwned } from './fieldProvenance.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName, recognitionKey } from '../../src/ingest/preview.js'
 import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
+import { resolveAnchorGroupIds } from '../../src/engine/anchorScope.js'
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from '../../src/ingest/fieldUpdate.js'
 import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
@@ -1627,25 +1628,74 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // above unless compared separately here. Read-only per ADR §4 — this map
     // is consulted below to REPORT a drift, never to write one.
     const liveAnchorScope = new Map()
+    // T183: the live group list WITH tier_id, so a division-scoped anchor's
+    // coverage can be resolved through the shared resolver below. The other
+    // group reads in this file are `SELECT id, name` (label maps) and stay so.
+    const liveGroupsWithTier = db
+      .prepare('SELECT id, tier_id FROM groups WHERE camp_id = ?')
+      .all(camp_id)
     for (const row of db
-      .prepare('SELECT cohort_id, day_id, time_block_id, name, is_all_groups, group_ids FROM anchor_activities WHERE camp_id = ?')
+      .prepare('SELECT cohort_id, day_id, time_block_id, name, is_all_groups, group_ids, unit_ids, unit_id FROM anchor_activities WHERE camp_id = ?')
       .all(camp_id)) {
       const slotKey = anchorSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name)
       anchorSlots.add(slotKey)
-      // Malformed group_ids (partial sync / hand-edited SQLite / old
+      // Malformed group_ids/unit_ids (partial sync / hand-edited SQLite / old
       // migration) must not crash an unrelated import — mirror
       // AnchorsScreen.jsx's parseIdList defensive posture: a parse failure
       // makes this slot's scope "uncomparable" (null sentinel), so the
       // compare block below skips the drift check for it rather than
       // throwing a raw SyntaxError past the transaction.
-      let groupIds
-      try {
-        const parsed = JSON.parse(row.group_ids ?? '[]')
-        groupIds = Array.isArray(parsed) ? parsed : null
-      } catch {
-        groupIds = null
+      const parseIds = (raw) => {
+        try {
+          const parsed = JSON.parse(raw ?? '[]')
+          return Array.isArray(parsed) ? parsed : null
+        } catch {
+          return null
+        }
       }
-      liveAnchorScope.set(slotKey, { is_all_groups: row.is_all_groups, group_ids: groupIds })
+      const groupIds = parseIds(row.group_ids)
+      const unitIds = parseIds(row.unit_ids)
+      // T183: resolve the live coverage through the SHARED resolver so a
+      // DIVISION-scoped anchor (T180) — whose group_ids is empty by design,
+      // scope living in unit_ids and resolved live — compares against its
+      // CURRENT groups instead of against []. Reading group_ids raw here was
+      // the spurious-drift bug: a re-import of an unchanged division-scoped
+      // event reported "scope changed from (nothing) to <its bunks>".
+      // Non-division rows are untouched: for group_ids/is_all_groups scope the
+      // resolver's terminal branches return exactly what was read before, and
+      // an unparseable group_ids on a non-division row still yields the `null`
+      // uncomparable sentinel (unit_ids empty → resolver never consulted).
+      // Branch order MUST match resolveAnchorGroupIds's precedence
+      // (unit_ids > unit_id > is_all_groups > group_ids): division scope is
+      // checked FIRST. A kind='recurring' row can transiently carry
+      // is_all_groups=1 alongside a stale non-empty unit_ids during op-log
+      // replay (AnchorsScreen writes those as separate field ops), and the v65
+      // CHECK permits it. Checking is_all_groups first would resolve such a row
+      // as all-groups while the engine/label resolve it as the division —
+      // reintroducing this ticket's own spurious-drift class for that row.
+      const isDivisionScoped = (unitIds && unitIds.length > 0)
+        || (row.unit_id != null && row.unit_id !== '')
+      let liveIsAllGroups = row.is_all_groups
+      let liveGroupIds
+      if (isDivisionScoped) {
+        // Division wins over the is_all_groups flag; store the RESOLVED
+        // coverage and is_all_groups=0, which is what the engine/label see —
+        // never the transient flag, which would leak into the compare below.
+        liveIsAllGroups = 0
+        liveGroupIds = resolveAnchorGroupIds(
+          { is_all_groups: 0, group_ids: [], unit_ids: unitIds ?? [], unit_id: row.unit_id },
+          liveGroupsWithTier,
+        )
+      } else if (row.is_all_groups) {
+        // All-groups keeps its flag-based representation (group list stays
+        // as-read, typically []) so the compare's is_all_groups clause remains
+        // the discriminator — full resolution to all group ids here would make
+        // an all→all re-import read as a spurious change against incoming [].
+        liveGroupIds = groupIds
+      } else {
+        liveGroupIds = groupIds // plain group_ids scope (or null sentinel)
+      }
+      liveAnchorScope.set(slotKey, { is_all_groups: liveIsAllGroups, group_ids: liveGroupIds })
     }
 
     // Slice B one-off recognition (Red Hat HIGH #1, docs/adr/2026-08-24-
