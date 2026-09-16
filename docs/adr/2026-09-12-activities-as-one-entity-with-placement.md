@@ -336,6 +336,45 @@ was the goal. It is not. Re-ordered by the owner's actual priority:
 The view is now the LAST thing, not the second. Everything above it is
 observable without a screen: engine output, ingest proposals, projection state.
 
+Answered 2026-09-16, delegated by the owner:
+
+- **Q5 (§7.1) — YES: a pinned activity stays rotatable elsewhere.** An activity
+  pinned for SOME groups remains placeable for the others, and an activity
+  pinned on SOME days remains placeable on the others. It does NOT remain
+  placeable at another block on a day it is already pinned for that group —
+  that is the original T62 double-booking.
+
+  **This unblocks Slice 0, which §7.1 said "cannot be designed until that is
+  answered". Slice 0 is now implemented** (see below) — with one correction to
+  §7.1's prescription.
+
+  §7.1 asked for keying by `group × day × block`. **Block is wrong and was not
+  built.** A block-level key would permit the exact defect T62 exists to fix:
+  Lunch pinned at 11:30 and placed again at 13:00 for the same group on the same
+  day. The key is `group × day`; block granularity would re-open the bug.
+
+  §7.1's framing is also superseded by history: it described activating a guard
+  that read a nonexistent `activity_id` column. That column still does not
+  exist. T62/#443 (2026-09-16) resolved the anchor→activity link BY NAME
+  (`src/engine/anchorActivityLink.js`) and scoped the exclusion per group; T180/#446
+  then made a Recurring Event's scope a live division list
+  (`src/engine/anchorScope.js`). Q5 is the day axis on top of those. So Slice 0
+  shipped as three landed changes rather than one, and §7.2's `activity_id` FK
+  remains UNBUILT and still the eventual model — the name resolver defers to an
+  explicit `activity_id` the moment one exists.
+
+  Measured, not asserted: on the owner's real camp, group-keying and
+  group×day-keying are INDISTINGUISHABLE (525 placed, 195 unfillable, zero
+  phantom Lunch/Rest Hour under both) because both fixed events are pinned every
+  day. The difference appears only for an event pinned on SOME days — precisely
+  the shape T180 introduced, which is why this was sequenced after it.
+
+  Consequence carried through in the same change: T182's `ANCHOR_DUPLICATE`
+  finding consumed the same exclusion Map and had to become day-aware with it.
+  Left group-level, it would have flagged every placement the new keying
+  legitimately allows — a false caution on a correct schedule, which is worse
+  than no flag because it teaches the director to ignore it.
+
 Still open:
 
 - **Q4 (§6)** — Should inference *propose* a minority-groups/minority-days

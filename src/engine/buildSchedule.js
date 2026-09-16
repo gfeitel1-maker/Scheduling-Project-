@@ -1,6 +1,6 @@
 import { assertIdListShape } from './assertIdListShape.js'
 import { indexActivitiesByName, resolveAnchorActivityIds } from './anchorActivityLink.js'
-import { resolveAnchorGroupIds } from './anchorScope.js'
+import { resolveAnchorGroupIds, resolveAnchorDayIds } from './anchorScope.js'
 import { isActivityEligibleForGroup } from './eligibility.js'
 import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
 import { resolveWeekCatalog } from './weekCatalog.js'
@@ -100,9 +100,19 @@ function normalizeInput(input) {
 // Pass 1 and computeFindings() decide "anchored for this group" through the
 // SAME computation — the ADR's anti-drift point. Callers pass UNFILTERED,
 // camp-wide anchors; this function does the schedule_week_id filter itself.
-// `days` is part of the documented signature (ADR/ticket) but unused here —
-// day scoping is placement mechanics that stays Pass-1-local (anchorLookup),
-// never leaking into this group-level exclusion Map.
+// `days` WAS documented-but-unused, on the reasoning that day scoping is
+// placement mechanics that stays Pass-1-local. That changed when the owner
+// answered §10 Q5 of docs/adr/2026-09-12-activities-as-one-entity-with-
+// placement.md ("if an activity is pinned for some groups, should it be
+// rotatable for the others?") with YES — for other groups AND for other days.
+// Post-T180 a Recurring Event can be pinned to a division on SOME days, and a
+// group-level Map would remove that activity from those bunks' catalogue for
+// the WHOLE week: pin Monday swim for Juniors and they may never swim again
+// that week. So the Map is keyed groupId|dayId and `days` is now load-bearing
+// (an anchor with a null day_id covers every day, exactly as Pass 1 reads it).
+// What is NOT day-scoped, deliberately: the exclusion is per DAY, never per
+// BLOCK — same group, same day, same activity at another hour is the original
+// T62 double-booking and must stay excluded.
 // SINGLE SEAM for the ANCHOR_DUPLICATE finding's group-COVERAGE question —
 // "which group ids does this anchor cover?" — used by anchoredActivityIdsByGroup
 // below. The finding's coverage resolution goes through here and nowhere else;
@@ -141,27 +151,42 @@ function anchorCoveredGroupIds(anchor, liveGroups) {
   return resolveAnchorGroupIds(anchor, liveGroups)
 }
 
-export function anchoredActivityIdsByGroup(anchors, activities, groups, { days: _days, weekId = null } = {}) {
+export function anchoredActivityIdsByGroupDay(anchors, activities, groups, { days = [], weekId = null } = {}) {
   const filtered = (anchors || []).filter(
     (a) => a.schedule_week_id == null || a.schedule_week_id === weekId
   )
   const activitiesByName = indexActivitiesByName(activities)
-  const byGroup = new Map() // groupId → Set<activityId>
+  // An empty `days` makes every null-day_id anchor mark NOTHING — a guard that
+  // silently stops guarding. Unreachable-in-effect from scheduleCohort (no days
+  // means no slots to place, so it excludes nothing from nothing), but REACHABLE
+  // from computeFindings, which runs against PERSISTED slots with `days` passed
+  // from screen state: if slots have loaded and days has not, ANCHOR_DUPLICATE
+  // silently under-reports. Loud in DEV, no production behaviour change — the
+  // same convention assertIdListShape uses in buildSchedule.js. (Q5 review.)
+  if (import.meta.env?.DEV && (days || []).length === 0 && (anchors || []).some((a) => a.day_id == null || a.day_id === '')) {
+    console.warn('anchoredActivityIdsByGroupDay: empty `days` with all-day anchors — exclusion will be empty')
+  }
+  const byGroupDay = new Map() // "groupId|dayId" → Set<activityId>
   for (const anchor of filtered) {
     // Group scope goes through the single seam (anchorCoveredGroupIds) — never
     // a direct anchor.group_ids read here. `groups` is the live list.
     const groupList = anchorCoveredGroupIds(anchor, groups)
 
     const anchoredIds = resolveAnchorActivityIds(anchor, activitiesByName)
+    if (anchoredIds.length === 0) continue
+    // Same shared atom Pass 1 uses — one reading of "which days does this
+    // anchor cover", not two.
+    const dayList = resolveAnchorDayIds(anchor, days)
     for (const gid of groupList) {
-      if (anchoredIds.length > 0) {
-        let set = byGroup.get(gid)
-        if (!set) { set = new Set(); byGroup.set(gid, set) }
+      for (const did of dayList) {
+        const k = `${gid}|${did}`
+        let set = byGroupDay.get(k)
+        if (!set) { set = new Set(); byGroupDay.set(k, set) }
         for (const actId of anchoredIds) set.add(actId)
       }
     }
   }
-  return byGroup
+  return byGroupDay
 }
 
 function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, anchorsOnly = false, weekId = null }) {
@@ -206,7 +231,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // one group's recurring Swim delete Swim from every other group's catalog.
   // Day-agnostic within a group, deliberately: an anchor IS that group's
   // scheduling of that activity for the week, which is T62's premise.
-  const anchoredActivityIdsByGroupMap = anchoredActivityIdsByGroup(anchors, activities, groups, { days, weekId })
+  const anchoredActivityIdsByGroupDayMap = anchoredActivityIdsByGroupDay(anchors, activities, groups, { days, weekId })
   for (const anchor of anchors) {
     // Scope resolution order (unit_ids > unit_id > is_all_groups > group_ids)
     // lives in one place, shared with weekCatalog.js — the two disagreeing is
@@ -221,10 +246,9 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     // the one-liner is the correct side.
     const groupList = resolveAnchorGroupIds(anchor, groups)
 
-    // day_id null/undefined means every day
-    const dayList = (anchor.day_id != null && anchor.day_id !== '')
-      ? [anchor.day_id]
-      : days.map(d => d.id)
+    // day_id null/undefined means every day — resolved through the shared atom
+    // so this and the exclusion Map cannot answer it differently (Q5 review).
+    const dayList = resolveAnchorDayIds(anchor, days)
 
     const spanBlocks = anchor.span_blocks || 1
 
@@ -369,7 +393,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
           continue
         }
 
-        const anchoredHere = anchoredActivityIdsByGroupMap.get(group.id)
+        const anchoredHere = anchoredActivityIdsByGroupDayMap.get(`${group.id}|${day.id}`)
         const eligibleActs = activities.filter(a => !anchoredHere?.has(a.id) && (eligibility.get(a.id) || new Set()).has(group.id))
         openSlots.push({ groupId: group.id, dayId: day.id, blockId: block.id, eligibleActs })
       }
@@ -758,11 +782,26 @@ export function computeFindings({ slots, groups, activities, days, anchors, week
       groupExclusions: groupExclusions || [],
       locationExclusions: locationExclusions || [],
     })
-    const anchoredByGroup = anchoredActivityIdsByGroup(effAnchors, effActivities, effGroups, { days, weekId })
+    const anchoredByGroupDay = anchoredActivityIdsByGroupDay(effAnchors, effActivities, effGroups, { days, weekId })
     const activityById = new Map(activities.map(a => [a.id, a]))
+    // Dedup stays WEEK-scoped ("groupId|activityId") even though the exclusion
+    // above is now day-scoped, and that asymmetry is deliberate — do not
+    // "fix" it. The dismissal key in the UI is `groupId|activityId|kind` with
+    // NO day (src/screens/ScheduleScreen.jsx:567 and :621). Adding day here
+    // would emit two findings sharing ONE dismissal key: a duplicated row in
+    // the rail, and dismissing either would dismiss both. The `reason` copy is
+    // week-granular ("is also a fixed event this week") for the same reason.
+    // Consequence, accepted: two same-week duplicates on different days surface
+    // one at a time — the director clears one and the next recalc surfaces the
+    // other. Self-healing across iterations, acceptable for a caution.
+    // (Q5 review, gracious-thompson — who went looking to argue the opposite.)
     const seen = new Set() // "groupId|activityId" — one finding per pair
     for (const s of activitySlots) {
-      const anchoredHere = anchoredByGroup.get(s.group_id)
+      // Day-scoped, matching placement (Q5). Without this the finding would
+      // flag every legitimate placement the new keying now ALLOWS — a Juniors
+      // swim on Thursday when swim is pinned Monday is correct, not a
+      // duplicate — turning a real signal into noise on the director's screen.
+      const anchoredHere = anchoredByGroupDay.get(`${s.group_id}|${s.day_id}`)
       if (!anchoredHere?.has(s.activity_id)) continue
       const key = `${s.group_id}|${s.activity_id}`
       if (seen.has(key)) continue

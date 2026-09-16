@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import buildSchedule, { computeFindings, anchoredActivityIdsByGroup } from './buildSchedule.js'
+import buildSchedule, { computeFindings, anchoredActivityIdsByGroupDay } from './buildSchedule.js'
 
 const baseGroup = { id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }
 const baseDay = { id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }
@@ -82,6 +82,34 @@ describe('anchored activities excluded from regular placement', () => {
     const anchor = { id: 'anc-mifkad', name: 'Mifkad', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const { slots } = buildSchedule(minimal({ timeBlocks: [baseBlock, block2], activities: [archery], anchors: [anchor] }))
     expect(slots.filter(s => s.type === 'activity' && s.activityId === 'archery').length).toBeGreaterThan(0)
+  })
+
+  // Q5 (docs/adr/2026-09-12-activities-as-one-entity-with-placement.md §10),
+  // answered YES by the owner: an activity pinned for SOME groups on SOME days
+  // stays rotatable elsewhere. These two fail on the pre-Q5 group-level keying.
+  it('a division-scoped anchor on one day leaves that activity placeable on OTHER days', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
+    const swim = { id: 'swim', name: 'Swim', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 5, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    // Pinned Monday only, for g1's division — the post-T180 shape.
+    const anchor = { id: 'anc-mon', name: 'Swim', unit_id: null, unit_ids: ['t1'], is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
+    const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [swim], anchors: [anchor] }))
+
+    const regular = slots.filter(s => s.type === 'activity' && s.activityId === 'swim')
+    // Monday: the anchor IS that day's swim — no regular swim for g1.
+    expect(regular.filter(s => s.dayId === 'd1')).toHaveLength(0)
+    // Tuesday: g1 may swim again. Pre-Q5 this was 0 — the whole week was lost.
+    expect(regular.filter(s => s.dayId === 'd2').length).toBeGreaterThan(0)
+  })
+
+  it('still excludes the anchored activity at ANOTHER BLOCK on the pinned day (the T62 bug)', () => {
+    const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
+    const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
+    const { slots } = buildSchedule(minimal({ timeBlocks: [baseBlock, block2], activities: [lunch], anchors: [anchor] }))
+    // Day scoping must NOT become block scoping: same group, same day, Lunch
+    // again two hours later is exactly what T62 was about.
+    expect(slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')).toHaveLength(0)
   })
 
   it('still places an activity not referenced by any anchor', () => {
@@ -430,6 +458,35 @@ describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)
     expect(dup[0].activityId).not.toBe('anchor-slot')
   })
 
+  // Q5 consequence, and the reason the finding had to move with the keying:
+  // once placement allows a Thursday swim while swim is pinned MONDAY, a
+  // group-level finding would flag every one of those legitimate placements.
+  // A false ANCHOR_DUPLICATE on a correct schedule is worse than none — it
+  // trains the director to ignore the flag.
+  it('does NOT flag a regular slot on a day the activity is not anchored', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const swim = { id: 'swim', name: 'Swim', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const anchor = { id: 'anc-mon', name: 'Swim', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: true, flags: {} },
+      { group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'swim', is_anchor: false, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups, activities: [swim], days: [baseDay, day2], anchors: [anchor], weekId: null })
+    expect(findings.filter(f => f.kind === 'ANCHOR_DUPLICATE')).toHaveLength(0)
+  })
+
+  it('still flags a regular slot on the SAME day the activity is anchored', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const swim = { id: 'swim', name: 'Swim', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const anchor = { id: 'anc-mon', name: 'Swim', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: true, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'swim', is_anchor: false, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups, activities: [swim], days: [baseDay, day2], anchors: [anchor], weekId: null })
+    expect(findings.filter(f => f.kind === 'ANCHOR_DUPLICATE')).toHaveLength(1)
+  })
+
   it('emits no ANCHOR_DUPLICATE for a correctly-generated (non-stale) schedule', () => {
     const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const slots = [
@@ -535,34 +592,53 @@ describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)
 // The extracted helper must return the same per-group exclusion Set Pass 1
 // used to rely on internally — a direct unit test on the shared function,
 // not just an indirect assertion via buildSchedule's output.
-describe('anchoredActivityIdsByGroup (shared helper, T182)', () => {
+describe('anchoredActivityIdsByGroupDay (shared helper, T182; keyed by day since Q5)', () => {
   const groups = [baseGroup]
   const days = [baseDay]
   const lunch = { id: 'lunch', name: 'Lunch' }
 
   it('resolves a name-linked anchor to its activity id, scoped to is_all_groups', () => {
     const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
-    const map = anchoredActivityIdsByGroup([anchor], [lunch], groups, { days })
-    expect(map.get('g1')?.has('lunch')).toBe(true)
+    const map = anchoredActivityIdsByGroupDay([anchor], [lunch], groups, { days })
+    expect(map.get('g1|d1')?.has('lunch')).toBe(true)
   })
 
   it('scopes to explicit group_ids when unit_id absent and is_all_groups false', () => {
     const g2 = { id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }
     const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1 }
-    const map = anchoredActivityIdsByGroup([anchor], [lunch], [baseGroup, g2], { days })
-    expect(map.get('g1')?.has('lunch')).toBe(true)
-    expect(map.get('g2')?.has('lunch')).toBeFalsy()
+    const map = anchoredActivityIdsByGroupDay([anchor], [lunch], [baseGroup, g2], { days })
+    expect(map.get('g1|d1')?.has('lunch')).toBe(true)
+    expect(map.get('g2|d1')?.has('lunch')).toBeFalsy()
   })
 
   it('filters out an anchor bound to a different schedule_week_id', () => {
     const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: 'week-2' }
-    const map = anchoredActivityIdsByGroup([anchor], [lunch], groups, { days, weekId: 'week-1' })
-    expect(map.get('g1')).toBeUndefined()
+    const map = anchoredActivityIdsByGroupDay([anchor], [lunch], groups, { days, weekId: 'week-1' })
+    expect(map.get('g1|d1')).toBeUndefined()
   })
 
   it('returns an empty Map when anchors is empty', () => {
-    const map = anchoredActivityIdsByGroup([], [lunch], groups, { days })
+    const map = anchoredActivityIdsByGroupDay([], [lunch], groups, { days })
     expect(map.size).toBe(0)
+  })
+
+  // Q5 (ADR 2026-09-12 §10): an anchor pinned to ONE day marks only that day.
+  // A null day_id still means every day, matching Pass 1's dayList rule.
+  it('marks only the day an anchor is pinned to, not the whole week', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const swim = { id: 'swim', name: 'Swim' }
+    const anchor = { id: 'anc-mon', name: 'Swim', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
+    const map = anchoredActivityIdsByGroupDay([anchor], [swim], groups, { days: [baseDay, day2] })
+    expect(map.get('g1|d1')?.has('swim')).toBe(true)
+    expect(map.get('g1|d2')?.has('swim')).toBeFalsy()
+  })
+
+  it('a null day_id still covers every day', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const anchor = { id: 'anc-all', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const map = anchoredActivityIdsByGroupDay([anchor], [lunch], groups, { days: [baseDay, day2] })
+    expect(map.get('g1|d1')?.has('lunch')).toBe(true)
+    expect(map.get('g1|d2')?.has('lunch')).toBe(true)
   })
 })
 
