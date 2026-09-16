@@ -1,7 +1,7 @@
 ---
 title: "The INCONCLUSIVE load verdict keys on raw loadavg, which macOS inflates — harden the metric"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-15
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
@@ -9,6 +9,27 @@ archive_when: the INCONCLUSIVE verdict fires on genuine CPU starvation but not o
 ---
 
 # T178 — Harden the INCONCLUSIVE verdict's metric
+
+**RESOLVED 2026-09-16.** The shipped verdict was worse than "jumpy" — a peer measured it laundering
+**two real defects** into "probably fine" on the same day: a `test` failure that took **295ms** (a
+missing doc `status` field — load cannot make a 295ms test fail) and `check:governance` failing at
+**load 9.8** (platform-state-stale — a deterministic node script with no timeout semantics). Both
+tells were in the verdict's own output. `scripts/verify.js` now requires BOTH filters before
+downgrading a failure to INCONCLUSIVE:
+1. **Load-sensitive step only** — `LOAD_SENSITIVE_STEPS = {test, test:integration}`. lint,
+   agents:check, security, check:governance are deterministic and are never downgraded.
+2. **Slow failure only** — the failing step must have run ≥ `MIN_LOAD_TIMEOUT_MS` (10s); a sub-2s
+   assertion failure is a real defect, not a load artifact. `runVerify` now measures each step's
+   duration and returns `{ step, ms }`; `verdict` gates on it. An unknown duration is never
+   downgraded (conservative).
+The honest case both filters preserve: the libp2p convergence test failing at ~35s under load ~310
+and passing at ~21s on a quiet machine, same commit (the peer's paired measurement). 18 tests in
+`scripts/verify.test.js`, including the two laundered-defect cases as regressions.
+
+The remaining idea from this ticket — keying on a per-step duration-vs-baseline instead of raw
+loadavg, and recording the load figure next to the duration — is now largely subsumed: the verdict
+keys on the step's own measured duration (filter 2), not raw loadavg alone. A persisted per-step
+baseline is a possible future refinement but no longer load-bearing.
 
 Follow-up to T164 (shipped in #429). `scripts/verify.js` `machineLoadVerdict(load1, cores)` reports a
 failed step as INCONCLUSIVE when the 1-minute load average is ≥ 4× the core count. That was the right

@@ -34,7 +34,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
-| [The INCONCLUSIVE load verdict keys on raw loadavg, which macOS inflates — harden the metric](../../docs/work/tickets/T178-inconclusive-verdict-metric-hardening.md) | open | — |
 
 ## Decisions
 
@@ -163,6 +162,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-09-16 | [closes T178 — INCONCLUSIVE verdict two filters (load-sensitive + slow only)](../../docs/work/runs/2026-09-16-closes-t178-inconclusive-verdict-two-filters.md) | test-infrastructure | pass | PASS |
 | 2026-09-15 | [closes T164 — verify reports INCONCLUSIVE (exit 2) when a step fails under machine oversubscription](../../docs/work/runs/2026-09-15-closes-t164-verify-reports-inconclusive-exit-2-when-a-step-f.md) | test-infrastructure | pass | PASS |
 | 2026-09-15 | [closes T156: the decision was already made, recorded and built — the ticket did not follow](../../docs/work/runs/2026-09-15-t156-close-and-stale-comment-sweep.md) | scheduling-engine | pass | pass |
 | 2026-09-15 | [T167 part 1: make filing a run record cheap, and correct T164's diagnosis](../../docs/work/runs/2026-09-15-t167-part-1-make-filing-a-run-record-cheap-and-correct-t164-.md) | documentation-governance | pass | pass |
