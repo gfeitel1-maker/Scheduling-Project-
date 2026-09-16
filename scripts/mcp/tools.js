@@ -11,6 +11,7 @@
 // below is a presentation concern that belongs to this MCP layer, not to
 // electron/ops/read.js.
 import { openLocalDb } from '../../electron/db/localDb.js'
+import { makeDocCipher } from '../../electron/db/docCipher.js'
 import { runIngestCli } from '../ingestCli.js'
 import { listEntities } from '../../electron/ops/read.js'
 import { assembleScheduleEngineInputs } from '../../electron/ops/scheduleEngineInputs.js'
@@ -38,11 +39,11 @@ export const ENTITY_MAP = {
   weeks: 'schedule_weeks',
 }
 
-export function ingestPreviewTool(args, { dbPath }) {
-  return runIngestCli({ file: args.file_path, dbPath, mode: args.mode ?? 'add', action: 'preview' })
+export function ingestPreviewTool(args, { dbPath, dbKey }) {
+  return runIngestCli({ file: args.file_path, dbPath, mode: args.mode ?? 'add', action: 'preview', dbKey })
 }
 
-export function ingestCommitTool(args, { dbPath, allowWrite, authorUserId }) {
+export function ingestCommitTool(args, { dbPath, allowWrite, authorUserId, dbKey }) {
   if (!allowWrite) {
     return {
       ok: false,
@@ -56,15 +57,16 @@ export function ingestCommitTool(args, { dbPath, allowWrite, authorUserId }) {
     mode: args.mode ?? 'add',
     action: 'commit',
     authorUserId: authorUserId ?? null,
+    dbKey,
   })
 }
 
-export function listEntitiesTool(args, { dbPath }) {
+export function listEntitiesTool(args, { dbPath, dbKey }) {
   const dbEntity = ENTITY_MAP[args.entity]
   if (!dbEntity) {
     return { ok: false, error: `unknown entity: ${args.entity}` }
   }
-  const db = openLocalDb(dbPath)
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
   try {
     return { ok: true, entity: args.entity, rows: listEntities(db, dbEntity) }
   } finally {
@@ -72,8 +74,8 @@ export function listEntitiesTool(args, { dbPath }) {
   }
 }
 
-export function setupSummaryTool(_args, { dbPath }) {
-  const db = openLocalDb(dbPath)
+export function setupSummaryTool(_args, { dbPath, dbKey }) {
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
   try {
     const counts = {}
     for (const [friendly, dbEntity] of Object.entries(ENTITY_MAP)) {
@@ -108,8 +110,8 @@ function templateRowFor(templates, weekId, kind) {
 // directly. If omitted and the camp has exactly one schedule_weeks row, use
 // it. If omitted and multiple weeks exist, do not guess — return
 // { ok: true, needs_week: true, weeks } so the caller can pick.
-export function scheduleStateTool(args, { dbPath }) {
-  const db = openLocalDb(dbPath)
+export function scheduleStateTool(args, { dbPath, dbKey }) {
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
   try {
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) return emptyScheduleState(args.route)
@@ -157,8 +159,8 @@ export function scheduleStateTool(args, { dbPath }) {
 // week/template resolution as scheduleStateTool (needs_week when >1 week and
 // none given). A camp/week/route with no placed template yields a valid export
 // with the axes populated and cells: [].
-export function exportScheduleTool(args, { dbPath }) {
-  const db = openLocalDb(dbPath)
+export function exportScheduleTool(args, { dbPath, dbKey }) {
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
   try {
     const camp = db.prepare('SELECT id, name FROM camps LIMIT 1').get()
     if (!camp) return { ok: true, export: null, empty: true }
@@ -222,8 +224,8 @@ export function exportScheduleTool(args, { dbPath }) {
 //                       they are recorded in the device's audit log instead. They
 //                       mean SQLite is BEHIND the document, or the document file
 //                       is behind memory — both invisible without this.
-export function checkProjectionHealthTool(_args, { dbPath }) {
-  const db = openLocalDb(dbPath)
+export function checkProjectionHealthTool(_args, { dbPath, dbKey }) {
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
   try {
     // T174: this used to read audit_events for two actions that could never be
     // written there (its outcome CHECK rejects 'error'), so it always returned []
@@ -247,7 +249,7 @@ export function checkProjectionHealthTool(_args, { dbPath }) {
 // PROJECTIONS (the same registry applyProjection itself checks) before any
 // query runs, so an invalid entity name is rejected rather than executing an
 // unbounded scan (ADR §3, "Trust boundary").
-export function repairProjectionEntityTool(args, { dbPath, allowWrite }) {
+export function repairProjectionEntityTool(args, { dbPath, allowWrite, dbKey }) {
   if (!allowWrite) {
     return {
       ok: false,
@@ -257,7 +259,7 @@ export function repairProjectionEntityTool(args, { dbPath, allowWrite }) {
   if (!PROJECTIONS[args.entity]) {
     return { ok: false, error: `unknown entity: ${args.entity}` }
   }
-  const db = openLocalDb(dbPath)
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
   try {
     return { ...repairProjectionForEntity(db, args.entity, args.entity_id), entity: args.entity, entity_id: args.entity_id }
   } finally {
@@ -274,7 +276,7 @@ export function repairProjectionEntityTool(args, { dbPath, allowWrite }) {
 // db file's own directory (the normal case — dbPath is
 // `<userDataDir>/shoresh.sqlite`, see electron/main.js); pass it explicitly
 // only for a non-default layout (a custom --project path).
-export function rebuildProjectionFromDocumentTool(args, { dbPath, allowWrite }) {
+export function rebuildProjectionFromDocumentTool(args, { dbPath, allowWrite, dbKey }) {
   if (!allowWrite) {
     return {
       ok: false,
@@ -282,8 +284,11 @@ export function rebuildProjectionFromDocumentTool(args, { dbPath, allowWrite }) 
     }
   }
   const userDataDir = args.user_data_dir ?? path.dirname(dbPath)
+  // Under encryption: the rebuild opens the SQLite db (needs the key) AND reads the .automerge
+  // document (needs the cipher). Both derive from the one device key; null when unencrypted.
+  const cipher = dbKey ? makeDocCipher(dbKey) : null
   try {
-    return rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir })
+    return rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, key: dbKey ?? null, cipher })
   } catch (err) {
     if (err instanceof RebuildRefusalError) {
       return { ok: false, error: err.message }
