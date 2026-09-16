@@ -43,8 +43,12 @@ Electron unlock helper).
   encrypted-on-disk after keyed open; a tool WITHOUT the key cannot read it (fail-closed); a tool
   WITH the key (and with the key from `resolveHeadlessDbKey`'s env channel) reads it. Node-level
   proof; the driver also builds for Electron's ABI (T175 packaged build), so the Electron path holds.
-- [ ] `security-assessment` re-review of the key channel (the sensitive part) — dispatched
-  2026-09-16; address findings before the encryption flag's default flips.
+- [x] `security-assessment` re-review done (`docs/work/security/2026-09-16-headless-key-channel-assessment.md`):
+  resolver sound (no-argv, strict validation, fail-closed all CONFIRMED); **two HIGH findings against
+  the file producer mode** — no `O_EXCL` (symlink/perm window) and the key file was never deleted
+  (unsealed key persisted on disk, defeating safeStorage's offline-theft property). **Both closed** by
+  removing `--to-file` entirely and making env-passing (`--exec`, key only in the spawned child's env,
+  never on disk) the primary channel; `--print` kept for advanced use. 7 helper tests updated.
 - [x] SECURITY.md boundary wording landed (the narrower-than-"encrypted-at-rest" guarantee, framed as
   implemented-but-off) — T175 constraint 4.
 

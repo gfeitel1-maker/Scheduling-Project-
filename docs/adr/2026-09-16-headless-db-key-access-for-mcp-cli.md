@@ -49,10 +49,25 @@ regression, and the reason encryption's default stays OFF until this is closed.
   neither is set. The MCP server and CLI resolve it once and thread `{ key }` into every `openLocalDb`
   call. **Default is no key → plaintext open, exactly today's behavior**, so this is inert until
   encryption is enabled and a key is provided — no behavior change ships dark.
-- **Producer side (next slice):** an Electron unlock helper (`electron` entry, run as the logged-in
-  user) that calls `getOrCreateDbKey(userDataDir, safeStorage)` and emits the key over the protected
-  channel for a single tool invocation. Because it runs under the same OS user Electron would, it adds
-  no new trust: anyone who could run it could already run the app and read the data.
+- **Producer side (`electron/unlockDbKey.js`):** an Electron unlock helper (run as the logged-in
+  user) that calls `getOrCreateDbKey(userDataDir, safeStorage)` and hands the key to the tool. Because
+  it runs under the same OS user Electron would, it adds no new trust: anyone who could run it could
+  already run the app and read the data.
+
+## Security re-review update (2026-09-16) — env-passing only; `--to-file` removed
+`docs/work/security/2026-09-16-headless-key-channel-assessment.md` confirmed the resolver is sound
+(no-argv, strict validation, fail-closed all hold) but raised **two HIGH findings against a file
+producer mode**: (1) a file write without `O_EXCL` has a symlink/permission window, and (2) nothing
+deleted the file, so the unsealed key persisted on disk indefinitely — which negates the exact
+offline-theft property `safeStorage` provides. Both are now closed by **removing the file-write mode
+entirely** and making **env-passing the primary channel**:
+- `--exec -- <command…>` unseals the key and **spawns the tool with `SHORESH_DB_KEY` in the child's
+  environment only** — the key never touches disk and never enters the launching shell. This is the
+  recommended mode.
+- `--print` (hex to stdout) is kept for advanced/manual use; transient and owner-only.
+- The helper no longer writes a key file. `resolveHeadlessDbKey` still *accepts* an operator-managed
+  `SHORESH_DB_KEY_FILE` (their own secret file, their responsibility) but the helper never creates
+  one, so findings 1 & 2 (which were about the helper's write) do not apply.
 
 Confidence: high on the consumer side (a small, inert, testable seam). Medium on the exact producer
 ergonomics (env vs short-lived file) — to be settled with the unlock-helper slice and a security
