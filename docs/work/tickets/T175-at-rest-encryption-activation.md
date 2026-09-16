@@ -104,10 +104,39 @@ backup failure fatal.
   undefended. Land WITH the flip (making the claim), not before.
 - [x] **Single-device warning precondition — DONE (#424).**
 
+## Real-app Electron verification (2026-09-16) — DONE, and it caught three defects
+
+Ran the app under Electron 43 with `SHORESH_AT_REST_ENCRYPTION=on` against a real (disposable dev)
+database. **Result: encryption works end-to-end** — the key is acquired, the plaintext db is migrated
+to encrypted (header no longer `SQLite format 3\0`, a pre-migration backup written), and a SECOND
+launch reads the encrypted db back with the persisted key and boots with no error. But it only got
+there after fixing three things unit tests could never have caught:
+
+1. **FIXED — key acquired before `app.whenReady()`.** `main.js` acquired the safeStorage key at module
+   top level (pre-ready). `safeStorage.isEncryptionAvailable()` is **false before ready, true after**
+   (probed directly), so encryption failed closed on every real launch. Fixed by wrapping the setup in
+   an async IIFE and `await app.whenReady()` after `applyUserDataPath` (which must stay pre-ready for
+   setName), before the key acquisition + keyed db open. Unit tests inject an always-available fake
+   safeStorage, so only a real Electron run surfaced this.
+2. **OPEN (build) — the encrypting driver's Electron binary must sit where its loader looks.** The
+   fork loads via `require('bindings')('better_sqlite3.node')`, which searches `build/Release` and the
+   node-pre-gyp path `lib/binding/node-v<ABI>-<platform>-<arch>/`. prebuild-install/electron-rebuild
+   placed the Electron-ABI binary at `bin/darwin-x64-148/better-sqlite3-multiple-ciphers.node` (wrong
+   dir AND wrong name), so `bindings` couldn't find it and the app failed closed. Verified fix (in the
+   worktree): copy it to `lib/binding/node-v148-darwin-x64/better_sqlite3.node`. **The packaged build
+   must guarantee this placement** (the T175 packaged app bundled only `bin/…`, so it would fail to
+   load the driver under encryption). Build-step fix needed before the flip.
+3. **OPEN (code-signing) — safeStorage key persistence needs a signed app.** The same app relaunched
+   read its key fine, but a *different* Electron process could not decrypt the sealed key
+   ("Error while decrypting the ciphertext"). Ad-hoc/unsigned builds (`mac.identity: null`) get
+   fragile per-context keychain access; robust cross-launch persistence needs a properly code-signed
+   app (Developer ID + keychain entitlement). **This ties code-signing (the old blocker #3) to the
+   encryption flip: no reliable key persistence without it.**
+
 ## The flip's real blockers (why the default stays OFF even with the crypto verified)
-1. **Real-app (Electron + keychain) verification.** The crypto + migration are verifiable by the
-   integration test on a compatible build env, but the `safeStorage` path and a clean Electron boot
-   with encryption on cannot be proven by unit tests. This is the one check that needs the running app.
+1. **Real-app (Electron + keychain) verification.** DONE 2026-09-16 (above) — and it produced the
+   three findings, one fixed, two open (driver-binary placement in the packaged build; code-signing
+   for key persistence).
 2. **The headless MCP/CLI surface cannot read an encrypted db.** `scripts/mcp/tools.js` (every tool),
    `scripts/ingestCli.js`, and `rebuildSupportCommand` (its oldDb AND the fresh rebuild target) open
    `openLocalDb` **without a key** — they run as plain Node with no Electron `safeStorage`, so once the
