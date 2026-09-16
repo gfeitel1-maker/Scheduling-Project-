@@ -47,6 +47,12 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 
+### ui-ux-design
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [Finding dismissals are coordinate-only, so a materially-changed finding at the same coordinates is masked](../../docs/work/tickets/T185-payload-addressed-finding-dismissal.md) | in-progress | [2026-09-16-payload-addressed-finding-dismissal-design](../../docs/work/specs/2026-09-16-payload-addressed-finding-dismissal-design.md) |
+
 ### unclassified
 
 | Ticket | Status | Referenced by |
