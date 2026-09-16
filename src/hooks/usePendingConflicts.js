@@ -130,8 +130,11 @@ export function usePendingConflicts() {
     })
 
     // Task 10 round-4 Fix 3 (renderer-side reconciliation): op_applied fires
-    // for every op this device applies, including catch-up ops replayed by
-    // the Host on reconnect (see syncServer.js's sendMissedOps). If one of
+    // for every op this device applies, including the catch-up a reconnect
+    // brings in. Since Stage 6 that is not a Host replaying missed ops from
+    // syncServer.js (deleted): the document merges and synthesizeOpEvents
+    // (electron/sync/automerge/docDiffEvents.js) derives the events from the
+    // pre- and post-merge heads. Same renderer-side gap either way. If one of
     // those catch-up ops is a resolution for a conflict this screen is
     // currently showing as pending, re-check the durable pending-conflicts
     // list and drop anything no longer in it. This closes the gap where the

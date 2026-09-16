@@ -1,7 +1,7 @@
 ---
 title: "Two offline edits can converge into a generated schedule nothing flags"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-13
 task_class: scheduling-engine
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
@@ -11,7 +11,28 @@ archive_when: the product owner has decided whether the generated route surfaces
 
 # T156 — Two offline edits can converge into a generated schedule nothing flags
 
-**Open deliberately. This is a product decision, not a defect to fix quietly.**
+**Closed 2026-09-15. The decision was made, recorded and built; the ticket did
+not follow.**
+
+`archive_when` asks for one thing: that the owner decide whether the generated
+route surfaces a post-merge capacity clash, and that the decision be recorded
+either way. Both happened, and neither was noticed here:
+
+- **The owner decided on 2026-09-13** — "show the warning on both routes", which
+  is Option 1 below, the option this ticket already recommended.
+- **T159 built it** (`status: completed`). `ScheduleScreen.jsx` derives `OVERLAP`
+  on both routes now, from the rendered slots, with the reasoning inline.
+
+So nothing about the product changes on closing this. What it cost while it sat
+open is the more interesting part, recorded here because it is the ticket's own
+defect class one layer up: a comment in `ScheduleScreen.jsx` still asserted
+"OVERLAP stays manual-only ... a genuine product stance" *fourteen lines above
+the code that derives it on both routes*. A reader who trusted the comment would
+have taken the exact opposite of what runs. The status-drift gate catches a
+ticket whose status contradicts a commit; nothing catches a comment whose claim
+contradicts the function beneath it. Fixed in the closing commit.
+
+**Original framing follows, unchanged.**
 
 From the external architecture review of 2026-09-13 (item 4), which asked
 whether CRDT convergence is being confused with schedule validity. Mostly it is
