@@ -161,6 +161,48 @@ describe('the historical layer inside a descriptive doc is exempt', () => {
   })
 })
 
+// Round two. Every case below is a miss found by the Code Reviewer and Red Hat
+// panels AFTER the suite above was already green — which is the whole argument
+// for not trusting a guard because its own tests pass.
+describe('gaps the review panel found in the first implementation', () => {
+  it('does not let an incidental mid-sentence strikethrough blind the line', () => {
+    const text = 'The engine has a real ~~bug~~ here, and it lives in `src/engine/ghostEngine.js`.'
+    expect(codes(text).join(' ')).toContain('src/engine/ghostEngine.js')
+  })
+
+  it('still exempts a line whose first content is struck out', () => {
+    expect(run('| ~~`schedule:map`~~ | `src/screens/GhostMapScreen.jsx` | RETIRED |')).toEqual([])
+    expect(run('- ~~**day_overrides**~~ — removed; applied by `src/utils/ghostOverrides.js`.')).toEqual([])
+  })
+
+  it('flags a root-anchored path sitting in bare prose, with no backticks at all', () => {
+    const text = 'The renderer talks to SQLite through src/db/ghostClient.js, which is central.'
+    expect(codes(text).join(' ')).toContain('src/db/ghostClient.js')
+  })
+
+  it('does not read an English phrase as a directory claim', () => {
+    expect(run('The variables are labelled legacy/dead in the file itself.')).toEqual([])
+  })
+
+  it('does not read a technology brand name as a file', () => {
+    expect(run('Built on `Node.js` and `React.js`, bundled by Vite.')).toEqual([])
+  })
+
+  it('expires a DELIBERATELY_ABSENT entry once the path exists again', () => {
+    // src/hooks/useSession.js is allowlisted as removed. Simulate it coming
+    // back: the allowlist entry must now fail, not go on exempting the name.
+    const f = checkDocFileRefs(
+      [{ path: 'CLAUDE.md', text: '`src/hooks/useSession.js` no longer exists.' }],
+      () => true,
+    )
+    expect(f.map((x) => x.code)).toEqual(['doc-absence-allowlist-stale'])
+  })
+
+  it('leaves a genuinely-absent allowlisted path silent', () => {
+    expect(run('`src/hooks/useSession.js` no longer exists.')).toEqual([])
+  })
+})
+
 describe('the descriptive corpus is the scoped one', () => {
   it('covers CLAUDE.md and does not claim to cover the historical layer', () => {
     expect(DESCRIPTIVE_DOC_PATHS).toContain('CLAUDE.md')

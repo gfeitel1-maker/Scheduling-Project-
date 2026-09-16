@@ -653,8 +653,12 @@ const SOURCE_EXT = /\.(?:js|jsx|mjs|cjs|ts|tsx|json|sql|css|md|html|sh|ya?ml)$/
  * get it switched off, so three exemptions are recognised, in rising order of
  * how explicit the author has to be:
  *
- *   1. A line containing a `~~strikethrough~~`. The doc has already marked that
- *      sentence as describing something struck out.
+ *   1. A line whose FIRST content is struck through — a retired table row
+ *      (`| ~~schedule:map~~ | …`) or a retired list item (`- ~~day_overrides~~ …`).
+ *      The whole line is then about something withdrawn. Deliberately not "any
+ *      line containing `~~`": on a corpus written one paragraph per line, an
+ *      incidental mid-sentence strikethrough would blind the check to every
+ *      live claim in the rest of that paragraph.
  *   2. A line opening with `_Prior:` — this corpus's convention for a dated
  *      header note kept for the record.
  *   3. An explicit `<!-- doc-refs:historical -->` … `<!-- /doc-refs:historical -->`
@@ -672,19 +676,48 @@ export function stripHistorical(text) {
     if (line.includes(HISTORICAL_OPEN)) { inRegion = true; return '' }
     if (line.includes(HISTORICAL_CLOSE)) { inRegion = false; return '' }
     if (inRegion) return ''
-    if (line.includes('~~')) return ''
+    if (/^\s*(?:[-*+]|\|)?\s*~~/.test(line)) return ''
     if (/^\s*_?_?Prior:/.test(line)) return ''
     return line
   }).join('\n')
 }
 
-/** Inline code spans, fenced-block bodies, and markdown link targets. */
+/**
+ * Inline code spans, fenced-block bodies, markdown link targets — and any
+ * root-anchored path sitting in bare prose.
+ *
+ * That last one matters more than it looks: the first three are all FORMATTING
+ * conventions, and a copy-edit that unwraps a path from its backticks would
+ * otherwise silently drop it out of coverage, leaving a doc that reads more
+ * polished and is checked less. Requiring a repo-root first segment keeps bare
+ * prose from dragging in every slash-shaped word in the file.
+ */
+const PROSE_PATH = /\b(?:src|electron|test|scripts|legacy|docs)\/[A-Za-z0-9_./*-]+/g
+
 function* candidateTokens(text) {
   const src = String(text)
   for (const [, body] of src.matchAll(/```[^\n]*\n([\s\S]*?)```/g)) yield* body.split(/\s+/)
   for (const [, span] of src.matchAll(/`([^`\n]+)`/g)) yield* span.split(/\s+/)
   for (const [, target] of src.matchAll(/\]\(([^)\s]+)\)/g)) yield target
+  for (const [match] of src.matchAll(PROSE_PATH)) {
+    // Unformatted prose is the noisiest source, so it must look unmistakably
+    // like a path: an extension, or at least two segments below the repo root.
+    // English writes "labelled legacy/dead in the file itself", and that is not
+    // a claim about a directory named dead.
+    if (SOURCE_EXT.test(match.replace(/[).,;]+$/, '')) || match.split('/').length > 2) yield match
+  }
 }
+
+/**
+ * Tokens shaped exactly like a source file that are names of things, not files.
+ * `Node.js` is `stem.js` and no lexical rule separates it from `buildSchedule.js`,
+ * so the separation is a list. Keep it short: if it grows past technology brand
+ * names, the extraction rule is wrong rather than the list being incomplete.
+ */
+const NOT_A_FILE = new Set([
+  'Node.js', 'React.js', 'Vue.js', 'Next.js', 'Three.js', 'Chart.js', 'D3.js',
+  'Express.js', 'Nuxt.js', 'Backbone.js', 'Ember.js', 'Socket.io', 'Electron.js',
+])
 
 /** Strip the decoration prose puts around a path. */
 function normalizeToken(raw) {
@@ -709,7 +742,7 @@ const isPattern = (t) => t.includes('*') || t.includes('?') || /(?:^|\/)v\d+N_/.
  * ~/Library path, once split on whitespace) and `node_modules/...` out.
  */
 function isPathClaim(t, topLevel) {
-  if (!t || isPattern(t)) return false
+  if (!t || isPattern(t) || NOT_A_FILE.has(t)) return false
   if (!/^[A-Za-z0-9_]/.test(t)) return false   // ~/… , /… , ./… , @scope/… , -flag
   if (t.includes('://')) return false
   // Code, not a path: `readFileSync('../sync/x.js')` survives whitespace splitting
@@ -731,7 +764,20 @@ export function checkDocFileRefs(docs, resolve, topLevel = DEFAULT_TOP_LEVEL) {
       const token = normalizeToken(raw)
       if (!isPathClaim(token, topLevel) || seen.has(token)) continue
       seen.add(token)
-      if (DELIBERATELY_ABSENT.has(token) || resolve(token)) continue
+      // The allowlist says "this path is absent ON PURPOSE". If it resolves
+      // again, the entry has stopped documenting an absence and started
+      // exempting a name — and would go on absorbing every future claim about
+      // whatever now lives there. An exemption that outlives its reason is the
+      // shape T184's v13 misclassification had, so it expires loudly.
+      if (DELIBERATELY_ABSENT.has(token)) {
+        if (resolve(token)) {
+          findings.push(finding('doc-absence-allowlist-stale',
+            `\`${token}\` is listed in DELIBERATELY_ABSENT but exists again. Remove the entry — ` +
+            'while it stands, every claim any descriptive doc makes about that path is unchecked.'))
+        }
+        continue
+      }
+      if (resolve(token)) continue
       findings.push(finding('doc-names-missing-file',
         `${path} names \`${token}\`, which does not exist — the doc describes code that was ` +
         'deleted or moved. Correct the sentence (do not just delete the reference if the ' +
@@ -779,6 +825,13 @@ export const DEFAULT_TOP_LEVEL = new Set([...SEARCH_ROOTS, 'build', 'public'])
  *   - a partial path (`rollback/v59_down.js`) — a common doc shorthand that was
  *     never claiming to start at the repo root; resolved by path suffix.
  *   - a bare module name (`buildSchedule.js`) — resolved by basename.
+ *
+ * Stated so it is not mistaken for an oversight: the last two answer "does a
+ * file with this tail exist anywhere", not "is this sentence's claim true". A
+ * doc naming a bare module that has since moved, or a partial path that matches
+ * a same-named file under a different parent, resolves clean. That is the price
+ * of supporting the shorthand docs actually use; write the anchored path when
+ * you want the claim checked.
  */
 export function makeResolver(root, topLevel = DEFAULT_TOP_LEVEL) {
   let index = null
