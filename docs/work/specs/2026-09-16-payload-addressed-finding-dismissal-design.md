@@ -1,3 +1,14 @@
+---
+title: "Payload-addressed finding dismissal — design"
+document_type: spec
+status: approved
+created: 2026-09-16
+governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
+related_tickets: [docs/work/tickets/T185-payload-addressed-finding-dismissal.md]
+related_adrs: []
+archive_when: this work is merged and Verifier PASS recorded
+---
+
 # Payload-addressed finding dismissal — design
 
 **Ticket:** T185 · **Date:** 2026-09-16 · **Status:** approved
