@@ -3,7 +3,7 @@ title: "Finding dismissals are coordinate-only, so a materially-changed finding 
 document_type: ticket
 status: in-progress
 created: 2026-09-16
-task_class: schedule-ui
+task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/work/specs/2026-09-16-payload-addressed-finding-dismissal-design.md]
 depends_on: "None (base-independent). Spun off from T182 round-2 review 'Known residuals'. Composes cleanly once T182 (ANCHOR_DUPLICATE, branch claude/anchor-dup-finding-eager) lands — that kind falls through to the binary key path."
 archive_when: findingDismissKey is the single shared source of the dismissal key, both the activeFindings filter and the dismiss write route through it, a materially-worse UNDERSERVED/DISTRIBUTION finding at unchanged coordinates is no longer masked after a slot-edit recompute, tests pin the pure key + the masking scenario, and `npm run verify` is green
