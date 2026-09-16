@@ -39,19 +39,38 @@ Steps 1 and 2 may be separate PRs; the CLAIM may not precede step 2.
   the recovery story instead of a raw crash on key failure (finding 3, document side). Provably inert
   when off. Nothing on disk is encrypted until the flag is set for the reviewed real-app rollout.
 
-## SQLite-at-rest thread — DESIGNED + dependency-matched, BUILD/VERIFY environment-blocked (2026-09-15)
-The encrypting driver is identified and version-matched: **`better-sqlite3-multiple-ciphers@12.11.1`**
-pairs exactly with the installed `better-sqlite3@12.11.1` (same underlying engine — the ideal pin per
-the assessment). An install was attempted; the native module compiles `sqlite3.c` from source (no
-Node-25 prebuilt), and at attempt time the machine was at **load average 338 on 4 cores (~85×
-oversubscribed)** — after 35 minutes not one object file had been produced. The build cannot complete
-under that load, and a data-migration verified under it would (by T164's own new rule) be INCONCLUSIVE.
-The partial artifact was removed and package.json/lock left unchanged; **no unverified migration code
-was committed** (test-first at a data seam is non-negotiable). To finish on a quiet machine: install
-the pinned driver (exact + integrity + `npm audit`-clean, electron-rebuild), key `openLocalDb` from
-`acquireDocCipher`'s key (SQLCipher `PRAGMA key` as the FIRST op after `new Database`), add the
-test-only `{ plaintext: true }` opt-in + finding-5 gate, and migrate plaintext→encrypted via
-`sqlcipher_export` behind a FATAL backup that is verified-then-shredded (finding 4).
+## SQLite-at-rest thread — CODE COMPLETE + unit-tested; real-crypto verification pending a compatible build env (2026-09-15)
+Built, behind the same staged flag (default OFF). What landed:
+- `electron/db/sqliteCipher.js` — `rawKeyPragma` (SQLCipher raw-key form, no PBKDF2), `isPlaintextSqliteFile`
+  (16-byte header detection, no driver trial-and-error), and `migratePlaintextToEncrypted` with the
+  full finding-4 safety: pre-migration backup written FIRST and **fatal on failure**, encrypted copy
+  produced via `sqlcipher_export`, **verified by a keyed re-open+read BEFORE** the plaintext original
+  is replaced, and the plaintext backup **shredded only on success**; a failed verify aborts leaving
+  the original untouched. 8 unit tests (fakes + the regular driver) cover orchestration + detection.
+- `openLocalDb(filePath, { key, plaintext })` — keyed path uses the encrypting driver, migrating a
+  plaintext file first; the default (no-key) path is unchanged (regular better-sqlite3, static import).
+  The encrypting driver is loaded **lazily and only when keyed**, and a usability probe (`ctor(':memory:')`)
+  makes an unbuilt driver fail CLOSED with a clear message (finding 5's silent-fallback concern:
+  encrypted bytes are unreadable without the key regardless, and a forgotten key is a loud failure).
+  `{ plaintext: true }` is the TEST-ONLY opt-in for the committed era fixtures (guards against a keyed
+  open migrating/mutating them).
+- `main.js` acquires the DB key (`acquireDbKey`) alongside the doc cipher and passes it to all three
+  `openLocalDb` call sites; inert when the flag is off.
+- `better-sqlite3-multiple-ciphers@12.11.1` added as an **optionalDependency** (exact + integrity in
+  the lock, `optional: true`) — pins the engine-matched driver without failing `npm install` where it
+  cannot build.
+- `electron/db/sqliteCipher.integration.test.js` — end-to-end real-crypto proof (fresh keyed db is
+  non-plaintext on disk + reads back; plaintext→encrypted migration preserves data + shreds backup;
+  wrong key fails; `{plaintext:true}` does not migrate a fixture). Gated: it SKIPS with a visible
+  "driver ABSENT — not a pass" marker where the driver is not usably built.
+
+**Why the integration test skips HERE (definitively diagnosed, not load):** this machine runs Node
+25.8.1 with only Apple clang 16 (no Homebrew LLVM). The driver's from-source build fails because clang
+16 cannot compile Node 25's V8 header syntax (`ReadExternalPointerField<{...}>`) even though binding.gyp
+already sets `-std=c++20`; regular better-sqlite3 only works via a prebuilt. There is no Node-25
+prebuilt for the fork and no newer compiler here. The integration test — and therefore the real crypto
+round-trip + migration — **will run and must pass on any Node-LTS / CI environment** where the driver
+builds; that run is the remaining verification before the flag's default can flip.
 
 ## Gaps to close BEFORE the flip
 - [ ] **Finding 3 (MEDIUM) — startup hard-fail is uncaught.** A lost keychain makes `openLocalDb`

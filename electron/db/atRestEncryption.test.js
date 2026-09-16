@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import crypto from 'node:crypto'
 
 // A fake safeStorage that "seals" with a fixed XOR — enough to prove the round-trip without a real
 // keychain. Mirrors the shape getOrCreateDbKey requires (isEncryptionAvailable/encryptString/decryptString).
