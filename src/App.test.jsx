@@ -63,9 +63,31 @@ vi.mock('./screens/ImportScreen', () => ({
 }))
 
 import { AppShell } from './App'
+import { seedDays } from './utils/seedDays'
 
 beforeEach(() => {
   opRejectedCallback = undefined
+  seedDays.mockReset().mockResolvedValue(undefined)
+})
+
+// A failed one-time camp seed used to be an unhandled promise rejection: the
+// director saw a camp with no weekdays and no reason why. It now surfaces
+// through the same notice surface as an offline-rejected write.
+describe('AppShell: a failed camp seed is surfaced, not swallowed', () => {
+  it('shows a notice when seedDays rejects', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays could not be set up/i)
+  })
+
+  it('shows no notice when the seed succeeds', async () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
 })
 
 describe('AppShell: offline op-rejected notice (item 7, owner decision)', () => {

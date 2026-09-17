@@ -98,6 +98,34 @@ describe('seedDays', () => {
     expect(fields.day_of_week).toBeUndefined()
   })
 
+  it('throws and stops on the first rejected field write instead of failing silently', async () => {
+    localClient.list.mockResolvedValue([])
+    // First field of the first row applies; the second is rejected.
+    localClient.write
+      .mockResolvedValueOnce({ status: 'applied' })
+      .mockResolvedValueOnce({ status: 'rejected', reason: 'conflict' })
+      .mockResolvedValue({ status: 'applied' })
+
+    await expect(seedDays('camp-1')).rejects.toThrow(/write failed for field/)
+    // Stopped at the rejection — did not go on to write the remaining fields
+    // of this row or any of the other four weekdays.
+    expect(localClient.write).toHaveBeenCalledTimes(2)
+  })
+
+  it('throws when a write resolves with no status at all (not just an explicit rejection)', async () => {
+    localClient.list.mockResolvedValue([])
+    localClient.write.mockResolvedValue(undefined)
+    await expect(seedDays('camp-1')).rejects.toThrow(/write failed for field/)
+    expect(localClient.write).toHaveBeenCalledTimes(1)
+  })
+
+  it("accepts 'queued' as success, so an offline device still seeds its weekdays", async () => {
+    localClient.list.mockResolvedValue([])
+    localClient.write.mockResolvedValue({ status: 'queued' })
+    await expect(seedDays('camp-1')).resolves.toBeUndefined()
+    expect(localClient.write).toHaveBeenCalledTimes(20)
+  })
+
   it('throws if an existing days_of_operation row belongs to a different camp than the one passed in', async () => {
     localClient.list.mockResolvedValue([{ id: 'd1', camp_id: 'other-camp', day_of_week: 1 }])
     await expect(seedDays('camp-1')).rejects.toThrow()

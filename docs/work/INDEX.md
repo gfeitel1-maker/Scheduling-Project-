@@ -54,6 +54,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finding dismissals are coordinate-only, so a materially-changed finding at the same coordinates is masked](../../docs/work/tickets/T185-payload-addressed-finding-dismissal.md) | in-progress | [2026-09-16-payload-addressed-finding-dismissal-design](../../docs/work/specs/2026-09-16-payload-addressed-finding-dismissal-design.md) |
+| [ensureCohort discards every write result and its caller drops the rejection, so a failed cohort seed is invisible](../../docs/work/tickets/T190-ensurecohort-write-failures-are-invisible.md) | open | — |
 
 ### unclassified
 

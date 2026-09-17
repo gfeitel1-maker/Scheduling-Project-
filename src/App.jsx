@@ -32,6 +32,7 @@ import { useDeviceMode } from './hooks/useDeviceMode'
 import { usePendingConflicts } from './hooks/usePendingConflicts'
 import { ensureCohort } from './utils/ensureCohort'
 import { seedDays } from './utils/seedDays'
+import { describeWriteFailure } from './utils/writeErrorMessage'
 import { S } from './styles/shared'
 
 // Keys mirrored into screenKeys.js (a plain-data sibling file, not this
@@ -225,7 +226,17 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   useEffect(() => {
     if (!campId || seededForCamp.current === campId) return
     seededForCamp.current = campId
-    seedDays(campId)
+    // seedDays throws on a rejected field write (or a camp mismatch). Without
+    // this catch the rejection is an unhandled promise the director never sees,
+    // leaving the camp under-seeded with no visible cause — the same class of
+    // silent failure the describeWriteFailure pattern exists to prevent. It
+    // reuses the notice surface already mounted below rather than adding a
+    // second error channel.
+    seedDays(campId).catch((err) => {
+      setOpRejectedNotice(
+        describeWriteFailure(err, "This camp's default weekdays could not be set up.")
+      )
+    })
     ensureCohort(campId)
   }, [campId])
 
