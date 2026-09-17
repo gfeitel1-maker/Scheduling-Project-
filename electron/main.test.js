@@ -1,8 +1,7 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
-import path from 'node:path'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { ENTITIES } from './auth/permissions.js'
 
@@ -50,6 +49,7 @@ vi.mock('./sync/localWriteClient.js', async (importOriginal) => {
 })
 
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { createUser, ensureHostSigningKey } from './auth/localAuth.js'
 import { appendOp, latestOp } from './ops/operations.js'
 import { makeHandlers, sanitizeConflictForIpc, sanitizeOpRejectedForIpc } from './main.js'
@@ -60,8 +60,12 @@ let db
 let deviceId
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-main-test-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was `openLocalDb(freshPath)`, which replays the whole 65-step migration chain — 304ms, paid
+  // once per test, ~52s across this file's 171 tests. The template copy is the same database the
+  // same chain produced, ~10x cheaper. See electron/db/testDbTemplate.js.
+  const templated = openTemplatedDb()
+  db = templated.db
+  tmpFile = templated.file
   deviceId = getOrCreateDeviceId(db)
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
 
@@ -99,6 +103,12 @@ beforeEach(() => {
 afterEach(() => {
   db.close()
   if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
+})
+
+// Only at the very end: cleanupTemplatedDbs() discards the cached template, so calling it per-test
+// would rebuild the chain every time and undo the entire saving.
+afterAll(() => {
+  cleanupTemplatedDbs()
 })
 
 // Test-only write function matching syncClient's write() signature, used to seed

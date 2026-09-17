@@ -1,9 +1,10 @@
 // @vitest-environment node
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, vi, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { ensureHostSigningKey } from '../auth/localAuth.js'
 import { signAuthFields } from '../auth/authSignature.js'
 import {
@@ -37,8 +38,11 @@ let tmpFile
 let db
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-ops-test-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays all 65 migrations, ~304ms per test.
+  // The template copy is the same database that chain produces, ~10x cheaper.
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  tmpFile = __templated.file
   db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Device One')
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
   db.prepare(
@@ -1417,4 +1421,10 @@ describe('a deferred write is resolved by the time the boundary returns', () => 
       expect(db.prepare('SELECT COUNT(*) AS n FROM groups WHERE id = ?').get('g12').n).toBe(0)
     } finally { resetLiveDocForTests() }
   })
+})
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time
+// and undo the saving, so this runs once, at the end.
+afterAll(() => {
+  cleanupTemplatedDbs()
 })

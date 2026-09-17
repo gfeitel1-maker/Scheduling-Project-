@@ -1,10 +1,11 @@
 // @vitest-environment node
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomBytes, randomUUID, createPrivateKey, sign as edSign } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { SCRYPT_PARAMS, setScryptParamsForTests } from './localAuth.js'
 import {
   createUser,
@@ -50,8 +51,11 @@ let db
 const DEVICE_ID = 'device-1'
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-auth-test-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays all 65 migrations, ~304ms per test.
+  // The template copy is the same database that chain produces, ~10x cheaper.
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  tmpFile = __templated.file
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
   db.prepare('UPDATE camps SET signing_secret = ? WHERE id = ?').run(randomBytes(32).toString('hex'), 'camp-1')
   db.prepare(
@@ -745,4 +749,10 @@ describe('PIN hash parsing treats the stored value as untrusted input', () => {
     db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run('scrypt$N=65536,r=8,p=1$zzzz', user.id)
     expect(verifyPin(db, user.id, '1234')).toBe(false)
   })
+})
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time
+// and undo the saving, so this runs once, at the end.
+afterAll(() => {
+  cleanupTemplatedDbs()
 })
