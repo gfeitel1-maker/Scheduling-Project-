@@ -1100,8 +1100,10 @@ describe('wireOpApplied: op-applied forwarding to renderer (Round 3 Fix 1)', () 
   })
 })
 
-// T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3): mirrors the
-// onPairingDenied forwarding shape exactly.
+// T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3): the same
+// sanitize-then-forward shape the other webContents.send paths use.
+// _Prior: this named ~~onPairingDenied~~ as the shape it mirrors; that channel
+// was removed as an orphan with no sender anywhere in electron/._
 describe('wireOpApplied: op-conflict forwarding to renderer (Round 2 Fix 1)', () => {
   it('sends a SANITIZED conflict message via webContents.send — the raw PIN op never crosses the IPC boundary', async () => {
     const sendSpy = vi.fn()

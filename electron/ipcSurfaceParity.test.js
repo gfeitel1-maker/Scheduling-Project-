@@ -169,9 +169,6 @@ const MOCK_ONLY_HELPERS = [
   '_triggerOpApplied',
   '_triggerOpConflict',
   '_triggerPairingRequest',
-  '_triggerPairingApproved',
-  '_triggerPairingDenied',
-  '_triggerTokenRenewed',
   // Lets a dev/test session synthesize a Host auth-rejection (close codes
   // 4401-4404) so the T87 onAuthRejected → clearSessionState → login path can
   // be exercised without a live revoked-device handshake. Test-only; the real

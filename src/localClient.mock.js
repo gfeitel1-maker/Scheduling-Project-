@@ -270,9 +270,6 @@ export const UNIQUE_FIELD_ENTITIES = {
 // monkey-patching this file each time.
 let opAppliedListeners = []
 let pairingRequestListeners = []
-let pairingApprovedListeners = []
-let pairingDeniedListeners = []
-let tokenRenewedListeners = []
 // Join-flow mock state (see the join* methods below).
 let mockJoinWindowOpen = false
 let mockJoinStarted = false
@@ -1652,15 +1649,9 @@ export const mockShoresh = {
   // Event subscriptions. Registered rather than dropped so a dev session can
   // synthesize one from the console, matching the onOpApplied pattern above.
   onPairingRequest(cb) { pairingRequestListeners.push(cb); return () => { pairingRequestListeners = pairingRequestListeners.filter((f) => f !== cb) } },
-  onPairingApproved(cb) { pairingApprovedListeners.push(cb); return () => { pairingApprovedListeners = pairingApprovedListeners.filter((f) => f !== cb) } },
-  onPairingDenied(cb) { pairingDeniedListeners.push(cb); return () => { pairingDeniedListeners = pairingDeniedListeners.filter((f) => f !== cb) } },
-  onTokenRenewed(cb) { tokenRenewedListeners.push(cb); return () => { tokenRenewedListeners = tokenRenewedListeners.filter((f) => f !== cb) } },
   // docs/adr/2026-08-16-client-reauth-on-restart.md (T87 Part 3)
   onAuthRejected(cb) { authRejectedListeners.push(cb); return () => { authRejectedListeners = authRejectedListeners.filter((f) => f !== cb) } },
   _triggerPairingRequest(payload) { pairingRequestListeners.forEach((cb) => cb(payload)) },
-  _triggerPairingApproved(payload) { pairingApprovedListeners.forEach((cb) => cb(payload)) },
-  _triggerPairingDenied(payload) { pairingDeniedListeners.forEach((cb) => cb(payload)) },
-  _triggerTokenRenewed(payload) { tokenRenewedListeners.forEach((cb) => cb(payload)) },
   _triggerAuthRejected(payload) { authRejectedListeners.forEach((cb) => cb(payload)) },
 
   // Rehydration query stand-in (Fix 3): returns the conflicts persisted in
@@ -2080,7 +2071,7 @@ if (typeof window !== 'undefined') {
     window.location.replace(window.location.pathname)
   }
   window.__clearDemo = () => {
-    for (const k of [STORE_KEY, 'shoresh-mode', 'shoresh-token', 'shoresh-role', 'shoresh-join-host']) {
+    for (const k of [STORE_KEY, 'shoresh-mode', 'shoresh-token', 'shoresh-role']) {
       localStorage.removeItem(k)
     }
     window.location.replace(window.location.pathname)

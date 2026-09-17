@@ -16,9 +16,6 @@ const mockLocalClient = {
   chooseMode: vi.fn(),
   verifySession: vi.fn(),
   getDevicePairingStatus: vi.fn(),
-  onPairingApproved: vi.fn(),
-  onPairingDenied: vi.fn(),
-  onTokenRenewed: vi.fn(),
   onAuthRejected: vi.fn(),
 }
 
@@ -31,11 +28,21 @@ const { useDeviceMode } = await import('./useDeviceMode')
 const MODE_KEY = 'shoresh-mode'
 const TOKEN_KEY = 'shoresh-token'
 const ROLE_KEY = 'shoresh-role'
-const JOIN_HOST_KEY = 'shoresh-join-host'
 
+// A returning Client, in the only shape one can have since the Stage 6c
+// cutover: it joined BY CODE, so it holds the camp and no host address.
+//
+// Regression guard. This branch of the startup effect used to be gated on a
+// stored `joinHost` (an address + port) that nothing has written since the
+// camp code replaced the address picker — so a device that joined by code
+// matched neither the host nor the client branch and skipped chooseMode
+// entirely on every restart, never handing its verified token to the libp2p
+// node. That is precisely the re-auth-on-restart behaviour T87 Part 1 exists
+// to guarantee, and the tests below could not see it because they seeded the
+// dead `shoresh-join-host` key by hand. The gate is now `mode === 'client'`.
 function seedClientDevice({ token, role = 'staff' } = {}) {
   localStorage.setItem(MODE_KEY, 'client')
-  localStorage.setItem(JOIN_HOST_KEY, JSON.stringify({ host: '192.168.1.5', port: 7777 }))
+  mockLocalClient.getCamp.mockResolvedValue({ id: 'camp-1', name: 'Camp Kinneret' })
   if (token) localStorage.setItem(TOKEN_KEY, token)
   if (role) localStorage.setItem(ROLE_KEY, role)
 }
@@ -59,7 +66,6 @@ beforeEach(() => {
   mockLocalClient.getCamp.mockResolvedValue(null)
   mockLocalClient.campHasSetupData.mockResolvedValue(false)
   mockLocalClient.chooseMode.mockResolvedValue({ mode: 'client' })
-  mockLocalClient.getDevicePairingStatus.mockResolvedValue({ isPaired: true })
   mockLocalClient.onAuthRejected.mockImplementation((cb) => { authRejectedCallback = cb })
 })
 
@@ -88,7 +94,7 @@ describe('useDeviceMode: startup ordering (T87 Part 1)', () => {
     await waitFor(() => expect(result.current.phase).not.toBe('loading'))
 
     expect(mockLocalClient.chooseMode).toHaveBeenCalledWith({
-      mode: 'client', host: '192.168.1.5', port: 7777, token: 'stored-token',
+      mode: 'client', token: 'stored-token',
     })
   })
 
@@ -100,7 +106,7 @@ describe('useDeviceMode: startup ordering (T87 Part 1)', () => {
     await waitFor(() => expect(result.current.phase).not.toBe('loading'))
 
     expect(mockLocalClient.chooseMode).toHaveBeenCalledWith({
-      mode: 'client', host: '192.168.1.5', port: 7777, token: undefined,
+      mode: 'client', token: undefined,
     })
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull()
     expect(localStorage.getItem(ROLE_KEY)).toBeNull()
@@ -115,7 +121,7 @@ describe('useDeviceMode: startup ordering (T87 Part 1)', () => {
 
     expect(mockLocalClient.verifySession).not.toHaveBeenCalled()
     expect(mockLocalClient.chooseMode).toHaveBeenCalledWith({
-      mode: 'client', host: '192.168.1.5', port: 7777, token: undefined,
+      mode: 'client', token: undefined,
     })
   })
 })

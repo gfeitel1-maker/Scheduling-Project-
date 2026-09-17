@@ -17,9 +17,6 @@ const mockLocalClient = {
   login: vi.fn(),
   verifySession: vi.fn(),
   getDevicePairingStatus: vi.fn(),
-  onPairingApproved: vi.fn(),
-  onPairingDenied: vi.fn(),
-  onTokenRenewed: vi.fn(),
   onAuthRejected: vi.fn(),
 }
 vi.mock('../localClient', () => ({ get localClient() { return mockLocalClient } }))
@@ -43,10 +40,7 @@ describe('useDeviceMode.bootstrapCamp', () => {
     mockLocalClient.login.mockResolvedValue({ token: 'tok-1', role: 'admin' })
     mockLocalClient.getCamp.mockResolvedValue({ id: 'camp-1', name: 'Camp Ramah Tikvah' })
     mockLocalClient.campHasSetupData.mockResolvedValue(false)
-    mockLocalClient.getDevicePairingStatus.mockResolvedValue(null)
-    for (const k of ['onPairingApproved', 'onPairingDenied', 'onTokenRenewed', 'onAuthRejected']) {
-      mockLocalClient[k].mockReturnValue(() => {})
-    }
+    mockLocalClient.onAuthRejected.mockReturnValue(() => {})
   })
 
   afterEach(() => { vi.unstubAllGlobals() })
