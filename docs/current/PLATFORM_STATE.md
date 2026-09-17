@@ -254,7 +254,7 @@ says should be: inline prefixes (`← Back`, `✓ Saved`, `⚠ ${pasteError}`, t
 Decision table: `docs/work/specs/2026-09-11-icon-vocabulary.md`.
 - `src/components/ScheduleDoor.jsx`, `src/components/setup/InlineAddRow.jsx`, `SetupScreenShell.jsx` — shared cross-screen primitives from the whole-app design coherence passes (Waves 2/3, B/C, PRs #230–#234/#238/#241): a plain (non-verdict) door to a Plants build surface, and an inline blank-row "add" affordance used across setup screens (Wave C1) including `SpecialEventsScreen`. The colored-pill chip shape and caution/error banner styling were consolidated into shared style tokens (`src/styles/shared.js`) rather than new components.
 - `src/components/schedule/` — schedule-builder-specific. Current set (WS5 rebuild, PRs #221–#229/#236–#238, replaced the pre-WS5 palette/modal set): `ActivityPalette.jsx` (now a filterable **Ledger** — `PaletteLedger` + text filter, replacing the old flat palette), `ManualBuildView`, `ScheduleActivityView`, `ScheduleDayView`, `ScheduleGroupView`, `SlotCell` (carries `data-overridden`, opens `CellInlineEditor.jsx` on double-click), `PulledCell` + `OverrideToggleButton` (day-override "override mode", T108), `CellInlineEditor.jsx` (double-click cell edit, replaced the old separate `EditModal`), `EmptyCell.jsx`, `ErrorBanner.jsx`, `ExclusionConfirmDialog.jsx`, `ExportChooserModal.jsx`, `FindingsRail.jsx`, `IndeterminateBar.jsx`, `ConfirmRegenModal.jsx`, `VersionsDropdown.jsx`, `StatBadge.jsx` (hides when its target is unconfigured), `WeekContextBar.jsx`, `WeekSwitcher.jsx`, `DeleteWeekDialog.jsx`, `ScheduleSkeleton.jsx`. The old `OverlayCell`, `EditModal`, `FieldTripDrawer`, and `FlagDetailModal` components no longer exist (superseded by the events/electives/day_overrides family and the WS5 rebuild).
-- `src/components/reconciliation/` — scoped to the **import-a-file reconcile flow only** (`ReconciliationScreen`, `mode="import"`) as of the Roots-home-is-a-distinct-screen ADR; no longer doubles as the Roots home surface. `RootMap.jsx` (root-and-tree illustration over `src/assets/reconciliation/root-map.png`, node coords hand-placed in `rootMapLayout.js`), `RootMapPanel.jsx` (per-node panel — roster + primary "Manage {Area} →" navigation), `RosterList.jsx` (per-entity census roster, search + Groups-by-Age-Division grouping), `postImportBanner.jsx`, `ReconstructionMoment.jsx`, plus pure helpers `rootMapNav.js` (node → setup-screen routing, `DOMAIN_SCREEN`/`CHILD_SCREEN`), `domainRollup.js`, `reconciliationCards.jsx`. `rootsBanner.jsx` (the old dashboard-verdict banner) still exists in this directory but is no longer imported anywhere outside its own test — `RootsHomeScreen` does not use it (its bento/attention-list are built directly from `useCurrentStructureCounts`/`buildAttentionList`).
+- `src/components/reconciliation/` — scoped to the **import-a-file reconcile flow only** (`ReconciliationScreen`, `mode="import"`) as of the Roots-home-is-a-distinct-screen ADR; no longer doubles as the Roots home surface. `RootMap.jsx` (foundation-first stacked layout over `src/assets/brand/forest-circle.png`, node coords hand-placed in `rootMapLayout.js`; the earlier root-and-tree illustration and its bespoke PNG are gone), `RootMapPanel.jsx` (per-node panel — roster + primary "Manage {Area} →" navigation), `RosterList.jsx` (per-entity census roster, search + Groups-by-Age-Division grouping), `postImportBanner.jsx`, `ReconstructionMoment.jsx`, plus pure helpers `rootMapNav.js` (node → setup-screen routing, `DOMAIN_SCREEN`/`CHILD_SCREEN`), `domainRollup.js`, `reconciliationCards.jsx`. `rootsBanner.jsx` (the old dashboard-verdict banner) still exists in this directory but is no longer imported anywhere outside its own test — `RootsHomeScreen` does not use it (its bento/attention-list are built directly from `useCurrentStructureCounts`/`buildAttentionList`).
 
 ---
 
@@ -608,6 +608,11 @@ Not role-differentiated at the top level, and **stage-aware** (ADR `docs/adr/202
 
 ---
 
+<!-- The two sections below are a CHANGELOG and a removal record: naming code
+     that no longer exists is their purpose, not a defect. The markers keep
+     check:governance's doc-names-missing-file check off them. -->
+<!-- doc-refs:historical -->
+
 ## What's changed since 2026-07-26
 
 **The document carries provenance and authorship; the op-log becomes a local history ledger (2026-09-08/09).** Completing the
@@ -697,6 +702,8 @@ See the header note, Navigation Model, Screens, Database Tables, Components, and
 
 ---
 
+<!-- /doc-refs:historical -->
+
 ## Known Issues and Open Items
 
 This section lists what is **open**. Items resolved in the past were removed on 2026-09-12 — a fixed bug is recorded in its commit and, where it mattered, in "What's changed since" below; repeating it here made the four genuinely-open items hard to find. Each entry below was re-verified against the tree on that date.
@@ -709,6 +716,8 @@ This section lists what is **open**. Items resolved in the past were removed on 
 - **`.env.example` still documents the retired Supabase variables** — labelled legacy/dead in the file itself, read by no active code. An actual `.env` carrying the old demo JWT was reported here previously; as of 2026-09-12 no `.env` exists in either the main checkout or a worktree, so only the example file remains.
 
 ---
+
+<!-- doc-refs:historical -->
 
 ## Removed / Replaced
 
@@ -723,3 +732,5 @@ This section lists what is **open**. Items resolved in the past were removed on 
 - **Login gated purely on local data** — the original design required a Client to already have local `users`/`camps` rows to log in at all, which made first-ever login on a fresh device impossible (circular dependency: no token without login, no login without a prior sync, no prior sync without a token). Replaced by the unauthenticated network `login` message path described under Auth above (originally over WebSocket, now over the libp2p auth protocol — see the Stage 6 header note).
 - **`ReadinessHub` screen and its model** (`src/screens/ReadinessHub.jsx`, its test, `src/screens/readinessHubModel.js`) — deleted in the Roots-as-dashboard arc (PR #113, plan T3). The six-state readiness verdict it rendered now lives on the Roots banner via the single-source `getReadiness`/`describeReadiness` in `src/engine/readiness.js`; the `readiness` navigation key is redirected to `roots`. `src/screens/importOutcomeModel.js` was also deleted (orphaned once the post-import receipt moved onto Roots).
 - **`@supabase/supabase-js` dependency, `src/supabase.js`, `supabase/migrations/`** (removed/moved 2026-07-24) — the entire pre-rebuild Supabase backend. Moved to `legacy/supabase/` for historical reference; no longer a project dependency; reintroduction under `src/`/`electron/` is blocked by an ESLint rule. This closes out the renderer-migration-plus-hardening project that spanned Sub-plans A-E plus this final Phase 1 cleanup — every screen, the last bootstrap call site (`seedDays`), and the legacy files themselves are now off Supabase, and the sync layer's one known CRITICAL defect (`bulk_replace` cross-device seq bug) is fixed.
+
+<!-- /doc-refs:historical -->
