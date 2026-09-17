@@ -45,14 +45,14 @@ across 439 files, 5893 tests).**
 
 | Step | Wall clock | Share of gate |
 |---|---:|---:|
-| `lint` | **131.3s** | 10.2% |
-| **`test`** | **1131.9s (18.9 min)** | **87.7%** |
+| `lint` | **131.3s** | 11.2% |
+| **`test`** | **1015.0s (16.9 min)** quiet · 1131.9s contended | **87.2%** |
 | `test:integration` | 20.6s | 1.6% |
 | `security` | 5.9s | 0.5% |
 | `check:governance` | 1.2s | 0.1% |
 | `agents:check` | 0.2s | <0.1% |
 | `ensure-abi` (warm, per invocation) | **0.3s** | <0.1% |
-| **Total** | **~1291s (21.5 min)** | |
+| **Total** | **~1174s (19.6 min)** quiet · ~1291s contended | |
 
 ### Two hypotheses in the brief, both refuted by measurement
 
@@ -63,26 +63,35 @@ across 439 files, 5893 tests).**
 - **`lint` is far more expensive than anyone assumed** — 131s, the second-largest line item, and
   never previously called out.
 
-**Measurement conditions, stated because they bound the claim.** The machine was heavily
-oversubscribed by other concurrent sessions for much of the run (1-minute load average ranged
-~20 → ~191 on 4 cores; it fell to ~41 by the end). Per `scripts/verify.js`'s own T178 doctrine,
-that is squarely "oversubscribed" territory. **Treat 1131.9s as an upper bound on a quiet machine,
-not as the quiet-machine figure.** The *relative* breakdown and the per-file concentration below
-are far more robust than the absolute seconds, because every file competed for the same cores.
-**Re-measuring the full gate on a genuinely quiet machine is the first task of this ticket**, and no
-budget should be set from the absolute number alone.
+### The run was repeated on a quiet machine — contention was *not* the explanation
+
+The first `test` run (1131.9s) was taken while the machine was heavily oversubscribed (1-min load
+ranged ~20 → ~191 on 4 cores). It was therefore repeated at load **6.5**, below the threshold
+`scripts/verify.js` itself uses for "oversubscribed" (4× cores = 16). Both runs were green, same
+439 files / 5893 tests.
+
+| | Contended run | Quiet-start run |
+|---|---:|---:|
+| 1-min load at launch | ~150 | **6.5** |
+| **Wall clock** | 1131.9s | **1015.0s** |
+| Summed per-file time | 1808s | **1327s** |
+
+**Removing the contention cut summed CPU time by 27% but wall clock by only 10%.** The suite is
+~17 minutes even on a quiet machine. Contention was making it worse; it was not making it slow.
+A budget set from ~1015s is defensible; the figure is no longer load-caveated.
 
 ## 3. The single largest finding: the gate lints the whole tree twice
 
 Per-file timings (vitest JSON reporter) put one file at the top by a wide margin:
 
 ```
-193.1s  eslint.supabase-ban.test.js      <- 10.7% of ALL test file-time, in one file
- 90.7s  electron/main.test.js
- 51.4s  electron/ops/ingest.test.js
- 46.2s  scripts/mcp/tools.test.js
- 44.7s  src/screens/ScheduleScreen.test.jsx
+136.1s  eslint.supabase-ban.test.js      <- 10.3% of ALL test file-time, in one file
+ 70.2s  electron/main.test.js
+ 41.4s  electron/ops/ingest.test.js
+ 30.3s  src/screens/ScheduleScreen.test.jsx
+ 28.8s  electron/db/localDb.migrations.test.js
 ```
+(quiet run; the contended run put the same file at 193.1s / 10.7% — it is the top entry either way)
 
 `eslint.supabase-ban.test.js` spawns a real `ESLint` instance and lints the tree. Its middle test —
 `does not flag any real file under src/ or electron/ for a Supabase import` — lints
@@ -94,8 +103,8 @@ same `no-restricted-imports` rule at `error` severity over a **superset** of tho
 failure fails the gate. Any violation that test could catch, `lint` catches first — and `lint` runs
 earlier in `VERIFY_STEPS`.
 
-So the gate pays for ESLint over the tree twice: **131s (`lint`) + ~190s (inside `test`) ≈ 321s,
-about 25% of the entire gate.**
+So the gate pays for ESLint over the tree twice: **131s (`lint`) + ~135s (inside `test`) ≈ 266s,
+about 23% of the entire gate.**
 
 **The other two tests in that file are worth keeping and are cheap.** The probe test (writes a
 file importing `@supabase/supabase-js`, asserts the rule fires) is the non-vacuity test that proves
@@ -108,12 +117,12 @@ the rule actually works — exactly the kind of guard this repo has learned to i
 
 ## 4. The suite's cost is concentrated, which is what makes tiering possible
 
-| Cumulative | Share of total file-time |
+| Cumulative (quiet run) | Share of total file-time |
 |---|---:|
-| Top 10 files | 33.7% |
-| Top 25 files | 54.4% |
-| Top 50 files | 69.5% |
-| Top 100 files | 84.5% |
+| Top 10 files | 31.8% |
+| Top 25 files | 45.4% |
+| Top 50 files | 58.9% |
+| Top 100 files | 76.3% |
 
 | Directory | File-time | Files |
 |---|---:|---:|
@@ -126,9 +135,18 @@ the rule actually works — exactly the kind of guard this repo has learned to i
 `src/` is half the files and a quarter of the time; `electron/` is the reverse. A UI-only change
 pays the full `electron/` bill today.
 
-One observation worth a quiet-machine check rather than a conclusion: 1808s of summed per-file time
-completed in 1132s wall — a **1.6× speedup on 4 cores**. That is low, but the run was contended by
-other sessions throughout, so it is not yet evidence about vitest's configuration.
+### The suite barely uses the machine, and that is now a measured finding
+
+The quiet run completed **1327s of summed file-time in 1015s of wall clock — a 1.31× speedup on 4
+cores.** Perfect 4-way parallelism would be ~332s. The suite is running about **3× slower than its
+own CPU cost implies**, and the quiet run is *less* parallel than the contended one (1.6×), which
+is the opposite of what contention would predict.
+
+This is no longer "not yet evidence." Wall clock is dominated by serialization — process startup
+under `pool: 'forks'` with per-file isolation, plus a long pole (`eslint.supabase-ban` at 136s,
+`electron/main.test.js` at 70s) that no amount of core count shortens. **It is the single largest
+remaining lever after the ESLint duplication**, and it does not require giving up any coverage —
+which is what makes it more attractive than tiering.
 
 ## 5. Recommended tiering
 
@@ -187,13 +205,33 @@ Three properties are therefore mandatory, and are the real design work of this t
 `scripts/gate.sh` already chunks the suite by explicit file list and writes a machine-readable
 stamped result. **Tier 1 should be built on that existing contract, not beside it.**
 
-## 6. Vitest configuration (question 4) — no change recommended yet
+## 6. Vitest configuration — now the most promising lever, and the safest
 
-`vite.config.js` sets no `pool`, `maxForks`, `isolate`, or `fileParallelism` — vitest defaults
-apply. The existing `testTimeout: 20000` and `vitest.setup.js`'s `asyncUtilTimeout: 3000` are both
-**measured, documented, and load-justified**; the brief is right that they must not be undone, and
-this ticket does not propose touching them. The `1.6×`-on-4-cores observation in §4 is the only
-lead, and it needs a quiet-machine measurement before it is even a finding.
+`vite.config.js` sets **no** `pool`, `poolOptions`, `maxForks`, `isolate`, or `fileParallelism` —
+vitest defaults apply throughout. Given §4's measured 1.31× speedup on 4 cores, that is where the
+time is going.
+
+**Do not touch the two timeouts.** `testTimeout: 20000` and `vitest.setup.js`'s
+`asyncUtilTimeout: 3000` are measured, documented, and load-justified; both config comments record
+the numbers behind them and explicitly warn that a rising timeout is the symptom, not the fix. The
+same applies to the ad-hoc `--no-file-parallelism` used to fight load flakiness — note it is **not**
+in the committed config, so the default parallel behaviour is what the gate actually runs.
+
+What to investigate instead, in order of expected payoff and ascending risk:
+
+1. **`isolate: false` for the pure-unit majority.** Per-file process isolation is what makes 439
+   forks expensive. It is genuinely required for the SQLite/native and WebSocket-adjacent files;
+   it is not required for pure-function suites like `src/engine/**`. A per-project split is the
+   mechanism vitest provides for this.
+2. **`poolOptions.forks.minForks/maxForks`.** Defaults may under-subscribe a 4-core box.
+3. **Splitting the long pole.** Removing the redundant ESLint pass (§3) shortens the critical path
+   as well as the CPU bill — the two findings compound.
+
+**This lever gives up no coverage**, which is what makes it more attractive than tiering and why it
+should be evaluated *before* the owner is asked to accept a fast tier at all. It is still a shared-
+harness change, so it still needs the `test-infrastructure` human gate and the review loop —
+particularly Red Hat, since `isolate: false` is exactly the kind of change that trades wall clock
+for cross-test contamination that shows up as flakiness weeks later.
 
 ## 7. Two documentation defects found on the way
 
@@ -226,18 +264,28 @@ recorded here only so the two tickets are not worked twice.
 
 ## 7.3 Recommended sequencing
 
-**The ESLint duplication (§3) can be sequenced first and alone**, ahead of any decision about
-tiering. It is independently valuable (~190s, ~15% of `test`), needs only Red Hat + Code Reviewer +
-Verifier, does not depend on the quiet-machine baseline, and requires no ADR. If the owner wants
-movement without approving the larger change, that is the piece to take.
+The quiet-machine baseline now exists (§2), so the ordering can be stated properly. **Tiering is
+the last resort, not the first move** — it is the only option here that trades away coverage, and
+two cheaper levers come first:
 
-Everything in §5 is downstream of one owner decision — **is a fast tier wanted at all?** A
-legitimate answer is "no, just fix the duplication," which is a much smaller ticket.
+1. **Remove the duplicate full-tree ESLint pass (§3).** ~135s, no coverage lost, no ADR, no
+   baseline dependency. Needs Red Hat + Code Reviewer + Verifier. **Take this first.**
+2. **Tune vitest parallelism (§6).** The suite uses 1.31× of 4 cores; the ceiling is ~3× faster.
+   No coverage lost. Needs the `test-infrastructure` human gate and a careful Red Hat pass on
+   `isolate: false`.
+3. **Tier the gate (§5).** Only if 1 and 2 leave it too slow. This is the one that weakens a
+   guarantee, and §5's three mandatory properties are the price of doing it safely.
+
+A legitimate owner answer is "do 1 and 2, skip 3 entirely." On the measured numbers that is the
+outcome I would expect: 1 and 2 together plausibly reach single-digit minutes without touching
+what the gate proves.
 
 ## 8. Definition of done
 
-- [ ] The full gate is re-measured on a quiet machine (1-min load < ~4) and those numbers replace §2's as the budget baseline.
-- [ ] The owner has decided whether tiering is wanted at all.
+- [x] The full gate is re-measured on a quiet machine (load 6.5, below the 4×-cores threshold) — §2. Baseline: `test` 1015.0s, gate ~1174s.
+- [ ] The duplicate full-tree ESLint pass is removed (§3) — the first move, independent of everything below.
+- [ ] Vitest parallelism is investigated against the 1.31×-on-4-cores finding (§6).
+- [ ] The owner has decided whether tiering is wanted **at all** — after 1 and 2 are measured, since they may remove the need.
 - [ ] If yes: a fast tier exists that (a) runs the always-run guard set unconditionally, (b) emits a verdict that cannot be read as `VERIFY PASSED`, and (c) is rejected by `verifierReport.js` as Verifier evidence.
 - [ ] The duplicate full-tree ESLint pass is resolved, through the review loop, with Red Hat specifically asked whether `npm run lint` truly subsumes it.
 - [ ] `TESTING_STANDARD.md` §1 matches `VERIFY_STEPS` (needs the human gate — it is a standard).
