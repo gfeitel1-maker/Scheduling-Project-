@@ -65,3 +65,18 @@ changing that path by accident.
 - Stacking notices / a notice queue / a toast framework.
 - A combined message that drops either failure's specific cause in favour of a generic summary.
 - A test that passes with the fix reverted.
+
+## Known limits accepted in round 2
+
+Round 2 review (Red Hat) flagged that an unrelated `onOpRejected` notice (the offline-queue
+rejection path) can still replace a live bootstrap-failure notice — including one with a retry
+affordance still pending — because both still write into the same single-scalar notice slot under
+last-writer-wins.
+
+This is accepted, not fixed, here. It is the T12 last-writer-wins limit this ticket already
+narrowed, not reopened: the bootstrap pair (seedDays + ensureCohort) no longer races *itself* — that
+was this ticket's whole premise — but the bootstrap pair and the offline queue are still two
+independent sources sharing one scalar, and building real isolation between them (a notice queue,
+or per-source slots) is exactly the toast/queue framework T12 and this ticket's "What this ticket is
+NOT" section both explicitly ruled out of scope. See `src/App.jsx`'s `runBootstrap` comment for the
+in-code pointer to this limit.
