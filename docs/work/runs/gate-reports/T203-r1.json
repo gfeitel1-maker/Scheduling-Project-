@@ -1,0 +1,54 @@
+{
+  "task_id": "T203",
+  "round": 1,
+  "verifier_pass": false,
+  "gate_scores": {
+    "security": null,
+    "red_hat": null,
+    "tester": null,
+    "code_reviewer": null
+  },
+  "overall_score": null,
+  "lowest_dimension": null,
+  "blocking_findings": [],
+  "incomplete": true,
+  "gap": [
+    {
+      "gate_name": "security",
+      "reason": "malformed"
+    },
+    {
+      "gate_name": "red_hat",
+      "reason": "malformed"
+    },
+    {
+      "gate_name": "tester",
+      "reason": "malformed"
+    },
+    {
+      "gate_name": "code_reviewer",
+      "reason": "malformed"
+    }
+  ],
+  "cross_gate_flags": [],
+  "decision_eligibility": "BLOCK",
+  "malformed": [
+    {
+      "gate_name": "red_hat",
+      "problem": "missing or invalid verdict: UNBOUND_NO_DISPATCH_EVIDENCE"
+    },
+    {
+      "gate_name": "security",
+      "problem": "missing or invalid verdict: UNBOUND_NO_DISPATCH_EVIDENCE"
+    },
+    {
+      "gate_name": "code_reviewer",
+      "problem": "missing or invalid verdict: UNBOUND_NO_DISPATCH_EVIDENCE"
+    },
+    {
+      "gate_name": "tester",
+      "problem": "missing or invalid verdict: UNBOUND_NO_DISPATCH_EVIDENCE"
+    }
+  ],
+  "self_declared_na": []
+}

@@ -25,6 +25,14 @@
 const FOREIGN_KEY = /FOREIGN KEY constraint failed/i
 const UNIQUE = /UNIQUE constraint failed|SQLITE_CONSTRAINT_UNIQUE/i
 const NOT_NULL = /NOT NULL constraint failed/i
+// T203 / docs/adr/2026-09-17-bounded-write-timeout-and-days-of-operation-
+// uniqueness.md — the bounded write timeout in localClient.js throws an
+// Error whose message starts with this exact substring. Checked BEFORE
+// TRANSPORT: a local write under the Stage-6 CRDT architecture never talks
+// to another device, so TRANSPORT's "your devices could not reach each
+// other" copy would misdirect a director toward checking their network for
+// something that has nothing to do with it.
+const WRITE_TIMED_OUT = /^write timed out/i
 const TRANSPORT = /disconnected|timeout|not connected|ECONNREFUSED|network|socket/i
 
 export function describeWriteFailure(err, whatFailed) {
@@ -38,6 +46,9 @@ export function describeWriteFailure(err, whatFailed) {
   }
   if (NOT_NULL.test(message)) {
     return `${whatFailed} Something it needs is missing.`
+  }
+  if (WRITE_TIMED_OUT.test(message)) {
+    return `${whatFailed} The app could not confirm this saved in time. If this keeps happening, restart the app.`
   }
   if (TRANSPORT.test(message)) {
     return `${whatFailed} Your devices could not reach each other — try again when they are both on the network.`

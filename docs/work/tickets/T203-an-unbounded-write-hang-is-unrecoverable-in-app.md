@@ -1,7 +1,7 @@
 ---
 title: "An unbounded localClient.write hang leaves the camp bootstrap unrecoverable without an app restart"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
 task_class: architecture
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]

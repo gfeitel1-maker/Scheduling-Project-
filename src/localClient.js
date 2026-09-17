@@ -52,6 +52,31 @@ function announcing(fn) {
   }
 }
 
+// T203 / docs/adr/2026-09-17-bounded-write-timeout-and-days-of-operation-
+// uniqueness.md — bound how long a mutating IPC call can leave the renderer
+// waiting. Under the post-Stage-6 architecture the only thing that can make
+// `write`/`deleteEntity`/`bulkReplace` hang is the main process itself never
+// answering (crashed or wedged); a timer set in main can't be trusted to fire
+// if main's own event loop is what's wedged, so this timer lives here, in the
+// renderer's own independent event loop.
+//
+// On expiry this REJECTS — it is an answer to the caller ("this did not
+// confirm in time"), never a cancellation of the underlying IPC call (which
+// keeps running and may still land) and never a synthetic success. The timer
+// is cleared on settle either way so a normal resolve doesn't leave one
+// dangling.
+const WRITE_TIMEOUT_MS = 8000
+
+function withWriteTimeout(promise, label) {
+  let timer
+  const timeout = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`write timed out after ${WRITE_TIMEOUT_MS}ms (${label})`))
+    }, WRITE_TIMEOUT_MS)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
 export const localClient = {
   chooseMode: (args) => shoresh.chooseMode(args),
   login: (name, pin) => shoresh.login({ name, pin }),
@@ -59,14 +84,17 @@ export const localClient = {
   promoteToAdmin: (args) => shoresh.promoteToAdmin(args),
   bootstrapCamp: (args) => shoresh.bootstrapCamp(args),
   write: announcing((token, entity, entity_id, field, value, parent_op_id) =>
-    shoresh.write({ token, entity, entity_id, field, value, ...(parent_op_id ? { parent_op_id } : {}) })),
+    withWriteTimeout(
+      shoresh.write({ token, entity, entity_id, field, value, ...(parent_op_id ? { parent_op_id } : {}) }),
+      'write'
+    )),
   // Row delete, routed through the same shoresh.write IPC channel as a field
   // write — see DELETE_FIELD in electron/ops/operations.js. field: '__deleted__'
   // is a reserved sentinel that applyProjection turns into a real DELETE.
   deleteEntity: announcing((token, entity, entity_id) =>
-    shoresh.write({ token, entity, entity_id, field: '__deleted__', value: 1 })),
+    withWriteTimeout(shoresh.write({ token, entity, entity_id, field: '__deleted__', value: 1 }), 'delete')),
   bulkReplace: announcing((token, entity, scope_id, rows) =>
-    shoresh.bulkReplace({ token, entity, scope_id, rows })),
+    withWriteTimeout(shoresh.bulkReplace({ token, entity, scope_id, rows }), 'bulkReplace')),
   verifySession: (token) => shoresh.verifySession({ token }),
   // Deploy smoke-test heartbeat — see electron/main.js and App.jsx. Routed
   // through here (not window.shoresh directly) to satisfy the mock-parity
