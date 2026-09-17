@@ -67,7 +67,7 @@ grounds as the others — a linked choice created independently on two devices m
 row, not two.
 
 **`SECURITY.md` is amended in this change** with the at-rest-encryption precondition (ADR D8) and a
-pointer to the purge procedure and its limits (ADR D10, T200).
+pointer to the purge procedure and its limits (ADR D10, T202).
 
 ## Registry parity — the exit condition
 

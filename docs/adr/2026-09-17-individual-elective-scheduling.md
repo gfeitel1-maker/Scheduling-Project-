@@ -34,7 +34,7 @@ related_tickets:
   - docs/work/tickets/T197-projection-and-export.md
   - docs/work/tickets/T198-machine-access-adapters.md
   - docs/work/tickets/T199-individual-electives-end-to-end.md
-  - docs/work/tickets/T200-camper-record-purge-path.md
+  - docs/work/tickets/T202-camper-record-purge-path.md
 ---
 
 # Individual elective scheduling
@@ -42,7 +42,7 @@ related_tickets:
 **Status: accepted (owner, 2026-09-17).** This ADR was the owner gate and it is satisfied. Owner
 rulings on all seven open questions are folded into the decisions below.
 
-**Approval covers the decisions, not a licence to start building.** Feature slices T194–T200 remain
+**Approval covers the decisions, not a licence to start building.** Feature slices T194–T199 and T202 remain
 unauthorized pending their own sequencing. The only slice authorized on acceptance is **T193**,
 which is severable (D7) and fixes pre-existing defects on shipped surfaces. No feature code may be written until it is
 accepted. The two ADRs it supersedes explicitly prohibit campers, preference data, and a solver;
@@ -311,7 +311,7 @@ device re-pairs — rather than implying a single click erases the record everyw
 What the path cannot reach: any `.automerge` file already copied off-device, and a peer that never
 rebuilds or re-pairs. Both are stated plainly rather than papered over.
 
-**Two steps do not exist and must be built** — see T200, which owns this procedure:
+**Two steps do not exist and must be built** — see T202, which owns this procedure:
 
 1. There is **no op-log prune**. Nothing anywhere deletes from `operations`; the only existing
    erasure is the whole-file rebuild above.
@@ -321,7 +321,7 @@ rebuilds or re-pairs. Both are stated plainly rather than papered over.
 And one trap that would silently defeat a purge: `writePreMigrationBackup()`
 (`electron/db/projectManager.js:151-158`) writes a complete copy of the pre-rebuild database —
 op-log included — to `<dbPath>.pre-migration-<ts>.bak`, and **nothing ever deletes it**. A purge run
-through the existing rebuild tool leaves the entire pre-purge database next to the live one. T200
+through the existing rebuild tool leaves the entire pre-purge database next to the live one. T202
 must handle this explicitly.
 
 ### D11 — Min-cost max-flow is retained

@@ -7,7 +7,7 @@ task_class: database-sync
 archive_when: all eight slices ship and the behaviour is folded into PLATFORM_STATE, or the ADR is rejected
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, SECURITY.md]
 related_adrs: [docs/adr/2026-09-17-individual-elective-scheduling.md]
-related_tickets: [docs/work/tickets/T192-elective-governance-gate.md, docs/work/tickets/T193-overlay-reconstruction-and-route-validator.md, docs/work/tickets/T194-participant-data-substrate.md, docs/work/tickets/T195-preference-import-service.md, docs/work/tickets/T196-assignment-engine.md, docs/work/tickets/T197-projection-and-export.md, docs/work/tickets/T198-machine-access-adapters.md, docs/work/tickets/T199-individual-electives-end-to-end.md, docs/work/tickets/T200-camper-record-purge-path.md]
+related_tickets: [docs/work/tickets/T192-elective-governance-gate.md, docs/work/tickets/T193-overlay-reconstruction-and-route-validator.md, docs/work/tickets/T194-participant-data-substrate.md, docs/work/tickets/T195-preference-import-service.md, docs/work/tickets/T196-assignment-engine.md, docs/work/tickets/T197-projection-and-export.md, docs/work/tickets/T198-machine-access-adapters.md, docs/work/tickets/T199-individual-electives-end-to-end.md, docs/work/tickets/T202-camper-record-purge-path.md]
 ---
 
 # Implementation spec — individual elective scheduling
@@ -73,7 +73,7 @@ edges were imprecise — `useScheduleData`/`useSnapshots` import `computeFinding
 | ...and electives can therefore already span | **CONTRADICTED** | Excluded at four layers: `CHAIN_CONTENT_FIELDS = ['activity_id','event_id']` with the comment *"Electives are deliberately excluded: they never span"* (`useSlotMutations.js:20-29`); engine refuses (`buildSchedule.js:475`, `:372`); geometry gates on `activity_id` (`gridGeometry.js:50`); `elective_sets` has one `time_block_id`. **Linked elective choices are a new concept** |
 | Exports render spans correctly | **WRONG** | Not span-aware at all — `src/utils/exportSchedule.js:17-27,33-40` resolves each cell independently; a three-block activity exports as three identical rows. T197 inherits this |
 | Erasure is impossible in this repo | **WRONG** (prior review corrected) | Projection delete is a real `DELETE` (`electron/ops/projections.js:820-834`); the rebuild path deletes the SQLite file plus `-wal`/`-shm` (`rebuildSupportCommand.js:126-175`); old-genesis documents are refused at the sync boundary (`syncNode.js:147-153`), so an offline peer cannot re-introduce purged data |
-| ...so a purge is available today | **PARTIAL** | Two steps do not exist: no op-log prune (zero hits for any delete against `operations`) and no runtime genesis regeneration (`GENESIS_B64` is a source constant at `campDocument.js:254`). Plus `writePreMigrationBackup()` (`electron/db/projectManager.js:151-158`) leaves a full pre-purge copy that nothing deletes. T200 owns all three |
+| ...so a purge is available today | **PARTIAL** | Two steps do not exist: no op-log prune (zero hits for any delete against `operations`) and no runtime genesis regeneration (`GENESIS_B64` is a source constant at `campDocument.js:254`). Plus `writePreMigrationBackup()` (`electron/db/projectManager.js:151-158`) leaves a full pre-purge copy that nothing deletes. T202 owns all three |
 | Export is admin-gated | **NO — implicitly gated** | `src/utils/exportSchedule.js` is a renderer-side utility called from `ScheduleScreen.jsx` with no `authorize()` call; it is gated by who can read the underlying entities. For this feature that yields the right answer by construction (staff hold no read), but it must be stated, not inherited |
 
 **Doc staleness found:** `docs/adr/2026-08-21-arbitrary-length-activity-span.md` and
@@ -163,7 +163,7 @@ is not eligible for — never as a v1 escape hatch (ADR D12).
 | 5 Projection/export | T197 | Roster and child schedule reconcile exactly to the assignment rows |
 | 6 Machine access | T198 | MCP, CLI and UI return equivalent results; mutations gated and attributed |
 | 7 End to end | T199 | The acceptance fixture passes with no manual database edits |
-| — Purge | T200 | A camper's data is genuinely unrecoverable after the documented procedure, backup file included |
+| — Purge | T202 | A camper's data is genuinely unrecoverable after the documented procedure, backup file included |
 
 T193 is severable and proceeds independently of slice 0.
 

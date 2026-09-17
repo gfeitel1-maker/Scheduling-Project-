@@ -1,5 +1,5 @@
 ---
-title: T200-camper-record-purge-path
+title: T202-camper-record-purge-path
 document_type: ticket
 status: open
 created: 2026-09-17
@@ -9,7 +9,7 @@ related_adrs: [docs/adr/2026-09-17-individual-elective-scheduling.md]
 related_specs: [docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md]
 ---
 
-# T200 — the camper-record purge path
+# T202 — the camper-record purge path
 
 A real Delete is permitted (ADR D10). This ticket owns the procedure behind it, because two of its
 steps do not exist and one existing step silently defeats erasure.

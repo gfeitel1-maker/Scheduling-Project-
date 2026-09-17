@@ -44,7 +44,7 @@ Per repo convention: no banners. State that needs surfacing belongs in the findi
 - **Delete copy (ADR D10).** A real Delete is permitted. Its copy must state the cost honestly — a
   full purge requires a coordinated rebuild that invalidates every device's document and forces
   re-pairing, and cannot reach a copy already taken off-device. Copy that implies one click erases
-  the record everywhere does not ship. The procedure itself is T200.
+  the record everywhere does not ship. The procedure itself is T202.
 
 ## Exit condition
 
