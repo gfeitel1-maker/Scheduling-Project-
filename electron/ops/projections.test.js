@@ -1,9 +1,10 @@
 // @vitest-environment node
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { PROJECTIONS, applyProjection, MUTUALLY_EXCLUSIVE_FIELDS, sanitizeMutuallyExclusiveRow } from './projections.js'
 import { appendOp } from './operations.js'
 
@@ -11,8 +12,11 @@ let tmpFile
 let db
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-projections-test-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays all 65 migrations, ~304ms per test.
+  // The template copy is the same database that chain produces, ~10x cheaper.
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  tmpFile = __templated.file
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
   db.prepare(
     'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
@@ -903,4 +907,10 @@ describe('applyProjection for week_location_exclusions (M5)', () => {
     expect(row.week_id).toBe('week-1')
     expect(row.location_id).toBe('loc-pool')
   })
+})
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time
+// and undo the saving, so this runs once, at the end.
+afterAll(() => {
+  cleanupTemplatedDbs()
 })

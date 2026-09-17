@@ -1,9 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { commitIngest, commitPlan, replaceScope, INGESTIBLE_ENTITIES, listImportEvidence, confirmUnknownFieldEvidence, buildUnknownFieldEvidenceMap } from './ingest.js'
 import { inferActivityRules } from '../../src/ingest/activityRules.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
@@ -18,8 +16,11 @@ let db, tmpFile, campId
 const deviceId = 'device-1'
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-ingest-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays all 65 migrations, ~304ms per test.
+  // The template copy is the same database that chain produces, ~10x cheaper.
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  tmpFile = __templated.file
   campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Test', 'a'.repeat(64))
   // operations.device_id and .author_user_id are real foreign keys — an op
@@ -1681,4 +1682,10 @@ describe('recurrence_truth_status classifier write at ingest commit', () => {
     const row = db.prepare('SELECT recurrence_truth_status FROM activities WHERE name = ?').get('Swim')
     expect(row.recurrence_truth_status).toBe('obligation')
   })
+})
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time
+// and undo the saving, so this runs once, at the end.
+afterAll(() => {
+  cleanupTemplatedDbs()
 })
