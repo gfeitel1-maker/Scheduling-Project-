@@ -57,8 +57,17 @@ export async function seedDays(campId) {
         )
       : { label: day.label, day_of_week: day.day_of_week, sort_order: day.sort_order, camp_id: campId }
 
+    // Fires one write() per field (the op-log is field-level) and surfaces the
+    // first failure rather than a silent partial write — the same check-and-throw
+    // shape as createScheduleRepository/createSetupCrudRepository's writeFields
+    // (src/data/scheduleRepository.js, src/data/setupCrudRepository.js). A
+    // rejected write here leaves a torn row, which the isComplete()/repair pass
+    // above heals on the next mount; what it must not do is fail invisibly.
     for (const [field, value] of Object.entries(fields)) {
-      await localClient.write(token, 'days_of_operation', id, field, value)
+      const result = await localClient.write(token, 'days_of_operation', id, field, value)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error(`write failed for field "${field}"`)
+      }
     }
   }
 }
