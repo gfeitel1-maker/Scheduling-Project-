@@ -58,7 +58,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finding dismissals are coordinate-only, so a materially-changed finding at the same coordinates is masked](../../docs/work/tickets/T185-payload-addressed-finding-dismissal.md) | in-progress | [2026-09-16-payload-addressed-finding-dismissal-design](../../docs/work/specs/2026-09-16-payload-addressed-finding-dismissal-design.md) |
-| [The op-rejected notice banner is missing two things DESIGN_STANDARD §5c requires of a recoverable error](../../docs/work/tickets/T202-notice-banner-misses-two-design-standard-requirements.md) | open | — |
 
 ### unclassified
 
@@ -206,6 +205,7 @@ They are different facts and a run can carry a bad one of each.
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
 | 2026-09-17 | [fix: give a failed camp bootstrap a retry affordance (closes T201)](../../docs/work/runs/2026-09-17-fix-give-a-failed-camp-bootstrap-a-retry-affordance-closes-t.md) | ui-ux-design | pass | pass |
+| 2026-09-17 | [fix: meet DESIGN_STANDARD §5c on the op-rejected notice banner (closes T204)](../../docs/work/runs/2026-09-17-fix-meet-design-standard-5c-on-the-op-rejected-notice-banner.md) | ui-ux-design | pass | pass |
 | 2026-09-17 | [fix: surface both bootstrap failures in one notice (closes T200)](../../docs/work/runs/2026-09-17-fix-surface-both-bootstrap-failures-in-one-notice-closes-t20.md) | ui-ux-design | pass | pass |
 | 2026-09-17 | [fix: surface ensureCohort write failures on both sides (closes T190)](../../docs/work/runs/2026-09-17-fix-surface-ensurecohort-write-failures-on-both-sides-closes.md) | ui-ux-design | pass | pass |
 | 2026-09-16 | [closes T178 — INCONCLUSIVE verdict two filters (load-sensitive + slow only)](../../docs/work/runs/2026-09-16-closes-t178-inconclusive-verdict-two-filters.md) | test-infrastructure | pass | PASS |

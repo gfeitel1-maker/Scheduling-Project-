@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { localClient } from './localClient'
 import Shell from './components/layout/Shell'
-import { CloseIcon } from './components/icons'
+import { CloseIcon, WarningTriangleIcon } from './components/icons'
 import ModeSelectScreen from './screens/ModeSelectScreen'
 import JoinByCodeScreen from './screens/JoinByCodeScreen'
 import CampBootstrapScreen from './screens/CampBootstrapScreen'
@@ -33,7 +33,7 @@ import { usePendingConflicts } from './hooks/usePendingConflicts'
 import { ensureCohort } from './utils/ensureCohort'
 import { seedDays } from './utils/seedDays'
 import { describeWriteFailure } from './utils/writeErrorMessage'
-import { S, useEnterTransition } from './styles/shared'
+import { S, useEnterTransition, prefersReducedMotion } from './styles/shared'
 
 // Keys mirrored into screenKeys.js (a plain-data sibling file, not this
 // component file) so a guard test can assert every readiness/rootMap-node
@@ -207,6 +207,15 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // Single scalar, not a queue: a second rejection while one is already
   // showing replaces it rather than stacking. Accepted as adequate for this
   // minimal notice (T12) — a real queue is out of scope here.
+  //
+  // T204: the value is an OBJECT (`{ message }`), never a bare string, and
+  // every arrival allocates a fresh one. §5c's dismiss now fades out over
+  // --motion-fast, which opens a ~140ms window in which a NEW notice can
+  // arrive while the old one is still fading; the banner cancels its pending
+  // unmount when this identity changes, so the new notice is never swallowed
+  // by the outgoing one's timer. String state could not distinguish "the same
+  // message arrived again" from "no new notice", which is exactly the case
+  // that window makes reachable (two identical queue rejections in a row).
   const [opRejectedNotice, setOpRejectedNotice] = useState(null)
   // T201: only a bootstrap-failure notice gets a retry affordance — the
   // offline-queue rejection below has nothing meaningful to re-run, so this
@@ -215,11 +224,11 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   const [noticeRetry, setNoticeRetry] = useState(null)
   useEffect(() => {
     const unsub = localClient.onOpRejected?.((msg) => {
-      setOpRejectedNotice(
-        msg.existing?.name
+      setOpRejectedNotice({
+        message: msg.existing?.name
           ? `A location named "${msg.existing.name}" already exists and wasn't created.`
-          : 'A change could not be saved because it conflicts with existing data.'
-      )
+          : 'A change could not be saved because it conflicts with existing data.',
+      })
       setNoticeRetry(null)
     })
     return () => unsub?.()
@@ -323,7 +332,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
       // behalf). Say so plainly, and keep the retry affordance so they can
       // try again once the stuck run frees up.
       if (isRetry) {
-        setOpRejectedNotice('The previous attempt has not finished yet, so this was not retried. If nothing changes, restart the app.')
+        setOpRejectedNotice({ message: 'The previous attempt has not finished yet, so this was not retried. If nothing changes, restart the app.' })
         setNoticeRetry(() => () => runBootstrap(id, { isRetry: true }))
       }
       return
@@ -339,7 +348,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
       const cohortReason = state.cohort === 'pending' || state.cohort === 'ok' ? null : state.cohort
       const notice = composeBootstrapNotice(daysReason, cohortReason)
       if (notice) {
-        setOpRejectedNotice(notice)
+        setOpRejectedNotice({ message: notice })
         // T201: re-running both is safe — seedDays and ensureCohort are each
         // idempotent check-then-repair, not one-shot inserts (see seedDays.js's
         // header comment) — so "Try again" can simply call this again.
@@ -435,14 +444,61 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
 // (re)appears — AppShell itself never unmounts, so calling the hook inline
 // in AppShell's body would only ever animate once. Mirrors
 // src/components/schedule/ErrorBanner.jsx's use of the same 'slideFade'
-// variant. Dismiss stays synchronous (no fade-out): the existing "dismiss
-// removes the banner" test asserts the alert is gone immediately after the
-// click, which a delayed dismiss would break.
+// variant.
+//
+// T204: dismiss now fades out over --motion-fast before unmounting, as §5c
+// requires ("On dismiss/resolve, fade out --motion-fast"), and degrades to an
+// immediate unmount under prefers-reduced-motion (§8). The earlier
+// synchronous dismiss was justified here by the shape of the existing
+// "dismiss removes the banner" test; per GOVERNANCE_INDEX §11.3 the standard
+// governs and the test moved instead (human gate opened for T204). The fade
+// mirrors ErrorBanner's dismiss exactly rather than inventing a second
+// mechanism.
 function OpRejectedNoticeBanner({ notice, retry, busy, onDismiss }) {
   const enter = useEnterTransition('slideFade')
+  // WHICH notice is fading, not a bare boolean: a NEW notice arriving mid-fade
+  // must cancel the pending unmount rather than be swallowed by the outgoing
+  // notice's timer. Keying on the notice object's identity (see the state
+  // declaration in AppShell) means two identical messages in a row are still
+  // two arrivals, and makes `dismissing` a pure derivation — no effect
+  // resetting state on a prop change (which cascades renders).
+  const [dismissingNotice, setDismissingNotice] = useState(null)
+  const dismissing = dismissingNotice === notice
+
+  const currentNoticeRef = useRef(notice)
+  useEffect(() => { currentNoticeRef.current = notice })
+  const dismissTimeoutRef = useRef(null)
+  useEffect(() => () => clearTimeout(dismissTimeoutRef.current), [])
+
+  const handleDismiss = () => {
+    if (prefersReducedMotion()) {
+      onDismiss()
+      return
+    }
+    const dismissed = notice
+    setDismissingNotice(dismissed)
+    dismissTimeoutRef.current = setTimeout(() => {
+      // Only unmount if this is still the notice on screen; a newer one that
+      // arrived during the fade is a live notice and must survive.
+      if (currentNoticeRef.current !== dismissed) return
+      onDismiss()
+    }, 140)
+  }
+
   return (
-    <div style={{ ...opRejectedNoticeStyles.wrap, ...enter }} role="alert">
-      <span>{notice}</span>
+    <div
+      style={{
+        ...opRejectedNoticeStyles.wrap,
+        ...enter,
+        ...(dismissing ? opRejectedNoticeStyles.dismissing : {}),
+      }}
+      role="alert"
+    >
+      {/* §5c: outline alert icon, 16px, var(--danger), before the message. */}
+      <div style={opRejectedNoticeStyles.message}>
+        <WarningTriangleIcon size={16} color="var(--danger)" />
+        <span>{notice.message}</span>
+      </div>
       <div style={opRejectedNoticeStyles.actions}>
         {retry && (
           // Round 2, Tester HIGH: the notice stays mounted through the
@@ -461,7 +517,7 @@ function OpRejectedNoticeBanner({ notice, retry, busy, onDismiss }) {
         )}
         <button
           type="button"
-          onClick={onDismiss}
+          onClick={handleDismiss}
           aria-label="Dismiss"
           style={opRejectedNoticeStyles.dismissBtn}
         ><CloseIcon /></button>
@@ -481,20 +537,41 @@ const opRejectedNoticeStyles = {
     ...S.errorBanner,
     position: 'fixed',
     top: 16,
-    left: '50%',
-    transform: 'translateX(-50%)',
+    // Centered with auto margins between two insets, NOT `left: 50%` +
+    // translateX(-50%) (T204): useEnterTransition owns `transform` for the
+    // slide, and spreading it over this wrap clobbered the centering shift —
+    // the banner rendered with its left edge at the viewport midpoint. Auto
+    // margins leave `transform` free for motion alone.
+    left: 16,
+    right: 16,
+    marginLeft: 'auto',
+    marginRight: 'auto',
     // Below S.overlay's zIndex 1000 (src/styles/shared.js), not above it: an
     // open modal's own title/close controls must win where the two overlap,
     // never be covered by this banner (T12, Red Hat LOW).
     zIndex: 900,
     maxWidth: 480,
-    width: 'calc(100% - 32px)',
+    width: 'auto',
     marginBottom: 0,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
     boxShadow: '0 2px 12px color-mix(in srgb, var(--text) 12%, transparent)',
+  },
+  // §5c dismiss motion: fade only, --motion-fast. Spread last so it wins over
+  // the enter transition's opacity/transition. pointerEvents off so a banner
+  // on its way out cannot be clicked again mid-fade.
+  dismissing: {
+    opacity: 0,
+    transition: 'opacity var(--motion-fast) var(--ease-out)',
+    pointerEvents: 'none',
+  },
+  message: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
   },
   dismissBtn: {
     background: 'none',
