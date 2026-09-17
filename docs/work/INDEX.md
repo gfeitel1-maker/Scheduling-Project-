@@ -46,6 +46,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
+| [The gate is 88% one step, and lints the tree twice](../../docs/work/tickets/T188-the-gate-is-88-percent-one-step-and-lints-the-tree-twice.md) | open | — |
 
 ### ui-ux-design
 
