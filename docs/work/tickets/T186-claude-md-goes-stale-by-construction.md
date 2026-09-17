@@ -1,7 +1,7 @@
 ---
 title: "CLAUDE.md goes stale by construction — it restates facts nothing checks"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-16
 task_class: documentation-governance
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md]

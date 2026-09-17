@@ -1,7 +1,7 @@
 ---
 title: "Engine fixtures have no schema-parity guard, so the T62 defect class can return silently"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-16
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md]
