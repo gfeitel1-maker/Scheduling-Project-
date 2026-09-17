@@ -8,12 +8,13 @@
 // was deleted with the WebSocket layer. So these tests are written against the
 // DIRECTOR'S outcome ("does the correction survive?") rather than against the
 // mechanism, which is what the previous coverage got wrong.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp } from './operations.js'
 import { isHumanOwned } from './fieldProvenance.js'
 import {
@@ -29,6 +30,12 @@ import {
 import { seedDocFromSqlite } from '../automerge/seed.js'
 import { setCurrentDoc as setDocForTest } from '../sync/automerge/liveDoc.js'
 
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
+
 // The record/provenance key delimiter, built rather than typed. A literal NUL in
 // a source file makes plain `grep` treat it as binary and SILENTLY return zero
 // matches — see docs/current/CRDT_SECURITY_GAPS.md's note on the same trap in
@@ -40,8 +47,11 @@ let dbFile
 let campId
 
 beforeEach(() => {
-  dbFile = path.join(os.tmpdir(), `shoresh-prov-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(dbFile)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  dbFile = __templated.file
   campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'c'.repeat(64))
   db.prepare(

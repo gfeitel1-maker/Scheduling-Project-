@@ -8,23 +8,33 @@
 // see syncServer.js's authorizeWs, which calls authorize() directly — so
 // exercising authorize() with the derived actions covers both entry points
 // structurally, mirroring electron/auth/authorize.test.js's own style.
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { issueLocalToken, ensureHostSigningKey } from '../auth/localAuth.js'
 import { authorize } from '../auth/authorize.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from '../auth/deriveWriteAction.js'
 import { DELETE_FIELD } from './operations.js'
 
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 let tmpFile
 let db
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-special-days-permissions-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  tmpFile = __templated.file
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
   db.prepare('UPDATE camps SET signing_secret = ? WHERE id = ?').run(randomBytes(32).toString('hex'), 'camp-1')
   db.prepare(

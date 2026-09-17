@@ -4,19 +4,29 @@
 // could not write (scoped to T105's write path). Follows T111's own
 // multi-device interleave test shape: direct applyProjection calls against a
 // shared test db, no real transport.
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { applyProjection } from './projections.js'
 
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 let tmpFile
 let db
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-elective-conversion-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  tmpFile = __templated.file
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
   db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run('grp-1', 'camp-1', 'Bunk 1')
   db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('act-1', 'camp-1', 'Swim')

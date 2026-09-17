@@ -3,20 +3,30 @@
 // docs/adr/2026-08-28-stage-aware-nav-landing.md Decision 1 — the
 // stage-aware landing predicate: false on a bare camp, true the moment ANY
 // required-setup table has a row.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { campHasSetupData, REQUIRED_SETUP_TABLES } from './campHasSetupData.js'
 
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 let tmpFile
 let db
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-camp-has-setup-data-test-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  tmpFile = __templated.file
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp Test')
 })
 

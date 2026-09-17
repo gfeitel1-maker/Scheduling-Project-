@@ -14,7 +14,8 @@ related_adrs:
   - docs/adr/2026-09-06-productionize-automerge-libp2p-sync.md
   - docs/adr/2026-09-04-projection-failure-detection-and-recovery.md
   - docs/adr/2026-08-04-repository-layer-policy.md
-related_tickets: []
+related_tickets:
+  - docs/work/tickets/T188-the-gate-is-88-percent-one-step-and-lints-the-tree-twice.md
 related_specs: []
 ---
 
@@ -94,8 +95,7 @@ a shape problem — but a much smaller one than "event-driven architecture" impl
 
 ### 2.1 The testing pain is fixture cost, and it is already being fixed without touching shape
 
-From the T188 measurement ticket (branch `claude/t188-gate-tiering`, measured 2026-09-16 at
-`d920ce8`, 4 cores):
+From the T188 measurement ticket (measured 2026-09-16 at `d920ce8`, 4 cores):
 
 | Fact | Value |
 |---|---|
@@ -509,7 +509,7 @@ possible first architectural step. Every slice after it is revertible by not usi
 
 | Claim | Source | Kind |
 |---|---|---|
-| Gate 19.6 min; `test` 87.2%; 439 files / 5893 tests; 1.31× on 4 cores; 4.2× fixture win | T188 measurement ticket, branch `claude/t188-gate-tiering` | measured |
+| Gate 19.6 min; `test` 87.2%; 439 files / 5893 tests; 1.31× on 4 cores; 4.2× fixture win | `docs/work/tickets/T188-the-gate-is-88-percent-one-step-and-lints-the-tree-twice.md` | measured |
 | 138 of 439 test files open a real SQLite database | counted for this document | measured |
 | `write` is one field per IPC call | `src/localClient.js:61` | code |
 | `writeFields` loops and throws on first failure | `src/data/scheduleRepository.js:65` | code |

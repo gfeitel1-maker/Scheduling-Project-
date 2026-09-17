@@ -10,22 +10,32 @@
 //   #1 same set re-imported → ZERO new anchor rows, ZERO anchor ops
 //   #2 a genuinely-new fixed event (new slot key) still creates on re-import
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { commitIngest } from './ingest.js'
 import { appendOp, DELETE_FIELD } from './operations.js'
 import { restoreEntity } from './restore.js'
 
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 let db, tmpFile, campId
 const deviceId = 'device-1'
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-t72-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  tmpFile = __templated.file
   campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Test', 'a'.repeat(64))
   db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Test Device')

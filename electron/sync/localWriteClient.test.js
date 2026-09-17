@@ -8,14 +8,21 @@
 // exercise this code through the `!serverUrl` branch go with it. What is pinned
 // here is what must still be true afterwards, when this is simply how every
 // device writes.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { createLocalWriteClient } from './localWriteClient.js'
 
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 let db
 let dbFile
 let campId
@@ -23,8 +30,11 @@ let deviceId
 let userId
 
 beforeEach(() => {
-  dbFile = path.join(os.tmpdir(), `shoresh-lwc-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(dbFile)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  dbFile = __templated.file
   campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'c'.repeat(64))
   deviceId = randomUUID()
