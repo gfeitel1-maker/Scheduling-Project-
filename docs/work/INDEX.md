@@ -52,6 +52,8 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finding dismissals are coordinate-only, so a materially-changed finding at the same coordinates is masked](../../docs/work/tickets/T185-payload-addressed-finding-dismissal.md) | in-progress | [2026-09-16-payload-addressed-finding-dismissal-design](../../docs/work/specs/2026-09-16-payload-addressed-finding-dismissal-design.md) |
+| [Two simultaneous camp-bootstrap failures collapse into one notice, so the director is told about only one of them](../../docs/work/tickets/T200-two-bootstrap-failures-show-one-notice.md) | open | — |
+| [A transient camp-bootstrap failure is never retried for the rest of the session, while the notice copy tells the director to try again](../../docs/work/tickets/T201-transient-bootstrap-failure-is-never-retried.md) | open | — |
 
 ### unclassified
 
