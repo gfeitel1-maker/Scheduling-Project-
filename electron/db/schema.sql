@@ -862,6 +862,16 @@ CREATE TABLE IF NOT EXISTS camp_maps (
 -- the schedule_templates.kind index above) because template_id is NOT NULL
 -- from each table's original creation, so re-execution on every open never
 -- hits a pre-migration file missing the column.
+--
+-- Declaring an index here is NOT sufficient on its own for a table that a
+-- migration rebuilds via DROP TABLE + RENAME: schema.sql runs at the START of
+-- an open, before the migrations, so a DROP later in that same open takes the
+-- index with it and nothing puts it back until the next open. schedule_snapshots
+-- is rebuilt by v53 and v59, which is why both of those blocks re-create the
+-- index below from SCHEDULE_SNAPSHOTS_TEMPLATE_ID_INDEX_DDL in localDb.js — the
+-- byte-identical twin of the next line. template_slots is not rebuilt, so its
+-- index needs no such twin. See
+-- docs/adr/2026-09-16-index-survival-across-table-rebuilds.md.
 CREATE INDEX IF NOT EXISTS idx_template_slots_template_id ON template_slots(template_id);
 CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_template_id ON schedule_snapshots(template_id);
 

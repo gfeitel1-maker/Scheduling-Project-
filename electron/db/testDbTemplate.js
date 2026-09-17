@@ -62,24 +62,24 @@ function tmpPath(tag) {
 // into the main file and a plain byte copy is complete. Copying while a connection is open would
 // leave committed pages behind in the -wal sidecar.
 //
-// OPENED TWICE, DELIBERATELY. openLocalDb is not idempotent across opens on a brand-new file: a
-// fresh database comes back with 25 indexes and the same file reopened has 26. The extra one is
-// idx_schedule_snapshots_template_id — schema.sql declares it, then migrations v53/v59 rebuild
-// schedule_snapshots (DROP TABLE + RENAME), which drops it, and schema.sql's CREATE INDEX has
-// already run for that open so it does not re-fire until the next one. That is a real defect in
-// the migrations (filed separately, 2026-09-16 — it means a brand-new install table-SCANs
-// schedule_snapshots until its second launch); it is NOT caused by this helper.
+// OPENED ONCE. This helper was originally opened TWICE, to work around a migration defect: a
+// fresh database came back with 25 declared indexes and the same file reopened had 26. The extra
+// one was idx_schedule_snapshots_template_id — schema.sql declares it, then migrations v53/v59
+// rebuild schedule_snapshots (DROP TABLE + RENAME), which dropped it, and schema.sql's CREATE
+// INDEX had already run for that open so it did not re-fire until the next one. The
+// schema-equivalence assertion in this helper's own test is what surfaced it.
 //
-// It matters here because the template must be a FIXED POINT. Opening once would hand tests a
-// database whose schema depends on how many times it happened to have been opened, and copies
-// would differ from what the same code produces directly. Opening to convergence makes the
-// fixture deterministic and matches the steady state every real database reaches. When the
-// migration defect is fixed the second open becomes a no-op and this stays correct.
+// T189 fixed that at the source: both rebuild blocks now re-create the index after their RENAME,
+// and electron/db/schemaIndexParity.migration.test.js guards first-open/second-open parity for
+// every declared non-table object, whole-database, so the divergence cannot come back unnoticed.
+// The second open is therefore a proven no-op and is gone, as the author of the convergence
+// workaround asked for in the note this comment replaces. The template is still a fixed point —
+// it is now one because openLocalDb is idempotent across opens, which is the property that should
+// have been true all along, rather than because this helper opened until it converged.
 function ensureTemplate() {
   if (templatePath && fs.existsSync(templatePath)) return templatePath
   const p = tmpPath('tpl')
   openLocalDb(p).close()
-  openLocalDb(p).close() // converge — see above
   created.push(p)
   templatePath = p
   return p
