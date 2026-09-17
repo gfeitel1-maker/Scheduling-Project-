@@ -33,7 +33,7 @@ import { usePendingConflicts } from './hooks/usePendingConflicts'
 import { ensureCohort } from './utils/ensureCohort'
 import { seedDays } from './utils/seedDays'
 import { describeWriteFailure } from './utils/writeErrorMessage'
-import { S } from './styles/shared'
+import { S, useEnterTransition } from './styles/shared'
 
 // Keys mirrored into screenKeys.js (a plain-data sibling file, not this
 // component file) so a guard test can assert every readiness/rootMap-node
@@ -251,6 +251,15 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // no UNIQUE constraint, so a double-invoke would seed Mon–Fri twice → 10
   // days). Without this guard the duplication is only masked in production
   // builds, where StrictMode does not double-invoke.
+  // Round 3, verified against Red Hat's round-2 claim that an app restart
+  // would NOT retry a hung bootstrap because seededForCamp.current would
+  // still equal campId: this is wrong. seededForCamp is a useRef scoped to
+  // THIS AppShell function-component instance (declared inside AppShell,
+  // line ~146 below) — a real app restart, or any AppShell unmount/remount,
+  // creates a fresh instance with a fresh ref initialised to null, so the
+  // mount effect's `seededForCamp.current === campId` guard is false and
+  // runBootstrap runs again. A restart IS a genuine recovery path for an
+  // unbounded IPC hang (see the T201/T200 "Known limits accepted" note).
   const seededForCamp = useRef(null)
   // T201: a second ref, separate from seededForCamp, so a manual retry click
   // can't overlap with another retry (or with the mount-time run) — one
@@ -272,11 +281,19 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // per-device (every `camps` lookup is `SELECT ... FROM camps LIMIT 1`), so
   // campId does not actually change under a live AppShell instance today.
   const bootstrapInFlight = useRef(false)
-  // Round 2, UI-only flag mirroring bootstrapInFlight into React state so the
-  // retry button can render a "Retrying…" state while a run is in progress.
-  // bootstrapInFlight (the ref) stays the concurrency guard; this never gates
-  // logic, only what the button shows.
+  // Round 3, HIGH: bootstrapBusy means "a director-initiated retry is in
+  // progress" — NOT "a bootstrap run of any kind is in progress". It is set
+  // only on the retry-click path (isRetry below), never on the mount-time
+  // run, so a hung mount attempt does not render the retry control as a
+  // permanently-disabled "Retrying…" the director never triggered.
+  // bootstrapInFlight (the ref) stays the concurrency guard for BOTH the
+  // mount run and retries; this never gates logic, only what the button
+  // shows.
   const [bootstrapBusy, setBootstrapBusy] = useState(false)
+  // Round 3, MEDIUM: reset at the start of each runBootstrap invocation, so
+  // a dismiss sticks for THAT invocation's remaining recompose() calls but a
+  // brand new retry always starts undismissed.
+  const dismissedRef = useRef(false)
 
   // T200: both writers dispatched together, but round 2 (Red Hat HIGH) moved
   // away from awaiting Promise.allSettled as the notice trigger — a hang on
@@ -297,16 +314,27 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // replace this notice (and its retry affordance) under the same
   // single-scalar last-writer-wins rule — fixing that means the notice
   // queue T12 explicitly ruled out of scope.
-  async function runBootstrap(id) {
+  async function runBootstrap(id, { isRetry = false } = {}) {
     if (bootstrapInFlight.current) {
       seededForCamp.current = null
+      // Round 3, HIGH: a director clicking Try again while the mount-time
+      // attempt is still hung used to no-op silently, leaving the notice as
+      // it was (misleading, since nothing is actually happening on their
+      // behalf). Say so plainly, and keep the retry affordance so they can
+      // try again once the stuck run frees up.
+      if (isRetry) {
+        setOpRejectedNotice('The previous attempt has not finished yet, so this was not retried. If nothing changes, restart the app.')
+        setNoticeRetry(() => () => runBootstrap(id, { isRetry: true }))
+      }
       return
     }
     bootstrapInFlight.current = true
-    setBootstrapBusy(true)
+    if (isRetry) setBootstrapBusy(true)
+    dismissedRef.current = false
 
     const state = { days: 'pending', cohort: 'pending' }
     const recompose = () => {
+      if (dismissedRef.current) return
       const daysReason = state.days === 'pending' || state.days === 'ok' ? null : state.days
       const cohortReason = state.cohort === 'pending' || state.cohort === 'ok' ? null : state.cohort
       const notice = composeBootstrapNotice(daysReason, cohortReason)
@@ -315,7 +343,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         // T201: re-running both is safe — seedDays and ensureCohort are each
         // idempotent check-then-repair, not one-shot inserts (see seedDays.js's
         // header comment) — so "Try again" can simply call this again.
-        setNoticeRetry(() => () => runBootstrap(id))
+        setNoticeRetry(() => () => runBootstrap(id, { isRetry: true }))
       } else if (state.days !== 'pending' && state.cohort !== 'pending') {
         setOpRejectedNotice(null)
         setNoticeRetry(null)
@@ -333,7 +361,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
 
     await Promise.allSettled([daysDone, cohortDone])
     bootstrapInFlight.current = false
-    setBootstrapBusy(false)
+    if (isRetry) setBootstrapBusy(false)
   }
 
   // runBootstrap is a plain function re-created every render, closing only
@@ -374,32 +402,19 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   return (
     <>
       {opRejectedNotice && (
-        <div style={opRejectedNoticeStyles.wrap} role="alert">
-          <span aria-live="polite">{opRejectedNotice}</span>
-          <div style={opRejectedNoticeStyles.actions}>
-            {noticeRetry && (
-              // Round 2, Tester HIGH: the notice stays mounted through the
-              // retry (no clear-then-vanish) — the button swaps to a
-              // disabled "Retrying…" label so the director can tell a
-              // re-presented failure from a new one, without a spinner
-              // (DESIGN_STANDARD §5b: a label swap is enough for a
-              // sub-second local write).
-              <button
-                type="button"
-                disabled={bootstrapBusy}
-                aria-disabled={bootstrapBusy}
-                onClick={() => noticeRetry()}
-                style={opRejectedNoticeStyles.retryBtn}
-              >{bootstrapBusy ? 'Retrying…' : 'Try again'}</button>
-            )}
-            <button
-              type="button"
-              onClick={() => { setOpRejectedNotice(null); setNoticeRetry(null) }}
-              aria-label="Dismiss"
-              style={opRejectedNoticeStyles.dismissBtn}
-            ><CloseIcon /></button>
-          </div>
-        </div>
+        <OpRejectedNoticeBanner
+          notice={opRejectedNotice}
+          retry={noticeRetry}
+          busy={bootstrapBusy}
+          onDismiss={() => {
+            // Round 3, MEDIUM: mark the current runBootstrap invocation (if
+            // any) as dismissed so a still-pending settle can't reopen the
+            // notice the director just closed.
+            dismissedRef.current = true
+            setOpRejectedNotice(null)
+            setNoticeRetry(null)
+          }}
+        />
       )}
       <Shell
         currentScreen={resolvedScreen}
@@ -412,6 +427,46 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         <Screen {...screenProps} />
       </Shell>
     </>
+  )
+}
+
+// Round 3, Tester MEDIUM (DESIGN_STANDARD §5c): a separate component so its
+// own mount gives useEnterTransition a fresh instance each time the notice
+// (re)appears — AppShell itself never unmounts, so calling the hook inline
+// in AppShell's body would only ever animate once. Mirrors
+// src/components/schedule/ErrorBanner.jsx's use of the same 'slideFade'
+// variant. Dismiss stays synchronous (no fade-out): the existing "dismiss
+// removes the banner" test asserts the alert is gone immediately after the
+// click, which a delayed dismiss would break.
+function OpRejectedNoticeBanner({ notice, retry, busy, onDismiss }) {
+  const enter = useEnterTransition('slideFade')
+  return (
+    <div style={{ ...opRejectedNoticeStyles.wrap, ...enter }} role="alert">
+      <span>{notice}</span>
+      <div style={opRejectedNoticeStyles.actions}>
+        {retry && (
+          // Round 2, Tester HIGH: the notice stays mounted through the
+          // retry (no clear-then-vanish) — the button swaps to a
+          // disabled "Retrying…" label so the director can tell a
+          // re-presented failure from a new one, without a spinner
+          // (DESIGN_STANDARD §5b: a label swap is enough for a
+          // sub-second local write).
+          <button
+            type="button"
+            disabled={busy}
+            aria-disabled={busy}
+            onClick={() => retry()}
+            style={opRejectedNoticeStyles.retryBtn}
+          >{busy ? 'Retrying…' : 'Try again'}</button>
+        )}
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          style={opRejectedNoticeStyles.dismissBtn}
+        ><CloseIcon /></button>
+      </div>
+    </div>
   )
 }
 

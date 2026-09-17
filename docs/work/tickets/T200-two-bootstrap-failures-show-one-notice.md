@@ -80,3 +80,20 @@ independent sources sharing one scalar, and building real isolation between them
 or per-source slots) is exactly the toast/queue framework T12 and this ticket's "What this ticket is
 NOT" section both explicitly ruled out of scope. See `src/App.jsx`'s `runBootstrap` comment for the
 in-code pointer to this limit.
+
+## Known limits accepted in round 3
+
+Round 2's self-reopen-after-dismiss defect (dismissing the notice while one of the two writes was
+still pending, then having that write settle and silently reopen the notice) is now FIXED — a
+`dismissedRef`, reset at the start of each `runBootstrap` invocation, makes `recompose()` a no-op
+once the director has dismissed that invocation's notice; a brand new retry starts undismissed.
+
+What remains accepted, not fixed: an unbounded IPC hang still cannot be retried away from within the
+app. `localClient.write` is `ipcRenderer.invoke` with no timeout (`src/localClient.js:61-62`), so if
+`seedDays` or `ensureCohort` never settles, `bootstrapInFlight` never clears and every subsequent
+"Try again" click can only report that the previous attempt has not finished — it cannot cancel or
+route around the hang. The only recovery is restarting the app (a fresh `AppShell` instance gets a
+fresh `seededForCamp` ref, so the mount-time bootstrap genuinely retries — see the code comment at
+`seededForCamp`'s declaration in `src/App.jsx`). A real fix — a client-side IPC timeout, or a
+`UNIQUE` constraint on `days_of_operation` so a duplicate seed after a hang is harmless instead of
+dangerous — is a schema/IPC change out of scope for this ticket.

@@ -286,6 +286,61 @@ describe('AppShell: a failed camp seed is surfaced, not swallowed', () => {
 
     expect(seedDays).toHaveBeenCalledWith('camp-2')
   })
+
+  // Round-3 review, HIGH — bootstrapBusy must mean "a director-initiated
+  // retry is in progress", not "the mount bootstrap is still running". A
+  // hung mount-time attempt must not render the retry control as a
+  // permanently-disabled "Retrying…" that the director never triggered.
+  it('round3: a hung ensureCohort on the MOUNT run leaves Try again enabled, not stuck on Retrying', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    ensureCohort.mockReturnValue(new Promise(() => {})) // never settles
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+    expect(retryBtn.disabled).toBe(false)
+    expect(retryBtn.textContent).toMatch(/try again/i)
+  })
+
+  // Round-3 review, HIGH — clicking Try again while the mount attempt is
+  // still hung (bootstrapInFlight) must not silently no-op: the director
+  // must see an honest explanation, and it must not fire a second seedDays.
+  it('round3: clicking Try again while the mount run is still hung explains why, and does not re-call seedDays', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    ensureCohort.mockReturnValue(new Promise(() => {})) // never settles
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    expect(seedDays).toHaveBeenCalledTimes(1)
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+
+    await act(async () => {
+      fireEvent.click(retryBtn)
+    })
+
+    expect(seedDays).toHaveBeenCalledTimes(1)
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/previous attempt has not finished/i)
+    expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy()
+  })
+
+  // Round-3 review, MEDIUM — dismiss must stick. A notice the director just
+  // closed must not silently reopen when a still-pending write later settles.
+  it('round3: dismissing the notice while a write is still pending keeps it closed once that write settles', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    let resolveCohort
+    ensureCohort.mockReturnValue(new Promise((resolve) => { resolveCohort = resolve }))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    expect(screen.getByRole('alert')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await act(async () => { resolveCohort() })
+
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
 })
 
 describe('AppShell: offline op-rejected notice (item 7, owner decision)', () => {
