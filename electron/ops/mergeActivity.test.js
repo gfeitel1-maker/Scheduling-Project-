@@ -227,6 +227,10 @@ describe('the referrer list cannot silently fall behind the schema', () => {
       'special_day_slots.activity_id',
       'event_slots.activity_id',
       'elective_set_activities.activity_id',
+      // T194 (v66): a merge re-points a camper's assignment and the offering it
+      // came from, or they are stranded on the losing activity.
+      'elective_choice_offerings.activity_id',
+      'elective_assignments.activity_id',
       'activities.weather_alternative_id',
     ])
     const unhandled = found.filter((f) => !handled.has(f))

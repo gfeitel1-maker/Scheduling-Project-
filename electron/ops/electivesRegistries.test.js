@@ -53,7 +53,7 @@ describe('v35 registry coverage — elective_sets', () => {
 describe('v35 registry coverage — elective_set_activities', () => {
   it('is a projected, parent-scoped entity keyed by elective_set_id', () => {
     expect(PROJECTIONS.elective_set_activities).toBeTruthy()
-    expect(PROJECTIONS.elective_set_activities.fields).toEqual(['elective_set_id', 'activity_id', 'camper_headcount'])
+    expect(PROJECTIONS.elective_set_activities.fields).toEqual(['elective_set_id', 'activity_id', 'capacity_mode', 'capacity_limit'])
     expect(PARENT_SCOPED_ENTITIES.elective_set_activities).toEqual({
       table: 'elective_set_activities',
       parentTable: 'elective_sets',

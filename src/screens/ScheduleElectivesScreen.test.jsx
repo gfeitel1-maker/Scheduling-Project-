@@ -65,7 +65,7 @@ describe('ScheduleElectivesScreen — list', () => {
         { id: 'set-1', camp_id: CAMP_ID, name: 'Afternoon Chugim' },
       ],
       elective_set_activities: [
-        { id: 'off-1', elective_set_id: 'set-1', activity_id: 'act-1', camper_headcount: null },
+        { id: 'off-1', elective_set_id: 'set-1', activity_id: 'act-1', capacity_mode: 'unlimited', capacity_limit: null },
       ],
     }))
     render(<ScheduleElectivesScreen campId={CAMP_ID} role="admin" />)

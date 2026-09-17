@@ -57,7 +57,10 @@ describe('populateElectiveSet', () => {
 
     const swimId = deriveElectiveImportId(ELECTIVE_SET_ID, 'act-swim')
     const swimWrite = repo.calls.find((c) => c.entity === 'elective_set_activities' && c.id === swimId)
-    expect(swimWrite.fields).toEqual({ elective_set_id: ELECTIVE_SET_ID, activity_id: 'act-swim', camper_headcount: null })
+    // v66 (T194): an imported offering has no declared cap. Written explicitly
+    // rather than left to the column DEFAULT — a projection write is a
+    // field-by-field UPDATE, and the default only applies to the insert.
+    expect(swimWrite.fields).toEqual({ elective_set_id: ELECTIVE_SET_ID, activity_id: 'act-swim', capacity_mode: 'unlimited', capacity_limit: null })
 
     const zumbaId = deriveElectiveImportId(ELECTIVE_SET_ID, 'act-zumba')
     expect(repo.calls.some((c) => c.entity === 'elective_set_activities' && c.id === zumbaId)).toBe(true)

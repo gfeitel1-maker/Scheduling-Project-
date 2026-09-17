@@ -1013,11 +1013,40 @@ CREATE TABLE IF NOT EXISTS elective_sets (
 -- appends, so declaring it last here keeps a fresh install's column order
 -- byte-identical to a migrated one (same column-order-trap precedent as
 -- elective_sets.is_reusable / activities.location_id).
+-- capacity_mode / capacity_limit (schema v66, ADR docs/adr/2026-09-17-
+-- individual-elective-scheduling.md D3): capacity becomes a two-part value so
+-- "no limit" and "closed" are never the same value. `capacity_mode` is the
+-- AUTHORITY: when it is 'unlimited', capacity_limit is ignored entirely —
+-- never coerced, never compared against. When it is 'limited',
+-- capacity_limit IS NULL is INVALID_CAPACITY (a finding, not a crash) and 0 is
+-- a genuinely CLOSED offering.
+--
+-- The CHECKs are deliberately PER-COLUMN and NOT the obvious cross-column
+-- pairing. applyProjection writes ONE entity/field/value triple per operation,
+-- so changing an offering from unlimited to a cap of 12 is two ops in some
+-- order, and BOTH orders traverse a state a pairing CHECK forbids
+-- (('limited', NULL) and ('unlimited', 12)). That would fail on the RECEIVING
+-- device during sync replay, not locally. See the design doc §3.2 and the
+-- named test in electron/db/participantSubstrate.migration.test.js. Do not
+-- "tighten" these into a pairing CHECK.
+--
+-- camper_headcount is RETAINED in place and retired from the write path
+-- (removed from PROJECTIONS.elective_set_activities.fields). It is not dropped:
+-- dropping it needs a table rebuild, and a rebuild on this table is exactly the
+-- class that produced T189's lost index.
+--
+-- Both columns are ALTER-added on a migrated db (localDb.js v66), which always
+-- appends, so they MUST stay the last two columns here.
 CREATE TABLE IF NOT EXISTS elective_set_activities (
   id TEXT PRIMARY KEY,
   elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
   activity_id TEXT NOT NULL,
   camper_headcount INTEGER,
+  capacity_mode TEXT NOT NULL DEFAULT 'unlimited'
+    CHECK (capacity_mode IN ('unlimited', 'limited')),
+  capacity_limit INTEGER
+    CHECK (capacity_limit IS NULL
+           OR (typeof(capacity_limit) = 'integer' AND capacity_limit >= 0)),
   UNIQUE(elective_set_id, activity_id)
 );
 
@@ -1109,3 +1138,142 @@ CREATE TABLE IF NOT EXISTS event_slots (
   location_id TEXT
 );
 
+
+-- ---------------------------------------------------------------------------
+-- The participant data substrate (schema v66, T194).
+-- ADR docs/adr/2026-09-17-individual-elective-scheduling.md
+-- design docs/work/specs/2026-09-17-t194-participant-substrate-design.md §1.
+--
+-- Seven NEW tables, so column order is free to choose — but it is FIXED here
+-- and normative: the v66 migration creates them with the identical CREATE
+-- TABLE text, and participantSubstrate.migration.test.js compares column
+-- ORDER, not just the column set.
+--
+-- REFERENCES discipline, taken from this schema rather than invented: each
+-- table's own PARENT link gets a real REFERENCES (matching
+-- elective_set_activities.elective_set_id), while activity_id / time_block_id /
+-- group_id / day_id / tier_id stay SOFT references with no SQL REFERENCES
+-- clause (matching elective_set_activities.activity_id and template_slots).
+-- That keeps foreign_keys = ON from rejecting a legitimate out-of-order op-log
+-- replay.
+--
+-- NO UNIQUE INDEX ON ANY COMPOSITE, deliberately, and this is the point of the
+-- whole slice. A UNIQUE(run_id, camper_id, occurrence_id) index would be the
+-- WRONG mechanism: op-log replay and Automerge merge apply rows in arbitrary
+-- order, so a UNIQUE violation surfaces as a projection apply FAILURE on the
+-- receiving device — a crash on the device that did nothing wrong — rather
+-- than as a conflict. ADR D4's derived id (electron/ops/electiveDerivedIds.js)
+-- makes the duplicate unrepresentable BEFORE it reaches SQLite, which is why
+-- no index is needed. Stated so a future reviewer does not "fix" this.
+--
+-- ADMIN-ONLY (ADR D9): all seven are deliberately absent from
+-- permissions.js ENTITIES, following the camp_maps precedent. Staff consume
+-- the exported artifact, not these rows.
+-- ---------------------------------------------------------------------------
+
+-- campers (v66). The WHOLE participant footprint (ADR D8): display name,
+-- group membership, optional external id. No contact details, no medical data,
+-- no date of birth, no household or parent records. D8 states that as a design
+-- constraint, so a future column here is an ADR-level change, not a field
+-- addition. external_id is an opaque string from the camp's OWN roster system
+-- — it matches the *_id glob only by spelling and references no Shoresh entity.
+CREATE TABLE IF NOT EXISTS campers (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  display_name TEXT NOT NULL,
+  group_id TEXT,
+  external_id TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1
+);
+
+-- elective_assignment_runs (v66). One director-initiated assignment attempt.
+-- `status` is the run lifecycle. `solver_generation` is ADR D5's marker: this
+-- slice STORES it, T196 ENFORCES it — "stores the marker" and "honours the
+-- marker" are easy to conflate, and a v66 that quietly implemented the filter
+-- would put solver policy in the projection layer. source_sha256 is the hash of
+-- the imported preference FILE, never of any camper value.
+CREATE TABLE IF NOT EXISTS elective_assignment_runs (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  schedule_week_id TEXT REFERENCES schedule_weeks(id),
+  schedule_template_id TEXT,
+  tier_id TEXT,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft'
+    CHECK (status IN ('draft', 'final')),
+  source_filename TEXT,
+  source_sha256 TEXT,
+  solver_version TEXT,
+  solver_generation TEXT
+);
+
+-- elective_occurrences (v66). A concrete (set, day, block, tier) cell the run
+-- assigns into, re-derived from live template_slots on every generation (D6).
+-- Derived id: deriveElectiveOccurrenceId.
+CREATE TABLE IF NOT EXISTS elective_occurrences (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+  elective_set_id TEXT,
+  day_id TEXT,
+  time_block_id TEXT,
+  tier_id TEXT
+);
+
+-- elective_choices (v66, ADR D12). The thing a camper ranks. A single-period
+-- choice is the degenerate one-member case, so there is ONE code path and
+-- linked multi-period choices are modeled up front rather than retrofitted.
+-- Derived id: deriveElectiveChoiceId(run_id, electiveChoiceLabelKey(label)).
+-- Owner ruling R2 (2026-09-17): the key is the NORMALIZED LABEL, not the member
+-- set — editing a choice's members keeps the same choice, so campers' existing
+-- preferences stay attached. Stability under member edits was chosen over key
+-- purity, which makes `label` load-bearing.
+CREATE TABLE IF NOT EXISTS elective_choices (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+  label TEXT NOT NULL,
+  is_linked INTEGER NOT NULL DEFAULT 0
+);
+
+-- elective_choice_offerings (v66, ADR D12). A choice's member occurrences.
+-- Assignment expands a chosen choice atomically across every row here.
+CREATE TABLE IF NOT EXISTS elective_choice_offerings (
+  id TEXT PRIMARY KEY,
+  choice_id TEXT NOT NULL REFERENCES elective_choices(id),
+  occurrence_id TEXT,
+  activity_id TEXT
+);
+
+-- elective_preferences (v66). A camper's ranked choice. PII-adjacent: a row
+-- here plus a campers row is "this child wants this activity".
+-- Derived id: deriveElectivePreferenceId(run_id, camper_id, choice_id) —
+-- owner ruling R1 (2026-09-17). ADR D4 names (run, camper, occurrence,
+-- activity), but D12 (written later in the same document) moved preferences to
+-- point at a CHOICE and this row has no occurrence_id or activity_id column to
+-- key on. A correction note is appended to D4 recording that drafting order.
+CREATE TABLE IF NOT EXISTS elective_preferences (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+  camper_id TEXT,
+  choice_id TEXT,
+  rank INTEGER
+);
+
+-- elective_assignments (v66). The output, and the row whose DERIVED ID *IS*
+-- the uniqueness invariant (ADR D4) — the single most important thing in this
+-- slice. deriveElectiveAssignmentId(run_id, camper_id, occurrence_id).
+-- activity_id is deliberately NOT part of the key: re-placing the same camper
+-- in the same occurrence must hit the SAME row, so two devices doing it
+-- concurrently produce a per-field conflict on one record instead of two rows.
+CREATE TABLE IF NOT EXISTS elective_assignments (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+  occurrence_id TEXT,
+  camper_id TEXT,
+  activity_id TEXT,
+  choice_id TEXT,
+  preference_rank INTEGER,
+  source TEXT NOT NULL DEFAULT 'solver'
+    CHECK (source IN ('solver', 'manual')),
+  is_locked INTEGER NOT NULL DEFAULT 0,
+  solver_generation TEXT
+);

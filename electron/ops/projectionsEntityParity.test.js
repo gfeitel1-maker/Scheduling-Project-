@@ -30,9 +30,30 @@ const NON_CAMP_SCOPED_PROJECTIONS = {
 const registryUnion = new Set([...DIRECT_CAMP_ENTITIES, ...Object.keys(PARENT_SCOPED_ENTITIES)])
 const permissionsSet = new Set(PERMISSIONS_ENTITIES)
 
-// Mirrors permissions.js's own documented admin-only exception (camp_maps:
-// staff get read but not write, so it's deliberately absent from ENTITIES).
-const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = new Set(['camp_maps'])
+// Mirrors permissions.js's own documented admin-only exceptions.
+//
+// camp_maps: staff get read but not write, so it's deliberately absent from
+// ENTITIES (which derives read and write together).
+//
+// The seven participant entities (T194, ADR docs/adr/2026-09-17-individual-
+// elective-scheduling.md D9): staff get NOTHING — no read, no write. The whole
+// domain is admin-only, and staff consume the exported artifact instead. Kept
+// out of ENTITIES for the same structural reason: permissions.js flatMaps every
+// entry into BOTH `.read` and `.write` with no per-entity opt-in.
+//
+// This list and the one in permissionsEntityParity.test.js guard OMISSION and
+// cannot catch an over-grant; the negative assertions live in
+// electron/auth/participantEntitiesAdminOnly.test.js.
+const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = new Set([
+  'camp_maps',
+  'campers',
+  'elective_assignment_runs',
+  'elective_occurrences',
+  'elective_choices',
+  'elective_choice_offerings',
+  'elective_preferences',
+  'elective_assignments',
+])
 
 describe('PROJECTIONS entities are fully registered in the camp-scope and permissions registries', () => {
   const campScopedProjectionEntities = Object.keys(PROJECTIONS).filter((e) => !(e in NON_CAMP_SCOPED_PROJECTIONS))

@@ -274,6 +274,40 @@ This section states the boundary up front rather than letting "encrypted at rest
 delivers (the T149 stale-claim lesson, applied in advance). The claim will only be made once the flag
 is actually enabled — see T175 for the remaining preconditions before that flip.
 
+#### Children's records raise the stakes on that flag (ADR 2026-09-17 D8, T194)
+
+Schema v66 introduces a `campers` table and the elective preference/assignment rows that hang off
+it. That is the first time this app stores **records about identifiable children** — a display name,
+a group, an optional external roster id, and, joined with `elective_preferences`, "this child asked
+for this activity".
+
+Two consequences, stated here rather than left implicit:
+
+- **At-rest encryption is a precondition for real camp use of this feature, not an enhancement.**
+  Everything above about the default-off flag still applies unchanged, and with it off, a copied
+  database or `.automerge` file is a plaintext list of children. The flag is still off by default
+  today and T194 does not change that; what changes is that turning it on stops being a hardening
+  nice-to-have for this data class. Do not read the existence of the `campers` table as evidence the
+  flag has been flipped.
+- **The footprint is deliberately, minimally scoped.** D8 fixes it at name, group and external id.
+  No contact details, no medical data, no date of birth, no household or parent records. Adding a
+  column here is an **ADR-level change**, not a field addition — the small footprint is the primary
+  mitigation, and it only works while it stays small.
+
+**Deletion is not erasure, and the difference is load-bearing.** The op-log, the Automerge document
+and `audit_events` all outlive a projected row: deleting a camper removes the SQLite row, and a
+rolled-back v66 migration drops the whole table, but neither is a purge. The real purge path is
+ADR 2026-09-17 D10, tracked as **T202**; read that ADR for what it can and cannot reach before
+telling anyone a child's record has been erased. Two structural guards ship with T194 in the
+meantime: all seven entities are non-restorable (so a camper can never be enumerated in Trash or
+re-materialized from the op-log by a restore), and `recordAuditEvent` **refuses** free text in
+metadata for these entities — `audit_events` is append-only and survives every purge, so a name
+written there would be unrecoverable by T202 too.
+
+Access is admin-only (D9): no non-admin role has any in-app read path to any of the seven, and staff
+receive the exported artifact instead. See `electron/auth/participantEntitiesAdminOnly.test.js`,
+which asserts the negative.
+
 ### A camp token is a bearer credential (T155)
 
 `evaluateAuthenticate` binds a token to the `device_id` carried **inside** the token. Nothing binds

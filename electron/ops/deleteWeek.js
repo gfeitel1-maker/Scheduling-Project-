@@ -42,6 +42,41 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
     return { error: 'no-week' }
   }
 
+  // T194 (v66) — elective assignment runs BLOCK the delete.
+  //
+  // elective_assignment_runs.schedule_week_id is a DECLARED
+  // REFERENCES schedule_weeks(id), so under foreign_keys = ON a week with runs
+  // attached would otherwise hard-fail with a FOREIGN KEY error partway through
+  // the cascade. The other two options were considered and rejected (owner
+  // ruling R3, 2026-09-17):
+  //
+  //   - NULL the link (what steps 0 and 0b do for anchors and elective sets):
+  //     cheap, and wrong here. It orphans the run from its week, so
+  //     STALE_OUTER_SCHEDULE can never resolve — the premises it would compare
+  //     against are gone.
+  //   - Cascade the delete: silently destroys a FINALIZED ROSTER and a set of
+  //     imported preferences as a side effect of an unrelated action. That is
+  //     the ADR D10 purge happening by accident, without the honest copy D10
+  //     requires.
+  //
+  // So: block, naming the runs, exactly as the last-week guard above does. A
+  // director who wants the week gone deletes the runs deliberately first.
+  // Table-presence checked so this file still loads against a pre-v66 database.
+  const hasRuns = db
+    .prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='elective_assignment_runs'")
+    .get().c > 0
+  if (hasRuns) {
+    const runs = db
+      .prepare('SELECT id, name FROM elective_assignment_runs WHERE schedule_week_id = ?')
+      .all(weekId)
+    if (runs.length > 0) {
+      return {
+        error: 'has-elective-runs',
+        runs: runs.map((r) => ({ id: r.id, name: r.name })),
+      }
+    }
+  }
+
   const del = (entity, entity_id) =>
     appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
 

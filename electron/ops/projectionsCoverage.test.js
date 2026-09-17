@@ -277,6 +277,13 @@ const BULK_REPLACE_ROW_SOURCES = [
 // checked against a real openLocalDb() database, not the .sql file.
 // ---------------------------------------------------------------------------
 const PROJECTION_FIELD_EXCEPTIONS = {
+  elective_set_activities: [
+    {
+      column: 'camper_headcount',
+      reason:
+        'v39 capacity column, RETIRED FROM THE WRITE PATH at v66 (T194, ADR docs/adr/2026-09-17-individual-elective-scheduling.md D3) and replaced by the two-part capacity_mode/capacity_limit pair, which IS writable. It is retained in the table rather than dropped because dropping it needs a table rebuild, and a rebuild on this table is exactly the class that produced T189\'s lost index; the v66 migration also reads it to backfill the new pair, and it keeps the legacy value for diagnosis (a rollback re-derives capacity from it). No code under src/ or electron/ writes it any more, which is the only thing this table asserts.',
+    },
+  ],
   camps: [
     {
       column: 'signing_secret',

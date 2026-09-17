@@ -40,6 +40,13 @@ export const DIRECT_CAMP_ENTITIES = new Set([
   // placement.md §1): camp-scoped, mirroring elective_sets exactly — no
   // children of its own (no offerings table in Slice 1).
   'events',
+  // T194 (docs/adr/2026-09-17-individual-elective-scheduling.md): the two
+  // participant entities that carry a real camp_id column. The other five are
+  // parent-scoped through elective_assignment_runs / elective_choices, below.
+  // ADMIN-ONLY (D9) — registering here is a SCOPING fact, not a permission
+  // grant; all seven are deliberately absent from permissions.js ENTITIES.
+  'campers',
+  'elective_assignment_runs',
 ])
 
 export const PARENT_SCOPED_ENTITIES = {
@@ -104,6 +111,34 @@ export const PARENT_SCOPED_ENTITIES = {
     parentTable: 'events',
     parentKey: 'event_id',
   },
+  // T194: none of these five has a camp_id column, so they scope by JOIN,
+  // exactly like elective_set_activities. Four hang off the run; offerings
+  // hang off the choice.
+  elective_occurrences: {
+    table: 'elective_occurrences',
+    parentTable: 'elective_assignment_runs',
+    parentKey: 'run_id',
+  },
+  elective_choices: {
+    table: 'elective_choices',
+    parentTable: 'elective_assignment_runs',
+    parentKey: 'run_id',
+  },
+  elective_choice_offerings: {
+    table: 'elective_choice_offerings',
+    parentTable: 'elective_choices',
+    parentKey: 'choice_id',
+  },
+  elective_preferences: {
+    table: 'elective_preferences',
+    parentTable: 'elective_assignment_runs',
+    parentKey: 'run_id',
+  },
+  elective_assignments: {
+    table: 'elective_assignments',
+    parentTable: 'elective_assignment_runs',
+    parentKey: 'run_id',
+  },
 }
 
 // T88 (C2, sync/auth audit): the camp-scoped entity set + FK-safe apply
@@ -156,6 +191,18 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'event_time_blocks', // Events internal sub-schedule Slice 2; references events.id NOT NULL
   'event_groups', // Events internal sub-schedule Slice 2; references events.id NOT NULL
   'event_slots', // Events internal sub-schedule Slice 2; references event_groups.id/event_time_blocks.id, both NOT NULL but no declared FK — positioned after both axis tables
+  // T194 participant substrate (v66). Only DECLARED REFERENCES constrain this
+  // order; the soft references (group_id, day_id, time_block_id, tier_id,
+  // activity_id, camper_id, occurrence_id) impose nothing. The order below is
+  // written to stay topologically correct even if any of those is later
+  // hardened, rather than minimally.
+  'campers', // references camps.id only (declared); group_id is soft
+  'elective_assignment_runs', // references camps.id and schedule_weeks.id — MUST follow schedule_weeks, and does
+  'elective_occurrences', // references elective_assignment_runs.id NOT NULL
+  'elective_choices', // references elective_assignment_runs.id NOT NULL
+  'elective_choice_offerings', // references elective_choices.id NOT NULL
+  'elective_preferences', // references elective_assignment_runs.id NOT NULL; camper_id/choice_id are soft
+  'elective_assignments', // references elective_assignment_runs.id NOT NULL; the rest are soft
 ]
 
 // The subset of DOMAIN_SNAPSHOT_ORDER that is parent-scoped (joined through

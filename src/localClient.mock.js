@@ -406,7 +406,10 @@ export const MOCK_WRITE_ALLOWLIST = {
   ],
   // camper_headcount (v39, Electives Slice 1): the per-offering capacity T41
   // deferred.
-  elective_set_activities: ['elective_set_id', 'activity_id', 'camper_headcount'],
+  // v66 (T194, ADR D3): camper_headcount is RETIRED FROM THE WRITE PATH — the
+  // column stays in the table but no write may reach it. capacity_mode is the
+  // authority; capacity_limit is ignored entirely when mode is 'unlimited'.
+  elective_set_activities: ['elective_set_id', 'activity_id', 'capacity_mode', 'capacity_limit'],
   // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-
   schedule_weeks: ['camp_id', 'name', 'sort_order', 'is_archived'],
   schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],
@@ -439,6 +442,23 @@ export const MOCK_WRITE_ALLOWLIST = {
   event_time_blocks: ['event_id', 'name', 'sort_order', 'start_time', 'end_time'],
   event_groups: ['event_id', 'name', 'sort_order'],
   event_slots: ['event_id', 'event_group_id', 'time_block_id', 'activity_id', 'location_id'],
+  // T194 participant substrate (v66). Registered here because write() THROWS on
+  // an unregistered entity or field and electron/ipcSurfaceParity.test.js fails
+  // on any drift from PROJECTIONS. This is a PARITY MIRROR, not a UI list — the
+  // absence of a screen in this slice is not a reason to skip it.
+  campers: ['camp_id', 'display_name', 'group_id', 'external_id', 'is_active'],
+  elective_assignment_runs: [
+    'camp_id', 'schedule_week_id', 'schedule_template_id', 'tier_id', 'name', 'status',
+    'source_filename', 'source_sha256', 'solver_version', 'solver_generation',
+  ],
+  elective_occurrences: ['run_id', 'elective_set_id', 'day_id', 'time_block_id', 'tier_id'],
+  elective_choices: ['run_id', 'label', 'is_linked'],
+  elective_choice_offerings: ['choice_id', 'occurrence_id', 'activity_id'],
+  elective_preferences: ['run_id', 'camper_id', 'choice_id', 'rank'],
+  elective_assignments: [
+    'run_id', 'occurrence_id', 'camper_id', 'activity_id', 'choice_id', 'preference_rank',
+    'source', 'is_locked', 'solver_generation',
+  ],
   conflicts: [],
 }
 

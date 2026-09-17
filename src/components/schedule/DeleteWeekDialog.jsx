@@ -45,6 +45,18 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
       const result = await localClient.deleteWeek({ weekId: week.id, campId })
       if (result?.error) {
         setConfirming(false)
+        // T194 (owner ruling R3): elective assignment runs BLOCK the delete
+        // rather than being cascaded or orphaned. "Please try again" would be a
+        // lie here — retrying can never succeed — so this branch names the runs
+        // and tells the director what to do instead.
+        if (result.error === 'has-elective-runs') {
+          const names = (result.runs ?? []).map((r) => r.name || 'Untitled run')
+          setDeleteError(
+            `This week can't be deleted while it has elective assignment runs: ${names.join(', ')}. ` +
+              'Delete those runs first — doing it here would destroy their rosters and imported preferences too.'
+          )
+          return
+        }
         setDeleteError('Week could not be deleted. Please try again, or restart the app if this keeps happening.')
         return
       }

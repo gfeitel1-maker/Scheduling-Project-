@@ -86,3 +86,57 @@ history and Trash on the three PII entities are admin-only); `electron/ops/undoR
 
 Plus: fresh and migrated schemas equivalent; two-device sync retains rows; projection rebuild
 retains rows; the integration harness is **mandatory** for this task class.
+
+---
+
+## Migration and release notes (recorded at implementation, 2026-09-17)
+
+### Genesis regeneration — a RELEASE NOTE, not a footnote
+
+**Every existing `.automerge` file is invalidated, and every paired device must re-pair.**
+`GENESIS_B64` (`electron/automerge/campDocument.js`) was regenerated to add the seven collections;
+the pinned head moved from `931e7c0f…` to `821dd7cc…`. `sharesGenesis()` and `syncNode.js` refuse
+and **drop** a document that does not share genesis, so an old file does not corrupt a new one — it
+simply **stops syncing, silently**, until someone notices.
+
+Accepted because **the owner confirmed on 2026-09-17 that the project is pre-production and no real
+camp document exists**. That assumption is recorded here with its date so it is not inherited
+silently if it ever stops holding. A future regeneration would not be free.
+
+The regeneration recipe was **verified before use**: it reproduces the PREVIOUS genesis byte for
+byte and its pinned head. `A.from(shape)` is not reproducible (random actor id + a timestamp), so
+both are pinned — `A.init({ actor })` then `A.change(d, { time }, …)`, reusing the original actor
+`25a5dd896740165864744b9515f73f45` and time `1788919636` so the only input that differs from the
+last regeneration is the entity list.
+
+### Rollback plan — and why a rollback is NOT a purge
+
+`electron/db/rollback/v66_down.js` drops the seven tables in reverse FK order and removes the two
+capacity columns, reporting the discarded camper / preference / assignment counts **before**
+destroying them.
+
+**It destroys imported preference data** in the projection. It does **not** erase it: the op-log and
+the Automerge document are untouched by a rollback, so those records still exist off-projection. A
+rollback **reduces the PII footprint on disk and is not an erasure** — a director who runs one has
+not deleted a child's record. The purge path is ADR D10 / **T202**.
+
+One piece of good news: `camper_headcount` is untouched, so authored capacity is re-derivable and
+is not lost by the rollback.
+
+### D3 capacity survey — reported, not rewritten
+
+Surveyed 2026-09-17 across both live databases and 41 backups, opened `?immutable=1`:
+**`elective_set_activities` holds zero rows anywhere, and `camper_headcount` has never held a
+value.** The only non-null `12` in the tree is a synthetic migration fixture. Corroborated by the
+code: the sole offering-creating path wrote `camper_headcount: null` unconditionally. Nothing was
+rewritten; no `UPDATE` was issued against any database. The backfill is therefore provably a no-op
+on every database that exists, and is written anyway because it cannot see a database it has not
+been shown.
+
+**Mapping correction.** The design stated that a negative or non-integer legacy value should be
+"preserved as-is" in `capacity_limit`. That is **not executable**: the backfill is an `UPDATE`, and
+SQLite *does* enforce CHECK constraints on UPDATE (only `ALTER TABLE ADD COLUMN` skips
+re-validation), so writing `-3` would abort the entire migration. The implemented mapping preserves
+the **finding** instead — `('limited', NULL)` is exactly `INVALID_CAPACITY` (spec §3), which is the
+outcome the design wanted — and the original number is not lost, because `camper_headcount` still
+holds it for diagnosis.

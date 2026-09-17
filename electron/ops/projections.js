@@ -36,6 +36,21 @@ import { getStmt } from './stmtCache.js'
 //
 // (week_location_exclusions, the third instance of this pattern, now also uses
 // this helper as of slice M5, which added its writer.)
+// T194: stub-seed the elective_assignment_runs parent for its four
+// parent-scoped children. Same treatment elective_set_activities gives
+// elective_sets — under foreign_keys = ON a child whose op arrives before its
+// parent's cannot insert, and op-log replay and Automerge merge both apply
+// rows in arbitrary order. `name` is NOT NULL with no default, so the stub
+// supplies ''. The real name arrives as an ordinary field write and the
+// generic UPDATE overwrites the placeholder.
+function ensureRunStub(db, runId) {
+  const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+  getStmt(
+    db,
+    "INSERT OR IGNORE INTO elective_assignment_runs (id, camp_id, name) VALUES (?, ?, '')"
+  ).run(runId, camp?.id ?? null)
+}
+
 function ensureWeekJoinRow(table, secondColumn) {
   return (db, id, field, value, knownRow) => {
     const readField = (wanted) => {
@@ -438,11 +453,22 @@ export const PROJECTIONS = {
   elective_set_activities: {
     table: 'elective_set_activities',
     key: 'id',
-    // camper_headcount (v39, Electives Slice 1): a normal renderer write like
-    // elective_set_id/activity_id, applied generically via the UPDATE below —
-    // no ensureExists involvement, since the row must already exist (created
-    // by the elective_set_id/activity_id pair) before capacity is editable.
-    fields: ['elective_set_id', 'activity_id', 'camper_headcount'],
+    // capacity_mode / capacity_limit (v66, T194, ADR D3): normal renderer
+    // writes like elective_set_id/activity_id, applied generically via the
+    // UPDATE below — no ensureExists involvement, since the row must already
+    // exist (created by the elective_set_id/activity_id pair) before capacity
+    // is editable.
+    //
+    // camper_headcount (v39) is DELIBERATELY REMOVED from this list: the
+    // column is retained in the table (dropping it needs a table rebuild, the
+    // class that produced T189's lost index) but retired from the WRITE path,
+    // so no write can reach it and the two-part capacity value is the only
+    // authority going forward.
+    //
+    // These two are written ONE FIELD PER OP, which is why the DB CHECKs on
+    // them are per-column and not a cross-column pairing — see schema.sql's
+    // comment and the named test in participantSubstrate.migration.test.js.
+    fields: ['elective_set_id', 'activity_id', 'capacity_mode', 'capacity_limit'],
     // knownRow: see ensureWeekJoinRow's comment above.
     ensureExists: (db, id, field, value, knownRow) => {
       const table = 'elective_set_activities'
@@ -759,6 +785,148 @@ export const PROJECTIONS = {
       getStmt(db, 'INSERT OR IGNORE INTO template_slots (id, template_id) VALUES (?, ?)').run(id, value)
     },
   },
+  // --- T194 participant substrate (v66) --------------------------------
+  // ADR docs/adr/2026-09-17-individual-elective-scheduling.md.
+  //
+  // An entity absent from PROJECTIONS has its writes SILENTLY DISCARDED —
+  // applyProjection returns early on an unknown entity, so the op-log write
+  // succeeds and the row never materializes. That has bitten this project
+  // twice (schedule_templates, schedule_snapshots).
+  //
+  // ADMIN-ONLY (D9): registering here is a PROJECTION fact, not a permission
+  // grant. All seven are deliberately absent from permissions.js ENTITIES.
+
+  // Camp-scoped, same ensureExists shape as events/elective_sets above.
+  // display_name is NOT NULL with no default, so the placeholder supplies ''.
+  campers: {
+    table: 'campers',
+    key: 'id',
+    fields: ['camp_id', 'display_name', 'group_id', 'external_id', 'is_active'],
+    ensureExists: (db, id) => {
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(db, "INSERT OR IGNORE INTO campers (id, camp_id, display_name) VALUES (?, ?, '')").run(
+        id,
+        camp?.id ?? null
+      )
+    },
+  },
+  // Camp-scoped. `name` is NOT NULL with no default; `status` and the two
+  // solver columns have defaults, so the placeholder supplies name only.
+  elective_assignment_runs: {
+    table: 'elective_assignment_runs',
+    key: 'id',
+    fields: [
+      'camp_id',
+      'schedule_week_id',
+      'schedule_template_id',
+      'tier_id',
+      'name',
+      'status',
+      'source_filename',
+      'source_sha256',
+      'solver_version',
+      // D5's marker. T194 STORES it; T196 enforces inertness. Nothing in the
+      // projection layer may filter on it — that would put solver policy here.
+      'solver_generation',
+    ],
+    ensureExists: (db, id) => {
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO elective_assignment_runs (id, camp_id, name) VALUES (?, ?, '')"
+      ).run(id, camp?.id ?? null)
+    },
+  },
+  // Parent-scoped by run_id (no camp_id column). ONE NOT NULL parent column
+  // and a real FK, so the single-field seed shape of event_time_blocks applies
+  // — with the parent stub-seeded first, as elective_set_activities does for
+  // elective_sets.
+  elective_occurrences: {
+    table: 'elective_occurrences',
+    key: 'id',
+    fields: ['run_id', 'elective_set_id', 'day_id', 'time_block_id', 'tier_id'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'run_id') return
+      ensureRunStub(db, value)
+      getStmt(db, 'INSERT OR IGNORE INTO elective_occurrences (id, run_id) VALUES (?, ?)').run(
+        id,
+        value
+      )
+    },
+  },
+  // Parent-scoped by run_id. `label` is NOT NULL with no default.
+  elective_choices: {
+    table: 'elective_choices',
+    key: 'id',
+    fields: ['run_id', 'label', 'is_linked'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'run_id') return
+      ensureRunStub(db, value)
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO elective_choices (id, run_id, label) VALUES (?, ?, '')"
+      ).run(id, value)
+    },
+  },
+  // Parent-scoped by choice_id — the ONE of the five that hangs off a choice
+  // rather than off the run.
+  elective_choice_offerings: {
+    table: 'elective_choice_offerings',
+    key: 'id',
+    fields: ['choice_id', 'occurrence_id', 'activity_id'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'choice_id') return
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO elective_choices (id, run_id, label) VALUES (?, '', '')"
+      ).run(value)
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO elective_choice_offerings (id, choice_id) VALUES (?, ?)'
+      ).run(id, value)
+    },
+  },
+  elective_preferences: {
+    table: 'elective_preferences',
+    key: 'id',
+    fields: ['run_id', 'camper_id', 'choice_id', 'rank'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'run_id') return
+      ensureRunStub(db, value)
+      getStmt(db, 'INSERT OR IGNORE INTO elective_preferences (id, run_id) VALUES (?, ?)').run(
+        id,
+        value
+      )
+    },
+  },
+  // The output row whose DERIVED ID is the uniqueness invariant (ADR D4). Two
+  // devices assigning the same (run, camper, occurrence) produce the SAME id,
+  // so this is an ordinary per-field last-write-wins on ONE record plus a
+  // conflicts row — not two rows. See electron/ops/electiveDerivedIds.js.
+  elective_assignments: {
+    table: 'elective_assignments',
+    key: 'id',
+    fields: [
+      'run_id',
+      'occurrence_id',
+      'camper_id',
+      'activity_id',
+      'choice_id',
+      'preference_rank',
+      'source',
+      'is_locked',
+      'solver_generation',
+    ],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'run_id') return
+      ensureRunStub(db, value)
+      getStmt(db, 'INSERT OR IGNORE INTO elective_assignments (id, run_id) VALUES (?, ?)').run(
+        id,
+        value
+      )
+    },
+  },
+
   // Registered so that DELETE_FIELD ops from deleteWeek.js can physically
   // remove stale conflict rows when their referenced entity is deleted.
   // Conflicts are created by raw SQL (recordConflict in operations.js), no

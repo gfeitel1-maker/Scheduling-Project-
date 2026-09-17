@@ -57,7 +57,13 @@ export async function populateElectiveSet(parsed, { electiveSetId, campId, repo,
     await repo.writeFields('elective_set_activities', id, {
       elective_set_id: electiveSetId,
       activity_id: activityId,
-      camper_headcount: null,
+      // v66 (T194, ADR D3): an imported offering has no declared cap. Written
+      // explicitly rather than left to the column DEFAULT, because a projection
+      // write is a field-by-field UPDATE and the default only applies to the
+      // ensureExists INSERT. Same meaning as the v39 `camper_headcount: null`
+      // this replaces — that column is now retired from the write path.
+      capacity_mode: 'unlimited',
+      capacity_limit: null,
     })
     await markElectivePermissionTier(repo, activityId, activity.recurrence_truth_status)
   }

@@ -190,6 +190,36 @@ function assertModeled(entity) {
 // needed regenerating again, same reasoning and same acceptance (pre-production, existing
 // `.automerge` files may be discarded) as the two prior regenerations above.
 //
+// SIXTH REGENERATION (T194, the participant data substrate — docs/adr/2026-09-17-individual-
+// elective-scheduling.md D13): the seven participant entities were added — `campers`,
+// `elective_assignment_runs`, `elective_occurrences`, `elective_choices`,
+// `elective_choice_offerings`, `elective_preferences`, `elective_assignments`. They entered
+// MODELED_ENTITIES automatically (it is DERIVED from DIRECT_CAMP_ENTITIES ∪
+// PARENT_SCOPED_ENTITIES), so the subset guard below threw — which is the forcing function working
+// correctly, and it was observed rather than skipped.
+//
+// ACCEPTANCE: EVERY EXISTING `.automerge` FILE IS INVALIDATED and every paired device must
+// re-pair. sharesGenesis() below and syncNode.js refuse and DROP a document that does not share
+// genesis, so an old file does not corrupt a new one — it simply stops syncing, SILENTLY, until
+// someone notices. This is free ONLY because the owner confirmed on 2026-09-17 that the project is
+// pre-production and no real camp document exists. Do not let that assumption be inherited
+// silently if it ever stops holding.
+//
+// REGENERATION RECIPE (verified, not recalled). A.from(shape) is NOT reproducible — its actor id
+// is random and its change carries a timestamp, so two A.from() calls on the same shape produce
+// different heads. Both must be pinned, reusing the ORIGINAL actor and time so the only input that
+// differs from the last regeneration is the entity list:
+//
+//   const ACTOR = '25a5dd896740165864744b9515f73f45'   // A.getHistory(A.load(...))[0].change.actor
+//   const TIME  = 1788919636                            //                              .time
+//   let d = A.init({ actor: ACTOR })
+//   d = A.change(d, { time: TIME }, (x) => { for (const k of GENESIS_ENTITIES) x[k] = {} })
+//   Buffer.from(A.save(d)).toString('base64')
+//
+// Confirmed before use: that recipe reproduces the PREVIOUS GENESIS_B64 byte for byte and its
+// pinned head 931e7c0f93affaf864b270328491a3da4412b508547ea6174724026f6aabde8d, and is identical
+// across repeated runs. New pinned head: 821dd7ccb5709c51ecfa5f1e8526fd472ce513b3546987570feb24e85b1679a8
+//
 // GENESIS_ENTITIES is a frozen snapshot of every collection GENESIS_B64 encodes, sorted for
 // determinism: MODELED_ENTITIES (flat entities) plus BULK_REPLACE_MODELED_ENTITIES's scope
 // collection name(s). It exists so the assertion below can catch, at import time, in every
@@ -217,10 +247,17 @@ const GENESIS_ENTITIES = [
   'activities',
   'anchor_activities',
   'camp_maps',
+  'campers',
   'camps',
   'cohorts',
   'day_overrides',
   'days_of_operation',
+  'elective_assignment_runs',
+  'elective_assignments',
+  'elective_choice_offerings',
+  'elective_choices',
+  'elective_occurrences',
+  'elective_preferences',
   'elective_set_activities',
   'elective_sets',
   'event_groups',
@@ -252,7 +289,7 @@ const GENESIS_ENTITIES = [
 // pass, that is a wire/document-compatibility break being HIDDEN, not fixed; see that test's own
 // comment.
 const GENESIS_B64 =
-  'hW9Kg/PWTR0A0AIBECWl3YlnQBZYZHRLlRX3P0UBkx58D5Ov+vhksnAyhJGj2kQStQhUfqYXRyQCb2qr3o0GAQIDAhMCIwZAAlYCBx3jASECIwI0AUICVgKAAQJ/AH8Bfx9/1P6C1QZ/AH8HVZDbbsMwDEOf2qHrBcuAovs7QXPYxagTGaaSrn8/JEE37008smnS+qrB4xQ9go0OobMif2QXtM/Sa+ZmnvgSrLPiPLb6EJtQSmzBptUHxa5iGUU92nBBwmwCIbzyO9acB0wYXL6KjZn7VTCZs1lnjz3kM1m4cbsQHq4RqRUdvbPytopcbMKgQ8B2ddolC0sKvjN0aMcE4aCZnXmFHH1O6uDpF92BGxtmhKhJ5o5LnEtNqlCHivP09FvvnP9LYbAMbjyicF95bEai8GN++flPD8F3SCPnBudlsfSq6Hr8WbNa/AAfAB8BHx8AHwAfAAA='
+  'hW9Kg1FlTYgAggMBECWl3YlnQBZYZHRLlRX3P0UBgh3XzLVwnFHs+l8ehSb9RyzlE7NUaYdXD+sk6FsWeagGAQIDAhMCIwZAAlYCBx2VAiECIwI0AUICVgKAAQJ/AH8BfyZ/1P6C1QZ/AH8HbZDNbsIwEIRPgCg/IlUR9NV6sVxnQiwcr7XjpOXtqySCmqon735jj3f248W67AefPVjZ6FpR80vWznbJdDZxNVZQLsaTKyetaOautjcjA1R9DVa1vdFIYyRBbfYSzwgYzWAs6S+xQ8xG+8i3fwS+P6BrxTsYaRqojxce/ijFe3GuV0V8gknRYIanByRyEW1Xcm4xjKNdVPrEzdwwSGY119l3MJ9B3JXLiXDbeITa2D63ooe5SSoDoo0Oy9lpHcRNi+ArXYu6DzCMNrGVXKCMLgWbwf0DfQFXVkxw3gYzrnka51SSYqhtwbm/+81vjs+toZMELrKHclN4LHpCeR5/vu/pZvDtQs8xwXESplwFna/fYxbCDyYAJgEmJgAmACYAAA=='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))

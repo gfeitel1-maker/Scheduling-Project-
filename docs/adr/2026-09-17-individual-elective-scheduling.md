@@ -147,6 +147,28 @@ removes the duplicate class by construction rather than guarding it, exactly as 
 
 This is a hard requirement on T194, not an implementation preference.
 
+*Correction 2026-09-17 — `elective_preferences`' key. The clause above derives it from
+`(run_id, camper_id, occurrence_id, activity_id)`. **That key is not expressible**, and the
+implemented key is `(run_id, camper_id, choice_id)`.*
+
+*This reconciles a **drafting order within this one document**, not a reopened decision. D12 —
+written later in this same ADR — moved a preference to point at an `elective_choices` row rather
+than at an occurrence + activity, precisely so that a linked multi-period choice is ranked as one
+thing. An `elective_preferences` row therefore has **no `occurrence_id` column and no `activity_id`
+column** to key on; D4's key names two columns D12 removed. The implementation spec's §2 field list
+(`id, run_id, camper_id, choice_id, rank`) already reflected D12. Owner ruling, 2026-09-17: the
+spec's key stands.*
+
+*Nothing about D4's actual decision changes — assignment uniqueness is still enforced by
+construction through a deterministic derived id, and `elective_preferences` still takes the same
+treatment. Only the tuple it is derived from is corrected, to the one its own row can express.
+Recorded here rather than by editing the clause above, in the same style as D9's superseded draft:
+the reasoning moved on within a single drafting session, and a later reader should be able to see
+that rather than wonder why D4 and D12 disagreed.*
+
+*`elective_assignments` is untouched by this correction: its key remains
+`(run_id, camper_id, occurrence_id)`.*
+
 ### D5 — Generation is a single atomic operation, and a run has one generating device
 
 Concurrent generation of the same draft run remains dangerous even with D4: two devices can produce

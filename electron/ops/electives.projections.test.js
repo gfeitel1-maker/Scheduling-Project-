@@ -48,7 +48,7 @@ describe('PROJECTIONS registry', () => {
       'camp_id', 'name', 'sort_order', 'is_reusable',
       'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
     ])
-    expect(PROJECTIONS.elective_set_activities.fields).toEqual(['elective_set_id', 'activity_id', 'camper_headcount'])
+    expect(PROJECTIONS.elective_set_activities.fields).toEqual(['elective_set_id', 'activity_id', 'capacity_mode', 'capacity_limit'])
   })
 
   it('registers template_slots.elective_set_id as a writable field', () => {
