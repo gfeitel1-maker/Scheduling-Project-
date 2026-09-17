@@ -218,6 +218,103 @@ describe('scripts/mcp/tools.js', () => {
       expect(result.conflicts).toEqual([])
     })
 
+    // T193 Defect A: a stored elective overlay and a stored event overlay
+    // must be reconstructed as real occupancy, not merely reappear as rows.
+    // Proof of occupancy, not presence: two OTHER groups each have exactly
+    // one eligible activity, bound to the SAME capacity-1 location as one of
+    // the overlays. If scheduleEngineInputs.js still omitted
+    // electiveSetActivities/events (or tools.js still dropped the overlay
+    // rows from preplacedSlots), the engine would not know those locations
+    // are occupied and would happily place both activities — this test
+    // would pass even though the defect was still there. Asserting
+    // UNFILLABLE on both proves the overlay's location was actually counted
+    // as occupied.
+    it('reconstructs elective and event overlays as real location occupancy', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath, campId } = bootstrapDb(dir)
+      const db = openLocalDb(dbPath)
+
+      const weekId = randomUUID()
+      db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order) VALUES (?, ?, ?, ?)').run(weekId, campId, 'Week 1', 0)
+      const templateId = randomUUID()
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, kind, name, week_id) VALUES (?, ?, ?, ?, ?)')
+        .run(templateId, campId, 'generated', 'Week 1', weekId)
+
+      const dayId = randomUUID()
+      db.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week, sort_order) VALUES (?, ?, ?, ?, ?)')
+        .run(dayId, campId, 'Monday', 1, 0)
+      const blockId = randomUUID()
+      db.prepare('INSERT INTO time_blocks (id, camp_id, name, part_of_day, sort_order) VALUES (?, ?, ?, ?, ?)')
+        .run(blockId, campId, 'Morning', 'morning', 0)
+
+      const loc1 = randomUUID()
+      const loc2 = randomUUID()
+      db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, ?)').run(loc1, campId, 'Waterfront', 1)
+      db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, ?)').run(loc2, campId, 'Field', 1)
+
+      const g1 = randomUUID(), g2 = randomUUID(), g3 = randomUUID(), g4 = randomUUID()
+      for (const [id, name] of [[g1, 'Aleph'], [g2, 'Bet'], [g3, 'Gimel'], [g4, 'Dalet']]) {
+        db.prepare('INSERT INTO groups (id, camp_id, name, availability) VALUES (?, ?, ?, ?)').run(id, campId, name, 'all')
+      }
+
+      const offeringAct = randomUUID()
+      db.prepare(
+        "INSERT INTO activities (id, camp_id, name, priority, span_blocks, max_groups_per_slot, min_per_week, max_per_week, same_tier_only, eligible_tier_ids, eligible_group_ids, location_id) VALUES (?, ?, ?, 'low', 1, 1, 0, 5, 0, '[]', '[]', ?)"
+      ).run(offeringAct, campId, 'Waterfront Swim', loc1)
+      const tryAct1 = randomUUID()
+      db.prepare(
+        "INSERT INTO activities (id, camp_id, name, priority, span_blocks, max_groups_per_slot, min_per_week, max_per_week, same_tier_only, eligible_tier_ids, eligible_group_ids, location_id) VALUES (?, ?, ?, 'high', 1, 1, 0, 5, 0, '[]', ?, ?)"
+      ).run(tryAct1, campId, 'Kayak', JSON.stringify([g2]), loc1)
+      const tryAct2 = randomUUID()
+      db.prepare(
+        "INSERT INTO activities (id, camp_id, name, priority, span_blocks, max_groups_per_slot, min_per_week, max_per_week, same_tier_only, eligible_tier_ids, eligible_group_ids, location_id) VALUES (?, ?, ?, 'high', 1, 1, 0, 5, 0, '[]', ?, ?)"
+      ).run(tryAct2, campId, 'Archery', JSON.stringify([g4]), loc2)
+
+      const electiveSetId = randomUUID()
+      db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(electiveSetId, campId, 'Waterfront Choice')
+      db.prepare('INSERT INTO elective_set_activities (id, elective_set_id, activity_id) VALUES (?, ?, ?)')
+        .run(randomUUID(), electiveSetId, offeringAct)
+
+      const eventId = randomUUID()
+      db.prepare('INSERT INTO events (id, camp_id, name, location_id) VALUES (?, ?, ?, ?)').run(eventId, campId, 'Color War', loc2)
+
+      // g1: stored elective overlay at loc1. g2: open cell, only eligible
+      // activity is bound to loc1 too. g3: stored event overlay at loc2.
+      // g4: open cell, only eligible activity is bound to loc2 too.
+      db.prepare('INSERT INTO template_slots (id, template_id, group_id, day_id, time_block_id, elective_set_id) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(randomUUID(), templateId, g1, dayId, blockId, electiveSetId)
+      db.prepare('INSERT INTO template_slots (id, template_id, group_id, day_id, time_block_id, event_id) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(randomUUID(), templateId, g3, dayId, blockId, eventId)
+      db.close()
+
+      const result = scheduleStateTool({ route: 'generated', week_id: weekId }, { dbPath })
+      expect(result.ok).toBe(true)
+
+      // The exact input the tool assembled and handed to buildSchedule.
+      const captured = buildScheduleCalls[buildScheduleCalls.length - 1]
+      expect(captured.electiveSetActivities.length).toBeGreaterThan(0)
+      expect(captured.events.length).toBeGreaterThan(0)
+
+      const engineResult = buildSchedule(captured)
+      const g2Slot = engineResult.slots.find((s) => s.groupId === g2 && s.dayId === dayId && s.blockId === blockId)
+      const g4Slot = engineResult.slots.find((s) => s.groupId === g4 && s.dayId === dayId && s.blockId === blockId)
+
+      expect(g2Slot.activityId).toBeNull()
+      expect(g2Slot.flags.UNFILLABLE).toBe(true)
+      expect(g2Slot.flags.UNFILLABLE_reason).toMatch(/Waterfront/)
+
+      expect(g4Slot.activityId).toBeNull()
+      expect(g4Slot.flags.UNFILLABLE).toBe(true)
+      expect(g4Slot.flags.UNFILLABLE_reason).toMatch(/Field/)
+
+      // The overlays key is now populated with the stored overlay rows,
+      // consistent with the empty-route path (which returns overlays: []).
+      expect(result.overlays.length).toBe(2)
+      expect(result.overlays.some((o) => o.elective_set_id === electiveSetId)).toBe(true)
+      expect(result.overlays.some((o) => o.event_id === eventId)).toBe(true)
+    })
+
     it('single-week camp: resolves the one week automatically when week_id is omitted', () => {
       const dir = makeTmpDir()
       dirs.push(dir)

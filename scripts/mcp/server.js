@@ -116,7 +116,7 @@ const TOOLS = [
   {
     name: 'schedule_state',
     description:
-      "Read AND VALIDATE one candidate schedule (Manual or Generated route) for one week of this camp: its template, placed slots, and computed findings/conflicts. This is how you validate a schedule — it re-runs the schedule engine over the stored placement (moving nothing) and returns exactly the findings and conflicts the app's Schedule screen shows for that same placement. A camp can have several weeks, each with its own template per route — pass week_id to pick one; if omitted and the camp has more than one week, this tool returns needs_week: true plus the list of weeks (list_entities with entity 'weeks' also lists them) so the caller can choose.",
+      "Read AND VALIDATE one candidate schedule (Manual or Generated route) for one week of this camp: its template, placed slots, and computed findings/conflicts. This is how you validate a schedule — it re-runs the schedule engine over the stored placement (moving nothing). `findings` are what the app's Schedule screen shows for that same placement. `conflicts` are route-wide resource conflicts (e.g. two overlapping bookings over-filling one location at the same day/block) computed by the engine's routeConflicts validator — currently reported here but not yet surfaced in any screen, so this tool is presently the only place a caller sees them. A camp can have several weeks, each with its own template per route — pass week_id to pick one; if omitted and the camp has more than one week, this tool returns needs_week: true plus the list of weeks (list_entities with entity 'weeks' also lists them) so the caller can choose.",
     inputSchema: {
       type: 'object',
       properties: {

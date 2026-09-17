@@ -1,7 +1,7 @@
 ---
 title: "Arbitrary-length activity span — extend a period across N blocks"
 document_type: spec
-status: draft
+status: implemented
 created: 2026-08-21
 governing_docs: [docs/governance/constitution/CONSTITUTION.md]
 related_adrs: [docs/adr/2026-08-21-arbitrary-length-activity-span.md]

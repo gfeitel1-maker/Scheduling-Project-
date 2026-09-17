@@ -132,9 +132,26 @@ export function scheduleStateTool(args, { dbPath, dbKey }) {
     )
 
     const inputs = assembleScheduleEngineInputs(db, camp.id)
-    const preplacedSlots = slots
+    // Reconstructing STORED state (unlike useGeneration.js's lockedPreplaced,
+    // which filters to locked activities because it is about to regenerate),
+    // so the activity family keeps its original predicate verbatim. Only the
+    // two overlay families are ADDED — an elective/event overlay is authored
+    // content, never engine output, and dropping it here is exactly T193
+    // Defect A: the rows would still exist in `slots`, but the engine would
+    // never learn the overlay's location is occupied, and validation would
+    // come back falsely clean (docs/work/tickets/T193-overlay-reconstruction-
+    // and-route-validator.md).
+    const activityPreplaced = slots
       .filter((s) => s.activity_id && !s.is_anchor)
       .map((s) => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
+    const electivePreplaced = slots
+      .filter((s) => s.elective_set_id)
+      .map((s) => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, electiveSetId: s.elective_set_id }))
+    const eventPreplaced = slots
+      .filter((s) => s.event_id)
+      .map((s) => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, eventId: s.event_id }))
+    const preplacedSlots = [...activityPreplaced, ...electivePreplaced, ...eventPreplaced]
+    const overlays = slots.filter((s) => s.elective_set_id || s.event_id)
 
     const engineResult = buildSchedule({ ...inputs, campId: camp.id, preplacedSlots, weekId })
 
@@ -144,6 +161,7 @@ export function scheduleStateTool(args, { dbPath, dbKey }) {
       week_id: weekId,
       template,
       slots,
+      overlays,
       findings: engineResult.findings || [],
       conflicts: engineResult.conflicts || [],
     }

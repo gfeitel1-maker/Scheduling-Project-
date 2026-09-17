@@ -1,7 +1,12 @@
 // Headless assembly of buildSchedule()'s legacy-signature inputs
 // ({ groups, tiers, days, timeBlocks, activities, anchors, campId,
-// locations }) from DB rows, for callers that have no renderer/React tree
-// to load through. `locations` IS consumed by buildSchedule (its
+// locations, electiveSetActivities, events }) from DB rows, for callers that
+// have no renderer/React tree to load through. `electiveSetActivities`/
+// `events` (T193) are what let buildSchedule resolve an elective offering's
+// or an event's location for a stored overlay slot fed in via
+// preplacedSlots — without them the overlay rows exist but their occupancy
+// is invisible, which is exactly the falsely-clean result T193 exists to
+// close. `locations` IS consumed by buildSchedule (its
 // normalizeInput reads `input.locations`, defaulting to [] — an empty
 // capacity map — when omitted, per src/engine/buildSchedule.js's own
 // comment); this module includes it so a caller that spreads this result
@@ -42,6 +47,12 @@ export function assembleScheduleEngineInputs(db, campId) {
     .filter((x) => x.camp_id === campId)
     .map((x) => ({ ...x, group_ids: parseIdList(x.group_ids) }))
   const locations = listEntities(db, 'locations').filter((x) => x.camp_id === campId)
+  // elective_set_activities has no camp_id column of its own — it is
+  // parent-scoped through elective_set_id, and listEntities already joins
+  // through elective_sets.camp_id for this (electron/ops/read.js), matching
+  // useScheduleData.js's load(), which likewise takes it unfiltered.
+  const electiveSetActivities = listEntities(db, 'elective_set_activities')
+  const events = listEntities(db, 'events').filter((x) => x.camp_id === campId)
 
   const tierOrderMap = new Map(tiers.map((tier) => [tier.id, tier.sort_order ?? 0]))
   const sortedGroups = [...groups].sort((x, y) => {
@@ -50,5 +61,5 @@ export function assembleScheduleEngineInputs(db, campId) {
     return ox !== oy ? ox - oy : x.name.localeCompare(y.name)
   })
 
-  return { groups: sortedGroups, tiers, days, timeBlocks, activities, anchors, locations }
+  return { groups: sortedGroups, tiers, days, timeBlocks, activities, anchors, locations, electiveSetActivities, events }
 }
