@@ -1,7 +1,7 @@
 ---
 title: "A transient camp-bootstrap failure is never retried for the rest of the session, while the notice copy tells the director to try again"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md]
