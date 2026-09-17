@@ -32,10 +32,9 @@
 //                              parent event's deletion as orphans
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { PROJECTIONS } from './projections.js'
 import {
   DIRECT_CAMP_ENTITIES,
@@ -45,6 +44,12 @@ import {
 import { RESTORE_DECISIONS } from './restore.js'
 import { ENTITIES } from '../auth/permissions.js'
 import { MOCK_WRITE_ALLOWLIST } from '../../src/localClient.mock.js'
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -61,8 +66,11 @@ let tmpFile
 let schemaTables
 
 beforeAll(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-events-registries-${Date.now()}-${Math.random()}.sqlite`)
-  const db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  const db = __templated.db
+  tmpFile = __templated.file
   schemaTables = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
     .all()

@@ -5,20 +5,27 @@
 // round-trips through the real op-log path (appendOp -> applyProjection),
 // mirroring electron/ops/projections.test.js's week_activity_exclusions
 // block for the three-NOT-NULL-column reconstruction in special_day_slots.
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { PROJECTIONS } from './projections.js'
 import { appendOp } from './operations.js'
 
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 let tmpFile
 let db
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-special-days-projections-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  tmpFile = __templated.file
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
   db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Device One')
   db.prepare(

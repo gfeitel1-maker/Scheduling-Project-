@@ -8,17 +8,22 @@
 // migration-skew tolerance. The replication + Security V1 evidence lives in
 // electron/sync/provenance.s2a.test.js (needs the WS/two-device harness).
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
-import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from '../db/localDb.js'
+import { initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp, DELETE_FIELD, latestOp } from './operations.js'
 import { commitIngest } from './ingest.js'
 import { restoreEntity } from './restore.js'
 
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 let db, tmpFile, campId
 const device_id = 'device-1'
 
@@ -29,8 +34,11 @@ function seedCamp(database, cId) {
 }
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-prov-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  tmpFile = __templated.file
   campId = randomUUID()
   seedCamp(db, campId)
 })

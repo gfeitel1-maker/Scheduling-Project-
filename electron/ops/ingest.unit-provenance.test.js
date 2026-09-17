@@ -10,22 +10,29 @@
 // tested at the exact seam it lives in (item._humanFields, normalized to the
 // stored column 'tier_id' the way buildPlan attaches it).
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp, latestOp } from './operations.js'
 import { commitPlan } from './ingest.js'
 import { CLEAR } from '../../src/ingest/buildPlan.js'
 
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 let db, tmpFile, campId
 const deviceId = 'device-1'
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-unit-prov-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  tmpFile = __templated.file
   campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Test', 'a'.repeat(64))
   db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Test Device')

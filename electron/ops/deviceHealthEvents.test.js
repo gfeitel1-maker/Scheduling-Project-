@@ -12,18 +12,25 @@
 // Nothing caught it for a week because the tests that existed asserted the CALL
 // was made. So every test here asserts the row is READ BACK. That is the whole
 // difference between the two, and the reason this file exists.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { recordDeviceHealthEvent, listDeviceHealthEvents, DEVICE_HEALTH } from './deviceHealthEvents.js'
 
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 let db, file
 beforeEach(() => {
-  file = path.join(os.tmpdir(), `shoresh-health-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(file)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  file = __templated.file
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
 })
 afterEach(() => {

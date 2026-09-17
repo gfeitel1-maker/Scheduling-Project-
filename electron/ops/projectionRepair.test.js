@@ -15,21 +15,28 @@
 // schema. `groups`, referenced by template_slots.group_id with a genuine DB
 // FK (schema.sql, no ON DELETE clause = default RESTRICT), reproduces the
 // exact reachable case applyRemoteOp's own existing catch comment describes.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp, DELETE_FIELD } from './operations.js'
 import { applyProjection } from './projections.js'
 import { repairProjectionForEntity } from './projectionRepair.js'
 
+
+// Discards the cached template. Per-test cleanup would rebuild the chain every time and
+// undo the saving, so this runs once, at the end (T188/F2).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 let db, file, campId, deviceId
 
 beforeEach(() => {
-  file = path.join(os.tmpdir(), `shoresh-repair-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(file)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces, ~10x cheaper (T188/F2).
+  const __templated = openTemplatedDb()
+  db = __templated.db
+  file = __templated.file
   campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
   deviceId = randomUUID()
