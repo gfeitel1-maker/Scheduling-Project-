@@ -741,6 +741,24 @@ describe('place capacity keyed by location_id (M2)', () => {
 
     expect(groupsAtPlace(orderingA.slots, both)).toBeLessThanOrEqual(1)
     expect(groupsAtPlace(orderingB.slots, both)).toBeLessThanOrEqual(1)
+    // T193 round 2: routeConflicts.js no longer restricts to cross-cohort
+    // occupancy — a correctly-capacity-bound single-cohort schedule must
+    // still report zero conflicts, not just zero over-placed groups.
+    expect(orderingA.conflicts).toEqual([])
+    expect(orderingB.conflicts).toEqual([])
+  })
+
+  // Filling a capacity-constrained place right up to its limit (not over)
+  // with real engine placement, single cohort — the false-positive case
+  // routeConflicts.js must not create now that it looks within a cohort too.
+  it('a single-cohort schedule filled right up to a place capacity reports zero conflicts', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Court', capacity: 3 }]
+    const groups = [grp('g1'), grp('g2'), grp('g3'), grp('g4'), grp('g5')]
+    const a1 = mAct({ id: 'a1', location_id: 'L', max_groups_per_slot: 3, priority: 'high' })
+    const a2 = mAct({ id: 'a2', location_id: 'L', max_groups_per_slot: 3, priority: 'low' })
+    const { slots, conflicts } = run({ activities: [a1, a2], locations, groups })
+    expect(groupsAtPlace(slots, ['a1', 'a2'])).toBe(3)
+    expect(conflicts).toEqual([])
   })
 
   it('a place with capacity 3 shared by two activities holds 3 groups total — not 3 per activity', () => {
@@ -1918,5 +1936,106 @@ describe('kind is classification-only — engine placement parity (v51)', () => 
     // occupies only g1's — both as unconditional hard blocks, same mechanism.
     expect(new Set(fixedSlots.map(s => s.groupId))).toEqual(new Set(['g1', 'g2']))
     expect(new Set(recurringSlots.map(s => s.groupId))).toEqual(new Set(['g1']))
+  })
+})
+
+// ── Cross-cohort route conflicts (T193 Defect B) ──────────────────────────────
+// scheduleCohort's placeUsage ledger is per-cohort, so buildSchedule wires
+// src/engine/routeConflicts.js in AFTER the cohort loop to catch what no
+// single cohort's own capacity check can see: two cohorts independently
+// placing groups in the same real location at the same day+block.
+describe('cross-cohort route conflicts', () => {
+  const loc1 = { id: 'loc1', name: 'Waterfront', capacity: 1 }
+  const day = { id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }
+
+  function twoCohortInput({ cohort1, cohort2, activities = [], electiveSetActivities = [], events = [], locations = [] }) {
+    return {
+      cohorts: [
+        {
+          cohort: { id: 'c1', anchor_model: 'fixed', capacity_source: 'groups_per_slot', session_week_start: 1, session_week_end: 1 },
+          timeBlocks: [blockA],
+          tiers: [{ id: 't1', name: 'Junior' }],
+          groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+          preplacedSlots: [],
+          activityTargets: null,
+          _legacyAnchors: [],
+          ...cohort1,
+        },
+        {
+          cohort: { id: 'c2', anchor_model: 'fixed', capacity_source: 'groups_per_slot', session_week_start: 1, session_week_end: 1 },
+          timeBlocks: [blockA],
+          tiers: [{ id: 't1', name: 'Junior' }],
+          groups: [{ id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }],
+          preplacedSlots: [],
+          activityTargets: null,
+          _legacyAnchors: [],
+          ...cohort2,
+        },
+      ],
+      days: [day],
+      activities,
+      campId: 'test',
+      locations,
+      electiveSetActivities,
+      events,
+    }
+  }
+
+  it('reports a conflict between two regular activities placed by different cohorts in the same over-capacity location', () => {
+    const act1 = { ...baseAct, id: 'swim', name: 'Swim', location_id: 'loc1', priority: 'high', min_per_week: 0 }
+    const act2 = { ...baseAct, id: 'kayak', name: 'Kayak', location_id: 'loc1', priority: 'high', min_per_week: 0 }
+    const result = buildSchedule(twoCohortInput({
+      cohort1: { preplacedSlots: [{ groupId: 'g1', dayId: 'd1', blockId: 'bA', activityId: 'swim' }] },
+      cohort2: { preplacedSlots: [{ groupId: 'g2', dayId: 'd1', blockId: 'bA', activityId: 'kayak' }] },
+      activities: [act1, act2],
+      locations: [loc1],
+    }))
+
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0].kind).toBe('OUTER_RESOURCE_CONFLICT')
+    expect(result.conflicts[0].locationId).toBe('loc1')
+    expect(result.conflicts[0].occupants.map(o => o.groupId).sort()).toEqual(['g1', 'g2'])
+  })
+
+  it('reports a conflict between an anchor in one cohort and an elective offering in another', () => {
+    const offering = { ...baseAct, id: 'offering1', name: 'Waterfront Swim', location_id: 'loc1' }
+    const anchor = { id: 'anc1', name: 'Lunch', day_id: 'd1', time_block_id: 'bA', is_all_groups: false, group_ids: ['g1'], location_id: 'loc1' }
+    const result = buildSchedule(twoCohortInput({
+      cohort1: { _legacyAnchors: [anchor] },
+      cohort2: { preplacedSlots: [{ groupId: 'g2', dayId: 'd1', blockId: 'bA', electiveSetId: 'es1' }] },
+      activities: [offering],
+      electiveSetActivities: [{ elective_set_id: 'es1', activity_id: 'offering1' }],
+      locations: [loc1],
+    }))
+
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0].occupants.map(o => o.groupId).sort()).toEqual(['g1', 'g2'])
+  })
+
+  it('reports a conflict involving an event', () => {
+    const act1 = { ...baseAct, id: 'archery', name: 'Archery', location_id: 'loc1', priority: 'high', min_per_week: 0 }
+    const result = buildSchedule(twoCohortInput({
+      cohort1: { preplacedSlots: [{ groupId: 'g1', dayId: 'd1', blockId: 'bA', eventId: 'ev1' }] },
+      cohort2: { preplacedSlots: [{ groupId: 'g2', dayId: 'd1', blockId: 'bA', activityId: 'archery' }] },
+      activities: [act1],
+      events: [{ id: 'ev1', name: 'Color War', location_id: 'loc1' }],
+      locations: [loc1],
+    }))
+
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0].occupants.map(o => o.groupId).sort()).toEqual(['g1', 'g2'])
+  })
+
+  it('does not report a conflict when combined cross-cohort occupancy is within capacity', () => {
+    const act1 = { ...baseAct, id: 'swim', name: 'Swim', location_id: 'loc1', priority: 'high', min_per_week: 0 }
+    const loc1Cap2 = { id: 'loc1', name: 'Waterfront', capacity: 2 }
+    const result = buildSchedule(twoCohortInput({
+      cohort1: { preplacedSlots: [{ groupId: 'g1', dayId: 'd1', blockId: 'bA', activityId: 'swim' }] },
+      cohort2: { preplacedSlots: [{ groupId: 'g2', dayId: 'd1', blockId: 'bA', activityId: 'swim' }] },
+      activities: [act1],
+      locations: [loc1Cap2],
+    }))
+
+    expect(result.conflicts).toHaveLength(0)
   })
 })

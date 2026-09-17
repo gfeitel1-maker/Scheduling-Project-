@@ -3,6 +3,7 @@ import { indexActivitiesByName, resolveAnchorActivityIds } from './anchorActivit
 import { resolveAnchorGroupIds, resolveAnchorDayIds } from './anchorScope.js'
 import { isActivityEligibleForGroup } from './eligibility.js'
 import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
+import { findRouteConflicts } from './routeConflicts.js'
 import { resolveWeekCatalog } from './weekCatalog.js'
 
 // Pure function — zero React dependencies, zero Supabase calls.
@@ -24,7 +25,8 @@ import { resolveWeekCatalog } from './weekCatalog.js'
 //               (T65: a coverage `stats` object was removed here — nothing outside
 //               this file ever read it; the renderer computes its own stats from
 //               DB rows via recalcStats in src/screens/schedule/useScheduleData.js.)
-//   conflicts — cross-cohort resource conflicts (always [] until multi-cohort engine in Sub-project 3)
+//   conflicts — cross-cohort resource conflicts, computed by routeConflicts.js
+//     over the combined allSlots after every cohort has been scheduled (T193)
 //   findings  — aggregate, one entry per (groupId, activityId, kind) for
 //               UNDERSERVED/DISTRIBUTION. Never persisted — recomputed fresh
 //               on every build. See docs/adr/2026-07-28-schedule-flag-findings-reshape.md.
@@ -855,10 +857,14 @@ function buildSchedule(input) {
     }
   }
 
-  // Pass 1: schedule each cohort independently
-  // (multi-cohort cross-resource conflict detection is Sub-project 3)
+  // Pass 1: schedule each cohort independently. Each cohort's own placeUsage
+  // ledger keeps IT within capacity, but the ledgers are per-cohort and torn
+  // down between cohorts, so nothing here can see two cohorts landing in the
+  // same real location at once — that is routeConflicts.js's job, over the
+  // combined allSlots, below.
   const allSlots = []
   const allFindings = [...danglingFindings]
+  const allAnchors = []
 
   for (let idx = 0; idx < cohorts.length; idx++) {
     const cohortEntry = cohorts[idx]
@@ -867,11 +873,21 @@ function buildSchedule(input) {
     const { slots, findings } = scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, anchorsOnly, weekId })
     allSlots.push(...slots)
     allFindings.push(...findings)
+    allAnchors.push(...(cohortEntry._legacyAnchors || []))
   }
+
+  const conflicts = findRouteConflicts({
+    slots: allSlots,
+    activities,
+    anchors: allAnchors,
+    electiveSetActivities,
+    events,
+    locations,
+  })
 
   return {
     slots: allSlots,
-    conflicts: [], // Sub-project 3: cross-cohort conflict detection
+    conflicts,
     findings: allFindings,
   }
 }

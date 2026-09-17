@@ -2,10 +2,10 @@
 title: "Arbitrary-length activity spans: adopt the is_span_head chain as the sole stored shape, retire flags.expanded's from_block pointer"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-21
 supersedes: []
-implementation_state: not started
+implementation_state: implemented
 affects:
   - docs/work/specs/2026-08-21-arbitrary-length-span.md
   - docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md
