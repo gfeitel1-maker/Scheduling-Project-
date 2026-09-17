@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, safeStorage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, safeStorage, Menu, shell } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -12,6 +12,7 @@ import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
 import { applyUserDataPath } from './db/userDataPath.js'
 import { readBuildInfo, formatBuildLabel, readAppVersion } from './buildInfo.js'
+import { installMenu } from './menu.js'
 import { describeStartupFailure, formatStartupFailureLog } from './startupFailure.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 import { recordAuditEvent } from './audit/auditLog.js'
@@ -2562,6 +2563,61 @@ if (isElectronEntryPoint()) {
     }
   }
 
+  // C6 — the Licenses window. A standalone BrowserWindow rather than an AppShell
+  // screen, deliberately: AppShell only renders at phase === 'session', and a
+  // menu item that is dead at mode-select/login/bootstrap/join/pairing_pending
+  // is a bug (D6). It loads the static, generated HTML with no preload and no
+  // node integration — it is public text and needs no privilege. Reuses the
+  // existing window instead of stacking duplicates.
+  let licensesWindow = null
+  function showLicensesWindow() {
+    if (licensesWindow && !licensesWindow.isDestroyed()) {
+      licensesWindow.focus()
+      return
+    }
+    licensesWindow = new BrowserWindow({
+      width: 760,
+      height: 720,
+      title: 'Third-Party Licenses',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    })
+    licensesWindow.setMenuBarVisibility(false)
+    licensesWindow.loadFile(path.join(__dirname, 'third-party-licenses.html'))
+    licensesWindow.on('closed', () => {
+      licensesWindow = null
+    })
+  }
+
+  // C4/C5 — the application menu and About panel, installed once at startup.
+  // Shoresh sets no menu today and inherits Electron's default; installMenu
+  // replaces it wholesale, so the template re-declares every standard editing/
+  // window role (see electron/menu.js's header comment for why this matters).
+  //
+  // setAboutPanelOptions + role:'about' is supported on all platforms in
+  // Electron 43.1.1 (verified against that version's own docs: neither API nor
+  // role:'about' carries a platform tag, and `credits` is tagged macOS+Windows,
+  // which only makes sense if Windows renders a panel) — no dialog.showMessageBox
+  // fallback is needed. On Linux, values must be set explicitly to show at all,
+  // which is why every field is passed rather than left to a default.
+  function installAppMenuAndAboutPanel() {
+    app.setAboutPanelOptions({
+      applicationName: 'Shoresh',
+      applicationVersion: readAppVersion(__dirname) ?? '0.0.0',
+      version: formatBuildLabel(readBuildInfo(__dirname, app.isPackaged), readAppVersion(__dirname)),
+      copyright: 'Copyright 2026 Gregory Feitel and contributors',
+    })
+    installMenu({
+      Menu,
+      isMac: process.platform === 'darwin',
+      onShowLicenses: showLicensesWindow,
+      onOpenGitHub: () => shell.openExternal('https://github.com/gfeitel1-maker/Scheduling-Project-'),
+      onReportIssue: () => shell.openExternal('https://github.com/gfeitel1-maker/Scheduling-Project-/issues'),
+    })
+  }
+
   // Stage 5c (docs/work/plans/2026-09-06-stage5-live-wiring-design.md § 2, § 3, § 5): read/receive-
   // path wiring for the flagged (SHORESH_SYNC_ENGINE=automerge) sync engine. Entirely inert when the
   // flag is off (isAutomergeEngine() is the ONLY gate — no branch below runs a single line of
@@ -2780,6 +2836,13 @@ if (isElectronEntryPoint()) {
   }
 
   app.whenReady().then(() => {
+    try {
+      installAppMenuAndAboutPanel()
+    } catch (err) {
+      // A menu/About-panel failure must never take the app down — the window
+      // still needs to open even if this step errors.
+      console.error(`menu/about-panel install failed (non-fatal): ${err?.message ?? err}`)
+    }
     try {
       createWindow()
     } catch (err) {

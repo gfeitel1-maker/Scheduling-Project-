@@ -1,5 +1,5 @@
-// The quality gate — lint + agents:check + test + test:integration + security + check:governance,
-// in order,
+// The quality gate — lint + agents:check + test + test:integration + security + licenses:check +
+// check:governance, in order,
 // stopping at the first failure.
 //
 // Why this exists instead of a bare `a && b && c` npm chain: a chain prints no
@@ -36,6 +36,7 @@ import { acquire, lockPath, repoKey } from './gateLock.js'
 export const VERIFY_STEPS = [
   'agents:check',
   'check:governance',
+  'licenses:check',
   'build',
   'security',
   'test:integration',

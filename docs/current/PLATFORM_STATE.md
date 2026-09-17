@@ -622,6 +622,19 @@ Not role-differentiated at the top level, and **stage-aware** (ADR `docs/adr/202
 
 ## What's changed since 2026-07-26
 
+**Shoresh went open source under Apache-2.0, with a real application menu (2026-09-16/17).** `LICENSE`
+(verbatim Apache-2.0), `NOTICE`, and `package.json`'s `"license"` field are now in the repo.
+`electron/menu.js` exports a pure `buildMenuTemplate({ isMac, onShowLicenses })` plus a thin
+`installMenu()` Electron wrapper, installed once at startup from `electron/main.js` — Shoresh
+previously set no application menu at all and silently inherited Electron's default, which meant
+Cmd+C/V/Q worked only by accident. **About Shoresh** uses `app.setAboutPanelOptions` + `role: 'about'`,
+fed from the same `electron/buildInfo.js` the sidebar footer already used. **Licenses** opens a
+standalone `BrowserWindow` loading the generated `electron/third-party-licenses.html`
+(`electron/third-party-licenses.json` is the source data), so it works at every device phase, not
+just `session`. Both files are produced by `scripts/generate-licenses.js` from the production
+dependency closure (never `devDependencies`) and are committed; `npm run licenses:check` (wired into
+`VERIFY_STEPS`) fails the gate if they drift from `node_modules`.
+
 **The document carries provenance and authorship; the op-log becomes a local history ledger (2026-09-08/09).** Completing the
 Stage 6 cutover. `applyWrite` used to carry field VALUES only, which broke two things a director relies on.
 
