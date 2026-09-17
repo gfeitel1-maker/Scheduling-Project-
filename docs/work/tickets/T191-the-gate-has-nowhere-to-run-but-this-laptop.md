@@ -21,6 +21,29 @@ green CI run as a Verifier PASS. That restraint is the point: adding a workflow 
 reversible, whereas quietly promoting its output to evidence would change what "verified" means in
 this repository without anyone deciding to.
 
+### 0.1 The first CI run failed, and that is the ticket justifying itself
+
+The workflow's first run on its own PR went red in ~9 minutes, on something **no local run can
+reproduce**: eight test files spawn `/bin/zsh`, and `ubuntu-latest` does not ship zsh. `spawnSync`
+returns no `stdout` when the interpreter is missing, so a missing shell surfaced as
+`TypeError: Cannot read properties of undefined (reading 'trim')` inside a test helper.
+
+The dependency is real, not incidental — ten scripts under `scripts/` carry a `#!/bin/zsh` shebang
+(`gate.sh`, `integration.sh`, the worktree and heal predicates) and eight test files exercise them.
+So the fix is to **install zsh on the runner**, not to skip those tests on Linux. A suite that
+quietly drops eight files on the one machine nobody watches would be worse than no CI at all.
+
+Two things worth keeping from this:
+
+- **It is the first evidence that the laptop and CI disagree**, which is the whole argument for
+  T191. Every prior green was on a machine that happens to have zsh because it is a Mac.
+- **A missing interpreter reports as a `TypeError` in a helper**, not as "zsh not found". Those
+  eight helpers read `spawnSync(...).stdout` without checking `error` or `status`. Not fixed here
+  (it would touch eight files owned by T168), but recorded: the next person to hit it should not
+  have to rediscover that an undefined `stdout` means the shell is absent.
+
+---
+
 ### What the workflow does
 
 | Choice | Why |
