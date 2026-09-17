@@ -4,7 +4,7 @@ document_type: ticket
 status: open
 created: 2026-09-16
 task_class: test-infrastructure
-governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md]
+governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
 archive_when: "Either a tiered gate exists with a fast tier that is structurally incapable of being read as the merge gate, or the owner has decided tiering is not wanted; and the duplicate full-tree ESLint pass inside the test suite is resolved either way; and docs/governance/standards/TESTING_STANDARD.md §1 lists the gate steps that scripts/verify.js actually runs"
 ---
 
@@ -138,7 +138,8 @@ composition, which should be tuned after a quiet-machine baseline.
 
 ### Tier 1 — `npm run check` (fast, advisory, per-commit)
 
-Target well under 60s:
+**Candidate composition, not a spec.** The exact contents must be fixed *after* the quiet-machine
+baseline in §8; a Maker must not read the list below as settled. Target well under 60s:
 
 - `agents:check` (0.2s) + `check:governance` (1.2s) + `security` (5.9s) — all deterministic, all
   already cheap, all catching the governance failures that currently surface late.
@@ -153,11 +154,22 @@ Exactly what it is today. **No step is removed from it by this proposal** (the E
 
 ### The guarantee that must not be weakened, and how
 
-**`--changed` is blind to a large, load-bearing part of this suite.** It selects from vitest's
-module graph. **64 test files** read source with `readFileSync`/`readdirSync` instead of importing
-it — including the tree-scanning guards `src/screenIntro.removalGuard.test.js`,
-`src/screenKeys.syncGuard.test.js`, and `test/governance.test.js`. Edit a screen and `--changed`
-will silently skip the guard written to watch that screen. This is the same blind spot `CLAUDE.md`
+**`--changed` is blind to a load-bearing part of this suite.** It selects from vitest's module
+graph, so a test that reads source as a *string* has no edge to the file it guards. Measured: **63
+test files call `readFileSync`/`readdirSync`; of those, 29 read a source-shaped path**
+(`.js`/`.jsx`/`.sql`/`.json`/`.md`) rather than a fixture. Treat 29 as the working figure and 63 as
+the upper bound — the split is a static-text heuristic, not a resolved-path analysis, and it should
+be confirmed before any selection logic depends on it.
+
+The 29 are not a long tail; they include two classes the gate genuinely rests on:
+
+- **Tree-scanning guards** — `src/screenKeys.syncGuard.test.js` (reads `App.jsx` to pin the
+  `SCREENS` keys), `src/screenIntro.removalGuard.test.js`, `test/governance.test.js`. Edit a screen
+  and `--changed` silently skips the guard written to watch that screen.
+- **Migration/schema-parity tests** — a dozen `electron/db/*.migration.test.js` files read
+  `schema.sql` as text. **Edit `schema.sql` and `--changed` selects none of them**, which is the
+  exact case `TESTING_STANDARD.md` calls out as the failure that does not surface until a user's
+  data is already in the drifted shape. This is the same blind spot `CLAUDE.md`
 already documents for graphify, and it is why Tier 1 can never be the merge gate.
 
 Three properties are therefore mandatory, and are the real design work of this ticket:
@@ -192,11 +204,18 @@ The standard that **owns the gate list** contradicts the code:
 | `TESTING_STANDARD.md` §1 says | Reality |
 |---|---|
 | `node test/integration/run.js` | **That file does not exist.** It is `test/integration/run.automerge.js`, via `npm run test:integration` |
-| `npm run build` is a gate | `VERIFY_STEPS` does **not** include `build` |
+| `npm run build` is a gate | `VERIFY_STEPS` does **not** include `build` — and `git log -S"'build'" -- scripts/verify.js` returns **no commits**, so it was never removed from the gate; it was never in it |
 | (not listed) | `agents:check`, `security`, `check:governance` are all in `VERIFY_STEPS` |
 
 Per `GOVERNANCE_INDEX.md` §11 rule 3 and Article I, code contradicting a standard is **reported, not
 reconciled by an agent**. Flagged here for the owner; deliberately not fixed.
+
+**This is three decisions, not one, and they are not equally clerical.** Rows 1 and 3 are almost
+certainly staleness. **Row 2 is not: the owner has to say whether `build` is a gate.** If it should
+be, this ticket's premise shifts — the gate gets *slower*, not faster, and the tiering math changes.
+Evidence for that decision: `build` was not dropped from `VERIFY_STEPS`, it was never in it, so the
+standard's line has been aspirational since `scripts/verify.js` was written. Resolve row 2
+explicitly rather than letting whoever edits the file first settle it.
 
 ### 7.2 `CLAUDE.md`'s "~270 test files" — already owned, not duplicated
 
@@ -204,6 +223,16 @@ Actual count is **438**. This is already filed as
 **T186** (`T186-claude-md-goes-stale-by-construction.md`, filed on another branch) by a concurrent session, which reframes it as a
 structural staleness problem rather than a number to correct. **T188 does not touch `CLAUDE.md`** —
 recorded here only so the two tickets are not worked twice.
+
+## 7.3 Recommended sequencing
+
+**The ESLint duplication (§3) can be sequenced first and alone**, ahead of any decision about
+tiering. It is independently valuable (~190s, ~15% of `test`), needs only Red Hat + Code Reviewer +
+Verifier, does not depend on the quiet-machine baseline, and requires no ADR. If the owner wants
+movement without approving the larger change, that is the piece to take.
+
+Everything in §5 is downstream of one owner decision — **is a fast tier wanted at all?** A
+legitimate answer is "no, just fix the duplication," which is a much smaller ticket.
 
 ## 8. Definition of done
 
@@ -227,7 +256,12 @@ r=sorted(((f['endTime']-f['startTime'])/1000,f['name']) for f in d['testResults'
 print(f'{len(r)} files, {d[\"numTotalTests\"]} tests')
 [print(f'{t:7.1f}s  {n}') for t,n in r[:25]]"
 
-# tests invisible to --changed
+# tests invisible to --changed (63 upper bound; 29 read a source-shaped path)
 grep -rl 'readFileSync\|readdirSync' --include='*.test.js' --include='*.test.jsx' \
   src electron test scripts | grep -v node_modules | wc -l
+# the 29: files whose fs read names a .js/.jsx/.sql/.json/.md target
+# (static-text heuristic — confirm before any selection logic depends on it)
+
+# whether `build` was ever a gate step (returns nothing: it never was)
+git log -S"'build'" --oneline -- scripts/verify.js
 ```
