@@ -1,16 +1,17 @@
 // @vitest-environment node
 //
-// T189 — whole-database index parity between a fresh database's FIRST open and
-// its second.
+// T189 — whole-database parity of every declared non-table schema object between
+// a fresh database's FIRST open and its second.
 //
-// Why this guard is whole-database rather than per-table. The 33 existing
-// *.migration.test.js files that assert fresh-vs-migrated equivalence check
-// indexes only for the tables they were written about, via a per-table
+// Why this guard is whole-database rather than per-table. Twelve of the 33
+// existing *.migration.test.js files that assert fresh-vs-migrated equivalence do
+// check indexes, but each only for the tables it was written about — eleven via a
 //   SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ?
-// helper — an opt-in a new table has to be enrolled in by hand. Nobody enrolled
-// schedule_snapshots, so idx_schedule_snapshots_template_id went missing on
-// every fresh database's first open for the life of migrations v53 and v59 and
-// no guard noticed (docs/adr/2026-09-16-index-survival-across-table-rebuilds.md).
+// helper, and exclusionTables.migration.test.js:71 by asserting .toContain() for
+// two known names. Both shapes are an opt-in a new table must be enrolled in by
+// hand. Nobody enrolled schedule_snapshots, so idx_schedule_snapshots_template_id
+// went missing on every fresh database's first open for the life of migrations
+// v53 and v59 and no guard noticed (docs/adr/2026-09-16-index-survival-across-table-rebuilds.md).
 //
 // The mechanism is general, not specific to that index: initSchema() execs
 // schema.sql (which holds the CREATE INDEX statements) BEFORE the migration
@@ -19,12 +20,11 @@
 // drops that table's indexes along with it. schema.sql has already run for that
 // open, so the index does not come back until the NEXT open. Any future
 // rebuild-style migration reintroduces the defect the same way, which is why
-// this asserts the whole index set and not one name.
+// this asserts the whole object set and not one name.
 import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import fsSync from 'node:fs'
 import Database from 'better-sqlite3'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, initSchema, SCHEDULE_SNAPSHOTS_TEMPLATE_ID_INDEX_DDL } from './localDb.js'
@@ -49,26 +49,36 @@ function tmpFile(tag) {
   return file
 }
 
-// Implicit indexes SQLite creates for PRIMARY KEY / UNIQUE are named sqlite_*
-// and are carried by the table DDL, which the migration tests already compare;
-// they are excluded so a failure here always names a declared index.
-const declaredIndexes = (db) =>
+// Every separately-declared schema object EXCEPT tables: indexes today, and
+// triggers or views if any are ever added. The exclusion is deliberate on both
+// sides.
+//   - Tables are excluded because the 33 sibling migration tests already compare
+//     table DDL text and PRAGMA table_info; duplicating that here would make
+//     this guard churn on every ordinary column change.
+//   - sqlite_* names are excluded because those are the implicit indexes SQLite
+//     generates from a PRIMARY KEY / UNIQUE clause. They are regenerated from
+//     the CREATE TABLE statement whenever a table is rebuilt, so they cannot go
+//     missing the way a separately-declared object can, and their underlying
+//     constraint is already covered by the sibling tests' DDL comparison.
+// Widened from indexes-only after a Red Hat review pointed out that a trigger
+// dropped by a rebuild would have the identical mechanism and be invisible here.
+const declaredObjects = (db) =>
   db
     .prepare(
-      "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+      "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE type != 'table' AND name NOT LIKE 'sqlite_%' ORDER BY type, name"
     )
     .all()
 
 describe('index parity: a fresh database\'s first open vs its second', () => {
-  it('has the identical declared-index set on open #1 and open #2', () => {
+  it('has the identical declared-object set on open #1 and open #2', () => {
     const file = tmpFile('index-parity')
 
     let db = openLocalDb(file)
-    const first = declaredIndexes(db)
+    const first = declaredObjects(db)
     db.close()
 
     db = openLocalDb(file)
-    const second = declaredIndexes(db)
+    const second = declaredObjects(db)
     db.close()
 
     // Compared by name first: the failure message then names the missing index
@@ -89,7 +99,7 @@ describe('index parity: a fresh database\'s first open vs its second', () => {
     // the constant the v53/v59 blocks interpolate must be the same text
     // schema.sql declares, or a fresh database and a migrated one end up with
     // differently-defined indexes of the same name.
-    const schemaSql = fsSync.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
+    const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
     expect(schemaSql).toContain(SCHEDULE_SNAPSHOTS_TEMPLATE_ID_INDEX_DDL)
   })
 
@@ -129,9 +139,24 @@ describe('index parity: a fresh database\'s first open vs its second', () => {
         .all('any-template')
         .map((r) => r.detail)
         .join(' ')
+      // Whole-set, not just the one index this ticket was about: a later edit
+      // to these blocks that drops a DIFFERENT object would otherwise pass.
+      // The reference is a settled database — a fresh file reopened, which is
+      // the shape schema.sql alone produces.
+      const upgraded = declaredObjects(db)
       db.close()
 
+      const referenceFile = tmpFile(`index-parity-${version}-reference`)
+      openLocalDb(referenceFile).close() // open #1 builds it
+      const settled = openLocalDb(referenceFile) // open #2 is the settled shape
+      const reference = declaredObjects(settled)
+      settled.close()
+
       expect(plan).toContain('idx_schedule_snapshots_template_id')
+      expect(upgraded.map((o) => `${o.type} ${o.name}`)).toEqual(
+        reference.map((o) => `${o.type} ${o.name}`)
+      )
+      expect(upgraded).toEqual(reference)
     })
   })
 })

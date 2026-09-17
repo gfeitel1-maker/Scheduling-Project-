@@ -51,17 +51,24 @@ It never considered a table a later migration drops.
 ## Why the existing guards missed it — the part worth reading
 
 33 `electron/db/*.migration.test.js` files assert fresh-vs-migrated equivalence.
-Ten of them do check indexes, via a per-table helper:
+Twelve of them do check indexes — eleven via a per-table helper:
 
 ```
 SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ?
 ```
 
 That helper is fine. It is also **opt-in per table**, and nobody passed
-`schedule_snapshots` to it. The remaining 23 compare `PRAGMA table_info` and the
-`type = 'table'` DDL text only — indexes are outside their frame entirely, and both
-tests covering the rebuilding migrations (`retireOverlayStamp` for v53,
-`dayOverridesRemoval` for v59) are in that group.
+`schedule_snapshots` to it. The twelfth (`exclusionTables.migration.test.js:71`)
+queries `sqlite_master` unfiltered but asserts `.toContain()` only for two known
+names — opt-in by a different route, same outcome. The remaining 21 compare
+`PRAGMA table_info` and the `type = 'table'` DDL text only — indexes are outside
+their frame entirely, and both tests covering the rebuilding migrations
+(`retireOverlayStamp` for v53, `dayOverridesRemoval` for v59) are in that group.
+
+(The figure was first written as ten. Red Hat recounted it independently and it is
+twelve; my original grep was over a mixed path list whose output I read as the
+answer without counting it — the same negative-search failure mode this repo has
+been bitten by before.)
 
 So the failure was not a blind spot in the checking method. It was a guard whose
 completeness depended on someone remembering to enrol a table — which is why the
@@ -87,9 +94,18 @@ Per `docs/adr/2026-09-16-index-survival-across-table-rebuilds.md`:
   to the `schema.sql` line (both-places DDL, the existing `LOCATIONS_DDL` /
   `SOURCE_ALIASES_DDL` discipline). `IF NOT EXISTS` keeps both blocks idempotent.
 - **D2** — `electron/db/schemaIndexParity.migration.test.js`: whole-database
-  declared-index parity between a fresh file's first and second open, plus a
-  query-plan assertion for the concrete index, plus the same assertion on a pre-v53
-  and a pre-v59 database within the single open the rebuild runs in.
+  declared-object parity between a fresh file's first and second open, plus a
+  query-plan assertion for the concrete index, plus whole-set parity against a
+  settled database on the upgrade path, run once for pre-v53 and once for pre-v59
+  within the single open each rebuild happens in.
+- Two Red Hat findings folded in before merge: the guard covers every declared
+  non-table object (triggers and views as well as indexes — none exist today, but a
+  dropped trigger would have the identical mechanism), and the per-migration
+  upgrade-path cases assert the whole object set rather than the single index this
+  ticket was about.
+- `migrationWriteTrace.test.js`'s v53 and v59 acknowledgements re-read and
+  re-stamped: that guard hashes each migration block's text and correctly refused
+  to inherit an acknowledgement across an edited block.
 - **D3** — no schema version bump; see the ADR for why none is needed.
 - `schema.sql`'s comment corrected in place so the stale reasoning is not re-derived.
 

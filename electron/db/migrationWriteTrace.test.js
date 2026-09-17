@@ -316,18 +316,22 @@ const ACKNOWLEDGED_UNKNOWNS = new Map([
   [
     'v53 schedule_snapshots.overlays',
     {
-      blockHash: '46a7891a01b2',
+      blockHash: 'f41b4f5422d5',
       why:
         'Drops the overlay stamp column with its subsystem. The recreate copies every ' +
         'surviving column verbatim. Below the document era (v57), so no database ' +
         'reaching it can hold a document at all; a merge could not undo the drop in ' +
-        'any case, since there is no column left to write into.',
+        'any case, since there is no column left to write into. T189 added a ' +
+        '`CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_template_id` after the ' +
+        'RENAME (the DROP TABLE took the index with it and schema.sql had already run ' +
+        'for that open). DDL only — it moves no data and changes no row, so this ' +
+        'acknowledgement is unchanged in substance.',
     },
   ],
   [
     'v59 schedule_snapshots.day_overrides_json',
     {
-      blockHash: '8d3bcb7dde3b',
+      blockHash: 'c19713f3a7b8',
       why:
         'THE ONLY ONE OF THE THREE ABOVE THE DOCUMENT ERA (v57), so a database reaching ' +
         'it can already hold a document — document and SQLite coexist across this ' +
@@ -337,7 +341,10 @@ const ACKNOWLEDGED_UNKNOWNS = new Map([
         'revert. Handled deliberately at the time: GENESIS_B64 was NOT regenerated and ' +
         'keeps an orphan empty `day_overrides` collection on purpose, because the ' +
         'module-load guard is a subset check and regenerating would change the shared ' +
-        "document's identity for every existing .automerge file. Do not tidy the orphan.",
+        "document's identity for every existing .automerge file. Do not tidy the orphan. " +
+        'T189 added a `CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_template_id` ' +
+        'after the RENAME, for the same reason as v53 above. DDL only — no row moves, ' +
+        'and it touches neither the document nor the orphaned collection.',
     },
   ],
 ])

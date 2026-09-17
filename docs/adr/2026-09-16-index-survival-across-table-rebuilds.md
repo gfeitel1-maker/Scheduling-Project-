@@ -51,19 +51,21 @@ does not surface until a user's data is already in the drifted shape."
 
 ### Why 33 fresh-vs-migrated guards did not catch it
 
-Ten of the 33 `electron/db/*.migration.test.js` files do check indexes, with a
-helper shaped like
+Twelve of the 33 `electron/db/*.migration.test.js` files do check indexes. Eleven
+use a helper shaped like
 
 ```
 SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ?
 ```
 
-That check is adequate — but it is **scoped to one named table and opted into by
-hand**. No test passed `schedule_snapshots`. The other 23 compare
-`PRAGMA table_info` and the `type = 'table'` DDL text only, so indexes are outside
-their frame entirely. Both migrations that rebuild the table (`v53` →
-`retireOverlayStamp.migration.test.js`, `v59` → `dayOverridesRemoval.migration.test.js`)
-are in that second group.
+— adequate, but **scoped to one named table and opted into by hand**, and no test
+passed `schedule_snapshots`. The twelfth, `exclusionTables.migration.test.js:71`,
+queries `sqlite_master` unfiltered but then asserts only `.toContain()` for two
+known index names, so it is opt-in by a different mechanism and would not have
+caught this either. The remaining 21 compare `PRAGMA table_info` and the
+`type = 'table'` DDL text only, so indexes are outside their frame entirely. Both
+migrations that rebuild the table (`v53` → `retireOverlayStamp.migration.test.js`,
+`v59` → `dayOverridesRemoval.migration.test.js`) are in that last group.
 
 So the guard was not structurally blind. Its coverage was per-table enrolment, and
 this table was never enrolled — a guard whose completeness depends on someone
