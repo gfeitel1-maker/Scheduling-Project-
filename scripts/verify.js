@@ -22,6 +22,13 @@ import { acquire, lockPath, repoKey } from './gateLock.js'
 // re-run after fixing it paid the full ~1174s again to re-prove tests a docs change cannot affect.
 // One governance typo cost ~39 minutes of gate time.
 //
+// `build` joined the list on 2026-09-17 (T188 §7.1). It had been named as a gate by
+// TESTING_STANDARD.md for months while never actually being one — `git log -S` showed it was never
+// in this array. It costs 2.8s, cheaper than `security`, and it is the only step that exercises the
+// bundler: a broken import in the renderer fails `npm run build` and passes every test. The repo has
+// already shipped a packaged crash from exactly that gap (ERR_MODULE_NOT_FOUND, build.files not
+// shipping src/**). Verified non-vacuous by planting a bad import and watching it exit 1.
+//
 // Sorting by measured cost makes the gate report the same verdict for the same tree, just sooner:
 // no step is removed, added, or weakened, and every step still runs on a green tree. If a step's
 // cost changes materially, re-measure and re-sort — the ordering is the only thing this list
@@ -29,6 +36,7 @@ import { acquire, lockPath, repoKey } from './gateLock.js'
 export const VERIFY_STEPS = [
   'agents:check',
   'check:governance',
+  'build',
   'security',
   'test:integration',
   'lint',

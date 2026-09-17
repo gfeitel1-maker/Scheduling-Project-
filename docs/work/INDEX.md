@@ -46,8 +46,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
-| [The gate is 88% one step, and lints the tree twice](../../docs/work/tickets/T188-the-gate-is-88-percent-one-step-and-lints-the-tree-twice.md) | open | — |
-| [The gate has nowhere to run but this laptop — there is no CI, and there never has been](../../docs/work/tickets/T191-the-gate-has-nowhere-to-run-but-this-laptop.md) | open | — |
 
 ### ui-ux-design
 

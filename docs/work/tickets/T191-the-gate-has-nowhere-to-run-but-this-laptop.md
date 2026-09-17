@@ -1,7 +1,7 @@
 ---
 title: "The gate has nowhere to run but this laptop — there is no CI, and there never has been"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-16
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
@@ -15,11 +15,14 @@ archive_when: "Either CI runs the gate on push to main and on pull requests and 
 `.github/workflows/gate.yml` and `.nvmrc` land with this ticket. What is deliberately **not**
 decided here is §5's question: what a CI result *counts as*.
 
-**Until the owner rules on §5, a CI run is ADVISORY.** It does not replace the local gate as
-evidence of record, nothing in `scripts/verifierReport.js` accepts it, and no agent should file a
-green CI run as a Verifier PASS. That restraint is the point: adding a workflow file is cheap and
-reversible, whereas quietly promoting its output to evidence would change what "verified" means in
-this repository without anyone deciding to.
+**RESOLVED 2026-09-17: CI is the gate of record for merging.** A pull request whose CI run is red
+does not merge, whatever a local run said. The runner earned that within an hour of existing, by
+catching two defects no local run could (§0.1).
+
+A local `npm run verify` remains valid evidence and remains what `scripts/gate.sh` stamps and
+`scripts/verifierReport.js` accepts — Verifier reports are unchanged. What ends is the obligation to
+spend ~13 local minutes before pushing. See `TESTING_STANDARD.md` §1, "Where the gate runs, and what
+each run is worth".
 
 ### 0.1 The first CI run failed, and that is the ticket justifying itself
 
@@ -217,14 +220,24 @@ So the decisions the owner has to make are not "should we add a workflow file":
 
 - [x] A workflow runs the full gate on pull requests and on push to `main`, on a Linux runner, with a pinned Node version — `.github/workflows/gate.yml`, `.nvmrc`.
 - [x] Node is pinned, closing §7's first risk.
-- [ ] **Owner decision: does a CI result count as Verifier evidence** — replacing the local run, supplementing it, or neither (§5)? Until answered, CI is advisory (§0) and `TESTING_STANDARD.md` is deliberately left silent rather than pre-empting the answer.
-- [ ] A gate run on a runner is measured and §4's minute budget confirmed against it — obtainable only after the first real run.
-- [ ] The INCONCLUSIVE load-verdict's meaning on a runner is decided rather than inherited (§5.3). Its premise — a contended laptop producing meaningless reds — does not hold on dedicated hardware.
+- [x] **Owner decision: does a CI result count as Verifier evidence?** Resolved — CI is the gate of record for *merging*; the local run stays the stamped Verifier artifact. Recorded in `TESTING_STANDARD.md` §1 and §0 above.
+- [x] A gate run on a runner is measured and §4's budget corrected against it — **8m41s**, roughly half the laptop's 13m08s (§0.2). The budget assumed ~20 min/run, so per-PR CI is comfortably inside it.
+- [x] The INCONCLUSIVE load-verdict's meaning on a runner is decided — see §8.1.
 - [x] `npm run verify` is green.
 
-The three open items are **all owner decisions or measurements that require the workflow to have
-run at least once**. None of them blocks the workflow from being useful in the meantime, because
-advisory is a coherent state: a red CI run is worth investigating whatever its formal authority.
+### 8.1 INCONCLUSIVE on a runner — decided: leave it, do not special-case it
+
+`scripts/verify.js` downgrades a *slow* failure of a *load-sensitive* step to INCONCLUSIVE when the
+1-minute load average is at least 4× the core count. The worry was that this is near-dead code on
+dedicated hardware and could launder a genuine CI failure.
+
+**Decided: leave the logic exactly as it is, and do not add a CI-specific branch.** The T178 filters
+already require *both* an oversubscribed machine *and* a failing step that ran ≥10s. A GitHub runner
+that is genuinely thrashing badly enough to clear 4× its core count has produced a result nobody
+should trust either — reporting that as INCONCLUSIVE is correct there for the same reason it is
+correct locally, and INCONCLUSIVE still exits non-zero, so it never reads as a pass or merges
+anything. Adding an `if (process.env.CI)` branch would mean the gate behaves differently on the
+machine that matters most, which is a worse property than a rule that rarely fires.
 
 ## 9. Reproducing the §3 portability findings
 

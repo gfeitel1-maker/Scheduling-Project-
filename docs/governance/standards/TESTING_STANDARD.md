@@ -26,10 +26,11 @@ verdict line. Read that line; never read the exit code of a piped or tee'd wrapp
 |---|---|---|
 | 1 | `npm run agents:check` | Every `.claude/agents/` profile still round-trips from its bindings |
 | 2 | `npm run check:governance` | Frontmatter shape, reference paths, index freshness, status drift, and descriptive docs naming deleted paths |
-| 3 | `npm run security` | npm-audit, secret scan, dangerous-pattern scan |
-| 4 | `npm run test:integration` | **Multi-node** scenarios: pairing, revocation, token renewal, conflict detection, clock skew, role changes |
-| 5 | `npm run lint` | ESLint, including the ban on reintroducing `@supabase/*` imports |
-| 6 | `npm run test` | The Vitest suite |
+| 3 | `npm run build` | The production bundle. The only step that exercises the bundler |
+| 4 | `npm run security` | npm-audit, secret scan, dangerous-pattern scan |
+| 5 | `npm run test:integration` | **Multi-node** scenarios: pairing, revocation, token renewal, conflict detection, clock skew, role changes |
+| 6 | `npm run lint` | ESLint, including the ban on reintroducing `@supabase/*` imports |
+| 7 | `npm run test` | The Vitest suite |
 
 **The order is cheapest-first and is load-bearing, not cosmetic.** Because the gate short-circuits,
 a step placed after an expensive one is not reported until that expensive one has finished. These
@@ -37,10 +38,35 @@ six are sorted by measured cost so a failure is reported as early as it can be. 
 re-sort if a step's cost changes materially; `scripts/verify.test.js` asserts the ordering property,
 not merely the literal list.
 
-**`npm run build` is deliberately not in that list.** An earlier revision of this standard listed it
-as a gate; `git log -S"'build'" -- scripts/verify.js` returns no commits, so it has never been one.
-Whether a production build *should* gate is an open question recorded in `docs/work/tickets/T188-the-gate-is-88-percent-one-step-and-lints-the-tree-twice.md` §7.1 — it is a
-product decision for the owner, not something to settle by editing either side to match the other.
+**`npm run build` was added on 2026-09-17, resolving T188 §7.1.** This standard had named it a gate
+for months while `scripts/verify.js` never ran it — `git log -S` shows it was never in
+`VERIFY_STEPS`. Rather than delete the claim, the gate was made true: the build costs **2.8s**,
+cheaper than `security`, and it is the only step that exercises the bundler. A broken import in the
+renderer fails `npm run build` and passes every test, and this repository has already shipped a
+packaged crash from exactly that gap (`ERR_MODULE_NOT_FOUND`, `build.files` not shipping `src/**`).
+Confirmed non-vacuous by planting a bad import and watching the step exit 1.
+
+### Where the gate runs, and what each run is worth
+
+`.github/workflows/gate.yml` runs the same `npm run verify` on every pull request and on push to
+`main`, on a Linux runner.
+
+**CI is the gate of record for merging.** A pull request whose CI run is red does not merge,
+whatever a local run said. This is not a preference for automation: the runner is a clean machine,
+and within an hour of existing it caught two defects no local run could — a suite that depends on
+`zsh` being present (true on every Mac, false on a fresh Linux box) and a test asserting against a
+hardcoded `/Users/<someone>/dev/shoresh`. A green local gate cannot distinguish "this code is
+correct" from "this machine happens to be configured like the author's."
+
+**A local `npm run verify` remains valid evidence, and remains the right tool while iterating.** It
+is what `scripts/gate.sh` stamps and what `scripts/verifierReport.js` accepts, so a Verifier report
+still comes from a local stamped run. What changed is that a local green is no longer *sufficient*
+to merge — CI must also be green — and it is no longer *necessary* to run the full local gate before
+every push, because CI will run it anyway, on a quieter machine, in about half the time.
+
+The practical consequence, which is the point: **stop paying ~13 minutes locally to earn the right to
+open a pull request.** Push, let CI run, and spend local gate time only when you need the answer
+faster than CI can give it or when you are producing a stamped Verifier artifact.
 
 ### When the integration harness is mandatory
 

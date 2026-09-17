@@ -122,6 +122,7 @@ describe('verify gate wrapper', () => {
     expect(VERIFY_STEPS).toEqual([
       'agents:check',
       'check:governance',
+      'build',
       'security',
       'test:integration',
       'lint',
@@ -137,10 +138,11 @@ describe('verify gate wrapper', () => {
     const COST = {
       'agents:check': 0.2,
       'check:governance': 1.2,
+      build: 2.8,
       security: 5.9,
       'test:integration': 20.6,
       lint: 131.3,
-      test: 1015.0,
+      test: 702.1,
     }
     const costs = VERIFY_STEPS.map((s) => COST[s])
     expect(costs.every((c) => typeof c === 'number')).toBe(true)
@@ -151,6 +153,7 @@ describe('verify gate wrapper', () => {
   it('still runs exactly the six gates, none removed by the reorder', () => {
     expect([...VERIFY_STEPS].sort()).toEqual([
       'agents:check',
+      'build',
       'check:governance',
       'lint',
       'security',
