@@ -185,6 +185,11 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // showing replaces it rather than stacking. Accepted as adequate for this
   // minimal notice (T12) — a real queue is out of scope here.
   const [opRejectedNotice, setOpRejectedNotice] = useState(null)
+  // T201: only a bootstrap-failure notice gets a retry affordance — the
+  // offline-queue rejection below has nothing meaningful to re-run, so this
+  // stays null for that source and is only ever set alongside a bootstrap
+  // notice (see runBootstrap).
+  const [noticeRetry, setNoticeRetry] = useState(null)
   useEffect(() => {
     const unsub = localClient.onOpRejected?.((msg) => {
       setOpRejectedNotice(
@@ -192,6 +197,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
           ? `A location named "${msg.existing.name}" already exists and wasn't created.`
           : 'A change could not be saved because it conflicts with existing data.'
       )
+      setNoticeRetry(null)
     })
     return () => unsub?.()
   }, [])
@@ -223,6 +229,18 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // days). Without this guard the duplication is only masked in production
   // builds, where StrictMode does not double-invoke.
   const seededForCamp = useRef(null)
+  // T201: a second ref, separate from seededForCamp, so a manual retry click
+  // can't overlap with another retry (or with the mount-time run) — one
+  // in-flight bootstrap at a time. seededForCamp itself is never cleared on
+  // failure: that ref's only job is neutralizing StrictMode's double-invoke
+  // (see the comment above), and clearing it on failure would let a second
+  // concurrent seedDays run through the *effect* path, double-seeding
+  // days_of_operation (T201's trap). Retry re-runs through this callback
+  // instead, which the in-flight ref already serialises.
+  const bootstrapInFlight = useRef(false)
+  // Holds the latest runBootstrap so the retry closure below can call it by
+  // name without a self-reference to the still-being-assigned `const`.
+  const runBootstrapRef = useRef(null)
 
   // T200: both writers dispatched together and awaited with allSettled, so a
   // cause that fails both (dead IPC channel, disk error, camp-id mismatch)
@@ -235,10 +253,13 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // never part of the race this collapses, so last-writer-wins is still
   // sound for it (T200's "open design question").
   const runBootstrap = useCallback(async (id) => {
+    if (bootstrapInFlight.current) return
+    bootstrapInFlight.current = true
     const [daysResult, cohortResult] = await Promise.allSettled([
       seedDays(id),
       ensureCohort(id),
     ])
+    bootstrapInFlight.current = false
 
     const failures = []
     if (daysResult.status === 'rejected') {
@@ -254,8 +275,18 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
 
     if (failures.length) {
       setOpRejectedNotice(failures.join(' '))
+      // T201: re-running both is safe — seedDays and ensureCohort are each
+      // idempotent check-then-repair, not one-shot inserts (see seedDays.js's
+      // header comment) — so "Try again" can simply call this again.
+      setNoticeRetry(() => () => runBootstrapRef.current(id))
+    } else {
+      setOpRejectedNotice(null)
+      setNoticeRetry(null)
     }
   }, [])
+  useEffect(() => {
+    runBootstrapRef.current = runBootstrap
+  }, [runBootstrap])
 
   useEffect(() => {
     if (!campId || seededForCamp.current === campId) return
@@ -292,12 +323,24 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
       {opRejectedNotice && (
         <div style={opRejectedNoticeStyles.wrap} role="alert">
           <span>{opRejectedNotice}</span>
-          <button
-            type="button"
-            onClick={() => setOpRejectedNotice(null)}
-            aria-label="Dismiss"
-            style={opRejectedNoticeStyles.dismissBtn}
-          ><CloseIcon /></button>
+          <div style={opRejectedNoticeStyles.actions}>
+            {noticeRetry && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpRejectedNotice(null)
+                  noticeRetry()
+                }}
+                style={opRejectedNoticeStyles.retryBtn}
+              >Try again</button>
+            )}
+            <button
+              type="button"
+              onClick={() => { setOpRejectedNotice(null); setNoticeRetry(null) }}
+              aria-label="Dismiss"
+              style={opRejectedNoticeStyles.dismissBtn}
+            ><CloseIcon /></button>
+          </div>
         </div>
       )}
       <Shell
@@ -348,6 +391,24 @@ const opRejectedNoticeStyles = {
     fontSize: 16,
     lineHeight: 1,
     flexShrink: 0,
+  },
+  actions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    flexShrink: 0,
+  },
+  // T201 retry affordance — quiet, text-weight, not a filled CTA, so it
+  // reads as part of the banner rather than competing with it.
+  retryBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    color: 'inherit',
+    fontSize: 13,
+    fontWeight: 600,
+    textDecoration: 'underline',
+    padding: 0,
   },
 }
 

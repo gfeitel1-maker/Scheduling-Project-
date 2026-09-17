@@ -113,6 +113,78 @@ describe('AppShell: a failed camp seed is surfaced, not swallowed', () => {
     expect(alert.textContent).toMatch(/default weekdays/i)
     expect(alert.textContent).toMatch(/default cohort/i)
   })
+
+  // T201 — the notice copy ends in "try again"; a bootstrap failure must
+  // offer an explicit retry control that actually re-runs the bootstrap.
+  it('T201: a bootstrap failure notice renders a Try again control that re-runs the bootstrap', async () => {
+    seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    expect(seedDays).toHaveBeenCalledTimes(1)
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+
+    seedDays.mockResolvedValueOnce(undefined)
+    await act(async () => {
+      fireEvent.click(retryBtn)
+    })
+
+    expect(seedDays).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  // T201 — an onOpRejected notice is not a bootstrap failure; it must not
+  // grow a retry control that has nothing meaningful to re-run.
+  it('T201: the offline-queue onOpRejected notice has no Try again control', () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    act(() => {
+      opRejectedCallback({
+        type: 'op_rejected',
+        reason: 'unique_field',
+        existing: { id: 'loc-a', name: 'Pool' },
+      })
+    })
+    expect(screen.getByRole('alert')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /try again/i })).toBeNull()
+  })
+
+  // T201 — the StrictMode guard is the fix's non-goal: retry must not
+  // reopen the double-seed hole. Forcing the bootstrap effect to run twice
+  // (StrictMode's dev-mode behaviour) must still call seedDays exactly once.
+  it('T201: StrictMode double-invocation still calls seedDays exactly once', async () => {
+    const React = await import('react')
+    render(
+      <React.StrictMode>
+        <AppShell campId="camp-1" role="admin" onLogout={() => {}} />
+      </React.StrictMode>
+    )
+    await act(async () => {})
+    expect(seedDays).toHaveBeenCalledTimes(1)
+  })
+
+  // T201 — clicking Try again twice while the first attempt is still
+  // in-flight must not start two concurrent bootstrap runs.
+  it('T201: rapid double-click on Try again does not run concurrent bootstraps', async () => {
+    seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+
+    let resolveSecond
+    seedDays.mockReset()
+    seedDays.mockReturnValue(new Promise((resolve) => { resolveSecond = resolve }))
+    ensureCohort.mockReset().mockResolvedValue(undefined)
+
+    fireEvent.click(retryBtn)
+    fireEvent.click(retryBtn)
+
+    expect(seedDays).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveSecond()
+    })
+  })
 })
 
 describe('AppShell: offline op-rejected notice (item 7, owner decision)', () => {
