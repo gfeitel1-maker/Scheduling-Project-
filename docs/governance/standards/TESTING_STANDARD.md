@@ -18,21 +18,47 @@ and `README.md` all derive from it rather than maintaining their own copies.
 
 ## 1. The gates
 
-| Command | Covers |
-|---|---|
-| `npm run test` | Vitest unit and single-process integration suites |
-| `npm run lint` | ESLint, including the ban on reintroducing `@supabase/*` imports |
-| `npm run build` | Production build |
-| `node test/integration/run.js` | **Multi-process** scenarios: pairing, revocation, token renewal, conflict detection, clock skew, role changes |
+**`npm run verify` is the gate.** It runs these six steps, in this order, stopping at the first
+failure, and prints a single `✅ VERIFY PASSED` / `❌ VERIFY FAILED` / `⚠️ VERIFY INCONCLUSIVE`
+verdict line. Read that line; never read the exit code of a piped or tee'd wrapper.
+
+| # | Command | Covers |
+|---|---|---|
+| 1 | `npm run agents:check` | Every `.claude/agents/` profile still round-trips from its bindings |
+| 2 | `npm run check:governance` | Frontmatter shape, reference paths, index freshness, status drift, and descriptive docs naming deleted paths |
+| 3 | `npm run security` | npm-audit, secret scan, dangerous-pattern scan |
+| 4 | `npm run test:integration` | **Multi-node** scenarios: pairing, revocation, token renewal, conflict detection, clock skew, role changes |
+| 5 | `npm run lint` | ESLint, including the ban on reintroducing `@supabase/*` imports |
+| 6 | `npm run test` | The Vitest suite |
+
+**The order is cheapest-first and is load-bearing, not cosmetic.** Because the gate short-circuits,
+a step placed after an expensive one is not reported until that expensive one has finished. These
+six are sorted by measured cost so a failure is reported as early as it can be. Re-measure and
+re-sort if a step's cost changes materially; `scripts/verify.test.js` asserts the ordering property,
+not merely the literal list.
+
+**`npm run build` is deliberately not in that list.** An earlier revision of this standard listed it
+as a gate; `git log -S"'build'" -- scripts/verify.js` returns no commits, so it has never been one.
+Whether a production build *should* gate is an open question recorded in `docs/work/tickets/T188-the-gate-is-88-percent-one-step-and-lints-the-tree-twice.md` §7.1 — it is a
+product decision for the owner, not something to settle by editing either side to match the other.
 
 ### When the integration harness is mandatory
 
 **Mandatory** for any change touching **sync, authentication, or schema**. Optional elsewhere.
 
-This is not a matter of thoroughness. The harness spawns real child processes; the unit suite runs
-in one process and therefore *structurally cannot* observe two devices disagreeing, a revocation
-landing mid-session, or a conflict being recorded. For those changes, a green `npm run test` is not
-weak evidence — it is evidence about a different question.
+This is not a matter of thoroughness. The harness runs **real libp2p nodes over real transports,
+merging real Automerge documents, with no mocks** — the unit suite runs a single node and therefore
+*structurally cannot* observe two devices disagreeing, a revocation landing mid-session, or a
+conflict being recorded. For those changes, a green `npm run test` is not weak evidence — it is
+evidence about a different question.
+
+> An earlier revision justified this by saying the harness "spawns real child processes." It does
+> not, and has not since the Stage 6 cutover replaced the WebSocket harness with
+> `test/integration/run.automerge.js`: `grep -cE 'spawn|fork|child_process'` over the harness
+> returns **0**, and its own header describes "in-process nodes (`startSyncNode`) and real Automerge
+> documents — no mocks." The mandate above is unchanged; only the reason it rests on is corrected.
+> What makes the harness irreplaceable is the *real transport and real merge*, not process
+> boundaries.
 
 Concretely, mandatory for: `electron/sync/**`, `electron/auth/**`, `electron/ops/**`,
 `electron/db/schema.sql` and migrations, and release preparation.

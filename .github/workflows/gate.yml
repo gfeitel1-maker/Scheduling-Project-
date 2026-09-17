@@ -1,0 +1,75 @@
+# The gate, run somewhere other than the developer's laptop.
+#
+# WHY THIS EXISTS (T191): before this, every gate any session ran competed with the editor, the
+# Electron app, and every concurrent agent session on one 4-core machine. Observed 2026-09-16:
+# three `npm run verify` processes at once, 1-minute load average 267, and four tests reported as
+# FAILING after 1,192,000ms against a 20s timeout — all four passed in 5.8s in isolation. A
+# contended machine does not merely slow the gate down; it manufactures reds that look like
+# regressions. That is what this removes.
+#
+# WHY UBUNTU, when the product is a macOS Electron app: the gate never needs Electron. No test
+# imports it, no test needs a display, the one mDNS test asserts its wrapper's init options without
+# opening a socket, and the integration harness runs in-process libp2p nodes connected by explicit
+# dial rather than by discovery. Linux is also the 1x Actions minute multiplier; macOS is 10x.
+# `npm run electron:build` is deliberately NOT run here — packaging is a separate concern and would
+# be the only thing forcing a macOS runner.
+name: gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A PR that gets three pushes should not run three full gates. Cancel superseded runs on the same
+# ref — except on main, where every commit's result is worth keeping.
+concurrency:
+  group: gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    # The gate is ~16 min locally on a quiet 4-core machine. 45 gives generous headroom for a cold
+    # native build without letting a genuinely hung run burn an hour of minutes.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # This repository's gate tooling is genuinely zsh: ten scripts under scripts/ carry a
+      # #!/bin/zsh shebang (gate.sh, integration.sh, the worktree and heal predicates) and eight
+      # test files spawn /bin/zsh to exercise them. ubuntu-latest does not ship zsh.
+      #
+      # Installing it is the honest fix rather than skipping those tests on Linux: the point of CI
+      # is to run the same gate, and a suite that quietly drops eight files on the one machine
+      # nobody watches is worse than no CI. Found by this workflow's own first run, which failed
+      # with "Cannot read properties of undefined (reading 'trim')" — spawnSync returns no stdout
+      # when the interpreter is missing, so a missing shell surfaces as a TypeError in a helper
+      # rather than as "zsh not found".
+      - name: Install zsh (required by the gate's shell tooling)
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
+      # `npm ci` installs exactly the lockfile. better-sqlite3 is the only native dependency; it
+      # builds from source here if no prebuild matches, which is why the toolchain matters and why
+      # the setup-node cache above is worth having.
+      - name: Install
+        run: npm ci
+
+      # The whole gate, in its real order: agents:check, check:governance, security,
+      # test:integration, lint, test. Ordered cheapest-first, so a governance failure is reported in
+      # seconds rather than behind ~17 minutes of tests.
+      #
+      # The serialising lock (scripts/gateLock.js) is left ENABLED rather than bypassed. A runner is
+      # a fresh machine with no competing gate, so it acquires immediately and costs nothing — and
+      # leaving it on means CI exercises the same code path developers run, instead of a variant
+      # that only CI takes.
+      - name: npm run verify
+        run: npm run verify

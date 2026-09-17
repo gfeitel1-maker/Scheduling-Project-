@@ -30,6 +30,16 @@ npm run test:integration # Run the sync/ingest integration scenarios (test/integ
 npm run verify           # the full gate: agents:check + check:governance + security + test:integration + lint + test (scripts/verify.js). Ordered CHEAPEST-FIRST and short-circuits, so a 1.2s governance failure is reported in seconds instead of behind ~17 minutes of tests — same six gates, sooner. Prints a final ✅/❌ verdict line so the result survives `| tail` and can't false-green
 ```
 
+**The gate also runs in CI** (`.github/workflows/gate.yml`) on every pull request and on push to
+`main`, on a Linux runner — the suite needs no Electron, no display, and no multicast, so it is
+fully portable. **A CI result is currently ADVISORY**: it does not replace the local `npm run
+verify` as evidence of record, and nothing accepts it as a Verifier PASS. Whether that should change
+is an open owner decision recorded in `docs/work/tickets/T191-the-gate-has-nowhere-to-run-but-this-laptop.md`.
+
+**Only one local gate runs at a time.** `npm run verify` takes a machine-wide lock
+(`scripts/gateLock.js`) keyed to the repository, so a second one waits and names the holder instead
+of both thrashing a 4-core machine. `SHORESH_VERIFY_NO_LOCK=1` bypasses it.
+
 **`electron:dev:fresh` uses `pkill -x Electron`, which kills every Electron process owned by the
 user, not just this project's** — a dev server for another Electron app will be killed too, without
 warning. The packaged Shoresh app is unaffected (its process is named `Shoresh`, not `Electron`).

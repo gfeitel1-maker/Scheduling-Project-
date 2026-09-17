@@ -24,12 +24,14 @@ investigated and **withdrawn as wrong**; the rest is unstarted and still awaitin
 
 | Item | State |
 |---|---|
-| Order `VERIFY_STEPS` cheapest-first | **Landed** (`42a2c3f`) |
-| Prebuilt-schema test fixture | **Landed** (`e170604`), applied to the 5 biggest files; 63 remain |
+| Order `VERIFY_STEPS` cheapest-first | **Landed** (#456) |
+| Prebuilt-schema test fixture | **Landed** (#456), then carried to **65 files** (#457, #458) |
+| Remove the duplicate full-tree ESLint pass (§3) | **Landed** (#457) — replaced by a grep, see §0.4 |
+| Vitest parallelism (§6) | **Landed** (#457, #458) — per-project `isolate: false` |
+| Serialise concurrent gates | **Landed** (#456) — `scripts/gateLock.js` |
+| `TESTING_STANDARD.md` §1 (§7.1) | **Corrected** in this change; the `build` question stays open for the owner |
 | Collapse the 33 migration tests | **WITHDRAWN — the proposal was wrong.** See §7.4 |
-| Remove the duplicate full-tree ESLint pass (§3) | **Not started.** Still the best unclaimed win |
-| Vitest parallelism (§6) | Not started |
-| Tiering / change-based selection (§5) | Not started; routed, and the recommendation is to defer |
+| Tiering / change-based selection (§5) | **Recommend closing unbuilt.** See §0.4 |
 
 ### 0.1 Gate step order — landed
 
@@ -72,6 +74,40 @@ Performance, not correctness — but it is a fresh-vs-migrated divergence, the c
 `TESTING_STANDARD.md` §1 calls the failure that "does not surface until a user's data is already in
 the drifted shape." **33 migration-parity tests did not catch it**, and that gap is the more
 interesting half. Filed as its own `database-sync` task (ADR + migration/rollback plan + Red Hat).
+
+---
+
+### 0.4 Where the gate actually stands now — and why tiering should close unbuilt
+
+Re-measured 2026-09-17 on `52efd0d`, machine 76% idle, **green**:
+
+| | Original (2026-09-16) | Now | Change |
+|---|---:|---:|---|
+| Whole gate | ~1174s (19.6 min) | **788s (13m08s)** | **−33%** |
+| `test` step | 1015.0s | **702.1s** | **−31%** |
+| Test files / tests | 439 / 5893 | 445 / 5984 | *more* tests, less time |
+
+Every second of that came from **coverage-neutral** work — the fixture, the ESLint de-duplication,
+and per-project isolation. Nothing was removed from the gate; the suite grew by 6 files and 91 tests
+while getting a third faster.
+
+**That settles §5.** Tiering was always the one option on the list that trades a guarantee for
+speed, and it was justified by a 19.6-minute gate. At 13 minutes, with the cheap steps now reported
+in the first ~60 seconds (a governance failure lands in 1.4s instead of 1174s), the remaining
+benefit does not pay for a second definition of "green" that can be mistaken for the merge gate.
+The Governor routing reached the same conclusion independently and added the sharper objection: a
+declared path→test map **fails open** — `CLAUDE.md` drifting makes an agent wrong, but a selection
+map drifting makes a run *silently green*. The proof is already on file: `vitest --changed` after
+editing `electron/db/schema.sql` selects **zero** test files and exits 0.
+
+**Recommendation: close §5 unbuilt.** The remaining wall-clock problem is not the gate's size, it is
+that the gate has nowhere to run but the developer's laptop — which is T191, not this ticket.
+
+Residual, deliberately not done: three files still build the schema directly
+(`src/engine/fixtureSchemaParity.test.js`, `electron/ops/projectionsCoverage.test.js`,
+`electron/sync/automerge/peerIdentity.test.js`). Together they are **3.04s for 51 tests**, and the
+first is T187's guard that engine fixtures match the *real* schema — converting it would point the
+guard at the thing it exists to check independently. There is nothing left to win here.
 
 ---
 
@@ -382,17 +418,21 @@ before the §0.3 defect is resolved, since it is that comparison's correctness t
 
 ## 8. Definition of done
 
-- [x] The full gate is re-measured on a quiet machine (load 6.5, below the 4×-cores threshold) — §2. Baseline: `test` 1015.0s, gate ~1174s.
-- [x] `VERIFY_STEPS` is ordered cheapest-first, so a cheap deterministic failure is never reported behind an expensive step — §0.1.
-- [x] A prebuilt-schema fixture exists, is proven equivalent to a chain-migrated database, and is applied to the highest-cost files — §0.2.
-- [x] The "collapse the 33 migration tests" recommendation is resolved — **withdrawn**, with the counting that refutes it recorded — §7.4.
-- [ ] The remaining 63 per-test-rebuild files are converted to the fixture (mechanical; the largest certain win left).
-- [ ] The duplicate full-tree ESLint pass is resolved through the review loop, with Red Hat specifically asked whether `npm run lint` truly subsumes it (§3). **Unclaimed and independent — the best next move.**
-- [ ] Vitest parallelism is investigated against the 1.31×-on-4-cores finding (§6).
-- [ ] The owner has decided whether tiering is wanted **at all** — asked only *after* the above are measured, since they may remove the need.
-- [ ] If yes: a fast tier exists that (a) runs the always-run guard set unconditionally, (b) emits a verdict that cannot be read as `VERIFY PASSED`, (c) is mechanically rejected by `verifierReport.js` as Verifier evidence, and (d) treats an empty selection as a hard failure rather than a pass.
-- [ ] `TESTING_STANDARD.md` §1 matches `VERIFY_STEPS` — including the explicit decision on whether `build` is a gate (§7.1). Needs the human gate; it is a standard.
-- [ ] `npm run verify` is green on the branch.
+- [x] The full gate is re-measured on a quiet machine — §2, and again at §0.4 after the follow-on work.
+- [x] `VERIFY_STEPS` is ordered cheapest-first — §0.1.
+- [x] A prebuilt-schema fixture exists, is proven equivalent to a chain-migrated database, and is applied — §0.2. Now on **65 files**; the 3 that remain are 3.04s total and correctly excluded (§0.4).
+- [x] The "collapse the 33 migration tests" recommendation is resolved — **withdrawn**, with the counting that refutes it — §7.4.
+- [x] The duplicate full-tree ESLint pass is resolved (#457) — replaced by a grep that proves the same property without a second full-tree lint.
+- [x] Vitest parallelism is investigated against the 1.31×-on-4-cores finding (#457, #458) — per-project `isolate: false`.
+- [x] Concurrent gates are serialised rather than left to convention — `scripts/gateLock.js`.
+- [x] `TESTING_STANDARD.md` §1 matches `VERIFY_STEPS` — corrected here, including the stale "spawns real child processes" rationale. **The one genuine decision, whether `build` should gate, is left open for the owner and is not settled by this change.**
+- [x] The tiering question (§5) has an evidence-backed recommendation — **close unbuilt**, §0.4. Formally closing it is the owner's call.
+- [x] `npm run verify` is green.
+
+**This ticket is complete apart from two owner decisions**: whether `npm run build` should be a gate
+step (§7.1), and formally closing §5. Neither blocks anything; both are recorded where they will be
+found. The wall-clock problem that outlives this ticket — the gate having nowhere to run but one
+laptop — is **T191**.
 
 ## 9. Reproducing these numbers
 

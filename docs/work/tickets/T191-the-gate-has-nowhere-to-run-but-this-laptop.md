@@ -10,6 +10,81 @@ archive_when: "Either CI runs the gate on push to main and on pull requests and 
 
 # T191 — The gate has nowhere to run but this laptop
 
+## 0. Status — the workflow is implemented; its *authority* is not
+
+`.github/workflows/gate.yml` and `.nvmrc` land with this ticket. What is deliberately **not**
+decided here is §5's question: what a CI result *counts as*.
+
+**Until the owner rules on §5, a CI run is ADVISORY.** It does not replace the local gate as
+evidence of record, nothing in `scripts/verifierReport.js` accepts it, and no agent should file a
+green CI run as a Verifier PASS. That restraint is the point: adding a workflow file is cheap and
+reversible, whereas quietly promoting its output to evidence would change what "verified" means in
+this repository without anyone deciding to.
+
+### 0.1 The first CI run failed, and that is the ticket justifying itself
+
+The workflow's first run on its own PR went red in ~9 minutes, on something **no local run can
+reproduce**: eight test files spawn `/bin/zsh`, and `ubuntu-latest` does not ship zsh. `spawnSync`
+returns no `stdout` when the interpreter is missing, so a missing shell surfaced as
+`TypeError: Cannot read properties of undefined (reading 'trim')` inside a test helper.
+
+The dependency is real, not incidental — ten scripts under `scripts/` carry a `#!/bin/zsh` shebang
+(`gate.sh`, `integration.sh`, the worktree and heal predicates) and eight test files exercise them.
+So the fix is to **install zsh on the runner**, not to skip those tests on Linux. A suite that
+quietly drops eight files on the one machine nobody watches would be worse than no CI at all.
+
+Two things worth keeping from this:
+
+- **It is the first evidence that the laptop and CI disagree**, which is the whole argument for
+  T191. Every prior green was on a machine that happens to have zsh because it is a Mac.
+- **The second red was a test that named one machine.** With zsh installed, 444 of 445 files
+  passed and the last was `scripts/gateLock.test.js` — a test *this programme wrote* — asserting
+  `repoKey(process.cwd()) === repoKey('/Users/gregfeitel/dev/shoresh')`. On a runner that path does
+  not exist, so `repoKey` returned its no-git fallback and the comparison failed. A test for
+  machine-independent behaviour had a developer's home directory baked into it, and **only a
+  different machine could see that.** Now asserted between two directories of whatever repository is
+  actually under test, plus an explicit test of the fallback.
+- **A missing interpreter reports as a `TypeError` in a helper**, not as "zsh not found". Those
+  eight helpers read `spawnSync(...).stdout` without checking `error` or `status`. Not fixed here
+  (it would touch eight files owned by T168), but recorded: the next person to hit it should not
+  have to rediscover that an undefined `stdout` means the shell is absent.
+
+---
+
+### 0.2 The runner is roughly twice as fast as the laptop
+
+First green-path measurement, from the run that got as far as the suite:
+
+| | Laptop (quiet, 4 cores) | `ubuntu-latest` |
+|---|---:|---:|
+| `test` step | 702.1s | **339.2s** |
+| Whole job | 788s (13m08s) | **~9 min** incl. checkout, install and a from-source native build |
+
+So CI does not merely move the cost off the developer's machine, it roughly halves it — on a
+machine that is doing nothing else. The §4 minute budget should be recomputed against ~9–10 min per
+run rather than the ~20 min it assumed, which makes the per-PR policy considerably more comfortable
+than estimated.
+
+---
+
+### What the workflow does
+
+| Choice | Why |
+|---|---|
+| `ubuntu-latest` | The gate never needs Electron or a display (§3). Linux is the **1×** minute multiplier; macOS is 10× |
+| `pull_request` + `push` to `main` | §4's budget: per-PR fits comfortably, per-push on every branch does not (~9,200 min/mo) |
+| `node-version-file: .nvmrc` (25.8.1) | Node was unpinned — no `engines`, no `.nvmrc`. §7's first risk, now closed |
+| `cache: npm` + `npm ci` | `better-sqlite3` is the one native dependency and may build from source |
+| `concurrency`, cancel-in-progress except on `main` | Three pushes to a PR should not burn three full gates; every `main` commit's result is kept |
+| `timeout-minutes: 45` | The gate is 13m08s locally (T188 §0.4); 45 gives headroom for a cold native build without burning an hour on a hang |
+| Gate lock left **enabled** | A runner has no competing gate so it acquires instantly and costs nothing — and CI then exercises the same code path developers run, rather than a CI-only variant |
+
+`npm run electron:build` is **not** run. Packaging is a separate concern and is the only thing that
+would force a macOS runner.
+
+---
+
+
 **Spun out of T188.** T188 asked how to make the gate *cheaper*. This ticket is the question T188
 did not ask: **where does the gate run?** The answer is "on the developer's own 4-core laptop,
 always, with nothing scheduling it" — and that is a larger factor in felt slowness than any
@@ -140,12 +215,16 @@ So the decisions the owner has to make are not "should we add a workflow file":
 
 ## 8. Definition of done
 
-- [ ] The owner has decided whether CI is wanted, and the §5 evidence question is answered explicitly.
-- [ ] If yes: a workflow runs the full gate on pull requests and on push to `main`, on a Linux runner, with a pinned Node version.
-- [ ] A gate run on a runner is measured, and §4's minute budget is confirmed or corrected against it.
-- [ ] `TESTING_STANDARD.md` states what status a CI result carries (human gate — it is a standard).
-- [ ] The INCONCLUSIVE load-verdict's behaviour on a runner is decided, not inherited by accident.
-- [ ] `npm run verify` is green.
+- [x] A workflow runs the full gate on pull requests and on push to `main`, on a Linux runner, with a pinned Node version — `.github/workflows/gate.yml`, `.nvmrc`.
+- [x] Node is pinned, closing §7's first risk.
+- [ ] **Owner decision: does a CI result count as Verifier evidence** — replacing the local run, supplementing it, or neither (§5)? Until answered, CI is advisory (§0) and `TESTING_STANDARD.md` is deliberately left silent rather than pre-empting the answer.
+- [ ] A gate run on a runner is measured and §4's minute budget confirmed against it — obtainable only after the first real run.
+- [ ] The INCONCLUSIVE load-verdict's meaning on a runner is decided rather than inherited (§5.3). Its premise — a contended laptop producing meaningless reds — does not hold on dedicated hardware.
+- [x] `npm run verify` is green.
+
+The three open items are **all owner decisions or measurements that require the workflow to have
+run at least once**. None of them blocks the workflow from being useful in the meantime, because
+advisory is a coherent state: a red CI run is worth investigating whatever its formal authority.
 
 ## 9. Reproducing the §3 portability findings
 
