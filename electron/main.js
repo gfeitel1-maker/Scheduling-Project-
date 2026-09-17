@@ -51,6 +51,7 @@ import { recordDeviceHealthEvent, DEVICE_HEALTH } from './ops/deviceHealthEvents
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
 import { createMdnsDiscovery } from './sync/automerge/discovery.js'
+import { codeForAuthRejectedReason } from './authRejectedSender.js'
 import { joinCode as joinCodeForCamp, formatJoinCode } from './sync/joinCode.js'
 import { startJoinSession } from './sync/automerge/joinSession.js'
 import {
@@ -2741,6 +2742,15 @@ if (isElectronEntryPoint()) {
             reason: reply?.reason ?? 'unknown',
             metadata: { peerId },
           })
+          // Reconnects the renderer half of T87's onAuthRejected path (preload.js's onAuthRejected,
+          // useDeviceMode.js's reasonForAuthRejectedCode), which had no sender at all from the Stage
+          // 6 WS-layer deletion onward — the Host authoritatively rejecting THIS device's authenticate
+          // was silently invisible to the director, sync just went dead. `reply` on the wire is
+          // `{ type: 'auth_failed', reason }` (authGate.js's auth_failed frame) — there is no numeric
+          // code on the wire, confirmed by reading authGate.js/mutualAuth.js directly — so it is
+          // mapped to the close-code convention here via codeForAuthRejectedReason, mirroring
+          // evaluateAuthenticate's own code choices (electron/auth/connectionAuth.js).
+          if (mainWindow) mainWindow.webContents.send('shoresh:auth-rejected', { code: codeForAuthRejectedReason(reply?.reason) })
         },
       })
 

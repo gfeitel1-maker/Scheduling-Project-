@@ -19,6 +19,7 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
+| [Three IPC listeners survived the Stage 6c cutover with no possible sender, and one of them is a trap on upgraded devices](../../docs/work/tickets/T213-dead-pairing-push-listeners.md) | open | — |
 | [Phase A — Cloudflare Worker and KV rendezvous bulletin board (source and tests only)](../../docs/work/tickets/T209-rendezvous-worker-phase-a.md) | open | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [Residual findings from the libp2p 3.x migration: stream-close race, dead it-pipe dependency, and what same-version tests cannot see](../../docs/work/tickets/T217-libp2p-3x-residual-findings.md) | open | — |
 

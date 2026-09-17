@@ -196,6 +196,25 @@ describe('useDeviceMode: sessionEndedReason (T87 fix round — director-facing e
     expect(result.current.sessionEndedReason).not.toMatch(/director|admin/i)
   })
 
+  it('sets a neutral notice on 4405 (peer identity mismatch) — deliberately NOT the revoked/re-approve copy', async () => {
+    seedClientDevice({ token: 'stored-token' })
+    mockLocalClient.verifySession.mockResolvedValue({ valid: true, role: 'staff' })
+
+    const { result } = renderHook(() => useDeviceMode())
+    await waitFor(() => expect(result.current.phase).toBe('session'))
+
+    authRejectedCallback(4405)
+
+    await waitFor(() => expect(result.current.phase).toBe('login'))
+    expect(result.current.sessionEndedReason).toMatch(/contact your director/i)
+    // The revoked-device copy tells a legitimate director exactly how to recover — printing that
+    // here would hand the same instructions to an attacker holding a copied credential, who is
+    // indistinguishable from a confused director at this screen. See useDeviceMode.js's
+    // reasonForAuthRejectedCode for the full rationale.
+    expect(result.current.sessionEndedReason).not.toMatch(/re-approve/i)
+    expect(result.current.sessionEndedReason).not.toMatch(/4401|4402|4403|4404|4405/)
+  })
+
   it('leaves sessionEndedReason null after a locally-failed verifySession (benign, not a host rejection)', async () => {
     seedClientDevice({ token: 'dead-token' })
     mockLocalClient.verifySession.mockResolvedValue({ valid: false })

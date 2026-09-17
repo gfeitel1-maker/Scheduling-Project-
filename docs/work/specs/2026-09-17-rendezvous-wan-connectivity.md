@@ -218,6 +218,26 @@ Adapted from the spec's §24, with the two prerequisites added:
 D and F are deliberately not ticketed. Ticketing them would imply they are scheduled work; they are
 owner decisions that have not been made, resting on evidence that does not exist yet (Phase E).
 
+## 4.1 Accepted limitation — symmetric CGNAT on both ends has no WAN path
+
+**Owner ruling, 2026-09-17: ACCEPTED. This is a settled limitation, not an open question.**
+
+NAT mapping is either endpoint-independent (the same external port is reused regardless of
+destination — punchable) or endpoint-dependent/symmetric (a new external port per destination — not
+punchable). Where at least one side of a pair is genuinely symmetric, **no mechanism in scope
+establishes a WAN connection**: not direct dial, not UPnP/NAT-PMP, and not coordination-only
+relay + DCUtR. Coordination-only framing does not change this, because what must succeed is the
+same simultaneous-dial hole punch, and no relay makes a symmetric NAT behave like a cone NAT.
+Adding QUIC does not change it either; QUIC improves reliability only for NAT classes that were
+already punchable.
+
+**What those camps get:** their devices sync when they next share a network — the ordinary
+mDNS/LAN path, untouched by any of this work. There is no way to tell in advance, or from inside
+the app, which category a given camp's ISP falls into.
+
+This is recorded here so a later reader finds it as a decision already taken. Re-opening it needs
+new evidence about NAT behaviour, not a re-run of the same analysis.
+
 ## 5. Non-goals
 
 Carried from the spec's §22 unchanged, plus: no deployment of anything to an external account or

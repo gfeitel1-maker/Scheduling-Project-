@@ -341,6 +341,10 @@ and 2 minutes per coordination attempt versus unbounded camp-document traffic fo
 whole life. This changes the sizing/cost conversation (Decision 3's operational-cost paragraph
 below) without changing who can see what.
 
+**ACCEPTED BY THE OWNER, 2026-09-17.** What follows is no longer an open question: the owner has
+read it and accepted the limitation. Symmetric-CGNAT-both-ends pairs sync when they next share a
+network. Re-opening requires new evidence about NAT behaviour, not a re-run of this analysis.
+
 **Now the question the owner actually needs answered: for CGNAT-on-both-ends specifically, does
 coordination-only relay + DCUtR actually establish a direct connection on this stack?**
 

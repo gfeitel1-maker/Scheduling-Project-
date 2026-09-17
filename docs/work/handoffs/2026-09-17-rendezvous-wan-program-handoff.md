@@ -78,6 +78,25 @@ an identity failure indistinguishable from a transport failure). Four are delibe
 in T162 §0.1 — the most important being that **a `4405` refusal has no director-facing message**,
 which is a product decision the owner still needs to make.
 
+## A design spec was produced and DISCARDED on a corrected premise
+
+A Designer spec for a `DeviceUnrecognizedScreen` — a dedicated `device_unrecognized` phase, and in
+its revision a primary "Pair This Device Again" button with retry-detection and coaching copy — was
+commissioned and then **discarded in full**. It is not approved direction and must not be revived
+from the transcript. Two independent reasons:
+
+1. **Its premise was false.** It told directors the cause was "a reinstall, a new hard drive, or a
+   restore from backup." None of those produce a `4405`. `device_id` lives in the same SQLite
+   database as the identity key (`localDb.js:3277`), so losing one loses both, and such a device is
+   refused at `4403` — the ordinary path — and simply pairs as new.
+2. **Its remedy was an attacker-assist.** The same screen is shown to a confused director and to
+   whoever is holding a copied credential, and the app cannot distinguish them. A one-tap recovery
+   path plus troubleshooting help is a guide to getting re-admitted, handed to the person the
+   control just stopped. The polished revision was more dangerous than the first draft, not less.
+
+What shipped instead: the refusal is surfaced neutrally with no cause and no remedy, and the
+reasoning is written at the site so a future reader does not "improve" it back into a wizard.
+
 ## A machine-coordination fact worth knowing
 
 `npm run verify`'s lock is keyed **per repository**, so a gate running in a worktree and a gate
@@ -85,6 +104,20 @@ running in the main checkout do **not** exclude each other. Two concurrent gates
 machine drove load to 64 and produced two `VERIFY INCONCLUSIVE` verdicts — which exit **0** while
 explicitly not being a pass. Check `pgrep -fl verify.js` before gating, and read the verdict line
 rather than the exit code.
+
+## The defect that mattered most, found late
+
+`shoresh:auth-rejected` had a listener and **no sender anywhere** — the sender lived in the
+WebSocket `syncClient.js` deleted in the Stage 6c cutover, while `preload.js`, the
+`reasonForAuthRejectedCode` mapping, `sessionEndedReason` and the LoginScreen notice all survived.
+So every authoritative Host refusal — revoked device, unknown device, expired session — has been
+invisible to directors since that cutover, presenting as sync that silently never works. Reconnected,
+and guarded by `electron/ipcChannelParity.js`, which immediately found three more dead listeners
+(T213).
+
+The class is worth naming: the cutover severed **directions** of a flow rather than whole flows, so a
+half-live channel family reads as healthy from either end, and a listener with no sender is invisible
+to lint, to the dependency graph, and to every test that mocks the channel.
 
 ## Suggested next step
 
