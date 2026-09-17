@@ -7,23 +7,64 @@
 // green while recording nothing" class this project has already been bitten
 // by (see memory: plant-the-defect-the-guard-cannot-see).
 //
-// An `optionalDependencies` entry that isn't installed is NOT an error — it is
-// legitimately absent on some platforms (e.g. better-sqlite3-multiple-ciphers'
-// prebuild alternatives) — so it is silently skipped.
+// DECISION (round 2, Red Hat finding — not the original spec's literal
+// wording): the SET of production packages is derived from `package-lock.json`
+// (lockfileVersion 3's `packages` map, keyed by installed path, each entry
+// carrying `dev`/`optional`/`os`/`cpu` flags), not from walking whatever
+// happens to be installed under `node_modules`. The lockfile is committed and
+// therefore byte-identical on every machine; `node_modules` is not — an
+// `optionalDependencies` entry like `better-sqlite3-multiple-ciphers` (no
+// `os`/`cpu` restriction — its presence depends on whether its prebuild
+// succeeded on THIS run) used to be silently skipped when absent, which meant
+// a flaked install on one machine could red `npm run licenses:check` for a
+// developer whose diff was unrelated, and "fixing" it by regenerating would
+// silently DROP a dependency that genuinely ships elsewhere. A lockfile-
+// derived set is stale only when dependencies actually changed, which serves
+// the "fails only on real drift" goal far better than matching `node_modules`
+// literally. License TEXT still has to be read from `node_modules` (the only
+// place it exists) — the lockfile only decides which packages belong in the
+// manifest and enforces that they are actually present on disk.
+//
+// A package in the lockfile's production set that is MISSING from
+// `node_modules` is a HARD FAILURE, not a skip — see buildLicenseManifest.
+// The one deliberate exception is a package whose lockfile entry declares
+// `os`/`cpu` values that exclude the current platform: that absence is
+// expected (npm never installs it here) and is skipped without error, exactly
+// like it would be omitted from `node_modules` on this platform by design.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const LICENSE_FILE_RE = /^(license|licence|copying)(\.[^.]+)?$/i
 
-function resolvePackageDir(name, fromDir) {
-  let dir = fromDir
-  for (;;) {
-    const candidate = path.join(dir, 'node_modules', name)
-    if (fs.existsSync(path.join(candidate, 'package.json'))) return candidate
-    const parent = path.dirname(dir)
-    if (parent === dir) return null
-    dir = parent
+// Preference order when a package ships more than one matching file (e.g. a
+// dual-licensed package with LICENSE-MIT + LICENSE-APACHE). `fs.readdirSync`
+// order is filesystem-dependent, so an unordered `.find()` could pick a
+// different file on different machines and red the staleness gate with no
+// code change to explain it. Bare LICENSE first, then LICENCE, then COPYING,
+// then lexicographic among whatever's left.
+function licenseFileRank(filename) {
+  const lower = filename.toLowerCase()
+  if (lower === 'license') return 0
+  if (lower === 'licence') return 1
+  if (lower === 'copying') return 2
+  return 3
+}
+
+function findLicenseText(dir) {
+  let entries
+  try {
+    entries = fs.readdirSync(dir)
+  } catch {
+    return null
+  }
+  const candidates = entries.filter((f) => LICENSE_FILE_RE.test(f))
+  if (candidates.length === 0) return null
+  candidates.sort((a, b) => licenseFileRank(a) - licenseFileRank(b) || a.localeCompare(b))
+  try {
+    return fs.readFileSync(path.join(dir, candidates[0]), 'utf8')
+  } catch {
+    return null
   }
 }
 
@@ -40,64 +81,77 @@ function classifyLicense(pkgJson) {
   return null
 }
 
-function findLicenseText(dir) {
-  let entries
-  try {
-    entries = fs.readdirSync(dir)
-  } catch {
-    return null
-  }
-  const match = entries.find((f) => LICENSE_FILE_RE.test(f))
-  if (!match) return null
-  try {
-    return fs.readFileSync(path.join(dir, match), 'utf8')
-  } catch {
-    return null
-  }
+// npm's lockfile `os`/`cpu` arrays list allowed values, optionally negated
+// with a `!` prefix (e.g. `["!win32"]` means "everything except Windows").
+// Absent/empty means unrestricted.
+function platformExcluded(values, current) {
+  if (!Array.isArray(values) || values.length === 0) return false
+  const negated = values.filter((v) => v.startsWith('!'))
+  if (negated.length > 0) return negated.some((v) => v.slice(1) === current)
+  return !values.includes(current)
+}
+
+function isPlatformGatedOut(entry) {
+  return platformExcluded(entry.os, process.platform) || platformExcluded(entry.cpu, process.arch)
 }
 
 /**
- * Walks the PRODUCTION dependency closure starting from rootDir's package.json
- * (`dependencies` + `optionalDependencies`, never `devDependencies`, at any
- * depth) and returns a deterministic, name-then-version-sorted array of
+ * Derives the production dependency SET from `rootDir`'s committed
+ * `package-lock.json` (every `packages` entry not flagged `dev`, regardless
+ * of nesting depth — the lockfile is already the fully-resolved flat graph,
+ * so no separate recursive walk is needed), reads each package's license
+ * metadata and license text from the corresponding `node_modules` directory,
+ * and returns a deterministic, name-then-version-sorted array of
  * { name, version, license, homepage, licenseText }.
  *
- * Throws on an unresolvable required dependency or an unclassifiable license.
+ * Throws on:
+ *   - a production package present in the lockfile but missing from
+ *     node_modules (unless its lockfile entry's os/cpu excludes this
+ *     platform, in which case it is deliberately skipped)
+ *   - a package whose license field cannot be classified
+ *
  * Never returns partial results on failure — the caller only sees the array
- * once the whole walk has succeeded.
+ * once the whole set has been resolved.
  */
 export function buildLicenseManifest(rootDir) {
-  const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'))
+  const lock = JSON.parse(fs.readFileSync(path.join(rootDir, 'package-lock.json'), 'utf8'))
+  const lockPackages = lock.packages || {}
   const packages = new Map()
 
-  function walk(name, fromDir, required) {
-    const dir = resolvePackageDir(name, fromDir)
-    if (!dir) {
-      if (required) throw new Error(`generate-licenses: cannot resolve required dependency "${name}"`)
-      return // optional and not installed on this platform — not an error
+  for (const [key, entry] of Object.entries(lockPackages)) {
+    if (key === '') continue // the root project entry itself
+    if (entry.dev) continue
+
+    if (isPlatformGatedOut(entry)) continue // expected absence — not an error
+
+    const dir = path.join(rootDir, key)
+    let pkgJson
+    try {
+      pkgJson = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+    } catch {
+      throw new Error(
+        `generate-licenses: production dependency "${key}" is in package-lock.json but missing from ` +
+          `node_modules — the install tree is incomplete. Run \`npm ci\` and try again.`
+      )
     }
-    const pkgJson = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+
     const license = classifyLicense(pkgJson)
     if (license === null) {
       throw new Error(
         `generate-licenses: cannot classify license for "${pkgJson.name}@${pkgJson.version}"`
       )
     }
-    const key = `${pkgJson.name}@${pkgJson.version}`
-    if (packages.has(key)) return // already walked — also guards cycles
-    packages.set(key, {
+
+    const dedupeKey = `${pkgJson.name}@${pkgJson.version}`
+    if (packages.has(dedupeKey)) continue // same package resolved at another nested path
+    packages.set(dedupeKey, {
       name: pkgJson.name,
       version: pkgJson.version,
       license,
       homepage: typeof pkgJson.homepage === 'string' ? pkgJson.homepage : null,
       licenseText: findLicenseText(dir),
     })
-    for (const dep of Object.keys(pkgJson.dependencies || {})) walk(dep, dir, true)
-    for (const dep of Object.keys(pkgJson.optionalDependencies || {})) walk(dep, dir, false)
   }
-
-  for (const name of Object.keys(rootPkg.dependencies || {})) walk(name, rootDir, true)
-  for (const name of Object.keys(rootPkg.optionalDependencies || {})) walk(name, rootDir, false)
 
   return [...packages.values()].sort(
     (a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version)
@@ -118,6 +172,19 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;')
 }
 
+// Guards against a package.json "homepage" carrying a non-http(s) scheme
+// (e.g. `javascript:...`) rendering as a live, clickable link. This page is
+// built from third-party package metadata, so treat that metadata as
+// untrusted input for anything that becomes a URL.
+function isSafeHomepageUrl(value) {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 export function renderHtml(packages) {
   const rows = packages
     .map((p) => {
@@ -125,7 +192,11 @@ export function renderHtml(packages) {
         p.licenseText === null
           ? '<p><em>Full text not distributed with the package; see SPDX identifier above.</em></p>'
           : `<pre>${escapeHtml(p.licenseText)}</pre>`
-      const homepage = p.homepage ? ` &middot; <a href="${escapeHtml(p.homepage)}">${escapeHtml(p.homepage)}</a>` : ''
+      const homepage = p.homepage
+        ? isSafeHomepageUrl(p.homepage)
+          ? ` &middot; <a href="${escapeHtml(p.homepage)}">${escapeHtml(p.homepage)}</a>`
+          : ` &middot; ${escapeHtml(p.homepage)}`
+        : ''
       return (
         `<section>\n` +
         `<h2>${escapeHtml(p.name)} <small>${escapeHtml(p.version)}</small></h2>\n` +

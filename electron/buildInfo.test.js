@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { parseBuildInfo, formatBuildLabel, readBuildInfo, readAppVersion } from './buildInfo.js'
+import { parseBuildInfo, formatBuildLabel, readBuildInfo, readAppVersion, buildAboutPanelOptions } from './buildInfo.js'
 
 // T13 — a stale packaged build was indistinguishable from a current one, which
 // cost a diagnosis cycle on T12.
@@ -113,5 +113,42 @@ describe('T14: a development run must not claim to be a packaged build', () => {
 
   it('returns null rather than guessing when package.json cannot be read', () => {
     expect(readAppVersion('/tmp/definitely-not-a-project-dir-xyz')).toBe(null)
+  })
+})
+
+// The About panel (electron/main.js's installAppMenuAndAboutPanel) and the
+// sidebar footer (shoresh:get-current-project) previously called
+// readBuildInfo/readAppVersion with different argument shapes at each call
+// site — equivalent only by coincidence of both files living in electron/.
+// buildAboutPanelOptions is the single place that turns already-read
+// build info + version into the About panel's fields, so the panel is
+// provably reporting the same label the footer computes from the same inputs
+// via formatBuildLabel, not a separately-typed one that could drift.
+describe('buildAboutPanelOptions', () => {
+  it('reports the dev label for a dev (unpackaged) build', () => {
+    const options = buildAboutPanelOptions({ info: { isDev: true }, version: '0.1.0' })
+    expect(options.version).toBe(formatBuildLabel({ isDev: true }, '0.1.0'))
+    expect(options.version).toBe('v0.1.0 · dev')
+    expect(options.applicationName).toBe('Shoresh')
+    expect(options.applicationVersion).toBe('0.1.0')
+  })
+
+  it('reports the commit/date label for a packaged build', () => {
+    const info = { commit: 'deadbee1234567', builtAt: '2026-07-29T12:00:00.000Z', isDev: false }
+    const options = buildAboutPanelOptions({ info, version: '0.1.0' })
+    expect(options.version).toBe(formatBuildLabel(info, '0.1.0'))
+    expect(options.version).toBe('v0.1.0 · deadbee · 2026-07-29')
+  })
+
+  it('reports the dev label for a corrupt build-info stamp, same as parseBuildInfo would produce', () => {
+    const info = parseBuildInfo('{not json')
+    const options = buildAboutPanelOptions({ info, version: '0.1.0' })
+    expect(options.version).toBe(formatBuildLabel(info, '0.1.0'))
+    expect(options.version).toBe('v0.1.0 · dev')
+  })
+
+  it('falls back to 0.0.0 for applicationVersion when the version could not be read', () => {
+    const options = buildAboutPanelOptions({ info: { isDev: true }, version: null })
+    expect(options.applicationVersion).toBe('0.0.0')
   })
 })

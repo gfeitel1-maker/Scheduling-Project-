@@ -11,7 +11,7 @@ import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
 import { applyUserDataPath } from './db/userDataPath.js'
-import { readBuildInfo, formatBuildLabel, readAppVersion } from './buildInfo.js'
+import { readBuildInfo, formatBuildLabel, readAppVersion, buildAboutPanelOptions } from './buildInfo.js'
 import { installMenu } from './menu.js'
 import { describeStartupFailure, formatStartupFailureLog } from './startupFailure.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
@@ -2246,7 +2246,7 @@ if (isElectronEntryPoint()) {
       // is a packaged run rather than inferring it from a file that survives
       // packaging, and the version comes from package.json because
       // app.getVersion() returns Electron's own version when unpackaged.
-      build: formatBuildLabel(readBuildInfo(undefined, app.isPackaged), readAppVersion()),
+      build: formatBuildLabel(readBuildInfo(__dirname, app.isPackaged), readAppVersion(__dirname)),
       schemaVersion: getSchemaVersion(db),
       openedAt: new Date().toISOString(),
     }
@@ -2575,7 +2575,11 @@ if (isElectronEntryPoint()) {
       licensesWindow.focus()
       return
     }
-    licensesWindow = new BrowserWindow({
+    // The page renders text interpolated from third-party package metadata
+    // (homepage URLs, license text) — deny popups and block navigation away
+    // from the local file as defense-in-depth, on top of renderHtml's own
+    // escaping and homepage-scheme allowlist.
+    const win = new BrowserWindow({
       width: 760,
       height: 720,
       title: 'Third-Party Licenses',
@@ -2584,8 +2588,21 @@ if (isElectronEntryPoint()) {
         contextIsolation: true,
       },
     })
-    licensesWindow.setMenuBarVisibility(false)
-    licensesWindow.loadFile(path.join(__dirname, 'third-party-licenses.html'))
+    win.setMenuBarVisibility(false)
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    win.webContents.on('will-navigate', (event) => event.preventDefault())
+
+    const licensesPath = path.join(__dirname, 'third-party-licenses.html')
+    if (!fs.existsSync(licensesPath)) {
+      win.destroy()
+      dialog.showErrorBox(
+        'Licenses unavailable',
+        'third-party-licenses.html was not found. Run `npm run licenses` to generate it.'
+      )
+      return
+    }
+    licensesWindow = win
+    licensesWindow.loadFile(licensesPath)
     licensesWindow.on('closed', () => {
       licensesWindow = null
     })
@@ -2603,12 +2620,12 @@ if (isElectronEntryPoint()) {
   // fallback is needed. On Linux, values must be set explicitly to show at all,
   // which is why every field is passed rather than left to a default.
   function installAppMenuAndAboutPanel() {
-    app.setAboutPanelOptions({
-      applicationName: 'Shoresh',
-      applicationVersion: readAppVersion(__dirname) ?? '0.0.0',
-      version: formatBuildLabel(readBuildInfo(__dirname, app.isPackaged), readAppVersion(__dirname)),
-      copyright: 'Copyright 2026 Gregory Feitel and contributors',
-    })
+    app.setAboutPanelOptions(
+      buildAboutPanelOptions({
+        info: readBuildInfo(__dirname, app.isPackaged),
+        version: readAppVersion(__dirname),
+      })
+    )
     installMenu({
       Menu,
       isMac: process.platform === 'darwin',

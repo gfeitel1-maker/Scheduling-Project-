@@ -1,13 +1,16 @@
 // The application menu. See docs/superpowers/specs/2026-09-15-licensing-and-app-menu-design.md (C4).
 //
 // Shoresh currently sets NO application menu and inherits Electron's default —
-// which is why `buildMenuTemplate` re-declares every standard role
-// (undo/redo/cut/copy/paste/selectAll/minimize/close/quit) rather than only the
-// new About/Licenses items. `Menu.setApplicationMenu()` REPLACES the default
-// wholesale; a template missing a role silently destroys that shortcut, and it
-// ships looking correct because the new item is what gets tested and paste is
-// not. electron/menu.test.js pins every one of those roles so a future trim
-// fails loudly.
+// which is why `buildMenuTemplate` re-declares every standard role Electron's
+// own default menu carries (undo/redo/cut/copy/paste/pasteAndMatchStyle/
+// delete/selectAll, the mac-only Speech submenu, minimize/close/zoom/front,
+// quit) rather than only the new About/Licenses items. `Menu.setApplicationMenu()`
+// REPLACES the default wholesale; a template missing a role silently destroys
+// that shortcut, and it ships looking correct because the new item is what
+// gets tested and paste is not. electron/menu.test.js pins every one of those
+// roles so a future trim fails loudly. This is not a claim to cover every role
+// Electron has ever shipped — only the ones in its actual default menu as of
+// the Electron version this app pins.
 //
 // `buildMenuTemplate` takes no Electron import and is pure — it returns plain
 // data. `installMenu` is the only place that touches the Electron `Menu` API,
@@ -34,7 +37,21 @@ export function buildMenuTemplate({ isMac, onShowLicenses, onOpenGitHub, onRepor
       { label: 'Cut', role: 'cut' },
       { label: 'Copy', role: 'copy' },
       { label: 'Paste', role: 'paste' },
+      { label: 'Paste and Match Style', role: 'pasteAndMatchStyle' },
+      { label: 'Delete', role: 'delete' },
       { label: 'Select All', role: 'selectAll' },
+      ...(isMac
+        ? [
+            { type: 'separator' },
+            {
+              label: 'Speech',
+              submenu: [
+                { label: 'Start Speaking', role: 'startSpeaking' },
+                { label: 'Stop Speaking', role: 'stopSpeaking' },
+              ],
+            },
+          ]
+        : []),
     ],
   }
 
@@ -59,6 +76,11 @@ export function buildMenuTemplate({ isMac, onShowLicenses, onOpenGitHub, onRepor
       { label: 'Zoom', role: 'zoom' },
       { type: 'separator' },
       { label: 'Close', role: 'close' },
+      // "Bring All to Front" matters here specifically because this app
+      // legitimately opens a second window (the Licenses window) — without
+      // this role a Licenses window buried behind the main window has no
+      // menu path to get raised.
+      ...(isMac ? [{ type: 'separator' }, { label: 'Bring All to Front', role: 'front' }] : []),
     ],
   }
 

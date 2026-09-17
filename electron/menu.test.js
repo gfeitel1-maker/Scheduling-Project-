@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import fs from 'node:fs'
 import { buildMenuTemplate, installMenu } from './menu.js'
 
 // The hazard this file exists to guard: Shoresh sets no application menu today
@@ -32,11 +33,18 @@ const STANDARD_ROLES = [
   'cut',
   'copy',
   'paste',
+  'pasteAndMatchStyle',
+  'delete',
   'selectAll',
   'minimize',
   'close',
   'quit',
 ]
+
+// mac-only roles: Electron's real default menu includes a Speech submenu
+// under Edit and "Bring All to Front" under Window on darwin, neither of
+// which exists on other platforms' default menus.
+const MAC_ONLY_ROLES = ['startSpeaking', 'stopSpeaking', 'front']
 
 describe('buildMenuTemplate', () => {
   for (const isMac of [true, false]) {
@@ -48,6 +56,16 @@ describe('buildMenuTemplate', () => {
           expect(roles, `missing role "${role}"`).toContain(role)
         }
       })
+
+      if (isMac) {
+        it('includes the mac-only Speech submenu and "Bring All to Front"', () => {
+          const template = buildMenuTemplate({ isMac, onShowLicenses: () => {} })
+          const roles = collectRoles(template)
+          for (const role of MAC_ONLY_ROLES) {
+            expect(roles, `missing mac-only role "${role}"`).toContain(role)
+          }
+        })
+      }
 
       it('includes About Shoresh with role "about"', () => {
         const template = buildMenuTemplate({ isMac, onShowLicenses: () => {} })
@@ -98,12 +116,14 @@ describe('buildMenuTemplate', () => {
     }
   })
 
-  it('does not import electron — loads with zero Electron runtime', () => {
-    // If this module imported 'electron' at the top level, importing it above
-    // (outside any vi.mock('electron', ...)) would already have thrown or
-    // resolved to Electron's path-string export under plain Node. Getting
-    // this far with a real function is the proof.
-    expect(typeof buildMenuTemplate).toBe('function')
+  it('does not import electron at the top level — loads with zero Electron runtime', () => {
+    // A real (not mocked) assertion on the source itself: `import ... from
+    // 'electron'`/`require('electron')` anywhere before installMenu's own
+    // Electron-touching code would defeat the whole point of this module
+    // being loadable under Vitest without a live Electron runtime.
+    const source = fs.readFileSync(new URL('./menu.js', import.meta.url), 'utf8')
+    expect(source).not.toMatch(/(?:^|\n)\s*import\s[^\n]*['"]electron['"]/)
+    expect(source).not.toMatch(/require\(\s*['"]electron['"]\s*\)/)
   })
 })
 
