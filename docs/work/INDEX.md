@@ -52,8 +52,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finding dismissals are coordinate-only, so a materially-changed finding at the same coordinates is masked](../../docs/work/tickets/T185-payload-addressed-finding-dismissal.md) | in-progress | [2026-09-16-payload-addressed-finding-dismissal-design](../../docs/work/specs/2026-09-16-payload-addressed-finding-dismissal-design.md) |
-| [Two simultaneous camp-bootstrap failures collapse into one notice, so the director is told about only one of them](../../docs/work/tickets/T200-two-bootstrap-failures-show-one-notice.md) | open | — |
-| [A transient camp-bootstrap failure is never retried for the rest of the session, while the notice copy tells the director to try again](../../docs/work/tickets/T201-transient-bootstrap-failure-is-never-retried.md) | open | — |
+| [A transient camp-bootstrap failure is never retried for the rest of the session, while the notice copy tells the director to try again](../../docs/work/tickets/T201-transient-bootstrap-failure-is-never-retried.md) | open | [2026-09-17-fix-surface-both-bootstrap-failures-in-one-notice-closes-t20](../../docs/work/runs/2026-09-17-fix-surface-both-bootstrap-failures-in-one-notice-closes-t20.md) |
 
 ### unclassified
 
@@ -191,6 +190,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-09-17 | [fix: surface both bootstrap failures in one notice (closes T200)](../../docs/work/runs/2026-09-17-fix-surface-both-bootstrap-failures-in-one-notice-closes-t20.md) | ui-ux-design | pass | pass |
 | 2026-09-17 | [fix: surface ensureCohort write failures on both sides (closes T190)](../../docs/work/runs/2026-09-17-fix-surface-ensurecohort-write-failures-on-both-sides-closes.md) | ui-ux-design | pass | pass |
 | 2026-09-16 | [closes T178 — INCONCLUSIVE verdict two filters (load-sensitive + slow only)](../../docs/work/runs/2026-09-16-closes-t178-inconclusive-verdict-two-filters.md) | test-infrastructure | pass | PASS |
 | 2026-09-16 | [T186 + T187 — gate descriptive docs against deleted paths, and engine fixtures against the real schema](../../docs/work/runs/2026-09-16-closes-t186-t187-doc-and-fixture-guards.md) | documentation-governance | pass | PASS |
