@@ -22,12 +22,29 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { UNISOLATED_INCLUDE } from './vite.config.js'
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
 
 // Markers for state that cannot be shared safely across files in one worker.
+//
+// HONEST LIMITATION, stated because the config comment next door rejects exactly this
+// shape of rule: this list is itself a DENYLIST, and denylists fail open. It greps test
+// files for known hazards; it cannot see module-level mutable state in a NON-test module
+// that several ingest tests import — a memoised Map in a parser would be invisible to it.
+//
+// It is acceptable here only because it is the SECONDARY control. The primary one is the
+// whole-directory allowlist in vite.config.js, which is reviewed by a human when it
+// changes and is deliberately tiny. This list catches the common accident (someone adds
+// a database-backed test to src/ingest) and is not claimed to prove purity.
+//
+// Red Hat audited src/ingest's non-test source directly on 2026-09-17 — module-scope
+// `let`/`var`, exported mutable singletons, vi.mock/spyOn/useFakeTimers, process.env and
+// process.chdir writes, top-level side effects — and found none. That audit, not this
+// grep, is what "src/ingest is pure" currently rests on. Re-run it, do not trust this
+// list, before adding a directory here.
 const IMPURE_MARKERS = [
   'openLocalDb', 'openTemplatedDb', 'better-sqlite3', 'node:sqlite',
   'libp2p', 'WebSocket', 'child_process', 'jsdom', '@testing-library',
@@ -65,31 +82,85 @@ describe('vite.config.js project split', () => {
     expect(UNISOLATED_INCLUDE.length).toBeGreaterThan(0)
   })
 
-  it('every include is a whole-directory glob — no per-file entries', () => {
-    // A per-file entry is how the dropped-file bug happened: a carve-out inside a
+  it('every include is a plain whole-directory glob', () => {
+    // Two separate reasons, both learned the hard way.
+    //
+    // A PER-FILE ENTRY is how the dropped-file bug happened: a carve-out inside a
     // directory the isolated project subtracts wholesale.
+    //
+    // BRACE EXPANSION AND NEGATION are barred because `unisolatedDirs()` below strips
+    // everything from the first `/**` and prefix-matches the remainder. For
+    // `src/ingest/{a,b}/**/*.test.js` that yields the literal string `src/ingest/{a,b}`,
+    // which matches no real path — so this guard would quietly conclude the fast project
+    // is empty while vitest's real glob engine happily routes files into it. The guard
+    // and the engine would disagree, silently, in the guard's favour. Rather than
+    // reimplement vitest's matcher, the supported syntax is restricted to what a prefix
+    // match provably handles. (Red Hat, 2026-09-17.)
     for (const g of UNISOLATED_INCLUDE) {
       expect(g, `${g} must be a directory glob like 'dir/**/*.test.{js,jsx}'`).toMatch(/\/\*\*\//)
+      expect(g, `${g} must not use negation — the prefix matcher cannot honour it`).not.toMatch(/^!/)
+      const dir = g.replace(/\/\*\*.*$/, '')
+      expect(dir, `${g}: the part before /** must be a literal path, no glob syntax`).toMatch(/^[\w./-]+$/)
     }
   })
 
-  it('partitions every test file into exactly one project', () => {
-    const files = allTestFiles()
-    expect(files.length).toBeGreaterThan(100) // the walk actually found the suite
+  // Asks VITEST what each project actually collects, rather than re-deriving it from
+  // UNISOLATED_INCLUDE. That distinction is the whole point of this test, and the first
+  // version of it got this wrong: it reimplemented the include-matching locally and then
+  // asserted properties of its own reimplementation. Two of its assertions were literal
+  // tautologies — `files.filter(f => isUnisolated(f) && !isUnisolated(f))` is `X && !X`,
+  // always empty, unfailable — and none of them could have caught the actual incident
+  // this file exists for, because that incident lived in the DISAGREEMENT between the
+  // two projects' include/exclude arrays, which a local mirror of one array cannot see.
+  //
+  // Spawning vitest costs a few seconds. That is the price of testing the real thing;
+  // the repo already spawns ESLint and the agent-profile generator in tests for the
+  // same reason.
+  function collect(project) {
+    const out = execFileSync(
+      'npx',
+      ['vitest', 'list', '--filesOnly', ...(project ? ['--project', project] : [])],
+      { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    )
+    return out
+      .split('\n')
+      .map((l) => l.replace(/^\[[a-z]+\]\s*/, '').trim())
+      .filter(Boolean)
+      .map((l) => path.relative(ROOT, path.resolve(ROOT, l)))
+      .sort()
+  }
 
-    const both = files.filter((f) => isUnisolated(f) && !isUnisolated(f))
-    expect(both).toEqual([]) // by construction, but pins the intent
+  it('the two projects partition the suite: nothing in both, nothing in neither', () => {
+    // GROUND TRUTH COMES FROM DISK, NOT FROM VITEST. `vitest list` with no --project
+    // returns the UNION OF THE PROJECTS, so a file both projects drop also disappears
+    // from that listing — comparing it against the two projects compares them with
+    // themselves and can never fail. The first rewrite of this test did exactly that,
+    // passed, and was only exposed by planting the bug it claimed to catch. The disk
+    // walk is the only source here that does not depend on the config under test.
+    const all = allTestFiles().sort()
+    const pure = collect('pure')
+    const isolated = collect('isolated')
 
-    // The real property: membership is total. Every file is either in the fast
-    // project or, by subtraction, in the isolated one. There is no third bucket.
-    for (const f of files) {
-      expect(typeof isUnisolated(f)).toBe('boolean')
-    }
-    const fast = files.filter(isUnisolated)
-    const isolated = files.filter((f) => !isUnisolated(f))
-    expect(fast.length + isolated.length).toBe(files.length)
-    expect(fast.length).toBeGreaterThan(0)
-  })
+    expect(all.length).toBeGreaterThan(100)
+    expect(pure.length).toBeGreaterThan(0)
+
+    // In BOTH — a file would run twice.
+    const inBoth = pure.filter((f) => isolated.includes(f))
+    expect(inBoth, 'these files are collected by both projects and would run twice').toEqual([])
+
+    // In NEITHER — a file silently stops being tested. This is the real incident:
+    // src/engine/fixtureSchemaParity.test.js was excluded from the fast project and,
+    // because the isolated project subtracts the fast project's includes wholesale, from
+    // that one too. Collection went 443 -> 442 and no test failed, because a test that
+    // does not run cannot fail.
+    const union = new Set([...pure, ...isolated])
+    const inNeither = all.filter((f) => !union.has(f))
+    expect(inNeither, 'these files are collected by NEITHER project and never run').toEqual([])
+
+    // Not a complement identity: `all` is an independent disk walk, so this genuinely
+    // constrains the two collections against it.
+    expect(pure.length + isolated.length).toBe(all.length)
+  }, 120000)
 
   it('every file in the unisolated project is pure', () => {
     const offenders = []
