@@ -183,6 +183,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Shared anchor-exclusion helper for the ANCHOR_DUPLICATE finding (T182)](../../docs/adr/2026-09-16-anchor-duplicate-finding.md) | accepted | not_started | [T182-stale-anchor-duplicate-finding](../../docs/work/tickets/T182-stale-anchor-duplicate-finding.md) |
 | [Anchor scope is resolved through one shared module, in two explicit projections, and never re-read from raw columns](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) | accepted | shipped | [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) |
 | [Headless key access for the MCP server and CLI under at-rest encryption](../../docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md) | accepted | in_progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
+| [An index on a table any migration rebuilds is declared in two places, and index parity between a fresh database's first and second open is a guarded invariant](../../docs/adr/2026-09-16-index-survival-across-table-rebuilds.md) | accepted | shipped | [T189-index-lost-across-schedule-snapshots-rebuild](../../docs/work/tickets/T189-index-lost-across-schedule-snapshots-rebuild.md) |
 
 ## Runs
 

@@ -2163,6 +2163,7 @@ export function initSchema(db) {
           FROM schedule_snapshots;
         DROP TABLE schedule_snapshots;
         ALTER TABLE schedule_snapshots_v53 RENAME TO schedule_snapshots;
+        ${SCHEDULE_SNAPSHOTS_TEMPLATE_ID_INDEX_DDL}
       `)
       db.pragma('foreign_keys = ON')
     })()
@@ -2362,6 +2363,7 @@ export function initSchema(db) {
           FROM schedule_snapshots;
         DROP TABLE schedule_snapshots;
         ALTER TABLE schedule_snapshots_v59 RENAME TO schedule_snapshots;
+        ${SCHEDULE_SNAPSHOTS_TEMPLATE_ID_INDEX_DDL}
       `)
       db.pragma('foreign_keys = ON')
     })()
@@ -2718,6 +2720,19 @@ export function backfillLocations(db) {
     }
   }
 }
+
+// Byte-identical duplicate of the idx_schedule_snapshots_template_id line in
+// schema.sql (docs/adr/2026-09-16-index-survival-across-table-rebuilds.md).
+//
+// schema.sql declares this index and is re-executed on every open, which is
+// normally enough. It is NOT enough for a table that a later migration rebuilds
+// via DROP TABLE + RENAME: the DROP takes the index with it, and schema.sql has
+// already run for that open, so the index stays missing until the next one.
+// Migrations v53 and v59 both rebuild schedule_snapshots, so both re-create the
+// index immediately after their RENAME. IF NOT EXISTS keeps that a no-op when
+// the index survived.
+export const SCHEDULE_SNAPSHOTS_TEMPLATE_ID_INDEX_DDL =
+  'CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_template_id ON schedule_snapshots(template_id);'
 
 // Byte-identical duplicate of the locations block in schema.sql
 // (docs/adr/2026-08-15-camp-locations-entity.md D1). Kept as a constant so the
