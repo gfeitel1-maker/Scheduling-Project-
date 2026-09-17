@@ -151,7 +151,22 @@ describe('AppShell: a failed camp seed is surfaced, not swallowed', () => {
   // T201 — the StrictMode guard is the fix's non-goal: retry must not
   // reopen the double-seed hole. Forcing the bootstrap effect to run twice
   // (StrictMode's dev-mode behaviour) must still call seedDays exactly once.
-  it('T201: StrictMode double-invocation still calls seedDays exactly once', async () => {
+  // days_of_operation has NO UNIQUE constraint, so a second concurrent
+  // seedDays is a real 10-day duplication, not a constraint violation.
+  //
+  // What this test does and does not pin (T202, measured, not assumed):
+  // the invariant is now defended TWICE over — by `seededForCamp` (the
+  // original StrictMode ref) and by `bootstrapInFlight` (T201's retry
+  // serialiser, which also covers the StrictMode window because both
+  // invocations land inside one in-flight run). Removing EITHER guard alone
+  // leaves this test green; it only goes red when BOTH are gone. That was
+  // verified by planting each removal in turn, so do not read a passing run
+  // here as evidence that `seededForCamp` specifically is still doing work.
+  // Isolating them is not possible from this seam: with deps [campId]
+  // unchanged, React re-runs the effect only under StrictMode, which is the
+  // same window the in-flight ref covers. Stated rather than silently
+  // tolerated, so the next reader does not have to rediscover it.
+  it('T201: StrictMode double-invocation still calls seedDays exactly once (defended by both guards — see comment)', async () => {
     const React = await import('react')
     render(
       <React.StrictMode>

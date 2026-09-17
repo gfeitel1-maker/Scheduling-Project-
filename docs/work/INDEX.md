@@ -15,6 +15,12 @@ Regenerate with `npm run index:work`.
 
 ## Open work
 
+### architecture
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [An unbounded localClient.write hang leaves the camp bootstrap unrecoverable without an app restart](../../docs/work/tickets/T203-an-unbounded-write-hang-is-unrecoverable-in-app.md) | open | — |
+
 ### database-sync
 
 | Ticket | Status | Referenced by |
@@ -52,6 +58,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finding dismissals are coordinate-only, so a materially-changed finding at the same coordinates is masked](../../docs/work/tickets/T185-payload-addressed-finding-dismissal.md) | in-progress | [2026-09-16-payload-addressed-finding-dismissal-design](../../docs/work/specs/2026-09-16-payload-addressed-finding-dismissal-design.md) |
+| [The op-rejected notice banner is missing two things DESIGN_STANDARD §5c requires of a recoverable error](../../docs/work/tickets/T202-notice-banner-misses-two-design-standard-requirements.md) | open | — |
 
 ### unclassified
 
