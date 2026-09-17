@@ -626,14 +626,17 @@ Not role-differentiated at the top level, and **stage-aware** (ADR `docs/adr/202
 (verbatim Apache-2.0), `NOTICE`, and `package.json`'s `"license"` field are now in the repo.
 `electron/menu.js` exports a pure `buildMenuTemplate({ isMac, onShowLicenses })` plus a thin
 `installMenu()` Electron wrapper, installed once at startup from `electron/main.js` — Shoresh
-previously set no application menu at all and silently inherited Electron's default, which meant
-Cmd+C/V/Q worked only by accident. **About Shoresh** uses `app.setAboutPanelOptions` + `role: 'about'`,
+previously set no application menu at all and inherited Electron's default, so installing one had to
+re-declare every standard editing/window role or it would have silently destroyed Cmd+C/V/Q. **About Shoresh** uses `app.setAboutPanelOptions` + `role: 'about'`,
 fed from the same `electron/buildInfo.js` the sidebar footer already used. **Licenses** opens a
 standalone `BrowserWindow` loading the generated `electron/third-party-licenses.html`
 (`electron/third-party-licenses.json` is the source data), so it works at every device phase, not
 just `session`. Both files are produced by `scripts/generate-licenses.js` from the production
 dependency closure (never `devDependencies`) and are committed; `npm run licenses:check` (wired into
-`VERIFY_STEPS`) fails the gate if they drift from `node_modules`.
+`VERIFY_STEPS`) fails the gate if they drift. The package SET comes from the committed
+`package-lock.json` rather than a `node_modules` walk, so the check is stale only when dependencies
+actually changed — license TEXT is still read from `node_modules`, and a production package missing
+from disk is a hard failure telling you to run `npm ci`, never a silent omission.
 
 **The document carries provenance and authorship; the op-log becomes a local history ledger (2026-09-08/09).** Completing the
 Stage 6 cutover. `applyWrite` used to carry field VALUES only, which broke two things a director relies on.
