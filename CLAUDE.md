@@ -27,7 +27,7 @@ npm run lint            # ESLint
 npm run test             # Run all Vitest tests
 npm test -- <path/to/file.test.js>    # Run a single test file
 npm run test:integration # Run the sync/ingest integration scenarios (test/integration/run.automerge.js)
-npm run verify           # lint + agents:check + test + test:integration + security + check:governance — the full gate (scripts/verify.js; prints a final ✅/❌ verdict line so the result survives `| tail` and can't false-green)
+npm run verify           # the full gate: agents:check + check:governance + security + test:integration + lint + test (scripts/verify.js). Ordered CHEAPEST-FIRST and short-circuits, so a 1.2s governance failure is reported in seconds instead of behind ~17 minutes of tests — same six gates, sooner. Prints a final ✅/❌ verdict line so the result survives `| tail` and can't false-green
 ```
 
 **`electron:dev:fresh` uses `pkill -x Electron`, which kills every Electron process owned by the

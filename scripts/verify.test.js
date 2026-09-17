@@ -120,12 +120,42 @@ describe('verify gate wrapper', () => {
 
   it('gates the canonical steps in the documented order', () => {
     expect(VERIFY_STEPS).toEqual([
-      'lint',
       'agents:check',
+      'check:governance',
+      'security',
+      'test:integration',
+      'lint',
+      'test',
+    ])
+  })
+
+  // The property the order exists for (T188). runVerify short-circuits, so a cheap deterministic
+  // check must never sit behind an expensive one — that is what made a 1.2s governance failure
+  // cost a full ~19-minute gate run before it was reported.
+  it('orders steps cheapest-first, so a cheap failure is never reported late', () => {
+    // measured seconds, 2026-09-16, quiet machine (see scripts/verify.js)
+    const COST = {
+      'agents:check': 0.2,
+      'check:governance': 1.2,
+      security: 5.9,
+      'test:integration': 20.6,
+      lint: 131.3,
+      test: 1015.0,
+    }
+    const costs = VERIFY_STEPS.map((s) => COST[s])
+    expect(costs.every((c) => typeof c === 'number')).toBe(true)
+    expect([...costs].sort((a, b) => a - b)).toEqual(costs)
+  })
+
+  // The reorder must not silently drop or add a gate: same set, different sequence.
+  it('still runs exactly the six gates, none removed by the reorder', () => {
+    expect([...VERIFY_STEPS].sort()).toEqual([
+      'agents:check',
+      'check:governance',
+      'lint',
+      'security',
       'test',
       'test:integration',
-      'security',
-      'check:governance',
     ])
   })
 })

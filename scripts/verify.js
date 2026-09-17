@@ -12,13 +12,26 @@
 import { spawnSync } from 'node:child_process'
 import os from 'node:os'
 
+// ORDER IS LOAD-BEARING: cheapest first, because runVerify short-circuits on the first failure.
+//
+// The original order ran the two cheapest checks LAST, behind `test`. Measured 2026-09-16 (T188,
+// quiet machine, 4 cores): agents:check 0.2s · check:governance 1.2s · security 5.9s ·
+// test:integration 20.6s · lint 131.3s · test 1015.0s. So a `check:governance` failure — a doc
+// field that resolves in 1.2s — was only reported after ~1174s of gate had already run, and the
+// re-run after fixing it paid the full ~1174s again to re-prove tests a docs change cannot affect.
+// One governance typo cost ~39 minutes of gate time.
+//
+// Sorting by measured cost makes the gate report the same verdict for the same tree, just sooner:
+// no step is removed, added, or weakened, and every step still runs on a green tree. If a step's
+// cost changes materially, re-measure and re-sort — the ordering is the only thing this list
+// encodes, and it is not alphabetical, historical, or conceptual.
 export const VERIFY_STEPS = [
-  'lint',
   'agents:check',
-  'test',
-  'test:integration',
-  'security',
   'check:governance',
+  'security',
+  'test:integration',
+  'lint',
+  'test',
 ]
 
 // T164/T178: a test run on a badly oversubscribed machine has not discovered anything about the CODE
