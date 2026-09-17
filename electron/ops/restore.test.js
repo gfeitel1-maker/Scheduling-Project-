@@ -7,23 +7,29 @@
 //   2. re-emitting last-known field values rebuilds the record exactly
 //   3. children are reported, never restored implicitly
 //   4. getEntityHistory never returns pin material
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp, DELETE_FIELD } from './operations.js'
 import { PROJECTIONS } from './projections.js'
 import { RESTORABLE_ENTITIES, RESTORE_DECISIONS, restoreEntity } from './restore.js'
 import { listDeleted, getEntityHistory } from './trash.js'
 
+// Discards the cached template once, at the end (T188/F2b).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
+
 const files = []
 let db
 
 beforeEach(() => {
-  const file = path.join(os.tmpdir(), `shoresh-restore-${Date.now()}-${Math.random()}.sqlite`)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces (T188/F2b).
+  const __t = openTemplatedDb()
+  const file = __t.file
   files.push(file)
-  db = openLocalDb(file)
+  db = __t.db
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
   db.prepare('INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)')
     .run('user1', 'camp1', 'Ruth', 'hash', 'salt', 'admin')

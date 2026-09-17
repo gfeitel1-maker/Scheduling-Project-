@@ -4,19 +4,29 @@
 // "Deleting an elective_sets row cascades its elective_set_activities."
 // Mirrors electron/ops/deleteSpecialDay.test.js's shape for the cascade this
 // function provides.
-import { describe, it, expect, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, afterEach, beforeEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { deleteElectiveSet } from './deleteElectiveSet.js'
+
+// Discards the cached template once, at the end (T188/F2b).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 
 let tmpFile
 let db
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-delete-elective-set-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — the per-test migration-chain replay, ~304ms (T188/F2b).
+  // ONLY this setup call is templated. The second openLocalDb further down deliberately
+  // builds a DISTINCT second database (a replica / another device) and is left alone.
+  const __t = openTemplatedDb()
+  db = __t.db
+  tmpFile = __t.file
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
   db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Device One')
   db.prepare(

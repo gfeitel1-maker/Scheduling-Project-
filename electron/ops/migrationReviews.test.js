@@ -1,20 +1,26 @@
 // @vitest-environment node
 //
 // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md D3.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { listMigrationReviews, dismissMigrationReviews } from './migrationReviews.js'
+
+// Discards the cached template once, at the end (T188/F2b).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 
 const files = []
 let db
 
 beforeEach(() => {
-  const file = path.join(os.tmpdir(), `shoresh-migreview-${Date.now()}-${Math.random()}.sqlite`)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces (T188/F2b).
+  const __t = openTemplatedDb()
+  const file = __t.file
   files.push(file)
-  db = openLocalDb(file)
+  db = __t.db
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
 })
 

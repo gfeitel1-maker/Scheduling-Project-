@@ -1,10 +1,11 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp, runAtomic } from './operations.js'
 import { readRecord } from '../automerge/campDocument.js'
 import {
@@ -13,6 +14,11 @@ import {
   getDocIfLoaded,
   flushPendingWrites,
 } from '../sync/automerge/liveDoc.js'
+
+// Discards the cached template once, at the end (T188/F2b).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 
 // THE INVARIANT UNDER TEST
 //
@@ -58,8 +64,12 @@ let db
 beforeEach(() => {
   userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-txn-boundary-'))
   setUserDataDirGetter(() => userDataDir)
-  tmpFile = path.join(os.tmpdir(), `shoresh-txn-boundary-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — the per-test migration-chain replay, ~304ms (T188/F2b).
+  // ONLY this setup call is templated. The second openLocalDb further down deliberately
+  // builds a DISTINCT second database (a replica / another device) and is left alone.
+  const __t = openTemplatedDb()
+  db = __t.db
+  tmpFile = __t.file
   db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Device One')
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
 })
