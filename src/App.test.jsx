@@ -99,6 +99,20 @@ describe('AppShell: a failed camp seed is surfaced, not swallowed', () => {
     await act(async () => {})
     expect(screen.queryByRole('alert')).toBeNull()
   })
+
+  // T200 — the two bootstrap writers race by construction (Promise.allSettled
+  // over both), so a shared failure cause must not let one .catch clobber the
+  // other's notice. Both causes must be legible in the one composed notice.
+  it('T200: names BOTH failures when seedDays and ensureCohort both reject', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    ensureCohort.mockRejectedValue(new Error('write failed for field "name"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays/i)
+    expect(alert.textContent).toMatch(/default cohort/i)
+  })
 })
 
 describe('AppShell: offline op-rejected notice (item 7, owner decision)', () => {

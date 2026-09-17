@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { localClient } from './localClient'
 import Shell from './components/layout/Shell'
 import { CloseIcon } from './components/icons'
@@ -223,31 +223,45 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // days). Without this guard the duplication is only masked in production
   // builds, where StrictMode does not double-invoke.
   const seededForCamp = useRef(null)
+
+  // T200: both writers dispatched together and awaited with allSettled, so a
+  // cause that fails both (dead IPC channel, disk error, camp-id mismatch)
+  // can't have one .catch's setOpRejectedNotice clobber the other's — both
+  // failures are composed into one notice instead. A single rejection keeps
+  // today's exact wording (the join of one message is that message).
+  //
+  // The offline-queue notice (onOpRejected, above) is untouched by this:
+  // that source fires alone, asynchronously, one event at a time — it was
+  // never part of the race this collapses, so last-writer-wins is still
+  // sound for it (T200's "open design question").
+  const runBootstrap = useCallback(async (id) => {
+    const [daysResult, cohortResult] = await Promise.allSettled([
+      seedDays(id),
+      ensureCohort(id),
+    ])
+
+    const failures = []
+    if (daysResult.status === 'rejected') {
+      failures.push(
+        describeWriteFailure(daysResult.reason, "This camp's default weekdays could not be set up.")
+      )
+    }
+    if (cohortResult.status === 'rejected') {
+      failures.push(
+        describeWriteFailure(cohortResult.reason, "This camp's default cohort could not be set up.")
+      )
+    }
+
+    if (failures.length) {
+      setOpRejectedNotice(failures.join(' '))
+    }
+  }, [])
+
   useEffect(() => {
     if (!campId || seededForCamp.current === campId) return
     seededForCamp.current = campId
-    // seedDays throws on a rejected field write (or a camp mismatch). Without
-    // this catch the rejection is an unhandled promise the director never sees,
-    // leaving the camp under-seeded with no visible cause — the same class of
-    // silent failure the describeWriteFailure pattern exists to prevent. It
-    // reuses the notice surface already mounted below rather than adding a
-    // second error channel.
-    seedDays(campId).catch((err) => {
-      setOpRejectedNotice(
-        describeWriteFailure(err, "This camp's default weekdays could not be set up.")
-      )
-    })
-    // Same for ensureCohort: it throws on a rejected field write and on a camp
-    // mismatch, and as a floating promise both landed nowhere. A camp without a
-    // complete Main cohort is the parent scope the setup screens and the engine
-    // read against, so the director must be told rather than left to discover a
-    // broken setup with no stated cause.
-    ensureCohort(campId).catch((err) => {
-      setOpRejectedNotice(
-        describeWriteFailure(err, "This camp's default cohort could not be set up.")
-      )
-    })
-  }, [campId])
+    runBootstrap(campId)
+  }, [campId, runBootstrap])
 
   const weekProps = { weekId, weeks, onSelectWeek: setWeekId }
 
