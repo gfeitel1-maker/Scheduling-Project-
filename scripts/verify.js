@@ -11,6 +11,7 @@
 // See memory: feedback-gate-exit-code-not-tail.
 import { spawnSync } from 'node:child_process'
 import os from 'node:os'
+import { acquire, lockPath, repoKey } from './gateLock.js'
 
 // ORDER IS LOAD-BEARING: cheapest first, because runVerify short-circuits on the first failure.
 //
@@ -113,12 +114,42 @@ function defaultRun(step) {
 const invokedDirectly =
   process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('scripts/verify.js')
 if (invokedDirectly) {
+  // Serialise gates machine-wide. Three concurrent runs were observed on 2026-09-16 (load 267 on 4
+  // cores); each was several times slower than it would have been alone. SHORESH_VERIFY_NO_LOCK=1
+  // bypasses this — deliberately available, deliberately not the default.
+  let releaseLock = () => {}
+  if (process.env.SHORESH_VERIFY_NO_LOCK !== '1') {
+    const file = lockPath(repoKey())
+    releaseLock = acquire({
+      file,
+      onWait: (holder) => {
+        const who = holder
+          ? `pid ${holder.pid}, started ${holder.startedAt}${holder.cwd ? `, in ${holder.cwd}` : ''}`
+          : 'an unidentified process'
+        console.log(
+          `\n⏳ Another gate is already running (${who}).\n` +
+            `   Waiting for it — running both would make both slower. Ctrl-C to abort, or set\n` +
+            `   SHORESH_VERIFY_NO_LOCK=1 to run anyway.`
+        )
+      },
+    })
+    // Release on interrupt too; a killed gate must not wedge the next one. (A stale lock is also
+    // reclaimed by pid probe, so this is belt-and-braces rather than the only protection.)
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+      process.on(sig, () => {
+        releaseLock()
+        process.exit(130)
+      })
+    }
+  }
+
   const failed = runVerify() // { step, ms } | null
   // Measure load AFTER the run: the 1-minute average at this point reflects the load the suite just
   // ran under (a verify run takes minutes). Only consulted if something failed.
   const oversubscribed =
     !!failed && machineLoadVerdict(os.loadavg()[0], os.cpus().length) === 'oversubscribed'
   const v = verdict(failed, { oversubscribed })
+  releaseLock()
   // eslint-disable-next-line no-console
   console.log('\n' + '═'.repeat(60) + '\n' + v.line)
   process.exit(v.code)
