@@ -26,32 +26,40 @@
 // ANTI-VACUITY — read before touching any of it.
 // A static scanner's worst failure mode is not missing a bug; it is silently
 // matching nothing while still passing green, because then it LOOKS like a
-// guard. Four layers exist to make that loud:
+// guard. Five layers exist to make that loud:
 //   1. total fixture-count floors (catches total scanner breakage);
 //   2. a PER-PATTERN floor — every extraction pattern still finds a real
 //      fixture in the tree (catches PARTIAL breakage, which aggregate counts
 //      cannot see; T184's lesson);
 //   3. a hardcoded CANARY key set, human-verified against the files today;
-//   4. a PLANTED-DEFECT self-test: the real collector is run against synthetic
+//   4. an OPAQUE-SITE floor — the scanner's own "I found a fixture site and
+//      could not read it" list must stay empty. Without it, a new authoring
+//      idiom silently takes fixtures out of coverage and nothing anywhere
+//      changes colour. This is the layer the first draft was missing.
+//   5. a PLANTED-DEFECT self-test: the real collector is run against synthetic
 //      sources carrying defects of each shape and must report each one. Unlike
 //      the floors, this survives the tree changing — if every helper-built
 //      fixture were deleted tomorrow, layer 2 would have to be relaxed but
-//      layer 4 would still prove the capability is intact.
+//      layer 5 would still prove the capability is intact.
 // Do not weaken these to make a refactor pass. Fix the scanner instead.
 //
 // KNOWN RESIDUAL BLIND SPOTS (stated, not hidden):
-//   - computed keys (`{ [k]: v }`) cannot be resolved statically; they are
-//     counted, not checked. None exist in the tree today.
-//   - a fixture whose keys come from outside the scanned files (a JSON import,
-//     or a helper living in a non-engine module) is not seen. The scan root is
-//     src/engine/*.test.js only.
-//   - the declaration map is file-flat: two same-named `const`s in different
-//     scopes of one file collapse to the last one, so a fixture could in
-//     principle be attributed the wrong sibling's keys. That direction of error
-//     adds keys rather than hiding them, so it fails loud rather than silent.
 //   - classification is by NAME (`anchors:` / `preplacedSlots:` / a variable
 //     matching /anchor/i or /slots?$/). A fixture named nothing like an anchor
-//     or a slot is not classified as one and goes unchecked.
+//     or a slot is not classified as one and goes unchecked. This is the one
+//     genuinely SILENT hole left: the guard never learns such a site exists.
+//   - computed keys (`{ [k]: v }`) cannot be resolved statically. They are not
+//     checked — but they are counted, and the count is pinned at zero, so
+//     introducing one is a failing test rather than a quiet hole.
+//   - a fixture built by a helper in another module is unreadable (the scan
+//     root is src/engine/*.test.js). It is not silently skipped: the site is
+//     recorded as opaque, and layer 4 fails.
+//   - a fixture whose keys come from imported data is likewise recorded as
+//     opaque rather than skipped.
+//   - the declaration map is file-flat, so two same-named `const`s in
+//     different scopes are BOTH checked. That over-reports rather than
+//     under-reports: worst case the guard names a key a sibling carries, which
+//     a human can see and disambiguate. It does not hide anything.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -133,6 +141,10 @@ const CANARY_SLOT_KEYS = ['groupId', 'dayId', 'blockId', 'electiveSetId', 'event
 // is what proves the helper path works.
 const LIVE_PATTERNS = ['property', 'variable', 'call-arg', 'spread']
 
+// Fixture sites the scanner found but could not read. Empty today; see the
+// assertion that uses it for the rule about changing it.
+const OPAQUE_SITES_ALLOWED = []
+
 // ---------------------------------------------------------------------------
 // AST plumbing
 // ---------------------------------------------------------------------------
@@ -156,16 +168,27 @@ function walk(node, visit) {
 }
 
 // Every named binding in the file — `const X = <init>` and `function X() {}` —
-// flattened (see the blind spots note above).
+// flattened across scopes, name → ALL initializers seen under that name.
+//
+// It is a LIST, not a single entry, on purpose. A flat last-one-wins map is
+// worse than imprecise, it is silently wrong: two same-named fixtures in
+// different scopes collapse, and `anchors: [x]` then resolves to whichever
+// declaration came last in the file — which may be a clean sibling while the
+// one actually reaching the engine carries a phantom column. That fails
+// silently, with nothing even counted as unresolved. Keeping every candidate
+// and checking all of them turns that into a loud over-report instead: worst
+// case the guard complains about a key a sibling carries, which a human can
+// see and disambiguate. (Red Hat EXP3b.)
 function buildDeclarationMap(ast) {
   const map = new Map()
+  const add = (name, node) => {
+    const list = map.get(name)
+    if (list) list.push(node)
+    else map.set(name, [node])
+  }
   walk(ast, (n) => {
-    if (n.type === 'VariableDeclarator' && n.id?.type === 'Identifier' && n.init) {
-      map.set(n.id.name, n.init)
-    }
-    if (n.type === 'FunctionDeclaration' && n.id?.type === 'Identifier') {
-      map.set(n.id.name, n)
-    }
+    if (n.type === 'VariableDeclarator' && n.id?.type === 'Identifier' && n.init) add(n.id.name, n.init)
+    if (n.type === 'FunctionDeclaration' && n.id?.type === 'Identifier') add(n.id.name, n)
   })
   return map
 }
@@ -202,16 +225,17 @@ const SLOT_VAR_RE = /^(preplaced|.*[Ss]lots?)$/
 const SLOT_PROP_NAMES = new Set(['preplacedSlots'])
 
 // Resolves an expression to the concrete object literals it stands for.
-// Returns { objects: [{ node, helper }], unresolved }.
+// Returns { objects: [{ node, helper }], opaque } where `opaque` names each
+// sub-expression that could be holding a fixture but could not be read.
 // `helper: true` marks a literal reached THROUGH a function call rather than
 // read straight off the call site — T184's exact blind spot: a scanner that
 // only reads inline literals is blind to every fixture a helper builds.
 function resolveObjects(node, decls, seen = new Set(), depth = 0) {
-  const out = { objects: [], unresolved: 0 }
+  const out = { objects: [], opaque: [] }
   if (!node || depth > 10) return out
   const absorb = (inner, markHelper = false) => {
     for (const o of inner.objects) out.objects.push(markHelper ? { node: o.node, helper: true } : o)
-    out.unresolved += inner.unresolved
+    out.opaque.push(...inner.opaque)
   }
   switch (node.type) {
     case 'ObjectExpression':
@@ -225,14 +249,17 @@ function resolveObjects(node, decls, seen = new Set(), depth = 0) {
       return out
     case 'Identifier': {
       if (seen.has(node.name)) return out
-      const init = decls.get(node.name)
-      if (!init) {
-        out.unresolved += 1
+      const inits = decls.get(node.name)
+      if (!inits) {
+        // Declared nowhere in this file: an import, or a function parameter.
+        // Either way it could be carrying a fixture this guard cannot see.
+        out.opaque.push(`${node.name} (no declaration in file)`)
         return out
       }
       const next = new Set(seen)
       next.add(node.name)
-      return resolveObjects(init, decls, next, depth + 1)
+      for (const init of inits) absorb(resolveObjects(init, decls, next, depth + 1))
+      return out
     }
     case 'ConditionalExpression':
       absorb(resolveObjects(node.consequent, decls, seen, depth + 1))
@@ -245,18 +272,55 @@ function resolveObjects(node, decls, seen = new Set(), depth = 0) {
       // call site.
       let found = false
       const callee = node.callee
+      // `Object.assign({}, base, { ... })` — every argument is fixture surface,
+      // including the identifier ones a plain "inline literals only" scan
+      // would drop on the floor. (Red Hat EXP2.)
+      if (
+        callee?.type === 'MemberExpression' &&
+        callee.object?.type === 'Identifier' &&
+        callee.object.name === 'Object' &&
+        callee.property?.name === 'assign'
+      ) {
+        for (const arg of node.arguments) {
+          const inner = resolveObjects(arg, decls, seen, depth + 1)
+          if (inner.objects.length) found = true
+          absorb(inner)
+        }
+        if (!found) out.opaque.push('Object.assign(...) resolved to nothing')
+        return out
+      }
+      // `raw.map((x) => ({ ... }))` — an ordinary way to build a fixture array,
+      // and invisible to a scanner that only understands named callees.
+      // (Red Hat EXP1.)
+      if (callee?.type === 'MemberExpression' && callee.property?.name === 'map') {
+        const fn = node.arguments[0]
+        if (fn && (fn.type === 'ArrowFunctionExpression' || fn.type === 'FunctionExpression')) {
+          for (const expr of returnedExpressions(fn)) {
+            const inner = resolveObjects(expr, decls, seen, depth + 1)
+            if (inner.objects.length) found = true
+            absorb(inner, true)
+          }
+        }
+        if (!found) out.opaque.push('.map(...) with a callback this scan cannot read')
+        return out
+      }
+      // Any other method call — `slots.filter(...)`, `ALL_CATEGORIES.find(...)`,
+      // a library call. These are queries over engine OUTPUT or over unrelated
+      // data, not fixture construction, so they are deliberately NOT treated as
+      // unseen fixture sites. Engine output is checked by the engine's own
+      // tests; this guard is about INPUT fixtures.
+      if (callee?.type === 'MemberExpression') return out
       if (callee?.type === 'Identifier') {
         const key = `fn:${callee.name}`
         if (!seen.has(key)) {
           const next = new Set(seen)
           next.add(key)
-          const fn = decls.get(callee.name)
-          const isFn =
-            fn &&
-            (fn.type === 'FunctionDeclaration' ||
+          for (const fn of decls.get(callee.name) ?? []) {
+            const isFn =
+              fn.type === 'FunctionDeclaration' ||
               fn.type === 'ArrowFunctionExpression' ||
-              fn.type === 'FunctionExpression')
-          if (isFn) {
+              fn.type === 'FunctionExpression'
+            if (!isFn) continue
             for (const expr of returnedExpressions(fn)) {
               const inner = resolveObjects(expr, decls, next, depth + 1)
               if (inner.objects.length) found = true
@@ -271,11 +335,22 @@ function resolveObjects(node, decls, seen = new Set(), depth = 0) {
           found = true
         }
       }
-      if (!found) out.unresolved += 1
+      if (!found) {
+        // A named call that resolves to no local function: almost certainly a
+        // helper imported from another module. That is real fixture surface
+        // this scan cannot follow (its scan root is src/engine/*.test.js), so
+        // it is reported rather than swallowed.
+        out.opaque.push(`${callee?.name ?? '<expr>'}(...) — no local function of that name`)
+      }
       return out
     }
     default:
-      out.unresolved += 1
+      // Literals (including `null`), logical/binary expressions, parameter
+      // defaults, member reads. None of these is a shape a fixture object
+      // literal can hide inside, so they are not counted as blind spots.
+      // A fixture reached through a function PARAMETER (`over.anchors || []`)
+      // is covered from the other side: the call site passing it has its own
+      // `anchors:` property site.
       return out
   }
 }
@@ -324,7 +399,7 @@ function keysOf(objectNode, decls, depth = 0) {
 // planted-defect self-test can run the REAL collector over synthetic sources,
 // rather than only over whatever the tree happens to contain today.
 function scanSource(file, src, consumers) {
-  const out = { anchors: [], slots: [], unresolved: 0, computedKeys: 0 }
+  const out = { anchors: [], slots: [], opaqueSites: [], computedKeys: 0 }
   const ast = parse(src)
   const decls = buildDeclarationMap(ast)
   const sites = [] // { node, kind: 'anchor' | 'slot', pattern }
@@ -347,8 +422,10 @@ function scanSource(file, src, consumers) {
   })
 
   for (const site of sites) {
-    const { objects, unresolved } = resolveObjects(site.node, decls)
-    out.unresolved += unresolved
+    const { objects, opaque } = resolveObjects(site.node, decls)
+    for (const reason of opaque) {
+      out.opaqueSites.push(`${file}:${site.node.loc.start.line} (${site.kind}/${site.pattern}) — ${reason}`)
+    }
     for (const o of objects) {
       const { keys, computed } = keysOf(o.node, decls)
       out.computedKeys += computed
@@ -368,7 +445,7 @@ function collectFixtures() {
     consumers: [...consumers],
     anchors: [], // { file, line, keys, pattern }
     slots: [],
-    unresolved: 0,
+    opaqueSites: [],
     computedKeys: 0,
   }
 
@@ -383,7 +460,7 @@ function collectFixtures() {
     const one = scanSource(file, src, consumers)
     result.anchors.push(...one.anchors)
     result.slots.push(...one.slots)
-    result.unresolved += one.unresolved
+    result.opaqueSites.push(...one.opaqueSites)
     result.computedKeys += one.computedKeys
   }
   return result
@@ -492,6 +569,28 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
       }
     })
 
+    it('no engine fixture carries a computed key', () => {
+      // A computed key (`{ [k]: v }`) cannot be resolved statically, so it is a
+      // hole this guard cannot see through. Rather than let that hole open
+      // silently, the count is pinned at zero: introducing one is a deliberate
+      // act that turns this red and forces the conversation.
+      expect(scan.computedKeys).toBe(0)
+    })
+
+    it('is not quietly giving up on any fixture site it can see', () => {
+      // `opaqueSites` is the guard's own "I found a fixture site and could not
+      // read it" list. Left unasserted it is telemetry wired to nothing, and a
+      // new authoring idiom — Object.assign, .map(), a helper imported from
+      // another module — takes fixtures out of coverage with no signal at all.
+      // That is the exact silence T62 shipped inside.
+      //
+      // If this goes red: a fixture site stopped being readable. Teach
+      // resolveObjects the new shape. Adding the site to OPAQUE_SITES_ALLOWED
+      // is only correct when it genuinely is not a fixture, and then the entry
+      // must say why.
+      expect(scan.opaqueSites).toEqual(OPAQUE_SITES_ALLOWED)
+    })
+
     it('still sees the canary keys, which are present in the tree today', () => {
       const anchorKeys = new Set(anchorFixtures.flatMap((f) => f.keys))
       for (const k of CANARY_ANCHOR_KEYS) {
@@ -563,6 +662,74 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
     it('catches a phantom key at a bare call-argument site', () => {
       const s = scanSynthetic(`resolveAnchorGroupIds({ unit_ids: ['t1'], bogus_col: 1 }, groups)`)
       expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('bogus_col')
+    })
+
+    it('catches a phantom key in a fixture array built by .map()', () => {
+      // Red Hat EXP1: an ordinary idiom, and invisible to a scanner that only
+      // understands named callees.
+      const s = scanSynthetic(`
+        const anchors = RAW.map((x) => ({ ...x, name: 'Lunch', time_block_id: 'b1', phantom_map_col: 1 }))
+      `)
+      expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('phantom_map_col')
+    })
+
+    it('catches a phantom key composed in through Object.assign', () => {
+      // Red Hat EXP2: the identifier arguments, not just the inline ones.
+      const s = scanSynthetic(`
+        const base = { extra_phantom_via_base: 1 }
+        const anchor = Object.assign({}, base, { name: 'Lunch', time_block_id: 'b1' })
+      `)
+      expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('extra_phantom_via_base')
+    })
+
+    it('catches a phantom key on a SHADOWED sibling rather than resolving past it', () => {
+      // Red Hat EXP3b: with a last-one-wins declaration map, `anchors: [x]`
+      // resolved to the clean, unused second `x` and the phantom on the one
+      // actually reaching the engine vanished without a trace.
+      const s = scanSynthetic(`
+        function a() {
+          const x = { name: 'Lunch', phantom_shadow_col: 1 }
+          return buildSchedule({ anchors: [x] })
+        }
+        function b() {
+          const x = { name: 'Lunch', time_block_id: 'b1' }
+          return x
+        }
+      `)
+      expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('phantom_shadow_col')
+    })
+
+    it('reports — rather than silently skips — a fixture built by an IMPORTED helper', () => {
+      // Red Hat EXP5. The scan root is src/engine/*.test.js, so this guard
+      // genuinely cannot read a helper defined in another module. What it must
+      // not do is stay quiet about it: the site lands in opaqueSites, and the
+      // floor assertion above turns that into a failing test rather than a
+      // silent hole.
+      const s = scanSynthetic(`
+        import { makeAnchor } from './testHelpers.js'
+        buildSchedule({ anchors: [makeAnchor()] })
+      `)
+      expect(s.opaqueSites.join(' ')).toContain('makeAnchor')
+      expect(s.anchors).toEqual([])
+    })
+
+    it('reports a fixture reached through an identifier declared outside the file', () => {
+      const s = scanSynthetic(`import { FIXTURE } from './fixtures.js'\nbuildSchedule({ anchors: FIXTURE })`)
+      expect(s.opaqueSites.join(' ')).toContain('FIXTURE')
+    })
+
+    it('counts a computed key rather than pretending the fixture was fully read', () => {
+      const s = scanSynthetic(`const k = 'phantom'\nconst anchor = { name: 'Lunch', [k]: 1 }`)
+      expect(s.computedKeys).toBe(1)
+    })
+
+    it('does NOT count an array query over engine output as an unread fixture', () => {
+      // `const anchorSlots = slots.filter(...)` matches the slot NAME pattern
+      // but holds engine OUTPUT, not an input fixture. Treating it as a blind
+      // spot would make the opaque-site floor a nuisance red — the kind a
+      // future engineer "fixes" by deleting it.
+      const s = scanSynthetic(`const anchorSlots = slots.filter((x) => x.type === 'anchor')`)
+      expect(s.opaqueSites).toEqual([])
     })
 
     it('does NOT fire on a correct fixture — the guard discriminates', () => {
