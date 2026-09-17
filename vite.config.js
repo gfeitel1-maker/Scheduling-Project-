@@ -2,12 +2,51 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
-export default defineConfig({
-  // Relative asset paths so the packaged app can load index.html over file://
-  // (Electron uses loadFile in production; an absolute "/" base would 404).
-  base: './',
-  plugins: [react()],
-  test: {
+// The one directory-shaped set of test files that may run WITHOUT per-file process
+// isolation (T188 §6 / F3). Measured on 66 files, interleaved ON/OFF/ON/OFF:
+// 35s/26s isolated vs 7s/6s not — ~4.7x, because per-file isolation costs a process
+// fork per file and these files are individually fast.
+//
+// WHY THIS LIST IS DIRECTORIES AND NOT A CLEVERER RULE. The first cut of this
+// selected files by grepping for hazards (openLocalDb, libp2p, WebSocket, jsdom, …)
+// and covered 170 files for ~6x. That is a DENYLIST, and a denylist fails OPEN: a
+// test file added later that genuinely needs isolation, but happens not to match the
+// hazard list, silently joins the unisolated project and contaminates its neighbours
+// in a way that surfaces weeks later as order-dependent flakiness. The extra ~36s was
+// not worth a rule whose failure mode is silent.
+//
+// This list fails CLOSED instead. Anything not named here keeps full isolation, so a
+// new file is safe by default and opting out is a deliberate, reviewable edit.
+//
+// THE BAR FOR ADDING A DIRECTORY: every test file in it must be pure — no SQLite (no
+// openLocalDb, no openTemplatedDb), no native module, no libp2p/WebSocket, no jsdom
+// or Testing Library, no child_process — AND no module-level mutable state that two
+// test files in one worker could share. Directory-wide, not file-by-file: a MIXED
+// directory does not qualify, because the next file added to it would inherit the
+// exemption silently. `src/engine` is listed with an explicit single exclusion rather
+// than as a blanket entry, for exactly that reason.
+//
+// vitest.setup.js, env, timeouts and excludes are shared by both projects via
+// `sharedTest` below — a project that quietly lost setupFiles or SHORESH_TEST_SCRYPT_N
+// would change behaviour, not just speed.
+// NO EXCEPTIONS ARE PERMITTED IN THIS LIST, and that is a structural decision, not
+// tidiness. The first draft listed `src/engine/**` too, with a single carve-out for
+// src/engine/fixtureSchemaParity.test.js (the one engine test that opens a database).
+// The two projects are defined as include-here / exclude-there, so a file excluded
+// from the fast project was ALSO excluded from the isolated one — it matched the
+// directory glob that the isolated project subtracts. It ran in NEITHER project and
+// silently stopped being tested. Caught by diffing collected files before and after;
+// nothing else would have reported it, because a test that does not run does not fail.
+//
+// So: whole directories where EVERY file qualifies, or not at all. If a directory
+// needs a carve-out, it does not go in this list. src/engine is therefore absent
+// despite 10 of its 11 files qualifying — worth ~4s, and not worth a shape whose
+// failure mode is a test quietly disappearing.
+export const UNISOLATED_INCLUDE = [
+  'src/ingest/**/*.test.{js,jsx}',
+]
+
+const sharedTest = {
     environment: 'node',
     globals: true,
     // PIN hashing cost, lowered for the suite and ONLY for the suite (T160).
@@ -68,6 +107,33 @@ export default defineConfig({
     // (waitFor's budget is independent of testTimeout). See vitest.setup.js for
     // the measurements.
     setupFiles: ['./vitest.setup.js'],
+}
+
+export default defineConfig({
+  // Relative asset paths so the packaged app can load index.html over file://
+  // (Electron uses loadFile in production; an absolute "/" base would 404).
+  base: './',
+  plugins: [react()],
+  test: {
+    ...sharedTest,
+    projects: [
+      {
+        // Everything else — unchanged behaviour, full per-file isolation.
+        test: {
+          ...sharedTest,
+          name: 'isolated',
+          exclude: [...sharedTest.exclude, ...UNISOLATED_INCLUDE],
+        },
+      },
+      {
+        test: {
+          ...sharedTest,
+          name: 'pure',
+          include: UNISOLATED_INCLUDE,
+          isolate: false,
+        },
+      },
+    ],
   },
   server: {
     port: 5200,
