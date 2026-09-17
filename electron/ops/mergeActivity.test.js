@@ -19,15 +19,12 @@
 // So every referrer gets its own test, and each asserts the ROW AFTER THE MERGE
 // rather than that the merge returned ok — the standing lesson from a week of
 // writers that could not fail loudly.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { mergeActivity } from './mergeActivity.js'
 
-let dir, db, campId, deviceId, winner, loser, weekId, specialDayId, eventId
+let db, campId, deviceId, winner, loser, weekId, specialDayId, eventId
 
 const templateId = 'tpl-1'
 
@@ -38,8 +35,12 @@ function mkActivity(name) {
 }
 
 beforeEach(() => {
-  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'merge-act-'))
-  db = openLocalDb(path.join(dir, 'c.db'))
+  // Was a mkdtemp dir + openLocalDb — the per-test migration-chain replay, ~304ms
+  // (T188/F2b). The template copy already lives in its own tmp path, so the
+  // per-test directory it used to need is gone, and cleanupTemplatedDbs owns
+  // removing the file instead of this file's own rmSync.
+  const __t = openTemplatedDb()
+  db = __t.db
   campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'C', 'a'.repeat(64))
   deviceId = randomUUID()
@@ -56,7 +57,12 @@ beforeEach(() => {
   winner = mkActivity('Music')
   loser = mkActivity('Musik')
 })
-afterEach(() => { try { db.close() } catch { /* already closed */ } fs.rmSync(dir, { recursive: true, force: true }) })
+afterEach(() => { try { db.close() } catch { /* already closed */ } })
+
+// Discards the cached template once, at the end (T188/F2b).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 
 const merge = (over = {}) => mergeActivity(db, { loser_id: loser, winner_id: winner, author_user_id: null, device_id: deviceId, ...over })
 

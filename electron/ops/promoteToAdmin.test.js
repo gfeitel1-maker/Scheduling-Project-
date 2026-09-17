@@ -4,15 +4,21 @@
 // fields it writes, so the promotion is trusted when it replicates. These tests pin that the
 // emitted auth_sig verifies against the camp public key for {id, role:'admin', pin_hash, pin_salt},
 // and that promotion on a non-Host db fails loudly rather than writing an unsigned admin row.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { ensureHostSigningKey, hashPin } from '../auth/localAuth.js'
 import { verifyAuthFields } from '../auth/authSignature.js'
 import { promoteToAdmin } from './promoteToAdmin.js'
+
+// Discards the cached template once, at the end (T188/F2b).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 
 let db, tmpFile, publicKeyHex
 
@@ -24,8 +30,12 @@ function seedStaff(id, pin) {
 }
 
 beforeEach(() => {
-  tmpFile = path.join(os.tmpdir(), `shoresh-promote-${Date.now()}-${Math.random()}.sqlite`)
-  db = openLocalDb(tmpFile)
+  // Was openLocalDb(freshPath) — the per-test migration-chain replay, ~304ms (T188/F2b).
+  // ONLY this setup call is templated. The second openLocalDb further down deliberately
+  // builds a DISTINCT second database (a replica / another device) and is left alone.
+  const __t = openTemplatedDb()
+  db = __t.db
+  tmpFile = __t.file
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
   db.prepare(
     "INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status) VALUES ('device-1','Dev',?,?, 'authorized')"

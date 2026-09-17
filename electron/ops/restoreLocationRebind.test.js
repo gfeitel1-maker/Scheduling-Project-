@@ -8,22 +8,28 @@
 // nowhere in the op log, so lastKnownFields cannot carry it. Without the
 // re-resolution, a naive restore re-emits `location` (the frozen string) but
 // leaves location_id NULL — silently un-binding the activity from its place.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { openLocalDb } from '../db/localDb.js'
+import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp, DELETE_FIELD } from './operations.js'
 import { restoreEntity } from './restore.js'
 import { deriveLocationId } from './locationId.js'
+
+// Discards the cached template once, at the end (T188/F2b).
+afterAll(() => {
+  cleanupTemplatedDbs()
+})
 
 const files = []
 let db
 
 beforeEach(() => {
-  const file = path.join(os.tmpdir(), `shoresh-restore-loc-${Date.now()}-${Math.random()}.sqlite`)
+  // Was openLocalDb(freshPath) — replays the whole migration chain, ~304ms per test.
+  // The template copy is the database that chain produces (T188/F2b).
+  const __t = openTemplatedDb()
+  const file = __t.file
   files.push(file)
-  db = openLocalDb(file)
+  db = __t.db
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
   db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device1', 'iPad')
 })
