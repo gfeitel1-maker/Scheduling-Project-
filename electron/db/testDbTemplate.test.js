@@ -92,19 +92,34 @@ describe('testDbTemplate', () => {
     expect(fs.existsSync(file)).toBe(false)
   })
 
-  // Characterises the migration defect this helper had to work around, so it is pinned rather than
-  // forgotten: a FIRST-open fresh database is missing an index that the same database has on its
-  // second open. When that defect is fixed this test fails, which is the point — it is the signal
-  // to simplify ensureTemplate() back to a single open.
-  it('pins the known first-open index divergence (fails once the migration defect is fixed)', () => {
+  // This test used to pin the OPPOSITE: a first-open fresh database was missing an index the same
+  // file had on its second open (idx_schedule_snapshots_template_id, dropped by the v53/v59
+  // rebuilds after schema.sql had already run). It was written to fail once that was fixed, as the
+  // signal to simplify ensureTemplate() back to a single open. T189 fixed it, so the signal fired
+  // and ensureTemplate() now opens once.
+  //
+  // What replaces it is the invariant that makes the single open correct, kept HERE because it is
+  // this helper's precondition: openLocalDb must be idempotent across opens, or a byte-copied
+  // template silently depends on how many times it was opened. The general guard for the defect
+  // class lives in electron/db/schemaIndexParity.migration.test.js.
+  it('opens idempotently, so a single-open template is a fixed point', () => {
     const p = path.join(os.tmpdir(), `tpl-once-${process.pid}-${Date.now()}-${Math.random()}.sqlite`)
     strays.push(p)
+    const objects = (db) =>
+      db
+        .prepare("SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name")
+        .all()
+
     const once = openLocalDb(p)
-    const idxOnce = once.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'").all().length
+    const afterFirst = objects(once)
     once.close()
     const twice = openLocalDb(p)
-    const idxTwice = twice.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'").all().length
+    const afterSecond = objects(twice)
     twice.close()
-    expect(idxTwice).toBe(idxOnce + 1)
+
+    expect(afterFirst).toEqual(afterSecond)
+    // Non-vacuity: two empty result sets are also equal.
+    expect(afterFirst.length).toBeGreaterThan(20)
+    expect(afterFirst.map((o) => o.name)).toContain('idx_schedule_snapshots_template_id')
   })
 })
