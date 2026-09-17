@@ -1,9 +1,6 @@
 // T101 — db-backed wrapper around resolveLocationCandidateId.
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { openLocalDb } from '../db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { deriveLocationId } from './locationId.js'
 import { resolveLocationCreateId } from './locationCreate.js'

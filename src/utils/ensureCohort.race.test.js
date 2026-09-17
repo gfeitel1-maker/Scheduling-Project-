@@ -9,9 +9,6 @@
 // window the original bug lived in.
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { openLocalDb } from '../../electron/db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../../electron/db/testDbTemplate.js'
 import { appendOp } from '../../electron/ops/operations.js'
 

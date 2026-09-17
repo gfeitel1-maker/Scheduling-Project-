@@ -32,10 +32,8 @@
 //                              parent event's deletion as orphans
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { openLocalDb } from '../db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { PROJECTIONS } from './projections.js'
 import {

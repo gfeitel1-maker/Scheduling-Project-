@@ -8,10 +8,7 @@
 //     always applies; and a device with no public key DEGRADES to accepting rather than locking out.
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { randomBytes, randomUUID } from 'node:crypto'
-import { openLocalDb } from '../db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { ensureHostSigningKey, hashPin } from '../auth/localAuth.js'
 import { signAuthFields } from '../auth/authSignature.js'

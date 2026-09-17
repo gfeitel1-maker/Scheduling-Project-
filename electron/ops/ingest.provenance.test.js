@@ -10,11 +10,9 @@
 
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
-import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from '../db/localDb.js'
+import { initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from '../db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp, DELETE_FIELD, latestOp } from './operations.js'
 import { commitIngest } from './ingest.js'

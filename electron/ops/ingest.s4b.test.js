@@ -8,11 +8,8 @@
 
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import * as XLSX from 'xlsx'
-import { openLocalDb } from '../db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp, latestOp, latestOpSeq } from './operations.js'
 import { commitIngest } from './ingest.js'

@@ -6,9 +6,6 @@
 // Mirrors deleteSpecialDay.test.js's shape, extended to three children.
 import { describe, it, expect, afterEach, beforeEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { openLocalDb } from '../db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { deleteEvent } from './deleteEvent.js'
 

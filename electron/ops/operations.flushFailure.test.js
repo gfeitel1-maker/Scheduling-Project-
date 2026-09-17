@@ -21,7 +21,6 @@ vi.mock('../automerge/campDocument.js', async (importOriginal) => {
   return { ...actual, applyWrite: vi.fn(actual.applyWrite) }
 })
 
-import { openLocalDb } from '../db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp, runAtomic } from './operations.js'
 import { applyWrite, readRecord } from '../automerge/campDocument.js'

@@ -23,6 +23,29 @@
 // WHEN NOT TO USE IT: anything asserting migration behaviour itself (fresh-vs-migrated equivalence,
 // idempotency, rollback, write traces) must keep calling openLocalDb on a genuinely new file — the
 // chain replay IS the thing under test there.
+//
+// THE FILES THAT MUST NOT BE CONVERTED, by name. This list lives here rather than only in a commit
+// message, because "why isn't X converted?" is asked while reading the code, not while reading
+// `git log` (Code Reviewer, T188/F2). All 33 electron/db/*.migration.test.js are excluded by the
+// rule above; these 11 are the non-obvious ones:
+//
+//   electron/db/localDb.test.js .................... tests openLocalDb itself
+//   electron/db/sqliteCipher.integration.test.js ... at-rest cipher; this template is PLAINTEXT
+//   electron/db/projectManager.test.js ............. opens/copies/restores db FILES; paths are the subject
+//   electron/db/userDataPath.test.js ............... no openLocalDb call site to convert
+//   src/engine/fixtureSchemaParity.test.js ......... schema parity is the subject
+//   electron/ops/undoReferences.schemaParity.test.js  schema parity is the subject
+//   electron/ops/projectionsCoverage.test.js ....... introspects schema/registry coverage
+//   electron/ipcSurfaceParity.test.js .............. reads source for surface parity
+//   scripts/mcp/tools.test.js ...................... CLI-shaped setup, 16 call sites
+//   scripts/ingestCli.test.js ...................... CLI-shaped setup, 8 call sites
+//   electron/automerge/rebuildSupportCommand.test.js  rebuild over a real db file
+//
+// IF YOU ARE CONVERTING MORE FILES: ~38 remain, refused by the F2 transformer because their setup
+// shape was unfamiliar. Converting one REMOVES the `path.join(os.tmpdir(), ...)` setup line, which
+// orphans the file's `os`, `path` and `openLocalDb` imports. `npm test` will not tell you — vitest
+// never runs ESLint — and the first F2 pass shipped 141 such lint errors across 49 files for exactly
+// that reason. Prune the dead imports and run `npx eslint <the files>` before committing.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
