@@ -32,6 +32,18 @@ describe('describeWriteFailure', () => {
     expect(describeWriteFailure(new Error('socket disconnected'), 'X.')).toMatch(/network/)
   })
 
+  // T203 / docs/adr/2026-09-17-bounded-write-timeout-and-days-of-operation-
+  // uniqueness.md — a write-timeout Error's message contains the word
+  // "timeout"-adjacent text ("write timed out after..."), which the existing
+  // TRANSPORT regex (`/disconnected|timeout|.../i`) would wrongly classify as
+  // a network problem. A local write never talks to another device, so that
+  // copy is actively misleading here. WRITE_TIMED_OUT must be checked first.
+  it('names a write timeout as a write timeout, not a network problem', () => {
+    const message = describeWriteFailure(new Error('write timed out after 8000ms (write)'), 'X.')
+    expect(message).not.toMatch(/devices could not reach each other|network|wifi/i)
+    expect(message).toMatch(/could not confirm this saved in time/i)
+  })
+
   it('says it does not know rather than inventing a cause', () => {
     const message = describeWriteFailure(new Error('something unexpected'), 'X.')
     expect(message).not.toMatch(/connection|network/i)
