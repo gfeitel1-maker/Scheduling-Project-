@@ -72,11 +72,15 @@ function eligibilitySummary(activity, tiers, groups) {
 function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapacity, onDelete, role }) {
   // v66 (T194): capacity is a two-part value — capacity_mode is the AUTHORITY,
   // and capacity_limit is ignored entirely when the mode is 'unlimited'. This
-  // control's BEHAVIOUR is deliberately unchanged from v39: empty box = no cap,
-  // a number = that cap. D3's "unlimited vs closed must be unmistakable"
-  // authoring redesign is NOT this slice; this is only the repoint needed to
-  // keep the existing control working now that camper_headcount is retired from
-  // the write path.
+  // control's behaviour is unchanged from v39 IN ONE RESPECT ONLY — empty box =
+  // no cap, a number = that cap — and that is as far as the claim goes. Under
+  // D3's new semantics, commitCapacity's `parseInt(trimmed, 10) || 0` coercion
+  // means typing 'abc' now silently CLOSES the offering (limited, 0) where
+  // under v39 it was merely an ambiguous zero. D3's "unlimited vs closed must
+  // be unmistakable" authoring redesign is NOT this slice — it is recorded as a
+  // T197/T199 requirement — and this is only the repoint needed to keep the
+  // existing control working now that camper_headcount is retired from the
+  // write path.
   const [capacityText, setCapacityText] = useState(
     offering.capacity_mode === 'limited' && offering.capacity_limit != null
       ? String(offering.capacity_limit)

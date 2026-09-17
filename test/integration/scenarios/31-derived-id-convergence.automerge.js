@@ -38,8 +38,19 @@ const OCC = 'occ-1'
 const CAMPER_1 = 'camper-1'
 const CAMPER_2 = 'camper-2'
 
-// The whole point: both devices compute this INDEPENDENTLY and get the same
-// string. Neither is told the other's id.
+// WHAT THIS CONSTANT IS, precisely (round 2, M7). Each device calls the
+// derivation for itself at its own write site below, so neither is handed the
+// other's string — but both calls run in THIS process, so what the scenario
+// proves is convergence GIVEN equal ids: two devices writing the same id merge
+// to one record with a conflict, rather than to two records.
+//
+// It does NOT prove that two devices independently ARRIVE at equal ids. A
+// derivation that depended on device-local state — an actor id, Date.now(), a
+// locale-sensitive normalization — would still pass here. That class is covered
+// by the FROZEN OUTPUT VECTORS in electron/ops/electiveDerivedIds.test.js,
+// which pin the exact output string for a fixed input, so any device-local
+// input would have to change the pinned string to get in. The two together are
+// the D4 argument; this scenario alone is not.
 const SHARED_ID = deriveElectiveAssignmentId(RUN, CAMPER_1, OCC)
 const OTHER_ID = deriveElectiveAssignmentId(RUN, CAMPER_2, OCC)
 
@@ -103,10 +114,15 @@ export async function run() {
       [clientA, 'activity-swim'],
       [clientB, 'activity-archery'],
     ]) {
-      await client.write({ entity: 'elective_assignments', entity_id: SHARED_ID, field: 'run_id', value: RUN })
-      await client.write({ entity: 'elective_assignments', entity_id: SHARED_ID, field: 'camper_id', value: CAMPER_1 })
-      await client.write({ entity: 'elective_assignments', entity_id: SHARED_ID, field: 'occurrence_id', value: OCC })
-      await client.write({ entity: 'elective_assignments', entity_id: SHARED_ID, field: 'activity_id', value: activity })
+      // Derived HERE, per device, from the triple alone — not the module-scope
+      // constant reused. See SHARED_ID's comment for what that does and does
+      // not establish.
+      const id = deriveElectiveAssignmentId(RUN, CAMPER_1, OCC)
+      if (id !== SHARED_ID) throw new Error(`derivation is not a pure function of its key: ${id}`)
+      await client.write({ entity: 'elective_assignments', entity_id: id, field: 'run_id', value: RUN })
+      await client.write({ entity: 'elective_assignments', entity_id: id, field: 'camper_id', value: CAMPER_1 })
+      await client.write({ entity: 'elective_assignments', entity_id: id, field: 'occurrence_id', value: OCC })
+      await client.write({ entity: 'elective_assignments', entity_id: id, field: 'activity_id', value: activity })
     }
 
     // Arm 2, written while still partitioned: device B ALSO assigns a

@@ -171,13 +171,32 @@ describe('parent-scoped entities — FK-safe ordering, including delete-reconcil
     expect(rowsOf(db, 'week_activity_exclusions')).toEqual([{ id: 'wae-1', week_id: 'week-1', activity_id: 'act-1' }])
   })
 
-  it('the WRONG order (child before parent) throws an FK error — proves DOMAIN_SNAPSHOT_ORDER position is load-bearing', () => {
-    let doc = createEmptyDoc()
-    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'camp_id', value: 'camp-1' })
-    doc = applyWrite(doc, { entity: 'week_activity_exclusions', entity_id: 'wae-1', field: 'week_id', value: 'week-1' })
-    doc = applyWrite(doc, { entity: 'week_activity_exclusions', entity_id: 'wae-1', field: 'activity_id', value: 'act-1' })
-    // Project the child directly, before schedule_weeks exists at all.
-    expect(() => projectEntity(db, doc, 'week_activity_exclusions')).toThrow()
+  it('the WRONG order (child before parent) LOSES the row — proves DOMAIN_SNAPSHOT_ORDER position is load-bearing', () => {
+    // This used to assert a THROW. T194 round 2 gave upsertEntity the same
+    // per-row try/catch upsertCampsEntity always had, because an uncaught throw
+    // here aborts projectAll's ONE shared transaction and rolls back every
+    // OTHER entity's legitimate projection — one bad record freezing a device's
+    // whole projection, permanently.
+    //
+    // The claim this test makes is unchanged and still load-bearing: projecting
+    // a child before its parent does NOT produce the row. Containment changes
+    // the SYMPTOM from a crash to a missing row plus a logged error, which is
+    // exactly the trade, and the ordering is still what makes the difference.
+    const errors = []
+    const realError = console.error
+    console.error = (...args) => errors.push(args.join(' '))
+    try {
+      let doc = createEmptyDoc()
+      doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'camp_id', value: 'camp-1' })
+      doc = applyWrite(doc, { entity: 'week_activity_exclusions', entity_id: 'wae-1', field: 'week_id', value: 'week-1' })
+      doc = applyWrite(doc, { entity: 'week_activity_exclusions', entity_id: 'wae-1', field: 'activity_id', value: 'act-1' })
+      // Project the child directly, before schedule_weeks exists at all.
+      projectEntity(db, doc, 'week_activity_exclusions')
+      expect(rowsOf(db, 'week_activity_exclusions')).toEqual([])
+      expect(errors.join('\n')).toMatch(/week_activity_exclusions/)
+    } finally {
+      console.error = realError
+    }
   })
 
   it('projectAll deletes a special_day parent and its special_day_time_blocks child together, no FK violation', () => {

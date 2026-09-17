@@ -285,7 +285,24 @@ function upsertEntity(db, doc, entity) {
     // instead of querying the `operations` table, which the doc-replay path never writes.
     for (const field of fields) {
       if (!(field in row)) continue
-      applyProjection(db, { entity, entity_id: id, field, value: row[field], knownRow: row })
+      try {
+        applyProjection(db, { entity, entity_id: id, field, value: row[field], knownRow: row })
+      } catch (err) {
+        // Per-row containment, the same rule upsertCampsEntity has applied since
+        // this file was written, generalized to every entity (T194 round 2, H1).
+        // Left uncaught, ONE unprojectable row — a constraint violation, a
+        // malformed value from a paired peer — propagates out of projectAll's
+        // ONE shared transaction and rolls back every OTHER entity's legitimate
+        // projection. The device that did nothing wrong then never projects
+        // anything again, because the same bad row is still in the document on
+        // the next pass: a persistent, camp-wide sync freeze from a single
+        // record. Skipping the row leaves SQLite missing one row (visible,
+        // diagnosable, self-healing once the row is fixed or removed) instead.
+        // eslint-disable-next-line no-console
+        console.error(
+          `projector: skipping doc '${entity}' row '${id}' field '${field}' — ${err.message}`
+        )
+      }
     }
   }
 }

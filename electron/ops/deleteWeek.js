@@ -44,11 +44,14 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
 
   // T194 (v66) — elective assignment runs BLOCK the delete.
   //
-  // elective_assignment_runs.schedule_week_id is a DECLARED
-  // REFERENCES schedule_weeks(id), so under foreign_keys = ON a week with runs
-  // attached would otherwise hard-fail with a FOREIGN KEY error partway through
-  // the cascade. The other two options were considered and rejected (owner
-  // ruling R3, 2026-09-17):
+  // This is a PRODUCT decision (owner ruling R3, 2026-09-17), not a database
+  // artifact. An earlier draft of this comment justified the block by
+  // elective_assignment_runs.schedule_week_id carrying a declared REFERENCES
+  // under foreign_keys = ON; that reference is SOFT now (see schema.sql's
+  // REFERENCES discipline comment — a hard FK there froze the whole projection
+  // on an out-of-order merge), so nothing in SQLite would stop this delete. The
+  // ruling stands on its own terms. The other two options were considered and
+  // rejected:
   //
   //   - NULL the link (what steps 0 and 0b do for anchors and elective sets):
   //     cheap, and wrong here. It orphans the run from its week, so

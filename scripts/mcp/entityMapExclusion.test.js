@@ -16,16 +16,11 @@
 // test is the gate.
 import { describe, it, expect } from 'vitest'
 import { ENTITY_MAP } from './tools.js'
+// Round 2, M2: imported, not re-typed. An eighth participant entity must
+// inherit this exclusion without anyone remembering to update a copy here.
+import { PARTICIPANT_ENTITIES as REGISTERED } from '../../electron/ops/participantEntities.js'
 
-const PARTICIPANT_ENTITIES = [
-  'campers',
-  'elective_assignment_runs',
-  'elective_occurrences',
-  'elective_choices',
-  'elective_choice_offerings',
-  'elective_preferences',
-  'elective_assignments',
-]
+const PARTICIPANT_ENTITIES = [...REGISTERED]
 
 describe('MCP ENTITY_MAP excludes the participant domain', () => {
   it('names none of the seven as a caller-facing KEY', () => {

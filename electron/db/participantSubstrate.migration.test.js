@@ -308,8 +308,12 @@ describe('migration v66: how existing rows acquire a capacity meaning', () => {
       expect(row(id).capacity_mode, `${id} mode`).toBe('unlimited')
       expect(row(id).capacity_limit, `${id} limit`).toBeNull()
     }
-    // The legacy value survives for every one of them, which is what keeps the
-    // deferral reversible rather than lossy.
+    // The legacy value survives IN THIS DATABASE, which is what makes the
+    // deferred translation available. It is NOT a general reversibility claim
+    // (round 2, M5): camper_headcount stops being a projected field at v66, so
+    // applyProjection drops ops on it and a rebuild-from-document recreates
+    // these rows with it NULL. The translation is available until the first
+    // rebuild, not forever.
     expect(row('m-zero').camper_headcount).toBe(0)
     expect(row('m-twelve').camper_headcount).toBe(12)
     expect(row('m-neg').camper_headcount).toBe(-3)

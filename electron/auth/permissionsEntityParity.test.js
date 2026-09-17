@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { ENTITIES } from './permissions.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
+import { PARTICIPANT_ENTITIES } from '../ops/participantEntities.js'
 
 // ---------------------------------------------------------------------------
 // Drift guard: permissions.ENTITIES <-> the camp-scoped entity registries.
@@ -94,6 +95,21 @@ const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = {
       'ADR D9: admin-only, and PII-adjacent for the same reason as elective_preferences.',
   },
 }
+
+// Round 2, M2. The dict above is per-entity PROSE, so it is written by hand on
+// purpose — but its COMPLETENESS is derived, not trusted. An eighth participant
+// entity with no documented reason here fails this rather than quietly
+// inheriting a staff grant.
+describe('every participant entity has a documented admin-only reason', () => {
+  it('covers the registered participant domain', () => {
+    for (const entity of PARTICIPANT_ENTITIES) {
+      expect(
+        PERMISSIONS_ADMIN_ONLY_EXCEPTIONS[entity]?.reason,
+        `${entity} is a participant entity with no documented admin-only reason`
+      ).toBeTruthy()
+    }
+  })
+})
 
 const registryUnion = [
   ...DIRECT_CAMP_ENTITIES,

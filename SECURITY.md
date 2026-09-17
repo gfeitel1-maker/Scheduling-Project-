@@ -300,9 +300,14 @@ rolled-back v66 migration drops the whole table, but neither is a purge. The rea
 ADR 2026-09-17 D10, tracked as **T202**; read that ADR for what it can and cannot reach before
 telling anyone a child's record has been erased. Two structural guards ship with T194 in the
 meantime: all seven entities are non-restorable (so a camper can never be enumerated in Trash or
-re-materialized from the op-log by a restore), and `recordAuditEvent` **refuses** free text in
-metadata for these entities — `audit_events` is append-only and survives every purge, so a name
-written there would be unrecoverable by T202 too.
+re-materialized from the op-log by a restore), and `recordAuditEvent` **refuses** free text in the
+three caller-supplied fields that can carry it — `metadata`, `targetId` and `reason` — whenever
+`targetType` is one of the seven. `audit_events` is append-only and survives every purge, so a name
+written there would be unrecoverable by T202 too. Be precise about the scope of that guard: it is
+not a general PII filter on the audit log. `reason` stays free text for every **other** target type,
+which is what every existing call site passes, and the guard keys on the exact registered entity
+name — an unregistered spelling is refused outright rather than silently passing through
+(`electron/ops/participantEntities.js` is the single definition every guard derives from).
 
 Access is admin-only (D9): no non-admin role has any in-app read path to any of the seven, and staff
 receive the exported artifact instead. See `electron/auth/participantEntitiesAdminOnly.test.js`,

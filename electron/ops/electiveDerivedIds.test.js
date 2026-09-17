@@ -230,3 +230,73 @@ describe('deriveElectiveChoiceId accepts a label key, not a raw label', () => {
     expect(() => deriveElectiveChoiceId('run-1', 'Swim Advanced')).toThrow(/label/i)
   })
 })
+
+// ---------------------------------------------------------------------------
+// THE CROSS PRODUCT (round-2 H3). The two describe blocks above never meet:
+// the composition case proves composition with 'swimadvanced' (alphabet-safe)
+// while the corpus proves the adversarial labels are ACCEPTED BY THE
+// CANONICALIZER. Neither runs an adversarial label through the full chain, and
+// that gap is exactly where the defect lived — `electiveChoiceLabelKey` does
+// not restrict the alphabet, so a choice id derived from 'Arts & Crafts' or a
+// Hebrew label is outside the opaque alphabet and was rejected as a component
+// of the offering and preference ids that must contain it.
+//
+// This app is for a Hebrew-named camp: a Hebrew elective label is the NORMAL
+// case, not an edge case.
+// ---------------------------------------------------------------------------
+describe('cross product — every corpus label through the full derivation chain', () => {
+  const LABELS = [
+    'Arts & Crafts',
+    'שחייה',
+    'שחייה מתקדמת',
+    'Café',
+    'Café',
+    "Kids' Choice",
+    'Swim Advanced',
+    'Swim/Dive',
+    'Еlective',
+    'Swim​Advanced',
+    'Arts and Crafts (Session 2)',
+    '100% Fun',
+  ]
+
+  for (const label of LABELS) {
+    it(`derives choice, offering and preference ids for ${JSON.stringify(label)}`, () => {
+      const key = electiveChoiceLabelKey(label)
+      const occId = deriveElectiveOccurrenceId('run-1', 'set-1', 'day-1', 'tb-1', 'tier-1')
+
+      const choiceId = deriveElectiveChoiceId('run-1', key)
+      const offeringId = deriveElectiveChoiceOfferingId(choiceId, occId, 'act-1')
+      const preferenceId = deriveElectivePreferenceId('run-1', 'camper-1', choiceId)
+
+      expect(choiceId).toContain(key)
+      expect(offeringId).toContain(choiceId)
+      expect(preferenceId).toContain(choiceId)
+    })
+  }
+
+  it('keeps the whole chain injective across two different labels', () => {
+    const occId = deriveElectiveOccurrenceId('run-1', 'set-1', 'day-1', 'tb-1', 'tier-1')
+    const a = deriveElectiveChoiceId('run-1', electiveChoiceLabelKey('שחייה'))
+    const b = deriveElectiveChoiceId('run-1', electiveChoiceLabelKey('Arts & Crafts'))
+    expect(a).not.toBe(b)
+    expect(deriveElectiveChoiceOfferingId(a, occId, 'act-1')).not.toBe(
+      deriveElectiveChoiceOfferingId(b, occId, 'act-1')
+    )
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', a)).not.toBe(
+      deriveElectivePreferenceId('run-1', 'camper-1', b)
+    )
+  })
+
+  // A raw label must STILL be refused wherever a choice id is expected — the
+  // fix widens what a *derived choice id* may contain, it does not turn the
+  // choice_id component into a free-text field.
+  it('still rejects a non-derived string where a choice id is expected', () => {
+    expect(() => deriveElectiveChoiceOfferingId('Arts & Crafts', 'occ-1', 'act-1')).toThrow(
+      /choice_id/i
+    )
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', 'Arts & Crafts')).toThrow(
+      /choice_id/i
+    )
+  })
+})

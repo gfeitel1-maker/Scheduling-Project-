@@ -222,3 +222,28 @@ describe('projector — PARITY with the op-log projection (load-bearing)', () =>
     dbB.close()
   })
 })
+
+// T194 round 2, H1(b). upsertCampsEntity has always contained a bad camps row
+// per-row, for a stated reason: an uncaught throw aborts projectAll's ONE
+// shared transaction and rolls back every OTHER entity's legitimate
+// projection, so ONE unprojectable record from a paired peer permanently
+// freezes the receiving device's projection. Every other entity went through
+// upsertEntity, which had no such containment. This pins the general rule.
+describe('projector — one unprojectable row does not abort the batch', () => {
+  it('projects the good rows and skips the bad one', () => {
+    let doc = createEmptyDoc()
+    // A NOT NULL column explicitly set to null — the shape a malformed record
+    // from a paired peer takes once it reaches the projection.
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-bad', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-bad', field: 'name', value: null })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-good', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-good', field: 'label', value: 'Monday' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swim' })
+
+    expect(() => projectAll(db, doc)).not.toThrow()
+
+    expect(db.prepare('SELECT label FROM days_of_operation WHERE id = ?').get('day-good')?.label).toBe('Monday')
+    expect(db.prepare('SELECT name FROM activities WHERE id = ?').get('act-1')?.name).toBe('Swim')
+  })
+})

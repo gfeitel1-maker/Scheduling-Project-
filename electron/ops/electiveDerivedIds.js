@@ -1,3 +1,5 @@
+import { whitespaceInsensitiveName } from '../../src/ingest/preview.js'
+
 // Deterministic id derivation for the individual-elective participant
 // entities (ADR docs/adr/2026-09-17-individual-elective-scheduling.md D4,
 // designed in docs/work/specs/2026-09-17-t194-participant-substrate-design.md
@@ -13,14 +15,17 @@
 // reaches SQLite — the write becomes an ordinary per-field last-write-wins on
 // one record, which the existing conflict machinery already serializes.
 //
-// WHY IT LIVES UNDER electron/. electron-builder's `files` list (package.json)
-// ships only `electron/**`, `dist/**` and `package.json` — `src/` is NOT
-// packaged. An electron-side import of a src/ module works under
-// `npm run electron:dev` and fails in the INSTALLED app, at migration time, on
-// a real database. The v66 migration calls this module, so the same constraint
-// binds. See electron/ops/scheduleTemplateId.js's header, which records the
-// same rule. The renderer may import in this direction safely (Vite bundles
-// this pure module into dist/).
+// WHY IT LIVES UNDER electron/. It is projection-layer and migration-layer
+// machinery, alongside the PROJECTIONS registry and scheduleTemplateId.js that
+// it sits next to; the renderer imports it in the same direction it imports
+// other electron/ops primitives. It is NOT here because of a packaging
+// constraint — round 1 of this ticket said so, wrongly, and that claim is
+// corrected here and in scheduleTemplateId.js. electron-builder's `files` list
+// is ['electron/**/*', 'dist/**/*', 'src/**/*', 'package.json']: src/ IS
+// packaged (added to fix a packaged ERR_MODULE_NOT_FOUND), and ten electron/
+// modules already import from src/ in shipped code — electron/ops/ingest.js
+// imports from src/ingest/preview.js, the very module this one shares its
+// canonicalizer with.
 //
 // It is a SEPARATE module from scheduleTemplateId.js rather than an addition
 // to it: that file carries a load-bearing back-compat contract about its
@@ -90,6 +95,43 @@ function opaque(name, value) {
   return value
 }
 
+// A DERIVED CHOICE ID used as a component of another derivation.
+//
+// Round-2 H3. `deriveElectiveChoiceId`'s output contains a choice LABEL KEY,
+// and `electiveChoiceLabelKey` only lowercases and deletes whitespace — it does
+// not restrict the alphabet, deliberately (see its comment). So a choice id for
+// 'Arts & Crafts' is `echo1:5.run-113.arts&crafts`, and for a Hebrew label it is
+// Hebrew. Neither matches OPAQUE. Feeding that id to `opaque()` threw, which
+// made the offering and preference derivations unusable for every label outside
+// [A-Za-z0-9_.:-] — i.e. for the normal case at a Hebrew-named camp.
+//
+// The fix is NOT to widen OPAQUE. OPAQUE guards the true surrogate components
+// (run_id, camper_id, activity_id, day_id, …), where keeping whitespace,
+// punctuation and non-ASCII out closes Unicode-normalization skew at the
+// source; that purchase is worth keeping. This validator is narrower: a
+// choice_id component must either be this module's OWN choice-id output, or an
+// opaque surrogate (which is what a hand-written test id and any future
+// non-derived choice id look like). A raw human label is still refused, loudly,
+// because passing one is the mistake that would let two devices key the same
+// choice differently.
+//
+// Injectivity is unaffected either way: `join` is length-prefixed and therefore
+// injective over arbitrary strings, which is the whole reason it is not a plain
+// delimiter join. Nothing about the alphabet is load-bearing for convergence.
+const CHOICE_ID_PREFIX = `echo${V}:`
+
+function derivedChoiceId(value) {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error('electiveDerivedIds: component choice_id must be a non-empty string')
+  }
+  if (value.startsWith(CHOICE_ID_PREFIX)) return value
+  if (OPAQUE.test(value)) return value
+  throw new Error(
+    'electiveDerivedIds: component choice_id must be a derived choice id (deriveElectiveChoiceId) ' +
+      'or an opaque id matching [A-Za-z0-9_.:-]+ — not a raw label'
+  )
+}
+
 // The ONE component that is not opaque.
 //
 // Owner ruling R2 (2026-09-17): elective_choices keys on the normalized label,
@@ -119,12 +161,12 @@ function labelKeyComponent(value) {
 
 // Canonical spelling of the choice-label key.
 //
-// This re-spells src/ingest/preview.js's `whitespaceInsensitiveName` rather
-// than importing it, because this module must stay reachable from a packaged
-// build (see the header) and src/ is not packaged. The two are held in
-// agreement by electron/ops/electiveChoiceLabelKey.keyParity.test.js, following
-// the src/engine/anchorActivityLink.keyParity.test.js precedent — a comment
-// cannot fail a build, and that test can.
+// This IS `whitespaceInsensitiveName` — imported, not re-spelled. Round 1 kept
+// a second copy here and justified it with a packaging claim that is false (see
+// the header); with that reason gone there is nothing left to pay a duplicated
+// normalization rule for, and a single definition cannot drift. The wrapper
+// survives because the NAME is the contract: this is the choice-label key, and
+// every call site should say so.
 //
 // SEMANTICS, DELIBERATE: whitespace is DELETED, not collapsed to one space, so
 // 'Swim Advanced' and 'SwimAdvanced' are the SAME choice. For locations that
@@ -133,13 +175,20 @@ function labelKeyComponent(value) {
 // ONE run it is the right rule: a director does not offer two distinct
 // electives whose names differ only in spacing, whereas two devices importing
 // the same sheet very plausibly differ in exactly that. Colliding them is the
-// convergence this key exists to produce. It does NOT normalize Unicode
-// confusables, NFD/NFC or zero-width characters — those still produce distinct
-// choices, asserted in the test corpus rather than assumed away.
+// convergence this key exists to produce.
+//
+// WHAT IT DOES NOT CLOSE, asserted in the test corpus rather than assumed away:
+// Unicode confusables, NFD vs NFC, and zero-width characters all still produce
+// DISTINCT choices. One more, found in round 2: lowercasing runs BEFORE
+// whitespace is stripped, so Greek final sigma makes the key non-injective
+// across a space boundary — 'ΣΟΦΟΣ ΣΟΦΟΣ' keys as 'σοφοςσοφος' while
+// 'ΣΟΦΟΣΣΟΦΟΣ' keys as 'σοφοσσοφος', which the "missing space is the same
+// choice" rule says should collide. Left as-is deliberately: the operation
+// order is `whitespaceInsensitiveName`'s, shared repo-wide by ten call sites,
+// and changing it here alone would re-key every choice for a case that cannot
+// arise in a Hebrew/English camp's elective labels.
 export function electiveChoiceLabelKey(label) {
-  return String(label ?? '')
-    .toLowerCase()
-    .replace(/\s+/g, '')
+  return whitespaceInsensitiveName(label)
 }
 
 // Key: (run_id, elective_set_id, day_id, time_block_id, tier_id).
@@ -161,7 +210,7 @@ export function deriveElectiveChoiceId(runId, labelKey) {
 // Key: (choice_id, occurrence_id, activity_id).
 export function deriveElectiveChoiceOfferingId(choiceId, occurrenceId, activityId) {
   return `ecof${V}:${join([
-    opaque('choice_id', choiceId),
+    derivedChoiceId(choiceId),
     opaque('occurrence_id', occurrenceId),
     opaque('activity_id', activityId),
   ])}`
@@ -178,7 +227,7 @@ export function deriveElectivePreferenceId(runId, camperId, choiceId) {
   return `epref${V}:${join([
     opaque('run_id', runId),
     opaque('camper_id', camperId),
-    opaque('choice_id', choiceId),
+    derivedChoiceId(choiceId),
   ])}`
 }
 

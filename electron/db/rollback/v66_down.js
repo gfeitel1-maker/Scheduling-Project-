@@ -16,9 +16,16 @@
 // not erase a child's record. A director who runs one has not deleted anyone.
 // The real purge path is ADR D10 / T202.
 //
-// One piece of good news: elective_set_activities.camper_headcount is
-// UNTOUCHED and still holds the legacy value, so the v66 capacity mapping is
-// re-derivable and authored capacity is not lost by the rollback.
+// NO REASSURANCE ABOUT camper_headcount. An earlier draft of this comment said
+// the column "still holds the legacy value, so authored capacity is not lost"
+// — reassuring exactly where it cannot apply and false where it will (round 2,
+// M4/M5). v66 RETIRES camper_headcount from the write path, so capacity
+// authored after v66 lives only in capacity_mode/capacity_limit and IS lost
+// from the projection by this rollback; and because camper_headcount is no
+// longer a projected field at all, applyProjection drops ops on it and a
+// rebuild-from-document recreates rows with it NULL. Recovery is real, but it
+// is the one stated two paragraphs above — the document and the op-log — not a
+// surviving column.
 //
 // Usage:  node electron/db/rollback/v66_down.js <path-to-shoresh.sqlite>
 
@@ -85,8 +92,8 @@ if (process.argv[1] && process.argv[1].endsWith('v66_down.js')) {
   )
   console.log(
     'NOTE: this app build still declares schema version 66 — reopening it recreates the seven ' +
-    'tables, EMPTY. A ROLLBACK IS NOT A PURGE: the op-log and the Automerge document are not ' +
-    'touched, so these records still exist off-projection. The purge path is T202. ' +
-    'elective_set_activities.camper_headcount is untouched, so authored capacity survives.'
+    'tables, which the Automerge document then repopulates on the next projection. A ROLLBACK ' +
+    'IS NOT A PURGE: the op-log and the Automerge document are not touched, so these records ' +
+    'still exist off-projection. The purge path is T202.'
   )
 }

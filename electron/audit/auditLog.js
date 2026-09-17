@@ -1,3 +1,8 @@
+import {
+  PARTICIPANT_ENTITIES,
+  PARTICIPANT_ENTITY_NEAR_MISSES,
+} from '../ops/participantEntities.js'
+
 const SECRET_KEYS = new Set([
   'pin',
   'pin_hash',
@@ -45,21 +50,24 @@ function scrubMetadata(metadata) {
 // metadata value must come from a fixed safe set — ids, numbers, booleans,
 // null, and the enum literals the v66 schema declares. A display name cannot
 // pass, and neither can a filename.
-const PARTICIPANT_ENTITIES = new Set([
-  'campers',
-  'elective_assignment_runs',
-  'elective_occurrences',
-  'elective_choices',
-  'elective_choice_offerings',
-  'elective_preferences',
-  'elective_assignments',
-])
+// The list itself is NOT here (round 2, M2): it is
+// electron/ops/participantEntities.js, imported by every guard that keys on it,
+// so an eighth participant entity cannot pick up authorization parity while
+// silently losing this guard and the MCP exclusion. See that module.
 
 // uuid + slug alphabet, PLUS ':' and '.' — because a DERIVED ID
 // (electron/ops/electiveDerivedIds.js) is length-prefixed and version-tagged,
 // e.g. `easgn1:5.run-18.camper-15.occ-1`. The design named a bare
 // [A-Za-z0-9_-] set, which would have refused the very ids this feature is
 // built on. Still no whitespace, so free text cannot pass.
+// Deliberately a SECOND, independent copy of the alphabet
+// electron/ops/electiveDerivedIds.js's OPAQUE uses, not a shared constant. They
+// are the same characters today for the same reason (a derived id must pass),
+// but they are different policies — this one is a PII filter on an append-only
+// table, that one is an injectivity/normalization guard on a key component —
+// and each must be free to move without dragging the other. Round 2 considered
+// unifying them and chose not to; if you widen one, decide for the other
+// explicitly rather than inheriting it.
 const SAFE_SCALAR = /^[A-Za-z0-9_.:-]+$/
 
 function assertNoParticipantFreeText(targetType, value, path) {
@@ -108,8 +116,33 @@ export function recordAuditEvent(
   db,
   { campId, actorUserId, deviceId, action, targetType, targetId, outcome, reason, metadata } = {}
 ) {
-  if (PARTICIPANT_ENTITIES.has(targetType) && metadata != null) {
-    assertNoParticipantFreeText(targetType, metadata, 'metadata')
+  // Round 2, M2: a near-miss spelling ('camper', 'assignments') matched nothing,
+  // so the guard silently did not fire while the caller believed it had. Refuse
+  // the spelling instead, naming the registered entity.
+  const nearMiss = PARTICIPANT_ENTITY_NEAR_MISSES.get(targetType)
+  if (nearMiss) {
+    throw new Error(
+      `recordAuditEvent: targetType='${targetType}' is not a registered entity. Did you mean ` +
+        `'${nearMiss}'? The participant PII guard (ADR D9) keys on the exact entity name, so an ` +
+        `unregistered spelling would write past it into an append-only table.`
+    )
+  }
+
+  // Round 2, M1: metadata was the ONLY guarded field. targetId and reason were
+  // bound RAW, and `reason` is free text at every existing call site in this
+  // repo — so the natural T195 call, `{ targetType: 'campers', reason: 'resolved
+  // "Sarah Cohen" to camper-15' }`, wrote an unerasable child's name straight
+  // past a guard built to stop exactly that. targetId is guarded for a reason of
+  // its own: a derived id EMBEDS a normalized human label (a choice id contains
+  // the choice's label key), so a targetId is not automatically PII-free.
+  //
+  // `reason` stays free text for every NON-participant target type — that is
+  // what every existing caller passes, and D9's constraint is about the
+  // participant domain, not about the audit log in general.
+  if (PARTICIPANT_ENTITIES.has(targetType)) {
+    if (metadata != null) assertNoParticipantFreeText(targetType, metadata, 'metadata')
+    if (targetId != null) assertNoParticipantFreeText(targetType, targetId, 'targetId')
+    if (reason != null) assertNoParticipantFreeText(targetType, reason, 'reason')
   }
 
   try {

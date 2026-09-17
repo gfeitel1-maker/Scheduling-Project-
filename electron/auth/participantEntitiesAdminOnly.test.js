@@ -20,16 +20,12 @@ import { authorize } from './authorize.js'
 import { PERMISSIONS, ENTITIES } from './permissions.js'
 import { RESTORE_DECISIONS, RESTORABLE_ENTITIES } from '../ops/restore.js'
 import { PROJECTIONS } from '../ops/projections.js'
+import { PARTICIPANT_ENTITIES as REGISTERED_PARTICIPANT_ENTITIES } from '../ops/participantEntities.js'
 
-const PARTICIPANT_ENTITIES = [
-  'campers',
-  'elective_assignment_runs',
-  'elective_occurrences',
-  'elective_choices',
-  'elective_choice_offerings',
-  'elective_preferences',
-  'elective_assignments',
-]
+// Round 2, M2: imported from the single definition. A hand-kept copy here is a
+// guard that cannot notice an eighth entity — the exact shape this repo has
+// been bitten by before.
+const PARTICIPANT_ENTITIES = [...REGISTERED_PARTICIPANT_ENTITIES]
 
 const VERBS = ['read', 'write', 'delete', 'restore', 'bulk_replace', 'import']
 
@@ -164,6 +160,23 @@ describe('history and Trash on the seven are admin-only BY CONSTRUCTION', () => 
     for (const entity of PARTICIPANT_ENTITIES) {
       expect(PROJECTIONS[entity], `${entity} missing from PROJECTIONS`).toBeTruthy()
     }
+  })
+
+  // Round 2, L4. The assertion above is about `authorize`; the claim it is
+  // making is about main.js. A comment naming the handler is not a test of it:
+  // if getEntityHistoryHandler ever became blanket `trash.read`, every test in
+  // this describe block would stay green while camper history opened to staff.
+  // Read the source and pin the action string.
+  it('history: the handler really authorizes `<entity>.read`, not blanket trash.read', () => {
+    const main = fs.readFileSync(
+      new URL('../main.js', import.meta.url),
+      'utf8'
+    )
+    const start = main.indexOf('function getEntityHistoryHandler')
+    expect(start, 'getEntityHistoryHandler not found — was it renamed?').toBeGreaterThan(-1)
+    const body = main.slice(start, main.indexOf('\n  }', start))
+    expect(body).toContain('action: `${entity}.read`')
+    expect(body).not.toContain('trash.read')
   })
 
   it('trash: none of the seven can ever be enumerated by listDeleted', () => {

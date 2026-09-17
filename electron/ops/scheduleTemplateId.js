@@ -3,13 +3,18 @@
 // existing schedule_templates row to this exact value) and the renderer
 // (ScheduleScreen.jsx, slice 2 of the T7 fix).
 //
-// It lives under electron/ rather than src/ on purpose. electron-builder's
-// `files` list (package.json) ships only `electron/**`, `dist/**` and
-// `package.json` — `src/` is NOT packaged. An electron-side import of a
-// src/ module therefore works in `npm run electron:dev` and fails in the
-// installed app, at migration time, on the user's real database. The
-// renderer can import in this direction safely: Vite bundles this pure
-// module into dist/, and dist/ ships.
+// It lives under electron/ rather than src/ because the v21 migration is its
+// primary consumer and this is where migration-layer primitives live.
+//
+// CORRECTION 2026-09-17: this comment previously said `src/` is NOT packaged by
+// electron-builder, and that an electron/ -> src/ import fails in the installed
+// app at migration time. THAT IS FALSE, and it propagated — a later module
+// (electron/ops/electiveDerivedIds.js) duplicated a src/ helper on the strength
+// of it. package.json's build.files is
+// ['electron/**/*', 'dist/**/*', 'src/**/*', 'package.json']: src/ IS shipped
+// (it was added to fix a packaged ERR_MODULE_NOT_FOUND), and several electron/
+// modules — electron/ops/ingest.js among them — import from src/ in shipped
+// code. Verify build.files before repeating any packaging claim from a comment.
 //
 // See docs/adr/2026-07-28-first-pairing-domain-sync-and-template-identity.md
 // and the companion design doc for why a deterministic id (rather than

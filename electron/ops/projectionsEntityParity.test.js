@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { PARTICIPANT_ENTITIES } from './participantEntities.js'
 import { PROJECTIONS } from './projections.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { ENTITIES as PERMISSIONS_ENTITIES } from '../auth/permissions.js'
@@ -46,13 +47,8 @@ const permissionsSet = new Set(PERMISSIONS_ENTITIES)
 // electron/auth/participantEntitiesAdminOnly.test.js.
 const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = new Set([
   'camp_maps',
-  'campers',
-  'elective_assignment_runs',
-  'elective_occurrences',
-  'elective_choices',
-  'elective_choice_offerings',
-  'elective_preferences',
-  'elective_assignments',
+  // Round 2, M2: spread from the single definition rather than re-typed.
+  ...PARTICIPANT_ENTITIES,
 ])
 
 describe('PROJECTIONS entities are fully registered in the camp-scope and permissions registries', () => {

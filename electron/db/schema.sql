@@ -697,7 +697,7 @@ CREATE TABLE IF NOT EXISTS anchor_activities (
   is_all_groups INTEGER,
   group_ids TEXT,
   notes TEXT,
-  schedule_week_id TEXT REFERENCES schedule_weeks(id),
+  schedule_week_id TEXT,
   recurrence_level TEXT NOT NULL DEFAULT 'daily',
   location_id TEXT,
   kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring')),
@@ -992,7 +992,7 @@ CREATE TABLE IF NOT EXISTS elective_sets (
   time_block_id TEXT,
   is_all_groups INTEGER,
   group_ids TEXT,
-  schedule_week_id TEXT REFERENCES schedule_weeks(id),
+  schedule_week_id TEXT,
   recurrence_level TEXT NOT NULL DEFAULT 'daily',
   UNIQUE(camp_id, name)
 );
@@ -1149,13 +1149,41 @@ CREATE TABLE IF NOT EXISTS event_slots (
 -- TABLE text, and participantSubstrate.migration.test.js compares column
 -- ORDER, not just the column set.
 --
--- REFERENCES discipline, taken from this schema rather than invented: each
--- table's own PARENT link gets a real REFERENCES (matching
--- elective_set_activities.elective_set_id), while activity_id / time_block_id /
--- group_id / day_id / tier_id stay SOFT references with no SQL REFERENCES
--- clause (matching elective_set_activities.activity_id and template_slots).
--- That keeps foreign_keys = ON from rejecting a legitimate out-of-order op-log
--- replay.
+-- REFERENCES discipline, ONE RULE FOR ALL SEVEN: a reference to the singleton
+-- `camps` row is HARD (a camps row always exists locally before anything
+-- projects, and applyProjection separately refuses a foreign camp_id); EVERY
+-- OTHER reference is SOFT, with no SQL REFERENCES clause — parent links
+-- (run_id, choice_id, schedule_week_id) included, matching
+-- elective_set_activities.activity_id and template_slots.
+--
+-- The first draft gave each table's own PARENT link a real REFERENCES, and that
+-- was WRONG for this substrate. Two reproduced failures, both under
+-- foreign_keys = ON:
+--
+--   - An op arriving out of order (an offering before its choice; a run naming
+--     a week another device concurrently deleted) violates the FK. The throw
+--     escapes applyProjection and aborts projectAll's ONE shared transaction,
+--     rolling back every other entity's legitimate projection — a camp-wide,
+--     persistent sync freeze caused by one record, on the device that did
+--     nothing wrong. Exactly the failure upsertCampsEntity's dedicated catch
+--     (projector.js) exists to prevent.
+--   - Deleting a parent that has children throws for the same reason —
+--     including the run delete that deleteWeek.js's guard instructs the
+--     director to perform first.
+--
+-- Under Automerge merge and op-log replay there is no arrival order to rely on,
+-- so a hard FK is a crash waiting for an ordering, not an integrity guarantee.
+-- Referential integrity here is owned by the derived ids and by the writer, not
+-- by SQLite. A dangling pointer renders as an em dash, which is the same thing
+-- every other soft reference in this schema already does.
+--
+-- CONSEQUENCE, stated rather than hidden: deleting a run leaves its
+-- occurrences, choices, preferences and assignments as ORPHAN ROWS. That is a
+-- writer-side cascade (appendOp per child, the deleteRecord.js discipline —
+-- never an ON DELETE CASCADE, which writes no ops and so is invisible to peers,
+-- to history and to Trash), and it belongs with the code that deletes a run.
+-- No such code path exists yet; T196 owns it. RESTORE_DECISIONS' "rebuilt with
+-- its run" wording assumes that cascade.
 --
 -- NO UNIQUE INDEX ON ANY COMPOSITE, deliberately, and this is the point of the
 -- whole slice. A UNIQUE(run_id, camper_id, occurrence_id) index would be the
@@ -1195,7 +1223,7 @@ CREATE TABLE IF NOT EXISTS campers (
 CREATE TABLE IF NOT EXISTS elective_assignment_runs (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
-  schedule_week_id TEXT REFERENCES schedule_weeks(id),
+  schedule_week_id TEXT,
   schedule_template_id TEXT,
   tier_id TEXT,
   name TEXT NOT NULL,
@@ -1212,7 +1240,7 @@ CREATE TABLE IF NOT EXISTS elective_assignment_runs (
 -- Derived id: deriveElectiveOccurrenceId.
 CREATE TABLE IF NOT EXISTS elective_occurrences (
   id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+  run_id TEXT NOT NULL,
   elective_set_id TEXT,
   day_id TEXT,
   time_block_id TEXT,
@@ -1229,7 +1257,7 @@ CREATE TABLE IF NOT EXISTS elective_occurrences (
 -- purity, which makes `label` load-bearing.
 CREATE TABLE IF NOT EXISTS elective_choices (
   id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+  run_id TEXT NOT NULL,
   label TEXT NOT NULL,
   is_linked INTEGER NOT NULL DEFAULT 0
 );
@@ -1238,7 +1266,7 @@ CREATE TABLE IF NOT EXISTS elective_choices (
 -- Assignment expands a chosen choice atomically across every row here.
 CREATE TABLE IF NOT EXISTS elective_choice_offerings (
   id TEXT PRIMARY KEY,
-  choice_id TEXT NOT NULL REFERENCES elective_choices(id),
+  choice_id TEXT NOT NULL,
   occurrence_id TEXT,
   activity_id TEXT
 );
@@ -1252,7 +1280,7 @@ CREATE TABLE IF NOT EXISTS elective_choice_offerings (
 -- key on. A correction note is appended to D4 recording that drafting order.
 CREATE TABLE IF NOT EXISTS elective_preferences (
   id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+  run_id TEXT NOT NULL,
   camper_id TEXT,
   choice_id TEXT,
   rank INTEGER
@@ -1266,7 +1294,7 @@ CREATE TABLE IF NOT EXISTS elective_preferences (
 -- concurrently produce a per-field conflict on one record instead of two rows.
 CREATE TABLE IF NOT EXISTS elective_assignments (
   id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+  run_id TEXT NOT NULL,
   occurrence_id TEXT,
   camper_id TEXT,
   activity_id TEXT,

@@ -2053,7 +2053,7 @@ export function initSchema(db) {
             is_all_groups INTEGER,
             group_ids TEXT,
             notes TEXT,
-            schedule_week_id TEXT REFERENCES schedule_weeks(id),
+            schedule_week_id TEXT,
             recurrence_level TEXT NOT NULL DEFAULT 'daily',
             location_id TEXT,
             kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring')),
@@ -2536,7 +2536,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
             is_all_groups INTEGER,
             group_ids TEXT,
             notes TEXT,
-            schedule_week_id TEXT REFERENCES schedule_weeks(id),
+            schedule_week_id TEXT,
             recurrence_level TEXT NOT NULL DEFAULT 'daily',
             location_id TEXT,
             kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring')),
@@ -2600,6 +2600,17 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // pre-production and no real camp document exists (ADR D13). Do not inherit
   // that assumption silently if it ever stops holding.
   //
+  // ROUND-2 SHAPE CHANGE, and the one thing to know before running this against
+  // an existing database: the seven tables' parent REFERENCES clauses were
+  // REMOVED (see schema.sql's REFERENCES discipline comment — a hard FK froze
+  // the whole projection on an out-of-order merge and made a parent delete
+  // throw). This migration is edited IN PLACE rather than followed by a v67
+  // rebuild because v66 has never been released: the branch is unmerged, and
+  // the same change regenerates GENESIS_B64, which already invalidates every
+  // .automerge file that exists. A development database that ran the ROUND-1
+  // v66 keeps the old hard FKs (CREATE TABLE IF NOT EXISTS is a no-op, and the
+  // version guard skips) and must be discarded, not migrated.
+  //
   // Guard is `>= 65 && < 66`, NOT a bare `< 66` — see the v50 block's comment.
   if (getSchemaVersion(db) >= 65 && getSchemaVersion(db) < 66) {
     db.transaction(() => {
@@ -2615,7 +2626,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         CREATE TABLE IF NOT EXISTS elective_assignment_runs (
           id TEXT PRIMARY KEY,
           camp_id TEXT NOT NULL REFERENCES camps(id),
-          schedule_week_id TEXT REFERENCES schedule_weeks(id),
+          schedule_week_id TEXT,
           schedule_template_id TEXT,
           tier_id TEXT,
           name TEXT NOT NULL,
@@ -2628,7 +2639,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         );
         CREATE TABLE IF NOT EXISTS elective_occurrences (
           id TEXT PRIMARY KEY,
-          run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+          run_id TEXT NOT NULL,
           elective_set_id TEXT,
           day_id TEXT,
           time_block_id TEXT,
@@ -2636,26 +2647,26 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         );
         CREATE TABLE IF NOT EXISTS elective_choices (
           id TEXT PRIMARY KEY,
-          run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+          run_id TEXT NOT NULL,
           label TEXT NOT NULL,
           is_linked INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS elective_choice_offerings (
           id TEXT PRIMARY KEY,
-          choice_id TEXT NOT NULL REFERENCES elective_choices(id),
+          choice_id TEXT NOT NULL,
           occurrence_id TEXT,
           activity_id TEXT
         );
         CREATE TABLE IF NOT EXISTS elective_preferences (
           id TEXT PRIMARY KEY,
-          run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+          run_id TEXT NOT NULL,
           camper_id TEXT,
           choice_id TEXT,
           rank INTEGER
         );
         CREATE TABLE IF NOT EXISTS elective_assignments (
           id TEXT PRIMARY KEY,
-          run_id TEXT NOT NULL REFERENCES elective_assignment_runs(id),
+          run_id TEXT NOT NULL,
           occurrence_id TEXT,
           camper_id TEXT,
           activity_id TEXT,
@@ -2707,11 +2718,24 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         // NON-NULL camper_headcount would land on ('unlimited', NULL) rather
         // than on ('limited', n). **Zero such rows exist** — surveyed
         // 2026-09-17 with ?immutable=1 across both live databases and 41
-        // backups: elective_set_activities has never held a row anywhere, and
-        // the only offering-creating code path writes camper_headcount: null
-        // unconditionally. camper_headcount is also RETAINED untouched, so the
-        // legacy value is not destroyed and the translation remains available
-        // at any time — correctly, as a write through the document.
+        // backups: elective_set_activities has never held a row anywhere. That
+        // EMPIRICAL finding is what carries the decision.
+        //
+        // The reasoning half of round 1's survey was WRONG and is corrected
+        // here (round 2, M6): "the only offering-creating code path writes
+        // camper_headcount: null unconditionally" is true of CREATION and false
+        // of the EDIT path this same change replaced — ElectiveSetDetail.jsx
+        // previously wrote camper_headcount directly, so a director using the
+        // v39 capacity control could have produced a non-NULL value at any
+        // time. No row anywhere actually holds one; that is the whole of the
+        // argument, and it is an observation, not a proof about the code.
+        //
+        // camper_headcount is RETAINED untouched, so the translation stays
+        // available — but only in THIS database and only until the first
+        // rebuild-from-document (round 2, M5). It stops being a projected field
+        // at v66, so applyProjection drops ops on it and a rebuild recreates
+        // these rows with it NULL. "Reversible" is accurate today and is not a
+        // standing property.
       }
     })()
 
@@ -2967,7 +2991,7 @@ export const ELECTIVE_SETS_DDL = `CREATE TABLE IF NOT EXISTS elective_sets (
   time_block_id TEXT,
   is_all_groups INTEGER,
   group_ids TEXT,
-  schedule_week_id TEXT REFERENCES schedule_weeks(id),
+  schedule_week_id TEXT,
   recurrence_level TEXT NOT NULL DEFAULT 'daily',
   UNIQUE(camp_id, name)
 )`

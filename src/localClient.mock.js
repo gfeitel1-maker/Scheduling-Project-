@@ -404,8 +404,8 @@ export const MOCK_WRITE_ALLOWLIST = {
     'camp_id', 'name', 'sort_order', 'is_reusable',
     'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
   ],
-  // camper_headcount (v39, Electives Slice 1): the per-offering capacity T41
-  // deferred.
+  // Per-offering capacity. camper_headcount (v39, Electives Slice 1) was the
+  // original single-number field and is deliberately ABSENT from this list.
   // v66 (T194, ADR D3): camper_headcount is RETIRED FROM THE WRITE PATH — the
   // column stays in the table but no write may reach it. capacity_mode is the
   // authority; capacity_limit is ignored entirely when mode is 'unlimited'.

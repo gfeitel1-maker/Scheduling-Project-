@@ -2,16 +2,17 @@ import { describe, it, expect } from 'vitest'
 import { electiveChoiceLabelKey } from './electiveDerivedIds.js'
 import { whitespaceInsensitiveName } from '../../src/ingest/preview.js'
 
-// electiveDerivedIds.js re-spells the ingest layer's `whitespaceInsensitiveName`
-// rather than importing it, because that module must stay reachable from a
-// PACKAGED build: electron-builder ships `electron/**` and `dist/**` but not
-// `src/`, and the v66 migration loads it. An electron/ -> src/ import works in
-// `npm run electron:dev` and fails in the installed app at migration time.
+// electiveChoiceLabelKey IS whitespaceInsensitiveName, wrapped under the name
+// that says what the key is FOR. Round 1 kept a second copy of the rule under
+// electron/ and justified it with a packaging claim that is false — src/ IS in
+// electron-builder's `files` list, and electron/ops/ingest.js already imports
+// from this very module in shipped code. The copy is gone; the import is the
+// guarantee.
 //
-// That leaves a comment as the only thing holding the two spellings in
-// agreement — and a comment cannot fail a build. This test can. It is
-// deliberately the ONE place electron/ reaches into src/, and it does so in a
-// test rather than in shipped code.
+// This test is RETAINED rather than deleted, cheaply, for two reasons: it pins
+// that the wrapper stays a pass-through (a future "small tweak" to the elective
+// key would fork the repo-wide recognition rule silently), and its corpus is
+// the documented label-shape corpus for this key.
 //
 // Precedent and form: src/engine/anchorActivityLink.keyParity.test.js.
 describe('electiveChoiceLabelKey stays in step with the ingest recognition key', () => {

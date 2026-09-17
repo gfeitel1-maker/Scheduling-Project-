@@ -874,12 +874,15 @@ export const PROJECTIONS = {
     table: 'elective_choice_offerings',
     key: 'id',
     fields: ['choice_id', 'occurrence_id', 'activity_id'],
+    // NO PARENT STUB. The first draft seeded an elective_choices row with
+    // run_id = '' to satisfy a declared REFERENCES — and INSERT OR IGNORE does
+    // not suppress a foreign-key violation, so `elective_choices.run_id`'s own
+    // FK made that stub throw on the exact out-of-order op it existed to
+    // handle. The parent references are soft now (see schema.sql's REFERENCES
+    // discipline comment), so an offering simply projects with a choice_id that
+    // does not resolve yet, and resolves when the choice arrives.
     ensureExists: (db, id, field, value) => {
       if (field !== 'choice_id') return
-      getStmt(
-        db,
-        "INSERT OR IGNORE INTO elective_choices (id, run_id, label) VALUES (?, '', '')"
-      ).run(value)
       getStmt(
         db,
         'INSERT OR IGNORE INTO elective_choice_offerings (id, choice_id) VALUES (?, ?)'
