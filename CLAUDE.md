@@ -27,14 +27,17 @@ npm run lint            # ESLint
 npm run test             # Run all Vitest tests
 npm test -- <path/to/file.test.js>    # Run a single test file
 npm run test:integration # Run the sync/ingest integration scenarios (test/integration/run.automerge.js)
-npm run verify           # the full gate: agents:check + check:governance + security + test:integration + lint + test (scripts/verify.js). Ordered CHEAPEST-FIRST and short-circuits, so a 1.2s governance failure is reported in seconds instead of behind ~17 minutes of tests — same six gates, sooner. Prints a final ✅/❌ verdict line so the result survives `| tail` and can't false-green
+npm run verify           # the full gate: agents:check + check:governance + build + security + test:integration + lint + test (scripts/verify.js). Ordered CHEAPEST-FIRST and short-circuits, so a 1.2s governance failure is reported in seconds instead of behind ~17 minutes of tests — same six gates, sooner. Prints a final ✅/❌ verdict line so the result survives `| tail` and can't false-green
 ```
 
 **The gate also runs in CI** (`.github/workflows/gate.yml`) on every pull request and on push to
 `main`, on a Linux runner — the suite needs no Electron, no display, and no multicast, so it is
-fully portable. **A CI result is currently ADVISORY**: it does not replace the local `npm run
-verify` as evidence of record, and nothing accepts it as a Verifier PASS. Whether that should change
-is an open owner decision recorded in `docs/work/tickets/T191-the-gate-has-nowhere-to-run-but-this-laptop.md`.
+fully portable. **CI is the gate of record for merging** — a red CI run blocks a merge whatever a local run said,
+because the runner is a clean machine and a green local gate cannot separate "correct" from
+"configured like the author's machine". A local `npm run verify` is still valid evidence and is what
+`scripts/gate.sh` stamps, but you are **no longer expected to run the full local gate before
+pushing**; CI runs it anyway, on a quieter machine, in about half the time. See
+`docs/governance/standards/TESTING_STANDARD.md` §1.
 
 **Only one local gate runs at a time.** `npm run verify` takes a machine-wide lock
 (`scripts/gateLock.js`) keyed to the repository, so a second one waits and names the holder instead

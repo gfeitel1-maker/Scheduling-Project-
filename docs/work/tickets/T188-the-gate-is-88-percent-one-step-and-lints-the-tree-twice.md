@@ -1,7 +1,7 @@
 ---
 title: "The gate is 88% one step, and lints the tree twice"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-16
 task_class: test-infrastructure
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
@@ -29,9 +29,9 @@ investigated and **withdrawn as wrong**; the rest is unstarted and still awaitin
 | Remove the duplicate full-tree ESLint pass (§3) | **Landed** (#457) — replaced by a grep, see §0.4 |
 | Vitest parallelism (§6) | **Landed** (#457, #458) — per-project `isolate: false` |
 | Serialise concurrent gates | **Landed** (#456) — `scripts/gateLock.js` |
-| `TESTING_STANDARD.md` §1 (§7.1) | **Corrected** in this change; the `build` question stays open for the owner |
+| `TESTING_STANDARD.md` §1 (§7.1) | **Corrected**, and `build` is now an actual gate step — §0.5 |
 | Collapse the 33 migration tests | **WITHDRAWN — the proposal was wrong.** See §7.4 |
-| Tiering / change-based selection (§5) | **Recommend closing unbuilt.** See §0.4 |
+| Tiering / change-based selection (§5) | **CLOSED UNBUILT** 2026-09-17 — decision recorded in §0.5 |
 
 ### 0.1 Gate step order — landed
 
@@ -108,6 +108,41 @@ Residual, deliberately not done: three files still build the schema directly
 `electron/sync/automerge/peerIdentity.test.js`). Together they are **3.04s for 51 tests**, and the
 first is T187's guard that engine fixtures match the *real* schema — converting it would point the
 guard at the thing it exists to check independently. There is nothing left to win here.
+
+---
+
+### 0.5 The three open decisions, decided
+
+Delegated to this programme by the owner on 2026-09-17 and resolved here, so the ticket closes.
+
+**1. Tiering / change-based selection (§5) — CLOSED UNBUILT.**
+It was the only option on the list that trades a guarantee for speed, and it was justified by a
+19.6-minute gate. The gate is now 788s with the cheap steps reported in the first minute, and CI
+runs it on another machine in ~9 minutes. The benefit no longer pays for a second definition of
+"green" that can be mistaken for the merge gate — and the disqualifying property was never the cost
+anyway: **a selection map fails open.** `vitest --changed` after editing `electron/db/schema.sql`
+still selects **zero** test files and exits 0. If this is ever revisited, the Governor routing
+records the only safe shape: no declared map, an unconditional guard set, and an empty selection
+treated as a hard failure.
+
+**2. Should `npm run build` gate? — YES. It is now step 3.**
+The standard had claimed it was a gate for months while it never was. Rather than delete the claim,
+the gate was made true. It costs **2.8s** — cheaper than `security` — and it is the only step that
+exercises the bundler: a broken renderer import fails the build and passes every test. The repo has
+already shipped a packaged crash from exactly that gap (`ERR_MODULE_NOT_FOUND`, `build.files` not
+shipping `src/**`). Verified non-vacuous by planting a bad import and watching it exit 1, and
+verified not to dirty the tree (`dist` is gitignored, so `gate.sh`'s dirty check is unaffected).
+
+**3. What is a CI result worth? — CI is the gate of record for merging; local stays valid evidence.**
+The runner is a clean machine and proved its worth immediately, catching two defects no local run
+could: a suite depending on `zsh` (present on every Mac, absent on a fresh Linux box) and a test
+asserting against a hardcoded home directory. A green local gate cannot separate "correct" from
+"configured like the author's machine."
+
+So: a red CI run blocks a merge regardless of what a local run said. A local `verify` is still what
+`gate.sh` stamps and `verifierReport.js` accepts, so Verifier reports are unchanged. What ends is
+the obligation to spend ~13 local minutes *before* pushing — CI will run it anyway, quieter and in
+about half the time. That, not the per-step savings, is what actually shortens the loop.
 
 ---
 
@@ -429,10 +464,9 @@ before the §0.3 defect is resolved, since it is that comparison's correctness t
 - [x] The tiering question (§5) has an evidence-backed recommendation — **close unbuilt**, §0.4. Formally closing it is the owner's call.
 - [x] `npm run verify` is green.
 
-**This ticket is complete apart from two owner decisions**: whether `npm run build` should be a gate
-step (§7.1), and formally closing §5. Neither blocks anything; both are recorded where they will be
-found. The wall-clock problem that outlives this ticket — the gate having nowhere to run but one
-laptop — is **T191**.
+**This ticket is complete.** Both owner decisions are resolved in §0.5: `build` is now a gate step,
+and tiering is closed unbuilt. The wall-clock problem that outlives this ticket — the gate having
+nowhere to run but one laptop — is **T191**, which now has CI.
 
 ## 9. Reproducing these numbers
 
