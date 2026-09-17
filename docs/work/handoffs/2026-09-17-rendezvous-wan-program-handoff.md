@@ -119,6 +119,26 @@ The class is worth naming: the cutover severed **directions** of a flow rather t
 half-live channel family reads as healthy from either end, and a listener with no sender is invisible
 to lint, to the dependency graph, and to every test that mocks the channel.
 
+**The same cut had a second half, and it was a live user-facing defect.** A peer session found that
+the startup effect's client branch was gated on `joinHost`, which nothing has written since the
+cutover — so a device that joined *by code* skipped `chooseMode` on every restart and never handed
+its token to the libp2p node (`setAuthToken`, `main.js:716`). The T87 re-auth-on-restart guarantee
+was silently not happening for every joined-by-code device. Its tests missed it because the fixture
+hand-seeded the dead `shoresh-join-host` key, so four tests passed against a device shape the app can
+no longer produce. Details and evidence in T213.
+
+**Whether the gate half can be guarded: asked, and answered no** — see T213. The channel guard works
+because it compares presence of a literal string at both ends. The gate half turns on *reachability*
+(the writer exists; it is unreachable), which no cheap grep-shaped check can see. The actionable fix
+is to make `graphify` index `useCallback`/arrow-const exports — it returned *"No unique node match"*
+here and **abstained**, which read carelessly would have looked like confirmation. A negative result
+is a claim about the measurement.
+
+**Dependency:** the peer's deletion of the dead pairing path ships on its own branch off `main`. The
+three `KNOWN_GAPS` entries stay here until that lands, or this branch would assert against code that
+still exists on `main`. Both branches touch `useDeviceMode.js`, `CLAUDE.md` and `PLATFORM_STATE.md` —
+expect conflicts, keep edits narrow.
+
 ## Suggested next step
 
 The owner decision on the `4405` director-facing message, then replacing `lanTopologyTrust` with a
