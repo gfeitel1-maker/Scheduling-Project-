@@ -17,6 +17,64 @@ implemented. It is a measurement and a recommendation awaiting the owner's decis
 
 ---
 
+## 0. Status — what has landed, and one recommendation withdrawn
+
+Two changes from this ticket are implemented on `claude/t188-gate-tiering`; one recommendation was
+investigated and **withdrawn as wrong**; the rest is unstarted and still awaiting the owner.
+
+| Item | State |
+|---|---|
+| Order `VERIFY_STEPS` cheapest-first | **Landed** (`42a2c3f`) |
+| Prebuilt-schema test fixture | **Landed** (`e170604`), applied to the 5 biggest files; 63 remain |
+| Collapse the 33 migration tests | **WITHDRAWN — the proposal was wrong.** See §7.4 |
+| Remove the duplicate full-tree ESLint pass (§3) | **Not started.** Still the best unclaimed win |
+| Vitest parallelism (§6) | Not started |
+| Tiering / change-based selection (§5) | Not started; routed, and the recommendation is to defer |
+
+### 0.1 Gate step order — landed
+
+`runVerify` short-circuits on the first failure, but the two cheapest checks ran **last**, behind
+`test`. A `check:governance` failure — a doc field resolving in 1.2s — was only reported after
+~1174s of gate, and the re-run after fixing it paid ~1174s again to re-prove tests a docs change
+cannot affect. **One governance typo cost ~39 minutes of gate time.** Reordered by measured cost:
+that failure is now reported in **1.4s**. No step removed, added, or weakened; on a green tree the
+output is identical. Two tests pin the *property* — ascending measured cost, and the unchanged set
+of six gates — rather than the literal list.
+
+### 0.2 Prebuilt-schema fixture — landed, measured A/B
+
+`electron/db/testDbTemplate.js` builds the migrated database once per process and hands each test a
+byte copy instead of replaying 65 migrations (304ms) per test. Measured back-to-back, same machine:
+
+| | Before | After | Tests |
+|---|---:|---:|---|
+| `electron/main.test.js` | 86.2s (tests 67.98s) | **32.7s** (tests 16.28s) | 161 pass both |
+| next four biggest files | 69.2s (tests 142.87s) | **31.4s** (tests 51.53s) | 255 pass both |
+
+The copy is the database the real chain produced, not a hand-written schema — that distinction is
+the T62 defect class. Its test asserts the copy is indistinguishable from a chain-migrated database
+(same tables, indexes, DDL text, same applied migration set). Files whose subject *is* migration
+behaviour still call `openLocalDb` directly; all 33 `*.migration.test.js` are untouched.
+
+**63 files still use the per-test rebuild.** Converting them is mechanical and is the remaining
+share of the ~330s.
+
+### 0.3 A migration defect found on the way, filed separately
+
+Writing the fixture's equivalence test surfaced that **`openLocalDb` is not idempotent across
+opens**: a fresh database has 25 indexes, the same file reopened has 26.
+`idx_schedule_snapshots_template_id` is declared in `schema.sql`, then dropped when migrations
+**v53/v59** rebuild `schedule_snapshots` (`DROP TABLE` + `RENAME`), and `schema.sql`'s
+`CREATE INDEX IF NOT EXISTS` has already run for that open. Confirmed by query plan: a brand-new
+install **`SCAN`s** `schedule_snapshots` until its second launch.
+
+Performance, not correctness — but it is a fresh-vs-migrated divergence, the class
+`TESTING_STANDARD.md` §1 calls the failure that "does not surface until a user's data is already in
+the drifted shape." **33 migration-parity tests did not catch it**, and that gap is the more
+interesting half. Filed as its own `database-sync` task (ADR + migration/rollback plan + Red Hat).
+
+---
+
 ## 1. The premise in the request was wrong, and that matters
 
 The investigation was asked to find what runs the suite "on every commit." **Nothing does.**
@@ -273,6 +331,9 @@ two cheaper levers come first:
 2. **Tune vitest parallelism (§6).** The suite uses 1.31× of 4 cores; the ceiling is ~3× faster.
    No coverage lost. Needs the `test-infrastructure` human gate and a careful Red Hat pass on
    `isolate: false`.
+
+2b. **Convert the remaining 63 files to the §0.2 fixture.** Mechanical, measured, already proven on
+   five files. This is the largest remaining *certain* win.
 3. **Tier the gate (§5).** Only if 1 and 2 leave it too slow. This is the one that weakens a
    guarantee, and §5's three mandatory properties are the price of doing it safely.
 
@@ -280,16 +341,58 @@ A legitimate owner answer is "do 1 and 2, skip 3 entirely." On the measured numb
 outcome I would expect: 1 and 2 together plausibly reach single-digit minutes without touching
 what the gate proves.
 
+### 7.4 WITHDRAWN: "collapse the 33 migration tests into one chain-walk"
+
+**An earlier revision of this ticket recommended this. The recommendation was wrong and is
+withdrawn.** It is recorded rather than deleted because the reasoning error is the useful part.
+
+The claim was that the 33 `electron/db/*.migration.test.js` files assert the same three properties
+(fresh-vs-migrated, idempotency, rollback) at 33 points, so one parameterized walk over v0→v65
+would prove more for less. The first half is true and the conclusion does not follow. Counting what
+those files actually assert:
+
+**Of 294 tests across the 33 files, 42 are generic parity and 252 — 86% — are slice-specific.**
+
+| File | Slice-specific / total |
+|---|---:|
+| `locations.migration.test.js` | 15 / 17 |
+| `scheduleKind.migration.test.js` | 15 / 16 |
+| `anchorKindSplit.migration.test.js` | 13 / 14 |
+| `retireOrphanSlots.migration.test.js` | 13 / 15 |
+| `electives.migration.test.js` | 12 / 13 |
+
+Those 252 are backfill correctness, per-migration forward behaviour, and invariants unique to one
+slice — `locations.migration.test.js` carries a two-database cross-device backfill determinism test
+its own header marks non-negotiable. **A collapse would have deleted them to save ~180s.**
+
+The error was inferring content from *file naming and header comments* instead of counting the
+assertions. The headers genuinely do say "fresh-vs-migrated / idempotency / rollback" — that is what
+made the misreading plausible — but they describe the shared skeleton each file opens with, not its
+body. This is the same shape as the repeated lesson that a guard's description is not the guard:
+here, a *test file's* description was taken for its contents.
+
+**The corrected position: that ~199s is largely irreducible.** Replaying the chain is what those
+files test, and they cover the highest-consequence change class in the repository. The only
+defensible optimisation is narrow — the *fresh* side of a fresh-vs-migrated comparison is exactly
+what the §0.2 template already is, so it could be supplied from the template while the *migrated*
+side keeps replaying. That is a modest, delicate saving on part of 199s and should not be attempted
+before the §0.3 defect is resolved, since it is that comparison's correctness that is in question.
+
+---
+
 ## 8. Definition of done
 
 - [x] The full gate is re-measured on a quiet machine (load 6.5, below the 4×-cores threshold) — §2. Baseline: `test` 1015.0s, gate ~1174s.
-- [ ] The duplicate full-tree ESLint pass is removed (§3) — the first move, independent of everything below.
+- [x] `VERIFY_STEPS` is ordered cheapest-first, so a cheap deterministic failure is never reported behind an expensive step — §0.1.
+- [x] A prebuilt-schema fixture exists, is proven equivalent to a chain-migrated database, and is applied to the highest-cost files — §0.2.
+- [x] The "collapse the 33 migration tests" recommendation is resolved — **withdrawn**, with the counting that refutes it recorded — §7.4.
+- [ ] The remaining 63 per-test-rebuild files are converted to the fixture (mechanical; the largest certain win left).
+- [ ] The duplicate full-tree ESLint pass is resolved through the review loop, with Red Hat specifically asked whether `npm run lint` truly subsumes it (§3). **Unclaimed and independent — the best next move.**
 - [ ] Vitest parallelism is investigated against the 1.31×-on-4-cores finding (§6).
-- [ ] The owner has decided whether tiering is wanted **at all** — after 1 and 2 are measured, since they may remove the need.
-- [ ] If yes: a fast tier exists that (a) runs the always-run guard set unconditionally, (b) emits a verdict that cannot be read as `VERIFY PASSED`, and (c) is rejected by `verifierReport.js` as Verifier evidence.
-- [ ] The duplicate full-tree ESLint pass is resolved, through the review loop, with Red Hat specifically asked whether `npm run lint` truly subsumes it.
-- [ ] `TESTING_STANDARD.md` §1 matches `VERIFY_STEPS` (needs the human gate — it is a standard).
-- [ ] `npm run verify` is green.
+- [ ] The owner has decided whether tiering is wanted **at all** — asked only *after* the above are measured, since they may remove the need.
+- [ ] If yes: a fast tier exists that (a) runs the always-run guard set unconditionally, (b) emits a verdict that cannot be read as `VERIFY PASSED`, (c) is mechanically rejected by `verifierReport.js` as Verifier evidence, and (d) treats an empty selection as a hard failure rather than a pass.
+- [ ] `TESTING_STANDARD.md` §1 matches `VERIFY_STEPS` — including the explicit decision on whether `build` is a gate (§7.1). Needs the human gate; it is a standard.
+- [ ] `npm run verify` is green on the branch.
 
 ## 9. Reproducing these numbers
 
