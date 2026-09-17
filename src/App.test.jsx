@@ -66,7 +66,36 @@ import { AppShell } from './App'
 import { seedDays } from './utils/seedDays'
 import { ensureCohort } from './utils/ensureCohort'
 
+// The mount-time bootstrap (seedDays + ensureCohort) settles asynchronously
+// and, on success, recomposes the notice to null. Tests that assert the
+// notice is GONE after an await must flush that first, or the bootstrap's own
+// clear would satisfy the assertion instead of the behaviour under test.
+const flushBootstrap = () => act(async () => {})
+
+// T204: the notice's dismiss fade is --motion-fast (140ms) before the node is
+// removed. Real timers (not fake ones) because the enter transition rides on
+// requestAnimationFrame, which vi.useFakeTimers would also have to drive.
+const settleDismissFade = () => act(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 200))
+})
+
+// prefers-reduced-motion is read through window.matchMedia at render time
+// (src/styles/shared.js); jsdom's own matchMedia always reports false.
+function reduceMotion(on) {
+  window.matchMedia = (query) => ({
+    matches: on && query.includes('prefers-reduced-motion'),
+    media: query,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    onchange: null,
+    dispatchEvent: () => false,
+  })
+}
+
 beforeEach(() => {
+  reduceMotion(false)
   opRejectedCallback = undefined
   seedDays.mockReset().mockResolvedValue(undefined)
   ensureCohort.mockReset().mockResolvedValue(undefined)
@@ -154,7 +183,7 @@ describe('AppShell: a failed camp seed is surfaced, not swallowed', () => {
   // days_of_operation has NO UNIQUE constraint, so a second concurrent
   // seedDays is a real 10-day duplication, not a constraint violation.
   //
-  // What this test does and does not pin (T202, measured, not assumed):
+  // What this test does and does not pin (measured, not assumed):
   // the invariant is now defended TWICE over — by `seededForCamp` (the
   // original StrictMode ref) and by `bootstrapInFlight` (T201's retry
   // serialiser, which also covers the StrictMode window because both
@@ -350,6 +379,9 @@ describe('AppShell: a failed camp seed is surfaced, not swallowed', () => {
 
     expect(screen.getByRole('alert')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('Dismiss'))
+    // T204: dismiss now fades out over --motion-fast before unmounting, so
+    // the assertion is the faded-out END state, not immediate removal.
+    await settleDismissFade()
     expect(screen.queryByRole('alert')).toBeNull()
 
     await act(async () => { resolveCohort() })
@@ -391,8 +423,20 @@ describe('AppShell: offline op-rejected notice (item 7, owner decision)', () => 
     expect(notice.textContent).toMatch(/could not be saved/i)
   })
 
-  it('dismiss removes the banner', () => {
+  // T204 — DESIGN_STANDARD §5c: "On dismiss/resolve, fade out --motion-fast".
+  // This test used to assert the alert was gone *immediately* after the
+  // click, and that assertion was the stated reason dismiss stayed
+  // synchronous. Per GOVERNANCE_INDEX §11.3 the standard governs, so the
+  // test moved: it now pins the fade (still mounted, opacity 0) AND the
+  // end state (removed). It still fails outright if dismiss stops removing
+  // the banner at all.
+  it('dismiss fades the banner out and then removes it', async () => {
     render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    // Let the mount-time bootstrap settle FIRST. Both writers succeed here,
+    // and their final recompose clears the notice — so without this flush a
+    // removal assertion taken after any await would pass whether or not the
+    // dismiss fade ever completed (measured, not assumed).
+    await flushBootstrap()
     act(() => {
       opRejectedCallback({
         type: 'op_rejected',
@@ -404,7 +448,65 @@ describe('AppShell: offline op-rejected notice (item 7, owner decision)', () => 
 
     fireEvent.click(screen.getByLabelText('Dismiss'))
 
+    const fading = screen.getByRole('alert')
+    expect(fading.style.opacity).toBe('0')
+    expect(fading.style.transition).toContain('var(--motion-fast)')
+
+    await settleDismissFade()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  // T204 §8 — every animation ships a prefers-reduced-motion fallback; for a
+  // dismiss that means instant, not a shorter fade.
+  it('dismiss is immediate under prefers-reduced-motion', () => {
+    reduceMotion(true)
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    act(() => {
+      opRejectedCallback({ status: 'rejected', reason: 'unique_field' })
+    })
+    expect(screen.getByRole('alert')).toBeTruthy()
+
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  // T204 §5c — "outline alert icon (16px, var(--danger)) + message + ...".
+  it('renders the 16px danger alert icon alongside the message', () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    act(() => {
+      opRejectedCallback({ status: 'rejected', reason: 'unique_field' })
+    })
+    const icon = screen.getByRole('alert').querySelector('svg')
+    expect(icon).toBeTruthy()
+    expect(icon.getAttribute('width')).toBe('16')
+    expect(icon.getAttribute('stroke')).toBe('var(--danger)')
+    expect(icon.getAttribute('fill')).toBe('none')
+  })
+
+  // T204 — the window the fade opens: a NEW notice arriving while the old one
+  // is still fading must not be swallowed by the outgoing notice's pending
+  // unmount. Uses the SAME message twice, which is the case a string-valued
+  // notice could not tell apart from "nothing new arrived".
+  it('a new notice arriving mid-fade cancels the pending unmount', async () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await flushBootstrap()
+    act(() => {
+      opRejectedCallback({ status: 'rejected', reason: 'unique_field' })
+    })
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+    expect(screen.getByRole('alert').style.opacity).toBe('0')
+
+    // Same rejection again, mid-fade.
+    act(() => {
+      opRejectedCallback({ status: 'rejected', reason: 'unique_field' })
+    })
+
+    await settleDismissFade()
+    const alert = screen.queryByRole('alert')
+    expect(alert).toBeTruthy()
+    expect(alert.textContent).toMatch(/could not be saved/i)
+    expect(alert.style.opacity).not.toBe('0')
   })
 })
 
