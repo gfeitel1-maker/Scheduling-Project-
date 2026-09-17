@@ -1,7 +1,7 @@
 ---
 title: "ensureCohort discards every write result and its caller drops the rejection, so a failed cohort seed is invisible"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-16
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md]

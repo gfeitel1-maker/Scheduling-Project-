@@ -56,13 +56,18 @@ beforeEach(() => {
     // Defer a tick so two in-flight ensureCohort() field-write loops actually
     // interleave, instead of one running to completion before the other starts.
     await new Promise((resolve) => setTimeout(resolve, 0))
-    return appendOp(db, {
+    // Mirror localClient.write's real contract: the IPC handler returns
+    // { status, op } (electron/sync/localWriteClient.js), not appendOp's bare
+    // op row. ensureCohort now checks that status, so a mock that omitted it
+    // would fail a write that actually succeeded.
+    const op = appendOp(db, {
       entity: 'cohorts',
       entity_id,
       field,
       value,
       device_id: 'device-1',
     })
+    return { status: 'applied', op }
   })
 })
 

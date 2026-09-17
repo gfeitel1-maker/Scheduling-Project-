@@ -113,6 +113,49 @@ describe('ensureCohort', () => {
     })
   })
 
+  it('throws and stops on the first rejected field write instead of failing silently', async () => {
+    localClient.list.mockResolvedValue([])
+    localClient.write
+      .mockResolvedValueOnce({ status: 'applied' })
+      .mockResolvedValueOnce({ status: 'rejected', reason: 'conflict' })
+      .mockResolvedValue({ status: 'applied' })
+
+    await expect(ensureCohort('camp-1')).rejects.toThrow(/write failed for field/)
+    // Stopped at the rejection rather than going on to write the rest.
+    expect(localClient.write).toHaveBeenCalledTimes(2)
+  })
+
+  // The one thing a reasonable implementer gets wrong here: the rejected-write
+  // throw is raised INSIDE the try whose catch swallows UNIQUE collisions. If
+  // its message matched /UNIQUE/i, the race catch would eat the very failure
+  // this check exists to surface, and the silent-failure bug would survive the
+  // fix. This pins the interaction, not just the throw.
+  it('does not let the race catch swallow a rejected write: the thrown message must not match /UNIQUE/i', async () => {
+    localClient.list.mockResolvedValue([])
+    localClient.write.mockResolvedValue({ status: 'rejected' })
+
+    let caught
+    await ensureCohort('camp-1').catch((err) => {
+      caught = err
+    })
+    expect(caught).toBeInstanceOf(Error)
+    expect(caught.message).not.toMatch(/UNIQUE/i)
+  })
+
+  it('throws when a write resolves with no status at all (not just an explicit rejection)', async () => {
+    localClient.list.mockResolvedValue([])
+    localClient.write.mockResolvedValue(undefined)
+    await expect(ensureCohort('camp-1')).rejects.toThrow(/write failed for field/)
+    expect(localClient.write).toHaveBeenCalledTimes(1)
+  })
+
+  it("accepts 'queued' as success, so an offline device still gets its Main cohort", async () => {
+    localClient.list.mockResolvedValue([])
+    localClient.write.mockResolvedValue({ status: 'queued' })
+    await expect(ensureCohort('camp-1')).resolves.toBeUndefined()
+    expect(localClient.write).toHaveBeenCalledTimes(6)
+  })
+
   it('swallows a genuine UNIQUE-constraint error thrown by a losing concurrent write', async () => {
     localClient.list.mockResolvedValue([])
     localClient.write.mockRejectedValueOnce(new Error('UNIQUE constraint failed: cohorts.camp_id, cohorts.name'))

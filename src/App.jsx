@@ -237,7 +237,16 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         describeWriteFailure(err, "This camp's default weekdays could not be set up.")
       )
     })
-    ensureCohort(campId)
+    // Same for ensureCohort: it throws on a rejected field write and on a camp
+    // mismatch, and as a floating promise both landed nowhere. A camp without a
+    // complete Main cohort is the parent scope the setup screens and the engine
+    // read against, so the director must be told rather than left to discover a
+    // broken setup with no stated cause.
+    ensureCohort(campId).catch((err) => {
+      setOpRejectedNotice(
+        describeWriteFailure(err, "This camp's default cohort could not be set up.")
+      )
+    })
   }, [campId])
 
   const weekProps = { weekId, weeks, onSelectWeek: setWeekId }
