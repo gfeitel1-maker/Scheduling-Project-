@@ -66,8 +66,23 @@ export async function ensureCohort(campId) {
     : { ...DEFAULTS, camp_id: campId }
 
   try {
+    // Each write is checked and the first failure stops the loop — the same
+    // check-and-throw shape as the sibling per-field loops in
+    // src/data/scheduleRepository.js, src/data/setupCrudRepository.js and
+    // src/utils/seedDays.js. It is NOT covered by the catch below: a refused
+    // write RESOLVES with { status: 'rejected' }, it does not throw, so without
+    // this check it flows past as success and the camp is left with no complete
+    // Main cohort and nothing said about it.
+    //
+    // The message must not match /UNIQUE/i — this throw is raised inside the
+    // try, and the catch swallows UNIQUE as the expected race outcome. Wording
+    // it as the siblings do (`write failed for field "<field>"`) keeps the two
+    // failure modes distinguishable. See the test that pins this.
     for (const [field, value] of Object.entries(fields)) {
-      await localClient.write(token, 'cohorts', id, field, value)
+      const result = await localClient.write(token, 'cohorts', id, field, value)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error(`write failed for field "${field}"`)
+      }
     }
   } catch (err) {
     // Only a genuine UNIQUE(camp_id, name) constraint violation is the

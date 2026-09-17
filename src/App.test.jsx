@@ -64,10 +64,12 @@ vi.mock('./screens/ImportScreen', () => ({
 
 import { AppShell } from './App'
 import { seedDays } from './utils/seedDays'
+import { ensureCohort } from './utils/ensureCohort'
 
 beforeEach(() => {
   opRejectedCallback = undefined
   seedDays.mockReset().mockResolvedValue(undefined)
+  ensureCohort.mockReset().mockResolvedValue(undefined)
 })
 
 // A failed one-time camp seed used to be an unhandled promise rejection: the
@@ -81,6 +83,15 @@ describe('AppShell: a failed camp seed is surfaced, not swallowed', () => {
 
     const alert = screen.getByRole('alert')
     expect(alert.textContent).toMatch(/default weekdays could not be set up/i)
+  })
+
+  it('shows a notice when ensureCohort rejects', async () => {
+    ensureCohort.mockRejectedValue(new Error('write failed for field "name"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default cohort could not be set up/i)
   })
 
   it('shows no notice when the seed succeeds', async () => {
