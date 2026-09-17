@@ -189,7 +189,7 @@ They are different facts and a run can carry a bad one of each.
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
 | 2026-09-16 | [closes T178 — INCONCLUSIVE verdict two filters (load-sensitive + slow only)](../../docs/work/runs/2026-09-16-closes-t178-inconclusive-verdict-two-filters.md) | test-infrastructure | pass | PASS |
-| 2026-09-16 | [T186 + T187 — gate descriptive docs against deleted paths, and engine fixtures against the real schema](../../docs/work/runs/2026-09-16-closes-t186-t187-doc-and-fixture-guards.md) | documentation-governance | in-progress | _no verdict yet_ |
+| 2026-09-16 | [T186 + T187 — gate descriptive docs against deleted paths, and engine fixtures against the real schema](../../docs/work/runs/2026-09-16-closes-t186-t187-doc-and-fixture-guards.md) | documentation-governance | pass | PASS |
 | 2026-09-16 | [T180 — a Recurring Event stores its age DIVISIONS, not a snapshot of their groups](../../docs/work/runs/2026-09-16-t180-division-scope-as-unit-ids.md) | database-sync | pass | pass |
 | 2026-09-15 | [closes T164 — verify reports INCONCLUSIVE (exit 2) when a step fails under machine oversubscription](../../docs/work/runs/2026-09-15-closes-t164-verify-reports-inconclusive-exit-2-when-a-step-f.md) | test-infrastructure | pass | PASS |
 | 2026-09-15 | [closes T156: the decision was already made, recorded and built — the ticket did not follow](../../docs/work/runs/2026-09-15-t156-close-and-stale-comment-sweep.md) | scheduling-engine | pass | pass |

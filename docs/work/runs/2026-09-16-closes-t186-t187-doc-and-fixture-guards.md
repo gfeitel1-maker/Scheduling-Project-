@@ -3,7 +3,7 @@ task: "T186 + T187 — gate descriptive docs against deleted paths, and engine f
 document_type: run
 date: 2026-09-16
 round: 1
-status: in-progress
+status: pass
 task_class: documentation-governance
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md]
 related_tickets: [docs/work/tickets/T186-claude-md-goes-stale-by-construction.md, docs/work/tickets/T187-engine-fixtures-have-no-schema-parity-guard.md]
@@ -26,10 +26,10 @@ omitted_agents:
   - agent: grader
     reason: human-waived
     note: "owner instruction, verbatim — 'merge both once the gate is green and I will take you up on the recommendations above'"
-deterministic_checks: []
+deterministic_checks: [lint, agents:check, test, test:integration, security, check:governance]
 human_gates: []
-verdict: null
-completion_evidence: []
+verdict: PASS
+completion_evidence: ["npm run verify on integration/t186-t187 @ 1c94d08 — VERIFY PASSED (all six steps green)"]
 archive_when: "T186 and T187 are both status completed on main and the guards they add have survived one subsequent structural change"
 ---
 
@@ -85,10 +85,10 @@ side of the seam where the defect actually lived.
 |---|---|---|
 | lint | PASS | `eslint .` clean in the integration gate |
 | agents:check | PASS | 14 profiles byte-identical |
-| test | | |
-| test:integration | | |
-| security | | |
-| check:governance | | |
+| test | PASS | full vitest run, integration/t186-t187 @ 1c94d08 |
+| test:integration | PASS | 20/20 libp2p scenarios |
+| security | PASS | security-gate: 0 findings (deps + secrets + dangerous patterns) |
+| check:governance | PASS | no findings |
 
 ## Anti-vacuity — the substance of this run
 
@@ -113,7 +113,11 @@ defect this run exists to close.
 
 ## Verifier verdict
 
-<!-- filled from the integration gate's printed verdict line, not an exit code -->
+PASS — `✅ VERIFY PASSED — lint + agents:check + test + test:integration + security + check:governance all green`
+
+> Read from the gate's printed verdict line. The exit code (0) agreed, but the line is the authority:
+> an earlier run of this same gate was RED at `check:governance` while every prior step passed, and a
+> piped wrapper's exit code would have reported that run's last command, not npm's.
 
 ## Grader score
 
@@ -134,4 +138,8 @@ tradeoffs rather than filed as follow-up tickets:
 
 ## Decision
 
-<!-- filled after the gate -->
+PASS — both tickets close. Merged to `main` on the owner's instruction ("merge both once the gate is green").
+
+> First gate run was discarded, not repaired: it executed in the main checkout while another session
+> was actively editing there, so its green steps were not trustworthy evidence even though they were
+> almost certainly correct. Re-run clean in an isolated worktree.
