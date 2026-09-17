@@ -62,6 +62,10 @@ export const DOMAIN_STATE_MIGRATIONS = new Map([
 //   v9  — camps.signing_secret (host-only; hostOnlyExclusion.test.js pins that
 //         it never follows into the document)
 //   v22 — device_identity.first_sync_completed_at (host-local table)
+//   v67 — devices.libp2p_peer_id (T162). The migration NULLs this column on every
+//         row, but it is a device-local admission/routing anchor the document has
+//         never carried (libp2pPeerId.migration.test.js pins that it is neither
+//         replicated nor read by authorize()), so no replica can diverge from it.
 // If a future migration writes a MODELED field of any of these tables, it
 // belongs in the set above, not here.
 
@@ -93,6 +97,10 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // v64 adds import_decision_failures (T173 slice 1) — a new host-local, never-replicated table.
   // Table shape only; the document does not model it and never will.
   64,
+  // v67 (T162) creates device_identity_key (host-local, never replicated) and NULLs
+  // devices.libp2p_peer_id so every device re-binds its persistent libp2p identity via
+  // TOFU. Both touch only fields the document does not carry — see the note above.
+  67,
   // v65 (T180) adds anchor_activities.unit_ids and backfills it from the legacy singular
   // unit_id. Schema-only by the same reading as v51: the backfill RE-EXPRESSES a fact the
   // row already carried (one division, now written as a one-element list) in a new column —

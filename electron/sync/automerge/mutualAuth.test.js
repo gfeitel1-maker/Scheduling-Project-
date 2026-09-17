@@ -15,7 +15,7 @@ function fakeHandle() {
 describe('wireMutualAuth', () => {
   it('dials and authenticates a discovered peer using the current token', async () => {
     const handle = fakeHandle()
-    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1' })
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true })
 
     handle.fireDiscovery('peer-b')
     await new Promise((r) => setTimeout(r, 10))
@@ -26,7 +26,7 @@ describe('wireMutualAuth', () => {
 
   it('does not dial a discovered peer when there is no token yet', async () => {
     const handle = fakeHandle()
-    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => null })
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => null, isPeerTrusted: () => true })
 
     handle.fireDiscovery('peer-b')
     await new Promise((r) => setTimeout(r, 10))
@@ -36,7 +36,7 @@ describe('wireMutualAuth', () => {
 
   it('does not re-dial the same peer twice while already attempted', async () => {
     const handle = fakeHandle()
-    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1' })
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true })
 
     handle.fireDiscovery('peer-b')
     handle.fireDiscovery('peer-b')
@@ -49,7 +49,7 @@ describe('wireMutualAuth', () => {
     const handle = fakeHandle()
     handle.authenticateWith = vi.fn().mockResolvedValue({ type: 'auth_failed', reason: 'device_revoked' })
     const onRejected = vi.fn()
-    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', onRejected })
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true, onRejected })
 
     handle.fireDiscovery('peer-b')
     await new Promise((r) => setTimeout(r, 10))
@@ -65,7 +65,7 @@ describe('wireMutualAuth', () => {
   it('clears the attempted mark on a dial failure so a later discovery retries', async () => {
     const handle = fakeHandle()
     handle.dial = vi.fn().mockRejectedValueOnce(new Error('unreachable')).mockResolvedValue(undefined)
-    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1' })
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true })
 
     handle.fireDiscovery('peer-b')
     await new Promise((r) => setTimeout(r, 10))
@@ -90,7 +90,7 @@ describe('mutualAuth — one reachable direction is enough', () => {
       authenticateWith: async () => ({ type: 'auth_ok' }),
       onPeerDiscovery: () => {},
     }
-    const m = wireMutualAuth(handle, { deviceId: 'me', getToken: () => 'tok' })
+    const m = wireMutualAuth(handle, { deviceId: 'me', getToken: () => 'tok', isPeerTrusted: () => true })
     await m.tryAuthenticate('peer-1')
     expect(dials).toEqual([])
   })
@@ -104,7 +104,7 @@ describe('mutualAuth — one reachable direction is enough', () => {
       authenticateWith: async () => { authCalls.push(1); return { type: 'auth_ok' } },
       onPeerDiscovery: () => {},
     }
-    const m = wireMutualAuth(handle, { deviceId: 'me', getToken: () => 'tok' })
+    const m = wireMutualAuth(handle, { deviceId: 'me', getToken: () => 'tok', isPeerTrusted: () => true })
     await m.tryAuthenticate('peer-2')
     expect(authCalls.length).toBe(1)
   })
@@ -117,8 +117,137 @@ describe('mutualAuth — one reachable direction is enough', () => {
       authenticateWith: async () => { authCalls.push(1); return { type: 'auth_ok' } },
       onPeerDiscovery: () => {},
     }
-    const m = wireMutualAuth(handle, { deviceId: 'me', getToken: () => 'tok' })
+    const m = wireMutualAuth(handle, { deviceId: 'me', getToken: () => 'tok', isPeerTrusted: () => true })
     await m.tryAuthenticate('peer-3')
     expect(authCalls).toEqual([])
+  })
+})
+
+// ── T208: the discovery seam must not hand this device's session token to a
+// peer it does not already trust. Before this, `tryAuthenticate` gated only on
+// an in-memory `attempted` Set and on holding a token, then sent
+// { type:'authenticate', token, device_id } to ANY peer surfaced by
+// onPeerDiscovery. On the LAN that is bounded by mDNS multicast; the moment a
+// second discovery mechanism exists that anyone can write into, the bound is
+// gone. See docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md.
+describe('wireMutualAuth — local trust filter (T208)', () => {
+  it('refuses to authenticate to a peer that local trust state does not recognize', async () => {
+    const handle = fakeHandle()
+    wireMutualAuth(handle, {
+      deviceId: 'device-a',
+      getToken: () => 'tok-1',
+      isPeerTrusted: (id) => id === 'peer-trusted',
+    })
+
+    handle.fireDiscovery('peer-attacker')
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(handle.dial).not.toHaveBeenCalled()
+    expect(handle.authenticateWith).not.toHaveBeenCalled()
+  })
+
+  it('still authenticates to a peer that local trust state does recognize', async () => {
+    const handle = fakeHandle()
+    wireMutualAuth(handle, {
+      deviceId: 'device-a',
+      getToken: () => 'tok-1',
+      isPeerTrusted: (id) => id === 'peer-trusted',
+    })
+
+    handle.fireDiscovery('peer-trusted')
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(handle.authenticateWith).toHaveBeenCalledWith('peer-trusted', {
+      type: 'authenticate', token: 'tok-1', device_id: 'device-a',
+    })
+  })
+
+  // NON-VACUITY. A filter that silently stops being consulted is worse than no
+  // filter, because the guarantee is still written down. If wiring forgets the
+  // predicate, this must fail LOUDLY at wire time rather than fall back to
+  // "authenticate to everyone", which is exactly the defect being closed.
+  it('refuses to wire at all when no trust predicate is supplied', () => {
+    const handle = fakeHandle()
+    expect(() => wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1' }))
+      .toThrow(/isPeerTrusted/)
+  })
+
+  it('treats a throwing trust predicate as "not trusted" rather than as permission', async () => {
+    const handle = fakeHandle()
+    wireMutualAuth(handle, {
+      deviceId: 'device-a',
+      getToken: () => 'tok-1',
+      isPeerTrusted: () => { throw new Error('db is locked') },
+    })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(handle.authenticateWith).not.toHaveBeenCalled()
+  })
+
+  it('re-checks trust on every discovery, so a revoked peer is refused on its next announce', async () => {
+    const handle = fakeHandle()
+    let trusted = true
+    wireMutualAuth(handle, {
+      deviceId: 'device-a',
+      getToken: () => 'tok-1',
+      isPeerTrusted: () => trusted,
+    })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(1)
+
+    // Revoked between announces. mDNS re-announces periodically, so this is the
+    // realistic path by which a revocation takes effect at this seam.
+    trusted = false
+    handle.fireDiscovery('peer-c')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── T208, second defect in the same function. `attempted.add(peerId)` happens
+// before any outcome and is cleared on dial failure or explicit rejection, but
+// NOT on a hang. A peer that accepts the connection and never replies pins the
+// dedupe slot, so the real peer's later legitimate announce is dropped by the
+// `if (attempted.has(peerId)) return` guard — a reconnection DoS that needs no
+// forged signature.
+describe('wireMutualAuth — a hung authenticate must not pin the dedupe slot', () => {
+  it('clears the attempt after the stall timeout so a later announce retries', async () => {
+    const handle = fakeHandle()
+    handle.authenticateWith = vi.fn().mockImplementation(() => new Promise(() => {})) // never settles
+    wireMutualAuth(handle, {
+      deviceId: 'device-a',
+      getToken: () => 'tok-1',
+      isPeerTrusted: () => true,
+      attemptTimeoutMs: 20,
+    })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 60))
+
+    // The real peer announces again after the stall.
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(handle.authenticateWith.mock.calls.length).toBeGreaterThan(1)
+  })
+})
+
+// T208: the policy syncNode puts in force by default is a deliberate, named
+// decision — not an accident of a missing argument. If someone changes what
+// the production node trusts, this test is where they must say so.
+describe('syncNode default trust policy (T208)', () => {
+  it('is the named LAN-topology policy, which trusts every mDNS-discovered peer', async () => {
+    const { lanTopologyTrust } = await import('./syncNode.js')
+    expect(typeof lanTopologyTrust).toBe('function')
+    // Deliberately permissive: peer ids are not stable across restarts on this
+    // tree (transport.js persists no private key), so a peer-id-based check
+    // would break all sync. The control here is mDNS topology, not this
+    // predicate. Closing it for real is T162 (persistent identity + token
+    // binding). See syncNode.js's comment above lanTopologyTrust.
+    expect(lanTopologyTrust('any-peer-id')).toBe(true)
   })
 })

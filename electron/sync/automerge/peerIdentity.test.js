@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import Database from 'better-sqlite3'
 import { initSchema } from '../../db/localDb.js'
-import { recordLibp2pPeerId } from './peerIdentity.js'
+import { recordLibp2pPeerId, bindOrVerifyPeerIdentity } from './peerIdentity.js'
+
+function freshDb() {
+  const db = new Database(':memory:')
+  initSchema(db)
+  return db
+}
 
 describe('recordLibp2pPeerId', () => {
   let db
@@ -64,5 +70,64 @@ describe('recordLibp2pPeerId — only a UNIQUE collision triggers clear-and-retr
     db.prepare = realPrepare
     // The other device's claim must be untouched — the bug was nulling it here.
     expect(db.prepare("SELECT libp2p_peer_id AS p FROM devices WHERE id = 'other'").get().p).toBe('peer-1')
+  })
+})
+
+describe('bindOrVerifyPeerIdentity', () => {
+  it('first contact for a device with no bound peer id: binds and returns ok', () => {
+    const db = freshDb()
+    db.prepare("INSERT INTO devices (id, name) VALUES ('d1', 'Device 1')").run()
+    const result = bindOrVerifyPeerIdentity(db, 'd1', 'peer-a')
+    expect(result).toEqual({ ok: true, bound: 'first' })
+    expect(db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get('d1').libp2p_peer_id).toBe('peer-a')
+  })
+
+  it('reconnect with the same bound peer id: matches, ok, no error', () => {
+    const db = freshDb()
+    db.prepare("INSERT INTO devices (id, name, libp2p_peer_id) VALUES ('d1', 'Device 1', 'peer-a')").run()
+    const result = bindOrVerifyPeerIdentity(db, 'd1', 'peer-a')
+    expect(result).toEqual({ ok: true, bound: 'match' })
+  })
+
+  it('a different peer id than the one bound: rejected, devices row untouched', () => {
+    const db = freshDb()
+    db.prepare("INSERT INTO devices (id, name, libp2p_peer_id) VALUES ('d1', 'Device 1', 'peer-a')").run()
+    const result = bindOrVerifyPeerIdentity(db, 'd1', 'peer-b')
+    expect(result).toEqual({ ok: false, reason: 'peer_identity_mismatch' })
+    expect(db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get('d1').libp2p_peer_id).toBe('peer-a')
+  })
+})
+
+// Red Hat finding, 2026-09-17. The ADR says a two-devices-one-peer-id collision is
+// "correctly rejected", but the original implementation rejected it by throwing a raw
+// SQLITE_CONSTRAINT out of an admission decision — which skips the caller's audit
+// record and surfaces as an internal error rather than a denial. The realistic cause
+// is not a keypair collision but one device_identity_key copied to a second machine.
+describe('bindOrVerifyPeerIdentity — a peer id already claimed by another device', () => {
+  it('is refused as a decision, not raised as a raw db error', () => {
+    const db = freshDb()
+    db.prepare("INSERT INTO devices (id, name) VALUES ('device-a', 'A')").run()
+    db.prepare("INSERT INTO devices (id, name) VALUES ('device-b', 'B')").run()
+
+    expect(bindOrVerifyPeerIdentity(db, 'device-a', 'peer-shared')).toEqual({ ok: true, bound: 'first' })
+
+    // device-b presents the SAME peer id — the v57 partial unique index forbids it.
+    const result = bindOrVerifyPeerIdentity(db, 'device-b', 'peer-shared')
+    expect(result).toEqual({ ok: false, reason: 'peer_identity_mismatch' })
+
+    // ...and device-b stays unbound, so the legitimate machine can still bind later.
+    const row = db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get('device-b')
+    expect(row.libp2p_peer_id).toBe(null)
+    db.close()
+  })
+
+  it('re-throws a non-constraint db fault instead of reporting it as a clean denial', () => {
+    const exploding = {
+      prepare: () => ({
+        get: () => ({ libp2p_peer_id: null }),
+        run: () => { const e = new Error('database is locked'); e.code = 'SQLITE_BUSY'; throw e },
+      }),
+    }
+    expect(() => bindOrVerifyPeerIdentity(exploding, 'device-a', 'peer-x')).toThrow(/locked/)
   })
 })

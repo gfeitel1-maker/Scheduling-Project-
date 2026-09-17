@@ -220,8 +220,8 @@ describe('mutual authentication over libp2p (Stage 5d-2b production wiring)', ()
     // what makes admission symmetric in practice: no special-cased "and now
     // dial back" step, just both sides independently doing the identical
     // thing.
-    const mutualA = wireMutualAuth(a, { deviceId: 'device-a', getToken: () => tokenA })
-    const mutualB = wireMutualAuth(b, { deviceId: 'device-b', getToken: () => tokenB })
+    const mutualA = wireMutualAuth(a, { deviceId: 'device-a', getToken: () => tokenA, isPeerTrusted: () => true })
+    const mutualB = wireMutualAuth(b, { deviceId: 'device-b', getToken: () => tokenB, isPeerTrusted: () => true })
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
@@ -283,8 +283,8 @@ describe('mutual authentication over libp2p (Stage 5d-2b production wiring)', ()
     const client = await startSyncNode({ deviceId: 'client-device', db: dbB, doc: A.clone(genesis) })
     nodes.push(host, client)
 
-    const mutualHost = wireMutualAuth(host, { deviceId: 'host-device', getToken: () => hostDeviceToken })
-    const mutualClient = wireMutualAuth(client, { deviceId: 'client-device', getToken: () => clientCampToken })
+    const mutualHost = wireMutualAuth(host, { deviceId: 'host-device', getToken: () => hostDeviceToken, isPeerTrusted: () => true })
+    const mutualClient = wireMutualAuth(client, { deviceId: 'client-device', getToken: () => clientCampToken, isPeerTrusted: () => true })
 
     await host.dial(client.getMultiaddrs()[0])
     await waitFor(() => host.getPeers().length > 0)

@@ -25,7 +25,35 @@
 // which case this device has nothing to authenticate itself WITH and the
 // discovered peer is left un-dialed until a later discovery event (mDNS
 // re-announces periodically) or an explicit retry.
-export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, onRejected } = {}) {
+// T208 (docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md).
+// `isPeerTrusted(peerId) -> boolean` is REQUIRED, and its absence throws here
+// rather than defaulting to anything. Before T208 this function sent
+// { type:'authenticate', token, device_id } to ANY peer surfaced by
+// onPeerDiscovery, with no check that the peer was a device this camp knows.
+// On the LAN that is bounded by mDNS link-local multicast, which is why it
+// survived review; the moment a second discovery mechanism exists that anyone
+// on the internet can write into (the rendezvous program,
+// docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md), the bound is
+// gone and this node hands a bearer credential to whoever published a record.
+//
+// It is required rather than defaulted because the two possible defaults are
+// both wrong: defaulting to permit silently reopens the hole for any caller
+// that forgets, and defaulting to deny turns a wiring mistake into total
+// silent sync failure — the failure shape this module's header calls the worst
+// one. Throwing makes a missing decision loud, immediate, and impossible to
+// ship.
+//
+// LIMIT, stated because the guarantee is otherwise easy to over-read: what
+// this closes is "we send our token to a stranger". It does NOT make the token
+// unusable if it reaches one — that is token-to-peer binding, T162.
+export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000 } = {}) {
+  if (typeof isPeerTrusted !== 'function') {
+    throw new TypeError(
+      'wireMutualAuth requires an isPeerTrusted(peerId) predicate: this seam decides who receives ' +
+      'this device\'s session token, and every discovery mechanism feeds it. See ' +
+      'docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md.'
+    )
+  }
   // Tracks peer ids already dialed so a peer that keeps re-announcing over
   // mDNS (the normal, periodic behavior) doesn't get re-dialed every time.
   // Cleared for a given peer on failure, so a transient dial/auth failure
@@ -35,13 +63,43 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, onRejected 
 
   async function tryAuthenticate(peerId) {
     if (attempted.has(peerId)) return
+
+    // Checked on EVERY discovery, never cached: local trust is a live,
+    // eventually-consistent value (a device can be revoked between two mDNS
+    // announces), so a cached verdict would keep a revoked peer admitted at
+    // this seam until restart. A predicate that throws is treated as "not
+    // trusted" — a db fault is not permission, and failing open here would
+    // reintroduce the exact defect the predicate exists to close.
+    let trusted = false
+    try {
+      trusted = isPeerTrusted(peerId) === true
+    } catch (err) {
+      console.error(`mutualAuth: trust check for ${peerId} failed, treating as untrusted: ${err?.message ?? err}`)
+      trusted = false
+    }
+    if (!trusted) return
+
     attempted.add(peerId)
+
+    // A peer that accepts the connection and then never replies would otherwise
+    // hold this dedupe slot forever: `attempted` is cleared on dial failure and
+    // on an explicit rejection, but a hang is neither, so the real peer's later
+    // legitimate announce is dropped by the `attempted.has` guard above. That is
+    // a reconnection DoS requiring no forged signature. Bound it.
+    const stall = setTimeout(() => {
+      if (attempted.delete(peerId)) {
+        console.error(`mutualAuth: attempt against ${peerId} stalled past ${attemptTimeoutMs}ms; releasing it so a later discovery can retry`)
+      }
+    }, attemptTimeoutMs)
+    stall.unref?.()
+    const release = () => clearTimeout(stall)
 
     const token = typeof getToken === 'function' ? getToken() : null
     if (!token) {
       // Not logged in / no self-issued token yet — nothing to prove
       // ourselves with. Not a failure: allow a future discovery event (or
       // an explicit re-run once a token exists) to retry.
+      release()
       attempted.delete(peerId)
       return
     }
@@ -65,6 +123,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, onRejected 
         await syncNodeHandle.dial(peerId)
       } catch (err) {
         if (!alreadyConnected()) {
+          release()
           attempted.delete(peerId)
           console.error(`mutualAuth: dial to ${peerId} failed and no existing connection to reuse (will retry on next discovery): ${err?.message ?? err}`)
           return
@@ -75,6 +134,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, onRejected 
 
     try {
       const reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId })
+      release()
       if (!reply || reply.type !== 'auth_ok') {
         // Red Hat finding on 5d-1: a legitimately-paired device rejected by
         // the gate must not vanish with only a console.error and nothing
@@ -90,6 +150,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, onRejected 
         attempted.delete(peerId)
       }
     } catch (err) {
+      release()
       attempted.delete(peerId)
       console.error(`mutualAuth: authenticateWith ${peerId} failed (will retry on next discovery): ${err?.message ?? err}`)
     }
