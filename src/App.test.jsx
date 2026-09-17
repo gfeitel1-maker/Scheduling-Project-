@@ -99,6 +99,248 @@ describe('AppShell: a failed camp seed is surfaced, not swallowed', () => {
     await act(async () => {})
     expect(screen.queryByRole('alert')).toBeNull()
   })
+
+  // T200 — the two bootstrap writers race by construction (Promise.allSettled
+  // over both), so a shared failure cause must not let one .catch clobber the
+  // other's notice. Both causes must be legible in the one composed notice.
+  it('T200: names BOTH failures when seedDays and ensureCohort both reject', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    ensureCohort.mockRejectedValue(new Error('write failed for field "name"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays/i)
+    expect(alert.textContent).toMatch(/default cohort/i)
+  })
+
+  // T201 — the notice copy ends in "try again"; a bootstrap failure must
+  // offer an explicit retry control that actually re-runs the bootstrap.
+  it('T201: a bootstrap failure notice renders a Try again control that re-runs the bootstrap', async () => {
+    seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    expect(seedDays).toHaveBeenCalledTimes(1)
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+
+    seedDays.mockResolvedValueOnce(undefined)
+    await act(async () => {
+      fireEvent.click(retryBtn)
+    })
+
+    expect(seedDays).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  // T201 — an onOpRejected notice is not a bootstrap failure; it must not
+  // grow a retry control that has nothing meaningful to re-run.
+  it('T201: the offline-queue onOpRejected notice has no Try again control', () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    act(() => {
+      opRejectedCallback({
+        type: 'op_rejected',
+        reason: 'unique_field',
+        existing: { id: 'loc-a', name: 'Pool' },
+      })
+    })
+    expect(screen.getByRole('alert')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /try again/i })).toBeNull()
+  })
+
+  // T201 — the StrictMode guard is the fix's non-goal: retry must not
+  // reopen the double-seed hole. Forcing the bootstrap effect to run twice
+  // (StrictMode's dev-mode behaviour) must still call seedDays exactly once.
+  it('T201: StrictMode double-invocation still calls seedDays exactly once', async () => {
+    const React = await import('react')
+    render(
+      <React.StrictMode>
+        <AppShell campId="camp-1" role="admin" onLogout={() => {}} />
+      </React.StrictMode>
+    )
+    await act(async () => {})
+    expect(seedDays).toHaveBeenCalledTimes(1)
+  })
+
+  // T201 — clicking Try again twice while the first attempt is still
+  // in-flight must not start two concurrent bootstrap runs.
+  it('T201: rapid double-click on Try again does not run concurrent bootstraps', async () => {
+    seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+
+    let resolveSecond
+    seedDays.mockReset()
+    seedDays.mockReturnValue(new Promise((resolve) => { resolveSecond = resolve }))
+    ensureCohort.mockReset().mockResolvedValue(undefined)
+
+    fireEvent.click(retryBtn)
+    fireEvent.click(retryBtn)
+
+    expect(seedDays).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveSecond()
+    })
+  })
+
+  // Round-2 review, Red Hat HIGH — allSettled must gate ONLY the in-flight
+  // flag, not the notice itself. A hung write must not suppress a failure
+  // that is already known.
+  it('round2: a hung ensureCohort does not suppress a known seedDays failure', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    ensureCohort.mockReturnValue(new Promise(() => {})) // never settles
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/default weekdays could not be set up/i)
+  })
+
+  // Round-2 review, Tester MEDIUM — a same-cause double failure must not
+  // repeat the cause sentence verbatim.
+  it('round2: a same-cause double failure names both subjects with the cause only once', async () => {
+    seedDays.mockRejectedValue(new Error('disconnected'))
+    ensureCohort.mockRejectedValue(new Error('disconnected'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const alert = screen.getByRole('alert')
+    const cause = 'Your devices could not reach each other — try again when they are both on the network.'
+    expect(alert.textContent).toMatch(/default weekdays/i)
+    expect(alert.textContent).toMatch(/default cohort/i)
+    const occurrences = alert.textContent.split(cause).length - 1
+    expect(occurrences).toBe(1)
+  })
+
+  // Round-2 review, Tester MEDIUM — a different-cause double failure keeps
+  // both full sentences, each with its own cause.
+  it('round2: a different-cause double failure keeps both causes distinct', async () => {
+    seedDays.mockRejectedValue(new Error('UNIQUE constraint failed'))
+    ensureCohort.mockRejectedValue(new Error('NOT NULL constraint failed'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/Another record already has that name/i)
+    expect(alert.textContent).toMatch(/Something it needs is missing/i)
+  })
+
+  // Round-2 review, Tester HIGH — the banner must stay mounted and show a
+  // disabled "Retrying…" state while a retry is in flight, not vanish.
+  it('round2: retry keeps the banner mounted and shows a disabled Retrying state', async () => {
+    seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+
+    let resolveRetry
+    seedDays.mockReset()
+    seedDays.mockReturnValue(new Promise((resolve) => { resolveRetry = resolve }))
+    ensureCohort.mockReset().mockResolvedValue(undefined)
+
+    fireEvent.click(retryBtn)
+
+    expect(screen.getByRole('alert')).toBeTruthy()
+    const retryingBtn = screen.getByRole('button', { name: /retrying/i })
+    expect(retryingBtn.disabled).toBe(true)
+
+    await act(async () => { resolveRetry() })
+  })
+
+  // Round-2 review, Tester MEDIUM — DESIGN_STANDARD §5c: a recoverable
+  // inline error's retry affordance is a link-button in var(--primary).
+  it('round2: the retry control uses the primary link-button color per DESIGN_STANDARD §5c', async () => {
+    seedDays.mockRejectedValueOnce(new Error('write failed for field "label"'))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+    expect(retryBtn.style.color).toBe('var(--primary)')
+  })
+
+  // Round-2 review, Red Hat MEDIUM — seededForCamp is set before the
+  // in-flight check runs, so a campId change mid-flight must not
+  // permanently starve the new camp: an early-returned run must clear the
+  // guard so a later attempt for that camp can proceed.
+  it('round2: a campId change mid-flight does not permanently starve the new camp', async () => {
+    let resolveCamp1
+    seedDays.mockImplementationOnce(() => new Promise((resolve) => { resolveCamp1 = resolve }))
+    ensureCohort.mockResolvedValue(undefined)
+
+    const { rerender } = render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    seedDays.mockResolvedValue(undefined)
+    rerender(<AppShell campId="camp-2" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    await act(async () => { resolveCamp1() })
+
+    rerender(<AppShell campId={null} role="admin" onLogout={() => {}} />)
+    rerender(<AppShell campId="camp-2" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    expect(seedDays).toHaveBeenCalledWith('camp-2')
+  })
+
+  // Round-3 review, HIGH — bootstrapBusy must mean "a director-initiated
+  // retry is in progress", not "the mount bootstrap is still running". A
+  // hung mount-time attempt must not render the retry control as a
+  // permanently-disabled "Retrying…" that the director never triggered.
+  it('round3: a hung ensureCohort on the MOUNT run leaves Try again enabled, not stuck on Retrying', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    ensureCohort.mockReturnValue(new Promise(() => {})) // never settles
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+    expect(retryBtn.disabled).toBe(false)
+    expect(retryBtn.textContent).toMatch(/try again/i)
+  })
+
+  // Round-3 review, HIGH — clicking Try again while the mount attempt is
+  // still hung (bootstrapInFlight) must not silently no-op: the director
+  // must see an honest explanation, and it must not fire a second seedDays.
+  it('round3: clicking Try again while the mount run is still hung explains why, and does not re-call seedDays', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    ensureCohort.mockReturnValue(new Promise(() => {})) // never settles
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    expect(seedDays).toHaveBeenCalledTimes(1)
+    const retryBtn = screen.getByRole('button', { name: /try again/i })
+
+    await act(async () => {
+      fireEvent.click(retryBtn)
+    })
+
+    expect(seedDays).toHaveBeenCalledTimes(1)
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/previous attempt has not finished/i)
+    expect(screen.getByRole('button', { name: /try again/i })).toBeTruthy()
+  })
+
+  // Round-3 review, MEDIUM — dismiss must stick. A notice the director just
+  // closed must not silently reopen when a still-pending write later settles.
+  it('round3: dismissing the notice while a write is still pending keeps it closed once that write settles', async () => {
+    seedDays.mockRejectedValue(new Error('write failed for field "label"'))
+    let resolveCohort
+    ensureCohort.mockReturnValue(new Promise((resolve) => { resolveCohort = resolve }))
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    await act(async () => {})
+
+    expect(screen.getByRole('alert')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await act(async () => { resolveCohort() })
+
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
 })
 
 describe('AppShell: offline op-rejected notice (item 7, owner decision)', () => {
