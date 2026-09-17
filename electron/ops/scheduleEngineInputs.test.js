@@ -2,8 +2,15 @@
 // and events, or a headless caller (MCP schedule_state) that threads these
 // straight into buildSchedule() can never resolve an elective offering's or
 // an event's location — the overlay rows would come back but occupancy
-// would still silently be missing, a second falsely-clean result. Mirrors
-// useScheduleData.js's load() (see this module's header comment).
+// would still silently be missing, a second falsely-clean result.
+//
+// T206: this file's subject is no longer a hand-copied mirror of
+// useScheduleData.js's load() — both now call the one implementation in
+// ./scheduleInputNormalization.js, whose own test covers the shared
+// filter/sort/de-dupe/parse rules. What is still worth asserting HERE, and is
+// not covered there, is the DB-backed half: that these two lists survive the
+// real listEntities join (elective_set_activities is parent-scoped through
+// elective_sets.camp_id, not a camp_id column) and reach the caller.
 import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
