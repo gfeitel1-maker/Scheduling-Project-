@@ -37,10 +37,33 @@ Two things worth keeping from this:
 
 - **It is the first evidence that the laptop and CI disagree**, which is the whole argument for
   T191. Every prior green was on a machine that happens to have zsh because it is a Mac.
+- **The second red was a test that named one machine.** With zsh installed, 444 of 445 files
+  passed and the last was `scripts/gateLock.test.js` — a test *this programme wrote* — asserting
+  `repoKey(process.cwd()) === repoKey('/Users/gregfeitel/dev/shoresh')`. On a runner that path does
+  not exist, so `repoKey` returned its no-git fallback and the comparison failed. A test for
+  machine-independent behaviour had a developer's home directory baked into it, and **only a
+  different machine could see that.** Now asserted between two directories of whatever repository is
+  actually under test, plus an explicit test of the fallback.
 - **A missing interpreter reports as a `TypeError` in a helper**, not as "zsh not found". Those
   eight helpers read `spawnSync(...).stdout` without checking `error` or `status`. Not fixed here
   (it would touch eight files owned by T168), but recorded: the next person to hit it should not
   have to rediscover that an undefined `stdout` means the shell is absent.
+
+---
+
+### 0.2 The runner is roughly twice as fast as the laptop
+
+First green-path measurement, from the run that got as far as the suite:
+
+| | Laptop (quiet, 4 cores) | `ubuntu-latest` |
+|---|---:|---:|
+| `test` step | 702.1s | **339.2s** |
+| Whole job | 788s (13m08s) | **~9 min** incl. checkout, install and a from-source native build |
+
+So CI does not merely move the cost off the developer's machine, it roughly halves it — on a
+machine that is doing nothing else. The §4 minute budget should be recomputed against ~9–10 min per
+run rather than the ~20 min it assumed, which makes the per-PR policy considerably more comfortable
+than estimated.
 
 ---
 

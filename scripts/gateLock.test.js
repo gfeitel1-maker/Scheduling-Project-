@@ -60,11 +60,24 @@ describe('processAlive', () => {
 })
 
 describe('repoKey / lockPath', () => {
-  it('is identical from the main checkout and from a worktree — they contend for the same cores', () => {
-    // The whole point of keying on the git COMMON dir: one lock per repository, not per worktree.
-    const fromWorktree = repoKey(process.cwd())
-    const fromMain = repoKey(path.resolve('/Users/gregfeitel/dev/shoresh'))
-    expect(fromWorktree).toBe(fromMain)
+  it('is identical from two directories in the same repository — one lock per repo, not per worktree', () => {
+    // The whole point of keying on the git COMMON dir: every worktree of this repository resolves
+    // the same key, because the contention is for the machine's cores rather than for a branch.
+    //
+    // This asserted that against a HARDCODED '/Users/gregfeitel/dev/shoresh' until CI caught it:
+    // on a runner that path does not exist, repoKey fell back to 'shoresh_default', and the test
+    // failed comparing a real key to the fallback. A test for machine-independent behaviour must
+    // not itself name one machine. Two directories inside whatever repo is actually being tested
+    // prove the same property and travel.
+    const fromRoot = repoKey(process.cwd())
+    const fromSubdir = repoKey(path.join(process.cwd(), 'scripts'))
+    expect(fromRoot).toBe(fromSubdir)
+    expect(fromRoot).not.toBe('shoresh_default') // a real repo, not the no-git fallback
+  })
+
+  it('falls back to a shared default outside a git repository, rather than throwing', () => {
+    // A lock is still better than no lock when the repo cannot be identified.
+    expect(repoKey(os.tmpdir())).toBe('shoresh_default')
   })
 
   it('produces a filesystem-safe path', () => {
