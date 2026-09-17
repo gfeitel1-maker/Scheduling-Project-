@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { localClient } from './localClient'
 import Shell from './components/layout/Shell'
 import { CloseIcon } from './components/icons'
@@ -117,6 +117,29 @@ const ANCHOR_KIND_BY_SCREEN = {
   anchors: 'recurring',
 }
 
+// T200 round 2 — the two bootstrap-failure sentences used to repeat their
+// cause verbatim when both writers failed for the same reason ("weekdays...
+// <cause>. cohort... <cause>."). `describeWriteFailure` isn't touched (it's
+// shared by every other write-failure caller in the app); instead this pulls
+// the cause half out by calling it with an empty subject, so the two causes
+// can be compared and — when identical — folded into one sentence naming
+// both subjects.
+const BOOTSTRAP_DAYS_SUBJECT = "This camp's default weekdays could not be set up."
+const BOOTSTRAP_COHORT_SUBJECT = "This camp's default cohort could not be set up."
+function composeBootstrapNotice(daysReason, cohortReason) {
+  if (daysReason && cohortReason) {
+    const daysCause = describeWriteFailure(daysReason, '').trim()
+    const cohortCause = describeWriteFailure(cohortReason, '').trim()
+    if (daysCause === cohortCause) {
+      return `This camp's default weekdays and default cohort could not be set up. ${daysCause}`
+    }
+    return `${describeWriteFailure(daysReason, BOOTSTRAP_DAYS_SUBJECT)} ${describeWriteFailure(cohortReason, BOOTSTRAP_COHORT_SUBJECT)}`
+  }
+  if (daysReason) return describeWriteFailure(daysReason, BOOTSTRAP_DAYS_SUBJECT)
+  if (cohortReason) return describeWriteFailure(cohortReason, BOOTSTRAP_COHORT_SUBJECT)
+  return null
+}
+
 // Exported (in addition to the default App below) so App.test.jsx can drive
 // it directly with fixed props, bypassing useDeviceMode's async init — the
 // same reasoning every screen test already applies to its own component.
@@ -232,67 +255,97 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // T201: a second ref, separate from seededForCamp, so a manual retry click
   // can't overlap with another retry (or with the mount-time run) — one
   // in-flight bootstrap at a time. seededForCamp itself is never cleared on
-  // failure: that ref's only job is neutralizing StrictMode's double-invoke
-  // (see the comment above), and clearing it on failure would let a second
-  // concurrent seedDays run through the *effect* path, double-seeding
-  // days_of_operation (T201's trap). Retry re-runs through this callback
-  // instead, which the in-flight ref already serialises.
+  // a genuine failure: that ref's only job is neutralizing StrictMode's
+  // double-invoke (see the comment above), and clearing it on failure would
+  // let a second concurrent seedDays run through the *effect* path,
+  // double-seeding days_of_operation (T201's trap). Retry re-runs through
+  // this function instead, which the in-flight ref already serialises.
+  //
+  // Round 2, Red Hat MEDIUM: seededForCamp.current is set (in the mount
+  // effect below) *before* this in-flight check runs, so a campId change
+  // mid-flight used to mark the new camp "seeded" even when its run never
+  // actually happened — permanently starving it. When this function
+  // early-returns because another run is in flight, it clears
+  // seededForCamp.current so the mount effect can try again once the lock
+  // frees up. This is defensive, not load-bearing today: AppShell only
+  // mounts once device.phase === 'session', and this app is single-camp-
+  // per-device (every `camps` lookup is `SELECT ... FROM camps LIMIT 1`), so
+  // campId does not actually change under a live AppShell instance today.
   const bootstrapInFlight = useRef(false)
-  // Holds the latest runBootstrap so the retry closure below can call it by
-  // name without a self-reference to the still-being-assigned `const`.
-  const runBootstrapRef = useRef(null)
+  // Round 2, UI-only flag mirroring bootstrapInFlight into React state so the
+  // retry button can render a "Retrying…" state while a run is in progress.
+  // bootstrapInFlight (the ref) stays the concurrency guard; this never gates
+  // logic, only what the button shows.
+  const [bootstrapBusy, setBootstrapBusy] = useState(false)
 
-  // T200: both writers dispatched together and awaited with allSettled, so a
-  // cause that fails both (dead IPC channel, disk error, camp-id mismatch)
-  // can't have one .catch's setOpRejectedNotice clobber the other's — both
-  // failures are composed into one notice instead. A single rejection keeps
-  // today's exact wording (the join of one message is that message).
+  // T200: both writers dispatched together, but round 2 (Red Hat HIGH) moved
+  // away from awaiting Promise.allSettled as the notice trigger — a hang on
+  // one write (dead IPC, crashed handler) must not suppress a failure that
+  // is already known on the other. Each write gets its own success/failure
+  // handler that records into `state` and recomposes the notice from
+  // whatever has failed *so far*; composeBootstrapNotice keeps days-then-
+  // cohort ordering stable no matter which settles first. allSettled is
+  // still used, but only to know when to release bootstrapInFlight/
+  // bootstrapBusy — a hang no longer blocks the notice.
   //
   // The offline-queue notice (onOpRejected, above) is untouched by this:
   // that source fires alone, asynchronously, one event at a time — it was
   // never part of the race this collapses, so last-writer-wins is still
-  // sound for it (T200's "open design question").
-  const runBootstrap = useCallback(async (id) => {
-    if (bootstrapInFlight.current) return
+  // sound for it (T200's "open design question"). KNOWN, NARROWED limit
+  // (T12/T200/T201): the bootstrap pair no longer races itself, but an
+  // unrelated onOpRejected notice can still arrive mid-bootstrap-retry and
+  // replace this notice (and its retry affordance) under the same
+  // single-scalar last-writer-wins rule — fixing that means the notice
+  // queue T12 explicitly ruled out of scope.
+  async function runBootstrap(id) {
+    if (bootstrapInFlight.current) {
+      seededForCamp.current = null
+      return
+    }
     bootstrapInFlight.current = true
-    const [daysResult, cohortResult] = await Promise.allSettled([
-      seedDays(id),
-      ensureCohort(id),
-    ])
+    setBootstrapBusy(true)
+
+    const state = { days: 'pending', cohort: 'pending' }
+    const recompose = () => {
+      const daysReason = state.days === 'pending' || state.days === 'ok' ? null : state.days
+      const cohortReason = state.cohort === 'pending' || state.cohort === 'ok' ? null : state.cohort
+      const notice = composeBootstrapNotice(daysReason, cohortReason)
+      if (notice) {
+        setOpRejectedNotice(notice)
+        // T201: re-running both is safe — seedDays and ensureCohort are each
+        // idempotent check-then-repair, not one-shot inserts (see seedDays.js's
+        // header comment) — so "Try again" can simply call this again.
+        setNoticeRetry(() => () => runBootstrap(id))
+      } else if (state.days !== 'pending' && state.cohort !== 'pending') {
+        setOpRejectedNotice(null)
+        setNoticeRetry(null)
+      }
+    }
+
+    const daysDone = seedDays(id).then(
+      () => { state.days = 'ok'; recompose() },
+      (err) => { state.days = err; recompose() }
+    )
+    const cohortDone = ensureCohort(id).then(
+      () => { state.cohort = 'ok'; recompose() },
+      (err) => { state.cohort = err; recompose() }
+    )
+
+    await Promise.allSettled([daysDone, cohortDone])
     bootstrapInFlight.current = false
+    setBootstrapBusy(false)
+  }
 
-    const failures = []
-    if (daysResult.status === 'rejected') {
-      failures.push(
-        describeWriteFailure(daysResult.reason, "This camp's default weekdays could not be set up.")
-      )
-    }
-    if (cohortResult.status === 'rejected') {
-      failures.push(
-        describeWriteFailure(cohortResult.reason, "This camp's default cohort could not be set up.")
-      )
-    }
-
-    if (failures.length) {
-      setOpRejectedNotice(failures.join(' '))
-      // T201: re-running both is safe — seedDays and ensureCohort are each
-      // idempotent check-then-repair, not one-shot inserts (see seedDays.js's
-      // header comment) — so "Try again" can simply call this again.
-      setNoticeRetry(() => () => runBootstrapRef.current(id))
-    } else {
-      setOpRejectedNotice(null)
-      setNoticeRetry(null)
-    }
-  }, [])
-  useEffect(() => {
-    runBootstrapRef.current = runBootstrap
-  }, [runBootstrap])
-
+  // runBootstrap is a plain function re-created every render, closing only
+  // over stable refs and stable useState setters; listing it would rerun
+  // this effect every render. campId is the real, intentional guard (see
+  // the seededForCamp comment above).
   useEffect(() => {
     if (!campId || seededForCamp.current === campId) return
     seededForCamp.current = campId
     runBootstrap(campId)
-  }, [campId, runBootstrap])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campId])
 
   const weekProps = { weekId, weeks, onSelectWeek: setWeekId }
 
@@ -322,17 +375,22 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
     <>
       {opRejectedNotice && (
         <div style={opRejectedNoticeStyles.wrap} role="alert">
-          <span>{opRejectedNotice}</span>
+          <span aria-live="polite">{opRejectedNotice}</span>
           <div style={opRejectedNoticeStyles.actions}>
             {noticeRetry && (
+              // Round 2, Tester HIGH: the notice stays mounted through the
+              // retry (no clear-then-vanish) — the button swaps to a
+              // disabled "Retrying…" label so the director can tell a
+              // re-presented failure from a new one, without a spinner
+              // (DESIGN_STANDARD §5b: a label swap is enough for a
+              // sub-second local write).
               <button
                 type="button"
-                onClick={() => {
-                  setOpRejectedNotice(null)
-                  noticeRetry()
-                }}
+                disabled={bootstrapBusy}
+                aria-disabled={bootstrapBusy}
+                onClick={() => noticeRetry()}
                 style={opRejectedNoticeStyles.retryBtn}
-              >Try again</button>
+              >{bootstrapBusy ? 'Retrying…' : 'Try again'}</button>
             )}
             <button
               type="button"
@@ -399,12 +457,16 @@ const opRejectedNoticeStyles = {
     flexShrink: 0,
   },
   // T201 retry affordance — quiet, text-weight, not a filled CTA, so it
-  // reads as part of the banner rather than competing with it.
+  // reads as part of the banner rather than competing with it. Round 2,
+  // Tester MEDIUM: DESIGN_STANDARD §5c ("Error — recoverable inline") calls
+  // for a link-button in var(--primary), not inherited text color — this
+  // banner's text color is var(--danger) (S.errorBanner), which made the
+  // control read as more error text rather than an action.
   retryBtn: {
     background: 'none',
     border: 'none',
     cursor: 'pointer',
-    color: 'inherit',
+    color: 'var(--primary)',
     fontSize: 13,
     fontWeight: 600,
     textDecoration: 'underline',
