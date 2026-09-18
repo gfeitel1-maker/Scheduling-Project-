@@ -258,6 +258,25 @@ published this month). Verified facts about it:
   does not touch the actual problem in front of us. **Recommendation: do not pursue QUIC as part of
   this program.**
 
+  **PREMISE CHANGED, 2026-09-17 — do not cite this rejection as settled.** Half the reason above was
+  a dependency fact, not a judgement: `@chainsafe/libp2p-quic` needs `@libp2p/interface@^3.x` while
+  `libp2p@2.10.0` pins `^2.11.0`, so adopting QUIC meant forcing a repo-wide libp2p major. **That
+  major is now happening anyway** — GHSA-vrf4-mx87-p53w forces `libp2p@3.3.11` (T215), which
+  satisfies `@libp2p/interface@^3.x` incidentally. The dependency-graph objection dissolves with it.
+
+  What still stands on its own: it remains a **native NAPI (Rust) addon**, carrying the same
+  per-platform prebuild and electron-rebuild burden `better-sqlite3` already costs us; js-libp2p's
+  DCUtR path remains under-invested by its maintainers' own account; and **QUIC does not make
+  symmetric-NAT hole punching possible** (Decision 3) — it improves reliability only for NAT classes
+  that were already punchable, so it does not touch the case the owner actually cares about.
+
+  After T215, QUIC is **possible**, not **chosen**. Re-decide it on Phase E evidence, and explicitly
+  **do not adopt it as a side effect of the upgrade** — that is how a rejected option usually creeps
+  back. `@chainsafe/libp2p-quic` is added to the Tier-4 guard's forbidden list **in T215's own PR**,
+  alongside the bump that makes it installable, so adopting it needs the same recorded sign-off as any
+  other internet transport rather than being one `npm install` away the moment the interface version
+  permits it. The guard addition deliberately travels with the upgrade, not with this branch.
+
 **2. DCUtR, honestly, on top of either transport — it cannot punch symmetric NAT/CGNAT, on any
 transport, because that is a topology invariant, not an implementation gap.** DCUtR (and hole
 punching generally) works by having each side learn the other's server-reflexive (NAT-mapped)

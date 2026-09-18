@@ -97,12 +97,69 @@ from the transcript. Two independent reasons:
 What shipped instead: the refusal is surfaced neutrally with no cause and no remedy, and the
 reasoning is written at the site so a future reader does not "improve" it back into a wizard.
 
+## MANDATORY AT REBASE — re-derive the schema version, and renumber ONLY if v66 landed ahead of us
+
+**Do this at rebase, not before, and verify rather than assume.**
+
+This branch is `CURRENT_SCHEMA_VERSION = 66` (`electron/db/localDb.js:25`), with T162's
+`device_identity_key` migration guarded `>= 65 && < 66`. Another session's elective-scheduling work
+(participant data substrate, seven synced entities) also built **v66** on top of 65. Two migrations
+at one version is materially worse than a duplicate ticket number: whichever lands **second is never
+applied** on any database that already ran the first, because the guard compares the stored version
+against the literal — and the app then reports itself fully migrated. Silent data-shape divergence
+across a camp's devices, surfacing much later as unexplained sync failures.
+
+**Agreed resolution, and deliberately NOT an advance allocation:** both branches stay at v66 as they
+are. **Whoever merges first keeps v66; the second renumbers to v67 at rebase.** Nobody does
+speculative renumbering work against a version no pushed ref holds — that risks doing the work twice,
+or undoing it.
+
+Confirmed with the other session: their v66 is committed locally and simply unpushed, so the table
+below was accurate on all three rows.
+
+**If, and only if, v66 has landed ahead of us**, the work — all of which must move together:
+- `CURRENT_SCHEMA_VERSION` → 67, and T162's guard re-written `>= 66 && < 67`.
+- The down-migration follows, **filename included**: `rollback/v66_down.js` → `v67_down.js`.
+- The classification entry added for v66 in `electron/db/migrationDomainState.js` must follow to 67,
+  or `migrationDomainState.test.js`'s "covers 1..CURRENT_SCHEMA_VERSION with no gaps" fails — that is
+  the exact test that reddened this branch's third gate.
+- Every sibling test asserting the version literal. **Re-derive the list; do not trust a number.**
+  A count of 17 was reached by grepping the literal, which over-counts files that mention 66
+  incidentally and under-counts any test that *derives* the version instead of asserting it — and the
+  derived cases are precisely the ones a literal sweep misses and that fail after you believe you are
+  finished.
+
+### The load-bearing part: merge order IS the rule, not an agreement about who gets which number
+
+"We agreed who gets which number" is **not** the safety property. If v67 landed before v66, every
+device that ran v67 would skip v66 permanently — the identical silent-divergence failure with the
+numbers swapped. The rule is therefore **numbers follow merge order, verified at rebase**, and the
+mutual check (each session verifying in the opposite direction) is the actual mechanism.
+
+**Verified 2026-09-17, and it does not yet hold:** `origin/main` is at v65. The pushed
+`claude/shoresh-elective-scheduling-b3bec8` is **also at v65** — highest guard `>= 64 && < 65`, no
+`v65_down.js` or `v66_down.js` in its tree. Their v66 is not on any pushed ref; it exists only in
+their working copy. So at the time of writing **no pushed ref claims v66 except this branch**, and
+the premise "they merge first" cannot be confirmed from refs. Re-run this check at rebase:
+
+```
+git fetch origin && git show origin/main:electron/db/localDb.js | grep CURRENT_SCHEMA_VERSION
+```
+
+If v66 has **not** landed ahead of us, do not proceed as though v67 is safe — stop and escalate.
+
 ## MANDATORY BEFORE MERGE — re-verify the ticket numbers
 
 **This branch's tickets are T207–T213.** That block was chosen on 2026-09-17 from a fetch done at
 that moment: `origin/main`'s highest was T205 and a peer reported T206 in flight. The branch
 originally used T192–T198, every one of which was claimed on `main` by other sessions *after* we
 branched — seven collisions at once.
+
+**Freshness is necessary and NOT sufficient — the sharper form, learned twice in one evening.** A
+peer session re-derived from a fresh fetch, picked T204, and **still collided**, because another PR
+landed between its fetch and its use. Then T214 was claimed the same way while we were mid-report.
+**A number is only really yours once it is pushed.** Until then the pre-merge rebase is the only
+thing that actually catches a collision.
 
 **Choosing the block does not settle it, and this step must not be skipped:**
 
@@ -128,6 +185,24 @@ which need `origin/main` to diff against — `gate.yml:40` uses `actions/checkou
 branch's deletion will orphan. **`check:governance` will not catch it** — the doc-reference gate
 covers descriptive docs naming repo *paths*, not source comments naming deleted symbols. Flagged to
 the deleting session; if it does not land there, fix it on the rebase.
+
+## One lesson, not five: a result is a claim about the measurement first
+
+These were collected separately over one evening and are the same error wearing different clothes.
+Recorded together because treating them as five unrelated gotchas is how the sixth gets made. The
+full gate-semantics taxonomy lives in `docs/work/security/2026-09-14-security-program.md`.
+
+| What happened | What it looked like |
+|---|---|
+| `npm run verify` printed `⚠️ VERIFY INCONCLUSIVE` **and exited 0** | a pass, if you read the exit code |
+| `pgrep verify.js` matched the peer's gate in the **main checkout** | "my gate is running" — it had never started |
+| BSD `sed -E 's/\bT192\b/…'` matched nothing and exited 0 | a rename that "succeeded" having changed nothing |
+| `graphify affected` returned *"No unique node match"* for an unindexed symbol | confirmation that nothing depends on it |
+| `npm audit` consults a **live** advisory database | a red build caused by our diff — it was published overnight |
+
+The last one has a consequence worth stating plainly: **`main` is currently stale-green, not green.**
+Its last passing runs predate GHSA-vrf4-mx87-p53w. *"It passed"* and *"it would pass now"* are
+different claims and nothing in the output distinguishes them.
 
 ## A machine-coordination fact worth knowing
 

@@ -12,6 +12,15 @@
 //   3. dangerous code patterns — string-interpolated SQL, eval, and dangerouslySetInnerHTML,
 //      the three that map directly to this app's own threat surface (SECURITY.md).
 //
+// SCOPE OF `security-gate:allow` — stated because omitting it actively misled someone (2026-09-17).
+// The marker is honoured by the SECRET scan (2) and the DANGEROUS-PATTERN scan (3) ONLY.
+// `auditFindings` (1) has NO allowlist of any kind: a high/critical advisory cannot be excepted,
+// annotated, or deferred here, and the only way to a green gate is to fix the dependency. Describing
+// the marker without its scope read as "advisories can be excepted too", and a session went looking
+// for how to do that during the GHSA-vrf4-mx87-p53w response. A mechanism documented without its
+// limits invites exactly that misreading — the same rule the boundary guards follow when they state
+// their own blind spots.
+//
 // The pure functions (auditFindings / scanSecrets / scanDangerous) take data and return
 // findings, so they unit-test without spawning anything (security-gate.test.js). The CLI
 // tail gathers the data (npm audit + `git ls-files`) and prints a verdict.
