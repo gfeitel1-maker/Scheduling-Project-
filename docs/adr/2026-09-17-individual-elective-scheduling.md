@@ -468,6 +468,23 @@ occurrence of it, so occurrences of the same activity are not independent. The p
 reaches the same conclusion by a different route — the unit of choice is a whole schedule, and
 decomposing a bundle into per-occurrence ranks does not obviously preserve what the family meant.
 
+> **Correction appended 2026-09-18 (T196), because this sentence misled an implementer — me.**
+>
+> "Consumes the preference" above means the preference is **counted once when scoring an
+> assignment**. It does **NOT** mean the camper may not attend that activity again. Those are
+> different rules, and the first build of the assignment engine collapsed them: it forbade a camper
+> the same choice twice across the week, having inferred exactly that from this paragraph.
+>
+> Measured on a 100-camper fixture, the wrong reading made **332 of 2550 camper-slots structurally
+> unfillable** — with four offerings per period, campers ran out of choices they had not already
+> used — and pushed the mean placement from rank 6.1 to 12.6 of 25. Owner ruling 2026-09-18:
+> **repeats are normal.** A camper swims twice a week.
+>
+> The inference this paragraph draws is still correct — occurrences are genuinely coupled, and a
+> per-occurrence decomposition still does not hold. What is corrected is only what the coupling
+> *forbids*: it constrains how a preference is SCORED across occurrences, not how often a camper may
+> attend. See `docs/work/tickets/T196-assignment-engine.md` for the measurements.
+
 That linkage is a **catalog property rather than a camper expression** is a closer call than the
 above, and is likewise an inference: the glyphs were observed in catalog text, and no observed
 response format carries a linkage marker. It remains possible that some camps express linkage on the

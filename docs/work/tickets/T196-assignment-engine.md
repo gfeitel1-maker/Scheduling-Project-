@@ -49,20 +49,24 @@ Three constraints, and the third is what makes this harder than `buildSchedule`:
 
 1. Each (camper, occurrence) the camper attends gets **exactly one** activity.
 2. Each (activity, occurrence) holds at most its **capacity**.
-3. A camper takes a given choice **at most once across the week** — the global-ranking consequence.
+3. ~~A camper takes a given choice **at most once across the week**.~~
 
-Constraints 1 and 2 alone are a clean bipartite min-cost flow. Constraint 3 couples the occurrences,
-and is not expressible as a capacity in that same network: the natural encoding needs a per-(camper,
-choice) node whose flow bound is 1, while constraint 1 needs (camper, occurrence) as the demand node.
-Both at once is an integer program, not a flow.
+_Prior: constraint 3 was specified as a hard no-repeat rule, inferred from D14's "placing a camper
+consumes that preference". **That inference was wrong and the constraint is removed** — see the
+measurements below and the correction appended to D14. "Your ranking is counted once" and "you may
+never attend again" are different rules. The occurrences remain coupled for SCORING, which is what
+D14 actually establishes._
+
+With repeats allowed, constraints 1 and 2 are a clean bipartite min-cost flow per occurrence, which
+is what the engine implements — optimally within an occurrence, in a deterministic occurrence
+order.
 
 ## Approach — sequential min-cost flow with preference consumption
 
-Solve occurrences in a **deterministic order**, each as its own min-cost max-flow over the campers'
-REMAINING (unconsumed) preferences, and consume a camper's preference for a choice when they are
-placed into it.
+Solve occurrences in a **deterministic order**, each as its own min-cost max-flow over that camper's
+preferences.
 
-This keeps D11's solver, makes constraint 3 hold by construction, and stays deterministic and
+This keeps D11's solver and stays deterministic and
 explainable — a director can be told "Monday period 2 was filled first, and by then Water Ski was
 full." It is **approximate**: a globally optimal assignment may do better than any fixed occurrence
 order, and a camper unlucky in an early occurrence is not compensated later. That second property is
