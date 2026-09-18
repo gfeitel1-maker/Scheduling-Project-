@@ -39,6 +39,19 @@ export function deriveOccurrences({ slots = [], groups = [], electiveSetId, runI
       continue
     }
 
+    // day_id/time_block_id are nullable on template_slots (H2). A null here
+    // would throw inside deriveElectiveOccurrenceId's opaque() guard, which
+    // runs unconditionally in AssignmentPanel's render body -- skip the slot
+    // and surface it instead of taking the whole panel down.
+    if (slot.day_id == null || slot.time_block_id == null) {
+      findings.push({
+        kind: 'INCOMPLETE_PLACEMENT',
+        group_id: slot.group_id,
+        message: `A placement of this set is missing a day or time block -- it was skipped for assignment.`,
+      })
+      continue
+    }
+
     const cellKey = `${slot.day_id} ${slot.time_block_id} ${tierId}`
     if (!cells.has(cellKey)) {
       cells.set(cellKey, {

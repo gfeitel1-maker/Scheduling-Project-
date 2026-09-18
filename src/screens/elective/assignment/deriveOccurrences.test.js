@@ -62,4 +62,31 @@ describe('deriveOccurrences', () => {
     const { templates } = deriveOccurrences({ slots, groups, electiveSetId: SET_ID })
     expect(Object.keys(templates)).toHaveLength(0)
   })
+
+  // H1 — two distinct runIds against the same cell must produce two distinct
+  // occurrence ids. Before this fix every call defaulted runId to the literal
+  // string 'preview', so two runs collided onto the same elective_occurrences
+  // primary key.
+  it('derives distinct occurrence ids for distinct runIds at the same cell', () => {
+    const groups = [{ id: 'grp-1', tier_id: 'tier-1' }]
+    const slots = [slot({ group_id: 'grp-1' })]
+    const runA = deriveOccurrences({ slots, groups, electiveSetId: SET_ID, runId: 'run-aaaa' })
+    const runB = deriveOccurrences({ slots, groups, electiveSetId: SET_ID, runId: 'run-bbbb' })
+    const idA = runA.templates['tpl-1'].occurrences[0].id
+    const idB = runB.templates['tpl-1'].occurrences[0].id
+    expect(idA).not.toEqual(idB)
+  })
+
+  // H2 — day_id/time_block_id are nullable columns on template_slots. A slot
+  // carrying a null there must not reach deriveElectiveOccurrenceId's opaque()
+  // guard, which throws on null and would take the whole panel down (it is
+  // called unconditionally in AssignmentPanel's render body).
+  it('skips a slot with a null day_id or time_block_id and emits a finding instead of throwing', () => {
+    const groups = [{ id: 'grp-1', tier_id: 'tier-1' }]
+    const slots = [slot({ group_id: 'grp-1', day_id: null })]
+    expect(() => deriveOccurrences({ slots, groups, electiveSetId: SET_ID, runId: 'run-1' })).not.toThrow()
+    const { templates, findings } = deriveOccurrences({ slots, groups, electiveSetId: SET_ID, runId: 'run-1' })
+    expect(templates['tpl-1'].occurrences).toHaveLength(0)
+    expect(findings).toEqual([expect.objectContaining({ kind: 'INCOMPLETE_PLACEMENT' })])
+  })
 })

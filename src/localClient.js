@@ -266,11 +266,11 @@ export const localClient = {
   // wrapper in this file: a screen should not be handling session tokens.
   commitElectiveRun: ({
     name, sourceFilename = null, sourceSha256 = null, parsed, assignments = [],
-    occurrences = [], scheduleWeekId = null, scheduleTemplateId = null,
+    occurrences = [], scheduleWeekId = null, scheduleTemplateId = null, runId = null,
   }) =>
     shoresh.commitElectiveRun({
       token: currentToken(), name, sourceFilename, sourceSha256, parsed, assignments,
-      occurrences, scheduleWeekId, scheduleTemplateId,
+      occurrences, scheduleWeekId, scheduleTemplateId, runId,
     }),
   listElectiveRuns: () => shoresh.listElectiveRuns(currentToken()),
   getElectiveRun: ({ runId }) => shoresh.getElectiveRun({ token: currentToken(), runId }),

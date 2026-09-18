@@ -86,9 +86,30 @@ describe('commitElectiveRun', () => {
     expect(out.error).toMatch(/more than one row/i)
     expect(out.error).toContain('Ari Green')
     expect(out.error).toContain('rows 2, 3')
+    // L1 — "1 camper name(s) appear" reads wrong at count 1: singular noun,
+    // singular verb.
+    expect(out.error).toMatch(/^1 camper name appears\b/)
     // Nothing written — a refusal is a refusal.
     expect(db.prepare('SELECT COUNT(*) c FROM campers').get().c).toBe(0)
     expect(db.prepare('SELECT COUNT(*) c FROM elective_assignment_runs').get().c).toBe(0)
+    db.close()
+  })
+
+  it('pluralizes the same-name refusal correctly at count 2', () => {
+    const { db } = freshDb()
+    const out = commitElectiveRun(db, {
+      campId: 'x', deviceId: 'dev-1', name: 'n',
+      parsed: {
+        ...PARSED,
+        sameNameCampers: [
+          { display_name: 'Ari Green', rowNumbers: [2, 3] },
+          { display_name: 'Noa Katz', rowNumbers: [5, 6] },
+        ],
+      },
+      assignments: ASSIGNMENTS,
+    })
+    expect(out.ok).toBe(false)
+    expect(out.error).toMatch(/^2 camper names appear\b/)
     db.close()
   })
 
@@ -175,6 +196,39 @@ describe('commitElectiveRun', () => {
     expect(out.ok).toBe(true)
     const run = db.prepare('SELECT * FROM elective_assignment_runs WHERE id = ?').get(out.runId)
     expect(run.tier_id).toBeNull()
+    db.close()
+  })
+
+  // H1 — the renderer mints a runId per solve and passes it through, so a
+  // retried commit of the SAME solve (double-tap, or a retry after a
+  // transient failure) hits the SAME run row rather than minting a second one.
+  it('uses a caller-supplied runId, so a retried commit of the same run is idempotent', () => {
+    const { db, campId } = freshDb()
+    const runId = 'run-caller-1'
+    const first = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1',
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCES, runId,
+    })
+    const second = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1',
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCES, runId,
+    })
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    expect(first.runId).toBe(runId)
+    expect(second.runId).toBe(runId)
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_assignment_runs').get().c).toBe(1)
+    db.close()
+  })
+
+  it('rejects a caller-supplied runId that is not an opaque id', () => {
+    const { db, campId } = freshDb()
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1',
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCES, runId: 'has a space',
+    })
+    expect(out.ok).toBe(false)
+    expect(db.prepare('SELECT COUNT(*) c FROM elective_assignment_runs').get().c).toBe(0)
     db.close()
   })
 

@@ -44,4 +44,29 @@ describe('AssignmentPreview', () => {
     )
     expect(screen.getByRole('button', { name: /commit/i }).disabled).toBe(false)
   })
+
+  // L1 — two occurrences in the same day/time-block but different tiers
+  // rendered an IDENTICAL label ("Monday, Period 2"), which is exactly what
+  // hid the H4 double-placement bug (a director could not tell them apart).
+  it('includes the tier/division name in the occurrence label so same-cell tiers are distinguishable', () => {
+    const occurrences = [
+      { id: 'occ-juniors', day_id: 'day-1', time_block_id: 'tb-1', tier_id: 'tier-juniors' },
+      { id: 'occ-seniors', day_id: 'day-1', time_block_id: 'tb-1', tier_id: 'tier-seniors' },
+    ]
+    const tiers = [
+      { id: 'tier-juniors', name: 'Juniors' },
+      { id: 'tier-seniors', name: 'Seniors' },
+    ]
+    const assignments = [
+      { camper_id: 'cam-1', occurrence_id: 'occ-juniors', activity_id: 'act-1', preference_rank: 1, flags: [] },
+    ]
+    render(
+      <AssignmentPreview
+        assignments={assignments} findings={[]} occurrences={occurrences} days={DAYS} timeBlocks={TBS}
+        tiers={tiers} activities={ACTIVITIES} campers={CAMPERS} role="admin" onCommit={vi.fn()} committing={false}
+      />
+    )
+    expect(screen.getByText(/Juniors/)).not.toBeNull()
+    expect(screen.getByText(/Seniors/)).not.toBeNull()
+  })
 })

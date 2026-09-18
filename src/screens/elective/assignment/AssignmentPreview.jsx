@@ -14,7 +14,7 @@ const FLAG_COLOR = {
   NOT_REQUESTED: 'var(--danger)',
 }
 
-function OccurrencePanel({ occurrence, day, timeBlock, assignments, activities, campers, open, onToggle, unplacedCount }) {
+function OccurrencePanel({ occurrence, day, timeBlock, tierName, assignments, activities, campers, open, onToggle, unplacedCount }) {
   const byActivity = new Map()
   for (const a of assignments) {
     if (!byActivity.has(a.activity_id)) byActivity.set(a.activity_id, [])
@@ -33,7 +33,7 @@ function OccurrencePanel({ occurrence, day, timeBlock, assignments, activities, 
         onClick={onToggle}
         style={{ ...S.btnSecondary, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
       >
-        <span>{day}, {timeBlock}</span>
+        <span>{day}, {timeBlock}{tierName ? ` · ${tierName}` : ''}</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
             {assignments.length} camper{assignments.length === 1 ? '' : 's'} · {byActivity.size} offering{byActivity.size === 1 ? '' : 's'}
@@ -78,12 +78,15 @@ function OccurrencePanel({ occurrence, day, timeBlock, assignments, activities, 
 }
 
 export default function AssignmentPreview({
-  assignments = [], findings = [], occurrences = [], days = [], timeBlocks = [],
+  assignments = [], findings = [], occurrences = [], days = [], timeBlocks = [], tiers = [],
   activities = [], campers = [], role, onCommit, committing = false,
 }) {
   const [openOccurrenceId, setOpenOccurrenceId] = useState(null)
   const dayById = new Map(days.map((d) => [d.id, d]))
   const timeBlockById = new Map(timeBlocks.map((t) => [t.id, t]))
+  // L1 -- same day/time-block, different tier occurrences rendered an
+  // IDENTICAL label, which is exactly what hid the H4 double-placement bug.
+  const tierById = new Map(tiers.map((t) => [t.id, t]))
 
   if (assignments.length === 0) {
     return (
@@ -125,6 +128,7 @@ export default function AssignmentPreview({
           occurrence={occ}
           day={(dayById.get(occ.day_id)?.label ?? dayById.get(occ.day_id)?.name) ?? occ.day_id}
           timeBlock={timeBlockById.get(occ.time_block_id)?.name ?? occ.time_block_id}
+          tierName={tierById.get(occ.tier_id)?.name ?? null}
           assignments={assignmentsByOccurrence.get(occ.id) ?? []}
           activities={activities}
           campers={campers}

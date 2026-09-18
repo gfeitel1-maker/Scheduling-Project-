@@ -1689,7 +1689,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function commitElectiveRunHandler(args) {
     const {
       token, name, sourceFilename = null, sourceSha256 = null, parsed, assignments = [],
-      occurrences = [], scheduleWeekId = null, scheduleTemplateId = null,
+      occurrences = [], scheduleWeekId = null, scheduleTemplateId = null, runId = null,
     } = args ?? {}
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.write' })
@@ -1712,6 +1712,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       occurrences,
       scheduleWeekId,
       scheduleTemplateId,
+      runId,
     })
   }
 

@@ -133,6 +133,7 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
           scheduleWeeks={scheduleWeeks}
           refreshActivities={load}
           onBack={() => { setSelectedId(null); load() }}
+          onNavigate={onNavigate}
         />
       </div>
     )

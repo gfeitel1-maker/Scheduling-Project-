@@ -6,17 +6,18 @@
 // Parse/map/solve are pure and stay in the renderer (main.js's own comment
 // says so); the only IPC is localClient.commitElectiveRun. Never
 // window.shoresh directly.
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { localClient } from '../../../localClient'
 import { S, prefersReducedMotion, useEnterTransition } from '../../../styles/shared'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
-import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../../../utils/exportSanitize.js'
+import { assertImportFileSize, readWorkbookSafely, unescapeRow, IMPORT_LIMITS } from '../../../utils/exportSanitize.js'
 import { inferPreferenceMapping, parsePreferenceSheet, hasContradictoryRanks } from '../../../ingest/preferenceSheet.js'
 import { buildElectiveAssignments } from '../../../engine/buildElectiveAssignments.js'
 import { SyncIcon } from '../../../components/icons/index.jsx'
 import { deriveOccurrences } from './deriveOccurrences.js'
 import { buildOfferings, findMismatches } from './buildOfferings.js'
+import { buildAttendance } from './buildAttendance.js'
 import { exportElectiveRunExcel, buildElectiveRunExport } from './exportElectiveRun.js'
 import MappingCorrector from './MappingCorrector.jsx'
 import ParseSummary from './ParseSummary.jsx'
@@ -53,12 +54,22 @@ async function readSheetRows(file) {
   }
   assertImportFileSize(file.size)
   const text = await file.text()
-  return text.split(/\r?\n/).filter((l) => l.length > 0).map((line) => line.split(/\t|,/).map((c) => c.trim()))
+  const rows = text.split(/\r?\n/).filter((l) => l.length > 0).map((line) => line.split(/\t|,/).map((c) => c.trim()))
+  // M3 — the xlsx branch gets both size AND row-count guards via
+  // readWorkbookSafely; this branch had only the byte cap, so a 10MB file of
+  // millions of short lines passed the size check and then held an unbounded
+  // array in the renderer. Same limit the xlsx path already enforces.
+  if (rows.length > IMPORT_LIMITS.maxRowsPerSheet) {
+    throw new Error(
+      `A sheet in that file has too many rows (over ${IMPORT_LIMITS.maxRowsPerSheet}) to import safely. Nothing was imported.`
+    )
+  }
+  return rows
 }
 
 export default function AssignmentPanel({
-  electiveSetId, campId, setActivities, activities, groups, days, timeBlocks,
-  templateSlots, scheduleTemplates, scheduleWeeks, role, onError,
+  electiveSetId, campId, setActivities, activities, groups, tiers, days, timeBlocks,
+  templateSlots, scheduleTemplates, scheduleWeeks, role, onError, onNavigate,
 }) {
   const [phase, setPhase] = useState('empty')
   const [rows, setRows] = useState(null)
@@ -66,14 +77,33 @@ export default function AssignmentPanel({
   const [parsed, setParsed] = useState(null)
   const [templateId, setTemplateId] = useState(null)
   const [occurrences, setOccurrences] = useState([])
+  const [runId, setRunId] = useState(null)
   const [result, setResult] = useState(null) // { assignments, findings }
   const [committedInfo, setCommittedInfo] = useState(null)
   const [announcement, setAnnouncement] = useState('')
   const fileInputRef = useRef(null)
+  // H3 — a synchronous guard against a double-tap committing twice. The
+  // `committing` prop below covers the ordinary case (React has re-rendered
+  // past the preview branch), but a re-render is not synchronous with the
+  // click, and this is exactly the tablet-double-tap window a state-driven
+  // disabled prop cannot close on its own.
+  const committingRef = useRef(false)
   const enter = useEnterTransition('liftFade')
   const settleEnter = useEnterTransition('settle')
 
-  const { templates } = deriveOccurrences({ slots: templateSlots, groups, electiveSetId })
+  // H2 — deriveOccurrences runs unconditionally in the render body, even in
+  // phase 'empty' (candidateTemplateIds gates the whole panel below). A
+  // malformed slot must never throw past this boundary and take the whole
+  // set-detail screen down with it; memoized because a whole-camp slot scan
+  // on every keystroke is a real cost at up to 480 cells.
+  const { templates, deriveError } = useMemo(() => {
+    try {
+      const { templates: t } = deriveOccurrences({ slots: templateSlots, groups, electiveSetId })
+      return { templates: t, deriveError: null }
+    } catch (err) {
+      return { templates: {}, deriveError: err }
+    }
+  }, [templateSlots, groups, electiveSetId])
   const candidateTemplateIds = Object.keys(templates)
 
   function reset() {
@@ -83,6 +113,7 @@ export default function AssignmentPanel({
     setParsed(null)
     setTemplateId(null)
     setOccurrences([])
+    setRunId(null)
     setResult(null)
     setCommittedInfo(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
@@ -119,8 +150,24 @@ export default function AssignmentPanel({
     )
   }
 
+  // H1 — the runId is minted HERE, once per solve, and used to derive
+  // OCCURRENCE ids too (not just the run/choice/preference/assignment ids
+  // commitElectiveRun.js derives) -- deriveOccurrences defaults its runId to
+  // the literal string 'preview' otherwise, which collided every run onto one
+  // elective_occurrences row. Re-deriving against the chosen template with the
+  // new runId (rather than reusing the top-level `templates`, which used the
+  // 'preview' default for the candidate-count check) is what keeps the
+  // occurrence ids and the runId consistent with each other.
   function chooseTemplateAndSolve(chosenTemplateId) {
-    const occs = templates[chosenTemplateId]?.occurrences ?? []
+    const newRunId = crypto.randomUUID()
+    let occs
+    try {
+      occs = deriveOccurrences({ slots: templateSlots, groups, electiveSetId, runId: newRunId }).templates[chosenTemplateId]?.occurrences ?? []
+    } catch (err) {
+      onError?.(describeWriteFailure(err, 'Could not prepare this schedule for assignment.'))
+      return
+    }
+    setRunId(newRunId)
     setTemplateId(chosenTemplateId)
     setOccurrences(occs)
     solve(occs)
@@ -132,11 +179,21 @@ export default function AssignmentPanel({
     // (synchronous, potentially heavy) solve runs.
     setTimeout(() => {
       const offerings = buildOfferings({ occurrences: occs, setActivities, activities })
+      // H4 — occurrences are tier-scoped but campers are not; without this a
+      // set placed on both a Juniors cell and a Seniors cell at the same
+      // day/block seats the SAME campers in both. attendance is null (skip
+      // matching) when occurrences span at most one tier -- the common case,
+      // where there is nothing to disambiguate.
+      const { attendance, unmatchedCount } = buildAttendance({ campers: parsed.campers, occurrences: occs, tiers })
       const { assignments, findings } = buildElectiveAssignments({
-        campers: parsed.campers, occurrences: occs, offerings, preferences: parsed.preferences,
+        campers: parsed.campers, occurrences: occs, offerings, preferences: parsed.preferences, attendance,
       })
       const mismatchFindings = findMismatches({ offerings, preferences: parsed.preferences })
-      setResult({ assignments, findings: [...findings, ...mismatchFindings] })
+      const attendanceFindings = unmatchedCount > 0 ? [{
+        kind: 'UNMATCHED_DIVISION',
+        message: `${unmatchedCount} camper(s) had no division matching a division on this schedule -- they were considered for every occurrence.`,
+      }] : []
+      setResult({ assignments, findings: [...findings, ...mismatchFindings, ...attendanceFindings] })
       setPhase('preview')
       setAnnouncement(
         assignments.length === 0
@@ -147,6 +204,9 @@ export default function AssignmentPanel({
   }
 
   async function commit() {
+    // H3 — synchronous re-entrancy guard; see the committingRef comment above.
+    if (committingRef.current) return
+    committingRef.current = true
     setPhase('committing')
     try {
       const week = scheduleTemplates?.find((t) => t.id === templateId)
@@ -157,6 +217,7 @@ export default function AssignmentPanel({
         occurrences,
         scheduleTemplateId: templateId,
         scheduleWeekId: week?.week_id ?? null,
+        runId,
       })
       if (!out.ok) {
         onError?.(out.error)
@@ -168,6 +229,8 @@ export default function AssignmentPanel({
     } catch (err) {
       onError?.(describeWriteFailure(err, 'Could not commit these assignments.'))
       setPhase('preview')
+    } finally {
+      committingRef.current = false
     }
   }
 
@@ -193,11 +256,28 @@ export default function AssignmentPanel({
 
   const liveRegion = <div aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>{announcement}</div>
 
+  // H2 — a slot that could not be read for assignment (see the useMemo
+  // above). Reported rather than crashing the host screen.
+  if (deriveError) {
+    return (
+      <div style={{ marginTop: 24, ...enter }}>
+        {liveRegion}
+        <div style={S.emptyStateBody}>This set&apos;s placement on the schedule could not be read for assignment.</div>
+      </div>
+    )
+  }
+
+  // M1 — "place it on the grid first" was a dead end: no control here led
+  // anywhere. onNavigate is the same callback ScheduleElectivesScreen already
+  // receives and threads down through ElectiveSetDetail.
   if (candidateTemplateIds.length === 0) {
     return (
       <div style={{ marginTop: 24, ...enter }}>
         {liveRegion}
-        <div style={S.emptyStateBody}>This set isn&apos;t on a schedule yet. Place it on the grid first.</div>
+        <div style={emptyStyles.body}>This set isn&apos;t on a schedule yet.</div>
+        <button className="press-97" onClick={() => onNavigate?.('schedule')} style={S.btnSecondary}>
+          Go to Schedule
+        </button>
       </div>
     )
   }
@@ -232,6 +312,7 @@ export default function AssignmentPanel({
           mapping={mapping}
           onChange={setMapping}
           onConfirm={confirmMapping}
+          onChooseDifferentFile={reset}
         />
       )}
 
@@ -251,6 +332,7 @@ export default function AssignmentPanel({
                 </button>
               )
             })}
+            <button className="press-97" onClick={reset} style={S.btnUtility}>Choose a Different File</button>
           </div>
         ) : (
           <ParseSummary
@@ -271,11 +353,12 @@ export default function AssignmentPanel({
           occurrences={occurrences}
           days={days}
           timeBlocks={timeBlocks}
+          tiers={tiers}
           activities={activities}
           campers={parsed.campers}
           role={role}
           onCommit={commit}
-          committing={false}
+          committing={phase === 'committing'}
         />
       )}
 

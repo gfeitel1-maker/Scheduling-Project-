@@ -18,6 +18,7 @@ import {
   deriveElectiveChoiceId,
   deriveElectivePreferenceId,
   deriveElectiveAssignmentId,
+  opaque,
 } from './electiveDerivedIds.js'
 import { hasContradictoryRanks } from '../../src/ingest/preferenceSheet.js'
 
@@ -38,6 +39,7 @@ export function commitElectiveRun(db, {
   occurrences = [],
   scheduleWeekId = null,
   scheduleTemplateId = null,
+  runId: providedRunId = null,
 }) {
   // REFUSALS FIRST, before a transaction is opened.
   //
@@ -50,10 +52,11 @@ export function commitElectiveRun(db, {
   const sameName = parsed?.sameNameCampers ?? []
   if (sameName.length > 0) {
     const who = sameName.map((c) => `${c.display_name} (rows ${c.rowNumbers.join(', ')})`).join('; ')
+    const noun = sameName.length === 1 ? 'camper name appears' : 'camper names appear'
     return {
       ok: false,
       error:
-        `${sameName.length} camper name(s) appear on more than one row with no camper id to tell them apart: ${who}. ` +
+        `${sameName.length} ${noun} on more than one row with no camper id to tell them apart: ${who}. ` +
         'Resolve these before importing — two children sharing a name would be merged into one record.',
     }
   }
@@ -64,7 +67,21 @@ export function commitElectiveRun(db, {
     }
   }
 
-  const runId = randomUUID()
+  // H1 — the renderer mints a runId per solve and derives elective_occurrences
+  // ids against it BEFORE this handler ever runs (deriveOccurrences.js is
+  // called in the render body). Minting a second, unrelated runId here would
+  // orphan those already-derived occurrence ids from the run they claim to
+  // belong to, and would make a retried commit of the same solve write a
+  // SECOND run instead of hitting the same row. Validated with the same
+  // opaque-id rule every other surrogate id component uses, rather than a
+  // second alphabet -- a client-supplied key that reaches a derived id must
+  // not carry free text.
+  let runId
+  try {
+    runId = providedRunId != null ? opaque('run_id', providedRunId) : randomUUID()
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
   const camperIds = new Set((parsed?.campers ?? []).map((c) => c.id))
   const occurrenceIds = new Set(occurrences.map((o) => o.id))
   const choiceIdByKey = new Map()

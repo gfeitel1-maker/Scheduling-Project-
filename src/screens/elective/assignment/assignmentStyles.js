@@ -29,17 +29,4 @@ export const A = {
     fontSize: 13,
     fontFamily: 'monospace',
   },
-  occurrenceRow: {
-    width: '100%',
-    textAlign: 'left',
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    padding: '10px 14px',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
 }

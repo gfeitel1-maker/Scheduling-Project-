@@ -70,8 +70,25 @@ What follows for the screen:
 
 Owner ruling 2026-09-18: **the export is however someone wants it — Excel or JSON, like every other
 export in the app.** ADR D9's "staff consume the export" is not a licence to design a new artifact.
-Reuse `src/utils/exportWorkbook.js` and `src/utils/exportScheduleJson.js`; do not add a third export
-path.
+
+## AMENDMENT — OWNER RULING 2026-09-18: how the ruling above was satisfied
+
+The ruling above named `src/utils/exportWorkbook.js` and `src/utils/exportScheduleJson.js` as the
+utilities to reuse. **Neither can express a `(camper, occurrence)` row** — `exportWorkbook.js` is
+fixed to the S4a enrichment round-trip's own sheet layout (`shoresh_id`/`META_SHEET`), and
+`exportScheduleJson.js`'s `buildScheduleExport` is keyed group × day × time_block, one activity per
+cell. Bending either to also carry a camper roster would distort that format and put the S4a
+re-import round-trip at risk — the same class of risk the plural-candidate-schedules ADR already
+warns against.
+
+**Owner ruling (2026-09-18): satisfy the original ruling's intent — Excel or JSON, no third general
+export path, the director's choice at the moment of export — by reusing those two exports'
+PRIMITIVES rather than their functions.** `src/screens/elective/assignment/exportElectiveRun.js`
+builds the Excel sheet through `aoaToSanitizedSheet` (the same formula-injection sanitizer every
+export in this repo goes through) and the JSON through a `format_version: 1` shape mirroring
+`buildScheduleExport`'s own versioning convention. This is a correction to HOW the ruling was
+satisfied, not a reopening of it: there is still exactly one export module for elective runs, and the
+director still chooses Excel or JSON at export time, never persisted.
 
 ## AMENDMENT — CORRECTION 1: the occurrence table above is wrong; the code wins
 

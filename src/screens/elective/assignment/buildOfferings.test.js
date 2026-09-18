@@ -17,6 +17,26 @@ describe('buildOfferings', () => {
     expect(offerings[0].capacity).toBeGreaterThan(1000)
   })
 
+  // H5 — schema.sql declares `status TEXT NOT NULL DEFAULT 'confirmed'` and
+  // `capacity_mode TEXT NOT NULL DEFAULT 'unlimited'`; the real electron path
+  // always has them (SQLite materialises the default at INSERT). This
+  // defends the shape src/localClient.mock.js can produce instead -- its rows
+  // have no schema behind them, so a row created through the ordinary "Add
+  // Offering" flow (ElectiveSetDetail's buildCreateFields writes only
+  // elective_set_id/activity_id) read back as undefined, not the schema
+  // default. Before this fix that row was silently both unconfirmed AND
+  // capacity 0 in browser-dev -- invisible and closed, through the ordinary
+  // UI path.
+  it('treats a missing status/capacity_mode as the schema defaults (confirmed/unlimited), not closed', () => {
+    const offerings = buildOfferings({
+      occurrences: [{ id: 'occ-1' }],
+      setActivities: [{ id: 'osa-1', activity_id: 'act-1' }],
+      activities: [{ id: 'act-1', name: 'Swim' }],
+    })
+    expect(offerings).toHaveLength(1)
+    expect(offerings[0].capacity).toBeGreaterThan(1000)
+  })
+
   it('excludes offerings that are not confirmed', () => {
     const offerings = buildOfferings({
       occurrences: [{ id: 'occ-1' }],
