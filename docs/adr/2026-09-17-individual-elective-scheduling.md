@@ -90,7 +90,9 @@ holds is not a detail to patch in place, and both ADRs state the prohibition in 
 
 1. The preference form stays **external**. Shoresh does not build or host it.
 2. Shoresh **may** store minimal camper identity and group membership for scheduling purposes.
-3. Shoresh **may** store ranked preferences and generated/manual assignments.
+3. Shoresh **may** store ranked preferences and generated/manual assignments. *(Amended
+   2026-09-18 — see D14: the permission stands, but the assumed **shape** of "ranked preferences"
+   — a rank per camper per occurrence — is withdrawn as contradicted by real artifacts.)*
 4. The **director** chooses week, schedule route, division, offerings, mapping resolutions, manual
    changes, and finalization. Nothing is inferred.
 5. The engine **may** allocate campers inside elective containers. It still does not decide which
@@ -361,6 +363,10 @@ object, pinned by tests, not editable through MCP, and the module is pure with n
 proves to be a maintenance burden, swapping the allocator behind that pure interface is a
 contained change — which is itself an argument for the interface, not against the algorithm.
 
+*Amended 2026-09-18 — see D14. The choice of min-cost max-flow stands; the **decomposition** it runs
+over ("for each independent occurrence") rests on the preference premise D14 withdraws, and must be
+re-derived before T196 is scoped.*
+
 ### D12 — Linked multi-period choices are modeled up front
 
 The brief proposed failing closed on linked choices in v1. **Rejected (owner, 2026-09-17):**
@@ -400,6 +406,12 @@ chose the `is_span_head` chain as the sole stored shape for *slots* and rejected
 grouping of preferences, not a grouping of grid cells — so a parent/member pair is the right shape
 here and does not contradict that ADR.
 
+*Amended 2026-09-18 — see D14. Real catalog artifacts indicate linkage is declared by the camp on
+the **offering**, not expressed by a camper on a preference form. The parent/member model below is
+unaffected and still the right shape; what is withdrawn is the assumption that the camper is the one
+declaring it. Multi-day linkage — activities repeating across days, not merely across adjacent
+blocks — was not contemplated here at all and is tracked at T219.*
+
 `UNSUPPORTED_LINKED_CHOICE` survives, demoted: it now fires only on **genuinely malformed** linkage
 — a choice whose members span occurrences the camper is not eligible for, or that reference
 occurrences not in the run. It is no longer a v1 escape hatch.
@@ -421,11 +433,88 @@ Genesis regeneration is free. T194 does not gate on re-confirming this; it recor
 and this date. If that assumption ever stops holding, this decision must be revisited before any
 further entity addition.
 
+### D14 — The preference-import premise was tested against real artifacts and did not hold
+
+*Amendment 2026-09-18. Owner-accepted the same day. Recorded here rather than by rewriting D11, D12
+and the decision list above, in the same style as D4's and D9's corrections: a later reader should be
+able to see that a premise was checked against reality and failed, not find a document that always
+said the right thing.*
+
+**This is not a retraction of an error.** The design below was reasonable given what was knowable on
+2026-09-17 — no real preference artifact existed in this repository or on the development machine, a
+fact established by search rather than assumed. The premise was checked at the first opportunity a
+real artifact appeared, and it failed. That is the process working as intended.
+
+#### What was observed (evidence)
+
+Real camp artifacts were examined **outside this repository**; they are not committed here and never
+will be, and only their structure is described. Two response formats appear:
+
+- a **single globally ranked list** — a camper ranks every elective they would consider **once for
+  the whole session**, not once per time slot in which it is offered; and
+- a **chosen-schedule-plus-alternates planner** — a camper fills in one activity per open cell of a
+  day × period grid, plus a separate short list of global alternates.
+
+Separately, the **offering catalog** itself declares linkage: double periods and multi-day
+activities are marked with glyphs in the catalog's own text, with an instruction to the reader to
+observe them.
+
+#### What follows from it (inference, stated as such)
+
+That a per-occurrence decomposition does not hold is an **inference** from the above, not an
+observation. It is a sound one: if a camper's preference for an activity is expressed once globally,
+then placing them into that activity in one occurrence consumes the preference for **every** other
+occurrence of it, so occurrences of the same activity are not independent. The planner format
+reaches the same conclusion by a different route — the unit of choice is a whole schedule, and
+decomposing a bundle into per-occurrence ranks does not obviously preserve what the family meant.
+
+That linkage is a **catalog property rather than a camper expression** is a closer call than the
+above, and is likewise an inference: the glyphs were observed in catalog text, and no observed
+response format carries a linkage marker. It remains possible that some camps express linkage on the
+response instead.
+
+#### What is still unknown, and must not be overclaimed
+
+**The artifacts seen were blank forms and catalog sheets, not filled-in responses.** No completed
+camper response has been examined. Further, the artifacts state that final requests are submitted
+**electronically through a third-party portal** — so the format this app would actually ingest is an
+export nobody involved has seen. The evidence above is therefore strong enough to **retire** the
+ranked-per-occurrence premise, and **not** strong enough to establish any replacement premise. No
+design should treat either observed format as confirmed input.
+
+#### Consequences
+
+1. **The ranked-per-occurrence preference pipeline described in this ADR is withdrawn.**
+   ~~T195 imports ranked choices per occurrence, with linked multi-period choices declared on the
+   mapping screen.~~ T195 shipped instead as **offering-grid import only** — a day × period grid of
+   the camp's elective *catalog*, with no campers, ranks, identity or assignment (`64c6a07`). The
+   round-1 preference importer is preserved in history at `d140614` and removed from the tip at
+   `58b376f`. **Preference import is not yet built, and no importer for either observed format has
+   been designed.**
+
+2. **D11's "for each independent occurrence" decomposition must be revisited before T196 is
+   scoped.** D11's retained choice of min-cost max-flow may well still be right; what is now in
+   question is the *shape of the network* — what is a node, what is an edge, and what "independent"
+   means — which was derived from the withdrawn premise. No solver code exists yet, so nothing must
+   be unbuilt; this is a spec risk recorded ahead of the work, not a defect.
+
+3. **Linkage is recorded as a catalog property**, tracked at T219 (multi-day catalog linkage), not
+   as a preference-import concern. D12's decision to model linked choices at the *choice* level
+   rather than by making elective containers span is **unaffected** — that reasoning stands on its
+   own; only the assumption that a camper expresses the linkage is withdrawn.
+
+4. **The third-party export format is recorded as an open gap**, tracked at T218, rather than as an
+   assumption embedded in an accepted design.
+
 ## Ratification status
 
 Every decision here is owner-ratified as of 2026-09-17, including D7's severability (T193 lands
 independently as a pre-existing defect fix, ahead of and not blocked by the governance gate on the
 rest of the feature). No decision in this ADR is a reviewer default awaiting owner confirmation.
+
+**D14 was accepted by the owner on 2026-09-18**, after the ranked-per-occurrence preference premise
+was tested against real camp artifacts and failed. D1–D13 remain ratified as of 2026-09-17, read
+subject to D14's withdrawals.
 
 ## Consequences
 

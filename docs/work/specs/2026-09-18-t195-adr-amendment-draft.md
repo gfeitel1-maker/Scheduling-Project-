@@ -1,15 +1,29 @@
 ---
-title: "DRAFT — proposed amendment to docs/adr/2026-09-17-individual-elective-scheduling.md"
+title: "ACCEPTED (superseded) — proposed amendment to docs/adr/2026-09-17-individual-elective-scheduling.md, landed as D14"
 document_type: spec
-status: draft
+status: superseded
 created: 2026-09-18
-archive_when: the owner accepts, rejects, or requests changes to this amendment
+archive_when: "superseded — the owner accepted this amendment on 2026-09-18 and it is landed as D14 of docs/adr/2026-09-17-individual-elective-scheduling.md"
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-09-17-individual-elective-scheduling.md]
 related_tickets: [docs/work/tickets/T195-preference-import-service.md, docs/work/tickets/T196-assignment-engine.md, docs/work/tickets/T218-elective-export-third-party-adapter.md, docs/work/tickets/T219-multi-day-catalog-linkage.md]
 ---
 
-# DRAFT — this is NOT an ADR edit. It is a proposal for the owner to accept, reject, or amend.
+# ACCEPTED 2026-09-18 — landed as D14. This file is superseded and kept as the record of the proposal.
+
+> **The owner accepted this amendment on 2026-09-18.** It is now **D14** of
+> `docs/adr/2026-09-17-individual-elective-scheduling.md`, which is the normative text — read that,
+> not this. This file is retained unedited below as the record of what was put to him, so the
+> proposal and the decision can be compared.
+>
+> One thing the landed D14 states that the proposal below did not, and which matters: the artifacts
+> examined were **blank forms and catalog sheets, not completed camper responses**, and the real
+> submissions arrive through a third-party portal export nobody has seen. The evidence is enough to
+> **retire** the ranked-per-occurrence premise and **not** enough to establish a replacement.
+
+## Original proposal, as put to the owner
+
+**This was NOT an ADR edit when written. It was a proposal for the owner to accept, reject, or amend.**
 
 **The ADR itself (`docs/adr/2026-09-17-individual-elective-scheduling.md`) has not been touched by
 this work.** This file exists so the owner has a concrete, reviewable amendment to react to, per
@@ -80,4 +94,4 @@ preference format rather than inheriting T195 round 1's now-rejected premise by 
    record the still-unconfirmed third-party export format as its own tracked gap (T218) rather than
    an assumption embedded in any accepted design.
 
-**Do not edit the ADR itself. This is a proposal awaiting the owner's decision.**
+~~**Do not edit the ADR itself. This is a proposal awaiting the owner's decision.**~~ *(Superseded: accepted 2026-09-18, landed as D14.)*

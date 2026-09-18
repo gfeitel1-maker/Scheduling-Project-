@@ -3,13 +3,37 @@ title: T196-assignment-engine
 document_type: ticket
 status: open
 created: 2026-09-17
-archive_when: the engine ships with its determinism and findings suite green
+archive_when: "ADR D14's withdrawn preference premise is resolved against a confirmed real input format, AND the engine ships with its determinism and findings suite green"
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_adrs: [docs/adr/2026-09-17-individual-elective-scheduling.md]
 related_specs: [docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md]
 ---
 
 # T196 — Slice 4: the assignment engine
+
+> ## BLOCKED ON A WITHDRAWN PREMISE — read this before scoping anything below
+>
+> **The "for each independent occurrence, run a deterministic min-cost max-flow" decomposition in
+> this ticket and in the implementation spec §7 rests on a premise that has been withdrawn.**
+> See **D14** of `docs/adr/2026-09-17-individual-elective-scheduling.md` (owner-accepted
+> 2026-09-18).
+>
+> Real camp artifacts showed camper preferences arriving as a **single globally ranked list** or a
+> **chosen-schedule-plus-alternates planner** — not as a rank per camper per occurrence. If a
+> preference is expressed once globally, placing a camper into an activity in one occurrence
+> consumes that preference for **every** other occurrence of it, so occurrences of the same activity
+> are **not independent**.
+>
+> D11's choice of min-cost max-flow is **not** what is in question — the *shape of the network* is:
+> what is a node, what is an edge, and what "independent" means.
+>
+> **What is still unknown matters as much as what changed.** Only blank forms and catalog sheets have
+> been examined — no completed camper response — and the real submissions arrive through a
+> third-party portal whose export nobody has seen (tracked at T218). So the old premise is retired,
+> but **no replacement premise is established**. Do not scope this ticket against either observed
+> format as though it were confirmed.
+>
+> Nothing needs to be unbuilt: no solver code exists. This is a spec risk recorded ahead of the work.
 
 `src/engine/buildElectiveAssignments.js` — a pure deterministic module. Plain objects in,
 assignments plus findings out. No database access, no file parsing, no UI, no writes. Same
