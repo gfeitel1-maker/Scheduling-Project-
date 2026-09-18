@@ -1,7 +1,7 @@
 ---
 title: T195-preference-import-service
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-09-17
 archive_when: the import service ships and a real preference sheet imports cleanly
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, SECURITY.md]

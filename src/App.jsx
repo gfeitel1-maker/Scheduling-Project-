@@ -26,6 +26,7 @@ import ScheduleScreen from './screens/ScheduleScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
 import TrashScreen from './screens/TrashScreen'
 import DeviceManagerScreen from './screens/DeviceManagerScreen'
+import PreferenceImportScreen from './screens/PreferenceImportScreen'
 import SeedScreen from './screens/SeedScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
 import { usePendingConflicts } from './hooks/usePendingConflicts'
@@ -98,6 +99,10 @@ const SCREENS = {
   // "remembered schedule" anti-pattern the plural-candidate-schedules ADR
   // forbids.
   devices:      DeviceManagerScreen,
+  // T195 — admin-only preference import (docs/work/tickets/T195-preference-
+  // import-service.md). Fixture data only pending the owner's dated
+  // acceptance of real camper data — see the screen's own notice.
+  preferenceimport: PreferenceImportScreen,
 }
 
 // Which schedule route a sidebar destination stands for. Absent for the

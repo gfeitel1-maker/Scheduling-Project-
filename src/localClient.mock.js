@@ -1385,6 +1385,17 @@ export const mockShoresh = {
       unknownFieldEvidence: {},
     }
   },
+  // T195 — minimal stand-ins so the browser dev route (npm run dev, no real
+  // db) does not crash when PreferenceImportScreen calls these. Not a real
+  // implementation of the resolver/commit path (that lives entirely in
+  // electron/ops/*, exercised in electron:dev only, per this file's header
+  // discipline) — the mock always reports nothing to resolve and refuses commit.
+  async electiveImportPreview() {
+    return { blockedCount: 0, warnCount: 0, camperResolutions: [], rowResults: [], choiceResolutions: [] }
+  },
+  async electiveImportCommit() {
+    return { committed: false, reason: 'NOT_AVAILABLE_IN_DEV_MOCK', staleRows: [] }
+  },
   // S1b — mock stand-in for confirmAlias (electron/ops/confirmAlias.js), mirroring
   // its OBSERVABLE contract (T74 fidelity discipline) against mock state instead
   // of source_aliases: scope key is (entity_type, cohort_id, normalizeName(label))
