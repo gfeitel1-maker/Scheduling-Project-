@@ -1,11 +1,11 @@
 ---
 title: T223-shape-gate-page-granularity
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-18
 archive_when: the shape gate's whole-file/per-page granularity mismatch is closed or accepted with a recorded rationale
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
-related_adrs: [docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md]
+related_adrs: [docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md, docs/adr/2026-09-18-schedule-shape-gate-per-page-granularity.md]
 ---
 
 # T223 — one schedule-shaped page launders every other page in the file
@@ -48,3 +48,14 @@ list to the director rather than dropping it silently; or accepting the current 
 making the post-import summary legible enough that `#1` appearing as a group is obvious.
 
 Whichever is chosen, the T224 fixture shape is the regression test.
+
+## Resolution — 2026-09-18
+
+Closed as option 2 from "Wanted" above: a per-page gate (`isSchedulePage`,
+`partitionSchedulePages` in `src/ingest/scheduleShape.js`) that declines individual pages and
+surfaces the declined titles rather than dropping them silently. See
+[the ADR](../../adr/2026-09-18-schedule-shape-gate-per-page-granularity.md) for the full design,
+the corpus evidence backing it, and why it does not reopen T146's file-level accept bias. Both
+entry points (`src/screens/ImportScreen.jsx`, `scripts/ingestCli.js`) now extract only from
+`shaped` pages; the T224 fixture shape is the regression test in `src/ingest/scheduleShape.test.js`
+and `scripts/ingestCli.test.js`.

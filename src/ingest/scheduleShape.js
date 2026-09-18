@@ -20,12 +20,21 @@
 // workbook committed its column headers ('#1', '#2', 'Division') as 33 camp
 // groups and 33 tiers through a path that had never called this gate.
 //
-// KNOWN LIMITATION — this predicate is whole-FILE (`pages.some`) while
-// extractEntities is per-PAGE, so one schedule-shaped page admits every other
-// page in the file to extraction. A workbook mixing a selection sheet with a
-// day x period menu passes here and its selection sheet is still extracted.
-// That granularity mismatch is docs/work/tickets/T223-shape-gate-page-
-// granularity.md, deliberately not fixed by adjusting a ratio here.
+// T223 — isScheduleShaped is whole-FILE (`pages.some`) but extractEntities is
+// per-PAGE, so one schedule-shaped page used to admit every other page in the
+// file to extraction. A workbook mixing a selection sheet with a day x period
+// menu passed the whole-file gate and had its selection sheet extracted too,
+// laundering its column headers ('#1', 'Division', ...) into groups/tiers.
+//
+// Fixed at page granularity: isSchedulePage (below) is the per-page test, and
+// partitionSchedulePages exposes it directly so the two entry points
+// (ImportScreen.jsx, scripts/ingestCli.js) can extract from `shaped` pages
+// only, while surfacing `declined` page titles to the director/operator
+// instead of silently dropping them. isScheduleShaped keeps its original
+// whole-file contract (true iff at least one page qualifies) so a file with
+// only continuation pages that inherit their day/time axis from a first page
+// is still accepted at the FILE level — see
+// docs/adr/2026-09-18-schedule-shape-gate-per-page-granularity.md.
 //
 // A page (title/columns/rows, the shape workbookToPages and parseTextGrid
 // both produce) is positive evidence of a schedule if it has EITHER axis a
@@ -82,8 +91,17 @@ function hasTimeRowLabels(rows) {
   return matching >= Math.ceil(rows.length * 0.5)
 }
 
+export function isSchedulePage(page) {
+  return hasDayColumns(page.columns) || titleNamesADay(page.title) || hasTimeRowLabels(page.rows)
+}
+
+export function partitionSchedulePages(pages) {
+  const shaped = []
+  const declined = []
+  for (const page of pages ?? []) (isSchedulePage(page) ? shaped : declined).push(page)
+  return { shaped, declined }
+}
+
 export function isScheduleShaped(pages) {
-  return (pages ?? []).some(
-    (page) => hasDayColumns(page.columns) || titleNamesADay(page.title) || hasTimeRowLabels(page.rows)
-  )
+  return partitionSchedulePages(pages).shaped.length > 0
 }

@@ -7,7 +7,7 @@ import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
-import { isScheduleShaped } from '../ingest/scheduleShape'
+import { partitionSchedulePages } from '../ingest/scheduleShape'
 import { proposeSpecialDay } from '../ingest/specialDayFile'
 import { matchActivitiesToLocations, candidatePlaceNames } from '../ingest/locationsFromActivities'
 import { buildSpecialDayPlan } from '../ingest/specialDayPlan'
@@ -293,6 +293,10 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // inside a recognised page that never became an entity). Read-only
   // transparency, never a gate on commit.
   const [residualSheets, setResidualSheets] = useState([])
+  // T223 — page titles the per-page schedule-shape gate excluded from
+  // extraction (e.g. a camper-selection tab sitting alongside a real
+  // schedule tab), surfaced here instead of dropped silently.
+  const [declinedPages, setDeclinedPages] = useState([])
   // T36 F3 — a repeated one-word line above each page break is stripped as a
   // page banner. The parser has always computed this and thrown it away, so a
   // removal was invisible; it is shown under "Not recognised" instead.
@@ -326,6 +330,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     setActivityRules({})
     setGroupUnitOverrides({})
     setResidualSheets([])
+    setDeclinedPages([])
     setStrippedBanners([])
     setAmbiguousLocations([])
     setLocationBindings([])
@@ -373,7 +378,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // The camp's own name and the year are in every filename, so they say
       // nothing about which group a file is. What differs is the group.
       const prefix = sharedFilenamePrefix(files.map((f) => f.name))
-      const pages = []
+      let pages = []
       const fileResidualSheets = []
     const fileBanners = []
     const fileAmbiguousLocations = []
@@ -456,14 +461,20 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // "activities" from its grid coordinates and legend keys. Scoped to the
       // SCHEDULE import path — the per-entity template importers on Locations/
       // Electives/Special Events read non-schedule workbooks by design and
-      // never call isScheduleShaped.
+      // never call partitionSchedulePages.
       //
       // This is one of TWO call sites on that path. The other is
       // scripts/ingestCli.js (T224), which is what the MCP ingest tools run.
       // Change the acceptance behaviour in one and check the other: the two
       // refusal messages are worded for their own audience and are
       // deliberately not shared, so they can drift.
-      if (!isScheduleShaped(pages)) {
+      //
+      // T223 — the gate is per-PAGE, not whole-file: a single schedule-shaped
+      // tab used to admit every sibling tab in the file to extraction. Only
+      // `shaped` pages go downstream from here; `declined` titles are
+      // surfaced in the "Not recognised" box rather than dropped silently.
+      const shapeSplit = partitionSchedulePages(pages)
+      if (shapeSplit.shaped.length === 0) {
         setProposal(null)
         setError(
           `${files.map((f) => f.name).join(', ')} doesn't look like a schedule — expected day columns ` +
@@ -471,6 +482,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         )
         return
       }
+      setDeclinedPages(shapeSplit.declined.map((p) => p.title))
+      pages = shapeSplit.shaped
 
       // T40 slice 3a — a ONE-DAY special schedule (a Maccabiah, a colour war, a
       // trip day) IS a schedule and passes the gate above on its time axis, but
@@ -1838,7 +1851,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
 
           {(() => {
             const residualCells = proposal.residual?.cells ?? []
-            if (residualCells.length === 0 && residualSheets.length === 0 && strippedBanners.length === 0 && ambiguousLocations.length === 0) return null
+            if (residualCells.length === 0 && residualSheets.length === 0 && strippedBanners.length === 0 && ambiguousLocations.length === 0 && declinedPages.length === 0) return null
             return (
               <div style={{
                 background: 'var(--surface)', border: '1px solid var(--border)',
@@ -1855,6 +1868,16 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                   Shoresh could not match this to anything above. Nothing was added for it — check
                   whether it matters before you continue.
                 </div>
+                {declinedPages.length > 0 && (
+                  <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
+                    {declinedPages.map((title) => (
+                      <li key={title}>
+                        Tab "{title}" doesn't look like a schedule (no day columns or time-of-day
+                        rows), so nothing was imported from it.
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {residualSheets.length > 0 && (
                   <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
                     {residualSheets.map((r, i) => (

@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseTextGrid } from './textGrid'
-import { isScheduleShaped } from './scheduleShape'
+import { isScheduleShaped, isSchedulePage, partitionSchedulePages } from './scheduleShape'
+import { extractEntities } from './extractEntities'
 
 // T146 — the schedule import path (ImportScreen -> workbookToPages ->
 // extractEntities) must decline a workbook that never had a day or time axis,
@@ -105,5 +106,67 @@ describe('isScheduleShaped (T146)', () => {
     expect(isScheduleShaped([
       { title: 'Monday — All Camp', columns: ['Beavers', 'Badgers'], rows: [{ label: '9:00-9:20', cells: ['Swim', 'Art'] }] },
     ])).toBe(true)
+  })
+})
+
+// T223 — isScheduleShaped is a whole-FILE predicate (pages.some) but
+// extractEntities is per-PAGE, so a single schedule-shaped page laundered
+// every non-schedule sibling page in the same file through to extraction.
+// partitionSchedulePages exposes the per-page test directly, so a caller can
+// extract only from pages that individually pass it.
+const selectionPage = {
+  title: 'Camper Selections',
+  columns: ['Division', 'Swim Alternative (Y/N)', '#1', '#2', '#3'],
+  rows: [{ label: '1', cells: ['Adom', 'Y', 'Art', 'Sports', 'Music'] }],
+}
+const menuPage = {
+  title: 'Elective Menu',
+  columns: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+  rows: [{ label: '9:00-9:20', cells: ['Art', 'Sports', 'Music', 'Art', 'Sports'] }],
+}
+
+describe('isSchedulePage / partitionSchedulePages (T223)', () => {
+  it('isSchedulePage rejects the selection page and accepts the menu page individually', () => {
+    expect(isSchedulePage(selectionPage)).toBe(false)
+    expect(isSchedulePage(menuPage)).toBe(true)
+  })
+
+  it('partitionSchedulePages splits a mixed file into shaped and declined pages', () => {
+    const { shaped, declined } = partitionSchedulePages([selectionPage, menuPage])
+    expect(shaped).toEqual([menuPage])
+    expect(declined).toEqual([selectionPage])
+  })
+
+  it('isScheduleShaped keeps its whole-file contract: true when any page individually qualifies', () => {
+    expect(isScheduleShaped([selectionPage, menuPage])).toBe(true)
+    expect(isScheduleShaped([selectionPage])).toBe(false)
+  })
+
+  // Every real corpus sample page individually passes isSchedulePage (verified
+  // against docs/work/specs/samples/*.txt while designing this fix), so
+  // filtering to partitionSchedulePages(pages).shaped is a no-op on real
+  // corpus data and only ever drops genuinely non-schedule tabs like this one.
+  it.each([
+    ['campA-bunk-schedules.txt'],
+    ['campB-by-day.txt'],
+    ['campC-daysheet-synthetic.txt'],
+  ])('%s: every page individually passes isSchedulePage (no page is declined)', (file) => {
+    const { pages } = parseTextGrid(fs.readFileSync(path.join(SAMPLES, file), 'utf8'))
+    const { declined } = partitionSchedulePages(pages)
+    expect(declined).toEqual([])
+  })
+
+  it('non-vacuity: extracting over the unfiltered pages launders the selection headers as groups/tiers', () => {
+    const proposal = extractEntities({ pages: [selectionPage, menuPage] })
+    expect(proposal.entities.groups).toEqual(expect.arrayContaining(['Division']))
+    expect(proposal.entities.tiers).toEqual(expect.arrayContaining(['#1']))
+  })
+
+  it('extracting over the shaped subset only closes the laundering', () => {
+    const { shaped } = partitionSchedulePages([selectionPage, menuPage])
+    const proposal = extractEntities({ pages: shaped })
+    expect(proposal.entities.groups).not.toEqual(expect.arrayContaining(['Division']))
+    expect(proposal.entities.tiers).not.toEqual(expect.arrayContaining(['#1']))
+    expect(proposal.entities.tiers).not.toEqual(expect.arrayContaining(['Swim Alternative (Y/N)']))
   })
 })

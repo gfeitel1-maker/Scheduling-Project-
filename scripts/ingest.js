@@ -49,6 +49,10 @@ function printHuman(result) {
     lines.push(`conflicts (${result.conflicts.length}):`)
     for (const c of result.conflicts) lines.push(`  - ${c.reason ?? 'conflict'}: ${JSON.stringify(c)}`)
   }
+  if (result.declinedPages?.length > 0) {
+    lines.push(`declined tabs (${result.declinedPages.length}) — did not look like a schedule, nothing extracted from them:`)
+    for (const title of result.declinedPages) lines.push(`  - "${title}"`)
+  }
   if (result.residual) {
     const { sheets, cells } = result.residual
     if (sheets.length === 0 && cells.length === 0) {

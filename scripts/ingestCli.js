@@ -24,7 +24,7 @@ import { commitIngest } from '../electron/ops/ingest.js'
 import { parseTextGrid } from '../src/ingest/textGrid.js'
 import { workbookToPages } from '../src/ingest/sheetGrid.js'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../src/ingest/extractEntities.js'
-import { isScheduleShaped } from '../src/ingest/scheduleShape.js'
+import { partitionSchedulePages } from '../src/ingest/scheduleShape.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { readWorkbookSafely, unescapeRow } from '../src/utils/exportSanitize.js'
 
@@ -41,6 +41,7 @@ function baseResult({ file, dbPath, mode, action }) {
     summary: null,
     conflicts: [],
     residual: null,
+    declinedPages: [],
     exitCode: 1,
   }
 }
@@ -108,15 +109,22 @@ export function runIngestCli({ file, dbPath, mode = 'add', action = 'preview', a
   //
   // Refused BEFORE extractEntities, so no proposal exists to be mistaken for a
   // partial success, and the db is untouched by construction.
-  if (!isScheduleShaped(pages)) {
+  //
+  // T223 — this gate is per-PAGE, not whole-file: a workbook can mix a
+  // schedule-shaped tab with a sibling that is not one (a camper-selection
+  // sheet), and only the shaped pages should ever reach extraction — the
+  // declined ones are reported below rather than silently dropped.
+  const { shaped, declined } = partitionSchedulePages(pages)
+  if (shaped.length === 0) {
     return errorResult(
       base,
       'that file does not look like a schedule — expected either day-name columns or clock-time row labels, and found neither'
     )
   }
+  const declinedPages = declined.map((p) => p.title)
 
-  const proposal = extractEntities({ pages })
-  const { fixedEvents } = inferFixedEvents({ pages }, proposal)
+  const proposal = extractEntities({ pages: shaped })
+  const { fixedEvents } = inferFixedEvents({ pages: shaped }, proposal)
 
   if (!fs.existsSync(dbPath)) return errorResult(base, `db not found: ${dbPath}`)
 
@@ -176,6 +184,10 @@ export function runIngestCli({ file, dbPath, mode = 'add', action = 'preview', a
         sheets: residualSheets,
         cells: proposal.residual?.cells ?? [],
       },
+      // T223 — tabs in the workbook that did not individually look like a
+      // schedule and so were excluded from extraction, e.g. a camper
+      // elective-selection sheet sitting alongside the real schedule tab.
+      declinedPages,
       exitCode: outcome.held ? 2 : 0,
     }
   } finally {
