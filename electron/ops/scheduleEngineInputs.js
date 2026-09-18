@@ -14,52 +14,40 @@
 // instead of silently unconstrained ones. Do not drop it as unused without
 // re-checking that call site.
 //
-// Extracted seam (docs/adr/2026-08-21-mcp-ingestion-server.md, Decision 8):
-// the renderer assembles these same inputs in
-// src/screens/schedule/useScheduleData.js's `load()` — filter each setup
-// list by camp_id, sort groups by tier order then name, sort days/time
-// blocks by sort_order, de-dupe days_of_operation by day_of_week, and parse
-// the JSON-stringified id-list columns (activities' eligible_tier_ids/
-// eligible_group_ids via normalizeActivityEligibility, anchor_activities'
-// group_ids via parseIdList) — that logic is entangled with React state
-// there, so this module reproduces it against `listEntities` rows instead of
-// duplicating a second hand-written copy of the filter/sort/parse rules.
-// Keep this in sync with useScheduleData.js's `load()` if that logic changes.
+// Extracted seam (docs/adr/2026-08-21-mcp-ingestion-server.md, Decision 8).
+// This module used to declare itself a MANUAL MIRROR of the renderer's
+// src/screens/schedule/useScheduleData.js `load()` — a hand-copied second
+// implementation of the same filter/sort/de-dupe/parse rules, kept aligned
+// by a comment. It did not stay aligned (it lost anchors' `unit_ids` parse
+// for the whole life of v65). Both sides now call the ONE implementation in
+// ./scheduleInputNormalization.js; the only thing left here is the fetch and
+// the choice of which normalized lists this legacy signature carries.
 import { listEntities } from './read.js'
-import { normalizeActivityEligibility, parseIdList } from '../../src/utils/normalizeActivityEligibility.js'
+import {
+  SCHEDULE_INPUT_ENTITIES,
+  normalizeScheduleInputs,
+} from './scheduleInputNormalization.js'
 
 export function assembleScheduleEngineInputs(db, campId) {
-  const groups = listEntities(db, 'groups').filter((x) => x.camp_id === campId)
-  const tiers = listEntities(db, 'tiers')
-    .filter((x) => x.camp_id === campId)
-    .sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-  const timeBlocks = listEntities(db, 'time_blocks')
-    .filter((x) => x.camp_id === campId)
-    .sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-  const sortedDays = listEntities(db, 'days_of_operation')
-    .filter((x) => x.camp_id === campId)
-    .sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-  const days = sortedDays.filter((x, i, arr) => arr.findIndex((y) => y.day_of_week === x.day_of_week) === i)
-  const activities = listEntities(db, 'activities')
-    .filter((x) => x.camp_id === campId)
-    .map(normalizeActivityEligibility)
-  const anchors = listEntities(db, 'anchor_activities')
-    .filter((x) => x.camp_id === campId)
-    .map((x) => ({ ...x, group_ids: parseIdList(x.group_ids) }))
-  const locations = listEntities(db, 'locations').filter((x) => x.camp_id === campId)
-  // elective_set_activities has no camp_id column of its own — it is
-  // parent-scoped through elective_set_id, and listEntities already joins
-  // through elective_sets.camp_id for this (electron/ops/read.js), matching
-  // useScheduleData.js's load(), which likewise takes it unfiltered.
-  const electiveSetActivities = listEntities(db, 'elective_set_activities')
-  const events = listEntities(db, 'events').filter((x) => x.camp_id === campId)
+  // Fetch list DERIVED from the normalizer's own declared inputs, never
+  // hand-listed here — that is what makes "a new setup list was added" a
+  // one-place edit instead of a two-place one that compiles either way.
+  const rowsByEntity = {}
+  for (const entity of SCHEDULE_INPUT_ENTITIES) {
+    rowsByEntity[entity] = listEntities(db, entity)
+  }
 
-  const tierOrderMap = new Map(tiers.map((tier) => [tier.id, tier.sort_order ?? 0]))
-  const sortedGroups = [...groups].sort((x, y) => {
-    const ox = tierOrderMap.get(x.tier_id) ?? 999
-    const oy = tierOrderMap.get(y.tier_id) ?? 999
-    return ox !== oy ? ox - oy : x.name.localeCompare(y.name)
-  })
+  const {
+    groups, tiers, days, timeBlocks, activities, anchors, locations,
+    // `cohorts` and `electiveSets` are normalized but DELIBERATELY not
+    // returned. buildSchedule's normalizeInput branches on `input.cohorts`
+    // being present — handing it cohorts would switch every headless caller
+    // off the legacy signature this module's callers expect, which is a
+    // behaviour change, not a de-duplication. `electiveSets` is unread by
+    // the engine (it resolves offerings through electiveSetActivities).
+    // Add either only with the call site in scripts/mcp/tools.js in hand.
+    electiveSetActivities, events,
+  } = normalizeScheduleInputs(rowsByEntity, campId)
 
-  return { groups: sortedGroups, tiers, days, timeBlocks, activities, anchors, locations, electiveSetActivities, events }
+  return { groups, tiers, days, timeBlocks, activities, anchors, locations, electiveSetActivities, events }
 }

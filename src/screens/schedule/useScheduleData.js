@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { computeFindings } from '../../engine/buildSchedule'
-import { normalizeActivityEligibility, parseIdList } from '../../utils/normalizeActivityEligibility'
+import { normalizeScheduleInputs } from '../../../electron/ops/scheduleInputNormalization'
 import { isRestorable } from '../snapshotRestore'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId'
 import { repairOrphanSpanTails, orphanRepairFields } from './useSlotMutations'
@@ -157,48 +157,36 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       // from the same source the sidebar and Camp Setup use. Without it this
       // screen would report a Programs gap the setup screen does not — the
       // exact disagreement getSetupGaps exists to end.
-      const {
-        groups: gd, days_of_operation: td, time_blocks: bd, activities: ad,
-        anchor_activities: ancd, tiers: tierd, cohorts: cohd, locations: locd,
-        elective_sets: esd, elective_set_activities: esad,
-        events: evd,
-      } = await repo.loadSetupLists()
+      const rawSetupRows = await repo.loadSetupLists()
       const durableElectiveSets = await repo.loadDurableElectiveSets()
       if (gen !== generationRef.current) return
-      g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
-      b = [...(bd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-      a = (ad || []).filter(x => x.camp_id === campId).map(normalizeActivityEligibility)
-      // anchor_activities.group_ids is a JSON-stringified array (same storage
-      // shape as activities.eligible_group_ids) — normalize once here, at the
-      // IPC read boundary, so buildSchedule's pure engine only ever sees a
-      // real array. See T63. unit_ids (v65, T180 — the event's DIVISION
-      // scope, which the engine resolves live) has the same storage shape and
-      // the same treatment.
+      // All of the filter/sort/de-dupe/JSON-parse rules live in ONE place,
+      // shared with the headless path (electron/ops/scheduleEngineInputs.js,
+      // which feeds the MCP schedule_state tool). This used to be a
+      // hand-written copy on each side kept aligned by a comment; it drifted
+      // — the headless copy silently lost anchors' `unit_ids` parse, which
+      // does not throw, it just drops division scope. See
+      // electron/ops/scheduleInputNormalization.js's header.
       //
-      // NOTE the bare `anc =`: it is declared with `let g, a, d, b, anc` above
-      // and read again further down, so this must NOT become `const anc` — a
-      // re-declaration here shadows it and breaks the later read.
-      anc = (ancd || []).filter(x => x.camp_id === campId)
-        .map(x => ({ ...x, group_ids: parseIdList(x.group_ids), unit_ids: parseIdList(x.unit_ids) }))
-      const t = [...(tierd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-      const sortedTd = [...(td || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-      d = sortedTd.filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)
-      const tierOrderMap = new Map(t.map(tier => [tier.id, tier.sort_order ?? 0]))
-      const sortedG = [...g].sort((x, y) => {
-        const ox = tierOrderMap.get(x.tier_id) ?? 999
-        const oy = tierOrderMap.get(y.tier_id) ?? 999
-        return ox !== oy ? ox - oy : x.name.localeCompare(y.name)
-      })
-      const coh = (cohd || []).filter(x => x.camp_id === campId)
-      const loc = (locd || []).filter(x => x.camp_id === campId)
-      const electiveSetsAll = (esd || []).filter(x => x.camp_id === campId)
-      const electiveSetActivities = esad || []
-      const eventsAll = (evd || []).filter(x => x.camp_id === campId)
+      // NOTE the bare `anc =` / `g =` etc: they are declared with
+      // `let g, a, d, b, anc` above and read again further down, so these
+      // must NOT become `const` — a re-declaration here shadows them and
+      // breaks the later reads.
+      const normalized = normalizeScheduleInputs(rawSetupRows, campId)
+      g = normalized.groups
+      b = normalized.timeBlocks
+      a = normalized.activities
+      anc = normalized.anchors
+      d = normalized.days
       if (gen !== generationRef.current) return
       setSetupLists({
-        groups: sortedG, days: d, timeBlocks: b, activities: a, anchors: anc, tiers: t, cohorts: coh, locations: loc,
-        electiveSetsAll, electiveSetActivities, durableElectiveSets: durableElectiveSets || [],
-        eventsAll,
+        groups: normalized.groups, days: normalized.days, timeBlocks: normalized.timeBlocks,
+        activities: normalized.activities, anchors: normalized.anchors, tiers: normalized.tiers,
+        cohorts: normalized.cohorts, locations: normalized.locations,
+        electiveSetsAll: normalized.electiveSets,
+        electiveSetActivities: normalized.electiveSetActivities,
+        durableElectiveSets: durableElectiveSets || [],
+        eventsAll: normalized.events,
       })
     } catch {
       if (gen !== generationRef.current) return

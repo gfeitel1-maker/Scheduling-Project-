@@ -5,6 +5,7 @@
 // directly assertable.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createScheduleRepository } from './scheduleRepository'
+import { SCHEDULE_INPUT_ENTITIES } from '../../electron/ops/scheduleInputNormalization'
 
 // A fake localClient: records calls, returns a settable result for the write
 // verbs. list() answers from a per-entity store.
@@ -278,6 +279,27 @@ describe('reads — fetch + normalize', () => {
     expect(lists.activities).toEqual([{ id: 'a1' }])
     expect(lists.locations).toEqual([{ id: 'L1' }])
     expect(lists.events).toEqual([])
+  })
+
+  // The structural half of the above. The assertion before this one pins the
+  // literal names and their order (order matters: the Promise.all block vs
+  // the two best-effort ones). This one pins the RELATIONSHIP that actually
+  // drifts — that what this repository fetches is exactly what
+  // normalizeScheduleInputs consumes.
+  //
+  // Before the shared normalizer, this repository's list and the headless
+  // path's list were two hand-written copies of the same set, aligned only by
+  // a "keep this in sync" comment. They did not stay aligned. The headless
+  // path derives its fetch from SCHEDULE_INPUT_ENTITIES directly and so
+  // cannot drift; the renderer reaches these tables through a different seam
+  // (IPC, best-effort, ordered) and therefore needs this assertion instead.
+  // A list this repository stops fetching does not throw — it normalizes to
+  // [], and a screen quietly loses a catalog.
+  it('fetches exactly the entities normalizeScheduleInputs consumes', async () => {
+    const client = makeFakeClient()
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.loadSetupLists()
+    expect([...client.calls.list].sort()).toEqual([...SCHEDULE_INPUT_ENTITIES].sort())
   })
 
   // Events overlay placement Slice 1 — best-effort posture, same as
