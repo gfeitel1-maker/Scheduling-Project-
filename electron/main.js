@@ -25,8 +25,6 @@ import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from '
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { listOpenReconciliationDecisions, dismissOpenReconciliationDecisions } from './ops/openReconciliationDecisions.js'
 import { commitIngest, ingestUndo, listImportEvidence, listCompoundCellDecisions } from './ops/ingest.js'
-import { previewPreferenceImport } from './ops/preferenceImportPreview.js'
-import { commitPreferenceImport } from './ops/commitPreferenceImport.js'
 import { materializeImportedVersion } from './ops/materializeImportedVersion.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { mergeActivity, previewActivityMerge } from './ops/mergeActivity.js'
@@ -393,48 +391,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       })
     }
     return outcome
-  }
-
-  // T195 — preference import preview. Admin-only (ADR D9), read-only:
-  // previewPreferenceImport never opens a transaction or calls appendOp, so
-  // there is nothing here to gate against the Host-only 'mode === client'
-  // restriction ingestCommit enforces — preview touches no shared state.
-  function electiveImportPreview({ token, camp_id, run_id, headers, rows, mapping, source_sha256 } = {}) {
-    if (!isNonEmptyString(token)) throw new Error('token is required')
-    requireAuthorized(db, { token, action: 'elective_import.preview' })
-    return previewPreferenceImport(db, { camp_id, run_id, headers, rows, mapping, source_sha256 })
-  }
-
-  // T195 — preference import commit. Admin-only (ADR D9). authorize() is
-  // called BEFORE any append, same as bulkReplace above.
-  function electiveImportCommit({
-    token,
-    camp_id,
-    run_id,
-    headers,
-    rows,
-    mapping,
-    resolutions,
-    source_filename,
-    source_sha256,
-    client_write_id,
-  } = {}) {
-    if (!isNonEmptyString(token)) throw new Error('token is required')
-    const session = requireAuthorized(db, { token, action: 'elective_import.commit' })
-    if (!isNonEmptyString(client_write_id)) throw new Error('client_write_id is required')
-    return commitPreferenceImport(db, {
-      camp_id,
-      run_id,
-      headers,
-      rows,
-      mapping,
-      resolutions,
-      source_filename,
-      source_sha256,
-      author_user_id: session.userId,
-      device_id: deviceId,
-      client_write_id,
-    })
   }
 
   // D1 (dry-run reconciliation, docs/adr/2026-08-10-...ingestion-phaseD...).
@@ -1953,8 +1909,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     getSyncStatus,
     ingestCommit,
     ingestReconcile,
-    electiveImportPreview,
-    electiveImportCommit,
     ingestUndo: ingestUndoHandler,
     confirmAlias: confirmAliasHandler,
     recordDeclinedSplit: recordDeclinedSplitHandler,
@@ -2107,8 +2061,6 @@ if (isElectronEntryPoint()) {
     'shoresh:get-sync-status',
     'shoresh:ingest-commit',
     'shoresh:ingest-reconcile',
-    'shoresh:elective-import-preview',
-    'shoresh:elective-import-commit',
     'shoresh:ingest-undo',
     'shoresh:confirm-alias',
     'shoresh:record-declined-split',
@@ -2191,8 +2143,6 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
     ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
     ipcMain.handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
-    ipcMain.handle('shoresh:elective-import-preview', (_event, args) => handlers.electiveImportPreview(args))
-    ipcMain.handle('shoresh:elective-import-commit', (_event, args) => handlers.electiveImportCommit(args))
     ipcMain.handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
     ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
     ipcMain.handle('shoresh:record-declined-split', (_event, args) => handlers.recordDeclinedSplit(args))

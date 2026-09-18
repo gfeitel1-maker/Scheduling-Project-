@@ -668,49 +668,6 @@ describe('bulkReplace handler', () => {
   })
 })
 
-describe('electiveImportPreview/electiveImportCommit handlers (T195, admin-only)', () => {
-  it('rejects a preview from a non-admin (staff) session before touching the op log', async () => {
-    await seedCampAndUser({ name: 'StaffPreview', pin: '4444', role: 'staff' })
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token } = await handlers.login({ name: 'StaffPreview', pin: '4444' })
-    const opsBefore = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
-
-    expect(() =>
-      handlers.electiveImportPreview({ token, camp_id: 'camp-x', run_id: 'run-x', headers: [], rows: [], mapping: {} })
-    ).toThrow('admin role required')
-    expect(db.prepare('SELECT COUNT(*) AS n FROM operations').get().n).toBe(opsBefore)
-  })
-
-  it('rejects a commit from a non-admin (staff) session before touching the op log', async () => {
-    await seedCampAndUser({ name: 'StaffCommit', pin: '5555', role: 'staff' })
-    const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
-    const { token } = await handlers.login({ name: 'StaffCommit', pin: '5555' })
-    const opsBefore = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
-
-    expect(() =>
-      handlers.electiveImportCommit({
-        token,
-        camp_id: 'camp-x',
-        run_id: 'run-x',
-        headers: [],
-        rows: [],
-        mapping: {},
-        resolutions: { rowResults: [] },
-        client_write_id: 'cw-staff',
-      })
-    ).toThrow('admin role required')
-    expect(db.prepare('SELECT COUNT(*) AS n FROM operations').get().n).toBe(opsBefore)
-  })
-
-  it('rejects a missing token for both handlers', () => {
-    const handlers = makeHandlers(db, deviceId, {})
-    expect(() => handlers.electiveImportPreview({ camp_id: 'camp-x', run_id: 'run-x', headers: [], rows: [], mapping: {} })).toThrow()
-    expect(() => handlers.electiveImportCommit({ camp_id: 'camp-x', run_id: 'run-x', headers: [], rows: [], mapping: {}, resolutions: { rowResults: [] } })).toThrow()
-  })
-})
-
 describe('camps.rename authorization (admin-only, distinct from ordinary write)', () => {
   it('rejects a camps.name write from a non-admin (staff) session', async () => {
     await seedCampAndUser({ name: 'StaffRenamer', pin: '1122', role: 'staff' })

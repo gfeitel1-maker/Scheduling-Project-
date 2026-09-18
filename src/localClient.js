@@ -129,13 +129,6 @@ export const localClient = {
   // summary. Same argument shape as ingestCommit; never writes.
   ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport } = {}) =>
     shoresh.ingestReconcile({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, divisionSupport }),
-
-  // T195 — preference import preview/commit. Admin-only (ADR D9); authorize()
-  // is enforced main-process-side, same as every other write here.
-  electiveImportPreview: ({ camp_id, run_id, headers, rows, mapping, source_sha256 } = {}) =>
-    shoresh.electiveImportPreview({ token: currentToken(), camp_id, run_id, headers, rows, mapping, source_sha256 }),
-  electiveImportCommit: ({ camp_id, run_id, headers, rows, mapping, resolutions, source_filename, source_sha256, client_write_id } = {}) =>
-    shoresh.electiveImportCommit({ token: currentToken(), camp_id, run_id, headers, rows, mapping, resolutions, source_filename, source_sha256, client_write_id }),
   // U1+U2 — reverts field-updates AND newly-created rows from a
   // captureInverse commit. See the ADR's "grace-window" mechanism;
   // invertibleOps/createdEntityIds never persist past the renderer session
