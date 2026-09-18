@@ -1,14 +1,73 @@
 ---
 title: "Three IPC listeners survived the Stage 6c cutover with no possible sender, and one of them is a trap on upgraded devices"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
+resolved_by: [8e66547, 4d6af5a]
 task_class: architecture
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
 archive_when: "The dead pairing-push path is removed or wired, `KNOWN_GAPS` in electron/ipcChannelParity.guard.test.js is empty, and no phase exists that a device can enter and never leave"
 ---
 
 # T213 — Dead pairing-push listeners, and the phase you can enter but not leave
+
+## RESOLVED — verified on `main`, no further code change required
+
+Closed 2026-09-18 after re-deriving each verdict against the tree rather than inheriting the
+peer's. `8e66547` (#470) removed the dead cluster; `4d6af5a` emptied `KNOWN_GAPS`. All three
+`archive_when` clauses hold on `main` at `25dc06e`:
+
+- The three channels are gone from `electron/preload.js` (`grep -ran` over `src electron scripts
+  test` returns only wire-protocol `pairing_pending`/`pairing_denied` message types under
+  `electron/sync/automerge/`, the unrelated `pairing_status` DB column in `DeviceManagerScreen.jsx`,
+  and `_Prior:` historical comment lines).
+- `KNOWN_GAPS` is `[]`, and the guard is **non-vacuous with it empty** — planting
+  `ipcRenderer.on('shoresh:planted-orphan', …)` in `preload.js` fails
+  `ipcChannelParity.guard.test.js` (1 failed / 1 passed); tree restored.
+- No phase can be entered and not left: `useDeviceMode.js`'s derivation is now
+  `error → loading → mode-select → bootstrap → join → login → session`, and every arm has a
+  reachable exit (`retry`, `chooseHost`/`chooseJoin`, `bootstrapCamp`, camp creation, `login`,
+  `logout`).
+
+### Per-channel verdict, each traced separately
+
+| Channel | Verdict | Evidence |
+|---|---|---|
+| `shoresh:pairing-approved` | **(a) dead — correctly removed** | The decision is delivered by the live polling path: `JoinByCodeScreen.jsx:99,123` sets `STEP.signIn` on `status === 'approved'` from `joinRequestPairing`/`joinAwaitPairingDecision`. `syncNode.js`'s `sendPairingApproved` is a libp2p **wire** message, never `webContents.send`. |
+| `shoresh:pairing-denied` | **(a) dead — correctly removed** | Same live path carries denial: `JoinByCodeScreen.jsx:111,118-119` → `STEP.denied`, with a real rendered denial screen at line 226. |
+| `shoresh:token-renewed` | **(a) dead — correctly removed, and never severed** | Distinct from the other two: this listener was for a feature **that was never built**. `TOKEN_TTL_MS = 24h` (`electron/auth/localAuth.js:151`) with the comment "Renewal (sub-task 3) is out of scope here; a token past this window simply stops verifying." `grep -rniE "renew\|reissueToken\|refreshToken"` over `electron src` returns only that comment and a `syncNode.js:520` comment. Expiry → `verifySession` fails → `clearSessionState(null)` → `login` phase, benign by design. |
+
+### Why this is NOT the `shoresh:auth-rejected` case
+
+`auth-rejected` was case (b) because it was the **sole** carrier of a class of authoritative
+refusals — nothing else told the director. These three are the opposite: the pairing outcomes have
+a second, live carrier that already renders both outcomes, and token renewal has no outcome to
+carry. **No director-facing message was silently dead.** The dead channels were a redundant severed
+*direction* of an outcome the polling path still delivers.
+
+### The trap, stated precisely
+
+The trap was **`pairing-approved` and `pairing-denied` jointly, not any one channel** — they were
+the only two writers of `pairingStatus` other than `'pending'`, so they were the entire exit set of
+the `pairing_pending` phase.
+
+The mechanism is worth correcting: the body below implies a stale `shoresh-join-host` hydrates
+straight into `pairing_pending`. It does not — `pairingStatus` was `useState(null)` and never
+hydrated. The reachable path (`8e66547^:src/hooks/useDeviceMode.js:137-152`) is that a stale
+`joinHost` satisfied `else if (mode === 'client' && joinHost)`, which then called
+`getDevicePairingStatus()` and, on `!isPaired`, ran `setPairingStatus('pending')` **during init**.
+Phase `pairing_pending` (line 296) followed, and with both exits dead the device stayed there
+across every restart.
+
+The load-bearing half was the inverse defect on the same dead gate, and it hit the **larger**
+population: a device that joined *by code* had **no** `joinHost`, so it matched neither startup
+branch and skipped `chooseMode` entirely on every restart — never handing its locally-verified
+token to the libp2p node (`main.js:716`), silently voiding the T87 Part 1 re-auth guarantee. The
+stale-key trap stranded upgraded devices; the missing-key defect degraded every joined-by-code
+device.
+
+`getDevicePairingStatus` remains in place deliberately — an `invoke` with a live handler, outside
+this guard's scope.
 
 ## Numbering
 
