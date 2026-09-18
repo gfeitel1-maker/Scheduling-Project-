@@ -97,6 +97,45 @@ from the transcript. Two independent reasons:
 What shipped instead: the refusal is surfaced neutrally with no cause and no remedy, and the
 reasoning is written at the site so a future reader does not "improve" it back into a wizard.
 
+## REBASE CHECKLIST — in order, and the first item is not optional
+
+`main` moved a long way while this branch sat: `8825015` (T215, libp2p 3.x) then `8e66547` (#470,
+the pairing-push deletion). Work through these in order.
+
+1. **`npm ci` in the worktree, BEFORE trusting any local result.** This is first because it silently
+   invalidates everything after it. Rebasing onto a libp2p major leaves `node_modules` carrying the
+   **old** major while `package-lock.json` says the new one — the session that merged T215 hit
+   exactly this, with 2.10 installed and 3.3.11 locked. A gate in that state measures a tree you no
+   longer have and reports confidently about it. It looks like a valid run, and nothing in the output
+   says otherwise. (Taxonomy member: *the check ran, against different truth than you think* — see
+   `docs/work/security/2026-09-14-security-program.md`.)
+2. **Re-derive the ticket numbers.** T207–T213 may have moved again; several sessions file
+   concurrently. A number is only yours once pushed.
+3. **Re-derive the schema version** and renumber to v67 **only if** v66 landed ahead of us — see the
+   section below for the full move set and the merge-order rule.
+4. **Clear `KNOWN_GAPS` in `electron/ipcChannelParity.guard.test.js`.** The three channels
+   (`shoresh:pairing-approved`, `shoresh:pairing-denied`, `shoresh:token-renewed`) no longer exist in
+   `electron/preload.js` on `main` after #470, so the exemption is now unnecessary — remove it so the
+   guard enforces with an **empty allowlist**. This closes the loop the whole emitter thread started
+   from; it must actually happen rather than remaining a documented exemption.
+5. **Resolve the #470 conflicts toward the deletion** in `useDeviceMode.js`, `CLAUDE.md`,
+   `PLATFORM_STATE.md`.
+6. **Sweep `test/` and `scripts/`, not just `src/` and `electron/`.** Both sessions made the same
+   method error tonight: the deletion's symbol sweep covered only the source directories (came back
+   clean, but the method had the gap), and T215's libp2p migration sweep covered
+   `electron/sync/automerge/**` and missed `test/fuzz/wireAndCrypto.fuzz.test.js` — which was a real
+   failure, caught only by the full gate.
+7. **Then** the full gate, on a quiet machine, reading the counts before believing any banner.
+
+### Deleting a merged branch
+
+`gh pr merge --delete-branch` can print `failed to run git: fatal: 'main' is already checked out at
+<another worktree>`. That is the **local** branch-switch step failing — **the merge itself already
+succeeded**. Harmless noise in a multi-worktree setup, but it leaves the *remote* branch undeleted.
+Delete it separately and confirm with `git ls-remote`, never from the command's output. This sits
+beside the existing rule about never chaining a branch delete onto a merge (a failed merge with a
+chained delete closes the PR).
+
 ## MANDATORY AT REBASE — re-derive the schema version, and renumber ONLY if v66 landed ahead of us
 
 **Do this at rebase, not before, and verify rather than assume.**

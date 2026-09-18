@@ -25,6 +25,7 @@ thread. Stated once, because treating these as unrelated gotchas is how the next
 | **Duplicate ticket numbers** | `check:governance` scans the **working tree**; our branch has no other branch's tickets | "no number collision exists" — seven did, on `main` |
 | **Duplicate schema versions** | same scan, same blind spot | "v66 is ours" — another branch also built v66 on 65 |
 | **The live advisory clock** | `npm audit` queries a **live external database**, so the verdict is a function of wall-clock time, not committed state | "our diff broke the build" — GHSA-vrf4-mx87-p53w was published overnight. Corollary: `main` is **stale-green**, not green; "it passed" and "it would pass now" are different claims |
+| **Stale `node_modules` after a dependency-major rebase** | the suite ran against the packages **actually installed**, which were the OLD major while `package-lock.json` already said the new one | "the gate validated this tree". Hit for real on the T215 merge: libp2p 2.10 installed, 3.3.11 locked. **Run `npm ci` before trusting any local result after such a rebase** |
 | **CI's shallow clone** | `actions/checkout@v4` with no `fetch-depth`, so `checkStatusDrift` and the run-record check have no `origin/main` and skip | "CI validated everything the local gate does". *(The duplicate scan DOES run in CI — do not over-read this.)* |
 
 The duplicate-schema member is the one with teeth. Two migrations at one version do not merely fail a
@@ -104,6 +105,24 @@ than careless, and why the mitigation has to be mechanical rather than another w
   — the shape already used in `electron/sync/automerge/transportBoundary.guard.test.js` and
   `authRejectedSender.test.js`, both of which fail loudly if their scanner matches zero inputs);
 - and treat a uniform result across many items as a defect in the measurement until proven otherwise.
+
+## A member with a payload, from the same night
+
+The taxonomy is not only about wasted time. T215's libp2p 2→3 migration swept
+`electron/sync/automerge/**` and not `test/fuzz/**`, leaving
+`test/fuzz/wireAndCrypto.fuzz.test.js` — a security fuzz test over adversarial byte sources — still
+building its send-path fake as a callable pull-stream sink. The full gate caught it
+(`TypeError: stream.send is not a function`).
+
+**But the gate's own banner argued against believing it:** *"VERIFY INCONCLUSIVE … very likely a load
+artifact, not a defect"*, because the machine was oversubscribed. The counts underneath read
+`1 failed | 447 passed`. Taking the banner's advice — re-run and expect a flake — would have shipped
+the defect. **The counts must be read before the explanation is believed**, and an inconclusive
+verdict is not evidence in *either* direction.
+
+The same lesson without a payload: the deletion in #470 swept only `src/` and `electron/` for its
+removed symbols. It came back clean, so nothing broke — but the method had the identical gap.
+**Sweep `test/` and `scripts/` too.**
 
 ## Cousins from the same evening — not gate mechanics, same error
 
