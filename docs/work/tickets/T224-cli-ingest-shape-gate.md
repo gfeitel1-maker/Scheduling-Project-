@@ -1,5 +1,5 @@
 ---
-title: T222-cli-ingest-shape-gate
+title: T224-cli-ingest-shape-gate
 document_type: ticket
 status: open
 created: 2026-09-18
@@ -8,7 +8,7 @@ governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/govern
 related_adrs: [docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md]
 ---
 
-# T222 — the CLI/MCP ingest path never calls the schedule-shape gate
+# T224 — the CLI/MCP ingest path never calls the schedule-shape gate
 
 ## Observed, not theorised
 
@@ -64,7 +64,7 @@ by claiming otherwise.
 
 Red Hat reproduced a real false refusal end-to-end: a workbook with abbreviated day headers
 (`Mon`/`Tue`/…) and bare-number time labels (`915`) is refused. The predicate is pre-existing T146
-code and unchanged by this ticket, but T222 is what newly exposes CLI and MCP operators to it, so it
+code and unchanged by this ticket, but T224 is what newly exposes CLI and MCP operators to it, so it
 is this ticket's problem.
 
 **Fixed:** `isDayName` now accepts abbreviated day names — `Mon`, `Mon.`, `MON`, `Tues`, `Weds`,

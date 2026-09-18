@@ -18,7 +18,7 @@ page admits the entire workbook to extraction, including pages that are not sche
 
 ## Observed
 
-The T222 fixture, with a day × period elective menu added as a second tab:
+The T224 fixture, with a day × period elective menu added as a second tab:
 
 ```
 fake-selections.xlsx   -> isScheduleShaped = true
@@ -27,7 +27,7 @@ fake-selections.xlsx   -> isScheduleShaped = true
 ```
 
 The menu tab is genuinely schedule-shaped, so the gate passes — and the camper tab's column headers
-are then extracted as 33 groups and 33 tiers exactly as in T222. **T222's fix does not help here**,
+are then extracted as 33 groups and 33 tiers exactly as in T224. **T224's fix does not help here**,
 because the gate it wires in returns true for this file. The UI path has the same hole today.
 
 ## Why this is not a trivial tightening
@@ -47,4 +47,4 @@ inherit-from-previous-page rule; a gate that declines individual pages but surfa
 list to the director rather than dropping it silently; or accepting the current behaviour and instead
 making the post-import summary legible enough that `#1` appearing as a group is obvious.
 
-Whichever is chosen, the T222 fixture shape is the regression test.
+Whichever is chosen, the T224 fixture shape is the regression test.

@@ -65,10 +65,10 @@ describe('isScheduleShaped (T146)', () => {
     expect(isScheduleShaped(campC.pages)).toBe(true)
   })
 
-  // T222/Red Hat — a camp whose export abbreviates its day headers had a real
+  // T224/Red Hat — a camp whose export abbreviates its day headers had a real
   // schedule refused. Harmless in the GUI (the director sees the message and
   // can say otherwise); an operational regression on the CLI/MCP path, which
-  // T222 newly subjected to this gate. Widening is the safe direction: this
+  // T224 newly subjected to this gate. Widening is the safe direction: this
   // predicate's stated bias is strongly toward accepting, and every case below
   // moves a file from refused to accepted, never the reverse.
   it.each([

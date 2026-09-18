@@ -93,7 +93,7 @@ export function runIngestCli({ file, dbPath, mode = 'add', action = 'preview', a
     return errorResult(base, 'No schedule could be read out of that file.')
   }
 
-  // T222 — the same precondition ImportScreen.jsx enforces before it will
+  // T224 — the same precondition ImportScreen.jsx enforces before it will
   // extract anything. It was previously imported ONLY there, so a director
   // using the app was protected from pointing the importer at a non-schedule
   // workbook and the CLI/MCP operator was not: a camper elective-selection

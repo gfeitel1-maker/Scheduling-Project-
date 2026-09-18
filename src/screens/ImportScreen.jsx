@@ -459,7 +459,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // never call isScheduleShaped.
       //
       // This is one of TWO call sites on that path. The other is
-      // scripts/ingestCli.js (T222), which is what the MCP ingest tools run.
+      // scripts/ingestCli.js (T224), which is what the MCP ingest tools run.
       // Change the acceptance behaviour in one and check the other: the two
       // refusal messages are worded for their own audience and are
       // deliberately not shared, so they can drift.

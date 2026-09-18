@@ -188,7 +188,7 @@ describe('runIngestCli', () => {
     expect(second.summary.created.activities).toBe(0)
   })
 
-  // T222 — the CLI/MCP path must refuse a workbook that is not a schedule.
+  // T224 — the CLI/MCP path must refuse a workbook that is not a schedule.
   //
   // Found by running a synthetic camper elective-selection sheet through this
   // CLI: it committed the form's COLUMN HEADERS ('#1', '#2', 'Division', ...)

@@ -478,8 +478,8 @@ so its contract is about honesty rather than perfection.
   `src/ingest/scheduleShape.js`'s `isScheduleShaped` requires positive evidence
   of a schedule — day-name columns, a day-named page title, or clock-time row
   labels — and is called both from `src/screens/ImportScreen.jsx` and, since
-  T222, from `scripts/ingestCli.js`, which is what `scripts/mcp/tools.js`'s
-  `ingest_preview`/`ingest_commit` run. Before T222 only the GUI enforced it, so
+  T224, from `scripts/ingestCli.js`, which is what `scripts/mcp/tools.js`'s
+  `ingest_preview`/`ingest_commit` run. Before T224 only the GUI enforced it, so
   the CLI and MCP would extract entities from any workbook at all: a campus-map
   template proposed 23 groups, 23 tiers and 21 "activities" (its legend keys —
   "building", "tent", "court") and reported success. The gate is **whole-file**

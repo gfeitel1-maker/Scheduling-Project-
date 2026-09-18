@@ -15,8 +15,8 @@
 //   - src/screens/ImportScreen.jsx  — the director's drag-and-drop import
 //   - scripts/ingestCli.js          — runIngestCli, which is also what
 //                                     scripts/mcp/tools.js's ingest_preview
-//                                     and ingest_commit run (T222)
-// The CLI/MCP site was added in T222, after a camper elective-selection
+//                                     and ingest_commit run (T224)
+// The CLI/MCP site was added in T224, after a camper elective-selection
 // workbook committed its column headers ('#1', '#2', 'Division') as 33 camp
 // groups and 33 tiers through a path that had never called this gate.
 //
@@ -52,7 +52,7 @@ const TIME_LABEL = /\d{1,2}\s*[:.]\s*\d{2}/
 const DAY_ABBREVIATION_ALIASES = { weds: 'wednesday', tues: 'tuesday', thur: 'thursday', thurs: 'thursday' }
 
 // Accepts a day name written in full or abbreviated — 'Mon', 'Mon.', 'MON',
-// 'Tues', 'Weds' (T222, Red Hat): a camp whose export abbreviates its headers
+// 'Tues', 'Weds' (T224, Red Hat): a camp whose export abbreviates its headers
 // had a real schedule refused by the CLI/MCP gate.
 //
 // A two-character floor is what keeps this from becoming a wildcard: a single
