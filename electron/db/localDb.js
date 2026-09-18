@@ -2053,7 +2053,7 @@ export function initSchema(db) {
             is_all_groups INTEGER,
             group_ids TEXT,
             notes TEXT,
-            schedule_week_id TEXT,
+            schedule_week_id TEXT REFERENCES schedule_weeks(id),
             recurrence_level TEXT NOT NULL DEFAULT 'daily',
             location_id TEXT,
             kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring')),
@@ -2536,7 +2536,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
             is_all_groups INTEGER,
             group_ids TEXT,
             notes TEXT,
-            schedule_week_id TEXT,
+            schedule_week_id TEXT REFERENCES schedule_weeks(id),
             recurrence_level TEXT NOT NULL DEFAULT 'daily',
             location_id TEXT,
             kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring')),
@@ -2991,7 +2991,7 @@ export const ELECTIVE_SETS_DDL = `CREATE TABLE IF NOT EXISTS elective_sets (
   time_block_id TEXT,
   is_all_groups INTEGER,
   group_ids TEXT,
-  schedule_week_id TEXT,
+  schedule_week_id TEXT REFERENCES schedule_weeks(id),
   recurrence_level TEXT NOT NULL DEFAULT 'daily',
   UNIQUE(camp_id, name)
 )`

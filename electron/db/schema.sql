@@ -697,7 +697,7 @@ CREATE TABLE IF NOT EXISTS anchor_activities (
   is_all_groups INTEGER,
   group_ids TEXT,
   notes TEXT,
-  schedule_week_id TEXT,
+  schedule_week_id TEXT REFERENCES schedule_weeks(id),
   recurrence_level TEXT NOT NULL DEFAULT 'daily',
   location_id TEXT,
   kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring')),
@@ -992,7 +992,7 @@ CREATE TABLE IF NOT EXISTS elective_sets (
   time_block_id TEXT,
   is_all_groups INTEGER,
   group_ids TEXT,
-  schedule_week_id TEXT,
+  schedule_week_id TEXT REFERENCES schedule_weeks(id),
   recurrence_level TEXT NOT NULL DEFAULT 'daily',
   UNIQUE(camp_id, name)
 );
@@ -1155,6 +1155,12 @@ CREATE TABLE IF NOT EXISTS event_slots (
 -- OTHER reference is SOFT, with no SQL REFERENCES clause — parent links
 -- (run_id, choice_id, schedule_week_id) included, matching
 -- elective_set_activities.activity_id and template_slots.
+--
+-- SCOPE: this discipline governs only these seven new participant-substrate
+-- tables. It does not extend to pre-existing tables — anchor_activities.
+-- schedule_week_id and elective_sets.schedule_week_id keep the real
+-- `REFERENCES schedule_weeks(id)` they shipped with before this ticket;
+-- softening them was an unrelated, unintended change and has been reverted.
 --
 -- The first draft gave each table's own PARENT link a real REFERENCES, and that
 -- was WRONG for this substrate. Two reproduced failures, both under
