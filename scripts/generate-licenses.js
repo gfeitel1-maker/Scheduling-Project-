@@ -33,7 +33,9 @@
 // like it would be omitted from `node_modules` on this platform by design.
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { Parser as TarParser } from 'tar'
 
 const LICENSE_FILE_RE = /^(license|licence|copying)(\.[^.]+)?$/i
 
@@ -65,6 +67,171 @@ function findLicenseText(dir) {
     return fs.readFileSync(path.join(dir, candidates[0]), 'utf8')
   } catch {
     return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Three-tier license TEXT sourcing.
+//
+// Tier 1 (disk) covers ~177/178 production packages: the package is present
+// in node_modules and findLicenseText() reads it straight off disk, exactly
+// as before. Tier 2/3 exist for the remaining case — a package whose
+// node_modules directory is entirely absent even though it is a genuine
+// production dependency (e.g. an optionalDependency like
+// better-sqlite3-multiple-ciphers whose prebuild doesn't cover this Node
+// version). Previously that was an unconditional hard failure telling the
+// developer to re-run `npm ci`, which is unactionable when the package
+// cannot install on this machine at all.
+//
+// Tier 2 (cache): electron/license-texts/ holds one committed text file per
+// package, named `<name, "/" replaced with "+">@<version>.txt`. The "+"
+// substitution keeps scoped package names (e.g. "@foo/bar") on one flat
+// filename with no subdirectories. Once a package has been recovered once
+// (tier 3), every subsequent run — including on a machine that can't install
+// or reach the network — is offline-green from this cache.
+//
+// Tier 3 (fetch+verify): only reached on a cache miss. Downloads the tarball
+// at the lockfile entry's own `resolved` URL, verifies the bytes against that
+// entry's committed `integrity` SRI hash BEFORE trusting them (a mismatch is
+// treated as a trust problem, not a license-generation bug), extracts
+// package.json and the LICENSE-family file from the tarball in memory using
+// the SAME findLicenseText/classifyLicense logic as the disk path, and writes
+// the recovered text to the cache so the next run doesn't need the network.
+function cacheFileName(name, version) {
+  return `${name.replace(/\//g, '+')}@${version}.txt`
+}
+
+function readCachedLicenseText(cacheDir, name, version) {
+  try {
+    return fs.readFileSync(path.join(cacheDir, cacheFileName(name, version)), 'utf8')
+  } catch {
+    return null
+  }
+}
+
+function writeCachedLicenseText(cacheDir, name, version, text) {
+  fs.mkdirSync(cacheDir, { recursive: true })
+  fs.writeFileSync(path.join(cacheDir, cacheFileName(name, version)), text)
+}
+
+function verifyIntegrity(buffer, integrity, label) {
+  const match = /^sha512-(.+)$/.exec(integrity || '')
+  if (!match) {
+    throw new Error(
+      `generate-licenses: "${label}"'s package-lock.json "integrity" value is not a recognized sha512 SRI hash — refusing to trust unverifiable tarball bytes.`
+    )
+  }
+  const actual = crypto.createHash('sha512').update(buffer).digest('base64')
+  if (actual !== match[1]) {
+    throw new Error(
+      `generate-licenses: downloaded tarball for "${label}" does not match the sha512 hash recorded in package-lock.json. ` +
+        `This is a TRUST problem — a tampered, corrupted, or wrong artifact — not a license-generation bug. Refusing to use it.`
+    )
+  }
+}
+
+// Parses a downloaded tarball in memory (no temp files) and returns the
+// package.json contents plus whichever LICENSE-family file findLicenseText's
+// preference order (LICENSE > LICENCE > COPYING, then lexicographic) would
+// have picked on disk, so the same file wins regardless of source.
+function extractPackageFromTarball(buffer) {
+  return new Promise((resolve, reject) => {
+    const files = new Map() // path within package/ -> Buffer
+    const parser = new TarParser({
+      onwarn: () => {},
+      onReadEntry(entry) {
+        const chunks = []
+        entry.on('data', (chunk) => chunks.push(chunk))
+        entry.on('end', () => {
+          // npm tarballs wrap everything in a single "package/" prefix dir.
+          const rel = entry.path.replace(/^package\//, '')
+          files.set(rel, Buffer.concat(chunks))
+        })
+      },
+    })
+    parser.on('error', reject)
+    parser.on('end', () => {
+      try {
+        const pkgJsonBuf = files.get('package.json')
+        if (!pkgJsonBuf) {
+          reject(new Error('generate-licenses: downloaded tarball has no package.json'))
+          return
+        }
+        const pkgJson = JSON.parse(pkgJsonBuf.toString('utf8'))
+        const licenseFiles = [...files.keys()].filter((name) => LICENSE_FILE_RE.test(path.basename(name)))
+        licenseFiles.sort(
+          (a, b) => licenseFileRank(path.basename(a)) - licenseFileRank(path.basename(b)) || a.localeCompare(b)
+        )
+        const licenseText = licenseFiles.length > 0 ? files.get(licenseFiles[0]).toString('utf8') : null
+        resolve({ pkgJson, licenseText })
+      } catch (err) {
+        reject(err)
+      }
+    })
+    parser.end(buffer)
+  })
+}
+
+async function fetchTarball(url, label, fetchImpl) {
+  let response
+  try {
+    response = await fetchImpl(url)
+  } catch (err) {
+    throw new Error(`generate-licenses: failed to fetch "${label}" from ${url} — ${err.message}`)
+  }
+  if (!response.ok) {
+    throw new Error(
+      `generate-licenses: failed to fetch "${label}" from ${url} — HTTP ${response.status} ${response.statusText}`
+    )
+  }
+  const arrayBuffer = await response.arrayBuffer()
+  return Buffer.from(arrayBuffer)
+}
+
+// Resolves a package whose node_modules directory does not exist at all:
+// tries the committed cache, then falls back to fetch+verify+extract,
+// writing the cache on success. Never returns partial/unverified data.
+async function resolveMissingPackage({ name, version, entry, cacheDir, fetchImpl }) {
+  const label = `${name}@${version}`
+  const cachedText = readCachedLicenseText(cacheDir, name, version)
+  if (cachedText !== null) {
+    // Classification still comes from the lockfile entry's own `license`
+    // field (npm records it there from the package's package.json at
+    // publish time) — this is committed data, so it's just as offline and
+    // deterministic as the cached text, and avoids re-fetching every run.
+    const license = classifyLicense(entry)
+    if (license === null) {
+      throw new Error(`generate-licenses: cannot classify license for "${label}" (missing from node_modules, and its package-lock.json entry has no usable license field)`)
+    }
+    return { name, version, license, homepage: null, licenseText: cachedText }
+  }
+
+  if (typeof entry.resolved !== 'string' || !entry.resolved || typeof entry.integrity !== 'string' || !entry.integrity) {
+    throw new Error(
+      `generate-licenses: "${label}" is in package-lock.json but missing from node_modules, and its lockfile entry has no ` +
+        `usable "resolved"/"integrity" to recover it from — cannot source its license offline or online. Run \`npm ci\`.`
+    )
+  }
+
+  const tarball = await fetchTarball(entry.resolved, label, fetchImpl)
+  verifyIntegrity(tarball, entry.integrity, label)
+  const { pkgJson, licenseText } = await extractPackageFromTarball(tarball)
+
+  const license = classifyLicense(pkgJson) ?? classifyLicense(entry)
+  if (license === null) {
+    throw new Error(`generate-licenses: cannot classify license for "${label}"`)
+  }
+
+  if (licenseText !== null) {
+    writeCachedLicenseText(cacheDir, name, version, licenseText)
+  }
+
+  return {
+    name,
+    version,
+    license,
+    homepage: typeof pkgJson.homepage === 'string' ? pkgJson.homepage : null,
+    licenseText,
   }
 }
 
@@ -113,10 +280,19 @@ function isPlatformGatedOut(entry) {
  * Never returns partial results on failure — the caller only sees the array
  * once the whole set has been resolved.
  */
-export function buildLicenseManifest(rootDir) {
+// A lockfile key looks like "node_modules/foo" or, nested,
+// "node_modules/bar/node_modules/@scope/foo" — the package name is always
+// whatever follows the LAST "node_modules/" segment.
+function deriveNameFromKey(key) {
+  const marker = 'node_modules/'
+  return key.slice(key.lastIndexOf(marker) + marker.length)
+}
+
+export async function buildLicenseManifest(rootDir, { fetchImpl = globalThis.fetch } = {}) {
   const lock = JSON.parse(fs.readFileSync(path.join(rootDir, 'package-lock.json'), 'utf8'))
   const lockPackages = lock.packages || {}
   const packages = new Map()
+  const cacheDir = path.join(rootDir, 'electron', 'license-texts')
 
   for (const [key, entry] of Object.entries(lockPackages)) {
     if (key === '') continue // the root project entry itself
@@ -126,31 +302,38 @@ export function buildLicenseManifest(rootDir) {
 
     const dir = path.join(rootDir, key)
     let pkgJson
+    let resolved
     try {
       pkgJson = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
-    } catch {
-      throw new Error(
-        `generate-licenses: production dependency "${key}" is in package-lock.json but missing from ` +
-          `node_modules — the install tree is incomplete. Run \`npm ci\` and try again.`
-      )
+      const license = classifyLicense(pkgJson)
+      if (license === null) {
+        throw new Error(`generate-licenses: cannot classify license for "${pkgJson.name}@${pkgJson.version}"`)
+      }
+      resolved = {
+        name: pkgJson.name,
+        version: pkgJson.version,
+        license,
+        homepage: typeof pkgJson.homepage === 'string' ? pkgJson.homepage : null,
+        licenseText: findLicenseText(dir),
+      }
+    } catch (err) {
+      if (!(err.code === 'ENOENT' || err instanceof SyntaxError)) throw err
+      // Package directory is entirely absent from node_modules (e.g. a
+      // no-prebuild optionalDependency on this Node version) — see the
+      // three-tier sourcing block above for why this is no longer an
+      // unconditional hard failure.
+      resolved = await resolveMissingPackage({
+        name: deriveNameFromKey(key),
+        version: entry.version,
+        entry,
+        cacheDir,
+        fetchImpl,
+      })
     }
 
-    const license = classifyLicense(pkgJson)
-    if (license === null) {
-      throw new Error(
-        `generate-licenses: cannot classify license for "${pkgJson.name}@${pkgJson.version}"`
-      )
-    }
-
-    const dedupeKey = `${pkgJson.name}@${pkgJson.version}`
+    const dedupeKey = `${resolved.name}@${resolved.version}`
     if (packages.has(dedupeKey)) continue // same package resolved at another nested path
-    packages.set(dedupeKey, {
-      name: pkgJson.name,
-      version: pkgJson.version,
-      license,
-      homepage: typeof pkgJson.homepage === 'string' ? pkgJson.homepage : null,
-      licenseText: findLicenseText(dir),
-    })
+    packages.set(dedupeKey, resolved)
   }
 
   return [...packages.values()].sort(
@@ -216,10 +399,36 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const OUT_JSON = path.join(ROOT, 'electron', 'third-party-licenses.json')
 const OUT_HTML = path.join(ROOT, 'electron', 'third-party-licenses.html')
 
-function main() {
+// Prints an added/removed/version-changed delta between two manifests so a
+// `--check` failure is actionable without a separate diff step.
+function describeManifestDelta(oldJson, newManifest) {
+  let oldManifest
+  try {
+    oldManifest = JSON.parse(oldJson)
+  } catch {
+    return // no parseable prior artifact to diff against
+  }
+  const oldByName = new Map(oldManifest.map((p) => [p.name, p]))
+  const newByName = new Map(newManifest.map((p) => [p.name, p]))
+
+  const added = [...newByName.keys()].filter((name) => !oldByName.has(name)).sort()
+  const removed = [...oldByName.keys()].filter((name) => !newByName.has(name)).sort()
+  const versionChanged = [...newByName.keys()]
+    .filter((name) => oldByName.has(name) && oldByName.get(name).version !== newByName.get(name).version)
+    .sort()
+
+  console.error(`delta: +${added.length} added, -${removed.length} removed, ${versionChanged.length} version-changed`)
+  for (const name of added) console.error(`  added: ${name}@${newByName.get(name).version}`)
+  for (const name of removed) console.error(`  removed: ${name}@${oldByName.get(name).version}`)
+  for (const name of versionChanged) {
+    console.error(`  version-changed (${name}: ${oldByName.get(name).version} -> ${newByName.get(name).version})`)
+  }
+}
+
+async function main() {
   let manifest
   try {
-    manifest = buildLicenseManifest(ROOT)
+    manifest = await buildLicenseManifest(ROOT)
   } catch (err) {
     console.error(err.message)
     process.exit(1)
@@ -235,6 +444,7 @@ function main() {
       console.error(
         'electron/third-party-licenses.{json,html} are stale relative to the dependency tree — run `npm run licenses` and commit the result.'
       )
+      if (curJson !== null) describeManifestDelta(curJson, manifest)
       process.exit(1)
       return
     }
@@ -249,4 +459,9 @@ function main() {
 
 const invokedDirectly =
   process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('scripts/generate-licenses.js')
-if (invokedDirectly) main()
+if (invokedDirectly) {
+  main().catch((err) => {
+    console.error(err.stack || err.message)
+    process.exit(1)
+  })
+}

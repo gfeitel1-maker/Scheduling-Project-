@@ -635,8 +635,16 @@ just `session`. Both files are produced by `scripts/generate-licenses.js` from t
 dependency closure (never `devDependencies`) and are committed; `npm run licenses:check` (wired into
 `VERIFY_STEPS`) fails the gate if they drift. The package SET comes from the committed
 `package-lock.json` rather than a `node_modules` walk, so the check is stale only when dependencies
-actually changed — license TEXT is still read from `node_modules`, and a production package missing
-from disk is a hard failure telling you to run `npm ci`, never a silent omission.
+actually changed. License TEXT is sourced in three tiers: from `node_modules` when the package is
+actually installed (the common case); otherwise from a committed cache,
+`electron/license-texts/<name>@<version>.txt`, so a package absent from `node_modules` (e.g. the
+`better-sqlite3-multiple-ciphers` optionalDependency, which has no prebuild for every Node version)
+doesn't red the gate on a machine that can't install it; and only on a cache miss, by fetching the
+package's tarball from the `resolved` URL in `package-lock.json`, verifying it against that entry's
+committed `integrity` hash before trusting it, and writing the recovered text back into the cache. A
+production package that is neither installed, cached, nor fetchable (no usable `resolved`/`integrity`,
+a failed fetch, or a hash that doesn't match) is a hard failure with a distinct, actionable message —
+never a silent omission.
 
 **The document carries provenance and authorship; the op-log becomes a local history ledger (2026-09-08/09).** Completing the
 Stage 6 cutover. `applyWrite` used to carry field VALUES only, which broke two things a director relies on.

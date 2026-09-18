@@ -2565,8 +2565,9 @@ if (isElectronEntryPoint()) {
 
   // C6 — the Licenses window. A standalone BrowserWindow rather than an AppShell
   // screen, deliberately: AppShell only renders at phase === 'session', and a
-  // menu item that is dead at mode-select/login/bootstrap/join/pairing_pending
-  // is a bug (D6). It loads the static, generated HTML with no preload and no
+  // menu item that is dead at mode-select/login/bootstrap/join (pairing is
+  // awaited inline within JoinByCodeScreen, not a separate phase) is a bug
+  // (D6). It loads the static, generated HTML with no preload and no
   // node integration — it is public text and needs no privilege. Reuses the
   // existing window instead of stacking duplicates.
   let licensesWindow = null
