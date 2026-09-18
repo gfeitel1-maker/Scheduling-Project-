@@ -213,7 +213,7 @@ Adapted from the spec's §24, with the two prerequisites added:
 | Prerequisite: local-trust filter at the discovery seam | T208 | **Closed 2026-09-18** — LAN case now enforced via `createBoundPeerTrust`, unblocked by T162 |
 | Prerequisite: stable device identity + token binding | T162 | **Implemented 2026-09-17** — unblocks a real trust check |
 | A — Worker + KV source and tests (no deploy) | T209 | Not gated (no Shoresh runtime change) |
-| B — signed record contract + namespace | T210 | Not gated once T207 lands; **T207 must land first** |
+| B — signed record contract + namespace | T210 | Not gated once T207 lands; **T207 must land first**. Implementation complete (encoding, signing, verification, rotation, round-2 hardening) as pure library code not wired into any path; ticket left `open` pending T207 per its own dependency, not for any remaining code gap |
 | C — wire into the existing discovery path | T211 | **Gated by T207's widened guard — needs the owner's sign-off** |
 | E — measurement and observability | T212 | Not gated |
 | D — UPnP/NAT-PMP | *not ticketed* | **Blocked**: `@libp2p/upnp-nat`/`@libp2p/autonat` forbidden; and see the TCP-only finding |

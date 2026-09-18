@@ -34,3 +34,18 @@ silent boundary widening the Tier-4 ADR exists to prevent.
 
 - Wiring into transport or discovery — that is T211, and it is gated.
 - A namespace with no rotation or revocation story.
+
+## Status note (round 2, 2026-09-18)
+
+The `archive_when` condition's own text is met: `rendezvousRecord.js` verifies a record only for
+the signing device's own key (33 passing tests including tamper-each-field), and
+`rendezvousNamespace.js` implements generation, document-backed storage/propagation, and rotation
+per the ADR, with a round-2 fix making the namespace/epoch pair unsplittable under concurrent
+rotation (single `rendezvousDiscovery` field — see the ADR's Decision 3a). This status is left
+`open` rather than `completed` anyway, because this ticket's own "Depends on: T207 must land first"
+is not yet satisfied — `T207-tier4-guard-blind-to-http-rendezvous.md` is still `in-progress`. The
+code itself does not widen any boundary (Decision 4: no network egress, not imported by any
+production path, Tier-4 guard unmodified and green), so nothing here is unsafe to have merged ahead
+of T207 — but the ticket's stated sequencing is a fact about this ticket, not something this round
+of work should silently override. Flip to `completed` once T207 lands, or when someone re-reviews
+the dependency and decides it no longer applies.

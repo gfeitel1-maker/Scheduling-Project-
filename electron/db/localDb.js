@@ -22,9 +22,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-// v67 (T162, device_identity_key) and v68 (T195, elective_set_activities.status)
-// both land in this file; 68 is the current version.
-export const CURRENT_SCHEMA_VERSION = 68
+// v67 (T162, device_identity_key), v68 (T195, elective_set_activities.status), and v69 (T210,
+// rendezvous_sequence) all land in this file; 69 is the current version.
+export const CURRENT_SCHEMA_VERSION = 69
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2857,6 +2857,23 @@ const DEVICE_HEALTH_EVENTS_DDL = `
       )
     }
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (68, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v69 (T210) — rendezvous_sequence: the device-local, disposable publish sequence for signed
+  // rendezvous records (docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md,
+  // Decision 2). Same singleton `id = 1` shape and same never-synced exclusion class as
+  // device_identity_key (v67) — see electron/sync/automerge/rendezvousSequence.js and
+  // rendezvousSequence.migration.test.js's standing guard.
+  if (getSchemaVersion(db) >= 68 && getSchemaVersion(db) < 69) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS rendezvous_sequence (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        seq INTEGER NOT NULL DEFAULT 0
+      )
+    `)
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (69, ?)').run(
       new Date().toISOString()
     )
   }
