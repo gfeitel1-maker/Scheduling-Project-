@@ -1,6 +1,7 @@
 import { DELETE_FIELD, BULK_REPLACE_FIELD } from './operations.js'
 import { isPinField } from './pinFields.js'
 import { RESTORABLE_ENTITIES, lastKnownFields, nameFieldFor } from './restore.js'
+import { PROJECTIONS } from './projections.js'
 
 // What was deleted, by whom, and when — read straight out of the op log,
 // which has held all of it since the first delete and never showed a director
@@ -66,8 +67,18 @@ export function getEntityHistory(db, { entity, entity_id }) {
     )
     .all(entity, entity_id)
 
+  // Not every `operations` row for this (entity, entity_id) is a real field write. Besides the
+  // DELETE_FIELD/BULK_REPLACE_FIELD sentinels handled below, a stale pre-v29 field name (or any
+  // other foreign/unknown field) could have the same shape. Filter to real columns the same way
+  // lastKnownFields/lastKnownFieldSources already do, so a director's history view never surfaces a
+  // field that isn't actually on the record.
+  const projection = PROJECTIONS[entity]
+  const allowedFields = new Set(projection ? projection.fields : [])
+  const isDisplayableField = (field) =>
+    field === DELETE_FIELD || field === BULK_REPLACE_FIELD || isPinField(entity, field) || allowedFields.has(field)
+
   const seen = new Map()
-  return rows.map((row) => {
+  return rows.filter((row) => isDisplayableField(row.field)).map((row) => {
     const previous = seen.has(row.field) ? seen.get(row.field) : null
     seen.set(row.field, row.value)
 

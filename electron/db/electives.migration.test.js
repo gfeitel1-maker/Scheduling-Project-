@@ -143,8 +143,13 @@ describe('migration v35: fresh vs migrated equivalence', () => {
     // camper_headcount arrived in v39 (Electives Slice 1,
     // docs/work/specs/2026-08-22-electives-nested-schedule-slices.md) — this
     // v35 test runs against the CURRENT schema too, so it must expect it.
+    // capacity_mode/capacity_limit arrived in v66 (T194, ADR docs/adr/2026-09-17-
+    // individual-elective-scheduling.md D3) — same story again: this v35 test
+    // runs against the CURRENT schema, so it must expect them, and they are
+    // ALTER-appended on a migrated db so they must be LAST and in this order.
     expect(db.pragma('table_info(elective_set_activities)').map((c) => c.name)).toEqual([
       'id', 'elective_set_id', 'activity_id', 'camper_headcount',
+      'capacity_mode', 'capacity_limit',
     ])
     db.close()
   })

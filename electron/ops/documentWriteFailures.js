@@ -22,6 +22,23 @@
 export const STORE_PROJECTION = 'projection'
 export const STORE_DOCUMENT = 'document'
 
+// A document-native row (full-document replay, electron/automerge/projector.js) that cannot be
+// projected into SQLite at all — never an op-log op, so op_id cannot be a real operations(id) (see
+// the 2026-09-17 addendum to docs/adr/2026-09-04-projection-failure-detection-and-recovery.md).
+// The remedy is re-projecting from the document, never op-log replay.
+export const STORE_DOCUMENT_REPLAY = 'document-replay'
+
+// projection_failures is PII-adjacent (T194 round 4, Defect 4): error.message is written verbatim
+// from whatever threw. No validator on this path interpolates a written VALUE into its thrown
+// message today, so nothing leaks — but that is a property of the validators, not of this table,
+// and this bound is the one place that stays true even if a future validator gets it wrong.
+const ERROR_MESSAGE_MAX_LENGTH = 500
+
+export function boundedErrorMessage(error) {
+  const message = String(error?.message ?? error ?? 'unknown')
+  return message.length > ERROR_MESSAGE_MAX_LENGTH ? message.slice(0, ERROR_MESSAGE_MAX_LENGTH) : message
+}
+
 /**
  * Durably record that an op reached SQLite but not the document.
  * Never throws — a failure to record a failure must not escalate into a
@@ -38,7 +55,7 @@ export function recordDocumentWriteFailure(db, { op_id, entity, entity_id, field
          error_message = excluded.error_message, failed_at = excluded.failed_at, store = excluded.store`
     ).run(
       op_id, entity, entity_id ?? '', field ?? '',
-      String(error?.message ?? error ?? 'unknown'), new Date().toISOString(), STORE_DOCUMENT
+      boundedErrorMessage(error), new Date().toISOString(), STORE_DOCUMENT
     )
   } catch (err) {
     console.error('could not record a document-write failure:', err)

@@ -170,10 +170,25 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // reads. Same acceptance as the three prior regenerations: pre-production, no
     // live camps on this sync engine, existing `.automerge` files may be
     // discarded.)
+    // SIXTH REGENERATION (T194, the participant data substrate, docs/adr/2026-09-17-
+    // individual-elective-scheduling.md D13): the seven participant entities —
+    // campers, elective_assignment_runs, elective_occurrences, elective_choices,
+    // elective_choice_offerings, elective_preferences, elective_assignments — were
+    // added to MODELED_ENTITIES (automatically, since it is derived) and therefore
+    // to GENESIS_ENTITIES, and GENESIS_B64 was regenerated.
+    //
+    // ACCEPTANCE: every existing `.automerge` file is invalidated and every paired
+    // device must re-pair. Free ONLY because the owner confirmed on 2026-09-17 that
+    // the project is pre-production and no real camp document exists.
+    //
+    // If this expectation ever needs to change to make the test pass, that is a
+    // document-compatibility break being HIDDEN, not fixed — see the comment above.
+    // The regeneration recipe is in campDocument.js and was verified to reproduce
+    // the PREVIOUS genesis byte for byte before being used to make this one.
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        '931e7c0f93affaf864b270328491a3da4412b508547ea6174724026f6aabde8d',
+        '821dd7ccb5709c51ecfa5f1e8526fd472ce513b3546987570feb24e85b1679a8',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole

@@ -71,8 +71,18 @@ function whatChanges(preview) {
   }
 
   if (entity === 'groups') {
-    if (slot_count === 0) return `Nothing in your schedules uses ${who}.`
-    return `${who} is used in ${places(slot_count)} in your schedules. Deleting it removes its whole week from both schedules — there is nothing left behind to fill in.`
+    // T194: campers point at a group by a SOFT reference, so deleting the group
+    // does not delete them — it leaves their group blank. Reported, never
+    // cascaded (previewDelete's camperDependents says why). A director must be
+    // told before confirming; a division's worth of children losing their group
+    // silently is the thing this whole dialog exists to prevent.
+    const campers = preview.camper_count ?? 0
+    const camperNote =
+      campers > 0
+        ? ` ${campers} camper${campers === 1 ? '' : 's'} ${campers === 1 ? 'is' : 'are'} in ${who} — they are not deleted, but they will have no group until you put them in one.`
+        : ''
+    if (slot_count === 0) return `Nothing in your schedules uses ${who}.${camperNote}`
+    return `${who} is used in ${places(slot_count)} in your schedules. Deleting it removes its whole week from both schedules — there is nothing left behind to fill in.${camperNote}`
   }
 
   const parts = []

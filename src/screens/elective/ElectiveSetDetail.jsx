@@ -70,8 +70,21 @@ function eligibilitySummary(activity, tiers, groups) {
 }
 
 function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapacity, onDelete, role }) {
+  // v66 (T194): capacity is a two-part value — capacity_mode is the AUTHORITY,
+  // and capacity_limit is ignored entirely when the mode is 'unlimited'. This
+  // control's behaviour is unchanged from v39 IN ONE RESPECT ONLY — empty box =
+  // no cap, a number = that cap — and that is as far as the claim goes. Under
+  // D3's new semantics, commitCapacity's `parseInt(trimmed, 10) || 0` coercion
+  // means typing 'abc' now silently CLOSES the offering (limited, 0) where
+  // under v39 it was merely an ambiguous zero. D3's "unlimited vs closed must
+  // be unmistakable" authoring redesign is NOT this slice — it is recorded as a
+  // T197/T199 requirement — and this is only the repoint needed to keep the
+  // existing control working now that camper_headcount is retired from the
+  // write path.
   const [capacityText, setCapacityText] = useState(
-    offering.camper_headcount == null ? '' : String(offering.camper_headcount)
+    offering.capacity_mode === 'limited' && offering.capacity_limit != null
+      ? String(offering.capacity_limit)
+      : ''
   )
   const [saving, setSaving] = useState(false)
   // Brief green flash confirming a successful capacity save — silent-save left
@@ -83,7 +96,11 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
   async function commitCapacity() {
     const trimmed = capacityText.trim()
     const value = trimmed === '' ? null : Math.max(0, parseInt(trimmed, 10) || 0)
-    if (value === (offering.camper_headcount ?? null)) return
+    const current =
+      offering.capacity_mode === 'limited' && offering.capacity_limit != null
+        ? offering.capacity_limit
+        : null
+    if (value === current) return
     setSaving(true)
     try {
       await onSaveCapacity(offering.id, value)
@@ -250,7 +267,13 @@ export default function ElectiveSetDetail({ set, role, activities, locations, ti
 
   async function saveCapacity(offeringId, value) {
     try {
-      await repository.writeFields('elective_set_activities', offeringId, { camper_headcount: value })
+      // Written as two fields; applyProjection applies ONE field per op, and
+      // the DB CHECKs are per-column precisely so either arrival order is
+      // legal on every device (see schema.sql's comment).
+      await repository.writeFields('elective_set_activities', offeringId, {
+        capacity_mode: value == null ? 'unlimited' : 'limited',
+        capacity_limit: value,
+      })
       await reload()
     } catch (err) {
       setError(describeWriteFailure(err, 'That capacity could not be saved.'))

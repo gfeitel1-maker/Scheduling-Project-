@@ -118,7 +118,12 @@ describe('doc-native ensureExists — six op-log-backed entities project from a 
       entity: 'elective_set_activities',
       id: 'esa-1',
       fields: { elective_set_id: 'es-1', activity_id: 'act-1' },
-      expected: { id: 'esa-1', elective_set_id: 'es-1', activity_id: 'act-1', camper_headcount: null },
+      // v66 (T194): capacity is the two-part capacity_mode/capacity_limit pair,
+      // and camper_headcount is retired from the write path (retained in the
+      // table, but no longer a PROJECTIONS field). A newly-materialized
+      // offering is 'unlimited' — which is exactly what a NULL
+      // camper_headcount always meant, per schema.sql's own declaration.
+      expected: { id: 'esa-1', elective_set_id: 'es-1', activity_id: 'act-1', capacity_mode: 'unlimited', capacity_limit: null },
     },
     {
       entity: 'event_slots',

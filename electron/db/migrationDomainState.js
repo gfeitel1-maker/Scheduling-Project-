@@ -100,6 +100,22 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // converted: inferring the director's division from a group list is the very derivation
   // T180 exists to remove, and doing it here would be a real domain-state change.
   65,
+  // v66 (T194) creates the seven participant tables and ALTER-adds
+  // elective_set_activities.capacity_mode/capacity_limit. Schema-only, and
+  // deliberately kept that way: the seven tables are created EMPTY (new
+  // entities — no camp has a row to change), and the capacity columns are
+  // populated for existing rows by the ADD COLUMN DEFAULT, which is table
+  // shape, not a row write.
+  //
+  // A conditional backfill UPDATE was written and then REMOVED to keep this
+  // classification honest. Both capacity columns are MODELED fields, so an
+  // UPDATE of them here would be a post-v52 domain-state write — exactly what
+  // the "nothing above v52 changes domain state" property forbids, and what
+  // projectAll's delete-reconcile would quietly undo. The legacy value is not
+  // lost: camper_headcount is retained untouched, so translating a non-NULL
+  // one (of which none exist on any surveyed database) stays available as a
+  // write through the DOCUMENT, which is where it belongs.
+  66,
 ])
 
 /** True if applying `version` can change what the camp means. */

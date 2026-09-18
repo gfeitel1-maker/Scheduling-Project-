@@ -424,4 +424,19 @@ describe('getEntityHistory', () => {
 
     expect(history[history.length - 1].field).toBe('__deleted__')
   })
+
+  // T194 round 4, Defect 1: getEntityHistory had no field allowlist (unlike lastKnownFields), so
+  // an unknown/stale field name on an `operations` row (e.g. a pre-v29 field that no longer exists)
+  // was surfaced to the director as a history entry.
+  it('does not surface an unknown field as a history entry', () => {
+    makeGroup('g1')
+    db.prepare(
+      `INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp, source)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`
+    ).run('unknown-field-op-1', 'groups', 'g1', '__not_a_real_column__', 'device1', new Date().toISOString(), 'manual')
+
+    const history = getEntityHistory(db, { entity: 'groups', entity_id: 'g1' })
+
+    expect(history.some((h) => h.field === '__not_a_real_column__')).toBe(false)
+  })
 })

@@ -133,6 +133,26 @@ function weatherDependents(db, activity_id) {
   return db.prepare('SELECT id FROM activities WHERE weather_alternative_id = ?').all(activity_id)
 }
 
+// T194 (v66): campers.group_id points at a group. It is a SOFT reference (no
+// declared REFERENCES, matching every other group pointer in this schema), so
+// deleting the group does NOT fail and does not delete the campers — the
+// pointer simply dangles, which the app already renders as an em dash.
+//
+// But deleting a group today does not know campers exist at all, so it would
+// silently orphan a division's worth of children. The delete report must NAME
+// the count, so the director sees what they are about to disconnect. Reporting,
+// not blocking: the ADR gives no cascade for this, and inventing one here would
+// be a product decision made in a helper.
+//
+// Table-presence checked so this file still loads against a pre-v66 database.
+function camperDependents(db, group_id) {
+  const present = db
+    .prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='campers'")
+    .get().c > 0
+  if (!present) return 0
+  return db.prepare('SELECT COUNT(*) c FROM campers WHERE group_id = ?').get(group_id).c
+}
+
 // Locations have no template_slots row to count — their references are
 // activities.location_id, week_location_exclusions.location_id,
 // anchor_activities.location_id, events.location_id,
@@ -216,6 +236,8 @@ export function previewDelete(db, { entity, entity_id }) {
     unprotected_count,
     anchor_count: entity === 'days_of_operation' ? anchorRows(db, entity_id).length : 0,
     weather_dependent_count: entity === 'activities' ? weatherDependents(db, entity_id).length : 0,
+    // T194: campers whose group_id points here. Reported, never cascaded.
+    camper_count: entity === 'groups' ? camperDependents(db, entity_id) : 0,
   }
 }
 

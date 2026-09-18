@@ -125,6 +125,32 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'elective_set_activities', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity' },
   { table: 'template_slots', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity' },
   { table: 'template_slots', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },
+
+  // -- T194 participant substrate (v66), docs/adr/2026-09-17-individual-
+  // elective-scheduling.md. Registration rule applied mechanically: a column
+  // pointing at a U2-DELETABLE entity (groups, days_of_operation, time_blocks,
+  // tiers, activities, locations, cohorts) gets a real UNDO_REFERENCE_CHECKS
+  // entry; everything else is accepted here.
+  { table: 'campers', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
+  // The one entry a reader will assume is a reference and is NOT: an opaque
+  // string from the camp's OWN roster system, matching the *_id glob only by
+  // spelling. It points at no Shoresh entity.
+  { table: 'campers', column: 'external_id', reason: 'an opaque identifier from the camp\'s own external roster system — not a pointer to any Shoresh entity' },
+  { table: 'elective_assignment_runs', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
+  { table: 'elective_assignment_runs', column: 'schedule_week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
+  { table: 'elective_assignment_runs', column: 'schedule_template_id', reason: 'points at schedule_templates, not a U2-deletable entity' },
+  { table: 'elective_occurrences', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
+  { table: 'elective_occurrences', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity' },
+  { table: 'elective_choices', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
+  { table: 'elective_choice_offerings', column: 'choice_id', reason: 'points at elective_choices, not a U2-deletable entity' },
+  { table: 'elective_choice_offerings', column: 'occurrence_id', reason: 'points at elective_occurrences, not a U2-deletable entity' },
+  { table: 'elective_preferences', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
+  { table: 'elective_preferences', column: 'camper_id', reason: 'points at campers, not a U2-deletable entity' },
+  { table: 'elective_preferences', column: 'choice_id', reason: 'points at elective_choices, not a U2-deletable entity' },
+  { table: 'elective_assignments', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
+  { table: 'elective_assignments', column: 'occurrence_id', reason: 'points at elective_occurrences, not a U2-deletable entity' },
+  { table: 'elective_assignments', column: 'camper_id', reason: 'points at campers, not a U2-deletable entity' },
+  { table: 'elective_assignments', column: 'choice_id', reason: 'points at elective_choices, not a U2-deletable entity' },
   // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
   // internal-subschedule.md §3).
   { table: 'event_time_blocks', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },

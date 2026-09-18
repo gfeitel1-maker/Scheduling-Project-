@@ -37,6 +37,13 @@ const ACTIVITY_REFERRERS = Object.freeze([
   { entity: 'week_activity_exclusions', field: 'activity_id' },
   { entity: 'special_day_slots', field: 'activity_id' },   // no FK
   { entity: 'event_slots', field: 'activity_id' },         // no FK
+  // T194 (v66), both soft references with no FK. A merge MUST re-point these
+  // or an assignment and the offering it came from are silently stranded on the
+  // losing activity — a child's schedule quietly pointing at an activity the
+  // director just merged away. Found by this file's own PRAGMA-driven guard,
+  // which is exactly what that guard exists for.
+  { entity: 'elective_choice_offerings', field: 'activity_id' },  // no FK
+  { entity: 'elective_assignments', field: 'activity_id' },       // no FK
 ])
 
 /** Rows pointing at this activity, per referrer table. */

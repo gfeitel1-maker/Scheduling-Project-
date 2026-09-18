@@ -130,7 +130,15 @@ export function configureDualWrite(dir) {
 }
 
 export class AmHost {
-  constructor(dbPath) {
+  /**
+   * `startSyncNode` lets a caller substitute what builds this device's libp2p
+   * node — e.g. one imported from a different installed version of this
+   * codebase, for a cross-version compatibility check (a camp's devices do
+   * not upgrade together). It must match syncNode.js's `startSyncNode` shape.
+   * Left undefined, defaults to this checkout's own — identical to every
+   * scenario's behaviour before this seam existed.
+   */
+  constructor(dbPath, { startSyncNode: startSyncNodeOverride } = {}) {
     this.dbPath = dbPath
     this.db = null
     this.node = null
@@ -139,6 +147,7 @@ export class AmHost {
     this.adminUserId = null
     this.adminToken = null
     this.addingDevices = false
+    this._startSyncNode = startSyncNodeOverride || startSyncNode
   }
 
   async start() {
@@ -159,7 +168,7 @@ export class AmHost {
       ? seedAllFromSqlite(this.db, createEmptyDoc())
       : createEmptyDoc()
 
-    this.node = await startSyncNode({
+    this.node = await this._startSyncNode({
       deviceId: this.deviceId,
       db: this.db,
       doc: startingDoc,
@@ -303,7 +312,8 @@ export class AmHost {
  * Wraps a startSyncNode + SQLite DB pair acting as a joining Client.
  */
 export class AmClient {
-  constructor(dbPath) {
+  /** See AmHost's constructor comment — same seam, same default. */
+  constructor(dbPath, { startSyncNode: startSyncNodeOverride } = {}) {
     this.dbPath = dbPath
     this.db = null
     this.node = null
@@ -311,6 +321,7 @@ export class AmClient {
     this.token = null
     this.hostPeerId = null
     this._mutual = null
+    this._startSyncNode = startSyncNodeOverride || startSyncNode
   }
 
   open() {
@@ -322,7 +333,7 @@ export class AmClient {
   }
 
   async start() {
-    this.node = await startSyncNode({ deviceId: this.deviceId, db: this.db, doc: createEmptyDoc() })
+    this.node = await this._startSyncNode({ deviceId: this.deviceId, db: this.db, doc: createEmptyDoc() })
     // Wire the per-device local-write broadcaster exactly as main.js does once
     // its node has started. Without this an appendOp-path write (deleteRecord,
     // ingest, restore) updates this device's document but never PUSHES it, so
@@ -344,7 +355,7 @@ export class AmClient {
     saveDoc(docDir, campId, this.node.getDoc())
     try { await this.node.stop() } catch { /* ignore */ }
     const doc = loadDoc(docDir, campId) ?? createEmptyDoc()
-    this.node = await startSyncNode({ deviceId: this.deviceId, db: this.db, doc })
+    this.node = await this._startSyncNode({ deviceId: this.deviceId, db: this.db, doc })
     // Wire the per-device local-write broadcaster exactly as main.js does once
     // its node has started. Without this an appendOp-path write (deleteRecord,
     // ingest, restore) updates this device's document but never PUSHES it, so
@@ -386,6 +397,7 @@ export class AmClient {
       deviceName: `TestClient-${this.deviceId.slice(0, 8)}`,
       code,
       knownHost: host.node.getMultiaddrs()[0],
+      startNode: this._startSyncNode,
     })
     if (started.status !== 'started') throw new Error(`join refused before it began: ${started.status}`)
 
@@ -478,4 +490,92 @@ function waitForCond(predicate, timeoutMs = 6000, pollMs = 40) {
     }
     tick()
   })
+}
+
+/**
+ * Bootstrap a Host and two Clients that both join for real — the setup every
+ * "two devices, about to diverge" scenario needs before it does anything
+ * scenario-specific. Extracted from scenario 31 (T194, ADR D4), which was the
+ * first to need it; kept here rather than in the scenario so the next such
+ * scenario reuses it instead of re-deriving the join sequence.
+ *
+ * PARAMETERIZING THE NODE. Pass `hostNode`/`clientANode`/`clientBNode` to
+ * substitute what builds each device's libp2p node — e.g. a `startSyncNode`
+ * imported from a *different* installed version of this codebase. That is
+ * the seam a cross-version compatibility check needs (a camp's devices do not
+ * upgrade together): build device A from one checkout's `startSyncNode` and
+ * device B from another's, and this function does not care which. Each must
+ * match electron/sync/automerge/syncNode.js's `startSyncNode` shape. Left
+ * undefined, all three default to this checkout's `startSyncNode` — identical
+ * to what scenario 31 used before this extraction, so its behaviour and
+ * coverage are unchanged.
+ *
+ * WHAT WILL NOT WORK ACROSS TWO OS PROCESSES AS WRITTEN, for a caller who
+ * wants clientA and clientB each running in their own process (which is what
+ * running two differently-versioned checkouts against each other actually
+ * requires — two `node_modules` trees cannot both be `require`d into one
+ * process):
+ *   - `host.node.getMultiaddrs()` / `.peerId`, read directly off the
+ *     in-process object `startSyncNode` returns, are never serialized. A
+ *     second process needs these handed to it over some channel (stdout, a
+ *     file, a socket) before it can dial in — this function does not do that.
+ *   - `configureDualWrite` (`setUserDataDirGetter`) and
+ *     `setLocalWriteBroadcaster` set process-global state; each process must
+ *     call these for itself, not inherit them from whichever process created
+ *     the Host.
+ *   - This function, `AmHost` and `AmClient` all instantiate their node
+ *     in-process and return live JS objects (not IDs, not handles) — nothing
+ *     here starts a child process, passes a port, or otherwise wires two OS
+ *     processes together. A caller doing that owns the process boundary and
+ *     whatever IPC carries peer info across it; this only supplies the node
+ *     construction seam on each side.
+ *   - `AmClient.restart`'s `docDir` persistence (`saveDoc`/`loadDoc`,
+ *     electron/sync/automerge/docStore.js) genuinely is a file on disk, so it
+ *     DOES cross a process boundary — but only if both processes are pointed
+ *     at the same path, which is on the caller to arrange.
+ */
+export async function setupTwoJoinedDevices({
+  campName, adminName, adminPin,
+  hostNode, clientANode, clientBNode,
+} = {}) {
+  const tmpDir = makeTmpDir()
+
+  const host = new AmHost(`${tmpDir}/host.db`, { startSyncNode: hostNode })
+  await host.start()
+  const { campId } = await host.bootstrap({ campName, adminName, adminPin })
+
+  const clientA = new AmClient(`${tmpDir}/clientA.db`, { startSyncNode: clientANode })
+  clientA.open()
+  await clientA.join(host)
+
+  const clientB = new AmClient(`${tmpDir}/clientB.db`, { startSyncNode: clientBNode })
+  clientB.open()
+  await clientB.join(host)
+
+  return { tmpDir, host, clientA, clientB, campId }
+}
+
+/**
+ * Partition clientA and clientB onto fresh, undialed nodes (AmClient.restart)
+ * so that writes made after this call genuinely cannot reach the other device
+ * or the Host until `healPartition` reconnects them. Each restarts into its
+ * own subdirectory of `tmpDir`.
+ */
+export async function partitionClients({ tmpDir, clientA, clientB, campId }) {
+  const dirA = `${tmpDir}/clientA-userdata`
+  const dirB = `${tmpDir}/clientB-userdata`
+  await clientA.restart(dirA, campId)
+  await clientB.restart(dirB, campId)
+  return { dirA, dirB }
+}
+
+/**
+ * Heal a partition created by `partitionClients`: reconnect both clients to
+ * the Host (AmClient.reconnect), mirroring what a real device does when its
+ * network comes back. Does not wait for any particular write to have been
+ * seen — callers assert convergence themselves via `waitFor`.
+ */
+export async function healPartition({ host, clientA, clientB }) {
+  await clientA.reconnect(host)
+  await clientB.reconnect(host)
 }

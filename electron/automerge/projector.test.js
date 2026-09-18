@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
-import { appendOp, DELETE_FIELD } from '../ops/operations.js'
+import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD } from '../ops/operations.js'
 import { STAGE1_ENTITY, createEmptyDoc, applyWrite, readRecord } from './campDocument.js'
 import { projectEntity, rebuildFromDoc, projectAll } from './projector.js'
 import { reconcile } from './reconcile.js'
@@ -220,5 +220,178 @@ describe('projector — PARITY with the op-log projection (load-bearing)', () =>
 
     dbA.close()
     dbB.close()
+  })
+})
+
+// T194 round 2, H1(b). upsertCampsEntity has always contained a bad camps row
+// per-row, for a stated reason: an uncaught throw aborts projectAll's ONE
+// shared transaction and rolls back every OTHER entity's legitimate
+// projection, so ONE unprojectable record from a paired peer permanently
+// freezes the receiving device's projection. Every other entity went through
+// upsertEntity, which had no such containment. This pins the general rule.
+describe('projector — one unprojectable row does not abort the batch', () => {
+  it('projects the good rows and skips the bad one', () => {
+    let doc = createEmptyDoc()
+    // A NOT NULL column explicitly set to null — the shape a malformed record
+    // from a paired peer takes once it reaches the projection.
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-bad', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-bad', field: 'name', value: null })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-good', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-good', field: 'label', value: 'Monday' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swim' })
+
+    expect(() => projectAll(db, doc)).not.toThrow()
+
+    expect(db.prepare('SELECT label FROM days_of_operation WHERE id = ?').get('day-good')?.label).toBe('Monday')
+    expect(db.prepare('SELECT name FROM activities WHERE id = ?').get('act-1')?.name).toBe('Swim')
+  })
+})
+
+// T194 round 3 (Red Hat). The containment above is per-FIELD, not per-ROW: the try/catch sits
+// INSIDE the field loop, so a row whose earlier fields succeed (creating the row via
+// ensureExists) but whose LATER field throws is left PARTIALLY APPLIED in SQLite — present,
+// plausible-looking, with one field silently stale — rather than cleanly absent. This plants a
+// multi-field entity (elective_assignment_runs: camp_id and name are alphabetically before
+// status, so both apply before the CHECK-violating status is reached) and proves the row is
+// atomic: nothing left behind, one failure recorded, one log line, and every OTHER entity in the
+// same pass still projects.
+describe('projector — a multi-field row is atomic: a later field failing leaves no partial row', () => {
+  it('rolls back the whole row, records exactly one failure, and does not abort the batch', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
+    // Violates the CHECK (status IN ('draft', 'final')) — the corrupted/newer-peer-version shape
+    // Red Hat named. camp_id and name are applied first (field order in PROJECTIONS.
+    // elective_assignment_runs.fields), so by the time this throws, the row already exists.
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'status', value: 'bogus' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swim' })
+
+    const errors = []
+    const realError = console.error
+    console.error = (...args) => errors.push(args.join(' '))
+    try {
+      expect(() => projectAll(db, doc)).not.toThrow()
+    } finally {
+      console.error = realError
+    }
+
+    // No partial row: the pre-fix code left camp_id/name committed with status missing/default
+    // rather than the row being wholly absent.
+    expect(db.prepare('SELECT * FROM elective_assignment_runs WHERE id = ?').get('run-bad')).toBeUndefined()
+    // The other entity in the same pass still projected — the batch was not aborted.
+    expect(db.prepare('SELECT name FROM activities WHERE id = ?').get('act-1')?.name).toBe('Swim')
+    // One log line for the row, not one per field.
+    const rowErrors = errors.filter((e) => e.includes('run-bad'))
+    expect(rowErrors.length).toBe(1)
+    // Exactly one durable failure recorded — a dropped row must be diagnosable and repairable,
+    // not console-only.
+    const failures = db.prepare('SELECT * FROM projection_failures WHERE entity_id = ?').all('run-bad')
+    expect(failures.length).toBe(1)
+    expect(failures[0].entity).toBe('elective_assignment_runs')
+    expect(failures[0].store).toBe('document-replay')
+    expect(failures[0].resolved_at).toBeNull()
+  })
+})
+
+// T194 round 4, Defect 2b. repairProjectionForEntity (electron/ops/projectionRepair.js) cannot
+// resolve a document-native entity's projection failure — it replays the op-log, which this
+// entity never writes to. The real, document-aware self-heal has to live where the actual repair
+// happens: the NEXT successful projectAll pass, once the document's row for this id no longer
+// violates whatever constraint tripped it. Without this, a fixed row projects correctly but
+// `checkProjectionHealth` keeps reporting the camp unhealthy forever.
+describe('projector — a projection failure resolves once the document row actually projects', () => {
+  it('clears the outstanding projection_failures row on the next successful pass for that row', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'status', value: 'bogus' })
+
+    const realError = console.error
+    console.error = () => {}
+    try {
+      projectAll(db, doc)
+    } finally {
+      console.error = realError
+    }
+    expect(
+      db.prepare('SELECT resolved_at FROM projection_failures WHERE entity_id = ?').get('run-bad').resolved_at
+    ).toBeNull()
+
+    // The peer that caused the bad value now sends a corrected one — the document row is fixed.
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'status', value: 'draft' })
+    projectAll(db, doc)
+
+    expect(db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get('run-bad')?.status).toBe('draft')
+    const failure = db.prepare('SELECT resolved_at FROM projection_failures WHERE entity_id = ?').get('run-bad')
+    expect(failure.resolved_at).not.toBeNull()
+  })
+})
+
+// T194 round 6, Defect 1. A contained row failure used to be console-only from projectAll's point
+// of view — the caller (syncNode.js) had no way to learn about it, because projectAll only ever
+// signals failure by THROWING, and containment (round 3) deliberately made a bad row non-fatal.
+// projectAll must hand back what it contained so a caller (syncNode's onProjectionError) can still
+// tell the app, without becoming fatal itself.
+describe('projectAll — contained row failures are returned, not just logged', () => {
+  it('returns an array describing the skipped row while the rest of the batch still succeeds', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
+    // Violates the CHECK (status IN ('draft', 'final'))
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'status', value: 'bogus' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swim' })
+
+    const realError = console.error
+    console.error = () => {}
+    let result
+    try {
+      result = projectAll(db, doc)
+    } finally {
+      console.error = realError
+    }
+
+    expect(Array.isArray(result)).toBe(true)
+    expect(result.length).toBe(1)
+    expect(result[0].entity).toBe('elective_assignment_runs')
+    expect(result[0].entityId).toBe('run-bad')
+    expect(result[0].error).toBeInstanceOf(Error)
+    // The rest of the batch was not aborted by the contained row.
+    expect(db.prepare('SELECT name FROM activities WHERE id = ?').get('act-1')?.name).toBe('Swim')
+  })
+})
+
+// 2026-09-17 addendum to docs/adr/2026-09-04-projection-failure-detection-and-recovery.md:
+// recordRowProjectionFailure no longer mints a synthetic `operations`/`devices` row at all (it
+// used to, purely to satisfy projection_failures.op_id's FK — see the round-6 defect the old
+// version of this test guarded, now structurally impossible since there is nothing left to insert
+// that could hit that FK). This proves recording still works with neither table pre-seeded.
+describe('projector — recording a projection failure touches no operations or devices row', () => {
+  it('records the failure without inserting into operations or devices', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'status', value: 'bogus' })
+
+    const opsCountBefore = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
+    const devicesCountBefore = db.prepare('SELECT COUNT(*) AS n FROM devices').get().n
+
+    const realError = console.error
+    console.error = () => {}
+    try {
+      expect(() => projectAll(db, doc)).not.toThrow()
+    } finally {
+      console.error = realError
+    }
+
+    expect(db.prepare('SELECT COUNT(*) AS n FROM operations').get().n).toBe(opsCountBefore)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM devices').get().n).toBe(devicesCountBefore)
+    const failure = db.prepare('SELECT * FROM projection_failures WHERE entity_id = ?').get('run-bad')
+    expect(failure).toBeTruthy()
+    expect(failure.store).toBe('document-replay')
+    expect(failure.op_id).toBe("replay:elective_assignment_runs:run-bad:status")
+    expect(failure.resolved_at).toBeNull()
   })
 })

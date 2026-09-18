@@ -34,7 +34,9 @@ function electiveSet(overrides = {}) {
 }
 
 function offering(overrides = {}) {
-  return { id: 'off-1', elective_set_id: 'set-1', activity_id: 'act-1', camper_headcount: null, ...overrides }
+  // v66 (T194): capacity is the two-part capacity_mode/capacity_limit pair.
+  // camper_headcount is retained in the table but retired from the write path.
+  return { id: 'off-1', elective_set_id: 'set-1', activity_id: 'act-1', capacity_mode: 'unlimited', capacity_limit: null, ...overrides }
 }
 
 function activity(overrides = {}) {
@@ -77,7 +79,7 @@ beforeEach(() => {
 
 describe('ElectiveSetDetail — offerings table', () => {
   it('lists a set with its offerings, showing location and eligibility read from the activity', async () => {
-    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering({ camper_headcount: 8 })] }))
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering({ capacity_mode: 'limited', capacity_limit: 8 })] }))
     renderDetail({ activities: [activity()], locations: [{ id: 'loc-1', camp_id: CAMP_ID, name: 'Pool' }] })
 
     await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
@@ -86,7 +88,7 @@ describe('ElectiveSetDetail — offerings table', () => {
     expect(screen.getByLabelText('Capacity for Pottery').value).toBe('8')
   })
 
-  it('persists a capacity edit as camper_headcount, and empty as null (no cap)', async () => {
+  it('persists a capacity edit as the capacity_mode/capacity_limit pair, empty as unlimited', async () => {
     localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
     renderDetail({ activities: [activity()] })
     await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
@@ -95,8 +97,13 @@ describe('ElectiveSetDetail — offerings table', () => {
     fireEvent.change(capacityInput, { target: { value: '15' } })
     fireEvent.blur(capacityInput)
 
+    // Two fields, written one op each. The DB CHECKs are per-column precisely
+    // so either arrival order is legal on every device — see schema.sql.
     await waitFor(() =>
-      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_set_activities', 'off-1', 'camper_headcount', 15)
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_set_activities', 'off-1', 'capacity_mode', 'limited')
+    )
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_set_activities', 'off-1', 'capacity_limit', 15)
     )
   })
 
@@ -112,7 +119,7 @@ describe('ElectiveSetDetail — offerings table', () => {
     expect(capacityInput.value).toBe('')
     fireEvent.blur(capacityInput)
     expect(localClient.write).not.toHaveBeenCalledWith(
-      'token-abc', 'elective_set_activities', 'off-1', 'camper_headcount', expect.anything()
+      'token-abc', 'elective_set_activities', 'off-1', 'capacity_limit', expect.anything()
     )
   })
 

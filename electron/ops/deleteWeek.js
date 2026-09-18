@@ -42,6 +42,52 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
     return { error: 'no-week' }
   }
 
+  // T194 (v66) — elective assignment runs BLOCK the delete.
+  //
+  // This is a PRODUCT decision (owner ruling R3, 2026-09-17), not a database
+  // artifact. An earlier draft of this comment justified the block by
+  // elective_assignment_runs.schedule_week_id carrying a declared REFERENCES
+  // under foreign_keys = ON; that reference is SOFT now (see schema.sql's
+  // REFERENCES discipline comment — a hard FK there froze the whole projection
+  // on an out-of-order merge), so nothing in SQLite would stop this delete. The
+  // ruling stands on its own terms. The other two options were considered and
+  // rejected:
+  //
+  //   - NULL the link (what steps 0 and 0b do for anchors and elective sets):
+  //     cheap, and wrong here. It orphans the run from its week, so
+  //     STALE_OUTER_SCHEDULE can never resolve — the premises it would compare
+  //     against are gone.
+  //   - Cascade the delete: silently destroys a FINALIZED ROSTER and a set of
+  //     imported preferences as a side effect of an unrelated action. That is
+  //     the ADR D10 purge happening by accident, without the honest copy D10
+  //     requires.
+  //
+  // So: block, naming the runs, exactly as the last-week guard above does. A
+  // director who wants the week gone deletes the runs deliberately first.
+  //
+  // T194 round 3 (Red Hat): that instruction is currently unreachable, not merely unbuilt —
+  // this slice ships no run-CREATE path either, so `runs.length` can never be positive today. It
+  // becomes a live dead end the moment run creation ships without run deletion alongside it. The
+  // director-facing copy above (and DeleteWeekDialog.jsx's "Delete those runs first") is correct
+  // once runs are deletable; do not reword it. T196 (assignment engine) must ship run DELETION
+  // together with run creation, or this guard will tell a director to do something the app has
+  // no way to do.
+  // Table-presence checked so this file still loads against a pre-v66 database.
+  const hasRuns = db
+    .prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='elective_assignment_runs'")
+    .get().c > 0
+  if (hasRuns) {
+    const runs = db
+      .prepare('SELECT id, name FROM elective_assignment_runs WHERE schedule_week_id = ?')
+      .all(weekId)
+    if (runs.length > 0) {
+      return {
+        error: 'has-elective-runs',
+        runs: runs.map((r) => ({ id: r.id, name: r.name })),
+      }
+    }
+  }
+
   const del = (entity, entity_id) =>
     appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
 

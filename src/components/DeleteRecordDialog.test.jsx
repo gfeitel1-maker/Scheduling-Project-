@@ -82,3 +82,42 @@ describe('DeleteRecordDialog: a group says the harder, truer thing', () => {
     expect(screen.queryByText(/snapshot/i)).toBeNull()
   })
 })
+
+// Round 2, M3. previewDelete returns `camper_count` for a group and its comment
+// says the report "must NAME the count, so the director sees what they are
+// about to disconnect" — but nothing rendered it, so deleting a group still
+// silently orphaned a division's worth of children. campers.group_id is a soft
+// reference: the campers are NOT deleted, their group pointer simply dangles,
+// and that is exactly the thing a director has to be told before confirming.
+describe('DeleteRecordDialog: a group names the campers it disconnects', () => {
+  const groupPreview = (over = {}) =>
+    preview({ entity: 'groups', name: 'Bunk 2', destructive: true, slot_count: 50, ...over })
+
+  const noop2 = () => {}
+
+  it('names the camper count when the group has campers', () => {
+    render(
+      <DeleteRecordDialog preview={groupPreview({ camper_count: 14 })} onCancel={noop2} onDeleted={noop2} />
+    )
+    expect(screen.getByText(/14 campers/)).toBeTruthy()
+  })
+
+  it('says one camper, singular', () => {
+    render(
+      <DeleteRecordDialog preview={groupPreview({ camper_count: 1 })} onCancel={noop2} onDeleted={noop2} />
+    )
+    expect(screen.getByText(/1 camper[^s]/)).toBeTruthy()
+  })
+
+  it('says nothing about campers when there are none', () => {
+    render(
+      <DeleteRecordDialog preview={groupPreview({ camper_count: 0 })} onCancel={noop2} onDeleted={noop2} />
+    )
+    expect(screen.queryByText(/camper/i)).toBeNull()
+  })
+
+  it('says nothing about campers against a pre-v66 preview that omits the field', () => {
+    render(<DeleteRecordDialog preview={groupPreview()} onCancel={noop2} onDeleted={noop2} />)
+    expect(screen.queryByText(/camper/i)).toBeNull()
+  })
+})

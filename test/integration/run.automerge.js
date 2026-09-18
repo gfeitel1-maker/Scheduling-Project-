@@ -39,6 +39,8 @@ import { run as scenario13 } from './scenarios/13-host-crash-mid-sync.automerge.
 import { run as scenario29 } from './scenarios/29-hand-edit-survives-reimport.automerge.js'
 import { run as scenario18 } from './scenarios/18-restore-queue.automerge.js'
 import { run as scenario30 } from './scenarios/30-who-did-that.automerge.js'
+import { run as scenario31 } from './scenarios/31-derived-id-convergence.automerge.js'
+import { run as scenario32 } from './scenarios/32-participant-substrate-sync.automerge.js'
 
 // Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
 // disagree about one slot) are both FIXED and both pass consistently, having
@@ -76,6 +78,12 @@ const SCENARIOS = [
   { name: '29 a hand edit survives a re-import on the other device (libp2p)', fn: scenario29 },
   { name: '18 a device restores a record it only RECEIVED the deletion of (libp2p)', fn: scenario18 },
   { name: '30 "who changed that?" has an answer on the other device (libp2p)', fn: scenario30 },
+  // T194 / ADR 2026-09-17 D4. 31 is the invariant the whole participant slice
+  // rests on and cannot be discharged by a unit test: the duplicate it forbids
+  // is a MERGE phenomenon. Verified non-vacuous by swapping the derivation for
+  // randomUUID, which turns it red with "got 2".
+  { name: '31 a derived id collapses two devices\' duplicate assignment (libp2p)', fn: scenario31 },
+  { name: '32 the participant substrate joins and rebuilds (libp2p)', fn: scenario32 },
 ]
 
 // COVERAGE, so the count above is readable without arithmetic:

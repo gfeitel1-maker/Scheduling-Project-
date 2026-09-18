@@ -72,6 +72,26 @@ anger by `test/integration/scenarios/31-derived-id-convergence.automerge.js`.
 **Sequenced deliberately after T215 merges**, not before: the upgrade closes a live HIGH advisory and
 should not wait on an interop harness.
 
+## Evidence from T194's gate (added 2026-09-17 by T194, not by this ticket's owner)
+
+T194 (the participant data substrate) rebased onto `8825015` and gated: all seven `verify` steps
+green. Relevant here, **scenario 31 passes under libp2p 3.3.11** — two devices, real partition,
+concurrent writes of the same logical row, heal, converge — exercising the
+dial / framed-exchange / close / reconnect lifecycle the bump changed.
+
+It is worth something because the harness drives **real `startSyncNode` nodes and fakes no
+streams**: a sweep of `test/**` for callable sinks and unawaited iterators found none on T194's
+side, so this is the real transport rather than a fake that could have gone stale against the new
+interface. It is also a different exercise from T215's own suite — a schema-bearing branch with
+seven new synced entities at v66 replicating a document through the new transport. T215's suite
+proves the transport works; this proves it works carrying a payload it had not carried before.
+
+**The limit, as plainly as the result:** it is single-version throughout, 3.3.11 on both nodes. It
+says nothing about 2.x↔3.x, and it does not touch the Yamux in-band window-negotiation question in
+section 3 — which remains the most likely "connects, then misbehaves" shape. The cross-version run
+still needs a second checkout at `08e971b` with its own `npm ci`, and it is **open and unowned**:
+the session that claimed it has ended. The seam it needs is the one already named above.
+
 ## Does NOT count as done
 
 - Declaring interop verified on the strength of a same-version suite.

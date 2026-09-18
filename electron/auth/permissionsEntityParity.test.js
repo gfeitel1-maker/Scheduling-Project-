@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { ENTITIES } from './permissions.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
+import { PARTICIPANT_ENTITIES } from '../ops/participantEntities.js'
 
 // ---------------------------------------------------------------------------
 // Drift guard: permissions.ENTITIES <-> the camp-scoped entity registries.
@@ -51,7 +52,64 @@ const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = {
     reason:
       'M6 D6: staff hold camp_maps.read explicitly (permissions.js) but never camp_maps.write — replacing the whole camp background image is admin-only, unlike locations.write (which staff keep, including map_geometry).',
   },
+
+  // T194 — the WHOLE participant domain, ADR docs/adr/2026-09-17-individual-
+  // elective-scheduling.md D9 ("the export of this is what day-to-day staff
+  // would see; camp admins are the people doing the behind-the-scenes work").
+  //
+  // Unlike camp_maps, these get NO explicit staff grant of any kind: staff hold
+  // no read, no write, nothing. The distribution mechanism for staff is the
+  // EXPORTED ARTIFACT — the activity roster and the child schedule a counsellor
+  // holds — not a read grant on the entities.
+  //
+  // They are kept out of ENTITIES because permissions.js:74 derives
+  // staffReadWrite by flatMapping every entry into BOTH `.read` and `.write`
+  // with no per-entity opt-in. There is no partial registration.
+  //
+  // This test guards OMISSION and by construction cannot catch an OVER-GRANT,
+  // so the negative assertions live in
+  // electron/auth/participantEntitiesAdminOnly.test.js.
+  campers: {
+    reason:
+      'ADR D9: the whole participant domain is admin-only. campers is PII (a child\'s name and group); staff consume the exported artifact, not the entity. No staff read and no staff write.',
+  },
+  elective_assignment_runs: {
+    reason:
+      'ADR D9: import, resolve, generate, override, finalize and export are all admin. A run is the director\'s workspace.',
+  },
+  elective_occurrences: {
+    reason: 'ADR D9: admin-only, as part of the participant domain.',
+  },
+  elective_choices: {
+    reason: 'ADR D9: admin-only, as part of the participant domain.',
+  },
+  elective_choice_offerings: {
+    reason: 'ADR D9: admin-only, as part of the participant domain.',
+  },
+  elective_preferences: {
+    reason:
+      'ADR D9: admin-only, and PII-adjacent — a preference row plus a campers row is "this child wants this activity".',
+  },
+  elective_assignments: {
+    reason:
+      'ADR D9: admin-only, and PII-adjacent for the same reason as elective_preferences.',
+  },
 }
+
+// Round 2, M2. The dict above is per-entity PROSE, so it is written by hand on
+// purpose — but its COMPLETENESS is derived, not trusted. An eighth participant
+// entity with no documented reason here fails this rather than quietly
+// inheriting a staff grant.
+describe('every participant entity has a documented admin-only reason', () => {
+  it('covers the registered participant domain', () => {
+    for (const entity of PARTICIPANT_ENTITIES) {
+      expect(
+        PERMISSIONS_ADMIN_ONLY_EXCEPTIONS[entity]?.reason,
+        `${entity} is a participant entity with no documented admin-only reason`
+      ).toBeTruthy()
+    }
+  })
+})
 
 const registryUnion = [
   ...DIRECT_CAMP_ENTITIES,

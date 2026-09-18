@@ -6,7 +6,8 @@
 // builds an elective SET (a named period's worth of offerings) and, inside
 // it, manages OFFERINGS — member activities, each carrying location/staff/
 // eligibility (read from the activity, never duplicated) plus an editable
-// capacity (camper_headcount, v39). Reuses the shared setup-CRUD seam
+// capacity (capacity_mode/capacity_limit, v66 — camper_headcount, its v39
+// predecessor, is retired from the write path). Reuses the shared setup-CRUD seam
 // (setupCrudRepository/useCrudScreen, PR #53 pattern) exactly like every
 // other setup screen.
 //

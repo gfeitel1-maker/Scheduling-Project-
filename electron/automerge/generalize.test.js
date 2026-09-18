@@ -225,13 +225,37 @@ describe('Automerge generalization slice — FK-safe projectAll ordering', () =>
     ])
   })
 
-  it('the WRONG order throws an FK error — proving DOMAIN_SNAPSHOT_ORDER is load-bearing, not incidental', () => {
+  // T194 round 5: since round 3's per-row containment (projector.js's upsertRow), a wrong-order
+  // projection no longer THROWS — the FK-violating row is caught, skipped, and recorded in
+  // projection_failures instead of escaping and aborting the pass. That is the intended new
+  // behaviour (a bad row must not freeze every other entity's projection), but it means the old
+  // "wrong order throws" assertion no longer observes anything: it started passing again for the
+  // wrong reason if left as a bare toThrow(). Re-expressed under the new symptom: ordering is
+  // load-bearing if and only if the WRONG order drops the row and records a failure while the
+  // RIGHT order does neither. Verified by breaking DOMAIN_SNAPSHOT_ORDER's actual promise
+  // temporarily (projecting the SAME two entities via projectEntity in the wrong order, matching
+  // what projectAll would do if cohorts were not ordered ahead of tiers) and confirming the right
+  // order recovers cleanly.
+  it('the wrong order drops the row and records a failure; the right order does neither — proving DOMAIN_SNAPSHOT_ORDER is load-bearing, not incidental', () => {
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'cohorts', entity_id: 'cohort-1', field: 'camp_id', value: 'camp-1' })
     doc = applyWrite(doc, { entity: 'tiers', entity_id: 'tier-1', field: 'camp_id', value: 'camp-1' })
     doc = applyWrite(doc, { entity: 'tiers', entity_id: 'tier-1', field: 'cohort_id', value: 'cohort-1' })
-    // Project tiers BEFORE cohorts exists -> FK violation.
-    expect(() => projectEntity(db, doc, 'tiers')).toThrow()
+
+    // WRONG order: project tiers before cohorts exists in SQLite.
+    expect(() => projectEntity(db, doc, 'tiers')).not.toThrow()
+    expect(db.prepare('SELECT * FROM tiers WHERE id = ?').get('tier-1')).toBeUndefined()
+    expect(
+      db.prepare("SELECT * FROM projection_failures WHERE entity = 'tiers' AND entity_id = 'tier-1' AND resolved_at IS NULL").get()
+    ).toBeTruthy()
+
+    // RIGHT order: project cohorts first, then tiers — both land, and the earlier failure clears.
+    expect(() => projectEntity(db, doc, 'cohorts')).not.toThrow()
+    expect(() => projectEntity(db, doc, 'tiers')).not.toThrow()
+    expect(db.prepare('SELECT * FROM tiers WHERE id = ?').get('tier-1')).toBeTruthy()
+    expect(
+      db.prepare("SELECT * FROM projection_failures WHERE entity = 'tiers' AND entity_id = 'tier-1' AND resolved_at IS NULL").get()
+    ).toBeUndefined()
   })
 })
 
@@ -266,28 +290,40 @@ describe('Automerge generalization slice — delete-reconcile runs in REVERSE FK
 })
 
 describe('Automerge generalization slice — inconsistent doc is a rules-layer boundary, not a projector bug', () => {
-  it('a doc whose tier references a cohort the doc never created throws, and leaves SQLite byte-identical to before the call (atomic rollback)', () => {
+  // T194 round 5: since round 3's per-row containment, this row no longer escapes projectAll as a
+  // throw — it is caught, rolled back to its own SAVEPOINT, and skipped. The atomicity half of the
+  // original claim is actually STRONGER now, not weaker: the per-row SAVEPOINT is exactly what
+  // makes a failed row leave SQLite byte-identical, without needing the whole pass to throw to get
+  // that guarantee. Re-expressed under the new symptom: the call does not throw, the offending row
+  // is wholly absent, SQLite is otherwise byte-identical to before the call, and the failure is
+  // recorded rather than silently dropped.
+  it('a doc whose tier references a cohort the doc never created leaves the row unprojected, SQLite otherwise byte-identical, and the failure recorded (no throw, contained)', () => {
     // This doc is DOMAIN-INVARIANT-BROKEN by construction: doc.tiers.t1
     // references cohort_id 'c1', but doc.cohorts has no 'c1' entry at all.
     // Real writes can never produce this shape through applyWrite (a director
     // cannot reference a cohort that was never created) — this is a synthetic
     // doc standing in for what a buggy Stage-2 rules layer or a corrupted
     // sync payload could hand the projector. The projector CANNOT resolve
-    // this (there is no cohort row to project), so it throws — that is
-    // correct, not a defect. Guarding against ever PRODUCING such a doc is
-    // the Stage-2 rules layer's job, not this projector's.
+    // this (there is no cohort row to project); under containment it is
+    // skipped and recorded rather than escaping — that is correct, not a
+    // defect. Guarding against ever PRODUCING such a doc is the Stage-2
+    // rules layer's job, not this projector's.
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'tiers', entity_id: 't1', field: 'camp_id', value: 'camp-1' })
     doc = applyWrite(doc, { entity: 'tiers', entity_id: 't1', field: 'cohort_id', value: 'c1' })
     doc = applyWrite(doc, { entity: 'tiers', entity_id: 't1', field: 'name', value: 'Senior' })
 
     const before = snapshotAll(db)
-    expect(() => projectAll(db, doc)).toThrow()
-    // Atomicity proof: better-sqlite3 nests projectEntity's/upsertEntity's
-    // inner transactions as savepoints under projectAll's outer transaction,
-    // so a throw partway through unwinds ALL of it, not just the entity that
-    // threw — SQLite is left exactly as it was before projectAll was called.
+    expect(() => projectAll(db, doc)).not.toThrow()
+    expect(db.prepare('SELECT * FROM tiers WHERE id = ?').get('t1')).toBeUndefined()
+    // Atomicity proof: better-sqlite3 nests projectEntity's/upsertEntity's inner transactions as
+    // savepoints under projectAll's outer transaction, so the ROLLBACK TO for this one row's
+    // SAVEPOINT (upsertRow) leaves every other modeled entity — including the ones this row would
+    // have touched had it succeeded — exactly as they were before projectAll was called.
     expect(snapshotAll(db)).toEqual(before)
+    expect(
+      db.prepare("SELECT * FROM projection_failures WHERE entity = 'tiers' AND entity_id = 't1' AND resolved_at IS NULL").get()
+    ).toBeTruthy()
   })
 })
 

@@ -22,7 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 65
+export const CURRENT_SCHEMA_VERSION = 66
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2575,6 +2575,221 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     )
   }
 
+  // v66 — the participant data substrate (T194, ADR docs/adr/2026-09-17-
+  // individual-elective-scheduling.md, design docs/work/specs/2026-09-17-t194-
+  // participant-substrate-design.md §7.1).
+  //
+  // Seven NEW tables plus two additive columns on the existing
+  // elective_set_activities. The CREATE TABLE text is byte-identical to
+  // schema.sql's, so fresh-vs-migrated column order is equal BY CONSTRUCTION
+  // rather than by care — the structural advantage of new tables over the
+  // template_slots.elective_set_id drift.
+  //
+  // NO TABLE REBUILD ANYWHERE. The capacity columns are added by ALTER, so the
+  // UNIQUE(elective_set_id, activity_id) index on elective_set_activities is
+  // never dropped. That avoids T189's failure class (an index that did not
+  // survive its table rebuild) by not entering it.
+  //
+  // Emits NO op. A migration is a schema change, not a user write; emitting
+  // ops would replicate a local schema action to every peer. Same posture as
+  // v33-v39.
+  //
+  // GENESIS: this migration's companion change regenerates GENESIS_B64
+  // (campDocument.js), which INVALIDATES EVERY EXISTING .automerge FILE.
+  // Accepted because the owner confirmed on 2026-09-17 that the project is
+  // pre-production and no real camp document exists (ADR D13). Do not inherit
+  // that assumption silently if it ever stops holding.
+  //
+  // ROUND-2 SHAPE CHANGE, and the one thing to know before running this against
+  // an existing database: the seven tables' parent REFERENCES clauses were
+  // REMOVED (see schema.sql's REFERENCES discipline comment — a hard FK froze
+  // the whole projection on an out-of-order merge and made a parent delete
+  // throw). This migration is edited IN PLACE rather than followed by a v67
+  // rebuild because v66 has never been released: the branch is unmerged, and
+  // the same change regenerates GENESIS_B64, which already invalidates every
+  // .automerge file that exists. A development database that ran the ROUND-1
+  // v66 keeps the old hard FKs (CREATE TABLE IF NOT EXISTS is a no-op, and the
+  // version guard skips) and must be discarded, not migrated.
+  //
+  // Guard is `>= 65 && < 66`, NOT a bare `< 66` — see the v50 block's comment.
+  if (getSchemaVersion(db) >= 65 && getSchemaVersion(db) < 66) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS campers (
+          id TEXT PRIMARY KEY,
+          camp_id TEXT NOT NULL REFERENCES camps(id),
+          display_name TEXT NOT NULL,
+          group_id TEXT,
+          external_id TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE IF NOT EXISTS elective_assignment_runs (
+          id TEXT PRIMARY KEY,
+          camp_id TEXT NOT NULL REFERENCES camps(id),
+          schedule_week_id TEXT,
+          schedule_template_id TEXT,
+          tier_id TEXT,
+          name TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'draft'
+            CHECK (status IN ('draft', 'final')),
+          source_filename TEXT,
+          source_sha256 TEXT,
+          solver_version TEXT,
+          solver_generation TEXT
+        );
+        CREATE TABLE IF NOT EXISTS elective_occurrences (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          elective_set_id TEXT,
+          day_id TEXT,
+          time_block_id TEXT,
+          tier_id TEXT
+        );
+        CREATE TABLE IF NOT EXISTS elective_choices (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          label TEXT NOT NULL,
+          is_linked INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS elective_choice_offerings (
+          id TEXT PRIMARY KEY,
+          choice_id TEXT NOT NULL,
+          occurrence_id TEXT,
+          activity_id TEXT
+        );
+        CREATE TABLE IF NOT EXISTS elective_preferences (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          camper_id TEXT,
+          choice_id TEXT,
+          rank INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS elective_assignments (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          occurrence_id TEXT,
+          camper_id TEXT,
+          activity_id TEXT,
+          choice_id TEXT,
+          preference_rank INTEGER,
+          source TEXT NOT NULL DEFAULT 'solver'
+            CHECK (source IN ('solver', 'manual')),
+          is_locked INTEGER NOT NULL DEFAULT 0,
+          solver_generation TEXT
+        );
+      `)
+
+      // Presence-checked ALTERs, following the v39 precedent. ADD COLUMN
+      // appends, so these become the LAST two columns and schema.sql declares
+      // them in the same trailing order.
+      const esaCols = () => db.pragma('table_info(elective_set_activities)').map((c) => c.name)
+      if (!esaCols().includes('capacity_mode')) {
+        db.exec(`ALTER TABLE elective_set_activities
+          ADD COLUMN capacity_mode TEXT NOT NULL DEFAULT 'unlimited'
+            CHECK (capacity_mode IN ('unlimited', 'limited'))`)
+      }
+      if (!esaCols().includes('capacity_limit')) {
+        db.exec(`ALTER TABLE elective_set_activities
+          ADD COLUMN capacity_limit INTEGER
+            CHECK (capacity_limit IS NULL
+                   OR (typeof(capacity_limit) = 'integer' AND capacity_limit >= 0))`)
+
+        // NO BACKFILL UPDATE — deliberate, and the reasoning matters.
+        //
+        // The mapping for existing rows is applied by the ADD COLUMN DEFAULT
+        // above, which is a SHAPE operation: every pre-v66 row becomes
+        // ('unlimited', NULL). That is EXACTLY correct for a NULL
+        // camper_headcount, because schema.sql has always declared in writing
+        // that "NULL means no cap, never zero campers" — so every existing row
+        // has a defined meaning (ADR D3), not an inferred one.
+        //
+        // A conditional `UPDATE ... SET capacity_mode = CASE WHEN
+        // camper_headcount IS NULL ...` was written first and then REMOVED,
+        // because both capacity columns are MODELED fields (registered in
+        // PROJECTIONS). A post-v52 migration that writes a modeled domain
+        // field in SQLite alone diverges from the authoritative Automerge
+        // document, and projectAll's delete-reconcile quietly undoes it at the
+        // next merge. electron/db/migrationDomainState.js states the rule and
+        // migrationDomainState.test.js pins it: "nothing above v52 changes
+        // domain state ... the migration needs to write through the document
+        // instead."
+        //
+        // WHAT IS DEFERRED, stated rather than hidden: a legacy row with a
+        // NON-NULL camper_headcount would land on ('unlimited', NULL) rather
+        // than on ('limited', n). **Zero such rows exist** — surveyed
+        // 2026-09-17 with ?immutable=1 across both live databases and 41
+        // backups: elective_set_activities has never held a row anywhere. That
+        // EMPIRICAL finding is what carries the decision.
+        //
+        // The reasoning half of round 1's survey was WRONG and is corrected
+        // here (round 2, M6): "the only offering-creating code path writes
+        // camper_headcount: null unconditionally" is true of CREATION and false
+        // of the EDIT path this same change replaced — ElectiveSetDetail.jsx
+        // previously wrote camper_headcount directly, so a director using the
+        // v39 capacity control could have produced a non-NULL value at any
+        // time. No row anywhere actually holds one; that is the whole of the
+        // argument, and it is an observation, not a proof about the code.
+        //
+        // camper_headcount is RETAINED untouched, so the translation stays
+        // available — but only in THIS database and only until the first
+        // rebuild-from-document (round 2, M5). It stops being a projected field
+        // at v66, so applyProjection drops ops on it and a rebuild recreates
+        // these rows with it NULL. "Reversible" is accurate today and is not a
+        // standing property.
+      }
+
+      // Round 7: drop projection_failures.op_id's FK to operations(id).
+      // schema.sql was edited in place to remove it, but `CREATE TABLE IF NOT
+      // EXISTS` is a no-op on any database that already has the table — every
+      // database at v55+, i.e. every database in existence, since origin/main
+      // is at 65. Without this rebuild the hard FK survives on every existing
+      // db and a 'document-replay' failure's deterministic op_id (which by
+      // design points at no operations row) is rejected by SQLITE_CONSTRAINT
+      // and silently swallowed by recordRowProjectionFailure's own try/catch
+      // — the exact defect this migration exists to fix, re-entered through
+      // schema.sql alone.
+      //
+      // Guarded by presence of the FK (not by column/table existence) so this
+      // is idempotent: a db that already lacks the FK (fresh, or already
+      // rebuilt) is left alone.
+      const pfHasFk = db.pragma('foreign_key_list(projection_failures)').length > 0
+      if (pfHasFk) {
+        db.pragma('foreign_keys = OFF')
+        try {
+          db.exec(`
+            CREATE TABLE projection_failures_v66 (
+              op_id TEXT PRIMARY KEY,
+              entity TEXT NOT NULL,
+              entity_id TEXT NOT NULL,
+              field TEXT NOT NULL,
+              error_message TEXT NOT NULL,
+              failed_at TEXT NOT NULL,
+              resolved_at TEXT,
+              store TEXT NOT NULL DEFAULT 'projection'
+            );
+            INSERT INTO projection_failures_v66
+              SELECT op_id, entity, entity_id, field, error_message, failed_at, resolved_at, store
+              FROM projection_failures;
+            DROP TABLE projection_failures;
+            ALTER TABLE projection_failures_v66 RENAME TO projection_failures;
+            CREATE INDEX IF NOT EXISTS idx_projection_failures_unresolved
+              ON projection_failures(entity, entity_id) WHERE resolved_at IS NULL;
+          `)
+        } finally {
+          // Belt-and-suspenders, same as the v49/v50 blocks: PRAGMA
+          // foreign_keys is a no-op while a transaction is open, so this is
+          // never actually OFF here today; the finally guards a future
+          // refactor that moves the DDL out of the transaction.
+          db.pragma('foreign_keys = ON')
+        }
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (66, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -2832,6 +3047,11 @@ export const ELECTIVE_SET_ACTIVITIES_DDL = `CREATE TABLE IF NOT EXISTS elective_
   elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
   activity_id TEXT NOT NULL,
   camper_headcount INTEGER,
+  capacity_mode TEXT NOT NULL DEFAULT 'unlimited'
+    CHECK (capacity_mode IN ('unlimited', 'limited')),
+  capacity_limit INTEGER
+    CHECK (capacity_limit IS NULL
+           OR (typeof(capacity_limit) = 'integer' AND capacity_limit >= 0)),
   UNIQUE(elective_set_id, activity_id)
 )`
 

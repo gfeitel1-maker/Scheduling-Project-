@@ -67,6 +67,35 @@ export const RESTORE_DECISIONS = Object.freeze({
   event_time_blocks: 'refused: rebuilt with its parent event, not on its own',
   event_groups: 'refused: rebuilt with its parent event, not on its own',
   event_slots: 'refused: rebuilt with its parent event, not on its own',
+
+  // T194, the participant data substrate (docs/adr/2026-09-17-individual-
+  // elective-scheduling.md D9).
+  //
+  // THESE SEVEN ENTRIES ARE A SECURITY BOUNDARY, NOT ONLY A PRODUCT DECISION.
+  // The mechanism is that the value is not the literal 'restorable', which
+  // keeps each key out of RESTORABLE_ENTITIES — and listDeleted() (trash.js)
+  // FILTERS TO RESTORABLE_ENTITIES. `trash.read` is a single blanket grant with
+  // no entity argument, held by staff, so it is this filter and nothing else
+  // that stops a camper's name from being enumerated in Trash by a non-admin.
+  // restoreEntity's allowlist-first early return is the second half: it returns
+  // { error: 'not-restorable' } BEFORE reading any op history.
+  //
+  // Flipping any one of these to 'restorable' later — e.g. when a setup UI
+  // ships — would therefore START LISTING CAMPER ROWS to every staff member
+  // holding blanket trash.read. That is an authorization change, not a product
+  // tweak, and it needs the D9 posture revisited first.
+  campers:
+    'refused: PII (ADR D8/D9) — a restore re-materializes a child record from the op-log outside the D10 purge path. SECURITY BOUNDARY: see the block comment above before changing this',
+  elective_preferences:
+    'refused: PII — same as campers, and a preference row plus a campers row is "this child wants this activity". SECURITY BOUNDARY',
+  elective_assignments:
+    'refused: PII — same as campers. SECURITY BOUNDARY',
+  elective_assignment_runs:
+    'refused: a run is regenerated, never restored (ADR D5/D6) — restoring one resurrects a superseded generation',
+  elective_occurrences:
+    'refused: re-derived from live template_slots on every generation (ADR D6), never restored',
+  elective_choices: 'refused: rebuilt with its run, not on its own',
+  elective_choice_offerings: 'refused: rebuilt with its choice, not on its own',
 })
 
 export const RESTORABLE_ENTITIES = Object.freeze(

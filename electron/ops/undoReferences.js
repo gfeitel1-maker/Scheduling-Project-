@@ -39,6 +39,10 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // the LIVE group list, so a deleted division simply stops matching groups rather than
   // leaving a dangling pointer to chase.
   { fromTable: 'anchor_activities', fromColumn: 'unit_ids', toEntity: 'tiers', kind: 'json_array', enforced: false },
+  // T194 (v66): the age division a run targets, and the division an occurrence
+  // belongs to. Both soft — no declared REFERENCES (schema.sql).
+  { fromTable: 'elective_assignment_runs', fromColumn: 'tier_id', toEntity: 'tiers', kind: 'scalar', enforced: false },
+  { fromTable: 'elective_occurrences', fromColumn: 'tier_id', toEntity: 'tiers', kind: 'scalar', enforced: false },
   // -- into groups --
   { fromTable: 'template_slots', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: true },
   { fromTable: 'week_group_exclusions', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: true },
@@ -48,10 +52,17 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // Slice 3a) — elective_sets.group_ids mirrors anchor_activities.group_ids
   // exactly: no DB-level FK (schema.sql), so enforced:false.
   { fromTable: 'elective_sets', fromColumn: 'group_ids', toEntity: 'groups', kind: 'json_array', enforced: false },
+  // T194 (v66): a camper's group membership. Soft reference — schema.sql
+  // declares no REFERENCES on campers.group_id, matching every other soft
+  // group pointer in this schema — so enforced:false.
+  { fromTable: 'campers', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: false },
   // -- into activities --
   { fromTable: 'template_slots', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: true },
   { fromTable: 'week_activity_exclusions', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: true },
   { fromTable: 'activities', fromColumn: 'weather_alternative_id', toEntity: 'activities', kind: 'scalar', enforced: false }, // self-referential — see U2's batch-computation note
+  // T194 (v66): both soft, no declared REFERENCES (schema.sql).
+  { fromTable: 'elective_choice_offerings', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
+  { fromTable: 'elective_assignments', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
   // -- into days_of_operation --
   { fromTable: 'anchor_activities', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: true },
   { fromTable: 'template_slots', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
@@ -59,10 +70,15 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // schema.sql declares `day_id TEXT REFERENCES days_of_operation(id)`, so
   // enforced:true.
   { fromTable: 'elective_sets', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: true },
+  // T194 (v66) — unlike elective_sets.day_id, schema.sql declares NO
+  // REFERENCES on elective_occurrences.day_id (an occurrence is re-derived
+  // from live template_slots on every generation, ADR D6), so enforced:false.
+  { fromTable: 'elective_occurrences', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
   // -- into time_blocks --
   { fromTable: 'anchor_activities', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'template_slots', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'elective_sets', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
+  { fromTable: 'elective_occurrences', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false }, // T194 (v66), soft
   // -- into locations --
   { fromTable: 'activities', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
   { fromTable: 'week_location_exclusions', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },

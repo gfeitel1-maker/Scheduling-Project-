@@ -31,6 +31,33 @@ import { verifyAuthFields } from '../auth/authSignature.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
+import { STORE_DOCUMENT_REPLAY, boundedErrorMessage } from '../ops/documentWriteFailures.js'
+
+// Record that one doc-replay row was dropped whole (see upsertRow below), in
+// projection_failures (electron/ops/documentWriteFailures.js) under
+// store='document-replay' — this failure has no op-log op (the doc-replay path writes straight to
+// SQLite, never through appendOp), so op_id is a deterministic string derived from the failure
+// itself rather than a real operations(id): nothing is fabricated to satisfy a foreign key. See the
+// 2026-09-17 addendum to docs/adr/2026-09-04-projection-failure-detection-and-recovery.md.
+// `ON CONFLICT(op_id) DO UPDATE` makes a repeated failure on the same (entity, entityId, field)
+// collapse onto the same row rather than accumulate duplicates. Wrapped in its own try/catch: a
+// failure to record the failure must never re-break the projection it is trying to report on.
+function recordRowProjectionFailure(db, { entity, entityId, field, error }) {
+  try {
+    const opId = `replay:${entity}:${entityId}:${field ?? ''}`
+    const now = new Date().toISOString()
+    db.prepare(
+      `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at, store)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(op_id) DO UPDATE SET
+         error_message = excluded.error_message, failed_at = excluded.failed_at, store = excluded.store`
+    ).run(opId, entity, entityId, field ?? '', boundedErrorMessage(error), now, STORE_DOCUMENT_REPLAY)
+  } catch (recordErr) {
+    console.error(`projector: could not record a projection failure for '${entity}'/'${entityId}':`, recordErr)
+  }
+}
+
+let rowSavepointCounter = 0
 
 function assertModeled(entity) {
   if (DEFERRED_ENTITIES.has(entity)) {
@@ -247,7 +274,6 @@ function upsertUsersEntity(db, doc) {
           outcome: 'deny',
           reason: 'auth_sig missing or invalid on a credential change — refused on the merge path (Q1 enforcement)',
         })
-        // eslint-disable-next-line no-console
         console.error(
           `projector: REFUSED an unsigned/forged credential change for user ${id} (auth_sig did not verify) — keeping current local credentials. Q1 enforcement.`
         )
@@ -262,7 +288,7 @@ function upsertUsersEntity(db, doc) {
   }
 }
 
-function upsertEntity(db, doc, entity) {
+function upsertEntity(db, doc, entity, failures = null) {
   if (BULK_REPLACE_MODELED_ENTITIES.has(entity)) upsertBulkReplaceEntity(db, doc, entity)
   if (!MODELED_ENTITIES.has(entity)) return
   if (entity === 'camps') {
@@ -274,9 +300,65 @@ function upsertEntity(db, doc, entity) {
     return
   }
   const fields = PROJECTIONS[entity].fields
+  // Loaded ONCE per entity per pass (one indexed query, not one per row) — the outstanding
+  // store='projection' failures for this entity, so a successful upsertRow below can tell
+  // cheaply (a Set.has, no query) whether this row even has anything to resolve. Only the rows
+  // that actually match get the resolving UPDATE.
+  const outstandingIds = outstandingProjectionFailureRowIds(db, entity)
   for (const id of listRecordIds(doc, entity)) {
     const row = readRecord(doc, entity, id)
     if (!row) continue
+    upsertRow(db, entity, id, row, fields, outstandingIds, failures)
+  }
+}
+
+// See recordRowProjectionFailure above for why this table and this store value. Scoped to
+// resolved_at IS NULL, which idx_projection_failures_unresolved(entity, entity_id) covers.
+function outstandingProjectionFailureRowIds(db, entity) {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT entity_id FROM projection_failures
+       WHERE entity = ? AND resolved_at IS NULL AND store = ?`
+    )
+    .all(entity, STORE_DOCUMENT_REPLAY)
+  return new Set(rows.map((r) => r.entity_id))
+}
+
+// The document-aware self-heal repairProjectionForEntity cannot provide (T194 round 4, Defect
+// 2b): a document-native row's real "repair" isn't a replay, it's a peer sending a corrected
+// value, which arrives here as an ordinary field write and simply projects on the next pass. Once
+// it does, the row has genuinely reached SQLite from the document, and any outstanding
+// store='document-replay' failure for it is stale — resolve it, the same way repairProjectionForEntity
+// resolves a clean op-log replay.
+function resolveProjectionFailure(db, entity, entityId) {
+  db.prepare(
+    `UPDATE projection_failures SET resolved_at = ? WHERE entity = ? AND entity_id = ? AND resolved_at IS NULL AND store = ?`
+  ).run(new Date().toISOString(), entity, entityId, STORE_DOCUMENT_REPLAY)
+}
+
+// Project one row, atomically. Contained per-ROW (T194 round 3), not per-field (round 2's gap):
+// the whole field loop for this record runs inside one SAVEPOINT, so a row whose earlier fields
+// succeed — creating the row via ensureExists — but whose LATER field throws (e.g. a CHECK
+// violation from a corrupted or newer-version peer) is rolled all the way back rather than left
+// half-written in SQLite: present, plausible-looking, with one field silently stale. `projectAll`
+// already runs inside ONE shared transaction (see the file-header comment), so a plain nested
+// `db.transaction` would just be another savepoint under the hood anyway — this uses SAVEPOINT/
+// RELEASE/ROLLBACK TO directly so the boundary is explicit and doesn't depend on better-sqlite3's
+// transaction-nesting behavior.
+//
+// Left uncaught, ONE unprojectable row — a constraint violation, a malformed value from a paired
+// peer — propagates out of projectAll's ONE shared transaction and rolls back every OTHER
+// entity's legitimate projection. The device that did nothing wrong then never projects anything
+// again, because the same bad row is still in the document on the next pass: a persistent,
+// camp-wide sync freeze from a single record. Skipping the row leaves SQLite missing one row
+// (visible, diagnosable, self-healing once the row is fixed or removed) instead — and the drop is
+// recorded in `projection_failures`, not just logged, so it is repairable rather than merely
+// visible in a console nobody is watching (T194 round 3, Defect 2).
+function upsertRow(db, entity, id, row, fields, outstandingIds = null, failures = null) {
+  const savepoint = `row_${++rowSavepointCounter}`
+  db.exec(`SAVEPOINT ${savepoint}`)
+  let failedField = null
+  try {
     // knownRow = row: every field the document currently holds for this id, all at once — unlike
     // op-log replay's true one-field-at-a-time arrival. Some entities' ensureExists (projections.js's
     // ensureWeekJoinRow and its hand-written equivalents for special_day_slots/
@@ -285,8 +367,27 @@ function upsertEntity(db, doc, entity) {
     // instead of querying the `operations` table, which the doc-replay path never writes.
     for (const field of fields) {
       if (!(field in row)) continue
+      failedField = field
       applyProjection(db, { entity, entity_id: id, field, value: row[field], knownRow: row })
     }
+    db.exec(`RELEASE ${savepoint}`)
+    if (outstandingIds?.has(id)) {
+      resolveProjectionFailure(db, entity, id)
+      outstandingIds.delete(id)
+    }
+  } catch (err) {
+    db.exec(`ROLLBACK TO ${savepoint}`)
+    db.exec(`RELEASE ${savepoint}`)
+    // One line for the ROW, not one per field (up to 9 near-duplicates for elective_assignments
+    // before this fix).
+    console.error(
+      `projector: skipping doc '${entity}' row '${id}' (field '${failedField}') — ${err.message}`
+    )
+    recordRowProjectionFailure(db, { entity, entityId: id, field: failedField, error: err })
+    // Handed back to the caller (projectAll) so it can be REPORTED without projectAll itself
+    // throwing — containment must stay non-fatal (T194 round 6, Defect 1: this is how syncNode's
+    // onProjectionError learns about a contained row instead of only a console line nobody watches).
+    failures?.push({ entity, entityId: id, field: failedField, error: err })
   }
 }
 
@@ -446,11 +547,13 @@ function assertDocIsSupersetOrEmpty(db, doc) {
 export function projectAll(db, doc) {
   assertConflictsRecorded(db, doc)
   assertDocIsSupersetOrEmpty(db, doc)
+  const failures = []
   const run = db.transaction(() => {
-    for (const entity of MODELED_ORDER) upsertEntity(db, doc, entity)
+    for (const entity of MODELED_ORDER) upsertEntity(db, doc, entity, failures)
     for (const entity of [...MODELED_ORDER].reverse()) deleteReconcileEntity(db, doc, entity)
   })
   run()
+  return failures
 }
 
 // Prove SQLite is disposable: wipe table(s) and re-derive them from the

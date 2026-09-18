@@ -1,3 +1,8 @@
+import {
+  PARTICIPANT_ENTITIES,
+  PARTICIPANT_ENTITY_NEAR_MISSES,
+} from '../ops/participantEntities.js'
+
 const SECRET_KEYS = new Set([
   'pin',
   'pin_hash',
@@ -32,14 +37,114 @@ function scrubMetadata(metadata) {
   return scrubValue(metadata)
 }
 
+// T194 / ADR docs/adr/2026-09-17-individual-elective-scheduling.md D9: no
+// camper field value may reach audit_events.
+//
+// SECRET_KEYS above is a KEY-NAME blocklist and cannot be made to do this job:
+// the hazard is the VALUE, not the key. No key name makes `'Sarah Cohen'` safe,
+// and none makes it dangerous. And audit_events is APPEND-ONLY and survives
+// deletion, so a name written here is unrecoverable by any purge, T202's
+// included — there is no cleanup pass that can fix it afterwards.
+//
+// So the guard is structural and at the write: for these entities, every
+// metadata value must come from a fixed safe set — ids, numbers, booleans,
+// null, and the enum literals the v66 schema declares. A display name cannot
+// pass, and neither can a filename.
+// The list itself is NOT here (round 2, M2): it is
+// electron/ops/participantEntities.js, imported by every guard that keys on it,
+// so an eighth participant entity cannot pick up authorization parity while
+// silently losing this guard and the MCP exclusion. See that module.
+
+// uuid + slug alphabet, PLUS ':' and '.' — because a DERIVED ID
+// (electron/ops/electiveDerivedIds.js) is length-prefixed and version-tagged,
+// e.g. `easgn1:5.run-18.camper-15.occ-1`. The design named a bare
+// [A-Za-z0-9_-] set, which would have refused the very ids this feature is
+// built on. Still no whitespace, so free text cannot pass.
+// Deliberately a SECOND, independent copy of the alphabet
+// electron/ops/electiveDerivedIds.js's OPAQUE uses, not a shared constant. They
+// are the same characters today for the same reason (a derived id must pass),
+// but they are different policies — this one is a PII filter on an append-only
+// table, that one is an injectivity/normalization guard on a key component —
+// and each must be free to move without dragging the other. Round 2 considered
+// unifying them and chose not to; if you widen one, decide for the other
+// explicitly rather than inheriting it.
+const SAFE_SCALAR = /^[A-Za-z0-9_.:-]+$/
+
+function assertNoParticipantFreeText(targetType, value, path) {
+  if (value === null || value === undefined) return
+  if (typeof value === 'number' || typeof value === 'boolean') return
+  if (typeof value === 'string') {
+    if (SAFE_SCALAR.test(value)) return
+    throw new Error(
+      `recordAuditEvent: refusing free text in participant metadata at '${path}' for ` +
+        `targetType='${targetType}'. audit_events is append-only and survives every purge ` +
+        `(ADR D9), so only ids, numbers, booleans and declared enum literals may be recorded ` +
+        `for the participant entities. Pass an id, not a value.`
+    )
+  }
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => assertNoParticipantFreeText(targetType, v, `${path}[${i}]`))
+    return
+  }
+  if (typeof value === 'object' && value.constructor === Object) {
+    for (const [k, v] of Object.entries(value)) {
+      assertNoParticipantFreeText(targetType, v, `${path}.${k}`)
+    }
+    return
+  }
+  throw new Error(
+    `recordAuditEvent: refusing a non-serializable participant metadata value at '${path}' ` +
+      `for targetType='${targetType}'.`
+  )
+}
+
 // Single writer for the audit_events table — see
-// docs/adr/2026-07-25-append-only-audit-event-log.md. Never throws: a
-// failure here must never block or corrupt the real authorization decision
-// it's recording.
+// docs/adr/2026-07-25-append-only-audit-event-log.md. Never throws for an
+// INFRASTRUCTURE failure: that must never block or corrupt the real
+// authorization decision it's recording.
+//
+// The ONE deliberate exception is the participant PII guard below, which runs
+// BEFORE the try block so it actually reaches the caller. That is not a
+// relaxation of the never-throws contract — it is a different class of event.
+// A DB error is the environment failing; free text in participant metadata is a
+// CALLER BUG that would write an unerasable child's name, and this repo's
+// standing rule is to surface write failures rather than swallow them. Throwing
+// beats redacting because a redacted row is a silent behaviour change at the
+// exact moment someone made a mistake. No caller passes participant metadata
+// today, so this can only fire on newly-written code.
 export function recordAuditEvent(
   db,
   { campId, actorUserId, deviceId, action, targetType, targetId, outcome, reason, metadata } = {}
 ) {
+  // Round 2, M2: a near-miss spelling ('camper', 'assignments') matched nothing,
+  // so the guard silently did not fire while the caller believed it had. Refuse
+  // the spelling instead, naming the registered entity.
+  const nearMiss = PARTICIPANT_ENTITY_NEAR_MISSES.get(targetType)
+  if (nearMiss) {
+    throw new Error(
+      `recordAuditEvent: targetType='${targetType}' is not a registered entity. Did you mean ` +
+        `'${nearMiss}'? The participant PII guard (ADR D9) keys on the exact entity name, so an ` +
+        `unregistered spelling would write past it into an append-only table.`
+    )
+  }
+
+  // Round 2, M1: metadata was the ONLY guarded field. targetId and reason were
+  // bound RAW, and `reason` is free text at every existing call site in this
+  // repo — so the natural T195 call, `{ targetType: 'campers', reason: 'resolved
+  // "Sarah Cohen" to camper-15' }`, wrote an unerasable child's name straight
+  // past a guard built to stop exactly that. targetId is guarded for a reason of
+  // its own: a derived id EMBEDS a normalized human label (a choice id contains
+  // the choice's label key), so a targetId is not automatically PII-free.
+  //
+  // `reason` stays free text for every NON-participant target type — that is
+  // what every existing caller passes, and D9's constraint is about the
+  // participant domain, not about the audit log in general.
+  if (PARTICIPANT_ENTITIES.has(targetType)) {
+    if (metadata != null) assertNoParticipantFreeText(targetType, metadata, 'metadata')
+    if (targetId != null) assertNoParticipantFreeText(targetType, targetId, 'targetId')
+    if (reason != null) assertNoParticipantFreeText(targetType, reason, 'reason')
+  }
+
   try {
     const resolvedCampId = campId ?? db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
     const scrubbed = scrubMetadata(metadata)
