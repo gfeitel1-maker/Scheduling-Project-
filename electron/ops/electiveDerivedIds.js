@@ -191,6 +191,44 @@ export function electiveChoiceLabelKey(label) {
   return whitespaceInsensitiveName(label)
 }
 
+// Key: (camp_id, external_id) or (camp_id, name key). Owner-approved
+// 2026-09-18 (T226).
+//
+// Keyed on the CAMP, not a run: a camper persists across assignment runs, and
+// re-importing next week's sheet must land on the same child.
+//
+// TWO KEY MODES, and the mode is part of the key. `external_id` is correct
+// whenever the sheet carries one — a camp-management export does, a paper form
+// does not — and it survives a spelling correction to the name, which a
+// name-keyed id cannot. Without one we fall back to the normalized display
+// name, which is the only thing always present.
+//
+// The mode tag ('ext' / 'name') is not decoration: without it a camper whose
+// external_id is the literal string 'Ari Green' would derive the same id as a
+// camper named Ari Green, and one child would silently become the other.
+//
+// WHAT THIS DELIBERATELY DOES NOT SOLVE. Two real children with the same name
+// and no external id collapse onto ONE id. That is not a bug to be fixed here
+// by adding an ordinal — a row ordinal breaks the moment a director re-sorts
+// the sheet, trading a visible collision for a silent fork on re-import. The
+// importer surfaces same-name campers to the director as an explicit decision
+// instead (T226). Convergence is preserved either way: both devices derive the
+// same id from the same sheet, which is what the merge machinery needs.
+export function deriveCamperId(campId, { externalId = null, displayName = null } = {}) {
+  const external = String(externalId ?? '').trim()
+  if (external.length > 0) {
+    return `camper${V}:${join([opaque('camp_id', campId), 'ext', opaque('external_id', external)])}`
+  }
+  // Same canonicalizer as the choice-label key, for the same reason: two
+  // devices transcribing one sheet plausibly differ in spacing or case, and
+  // that must not fork the camper.
+  const nameKey = electiveChoiceLabelKey(String(displayName ?? ''))
+  if (nameKey.length === 0) {
+    throw new Error('electiveDerivedIds: a camper needs an external_id or display_name to derive an id')
+  }
+  return `camper${V}:${join([opaque('camp_id', campId), 'name', nameKey])}`
+}
+
 // Key: (run_id, elective_set_id, day_id, time_block_id, tier_id).
 export function deriveElectiveOccurrenceId(runId, electiveSetId, dayId, timeBlockId, tierId) {
   return `eocc${V}:${join([
