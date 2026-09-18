@@ -1,3 +1,5 @@
+import { deviceTrustStatus } from '../../auth/deviceTrust.js'
+
 // Stage 5d-2b (docs/adr/2026-09-06-libp2p-membership-mapping.md §4):
 // records a device's current libp2p PeerId on its `devices` row
 // (`libp2p_peer_id`, schema v57, electron/db/schema.sql) on successful
@@ -56,6 +58,29 @@ export function recordLibp2pPeerId(db, deviceId, peerId) {
 // a trust signal — kept for joinSession.js's Client-side Host-routing use, unchanged),
 // this function IS part of the admission decision and is called only from
 // connectionAuth.js's evaluateAuthenticate/evaluateLogin call sites.
+// createBoundPeerTrust (T208, docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md).
+// Replaces syncNode.js's permissive `lanTopologyTrust` stub with a real check against
+// the `devices` row a peer id is BOUND to (bindOrVerifyPeerIdentity's TOFU bind, above).
+// True only when the bound device is authorized and not revoked — reusing
+// deviceTrustStatus (electron/auth/deviceTrust.js) so "trusted" cannot drift into a
+// second, competing definition. Queries fresh on every call, deliberately: mutualAuth.js
+// never caches this verdict, so a peer revoked since last process start (or not yet
+// dialed at all) is denied at the next discovery event rather than admitted on stale
+// data. This does NOT tear down an already-authenticated peer — mutualAuth.js's
+// `attempted` guard means this predicate never runs again for a peer already dialed
+// successfully. The enforcement for a LIVE peer is transport.js's `revokePeer`, called
+// from main.js when a director revokes a device; see its comment for why that call,
+// not this re-query, is what actually cuts off an established session.
+export function createBoundPeerTrust(db) {
+  return function isPeerTrusted(peerId) {
+    if (typeof peerId !== 'string' || peerId.length === 0) return false
+    const row = db.prepare('SELECT id FROM devices WHERE libp2p_peer_id = ?').get(peerId)
+    if (!row) return false
+    const trust = deviceTrustStatus(db, row.id)
+    return trust.authorized && !trust.revoked
+  }
+}
+
 export function bindOrVerifyPeerIdentity(db, deviceId, peerId) {
   const row = db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(deviceId)
   const bound = row?.libp2p_peer_id ?? null

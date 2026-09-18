@@ -115,8 +115,10 @@ console.log(`  listening: ${node.getMultiaddrs().map(String).join(', ') || '(non
 
 const mutual = wireMutualAuth(node, {
   deviceId, getToken: () => token,
-  // T208: this is the LAN convergence harness — same policy the production
-  // node runs under (syncNode.js's lanTopologyTrust), stated explicitly.
+  // T208 round 2: deliberate, opt-in dev-diagnostic bypass of the real trust check
+  // (createBoundPeerTrust, peerIdentity.js) — this script has no `devices` table to bind peer
+  // ids against, so it trusts every discovered peer unconditionally. This must never be
+  // promoted into a CI or packaged path.
   isPeerTrusted: () => true,
   onRejected: (i) => console.log(`  ⚠️  outbound auth rejected: ${JSON.stringify(i)}`),
 })

@@ -237,18 +237,26 @@ describe('wireMutualAuth — a hung authenticate must not pin the dedupe slot', 
 })
 
 // T208: the policy syncNode puts in force by default is a deliberate, named
-// decision — not an accident of a missing argument. If someone changes what
-// the production node trusts, this test is where they must say so.
+// decision — not an accident of a missing argument. The old permissive
+// lanTopologyTrust stub (`() => true`) is gone; the default is now
+// createBoundPeerTrust(db), a real check against the `devices` table. See
+// peerIdentity.test.js's `createBoundPeerTrust` suite for that function's own
+// coverage; this just confirms syncNode.js wires it in as the default.
 describe('syncNode default trust policy (T208)', () => {
-  it('is the named LAN-topology policy, which trusts every mDNS-discovered peer', async () => {
-    const { lanTopologyTrust } = await import('./syncNode.js')
-    expect(typeof lanTopologyTrust).toBe('function')
-    // Deliberately permissive: peer ids are not stable across restarts on this
-    // tree (transport.js persists no private key), so a peer-id-based check
-    // would break all sync. The control here is mDNS topology, not this
-    // predicate. Closing it for real is T162 (persistent identity + token
-    // binding). See syncNode.js's comment above lanTopologyTrust.
-    expect(lanTopologyTrust('any-peer-id')).toBe(true)
+  it('defaults isPeerTrusted to createBoundPeerTrust(db), not a permissive stub', async () => {
+    const { createBoundPeerTrust } = await import('./peerIdentity.js')
+    expect(typeof createBoundPeerTrust).toBe('function')
+
+    const Database = (await import('better-sqlite3')).default
+    const { initSchema } = await import('../../db/localDb.js')
+    const db = new Database(':memory:')
+    initSchema(db)
+
+    const isTrusted = createBoundPeerTrust(db)
+    // An unbound/unknown peer id is refused — the opposite of the old stub's
+    // "trust every discovered peer" behavior.
+    expect(isTrusted('any-peer-id')).toBe(false)
+    db.close()
   })
 })
 
@@ -286,5 +294,83 @@ describe('wireMutualAuth — a connection getPeers() still lists, but which is d
     await new Promise((r) => setTimeout(r, 20))
 
     expect(handle.authenticateWith).toHaveBeenCalledTimes(1)
+  })
+})
+
+// T208 round 2 (Code Reviewer): an UNTRUSTED peer never enters `attempted` (that Set
+// is only populated after the trust check passes), so every announce for a
+// spoofed/unknown peer id drove a synchronous isPeerTrusted query with no throttle —
+// an amplification path once a second, attacker-writable discovery mechanism exists
+// (the rendezvous program). This is a bounded, short-lived NEGATIVE cache inside
+// wireMutualAuth itself (not the predicate, which stays pure/uncached).
+describe('wireMutualAuth — negative cache for untrusted peers (T208 round 2)', () => {
+  it('calls the trust predicate once for repeated announces of an untrusted peer, then again after the TTL', async () => {
+    const handle = fakeHandle()
+    const trustCheck = vi.fn(() => false)
+    let clock = 0
+    wireMutualAuth(handle, {
+      deviceId: 'device-a',
+      getToken: () => 'tok-1',
+      isPeerTrusted: trustCheck,
+      now: () => clock,
+    })
+
+    handle.fireDiscovery('peer-attacker')
+    await new Promise((r) => setTimeout(r, 5))
+    expect(trustCheck).toHaveBeenCalledTimes(1)
+
+    // Repeated announces within the TTL window must not re-query.
+    handle.fireDiscovery('peer-attacker')
+    handle.fireDiscovery('peer-attacker')
+    await new Promise((r) => setTimeout(r, 5))
+    expect(trustCheck).toHaveBeenCalledTimes(1)
+
+    // After the TTL elapses, the next announce consults the predicate again.
+    clock += 5_001
+    handle.fireDiscovery('peer-attacker')
+    await new Promise((r) => setTimeout(r, 5))
+    expect(trustCheck).toHaveBeenCalledTimes(2)
+  })
+
+  it('a peer that becomes trusted authenticates again once the denial cache TTL elapses', async () => {
+    // Documents the traded-off latency window explicitly: a denied peer that becomes
+    // trusted is not permanently locked out, but is bounded by the TTL, not instant.
+    const handle = fakeHandle()
+    const trusted = new Set()
+    const trustCheck = vi.fn((id) => trusted.has(id))
+    let clock = 0
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: trustCheck, now: () => clock })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 5))
+    expect(handle.authenticateWith).not.toHaveBeenCalled()
+
+    // Trusted immediately after, but still within the TTL window: still cached-denied.
+    trusted.add('peer-b')
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 5))
+    expect(handle.authenticateWith).not.toHaveBeenCalled()
+
+    // Past the TTL, the next announce re-queries and finds it trusted now.
+    clock += 5_001
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 5))
+    expect(handle.authenticateWith).toHaveBeenCalledWith('peer-b', {
+      type: 'authenticate', token: 'tok-1', device_id: 'device-a',
+    })
+  })
+
+  it('caches denials independently per peer id', async () => {
+    const handle = fakeHandle()
+    const trustCheck = vi.fn(() => false)
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: trustCheck })
+
+    handle.fireDiscovery('peer-b')
+    handle.fireDiscovery('peer-c')
+    handle.fireDiscovery('peer-b')
+    handle.fireDiscovery('peer-c')
+    await new Promise((r) => setTimeout(r, 5))
+
+    expect(trustCheck).toHaveBeenCalledTimes(2)
   })
 })

@@ -97,12 +97,17 @@ CREATE TABLE IF NOT EXISTS devices (
   -- 'pending' | 'authorized' | 'denied' | 'revoked'
   -- Set once, at a successful authenticate/login over /shoresh/auth/1.0.0
   -- (docs/adr/2026-09-06-libp2p-membership-mapping.md §4, Stage 5d-2a).
-  -- ROUTING CONVENIENCE ONLY, NEVER A TRUST SIGNAL — see localDb.js's v57
-  -- migration comment for why nothing may authorize based on this column.
-  -- The partial UNIQUE index enforcing "unique among non-NULL values" lives
-  -- in localDb.js's v57 block, not here — see this file's INDEX PLACEMENT
-  -- RULE comment above (a column added by ALTER TABLE cannot have its index
-  -- declared here without breaking re-execution against a pre-migration db).
+  -- NEVER A TRUST SIGNAL FOR authorize() OR ANY IPC ROLE DECISION — see localDb.js's v57
+  -- migration comment for why authorize() (electron/auth/authorize.js) does not and must not
+  -- read this column. It IS, however, part of the discovery-ADMISSION decision at a different
+  -- layer: createBoundPeerTrust (electron/sync/automerge/peerIdentity.js) reads this column to
+  -- resolve a libp2p peer id back to the `devices` row it is TOFU-bound to, then admits it only
+  -- if THAT row's authorized_at/revoked_at say so — the trust signal is still authorized_at/
+  -- revoked_at, never the peer id itself, but the peer id is how that signal gets looked up at
+  -- the discovery seam (T208). The partial UNIQUE index enforcing "unique among non-NULL values"
+  -- lives in localDb.js's v57 block, not here — see this file's INDEX PLACEMENT RULE comment
+  -- above (a column added by ALTER TABLE cannot have its index declared here without breaking
+  -- re-execution against a pre-migration db).
   libp2p_peer_id TEXT
 );
 

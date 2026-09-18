@@ -19,36 +19,7 @@ import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../
 import { appendReceivedOps } from '../../automerge/historyLedger.js'
 import { wireMutualAuth } from './mutualAuth.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
-
-// T208. wireMutualAuth now REQUIRES a decision about who may receive this
-// device's session token. This is the decision in force today, named rather
-// than left implicit, so that it is visible, testable, and impossible to
-// mistake for a real cryptographic check.
-//
-// WHY IT IS NOT (YET) A PEER-ID LOOKUP AGAINST `devices`. T162
-// (docs/adr/2026-09-14-device-identity-and-token-binding.md) landed the
-// precondition this needed — startSyncNode now calls ensureDeviceIdentity(db)
-// and passes its persisted privateKey into startTransport, so a device's
-// PeerId is stable across restarts, not regenerated every process start.
-// That closes the reason this predicate previously COULD NOT be a real
-// devices-table lookup. Wiring it as one is left to a follow-on (T208/T211's
-// own scope), not done here: `bindOrVerifyPeerIdentity`'s TOFU bind (also
-// T162) is scoped to the authenticate/login admission path specifically, and
-// turning THIS predicate into a real check is a separate design question —
-// e.g. whether "trusted to dial" should require the same bind state, or a
-// different one, for a peer discovered before it has ever authenticated.
-//
-// WHAT ACTUALLY BOUNDS THIS TODAY: discovery is mDNS-only, on a camp-scoped
-// link-local multicast tag, which is the pre-existing accepted boundary
-// (docs/adr/2026-09-14-internet-transport-security-gate.md). Topology is the
-// control, not this predicate. That is a real residual risk on a shared LAN —
-// see T208 — and it is NOT closed by this function.
-//
-// WHAT THIS DOES CLOSE: a second discovery mechanism can no longer be wired in
-// without its caller supplying a real predicate, because the seam throws
-// without one. Rendezvous (T211) must pass a genuine trust check; it cannot
-// inherit this one.
-export const lanTopologyTrust = () => true
+import { createBoundPeerTrust } from './peerIdentity.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { sharesGenesis } from '../../automerge/campDocument.js'
 import { joinCode as joinCodeFor, joinProof, verifyJoinProof } from '../joinCode.js'
@@ -486,10 +457,43 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // documented behavior for the not-logged-in-yet case. `peerDiscovery`
   // being unset (every existing test, and any caller that dials directly)
   // means `onPeerDiscovery` never fires, so this is a pure no-op for them.
+  // T208 (docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md). The
+  // default `isPeerTrusted` is now a real check: createBoundPeerTrust(db) (peerIdentity.js)
+  // trusts a discovered peer id only when it is bound (bindOrVerifyPeerIdentity's
+  // TOFU bind, on the admission path) to a `devices` row that is authorized and not
+  // revoked. This replaces the earlier `lanTopologyTrust` stub (`() => true`), which
+  // trusted every mDNS-discovered peer and relied solely on multicast being
+  // link-local for its safety.
+  //
+  // WHY DENY-BY-DEFAULT AT THIS SEAM DOES NOT BREAK JOIN. First contact never goes
+  // through this predicate: joinSession.js's login() dials the Host directly
+  // (`node.authenticateWith(hostPeerId, ...)`), records the Host's peer id
+  // (`recordLibp2pPeerId`) and calls `node.admitPeer(hostPeerId)` itself — all before
+  // this device has ever run `wireMutualAuth`'s discovery-driven dial against the
+  // Host. By the time mDNS discovery re-announces the Host later, the Host's peer id
+  // is already bound and authorized, so createBoundPeerTrust admits it. T162 made
+  // peer ids stable across restarts, which is the precondition this needed — before
+  // T162, a restart minted a fresh peer id and a bound-peer-id check would have
+  // rejected every legitimate device after any restart.
+  //
+  // RESIDUAL: this seam still does not, and was never able to, establish direct
+  // client-to-client sync — but NOT because a client "has no devices row" for another
+  // client. connectionAuth.js's evaluateAuthenticate self-registers a `pairing_status:
+  // 'pending'` `devices` row for ANY device id presenting a valid camp/device-type
+  // session token (INSERT OR IGNORE, unconditional on authorization), so a second
+  // client authenticating against a client DOES get a row. What actually blocks it is
+  // that the self-registered row has `authorized_at` unset, so deviceTrustStatus
+  // reports `authorized: false` and createBoundPeerTrust denies it — and this holds
+  // symmetrically on both sides, so in practice neither client ever gets far enough to
+  // dial the other in the first place: wireMutualAuth runs the identical predicate on
+  // every node, so client A's createBoundPeerTrust(peerB) and client B's
+  // createBoundPeerTrust(peerA) both return false before either token is sent. That
+  // symmetry, not the absence of a row, is why this limitation predates T208 and is
+  // unchanged by it.
   let authToken = null
   wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
-    { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? lanTopologyTrust }
+    { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db) }
   )
 
   return {

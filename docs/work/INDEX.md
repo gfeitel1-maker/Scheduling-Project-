@@ -47,7 +47,6 @@ Regenerate with `npm run index:work`.
 | [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
 | [Headless DB key access for the MCP server and CLI (encryption flip-blocker #2)](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) | in-progress | — |
 | [The Tier-4 transport-boundary guard is blind to an HTTP rendezvous client](../../docs/work/tickets/T207-tier4-guard-blind-to-http-rendezvous.md) | in-progress | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
-| [The discovery-to-auth seam sends this device's session token to any discovered peer](../../docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md) | in-progress | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [Phase B — signed rendezvous record contract and the camp rendezvous namespace](../../docs/work/tickets/T210-signed-rendezvous-record-and-namespace.md) | open | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [Update-on-open: keep a device current before it is allowed to sync](../../docs/work/tickets/T222-update-on-open.md) | open | [2026-09-18-mixed-version-replication-out-of-scope](../../docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md) |
 

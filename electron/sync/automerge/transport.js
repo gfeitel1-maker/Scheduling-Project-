@@ -353,6 +353,16 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     //
     // Found by porting integration scenario 05 to libp2p; that is what the port
     // was for.
+    //
+    // LOAD-BEARING, T208 round 2 (Red Hat): this is the actual enforcement point for
+    // revoking an already-authenticated peer. mutualAuth.js's `attempted` Set is never
+    // cleared on a SUCCESSFUL authenticate, so `tryAuthenticate`'s `isPeerTrusted`
+    // re-query (createBoundPeerTrust, peerIdentity.js) never runs again for that peer's
+    // life in this process — it only gates a peer not yet in `attempted` (a new dial).
+    // Revoking a live peer therefore does nothing without this call removing it from
+    // `authenticatedPeers`, which is what `broadcastDoc` (above) gates every send on.
+    // Do not remove this as "redundant with createBoundPeerTrust" — createBoundPeerTrust
+    // only stops a future dial; this is what tears down an existing one.
     revokePeer: (peerId) => {
       authenticatedPeers.delete(String(peerId))
     },
