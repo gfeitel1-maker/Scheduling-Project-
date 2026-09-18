@@ -132,6 +132,21 @@ not merely blocked, it is running without the evidence it most needs. Run those 
 and state which ones did not execute; a report listing the green steps while silently omitting the
 ones that never ran is indistinguishable from a pass.
 
+### What to do about that in the meantime
+
+The integration evidence is not gone, it is only off the path anything takes by default — which is
+the worst place for evidence to be, because its absence is silent. `npm run test:integration` is a
+standalone `node test/integration/run.automerge.js` with no dependency on the gate, so **invoke it
+directly** while this stands, and name it in the run record as separately executed. Same for `test`,
+`lint` and `build` if you need them past the short-circuit.
+
+This also reframes the advisory's cost, and the reframing should drive the sequencing. The red is not
+"we cannot merge tonight", an inconvenience. It is "the repository has silently lost its integration
+evidence, repo-wide, until this is resolved" — which argues for resolving the advisory situation
+**before** the sync-transport upgrade rather than as part of it. Nobody would deliberately choose to
+run the change most likely to cause a sync regression during the window when the suite that catches
+one is off every branch's path.
+
 ## Suggested handling
 
 Security review, then Red Hat on the multi-device upgrade path, before Maker touches the lockfile.
