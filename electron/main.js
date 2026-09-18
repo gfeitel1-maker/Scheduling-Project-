@@ -38,6 +38,7 @@ import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
 import { deleteSpecialDay } from './ops/deleteSpecialDay.js'
 import { deleteEvent } from './ops/deleteEvent.js'
 import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
+import { commitElectiveRun } from './ops/commitElectiveRun.js'
 import { campHasSetupData } from './ops/campHasSetupData.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
@@ -1670,6 +1671,73 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return listDurableElectiveSets(db, camp.id)
   }
 
+  // The individual-elective run path (T196/T226/T227).
+  //
+  // ADMIN-ONLY, and not by a check written here: the seven participant
+  // entities are deliberately absent from permissions.js ENTITIES, so
+  // authorize() default-denies them for staff and
+  // participantEntitiesAdminOnly.test.js holds that. These handlers name a
+  // participant action and inherit that property rather than re-implementing
+  // it — a hand-written role check here would be a second place for the rule
+  // to drift (ADR D9: the participant domain is admin-only; staff consume the
+  // export).
+  //
+  // The SHEET IS PARSED IN THE RENDERER, same as ImportScreen: parsePreferenceSheet
+  // and buildElectiveAssignments are pure modules with no db, so only the WRITE
+  // needs to cross the boundary. That keeps the mapping-correction loop
+  // interactive without a round trip per keystroke.
+  function commitElectiveRunHandler(args) {
+    const { token, name, sourceFilename = null, sourceSha256 = null, parsed, assignments = [] } = args ?? {}
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.write' })
+    if (!isNonEmptyString(name)) throw new Error('a run needs a name')
+    if (!parsed || !Array.isArray(parsed.campers)) throw new Error('parsed sheet is required')
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp')
+    // commitElectiveRun returns {ok:false, error} for a refusal rather than
+    // throwing — a same-name collision is a decision for the director, not an
+    // exception. It is returned as-is so the screen can render the names.
+    return commitElectiveRun(db, {
+      campId: camp.id,
+      deviceId,
+      authorUserId: session?.userId ?? null,
+      name,
+      sourceFilename,
+      sourceSha256,
+      parsed,
+      assignments,
+    })
+  }
+
+  function listElectiveRunsHandler(token) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'elective_assignment_runs.read' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return []
+    return db
+      .prepare('SELECT id, name, status, source_filename, solver_version FROM elective_assignment_runs WHERE camp_id = ? ORDER BY name')
+      .all(camp.id)
+  }
+
+  // The review payload: one row per placement, with the camper's name and the
+  // rank they got, which is what a director actually reads.
+  function getElectiveRunHandler(args) {
+    const { token, runId } = args ?? {}
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'elective_assignment_runs.read' })
+    if (!isNonEmptyString(runId)) throw new Error('runId is required')
+    return db
+      .prepare(
+        `SELECT a.id, a.occurrence_id, a.camper_id, a.activity_id, a.preference_rank,
+                c.display_name AS camper_name
+           FROM elective_assignments a
+           LEFT JOIN campers c ON c.id = a.camper_id
+          WHERE a.run_id = ?
+          ORDER BY a.occurrence_id, c.display_name`
+      )
+      .all(runId)
+  }
+
   // Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7): batched
   // read-only provenance for the Activities screen's row-level provenance
   // dot. Returns the whole camp's activity import_evidence rows plus, per
@@ -1890,6 +1958,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     deleteSpecialDay: deleteSpecialDayHandler,
     deleteEvent: deleteEventHandler,
     listDurableElectiveSets: listDurableElectiveSetsHandler,
+    commitElectiveRun: commitElectiveRunHandler,
+    listElectiveRuns: listElectiveRunsHandler,
+    getElectiveRun: getElectiveRunHandler,
     listImportEvidence: listImportEvidenceHandler,
     listDivisionEvidence: listDivisionEvidenceHandler,
     locationCapacityProvenance: locationCapacityProvenanceHandler,
@@ -2189,6 +2260,9 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))
     ipcMain.handle('shoresh:delete-event', (_event, args) => handlers.deleteEvent(args))
     ipcMain.handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
+    ipcMain.handle('shoresh:commit-elective-run', (_event, args) => handlers.commitElectiveRun(args))
+    ipcMain.handle('shoresh:list-elective-runs', (_event, args) => handlers.listElectiveRuns(args && args.token))
+    ipcMain.handle('shoresh:get-elective-run', (_event, args) => handlers.getElectiveRun(args))
     ipcMain.handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
     ipcMain.handle('shoresh:list-division-evidence', (_event, args) => handlers.listDivisionEvidence(args && args.token))
     ipcMain.handle('shoresh:location-capacity-provenance', (_event, args) => handlers.locationCapacityProvenance(args && args.token))

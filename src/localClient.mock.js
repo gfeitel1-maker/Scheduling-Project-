@@ -1534,6 +1534,56 @@ export const mockShoresh = {
     const state = loadState()
     return (state.elective_sets || []).filter((s) => s.is_reusable === 1)
   },
+  // T227 — mirrors commitElectiveRunHandler / listElectiveRunsHandler /
+  // getElectiveRunHandler (electron/main.js).
+  //
+  // The REFUSAL is mirrored faithfully, not stubbed away: a same-name
+  // collision must block in browser-dev exactly as it blocks in the real app,
+  // because that refusal is the behaviour a director will meet first and the
+  // one most worth seeing while building the screen. The op-log write is what
+  // degrades here (the mock has no operations table) — same additive-
+  // degradation discipline as the stubs around this one.
+  async commitElectiveRun({ name, parsed, assignments = [], sourceFilename = null } = {}) {
+    const sameName = parsed?.sameNameCampers ?? []
+    if (sameName.length > 0) {
+      const who = sameName.map((c) => `${c.display_name} (rows ${c.rowNumbers.join(', ')})`).join('; ')
+      return {
+        ok: false,
+        error:
+          `${sameName.length} camper name(s) appear on more than one row with no camper id to tell them apart: ${who}. ` +
+          'Resolve these before importing — two children sharing a name would be merged into one record.',
+      }
+    }
+    const state = loadState()
+    const runId = `run-${(state.elective_assignment_runs || []).length + 1}`
+    state.elective_assignment_runs = [
+      ...(state.elective_assignment_runs || []),
+      { id: runId, name, status: 'draft', source_filename: sourceFilename, solver_version: 'mock' },
+    ]
+    state.campers = parsed.campers ?? []
+    state.elective_assignments = assignments.map((a, i) => ({ id: `${runId}-${i}`, run_id: runId, ...a }))
+    saveState(state)
+    return {
+      ok: true,
+      runId,
+      counts: {
+        campers: parsed.campers?.length ?? 0,
+        choices: parsed.choices?.length ?? 0,
+        preferences: parsed.preferences?.length ?? 0,
+        assignments: assignments.length,
+      },
+    }
+  },
+  async listElectiveRuns() {
+    return loadState().elective_assignment_runs || []
+  },
+  async getElectiveRun({ runId } = {}) {
+    const state = loadState()
+    const byId = new Map((state.campers || []).map((c) => [c.id, c.display_name]))
+    return (state.elective_assignments || [])
+      .filter((a) => a.run_id === runId)
+      .map((a) => ({ ...a, camper_name: byId.get(a.camper_id) ?? null }))
+  },
   // Slice D — mirrors listImportEvidenceHandler's shape (electron/main.js),
   // but the mock has no import_evidence table and no op-log source per field
   // (same additive-degradation discipline as ingestReconcile's fieldProvenance
