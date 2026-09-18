@@ -260,6 +260,7 @@ either the document is stranded or an edge was never declared.
 - [docs/work/handoffs/2026-09-09-post-stage6-handoff.md](../../docs/work/handoffs/2026-09-09-post-stage6-handoff.md)
 - [docs/work/handoffs/2026-09-16-multi-session-day-handoff.md](../../docs/work/handoffs/2026-09-16-multi-session-day-handoff.md)
 - [docs/work/handoffs/2026-09-17-individual-elective-scheduling-handoff.md](../../docs/work/handoffs/2026-09-17-individual-elective-scheduling-handoff.md)
+- [docs/work/handoffs/2026-09-18-post-ship-cleanup-audit-handoff.md](../../docs/work/handoffs/2026-09-18-post-ship-cleanup-audit-handoff.md)
 - [docs/work/handoffs/slices-2-3-handoff.md](../../docs/work/handoffs/slices-2-3-handoff.md)
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
 - [docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md](../../docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md)
