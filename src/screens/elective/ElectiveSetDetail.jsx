@@ -21,6 +21,7 @@ import { markElectivePermissionTier } from '../../ingest/electivePermissionTier'
 import { clearElectivePermissionOnRemoval } from '../../ingest/electivePermissionClear'
 import { createActivity } from '../schedule/createActivityHelper'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../../utils/exportSanitize.js'
+import { useLatestTimeout } from '../../hooks/useLatestTimeout'
 
 const repository = createSetupCrudRepository({ localClient })
 // createActivityHelper.js's createActivity (and populateElectiveSet, which
@@ -91,6 +92,7 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
   // directors unsure it persisted (Slice 1 Tester). Single-shot, self-clears;
   // reuses the confirm-feedback pattern from the Roots-as-hub Slice E.
   const [savedFlash, setSavedFlash] = useState(false)
+  const { start: startSavedFlash } = useLatestTimeout()
   const location = locations.find((l) => l.id === activity?.location_id)
 
   async function commitCapacity() {
@@ -105,7 +107,7 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
     try {
       await onSaveCapacity(offering.id, value)
       setSavedFlash(true)
-      setTimeout(() => setSavedFlash(false), 700)
+      startSavedFlash(() => setSavedFlash(false), 700)
     } catch {
       // onSaveCapacity already surfaced the error via the screen's error banner.
     } finally {

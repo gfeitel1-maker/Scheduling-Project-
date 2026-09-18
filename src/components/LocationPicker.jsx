@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useEnterTransition } from '../styles/shared'
 import { CapacityStepper } from './CapacityStepper'
 import { PinIcon, PlusIcon, CloseIcon } from './icons'
+import { useLatestTimeout } from '../hooks/useLatestTimeout'
 
 const LOCATION_QUERY_MAXLENGTH = 60
 
@@ -53,6 +54,7 @@ export function LocationPickerPopover({ showEmptyHint, matches, active, showCrea
 export function LocationPicker({ value, locations, onChange, onCreate, onUpdateCapacity }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
+  const { start: startClose } = useLatestTimeout()
   const [active, setActive] = useState(0)
   const [focused, setFocused] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -149,7 +151,7 @@ export function LocationPicker({ value, locations, onChange, onCreate, onUpdateC
           maxLength={LOCATION_QUERY_MAXLENGTH}
           onChange={e => { setQuery(e.target.value); setOpen(true); setActive(0) }}
           onFocus={() => { setFocused(true); setOpen(true) }}
-          onBlur={() => { setFocused(false); setTimeout(() => setOpen(false), 120) }}
+          onBlur={() => { setFocused(false); startClose(() => setOpen(false), 120) }}
           onKeyDown={e => {
             if (e.key === 'ArrowDown') { setActive(a => Math.min(a + 1, optionCount - 1)); e.preventDefault() }
             else if (e.key === 'ArrowUp') { setActive(a => Math.max(a - 1, 0)); e.preventDefault() }

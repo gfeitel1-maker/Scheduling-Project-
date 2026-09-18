@@ -6,7 +6,7 @@
 // invariant that replaced it: SlotCell is an unconditional role="gridcell" div
 // carrying the placement its caller computed.
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { DndContext } from '@dnd-kit/core'
 import SlotCell from './SlotCell'
 
@@ -899,5 +899,78 @@ describe('Shift+Arrow merges and unmerges a cell', () => {
   it('the merge chevron button is gone from the cell entirely', () => {
     renderCell({ hasMergeDown: true, onMergeDown: vi.fn() })
     expect(screen.queryByLabelText('Let this activity run into the next period')).toBeNull()
+  })
+})
+
+// The press-scale timer. `triggerPress` sets `pressed` and schedules a 110ms
+// reset. Two things were wrong with scheduling that timer and forgetting it.
+//
+// 1. It was re-triggerable. A second press started its own timer while the
+//    first was still pending, so the FIRST timer's reset landed mid-second-press
+//    and the animation visibly truncated. That is the user-facing half.
+// 2. It was never cancelled on unmount, so it kept a callback pointing at a
+//    setState on a component that no longer exists. In the app React 18 drops
+//    that write silently, which is why it survived; under Vitest the callback
+//    can outlive the jsdom environment itself and throw `window is not defined`
+//    as an uncaught exception, failing a run whose tests all passed.
+describe('press-scale timer lifecycle', () => {
+  const renderCell = (props) => render(
+    <DndContext>
+      <SlotCell slot={slot} activity={{ id: 'a1', name: 'Soccer' }} {...props} />
+    </DndContext>
+  )
+  const pressed = () =>
+    document.querySelector('.cell-inner').style.transform.includes('scale(0.97)')
+
+  it('a second press restarts the window instead of being cut short by the first', () => {
+    vi.useFakeTimers()
+    try {
+      renderCell({})
+      const cell = screen.getByRole('gridcell')
+
+      act(() => { fireEvent.click(cell) })
+      expect(pressed()).toBe(true)
+
+      // 60ms in: still pressed, first timer still pending (fires at 110ms).
+      act(() => { vi.advanceTimersByTime(60) })
+      expect(pressed()).toBe(true)
+
+      // Press again. The first timer must not be allowed to end THIS press.
+      act(() => { fireEvent.click(cell) })
+      expect(pressed()).toBe(true)
+
+      // 60ms later = 120ms from press one (its timer would have fired at 110),
+      // but only 60ms into press two, which should run to 170ms.
+      act(() => { vi.advanceTimersByTime(60) })
+      expect(pressed()).toBe(true)
+
+      // And it does still end, on the second press's own schedule.
+      act(() => { vi.advanceTimersByTime(60) })
+      expect(pressed()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not run the reset after the cell has unmounted', () => {
+    vi.useFakeTimers()
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { unmount } = renderCell({})
+      act(() => { fireEvent.click(screen.getByRole('gridcell')) })
+
+      // Assert the timer is gone BEFORE advancing. Checking the count after
+      // advancing proves nothing: running a pending timer also empties the
+      // queue, so that assertion passes whether or not unmount cleaned up.
+      unmount()
+      expect(vi.getTimerCount()).toBe(0)
+
+      // And nothing fires into the unmounted tree when the clock moves on.
+      act(() => { vi.advanceTimersByTime(500) })
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+      vi.useRealTimers()
+    }
   })
 })

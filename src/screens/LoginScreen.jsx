@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { S, useEnterTransition } from '../styles/shared'
 import { WarningTriangleIcon, InfoIcon, ClockIcon } from '../components/icons'
 import treeArt from '../assets/brand/tree-full-wide-login.png'
+import { useLatestTimeout } from '../hooks/useLatestTimeout'
 
 function formatMMSS(ms) {
   const totalSec = Math.max(0, Math.ceil(ms / 1000))
@@ -15,6 +16,7 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
   const [pin, setPin] = useState('')
   const [status, setStatus] = useState('default') // default | submitting | error | locked | connection-error
   const [flash, setFlash] = useState(false)
+  const { start: startFlash } = useLatestTimeout()
   const [retryAt, setRetryAt] = useState(null)
   const [remainingMs, setRemainingMs] = useState(0)
   const pinRef = useRef(null)
@@ -61,7 +63,7 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
       setPin('')
       setStatus('error')
       setFlash(true)
-      setTimeout(() => setFlash(false), 350)
+      startFlash(() => setFlash(false), 350)
       return
     }
     // success — parent swaps to Shell once its session state updates

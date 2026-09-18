@@ -17,6 +17,7 @@ import { buildRootMapModel } from '../ingest/rootMapModel.js'
 import RootMap from '../components/reconciliation/RootMap.jsx'
 import RootMapPanel from '../components/reconciliation/RootMapPanel.jsx'
 import { NO_SELECTION, toggleTile } from '../components/reconciliation/selectionModel.js'
+import { useLatestTimeout } from '../hooks/useLatestTimeout'
 
 // docs/work/specs/2026-08-17-reconciliation-onescreen-design.md — the one
 // continuous surface that replaces ImportScreen's six-gate reconciliation
@@ -58,6 +59,7 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   // treats an empty index as "no ordering signal" and falls back to walk order.
   const [blastRadius, setBlastRadius] = useState(new Map())
   const [answers, setAnswers] = useState({})
+  const { start: startDryRunDebounce } = useLatestTimeout()
   // Selection union: 'none' (the default needs-attention queue), a tile
   // (one or more states, across domains), or a root node (a specific domain
   // or child, any state).
@@ -80,7 +82,6 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
 
   const requestGenRef = useRef(0)
   const lastGoodReportRef = useRef(null)
-  const debounceRef = useRef(null)
 
   // Roots reconstruction moment (docs/adr/2026-08-18-roots-reconstruction-
   // moment-gating.md) — the show/skip decision is made ONCE, before the
@@ -166,8 +167,10 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
     const next = { ...answers }
     for (const id of ids) next[id] = answer
     setAnswers(next)
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => runDryRun(next), 250)
+    // Restart-on-keystroke was already right; the unmount half was not — a
+    // dry-run stayed queued against a screen the director had navigated away
+    // from. useLatestTimeout owns both.
+    startDryRunDebounce(() => runDryRun(next), 250)
   }
 
   async function apply(mode) {

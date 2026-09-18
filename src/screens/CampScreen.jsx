@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
+import { useLatestTimeout } from '../hooks/useLatestTimeout'
 
 // What is left of the old Camp Setup screen: the camp's name.
 //
@@ -23,6 +24,7 @@ export default function CampScreen({ campId }) {
   const [savedName, setSavedName] = useState('')
   const [saving, setSaving] = useState(false)
   const [nameSaved, setNameSaved] = useState(false)
+  const { start: startSavedFlash } = useLatestTimeout()
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -47,7 +49,7 @@ export default function CampScreen({ campId }) {
       if (result && result.error) throw new Error(result.error)
       setSavedName(campName.trim())
       setNameSaved(true)
-      setTimeout(() => setNameSaved(false), 2000)
+      startSavedFlash(() => setNameSaved(false), 2000)
     } catch (err) {
       setError(describeWriteFailure(err, 'That name could not be saved.'))
     } finally {

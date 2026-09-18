@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useLatestTimeout } from '../../hooks/useLatestTimeout'
 
 // T3 — cell selection and copy/paste. Owns the selected-cell set, the clipboard,
 // and paste mode, plus the Ctrl+C (copy) / Ctrl+A (select all) / Escape keyboard
@@ -15,6 +16,7 @@ export function useClipboardSelection({ slots, activities, selectedGroup, placeA
   const [pasteMode, setPasteMode] = useState(false)
   const [pasteModeIndex, setPasteModeIndex] = useState(0)
   const [pasteError, setPasteError] = useState(null)
+  const { start: startPasteErrorReset } = useLatestTimeout()
 
   // T3 — keyboard shortcuts: Ctrl+C (copy), Ctrl+A (select all), Escape
   useEffect(() => {
@@ -65,7 +67,7 @@ export function useClipboardSelection({ slots, activities, selectedGroup, placeA
   async function handlePasteClick(slot) {
     if (slot.is_anchor || slot.is_span_head === false) {
       setPasteError('You cannot paste onto a recurring event, or onto the second half of an activity that runs across two periods.')
-      setTimeout(() => setPasteError(null), 2000)
+      startPasteErrorReset(() => setPasteError(null), 2000)
       return
     }
     const item = clipboardItems[pasteModeIndex]
