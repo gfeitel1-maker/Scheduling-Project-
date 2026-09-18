@@ -257,6 +257,17 @@ export const localClient = {
   // T105 §2 — the sole reuse/durable-read seam. Never a client-side filter of
   // the generic list('elective_sets') result.
   listDurableElectiveSets: () => shoresh.listDurableElectiveSets(currentToken()),
+  // The individual-elective run path (T227). Every caller goes through here,
+  // never window.shoresh directly: ipcSurfaceParity.test.js enforces that, and
+  // the reason is browser-dev — a direct reach bypasses localClient.mock.js and
+  // the screen silently stops working under `npm run dev`.
+  //
+  // The token is supplied here rather than by the caller, matching every other
+  // wrapper in this file: a screen should not be handling session tokens.
+  commitElectiveRun: ({ name, sourceFilename = null, sourceSha256 = null, parsed, assignments = [] }) =>
+    shoresh.commitElectiveRun({ token: currentToken(), name, sourceFilename, sourceSha256, parsed, assignments }),
+  listElectiveRuns: () => shoresh.listElectiveRuns(currentToken()),
+  getElectiveRun: ({ runId }) => shoresh.getElectiveRun({ token: currentToken(), runId }),
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),
   // docs/adr/2026-08-16-client-reauth-on-restart.md (T87 Part 3)
   onAuthRejected: (cb) => shoresh.onAuthRejected && shoresh.onAuthRejected(cb),
