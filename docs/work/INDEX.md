@@ -36,7 +36,8 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
-| [Write up the gate-semantics pattern: a gate answers a question about this tree at this moment, and is read as answering one about the repository](../../docs/work/tickets/T216-gate-semantics-write-up.md) | open | [T220-rollback-bare-equality-guard](../../docs/work/tickets/T220-rollback-bare-equality-guard.md) |
+| [Write up the gate-semantics pattern: a gate answers a question about this tree at this moment, and is read as answering one about the repository](../../docs/work/tickets/T216-gate-semantics-write-up.md) | open | [T220-rollback-bare-equality-guard](../../docs/work/tickets/T220-rollback-bare-equality-guard.md) · [T225-ticket-number-arbitration](../../docs/work/tickets/T225-ticket-number-arbitration.md) |
+| [Ticket numbers are allocated from a tree that cannot see unmerged branches](../../docs/work/tickets/T225-ticket-number-arbitration.md) | open | — |
 
 ### security-auth
 
