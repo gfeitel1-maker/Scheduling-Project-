@@ -7,7 +7,18 @@
 // The protocol string doubles as the access-control gate transport.js relies
 // on (see the design doc's "Protocol-gating" section) — a peer that never
 // dials this exact string is never handed doc bytes.
-import { pipe } from 'it-pipe'
+//
+// libp2p v3 (T215 migration): a Stream is no longer a `{ source, sink }`
+// pull-stream pair — it's an EventTarget whose reads arrive via async
+// iteration (Stream itself is AsyncIterable<Uint8Array | Uint8ArrayList>) and
+// whose writes go through a synchronous `.send()` that returns `false` on
+// backpressure, resolved later by an `.onDrain()` promise. `it-length-prefixed`
+// v9's `decode()` accepts any AsyncIterable source directly, so receiveFramed
+// just iterates the stream. There is no sink to `pipe()` into any more, so
+// sendFramed frames the payload itself (`encode.single`, synchronous) and
+// writes it with `.send()`, awaiting drain on backpressure exactly as the
+// migration brief requires — dropping a `false` return on the floor would be
+// silent data loss.
 import { encode, decode } from 'it-length-prefixed'
 
 export const PROTO = '/shoresh/automerge/1.0.0'
@@ -42,19 +53,38 @@ export const SYNC_PROTO = '/shoresh/automerge-sync/1.0.0'
 // shrink a frame to a delta and this cap can drop sharply.
 export const MAX_FRAME_BYTES = 32 * 1024 * 1024
 
-// Frame one payload and write it to `sink` (a libp2p stream's .sink, or any
-// it-sink for testing).
-export async function sendFramed(sink, payload) {
-  await pipe([payload], (source) => encode(source), sink)
+// How long to wait for a backpressured stream to drain before giving up.
+//
+// Red Hat finding on the libp2p 3.x migration (T215). v3's `.send()` returns false under
+// backpressure and the caller awaits `onDrain()` — which, unbounded, means a peer that stops
+// reading (a closed laptop lid, a suspended process, a frozen or hostile peer) wedges this promise
+// FOREVER. Every send path awaits sendFramed, so the visible symptom is not an error but a device
+// that quietly stops syncing, and in `authenticateWith` a pairing that sits on "Pending" with
+// nothing to distinguish wedged from slow. The old pull-stream path had no equivalent unbounded
+// wait at this layer, so this was exposure introduced BY the rewrite, not carried through it.
+//
+// A bounded wait converts a silent hang into a real rejection the caller already knows how to
+// surface. 30s is deliberately generous — far beyond any healthy LAN drain, short enough that a
+// human notices — and matches the posture of T203's bound on localClient writes.
+export const DRAIN_TIMEOUT_MS = 30_000
+
+// Frame one payload and write it to `stream` (a libp2p Stream, or any object
+// exposing the same `.send()`/`.onDrain()` surface, e.g. a test fake).
+export async function sendFramed(stream, payload, { drainTimeoutMs = DRAIN_TIMEOUT_MS } = {}) {
+  const frame = encode.single(payload)
+  const canSendMore = stream.send(frame)
+  if (!canSendMore) {
+    // onDrain takes AbortOptions (verified in @libp2p/interface's message-stream.d.ts), so use the
+    // library's own cancellation rather than racing a timer and leaving the wait dangling.
+    await stream.onDrain({ signal: AbortSignal.timeout(drainTimeoutMs) })
+  }
 }
 
-// Read framed payloads from `source` (a libp2p stream's .source, or any
-// it-source for testing), calling `onPayload(bytes)` for each one as it
-// arrives.
-export async function receiveFramed(source, onPayload, { maxDataLength = MAX_FRAME_BYTES } = {}) {
-  await pipe(source, (s) => decode(s, { maxDataLength }), async (framed) => {
-    for await (const chunk of framed) {
-      onPayload(chunk.subarray())
-    }
-  })
+// Read framed payloads from `stream` (a libp2p Stream, or any AsyncIterable
+// of Uint8Array/Uint8ArrayList, e.g. a test fake), calling `onPayload(bytes)`
+// for each one as it arrives.
+export async function receiveFramed(stream, onPayload, { maxDataLength = MAX_FRAME_BYTES } = {}) {
+  for await (const chunk of decode(stream, { maxDataLength })) {
+    onPayload(chunk.subarray())
+  }
 }

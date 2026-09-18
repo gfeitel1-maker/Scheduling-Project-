@@ -129,10 +129,10 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
     authenticatedPeers.delete(evt.detail.toString())
   })
 
-  node.handle(AUTH_PROTO, ({ stream, connection }) => {
+  node.handle(AUTH_PROTO, (stream, connection) => {
     const fromPeerId = connection.remotePeer.toString()
 
-    receiveFramed(stream.source, async (bytes) => {
+    receiveFramed(stream, async (bytes) => {
       let msg
       try {
         msg = decodeMessage(bytes)
@@ -165,7 +165,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
             Promise.resolve(onPeerAdmitted?.(fromPeerId)).catch(() => {})
           } catch { /* a throwing callback must not un-admit a legitimately authenticated peer */ }
           try {
-            await sendFramed(stream.sink, encodeMessage({ type: 'auth_ok' }))
+            await sendFramed(stream, encodeMessage({ type: 'auth_ok' }))
           } catch {
             // Peer went away right after being admitted; admission still
             // stands — peer:disconnect will clean it up once libp2p notices.
@@ -178,7 +178,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
           // don't have numeric close codes, so the reason travels in-band
           // before the abort.
           try {
-            await sendFramed(stream.sink, encodeMessage({ type: 'auth_failed', reason: result.reason }))
+            await sendFramed(stream, encodeMessage({ type: 'auth_failed', reason: result.reason }))
           } catch {
             // ignore — aborting regardless
           }
@@ -215,7 +215,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
         try {
           if (result.ok && result.alreadyApproved) {
-            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_approved', device_secret_identifier: result.device_secret_identifier, ...(result.joinConfirm ? { join_confirm: result.joinConfirm } : {}) }))
+            await sendFramed(stream, encodeMessage({ type: 'pairing_approved', device_secret_identifier: result.device_secret_identifier, ...(result.joinConfirm ? { join_confirm: result.joinConfirm } : {}) }))
           } else if (result.ok) {
             // Remember this peer id so a later director decision can dial
             // back to it — the ORIGINAL stream is about to close and cannot
@@ -224,9 +224,9 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
               pendingPairingPeers.set(msg.device_id, fromPeerId)
               if (result.joinConfirm) pendingJoinConfirms.set(msg.device_id, result.joinConfirm)
             }
-            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_pending', ...(result.joinConfirm ? { join_confirm: result.joinConfirm } : {}) }))
+            await sendFramed(stream, encodeMessage({ type: 'pairing_pending', ...(result.joinConfirm ? { join_confirm: result.joinConfirm } : {}) }))
           } else {
-            await sendFramed(stream.sink, encodeMessage({ type: 'pairing_denied' }))
+            await sendFramed(stream, encodeMessage({ type: 'pairing_denied' }))
           }
         } catch {
           // Peer went away before the reply landed — the caller's own
@@ -260,10 +260,10 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
         try {
           if (result.ok) {
-            await sendFramed(stream.sink, encodeMessage({ type: 'login_ok', token: result.token, userId: result.userId, role: result.role, ...(result.camp ? { camp: result.camp } : {}), ...(result.hostDeviceId ? { host_device_id: result.hostDeviceId } : {}) }))
+            await sendFramed(stream, encodeMessage({ type: 'login_ok', token: result.token, userId: result.userId, role: result.role, ...(result.camp ? { camp: result.camp } : {}), ...(result.hostDeviceId ? { host_device_id: result.hostDeviceId } : {}) }))
           } else {
             await sendFramed(
-              stream.sink,
+              stream,
               encodeMessage(
                 result.locked
                   ? { type: 'login_failed', locked: true, retryAfterMs: result.retryAfterMs }
@@ -328,7 +328,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
       : frame
     try {
       const stream = await node.dialProtocol(peerIdFromString(peerId), AUTH_PROTO, { runOnLimitedConnection: true })
-      await sendFramed(stream.sink, encodeMessage(outgoing))
+      await sendFramed(stream, encodeMessage(outgoing))
       await stream.close().catch(() => {})
       return true
     } catch (err) {

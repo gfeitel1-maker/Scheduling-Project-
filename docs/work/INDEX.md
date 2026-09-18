@@ -15,6 +15,12 @@ Regenerate with `npm run index:work`.
 
 ## Open work
 
+### architecture
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [Residual findings from the libp2p 3.x migration: stream-close race, dead it-pipe dependency, and what same-version tests cannot see](../../docs/work/tickets/T217-libp2p-3x-residual-findings.md) | open | — |
+
 ### database-sync
 
 | Ticket | Status | Referenced by |
@@ -41,6 +47,7 @@ Regenerate with `npm run index:work`.
 | [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | open | — |
 | [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
 | [Headless DB key access for the MCP server and CLI (encryption flip-blocker #2)](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) | in-progress | — |
+| [Upgrade libp2p 2.10.0 to 3.3.11 to close GHSA-vrf4-mx87-p53w, and answer whether a mixed-version camp can still sync](../../docs/work/tickets/T215-libp2p-3x-upgrade.md) | open | [T217-libp2p-3x-residual-findings](../../docs/work/tickets/T217-libp2p-3x-residual-findings.md) |
 
 ### test-infrastructure
 
@@ -181,7 +188,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: The camp game talks to Shoresh through a boring explicit contract, never through its data](../../docs/adr/2026-09-13-game-integration-boundary.md) | accepted | not_started | — |
 | [Migrate off npm-published SheetJS (xlsx) to the advisory-fixed line](../../docs/adr/2026-09-13-sheetjs-parser-advisory-migration.md) | accepted | implemented | — |
 | [ADR: Persistent per-device libp2p identity, binding a session token to the peer presenting it](../../docs/adr/2026-09-14-device-identity-and-token-binding.md) | accepted | not_started | [T162-device-identity-and-token-binding](../../docs/work/tickets/T162-device-identity-and-token-binding.md) |
-| [Internet-reachable transport requires a full security re-assessment (enforced gate)](../../docs/adr/2026-09-14-internet-transport-security-gate.md) | accepted | implemented | [2026-09-15-ephemeral-join-secret-for-wan-discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) · [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) |
+| [Internet-reachable transport requires a full security re-assessment (enforced gate)](../../docs/adr/2026-09-14-internet-transport-security-gate.md) | accepted | implemented | [2026-09-15-ephemeral-join-secret-for-wan-discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) · [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) · [T215-libp2p-3x-upgrade](../../docs/work/tickets/T215-libp2p-3x-upgrade.md) |
 | [Take users' auth fields (role, pin_hash, pin_salt) off the replicated document](../../docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md) | accepted | implemented | [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) |
 | [At-rest encryption of the camp document and SQLite — scoping](../../docs/adr/2026-09-15-at-rest-encryption-scoping.md) | accepted | in_progress | [T175-at-rest-encryption-activation](../../docs/work/tickets/T175-at-rest-encryption-activation.md) · [T176-only-this-computer-warning](../../docs/work/tickets/T176-only-this-computer-warning.md) |
 | [Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) | accepted | proposed | — |

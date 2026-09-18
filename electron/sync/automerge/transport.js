@@ -118,7 +118,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     ...(now ? { now } : {}),
   })
 
-  await node.handle(PROTO, ({ stream, connection }) => {
+  await node.handle(PROTO, (stream, connection) => {
     const fromPeerId = connection.remotePeer.toString()
     // Stage 5d-1 admission gate (ADR §3, threat #1/#4): a peer that has not
     // completed the auth handshake on THIS connection never reaches
@@ -130,7 +130,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
       stream.abort(new Error('unauthenticated'))
       return
     }
-    receiveFramed(stream.source, (bytes) => {
+    receiveFramed(stream, (bytes) => {
       // onDocReceived is async and invoked fire-and-forget here; a rejection
       // from it (e.g. the consumer's projection/merge throwing) must never
       // become an unhandled promise rejection — which in Electron's main
@@ -149,13 +149,13 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
 
   // Inbound half of the sync protocol — same admission gate as PROTO's handler above (Stage 5d-1's
   // ADR §3, threat #1/#4): an unauthenticated peer's bytes never reach A.receiveSyncMessage.
-  await node.handle(SYNC_PROTO, ({ stream, connection }) => {
+  await node.handle(SYNC_PROTO, (stream, connection) => {
     const fromPeerId = connection.remotePeer.toString()
     if (!authenticatedPeers.has(fromPeerId)) {
       stream.abort(new Error('unauthenticated'))
       return
     }
-    receiveFramed(stream.source, (bytes) => {
+    receiveFramed(stream, (bytes) => {
       Promise.resolve(onSyncMessageReceived?.(bytes, { fromPeerId })).catch((err) => {
         console.error(`transport: onSyncMessageReceived handler rejected — isolated: ${err?.message ?? err}`)
       })
@@ -166,7 +166,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
 
   async function sendDocTo(peerId, docBytes) {
     const stream = await node.dialProtocol(toDialTarget(peerId), PROTO, { runOnLimitedConnection: true })
-    await sendFramed(stream.sink, docBytes)
+    await sendFramed(stream, docBytes)
   }
 
   // Stage 5f-2: real Automerge sync protocol (initSyncState/generateSyncMessage/
@@ -215,7 +215,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
         // lost (peer:disconnect) while this send was queued behind another.
         if (!authenticatedPeers.has(target)) return
         const stream = await node.dialProtocol(toDialTarget(peerId), SYNC_PROTO, { runOnLimitedConnection: true })
-        await sendFramed(stream.sink, bytes)
+        await sendFramed(stream, bytes)
         await stream.close().catch(() => {})
       })
     sendChains.set(target, send)
@@ -262,29 +262,41 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // authenticatedPeers set.
   async function authenticateWith(peerId, msg) {
     const stream = await node.dialProtocol(toDialTarget(peerId), AUTH_PROTO, { runOnLimitedConnection: true })
-    return new Promise((resolve, reject) => {
-      let settled = false
-      receiveFramed(stream.source, (bytes) => {
-        if (settled) return
-        settled = true
-        try {
-          resolve(JSON.parse(new TextDecoder().decode(bytes)))
-        } catch (err) {
-          reject(err)
-        }
-      }).catch((err) => {
-        if (!settled) {
+    try {
+      return await new Promise((resolve, reject) => {
+        let settled = false
+        receiveFramed(stream, (bytes) => {
+          if (settled) return
           settled = true
-          reject(err)
-        }
+          try {
+            resolve(JSON.parse(new TextDecoder().decode(bytes)))
+          } catch (err) {
+            reject(err)
+          }
+        }).catch((err) => {
+          if (!settled) {
+            settled = true
+            reject(err)
+          }
+        })
+        sendFramed(stream, new TextEncoder().encode(JSON.stringify(msg))).catch((err) => {
+          if (!settled) {
+            settled = true
+            reject(err)
+          }
+        })
       })
-      sendFramed(stream.sink, new TextEncoder().encode(JSON.stringify(msg))).catch((err) => {
-        if (!settled) {
-          settled = true
-          reject(err)
-        }
-      })
-    })
+    } finally {
+      // libp2p v3 (T215 migration): a Stream never auto-closes once its
+      // consumer stops reading/writing — unlike the old pull-stream model,
+      // where draining the source implicitly tore the stream down. Without
+      // this, every authenticateWith call left its stream open, and the
+      // connection's per-protocol outbound stream accounting reset earlier
+      // ones out from under a caller that used this repeatedly (seen in
+      // authGate.test.js's MAX_PENDING_PAIRING test, which dials AUTH_PROTO
+      // 50+ times on one connection).
+      await stream.close().catch(() => {})
+    }
   }
 
   return {

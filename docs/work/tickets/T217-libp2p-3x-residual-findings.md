@@ -1,0 +1,79 @@
+---
+title: "Residual findings from the libp2p 3.x migration: stream-close race, dead it-pipe dependency, and what same-version tests cannot see"
+document_type: ticket
+status: open
+created: 2026-09-17
+task_class: architecture
+governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
+related_tickets: [docs/work/tickets/T215-libp2p-3x-upgrade.md]
+archive_when: "The cross-version interop run has happened, the authenticateWith close race is either proven benign or fixed, and it-pipe is removed or its retention justified"
+---
+
+# T217 — Residual findings from T215
+
+Raised by `red-hat` on the libp2p 3.x migration. The one **HIGH** finding it found —
+an unbounded `onDrain()` wait that wedged a sender forever when a peer stopped reading — was fixed
+in T215 itself (`DRAIN_TIMEOUT_MS`, bounded via the `AbortSignal` that `onDrain` already accepts,
+with a test proving a never-draining stream now rejects rather than hangs). These are what is left.
+
+## 1. `authenticateWith`'s `finally { await stream.close() }` may race an in-flight reader — MEDIUM
+
+`transport.js`. The outer promise resolves on the **first decoded frame**, but `receiveFramed`'s
+`for await` over `decode(stream)` is a separate, unawaited iteration still running underneath. The
+`finally` closes the stream immediately on settle, so a close can land while the reader is still
+mid-iteration.
+
+Benign today: `AUTH_PROTO` responses are a single frame. It stops being benign the moment anything
+pipelines a second frame on that stream. Two swallowed errors stack on the same teardown — the
+`.catch(() => {})` on `close()` and the `.catch()` on `receiveFramed` — so the failure would be
+silent.
+
+Note `security` reviewed the same code and reached the opposite conclusion (that `await` on the
+try's return value means close cannot truncate). **Both readings are recorded deliberately rather
+than one being picked** — they disagree about whether the unawaited iterator matters, and that is
+the question to settle, with a test that sends two frames on one `AUTH_PROTO` stream.
+
+## 2. `it-pipe` is now a dead dependency — LOW
+
+`wireProtocol.js` was its only consumer; the migration removed that import. Confirmed by grep: no
+file under `electron/`, `src/`, `scripts/` or `test/` imports it. Left in `package.json` during T215
+to avoid lockfile churn on a security fix. Remove it, or record why it stays — a future engineer
+auditing the stream model will otherwise reasonably infer the pipe-based model is still live
+somewhere.
+
+## 3. What same-version tests structurally cannot see — the honest list
+
+Every test in T215 runs 3.x against 3.x, and once `package.json` carries only the 3.x line, **2.x↔3.x
+interop is not testable in this repo at all**. Blind spots, stated so nobody mistakes a green suite
+for coverage:
+
+- **Real Yamux v8 flow-control/window behaviour.** `wireProtocol.test.js` exercises hand-written
+  fakes matching the test author's understanding of the v3 `Stream` interface — not a real stream,
+  real Noise, or a real socket. Yamux's initial window size is negotiated in-band *after* protocol
+  selection, so it is invisible to the protocol-ID equality check that the upgrade's safety argument
+  rests on. **This is the most likely "connects, then misbehaves" shape.**
+- **2.x↔3.x interop**, including whether a 3.x sender's backpressure accounting matches a 2.x peer's
+  window-update cadence. The dangerous shape: the connection stays up, some frames stall behind
+  `onDrain()`, and Automerge — designed to tolerate a lossy transport — reports nothing wrong
+  because from its point of view a message simply never arrived. Silent non-convergence.
+- **Real close/reset races** during an in-flight `receiveFramed` (finding 1).
+- **Real backpressure under OS socket pressure** near `MAX_FRAME_BYTES`; the large-payload test uses
+  an in-memory array.
+- **Connection-upgrade ordering and identify payload differences** across the major.
+
+## The test that settles most of this already exists
+
+`test/integration/harnessAutomerge.js` exports `setupTwoJoinedDevices` / `partitionClients` /
+`healPartition`, and **`startSyncNode` is injectable per node** — so device A and device B can be
+constructed from different checkouts. That is exactly the seam a cross-version run needs: two
+checkouts at different versions, two node processes, one machine over loopback. It is exercised in
+anger by `test/integration/scenarios/31-derived-id-convergence.automerge.js`.
+
+**Sequenced deliberately after T215 merges**, not before: the upgrade closes a live HIGH advisory and
+should not wait on an interop harness.
+
+## Does NOT count as done
+
+- Declaring interop verified on the strength of a same-version suite.
+- Resolving finding 1 by picking whichever of the two reviewers sounds more confident, instead of
+  writing the two-frame test that distinguishes them.
