@@ -35,7 +35,29 @@ peer's. `8e66547` (#470) removed the dead cluster; `4d6af5a` emptied `KNOWN_GAPS
 |---|---|---|
 | `shoresh:pairing-approved` | **(a) dead — correctly removed** | The decision is delivered by the live polling path: `JoinByCodeScreen.jsx:99,123` sets `STEP.signIn` on `status === 'approved'` from `joinRequestPairing`/`joinAwaitPairingDecision`. `syncNode.js`'s `sendPairingApproved` is a libp2p **wire** message, never `webContents.send`. |
 | `shoresh:pairing-denied` | **(a) dead — correctly removed** | Same live path carries denial: `JoinByCodeScreen.jsx:111,118-119` → `STEP.denied`, with a real rendered denial screen at line 226. |
-| `shoresh:token-renewed` | **(a) dead — correctly removed, and never severed** | Distinct from the other two: this listener was for a feature **that was never built**. `TOKEN_TTL_MS = 24h` (`electron/auth/localAuth.js:151`) with the comment "Renewal (sub-task 3) is out of scope here; a token past this window simply stops verifying." `grep -rniE "renew\|reissueToken\|refreshToken"` over `electron src` returns only that comment and a `syncNode.js:520` comment. Expiry → `verifySession` fails → `clearSessionState(null)` → `login` phase, benign by design. |
+| `shoresh:token-renewed` | **(a) dead — correctly removed, and never severed** | Distinct from the other two: this listener was for a feature **that was never built**. `TOKEN_TTL_MS = 24h` (`electron/auth/localAuth.js:151`) with the comment "Renewal (sub-task 3) is out of scope here; a token past this window simply stops verifying." `grep -rniE "renew\|reissueToken\|refreshToken"` over `electron src` returns only that comment and a `syncNode.js:520` comment. Nothing could ever have fired this channel, so its removal changes no behaviour. **But see the caveat below — the consequence of having no renewal is not benign.** |
+
+### Caveat found in review — the deletion was right, the safety claim was not
+
+The first draft of this closure called the absence of token renewal "benign by design," reasoning
+that expiry falls through to `verifySession` and a clean login prompt. Red Hat attacked that and
+broke it; every step was re-verified against the tree before this paragraph was written.
+
+`verifySession` runs **only** in `useDeviceMode.js`'s mount-time `init()` effect
+(`src/hooks/useDeviceMode.js:118-134`) and never re-runs mid-session, so a device left open past
+the 24h boundary stays in `phase === 'session'`. Expiry is discovered at the next **write**
+instead: `authorize()` denies with `'invalid_token'` (`electron/auth/authorize.js:21-23`),
+`requireAuthorized` collapses that to `throw new Error('invalid session')`
+(`electron/main.js:122-130`), and `describeWriteFailure` matches none of its five patterns against
+that string (`src/utils/writeErrorMessage.js:38-58`) — so the director gets the
+genuinely-unrecognised fallback copy and is told to retry something that can never succeed, with
+nothing clearing session state to route them back to login.
+
+This does **not** change the verdict — a listener with no sender for a feature that was never built
+is still correctly deleted, and reconnecting it was never possible. It changes the claim attached
+to the verdict. Spun off as **T228**
+(`docs/work/tickets/T228-expired-token-mid-session-unactionable.md`) rather than absorbed here,
+because it lives at the write-error/session seam, not at the IPC seam this ticket owns.
 
 ### Why this is NOT the `shoresh:auth-rejected` case
 
@@ -62,7 +84,7 @@ across every restart.
 The load-bearing half was the inverse defect on the same dead gate, and it hit the **larger**
 population: a device that joined *by code* had **no** `joinHost`, so it matched neither startup
 branch and skipped `chooseMode` entirely on every restart — never handing its locally-verified
-token to the libp2p node (`main.js:716`), silently voiding the T87 Part 1 re-auth guarantee. The
+token to the libp2p node (`main.js:718`), silently voiding the T87 Part 1 re-auth guarantee. The
 stale-key trap stranded upgraded devices; the missing-key defect degraded every joined-by-code
 device.
 
@@ -125,7 +147,7 @@ Found by the peer session, and it is the half that actually hurt a user. The sta
 branch was `else if (mode === 'client' && joinHost)`. Nothing has written `joinHost` since the Stage
 6c cutover, so a device that joined **by code** matched neither branch and **skipped `chooseMode`
 entirely on every restart** — and therefore never handed its locally-verified token to the libp2p
-node via `setAuthToken` (`main.js:716`). That is precisely the re-auth-on-restart guarantee T87
+node via `setAuthToken` (`main.js:718`). That is precisely the re-auth-on-restart guarantee T87
 Part 1 exists to provide, silently not happening for every joined-by-code device.
 
 **Why the tests did not catch it:** `seedClientDevice` in `useDeviceMode.test.js` hand-seeded the

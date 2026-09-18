@@ -21,6 +21,7 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Phase A — Cloudflare Worker and KV rendezvous bulletin board (source and tests only)](../../docs/work/tickets/T209-rendezvous-worker-phase-a.md) | open | [2026-09-18-rendezvous-record-encoding-and-namespace-rotation](../../docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [Residual findings from the libp2p 3.x migration: stream-close race, dead it-pipe dependency, and what same-version tests cannot see](../../docs/work/tickets/T217-libp2p-3x-residual-findings.md) | open | [2026-09-18-mixed-version-replication-out-of-scope](../../docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md) |
+| [A token that expires mid-session leaves the director retrying an unactionable error forever](../../docs/work/tickets/T228-expired-token-mid-session-unactionable.md) | open | — |
 
 ### database-sync
 
