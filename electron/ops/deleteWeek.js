@@ -64,6 +64,14 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
   //
   // So: block, naming the runs, exactly as the last-week guard above does. A
   // director who wants the week gone deletes the runs deliberately first.
+  //
+  // T194 round 3 (Red Hat): that instruction is currently unreachable, not merely unbuilt —
+  // this slice ships no run-CREATE path either, so `runs.length` can never be positive today. It
+  // becomes a live dead end the moment run creation ships without run deletion alongside it. The
+  // director-facing copy above (and DeleteWeekDialog.jsx's "Delete those runs first") is correct
+  // once runs are deletable; do not reword it. T196 (assignment engine) must ship run DELETION
+  // together with run creation, or this guard will tell a director to do something the app has
+  // no way to do.
   // Table-presence checked so this file still loads against a pre-v66 database.
   const hasRuns = db
     .prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='elective_assignment_runs'")

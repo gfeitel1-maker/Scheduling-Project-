@@ -22,6 +22,7 @@
 // rather than guessing (host-only tables, parent-scoped tables, and the one
 // bulk-replace entity, template_slots, are out of scope for this document
 // layer; see campDocument.js).
+import { randomUUID } from 'node:crypto'
 import { applyProjection } from '../ops/projections.js'
 import { DELETE_FIELD, applyBulkReplaceProjection } from '../ops/operations.js'
 import { DOMAIN_SNAPSHOT_ORDER, BULK_REPLACE_ENTITIES } from '../ops/campScopedEntities.js'
@@ -31,6 +32,50 @@ import { verifyAuthFields } from '../auth/authSignature.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
+import { getOrCreateDeviceId } from '../db/localDb.js'
+import { STORE_PROJECTION } from '../ops/documentWriteFailures.js'
+
+// Sentinel `operations.field` for the synthetic op minted below — never a real column name for
+// any entity's PROJECTIONS.fields, so it can never be picked up by anything that reads real
+// per-field history (historyLedger/restore's lastKnownFieldSources, trash). The synthetic op
+// exists ONLY to satisfy projection_failures.op_id's FK to operations(id); it must stay inert
+// against every other consumer of that table.
+const PROJECTION_FAILURE_OP_FIELD = '__projection_failure__'
+
+// Record that one doc-replay row was dropped whole (see upsertRow below). Reuses
+// projection_failures (electron/ops/documentWriteFailures.js) rather than inventing a second
+// mechanism — store='projection' because the fact of the matter is "this failed to reach
+// SQLite", the exact case that store value already means, and repairProjectionForEntity's
+// replay-the-op-log remedy is the right one once the row is fixed or removed on a peer (unlike
+// store='document', whose remedy would be to trust SQLite over the document — backwards here,
+// since the document has the row and SQLite does not).
+//
+// projection_failures.op_id is a real FK to operations(id), and at this point in projectAll
+// (before appendReceivedOps, which runs strictly after — see syncNode.js) no operations row for
+// this write exists yet. A minimal synthetic op is inserted to satisfy the FK, tagged with the
+// inert sentinel field above so it can never be mistaken for real field history. Both inserts are
+// wrapped in their own try/catch: a failure to record the failure must never re-break the
+// projection it is trying to report on.
+function recordRowProjectionFailure(db, { entity, entityId, field, error }) {
+  try {
+    const opId = randomUUID()
+    const now = new Date().toISOString()
+    const deviceId = getOrCreateDeviceId(db)
+    db.prepare(
+      `INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp, source)
+       VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`
+    ).run(opId, entity, entityId, PROJECTION_FAILURE_OP_FIELD, deviceId, now, 'projection-guard')
+    db.prepare(
+      `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at, store)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(opId, entity, entityId, field ?? '', String(error?.message ?? error ?? 'unknown'), now, STORE_PROJECTION)
+  } catch (recordErr) {
+    // eslint-disable-next-line no-console
+    console.error(`projector: could not record a projection failure for '${entity}'/'${entityId}':`, recordErr)
+  }
+}
+
+let rowSavepointCounter = 0
 
 function assertModeled(entity) {
   if (DEFERRED_ENTITIES.has(entity)) {
@@ -277,6 +322,33 @@ function upsertEntity(db, doc, entity) {
   for (const id of listRecordIds(doc, entity)) {
     const row = readRecord(doc, entity, id)
     if (!row) continue
+    upsertRow(db, entity, id, row, fields)
+  }
+}
+
+// Project one row, atomically. Contained per-ROW (T194 round 3), not per-field (round 2's gap):
+// the whole field loop for this record runs inside one SAVEPOINT, so a row whose earlier fields
+// succeed — creating the row via ensureExists — but whose LATER field throws (e.g. a CHECK
+// violation from a corrupted or newer-version peer) is rolled all the way back rather than left
+// half-written in SQLite: present, plausible-looking, with one field silently stale. `projectAll`
+// already runs inside ONE shared transaction (see the file-header comment), so a plain nested
+// `db.transaction` would just be another savepoint under the hood anyway — this uses SAVEPOINT/
+// RELEASE/ROLLBACK TO directly so the boundary is explicit and doesn't depend on better-sqlite3's
+// transaction-nesting behavior.
+//
+// Left uncaught, ONE unprojectable row — a constraint violation, a malformed value from a paired
+// peer — propagates out of projectAll's ONE shared transaction and rolls back every OTHER
+// entity's legitimate projection. The device that did nothing wrong then never projects anything
+// again, because the same bad row is still in the document on the next pass: a persistent,
+// camp-wide sync freeze from a single record. Skipping the row leaves SQLite missing one row
+// (visible, diagnosable, self-healing once the row is fixed or removed) instead — and the drop is
+// recorded in `projection_failures`, not just logged, so it is repairable rather than merely
+// visible in a console nobody is watching (T194 round 3, Defect 2).
+function upsertRow(db, entity, id, row, fields) {
+  const savepoint = `row_${++rowSavepointCounter}`
+  db.exec(`SAVEPOINT ${savepoint}`)
+  let failedField = null
+  try {
     // knownRow = row: every field the document currently holds for this id, all at once — unlike
     // op-log replay's true one-field-at-a-time arrival. Some entities' ensureExists (projections.js's
     // ensureWeekJoinRow and its hand-written equivalents for special_day_slots/
@@ -285,25 +357,20 @@ function upsertEntity(db, doc, entity) {
     // instead of querying the `operations` table, which the doc-replay path never writes.
     for (const field of fields) {
       if (!(field in row)) continue
-      try {
-        applyProjection(db, { entity, entity_id: id, field, value: row[field], knownRow: row })
-      } catch (err) {
-        // Per-row containment, the same rule upsertCampsEntity has applied since
-        // this file was written, generalized to every entity (T194 round 2, H1).
-        // Left uncaught, ONE unprojectable row — a constraint violation, a
-        // malformed value from a paired peer — propagates out of projectAll's
-        // ONE shared transaction and rolls back every OTHER entity's legitimate
-        // projection. The device that did nothing wrong then never projects
-        // anything again, because the same bad row is still in the document on
-        // the next pass: a persistent, camp-wide sync freeze from a single
-        // record. Skipping the row leaves SQLite missing one row (visible,
-        // diagnosable, self-healing once the row is fixed or removed) instead.
-        // eslint-disable-next-line no-console
-        console.error(
-          `projector: skipping doc '${entity}' row '${id}' field '${field}' — ${err.message}`
-        )
-      }
+      failedField = field
+      applyProjection(db, { entity, entity_id: id, field, value: row[field], knownRow: row })
     }
+    db.exec(`RELEASE ${savepoint}`)
+  } catch (err) {
+    db.exec(`ROLLBACK TO ${savepoint}`)
+    db.exec(`RELEASE ${savepoint}`)
+    // One line for the ROW, not one per field (up to 9 near-duplicates for elective_assignments
+    // before this fix).
+    // eslint-disable-next-line no-console
+    console.error(
+      `projector: skipping doc '${entity}' row '${id}' (field '${failedField}') — ${err.message}`
+    )
+    recordRowProjectionFailure(db, { entity, entityId: id, field: failedField, error: err })
   }
 }
 

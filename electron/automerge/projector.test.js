@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openLocalDb } from '../db/localDb.js'
+import { openLocalDb, getOrCreateDeviceId } from '../db/localDb.js'
 import { appendOp, DELETE_FIELD } from '../ops/operations.js'
 import { STAGE1_ENTITY, createEmptyDoc, applyWrite, readRecord } from './campDocument.js'
 import { projectEntity, rebuildFromDoc, projectAll } from './projector.js'
@@ -245,5 +245,56 @@ describe('projector — one unprojectable row does not abort the batch', () => {
 
     expect(db.prepare('SELECT label FROM days_of_operation WHERE id = ?').get('day-good')?.label).toBe('Monday')
     expect(db.prepare('SELECT name FROM activities WHERE id = ?').get('act-1')?.name).toBe('Swim')
+  })
+})
+
+// T194 round 3 (Red Hat). The containment above is per-FIELD, not per-ROW: the try/catch sits
+// INSIDE the field loop, so a row whose earlier fields succeed (creating the row via
+// ensureExists) but whose LATER field throws is left PARTIALLY APPLIED in SQLite — present,
+// plausible-looking, with one field silently stale — rather than cleanly absent. This plants a
+// multi-field entity (elective_assignment_runs: camp_id and name are alphabetically before
+// status, so both apply before the CHECK-violating status is reached) and proves the row is
+// atomic: nothing left behind, one failure recorded, one log line, and every OTHER entity in the
+// same pass still projects.
+describe('projector — a multi-field row is atomic: a later field failing leaves no partial row', () => {
+  it('rolls back the whole row, records exactly one failure, and does not abort the batch', () => {
+    // Mirrors main.js's real startup order (ensureDeviceRow): this device's own row exists in
+    // `devices` before any projection runs, which is what lets the failure-recording synthetic
+    // op (projector.js's recordRowProjectionFailure) satisfy operations.device_id's FK.
+    db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(getOrCreateDeviceId(db), 'Self')
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
+    // Violates the CHECK (status IN ('draft', 'final')) — the corrupted/newer-peer-version shape
+    // Red Hat named. camp_id and name are applied first (field order in PROJECTIONS.
+    // elective_assignment_runs.fields), so by the time this throws, the row already exists.
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'status', value: 'bogus' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swim' })
+
+    const errors = []
+    const realError = console.error
+    console.error = (...args) => errors.push(args.join(' '))
+    try {
+      expect(() => projectAll(db, doc)).not.toThrow()
+    } finally {
+      console.error = realError
+    }
+
+    // No partial row: the pre-fix code left camp_id/name committed with status missing/default
+    // rather than the row being wholly absent.
+    expect(db.prepare('SELECT * FROM elective_assignment_runs WHERE id = ?').get('run-bad')).toBeUndefined()
+    // The other entity in the same pass still projected — the batch was not aborted.
+    expect(db.prepare('SELECT name FROM activities WHERE id = ?').get('act-1')?.name).toBe('Swim')
+    // One log line for the row, not one per field.
+    const rowErrors = errors.filter((e) => e.includes('run-bad'))
+    expect(rowErrors.length).toBe(1)
+    // Exactly one durable failure recorded — a dropped row must be diagnosable and repairable,
+    // not console-only.
+    const failures = db.prepare('SELECT * FROM projection_failures WHERE entity_id = ?').all('run-bad')
+    expect(failures.length).toBe(1)
+    expect(failures[0].entity).toBe('elective_assignment_runs')
+    expect(failures[0].store).toBe('projection')
+    expect(failures[0].resolved_at).toBeNull()
   })
 })

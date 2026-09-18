@@ -183,7 +183,10 @@ the same working tree; the headline decisions:
   choices, preferences and assignments as orphan rows. `RESTORE_DECISIONS`' "rebuilt with its run"
   wording assumes a cascade. It belongs with the code that deletes a run — as `appendOp` per child
   (the `deleteRecord.js` discipline), never as `ON DELETE CASCADE`, which writes no ops and so is
-  invisible to peers, to history and to Trash. No run-delete path exists yet.
+  invisible to peers, to history and to Trash. No run-delete path exists yet. **Round 3 (Red Hat):**
+  `electron/ops/deleteWeek.js`'s "delete the runs deliberately first" guard already depends on this
+  — it is unreachable today only because no run-create path exists either, but it becomes a live
+  dead end the moment T196 ships run creation without run deletion alongside it.
 - **Blank-label rejection at the import boundary (T195).** A whitespace-only elective label
   canonicalizes to `''` and throws deep inside `deriveElectiveChoiceId`. The importer must reject it
   at the boundary with a finding, not let it reach a derivation. No caller exists yet.

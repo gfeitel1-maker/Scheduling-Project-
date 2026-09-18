@@ -25,6 +25,13 @@ exceeds a finite valid `camper_headcount`. A locked manual assignment is retaine
 capacity *before* generated placement. A camper is never assigned to overlapping occurrences.
 Generation cannot finalize while the route has unresolved location conflicts (T193's validator).
 
+**Precondition (T194 round 3, Red Hat):** `electron/ops/deleteWeek.js` blocks deleting a week that
+still has `elective_assignment_runs`, and its director-facing copy ("delete those runs first")
+requires a run-DELETE path to exist. Nothing in the app can delete a run today — nor create one,
+since T194 shipped no rendered surface. This ticket must ship run deletion alongside run creation,
+or `deleteWeek.js`'s guard becomes a live dead end: reachable, and telling the director to do
+something the app cannot do.
+
 ## Allocation
 
 Deterministic min-cost max-flow (ADR D11). Source→camper capacity 1; camper→choice edges only for
