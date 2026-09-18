@@ -281,6 +281,24 @@ describe('reads — fetch + normalize', () => {
     expect(lists.events).toEqual([])
   })
 
+  // T195 (offering-grid import) — load boundary. A 'potential' offering
+  // (imported, not yet director-confirmed) must never reach the engine/grid
+  // through this repository; confirmed and legacy (no status column yet)
+  // rows both pass through untouched.
+  it('loadSetupLists filters out potential elective_set_activities, keeping confirmed and legacy rows', async () => {
+    const client = makeFakeClient()
+    client.setListStore({
+      elective_set_activities: [
+        { id: 'row-1', elective_set_id: 'set-1', activity_id: 'act-1', status: 'potential' },
+        { id: 'row-2', elective_set_id: 'set-1', activity_id: 'act-2', status: 'confirmed' },
+        { id: 'row-3', elective_set_id: 'set-1', activity_id: 'act-3' },
+      ],
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const lists = await repo.loadSetupLists()
+    expect(lists.elective_set_activities.map((r) => r.id).sort()).toEqual(['row-2', 'row-3'])
+  })
+
   // The structural half of the above. The assertion before this one pins the
   // literal names and their order (order matters: the Promise.all block vs
   // the two best-effort ones). This one pins the RELATIONSHIP that actually

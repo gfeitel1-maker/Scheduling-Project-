@@ -1047,8 +1047,14 @@ CREATE TABLE IF NOT EXISTS elective_sets (
 -- dropping it needs a table rebuild, and a rebuild on this table is exactly the
 -- class that produced T189's lost index.
 --
--- Both columns are ALTER-added on a migrated db (localDb.js v66), which always
--- appends, so they MUST stay the last two columns here.
+-- camper_headcount, capacity_mode and capacity_limit are ALTER-added on a
+-- migrated db (localDb.js v66), which always appends, so they MUST stay
+-- before any later ALTER-added column here.
+--
+-- status (schema v68, T195 offering-grid import): default 'confirmed' so
+-- every existing/hand-authored row keeps today's meaning; the offering-grid
+-- importer is the only writer that ever says 'potential'. ALTER-added on a
+-- migrated db (localDb.js v68) — MUST stay the last column here.
 CREATE TABLE IF NOT EXISTS elective_set_activities (
   id TEXT PRIMARY KEY,
   elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
@@ -1059,6 +1065,8 @@ CREATE TABLE IF NOT EXISTS elective_set_activities (
   capacity_limit INTEGER
     CHECK (capacity_limit IS NULL
            OR (typeof(capacity_limit) = 'integer' AND capacity_limit >= 0)),
+  status TEXT NOT NULL DEFAULT 'confirmed'
+    CHECK (status IN ('potential', 'confirmed')),
   UNIQUE(elective_set_id, activity_id)
 );
 

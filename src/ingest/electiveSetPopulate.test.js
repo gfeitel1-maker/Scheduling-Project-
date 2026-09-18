@@ -60,7 +60,7 @@ describe('populateElectiveSet', () => {
     // v66 (T194): an imported offering has no declared cap. Written explicitly
     // rather than left to the column DEFAULT — a projection write is a
     // field-by-field UPDATE, and the default only applies to the insert.
-    expect(swimWrite.fields).toEqual({ elective_set_id: ELECTIVE_SET_ID, activity_id: 'act-swim', capacity_mode: 'unlimited', capacity_limit: null })
+    expect(swimWrite.fields).toEqual({ elective_set_id: ELECTIVE_SET_ID, activity_id: 'act-swim', capacity_mode: 'unlimited', capacity_limit: null, status: 'potential' })
 
     const zumbaId = deriveElectiveImportId(ELECTIVE_SET_ID, 'act-zumba')
     expect(repo.calls.some((c) => c.entity === 'elective_set_activities' && c.id === zumbaId)).toBe(true)
@@ -100,18 +100,65 @@ describe('populateElectiveSet', () => {
     expect(row.fields.activity_id).toBe(newActivityId)
   })
 
-  it('refuse-on-nonempty: existing elective_set_activities rows block import, writing nothing', async () => {
+  // T195 (offering-grid import) replaced the old refuse-on-nonempty gate with
+  // a per-row potential-only upsert: import can never regress a director's
+  // confirmed decision, and an already-nonempty set no longer blocks the
+  // whole file — activities not yet decided just land as 'potential'.
+  it('a nonempty set no longer refuses the whole import — unrelated existing offerings are untouched', async () => {
+    const existingActivities = [{ id: 'act-swim', name: 'Swim' }, { id: 'act-existing', name: 'Yoga' }]
     const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
 
     const result = await populateElectiveSet(parsed, {
-      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo,
-      existingActivities: [], existingOfferings: [{ id: 'off-1', activity_id: 'act-existing' }],
+      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo, existingActivities,
+      existingOfferings: [{ id: 'off-1', activity_id: 'act-existing', status: 'confirmed' }],
     })
 
-    expect(result.ok).toBe(false)
-    expect(result.reason).toMatch(/already has offerings/i)
-    expect(repo.writeFields).not.toHaveBeenCalled()
-    expect(repo.writeActivityFields).not.toHaveBeenCalled()
+    expect(result.ok).toBe(true)
+    expect(repo.calls.some((c) => c.entity === 'elective_set_activities' && c.id === 'off-1')).toBe(false)
+    const swimId = deriveElectiveImportId(ELECTIVE_SET_ID, 'act-swim')
+    expect(repo.calls.some((c) => c.entity === 'elective_set_activities' && c.id === swimId)).toBe(true)
+  })
+
+  it('confirmed-row skip: a matched activity already confirmed is left completely untouched', async () => {
+    const existingActivities = [{ id: 'act-swim', name: 'Swim' }]
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
+    const rowId = deriveElectiveImportId(ELECTIVE_SET_ID, 'act-swim')
+
+    const result = await populateElectiveSet(parsed, {
+      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo, existingActivities,
+      existingOfferings: [{ id: rowId, activity_id: 'act-swim', status: 'confirmed' }],
+    })
+
+    expect(result.ok).toBe(true)
+    expect(repo.calls.some((c) => c.entity === 'elective_set_activities' && c.id === rowId)).toBe(false)
+  })
+
+  it('potential-row idempotency: a matched activity already potential is rewritten, not skipped', async () => {
+    const existingActivities = [{ id: 'act-swim', name: 'Swim' }]
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
+    const rowId = deriveElectiveImportId(ELECTIVE_SET_ID, 'act-swim')
+
+    const result = await populateElectiveSet(parsed, {
+      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo, existingActivities,
+      existingOfferings: [{ id: rowId, activity_id: 'act-swim', status: 'potential' }],
+    })
+
+    expect(result.ok).toBe(true)
+    const write = repo.calls.find((c) => c.entity === 'elective_set_activities' && c.id === rowId)
+    expect(write.fields.status).toBe('potential')
+  })
+
+  it('new rows are written with status potential, never confirmed', async () => {
+    const existingActivities = [{ id: 'act-swim', name: 'Swim' }]
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
+
+    await populateElectiveSet(parsed, {
+      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo, existingActivities, existingOfferings: [],
+    })
+
+    const swimId = deriveElectiveImportId(ELECTIVE_SET_ID, 'act-swim')
+    const write = repo.calls.find((c) => c.entity === 'elective_set_activities' && c.id === swimId)
+    expect(write.fields.status).toBe('potential')
   })
 
   it('empty parse: zero cells refuses with "nothing to import" reason, writes nothing', async () => {

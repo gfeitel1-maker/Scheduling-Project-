@@ -101,6 +101,23 @@ describe('normalizeScheduleInputs', () => {
     expect(out.electiveSetActivities.map((x) => x.id)).toEqual(['esa1'])
   })
 
+  // T195 (offering-grid import) — load boundary. This module feeds BOTH the
+  // renderer's engine/grid and the headless MCP schedule_state path, so a
+  // 'potential' offering must never survive normalization for either.
+  it('filters out potential elective_set_activities rows, keeping confirmed and legacy (no status) rows', () => {
+    const out = normalizeScheduleInputs(
+      {
+        elective_set_activities: [
+          { id: 'esa-potential', elective_set_id: 'es1', activity_id: 'a1', status: 'potential' },
+          { id: 'esa-confirmed', elective_set_id: 'es1', activity_id: 'a2', status: 'confirmed' },
+          { id: 'esa-legacy', elective_set_id: 'es1', activity_id: 'a3' },
+        ],
+      },
+      CAMP
+    )
+    expect(out.electiveSetActivities.map((x) => x.id).sort()).toEqual(['esa-confirmed', 'esa-legacy'])
+  })
+
   it('treats a missing or null list as empty rather than throwing', () => {
     // The renderer's repository defaults its best-effort elective/event
     // fetches to [] on failure; a degraded load must stay a degraded load.

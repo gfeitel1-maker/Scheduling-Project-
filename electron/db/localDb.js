@@ -22,7 +22,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 66
+// v67 is RESERVED — unmerged work on the claude/shoresh-rendezvous-wan-
+// handoff-5f211b worktree already committed a v67_down.js (unpushed, parked
+// mid-flight). This import's status column lands as v68 so the two branches
+// don't collide on the same version number; do not "tidy up" the gap by
+// renumbering this to 67.
+export const CURRENT_SCHEMA_VERSION = 68
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2790,6 +2795,36 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     )
   }
 
+  // v68 — elective_set_activities.status (T195 offering-grid import).
+  // Deliberately numbered 68, not 67: v67 is RESERVED by unmerged work on
+  // the claude/shoresh-rendezvous-wan-handoff-5f211b worktree (a committed,
+  // unpushed v67_down.js) — this migration must never claim that number, so
+  // it skips straight from 66 to 68. Banded guard `>= 66 && < 68` (the true
+  // predecessor version in this tree), NOT bare `<`, so a database sitting
+  // between two migrations is never skipped or double-run. One additive
+  // column, so no table rebuild.
+  //
+  // Default 'confirmed' so every existing row and every hand-authored row
+  // keeps today's meaning unchanged — the offering-grid importer is the only
+  // writer that ever says 'potential'. A potential row is filtered out at
+  // the three consumption load boundaries (scheduleRepository.js,
+  // scheduleInputNormalization.js, scripts/mcp/tools.js) but stays visible
+  // on the authoring screens (ElectiveSetDetail.jsx, ScheduleElectivesScreen.jsx).
+  if (getSchemaVersion(db) >= 66 && getSchemaVersion(db) < 68) {
+    const hasStatus = db
+      .pragma('table_info(elective_set_activities)')
+      .some((c) => c.name === 'status')
+    if (!hasStatus) {
+      db.exec(
+        "ALTER TABLE elective_set_activities ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed' " +
+        "CHECK (status IN ('potential', 'confirmed'))"
+      )
+    }
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (68, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -3052,6 +3087,8 @@ export const ELECTIVE_SET_ACTIVITIES_DDL = `CREATE TABLE IF NOT EXISTS elective_
   capacity_limit INTEGER
     CHECK (capacity_limit IS NULL
            OR (typeof(capacity_limit) = 'integer' AND capacity_limit >= 0)),
+  status TEXT NOT NULL DEFAULT 'confirmed'
+    CHECK (status IN ('potential', 'confirmed')),
   UNIQUE(elective_set_id, activity_id)
 )`
 

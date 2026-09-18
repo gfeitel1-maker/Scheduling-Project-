@@ -205,7 +205,11 @@ export function exportScheduleTool(args, { dbPath, dbKey }) {
       days: listEntities(db, 'days_of_operation'),
       timeBlocks: listEntities(db, 'time_blocks'),
       electiveSets: listEntities(db, 'elective_sets'),
-      electiveSetActivities: listEntities(db, 'elective_set_activities'),
+      // T195 (offering-grid import) load-boundary filter: a 'potential'
+      // offering must never reach an export — one of the three consumption
+      // boundaries (the other two: scheduleRepository.js,
+      // scheduleInputNormalization.js).
+      electiveSetActivities: listEntities(db, 'elective_set_activities').filter((row) => row.status !== 'potential'),
       events: listEntities(db, 'events'),
       camp,
       week,

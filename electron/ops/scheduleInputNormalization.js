@@ -129,7 +129,14 @@ export function normalizeScheduleInputs(rowsByEntity, campId) {
     locations: raw('locations'),
     cohorts: raw('cohorts'),
     electiveSets: raw('elective_sets'),
-    electiveSetActivities: raw('elective_set_activities'),
+    // T195 (offering-grid import) load-boundary filter: a 'potential'
+    // offering (imported, not yet director-confirmed) must never be
+    // placeable or counted toward capacity by the engine — one of the three
+    // consumption boundaries (the other two: scheduleRepository.js,
+    // scripts/mcp/tools.js). This module is shared by BOTH the renderer
+    // (useScheduleData.js) and the headless MCP path (scheduleEngineInputs.js),
+    // so filtering here covers both without a third copy.
+    electiveSetActivities: raw('elective_set_activities').filter((row) => row.status !== 'potential'),
     events: raw('events'),
   }
 }
