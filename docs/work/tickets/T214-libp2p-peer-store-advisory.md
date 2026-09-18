@@ -69,12 +69,52 @@ and land in the peer store. So the vulnerable component is not inert here — it
 2. **Does `libp2p@3` change the wire protocol or peer-identity handling** in a way that breaks
    replication against a device still on 2.x? A camp runs several devices that are not upgraded
    simultaneously.
-3. Only then: upgrade, or pin with a documented accepted tradeoff and the human gate `SECURITY.md`
-   requires.
+3. Only then: upgrade, or accept the risk with the human gate `SECURITY.md` requires.
 
-**Do not silence the gate.** The gate is behaving correctly; suppressing the finding to get green is
-the one outcome this ticket exists to prevent. If the conclusion is "not reachable for us", that is a
-documented accepted tradeoff with a named approver, not a filter rule.
+## Resolved while this ticket was open: the narrow pin does NOT work
+
+The obvious cheaper route — an `overrides` entry pinning `@libp2p/peer-store` to `>=12.0.24` without
+the `libp2p` major — is **dead on declared metadata**, so nobody should spend time testing it:
+
+```
+@libp2p/peer-store@11.2.7  (ours)          -> "@libp2p/interface": "^2.11.0"
+@libp2p/peer-store@12.0.24 (first fixed)   -> "@libp2p/interface": "^3.2.5"
+libp2p@2.10.0              (ours)          -> "@libp2p/interface": "^2.11.0"
+libp2p@3.3.11              (npm's fix)     -> "@libp2p/interface": "^3.3.0"
+                                              "@libp2p/peer-store": "^12.0.28"
+```
+
+The first non-vulnerable peer-store requires `@libp2p/interface@^3.2.5`; our libp2p requires
+`^2.11.0`. An override forces two incompatible majors of `@libp2p/interface` into one tree. **The
+peer-store major IS the libp2p major** — npm's `fixAvailable: libp2p@3.3.11` is the only fix, not
+merely the simplest one it happened to report.
+
+Worth recording *why this was settled from the registry rather than by experiment*, because the
+experiment would have been actively misleading: an override would most likely have installed
+cleanly, and the integration suite might well have passed, since the mismatch is at a type/contract
+seam that only bites on specific code paths. A green run against a tree npm's own metadata calls
+incoherent is weak evidence dressed as strong evidence. Three sessions converged on this
+independently — via the registry, via the installed tree, and via the observation that the gate's
+only dependency lever is a blanket severity constant.
+
+## Do not silence the gate — and do not justify an exception with an unverified reachability claim
+
+One plausible-sounding argument in circulation is that the practical impact here is misrouting rather
+than data disclosure, because connections are Noise-authenticated and devices are trust-gated. That
+is **a guess nobody has verified**, offered as such by the session that raised it. It must not be
+used as the justification for an exception unless the security agent confirms it. This is exactly the
+shape of reasoning that turns a real finding into an accepted tradeoff on the strength of a story.
+
+The gate is behaving correctly; suppressing the finding to get green is the one outcome this ticket
+exists to prevent. If the conclusion is "not reachable for us", that is a documented accepted
+tradeoff with a named approver, not a filter rule.
+
+For the record on mechanism: `scripts/security-gate.js` has **no exception mechanism for dependency
+advisories at all**. `auditFindings` has no allowlist, no per-advisory key and no expiry; the
+`security-gate:allow` marker applies only to the dangerous-code-pattern scan. The sole
+dependency-level lever is the blanket `FAILING_SEVERITIES` constant. So "add a time-boxed exception"
+is not a thing that can be done — it is a mechanism that would have to be *built*, on the security
+gate, under merge-queue pressure.
 
 ## Suggested handling
 
