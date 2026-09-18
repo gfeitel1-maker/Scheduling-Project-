@@ -37,6 +37,17 @@ const INTERNET_TRANSPORT_PACKAGES = [
   '@libp2p/autonat',
   '@libp2p/dcutr',
   '@libp2p/upnp-nat',
+  // Added 2026-09-17 while re-checking this list against the 3.x package line for T215. Nothing was
+  // RENAMED across the major (all nine names above still resolve), but two internet transports were
+  // missing from the list entirely:
+  '@chainsafe/libp2p-quic',   // the QUIC transport. Not installable against libp2p 2.10 (it needs
+                              // @libp2p/interface@^3.x), which is why it was never listed — the
+                              // dependency graph was doing the guarding. The libp2p 3.x upgrade
+                              // (T215) satisfies that requirement incidentally, so from that moment
+                              // the only thing standing between this repo and a QUIC transport is
+                              // this line. Listing it now, BEFORE the bump, so the guard is armed
+                              // when the upgrade lands rather than one commit behind it.
+  '@libp2p/webrtc-direct',    // sibling of @libp2p/webrtc, which was listed; this one was not.
 ]
 
 describe('Tier-4 internet-transport boundary guard', () => {

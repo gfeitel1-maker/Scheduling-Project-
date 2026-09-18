@@ -27,8 +27,16 @@ const randInt = (max) => Math.floor(rand() * max)
 function sourceOf(chunks) {
   return (async function* () { for (const c of chunks) yield c })()
 }
-// A sink that drains and discards (for send-path exercising).
-async function drain(source) { for await (const _ of source) { /* discard */ } }
+// A minimal libp2p-v3 Stream stand-in that captures what sendFramed writes.
+// v3 replaced the pull-stream sink (a callable) with an EventTarget-ish object
+// exposing .send()/.onDrain(); this fuzz test was written against the old shape
+// and was the one file the 2->3 migration sweep missed (T215).
+function capturingStream(chunks) {
+  return {
+    send: (frame) => { chunks.push(frame); return true },
+    onDrain: async () => {},
+  }
+}
 
 describe('wireProtocol.receiveFramed — adversarial byte sources', () => {
   it('never throws OUT of a rejected/garbled frame in a way that escapes a caller try/catch', async () => {
@@ -57,7 +65,11 @@ describe('wireProtocol.receiveFramed — adversarial byte sources', () => {
   it('a frame declaring more than MAX_FRAME_BYTES is refused, not buffered', async () => {
     // Round-trip a legitimately-framed oversized payload and confirm the low cap rejects it.
     const chunks = []
-    await sendFramed((s) => drain(s).then(() => {}) || (async () => { for await (const c of s) chunks.push(c) })(), randBytes(64))
+    await sendFramed(capturingStream(chunks), randBytes(64))
+    // Non-vacuity: if the send path silently wrote nothing, the read below would
+    // be exercising the fallback random bytes rather than a real framed payload,
+    // and the assertion would pass for the wrong reason.
+    expect(chunks.length).toBeGreaterThan(0)
     // Read back the framed bytes with a deliberately tiny cap → must reject, never yield.
     const framedSource = sourceOf(chunks.length ? chunks : [randBytes(64)])
     let delivered = 0
