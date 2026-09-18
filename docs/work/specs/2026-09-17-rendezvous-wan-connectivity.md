@@ -126,15 +126,19 @@ no check that the peer id is a known, trusted device. On the LAN this is bounded
 link-local multicast. Over rendezvous it is bounded by whoever can POST into the namespace. The
 spec's invariant "a Cloudflare response never establishes trust" is therefore **not currently
 enforced by any code** — it would have to be built.
-→ **T208**. **Partially closed 2026-09-17** — the seam now *requires* a trust decision
-(`wireMutualAuth` throws without an `isPeerTrusted` predicate), so no future discovery mechanism can
-inherit the hole silently, and a hung attempt can no longer pin the dedupe slot. What is **not**
-closed is the LAN case, and the reason is a hard constraint rather than a choice: `transport.js`
-passes no `privateKey` to `createLibp2p`, so libp2p mints a fresh keypair — and a fresh peer id — on
-every process start. A peer-id-based trust check would therefore reject every legitimate device
-after any restart, in both directions, and stop sync entirely. **Closing the LAN case requires
-T162** (persistent per-device identity + token-to-peer binding). This is an escalation, not a
-deferral.
+→ **T208**. **Closed 2026-09-18.** _Prior (superseded): this paragraph described the seam as
+"partially closed," with the LAN case blocked on a hard constraint — `transport.js` passing no
+`privateKey` to `createLibp2p`, so a fresh peer id was minted every process start and a
+peer-id-based trust check would reject every legitimate device after a restart. That premise
+stopped holding the same day it was written: T162 landed (also 2026-09-17) and `syncNode.js` now
+loads a persisted per-device identity via `ensureDeviceIdentity` before ever dialing, so a device's
+peer id is stable across restarts._ The LAN case is now closed: `createBoundPeerTrust(db)`
+(`electron/sync/automerge/peerIdentity.js`) is `startSyncNode`'s default `isPeerTrusted`, replacing
+the old permissive `lanTopologyTrust` stub. It resolves a discovered peer id to the `devices` row
+`bindOrVerifyPeerIdentity`'s TOFU bind bound it to, and admits only when that row is authorized and
+not revoked, re-querying fresh on every discovery. See T208 §0 for the full history, including a
+round-2 correction of this seam's client-to-client-regression and revocation-enforcement reasoning
+(neither changes the closed verdict, both were about *why*, not *whether*).
 
 Also new and unaddressed by the spec, from the adversarial review:
 
@@ -206,7 +210,7 @@ Adapted from the spec's §24, with the two prerequisites added:
 | Phase | Ticket | Tier-4 status |
 |---|---|---|
 | Prerequisite: guard covers HTTP rendezvous | T207 | Not gated — *closes* a gate hole |
-| Prerequisite: local-trust filter at the discovery seam | T208 | Not gated — mechanism shipped; LAN case blocked on T162 |
+| Prerequisite: local-trust filter at the discovery seam | T208 | **Closed 2026-09-18** — LAN case now enforced via `createBoundPeerTrust`, unblocked by T162 |
 | Prerequisite: stable device identity + token binding | T162 | **Implemented 2026-09-17** — unblocks a real trust check |
 | A — Worker + KV source and tests (no deploy) | T209 | Not gated (no Shoresh runtime change) |
 | B — signed record contract + namespace | T210 | Not gated once T207 lands; **T207 must land first** |

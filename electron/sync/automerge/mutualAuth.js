@@ -46,7 +46,20 @@
 // LIMIT, stated because the guarantee is otherwise easy to over-read: what
 // this closes is "we send our token to a stranger". It does NOT make the token
 // unusable if it reaches one — that is token-to-peer binding, T162.
-export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000 } = {}) {
+// Negative-cache tuning (T208 round 2, Code Reviewer). An UNTRUSTED peer never enters
+// `attempted` below (that Set is only populated once the trust check passes), so
+// without this a busy or hostile mDNS segment can drive one synchronous
+// better-sqlite3 query per announce, on Electron's main process, which also serves
+// all IPC — an amplification path once a second, attacker-writable discovery
+// mechanism exists (the rendezvous program). 5s keeps the authorization-latency
+// window this trades away small: a peer that becomes trusted mid-window is only
+// delayed to its next announce after the cache entry expires, not locked out.
+const NEGATIVE_CACHE_TTL_MS = 5_000
+// Caps the cache itself from being a memory-growth vector under a peer-id-churning
+// flood — oldest entry evicted once this is exceeded.
+const NEGATIVE_CACHE_MAX_SIZE = 500
+
+export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now() } = {}) {
   if (typeof isPeerTrusted !== 'function') {
     throw new TypeError(
       'wireMutualAuth requires an isPeerTrusted(peerId) predicate: this seam decides who receives ' +
@@ -61,15 +74,43 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
   // stuck forever.
   const attempted = new Set()
 
+  // peerId -> ms timestamp of last denial. Lives HERE, not inside isPeerTrusted —
+  // the predicate stays pure and uncached so callers can reason about it directly
+  // (see peerIdentity.js's createBoundPeerTrust comment). Insertion order doubles as
+  // recency order (re-set deletes then re-inserts), so the oldest entry to evict is
+  // always the Map's first key.
+  const deniedRecently = new Map()
+
+  function recordDenial(peerId) {
+    deniedRecently.delete(peerId)
+    deniedRecently.set(peerId, now())
+    if (deniedRecently.size > NEGATIVE_CACHE_MAX_SIZE) {
+      deniedRecently.delete(deniedRecently.keys().next().value)
+    }
+  }
+
   async function tryAuthenticate(peerId) {
     if (attempted.has(peerId)) return
 
-    // Checked on EVERY discovery, never cached: local trust is a live,
-    // eventually-consistent value (a device can be revoked between two mDNS
-    // announces), so a cached verdict would keep a revoked peer admitted at
-    // this seam until restart. A predicate that throws is treated as "not
-    // trusted" — a db fault is not permission, and failing open here would
-    // reintroduce the exact defect the predicate exists to close.
+    // Short-circuits a peer denied within the last NEGATIVE_CACHE_TTL_MS without
+    // touching isPeerTrusted at all — see the module-level comment for why this
+    // exists and lives here rather than inside the predicate. This is the only
+    // caching on this path: a peer NOT in this cache still gets a fresh, uncached
+    // query every discovery, on the same reasoning as before this cache existed —
+    // it stops this device from proving itself to a peer revoked since last
+    // process start (or one it simply hasn't attempted yet); it does NOT tear down
+    // an already-authenticated session, because `attempted` is never cleared on
+    // success (see the guard above), so an already-attempted peer short-circuits
+    // there before this predicate runs again at all. Revoking a peer this device
+    // is already connected to is enforced by transport.js's `revokePeer` removing
+    // it from `authenticatedPeers` — that is the load-bearing revocation path for a
+    // live peer; this re-query is only load-bearing for a peer not yet dialed.
+    const lastDeniedAt = deniedRecently.get(peerId)
+    if (lastDeniedAt !== undefined && now() - lastDeniedAt < NEGATIVE_CACHE_TTL_MS) return
+
+    // A predicate that throws is treated as "not trusted" — a db fault is not
+    // permission, and failing open here would reintroduce the exact defect the
+    // predicate exists to close.
     let trusted = false
     try {
       trusted = isPeerTrusted(peerId) === true
@@ -77,7 +118,13 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
       console.error(`mutualAuth: trust check for ${peerId} failed, treating as untrusted: ${err?.message ?? err}`)
       trusted = false
     }
-    if (!trusted) return
+    if (!trusted) {
+      recordDenial(peerId)
+      return
+    }
+    // Trusted: drop any stale denial record so a peer that becomes trusted is
+    // never held back by a leftover cache entry once it is actually re-checked.
+    deniedRecently.delete(peerId)
 
     attempted.add(peerId)
 

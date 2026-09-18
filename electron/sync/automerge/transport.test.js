@@ -84,6 +84,43 @@ describe('transport — libp2p node lifecycle', () => {
     expect(received[0].meta.fromPeerId).toBe(a.peerId)
   })
 
+  // T208 round 2 (Red Hat): this is the regression test for the actual revocation
+  // enforcement point. mutualAuth.js's discovery-side re-query of isPeerTrusted never
+  // runs again for an already-authenticated peer (its `attempted` dedupe Set is never
+  // cleared on success), so revoking a LIVE peer is enforced here — by removing it from
+  // transport.js's `authenticatedPeers`, which `broadcastDoc` gates every send on. If
+  // `revokePeer` stopped doing that (e.g. "simplified" as redundant with a local-trust
+  // predicate that only gates new dials), this test fails: b would keep receiving docs
+  // from a peer its own admission table no longer trusts.
+  it('revokePeer stops broadcastDoc from reaching a previously-authenticated peer', async () => {
+    const received = []
+    const a = await startTransport({ deviceId: 'device-a', onAuthenticate: alwaysAdmit })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onDocReceived: (bytes) => received.push(bytes),
+      onAuthenticate: alwaysAdmit,
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    await a.authenticateWith(b.peerId, { type: 'authenticate' })
+    await b.authenticateWith(a.peerId, { type: 'authenticate' })
+
+    await a.broadcastDoc(new Uint8Array([1]))
+    await waitFor(() => received.length > 0)
+    expect(received).toHaveLength(1)
+
+    // b revokes a — the enforcement point under test.
+    b.revokePeer(a.peerId)
+
+    await a.broadcastDoc(new Uint8Array([2]))
+    // Give any (incorrect) delivery a moment to happen, then assert it didn't.
+    await new Promise((r) => setTimeout(r, 200))
+    expect(received).toHaveLength(1)
+  })
+
   it('sendDocTo reaches only the targeted peer, not a third bystander', async () => {
     const receivedB = []
     const receivedC = []

@@ -476,10 +476,20 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // T162, a restart minted a fresh peer id and a bound-peer-id check would have
   // rejected every legitimate device after any restart.
   //
-  // RESIDUAL: `devices` is device-local, never a replicated Automerge entity — a
-  // client's `devices` row only ever contains itself and the Host it joined through.
-  // So this seam still does not, and was never able to, establish direct client-to-
-  // client sync; that limitation predates T208 and is unchanged by it.
+  // RESIDUAL: this seam still does not, and was never able to, establish direct
+  // client-to-client sync — but NOT because a client "has no devices row" for another
+  // client. connectionAuth.js's evaluateAuthenticate self-registers a `pairing_status:
+  // 'pending'` `devices` row for ANY device id presenting a valid camp/device-type
+  // session token (INSERT OR IGNORE, unconditional on authorization), so a second
+  // client authenticating against a client DOES get a row. What actually blocks it is
+  // that the self-registered row has `authorized_at` unset, so deviceTrustStatus
+  // reports `authorized: false` and createBoundPeerTrust denies it — and this holds
+  // symmetrically on both sides, so in practice neither client ever gets far enough to
+  // dial the other in the first place: wireMutualAuth runs the identical predicate on
+  // every node, so client A's createBoundPeerTrust(peerB) and client B's
+  // createBoundPeerTrust(peerA) both return false before either token is sent. That
+  // symmetry, not the absence of a row, is why this limitation predates T208 and is
+  // unchanged by it.
   let authToken = null
   wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },

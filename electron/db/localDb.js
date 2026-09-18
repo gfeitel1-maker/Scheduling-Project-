@@ -2251,17 +2251,23 @@ export function initSchema(db) {
   // a peer successfully completes `authenticate` or `login` over
   // /shoresh/auth/1.0.0 — not written by this slice (that is Stage 5d-2b).
   //
-  // EXPLICITLY NOT A TRUST SIGNAL. This column is a routing convenience only
-  // (lets the Host recognize a reconnecting known device's PeerId), exactly
-  // analogous to a WS connection's remote IP being visible but playing no
-  // role in deviceTrustStatus/authorize(). A PeerId is a locally-generated
-  // keypair identity, not something Shoresh issues or vouches for — trusting
-  // a stored libp2p_peer_id as a login/admission bypass would let anyone who
-  // observes a trusted device's old PeerId (e.g. from an mDNS broadcast, which
-  // is unencrypted metadata) spoof admission without ever presenting a token.
-  // Nothing may authorize based on this column. See the ADR §4 for the full
-  // reasoning — this is the one invariant a future "nice fast-path" edit here
-  // is most likely to accidentally violate.
+  // NEVER A TRUST SIGNAL FOR authorize() OR ANY IPC ROLE DECISION. This column plays no role
+  // in deviceTrustStatus/authorize() (electron/auth/authorize.js) — exactly analogous to a WS
+  // connection's remote IP being visible but conferring no permission. A PeerId is a
+  // locally-generated keypair identity, not something Shoresh issues or vouches for; trusting
+  // the column ITSELF (an equality check with no further lookup) as a login/admission bypass
+  // would let anyone who observes a trusted device's old PeerId (e.g. from an mDNS broadcast,
+  // which is unencrypted metadata) spoof admission without ever presenting a token.
+  //
+  // IT IS, HOWEVER, read as part of a DIFFERENT admission decision, one layer down: T208's
+  // discovery-seam trust filter, createBoundPeerTrust (electron/sync/automerge/peerIdentity.js),
+  // resolves a discovered peer id to the `devices` row it is bound to via this column, then
+  // admits it only if THAT row's authorized_at/revoked_at (deviceTrustStatus) say so — the
+  // actual trust signal is still authorized_at/revoked_at, exactly as it is for authorize();
+  // this column is only ever the lookup key, never the verdict, in either layer. See the ADR §4
+  // for the full reasoning — collapsing "used to look someone up" into "used to admit someone"
+  // is the one invariant a future "nice fast-path" edit here is most likely to accidentally
+  // violate.
   //
   // Both-places DDL, following the client_write_id/v8 precedent
   // (schema.sql's INDEX PLACEMENT RULE comment): the COLUMN is declared both

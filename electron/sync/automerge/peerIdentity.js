@@ -64,8 +64,13 @@ export function recordLibp2pPeerId(db, deviceId, peerId) {
 // True only when the bound device is authorized and not revoked — reusing
 // deviceTrustStatus (electron/auth/deviceTrust.js) so "trusted" cannot drift into a
 // second, competing definition. Queries fresh on every call, deliberately: mutualAuth.js
-// never caches this verdict, specifically so a revocation takes effect at the very next
-// discovery event rather than lingering until restart.
+// never caches this verdict, so a peer revoked since last process start (or not yet
+// dialed at all) is denied at the next discovery event rather than admitted on stale
+// data. This does NOT tear down an already-authenticated peer — mutualAuth.js's
+// `attempted` guard means this predicate never runs again for a peer already dialed
+// successfully. The enforcement for a LIVE peer is transport.js's `revokePeer`, called
+// from main.js when a director revokes a device; see its comment for why that call,
+// not this re-query, is what actually cuts off an established session.
 export function createBoundPeerTrust(db) {
   return function isPeerTrusted(peerId) {
     if (typeof peerId !== 'string' || peerId.length === 0) return false
