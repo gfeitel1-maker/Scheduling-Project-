@@ -1,7 +1,7 @@
 ---
 title: "Write up the gate-semantics pattern: a gate answers a question about this tree at this moment, and is read as answering one about the repository"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
 task_class: documentation-governance
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
@@ -182,3 +182,21 @@ the likely home.
   ticket and must be cited as prior art, not re-derived.
 - Dropping the abstention family because it is subtler than the staleness family. It is the half that
   reads as reassurance.
+
+
+## Resolution (2026-09-18)
+
+Written to [`docs/governance/standards/TESTING_STANDARD.md`](../../governance/standards/TESTING_STANDARD.md),
+§1, "What a green (or red) verdict actually claims" — placed inside the section that owns the gate
+list and "what each run is worth," so a person triaging a confusing verdict lands on it. It states
+the one-sentence pattern, then all **three** families the ticket documents (Family 3 / T220 was
+added to the ticket body after the `archive_when` clause was written, which still says "both
+families"; the write-up carries all three), each as a table naming the check, what it actually
+measured, and what it was read as meaning. It cites the 2026-09-08 / 2026-09-09 precedent as prior
+art rather than re-deriving it, keeps the abstention family, and ends with the mechanical
+mitigations — recording, per the ticket's own argument, that the write-up is a triage aid and not
+the enforcement.
+
+A pointed cross-reference was added to
+[`docs/governance/standards/WORK_RECORD_STANDARD.md`](../../governance/standards/WORK_RECORD_STANDARD.md)
+§3.2, where the status-drift CI-skip member lives, pointing back to the pattern.

@@ -193,6 +193,8 @@ reason. The skip is not silent: `check:governance` prints one line to stderr
 (`check:governance — status-drift check skipped (no origin/main to diff against)`) so a real
 finding-free pass stays distinguishable from a run where the check did not execute.
 
+That CI skip is one member of a broader pattern — a check that answers a narrower question than the reader assumes. A green CI run is positive evidence status-drift was **not** checked, not evidence it passed. See [`TESTING_STANDARD.md`](TESTING_STANDARD.md), "What a green (or red) verdict actually claims," when triaging a confusing gate result.
+
 ---
 
 ## 4. `task_class`
