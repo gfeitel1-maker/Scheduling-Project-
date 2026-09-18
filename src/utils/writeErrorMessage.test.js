@@ -53,6 +53,22 @@ describe('describeWriteFailure', () => {
   it('survives an error with no message at all', () => {
     expect(describeWriteFailure(undefined, 'X.')).toContain('X.')
   })
+
+  // T228 — a token that expires mid-session (the device stays open past
+  // TOKEN_TTL_MS) throws Error('invalid session') at the write handler.
+  // requireAuthorized (electron/main.js) now pushes 'shoresh:auth-rejected'
+  // for the reasons that route this to the login screen automatically, but
+  // db_error/invalid_action denials and a null main window are residual
+  // cases where the push can't (or shouldn't) fire — this inline copy is
+  // what the director sees on the toast for those, so it must instruct
+  // action directly rather than the generic "not something the app
+  // recognised" fallback.
+  it('names an expired/invalid session and tells the director to sign in again', () => {
+    const message = describeWriteFailure(new Error('invalid session'), 'That could not be saved.')
+    expect(message).toMatch(/session is no longer valid/i)
+    expect(message).toMatch(/sign in again/i)
+    expect(message).not.toMatch(/not something the app recognised/)
+  })
 })
 
 describe('writeErrorMessage', () => {

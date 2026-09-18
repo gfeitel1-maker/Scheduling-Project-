@@ -34,6 +34,13 @@ const NOT_NULL = /NOT NULL constraint failed/i
 // something that has nothing to do with it.
 const WRITE_TIMED_OUT = /^write timed out/i
 const TRANSPORT = /disconnected|timeout|not connected|ECONNREFUSED|network|socket/i
+// T228 — requireAuthorized (electron/main.js) throws this exact message for
+// every session/identity/trust denial. Most of those now also push
+// 'shoresh:auth-rejected', which auto-routes the director to login — this
+// inline copy is for the residual cases that don't (db_error/invalid_action
+// denials, or no main window to push to), so it tells the director to act
+// directly rather than call this the generic unrecognised failure.
+const SESSION_INVALID = /^invalid session$/
 
 export function describeWriteFailure(err, whatFailed) {
   const message = typeof err?.message === 'string' ? err.message : ''
@@ -52,6 +59,9 @@ export function describeWriteFailure(err, whatFailed) {
   }
   if (TRANSPORT.test(message)) {
     return `${whatFailed} Your devices could not reach each other — try again when they are both on the network.`
+  }
+  if (SESSION_INVALID.test(message)) {
+    return `${whatFailed} Your session is no longer valid. Sign in again to continue.`
   }
   // Genuinely unrecognised. Say that, rather than blaming the network for it.
   return `${whatFailed} The reason was not something the app recognised — try again, and if it keeps happening the details are in the log.`

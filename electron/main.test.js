@@ -52,7 +52,7 @@ import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { createUser, ensureHostSigningKey } from './auth/localAuth.js'
 import { appendOp, latestOp } from './ops/operations.js'
-import { makeHandlers, sanitizeConflictForIpc, sanitizeOpRejectedForIpc } from './main.js'
+import { makeHandlers, sanitizeConflictForIpc, sanitizeOpRejectedForIpc, SESSION_INVALID_REASONS } from './main.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 
 let tmpFile
@@ -571,6 +571,55 @@ describe('write handler', () => {
     expect(lastCreatedSyncClient.write).toHaveBeenCalledWith(
       expect.objectContaining({ entity: 'activities', author_user_id: user.id })
     )
+  })
+
+  // T228 — a token that expires mid-session (the device stays open past
+  // TOKEN_TTL_MS, the normal overnight case) must not leave the director
+  // stuck retrying an unactionable error. requireAuthorized must both keep
+  // throwing 'invalid session' (unchanged contract) AND push
+  // 'shoresh:auth-rejected' at the renderer so useDeviceMode's existing
+  // onAuthRejected listener routes it to the login screen. Plants a REAL
+  // expiry via a real login + fake-timers past TOKEN_TTL_MS — not a
+  // hand-built expired token object — so verifySessionToken's own
+  // Date.now()>exp check is what fails, matching how this actually happens.
+  it('an expired token at a write handler routes to login (T228)', async () => {
+    await seedCampAndUser({ name: 'Dana', pin: '1357' })
+    const sendSpy = vi.fn()
+    const handlers = makeHandlers(db, deviceId, {
+      getMainWindow: () => ({ webContents: { send: sendSpy } }),
+    })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { token } = await handlers.login({ name: 'Dana', pin: '1357' })
+
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(Date.now() + 25 * 60 * 60 * 1000) // past the 24h TOKEN_TTL_MS
+
+      expect(() =>
+        handlers.write({ token, entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim' })
+      ).toThrow('invalid session')
+
+      expect(sendSpy).toHaveBeenCalledWith('shoresh:auth-rejected', { code: 4401 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // T228 drift guard — if a future authorize()/deviceTrust denial reason
+  // means "this session/device can no longer act" and SESSION_INVALID_REASONS
+  // isn't updated to include it, that reason silently falls back to the
+  // unactionable-fallback path this ticket exists to close. Fails loudly
+  // instead of that reverting quietly.
+  it('SESSION_INVALID_REASONS covers every known session/identity/trust denial reason (T228 drift guard)', () => {
+    for (const reason of [
+      'invalid_token',
+      'user_not_found',
+      'device_not_found',
+      'device_not_authorized',
+      'device_revoked',
+    ]) {
+      expect(SESSION_INVALID_REASONS.has(reason), `SESSION_INVALID_REASONS is missing '${reason}'`).toBe(true)
+    }
   })
 
   describe('DELETE_FIELD authorization (Round 2 Security MEDIUM #1: admin-gated delete)', () => {
