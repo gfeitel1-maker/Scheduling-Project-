@@ -97,6 +97,38 @@ from the transcript. Two independent reasons:
 What shipped instead: the refusal is surfaced neutrally with no cause and no remedy, and the
 reasoning is written at the site so a future reader does not "improve" it back into a wizard.
 
+## MANDATORY BEFORE MERGE — re-verify the ticket numbers
+
+**This branch's tickets are T207–T213.** That block was chosen on 2026-09-17 from a fetch done at
+that moment: `origin/main`'s highest was T205 and a peer reported T206 in flight. The branch
+originally used T192–T198, every one of which was claimed on `main` by other sessions *after* we
+branched — seven collisions at once.
+
+**Choosing the block does not settle it, and this step must not be skipped:**
+
+> Immediately before merging, rebase onto a freshly fetched `origin/main` and re-run
+> `npm run check:governance` locally.
+
+The reason is precise. `duplicate-ticket-number` (`scripts/check-governance.js:399`) scans the
+**working tree**, so it validates numbers against *our* tree — not against whatever landed on `main`
+after we branched. A number free when we checked can be claimed by another PR between our check and
+our merge, and our branch never contains the other ticket, so the scan passes correctly on the
+evidence it has. **The rebase is the first moment the tree contains both sets and the scan can
+actually see a collision.** That exact sequence turned `main` red today on a duplicate T202 and
+aborted an unrelated session's gate at 2m28s.
+
+Note also, and do not over-read it: the duplicate scan **does** run in CI, including on the shallow
+clone. What CI skips there are the **status-drift** (`:902`) and **run-record** (`:900`) checks,
+which need `origin/main` to diff against — `gate.yml:40` uses `actions/checkout@v4` with no
+`fetch-depth`. Both skips announce themselves via `console.warn`, so the evidence is in the CI log.
+
+## Also pick up at rebase, if the peer branch has not
+
+`electron/main.js:254` carries a stale prose comment referencing `selectJoinHost()`, which the peer
+branch's deletion will orphan. **`check:governance` will not catch it** — the doc-reference gate
+covers descriptive docs naming repo *paths*, not source comments naming deleted symbols. Flagged to
+the deleting session; if it does not land there, fix it on the rebase.
+
 ## A machine-coordination fact worth knowing
 
 `npm run verify`'s lock is keyed **per repository**, so a gate running in a worktree and a gate

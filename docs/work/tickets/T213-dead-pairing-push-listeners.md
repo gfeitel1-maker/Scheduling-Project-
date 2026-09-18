@@ -10,6 +10,14 @@ archive_when: "The dead pairing-push path is removed or wired, `KNOWN_GAPS` in e
 
 # T213 — Dead pairing-push listeners, and the phase you can enter but not leave
 
+## Numbering
+
+This ticket and its siblings are **T207–T213**, renumbered from T192–T198 on 2026-09-17 after all
+seven collided with tickets other sessions landed on `main` after this branch was cut. The block was
+chosen from a fetch at that moment (main's highest was T205; T206 reported in flight). **It needs
+re-verification before merge** — the duplicate scan reads the working tree, so it cannot see a number
+claimed on `main` after we branched until the rebase brings both sets into one tree. See the handoff.
+
 ## How this surfaced
 
 The `shoresh:auth-rejected` emitter was found missing and reconnected. The parity guard built
