@@ -67,6 +67,7 @@ Regenerate with `npm run index:work`.
 | [T202-camper-record-purge-path](../../docs/work/tickets/T202-camper-record-purge-path.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T218-elective-export-third-party-adapter](../../docs/work/tickets/T218-elective-export-third-party-adapter.md) | open | [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) |
 | [T219-multi-day-catalog-linkage](../../docs/work/tickets/T219-multi-day-catalog-linkage.md) | open | [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) |
+| [T221-agents-check-spurious-differs](../../docs/work/tickets/T221-agents-check-spurious-differs.md) | open | — |
 
 ## Decisions
 
