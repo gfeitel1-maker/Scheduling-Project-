@@ -26,6 +26,7 @@ import {
   variantList,
 } from './locationMigrationReview'
 import { duplicateSiblingsById } from './locationDuplicates.js'
+import { useLatestTimeout } from '../hooks/useLatestTimeout'
 
 // M3a — the Locations setup screen. docs/work/specs/2026-08-15-m3-locations-design.md Part 1.
 // M3c — the first-run migration review region (Part 3) + the delete path's
@@ -437,6 +438,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   // Mirrors ActivitiesScreen's justConfirmed — a single-shot row settle
   // highlight after Confirm, self-clears after 700ms.
   const [justConfirmedId, setJustConfirmedId] = useState(null)
+  const { start: startConfirmFlash } = useLatestTimeout()
 
   async function refreshCapacitySources() {
     const sources = await localClient.locationCapacityProvenance().catch(() => ({}))
@@ -462,7 +464,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
       await save(location.id, { capacity: location.capacity })
       await refreshCapacitySources()
       setJustConfirmedId(location.id)
-      setTimeout(() => setJustConfirmedId(null), 700)
+      startConfirmFlash(() => setJustConfirmedId(null), 700)
     } catch {
       // save() already surfaced the error.
     }

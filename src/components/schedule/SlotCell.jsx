@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { S, prefersReducedMotion } from '../../styles/shared'
+import { useLatestTimeout } from '../../hooks/useLatestTimeout'
 import { ANCHOR_COLOR, FLAG_COLORS } from './slotCellConstants'
 import { cellAccessibleName } from './cellLabel'
 import CellInlineEditor from './CellInlineEditor'
@@ -109,9 +110,16 @@ export default function SlotCell({
     'data-event': slot?.event_id ? '' : undefined,
   }
 
+  // The press-scale reset is a timer this component OWNS, so it goes through
+  // useLatestTimeout: a second press restarts the window instead of inheriting
+  // the first press's pending reset, and an unmounted cell leaves nothing
+  // queued. Up to 480 of these are mounted at once and the grid remounts them
+  // freely, so both properties are load-bearing here.
+  const { start: startPressReset } = useLatestTimeout()
+
   function triggerPress() {
     setPressed(true)
-    setTimeout(() => setPressed(false), 110)
+    startPressReset(() => setPressed(false), 110)
   }
 
   const id = slot ? `${slot.groupId}|${slot.dayId}|${slot.blockId}` : 'empty'

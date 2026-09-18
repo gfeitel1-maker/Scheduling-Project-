@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { S } from '../../styles/shared'
 import { ChevronIcon } from '../icons'
+import { useLatestTimeout } from '../../hooks/useLatestTimeout'
 
 // Director language only ("Week 1") — no "template"/"slot"/"kind"/"candidate"
 // (CONSTITUTION Art. V). Switching weeks is pure navigation: onSelect just
@@ -15,6 +16,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
   const [creatingInFlight, setCreatingInFlight] = useState(false)
   const [duplicatingId, setDuplicatingId] = useState(null)
   const [successBanner, setSuccessBanner] = useState(null)
+  const { start: startBannerReset } = useLatestTimeout()
   const dropRef = useRef(null)
 
   useEffect(() => {
@@ -110,7 +112,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                           const result = await onDuplicate(w.id)
                           if (result?.ok) {
                             setSuccessBanner({ sourceName: w.name, newName: result.newName })
-                            setTimeout(() => setSuccessBanner(null), 3000)
+                            startBannerReset(() => setSuccessBanner(null), 3000)
                             if (onDuplicateSuccess) onDuplicateSuccess(result)
                           }
                         } finally {

@@ -3,6 +3,7 @@ import { localClient } from '../localClient'
 import { AREA_TABLE } from '../components/layout/navSections'
 import { loadSidebarState, shouldOfferFold } from '../components/layout/sidebarState'
 import { getSetupGaps } from '../engine/readiness'
+import { useLatestTimeout } from './useLatestTimeout'
 
 function countGaps(counts) {
   return getSetupGaps({
@@ -21,6 +22,7 @@ export function useSetupCounts(campId) {
   const [isDevDb, setIsDevDb] = useState(false)
   const [buildLabel, setBuildLabel] = useState(null)
   const [backupStatus, setBackupStatus] = useState(null)
+  const { start: startBackupStatusReset } = useLatestTimeout()
   const [counts, setCounts] = useState(null)
   const [syncStatus, setSyncStatus] = useState(null)
   const [offerShown, setOfferShown] = useState(false)
@@ -108,7 +110,7 @@ export function useSetupCounts(campId) {
     } catch {
       setBackupStatus('error')
     }
-    setTimeout(() => setBackupStatus(null), 3000)
+    startBackupStatusReset(() => setBackupStatus(null), 3000)
   }, [])
 
   return {

@@ -24,6 +24,7 @@ import { CONFIDENCE_COPY, plainEvidenceSentence } from '../components/reconcilia
 import { deriveActivityProvenance, hasAnyEvidence, worstTier, TIER_LABEL, TIER_DOT_COLOR, tierShapeStyle } from '../utils/ruleProvenance.js'
 import { DOW, parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
 import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
+import { useLatestTimeout } from '../hooks/useLatestTimeout'
 
 // operations.value only accepts strings/null (better-sqlite3 throws on a raw
 // boolean/array) — every write must pre-serialize through these before
@@ -490,6 +491,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // Slice E, Target 3 — a single-shot row settle highlight after a
   // provenance field is confirmed; self-clears after 700ms.
   const [justConfirmed, setJustConfirmed] = useState(null) // null | { activityId, field }
+  const { start: startConfirmFlash } = useLatestTimeout()
   // Row hover is declarative (single hovered-row id) so it shares the one
   // `background` slot with justConfirmed instead of imperatively mutating it —
   // a just-confirmed row stays highlighted even while hovered (Slice E review
@@ -1058,7 +1060,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       await writeFields(activity.id, fields)
       await load()
       setJustConfirmed({ activityId: activity.id, field: row.key })
-      setTimeout(() => setJustConfirmed(null), 700)
+      startConfirmFlash(() => setJustConfirmed(null), 700)
     } catch (err) {
       setError(describeWriteFailure(err, 'That could not be confirmed.'))
     }
