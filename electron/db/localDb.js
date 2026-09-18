@@ -22,7 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 66
+export const CURRENT_SCHEMA_VERSION = 67
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2786,6 +2786,41 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (66, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v67 (T162) — device_identity_key: a per-device persistent libp2p transport
+  // identity, distinct from host_signing_key (that key is Host-only and signs
+  // tokens; this key belongs to EVERY device and is what makes that device's
+  // libp2p PeerId stable across restarts — see
+  // docs/adr/2026-09-14-device-identity-and-token-binding.md §1/§2).
+  //
+  // NOTE ON THE VERSION NUMBER: the ADR/ticket text says "v60" because it was
+  // written when this repo was at v59. v60-v65 landed first for other work
+  // (T172/T174/T180/Q1 fix) and v66 went to T194's participant substrate, so this is v67 — corrected here, not in the ADR
+  // text, per the design being unchanged.
+  //
+  // Clean cutover (ADR §2): every existing devices.libp2p_peer_id is nulled.
+  // Those values were written under the old "routing convenience, regenerated
+  // every restart" regime and are not tied to any device's new persistent
+  // identity — no live camp data exists to protect, per the owner's
+  // 2026-09-14 decision. Every device re-establishes its binding via TOFU
+  // (bindOrVerifyPeerIdentity, electron/sync/automerge/peerIdentity.js) the
+  // first time it authenticates or logs in after upgrade.
+  if (getSchemaVersion(db) >= 66 && getSchemaVersion(db) < 67) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS device_identity_key (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          peer_id TEXT NOT NULL,
+          private_key TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec('UPDATE devices SET libp2p_peer_id = NULL')
+    })()
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (67, ?)').run(
       new Date().toISOString()
     )
   }

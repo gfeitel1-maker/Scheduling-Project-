@@ -48,3 +48,46 @@ export function recordLibp2pPeerId(db, deviceId, peerId) {
     db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run(peerId, deviceId)
   }
 }
+
+// bindOrVerifyPeerIdentity (ADR: docs/adr/2026-09-14-device-identity-and-token-binding.md §3/§4).
+// Trust-on-first-use: the FIRST peer id ever presented for a device_id becomes that
+// device's bound identity; every later presentation must match exactly, or is
+// rejected. Unlike recordLibp2pPeerId (routing convenience, always overwrites, never
+// a trust signal — kept for joinSession.js's Client-side Host-routing use, unchanged),
+// this function IS part of the admission decision and is called only from
+// connectionAuth.js's evaluateAuthenticate/evaluateLogin call sites.
+export function bindOrVerifyPeerIdentity(db, deviceId, peerId) {
+  const row = db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(deviceId)
+  const bound = row?.libp2p_peer_id ?? null
+
+  if (bound === null) {
+    // The v57 partial unique index means this UPDATE can fail: another device row
+    // already claims this peer id. The ADR (§3) says such a collision is "correctly
+    // rejected" — but a bare .run() rejects it by throwing a raw SQLITE_CONSTRAINT
+    // out of an admission decision, which skips the caller's recordAuditEvent and
+    // leaves the connection to fail with no audit trail. Reject it the way every
+    // other denial here is rejected instead: as a value.
+    //
+    // Two devices presenting the same peer id is either a cryptographically
+    // negligible keypair collision or — the realistic cause — one device_identity_key
+    // copied to a second machine (a cloned VM image, a duplicated install). Both are
+    // exactly what this function exists to refuse, so peer_identity_mismatch is the
+    // honest reason, not an internal error.
+    //
+    // ONLY a constraint violation is converted. SQLITE_BUSY, a locked db or disk-full
+    // are re-thrown, matching recordLibp2pPeerId's documented posture one function up:
+    // a real db fault must surface as a db fault, never be silently rendered as a
+    // clean authentication decision.
+    try {
+      db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run(peerId, deviceId)
+    } catch (err) {
+      if (!String(err?.code ?? '').startsWith('SQLITE_CONSTRAINT')) throw err
+      return { ok: false, reason: 'peer_identity_mismatch' }
+    }
+    return { ok: true, bound: 'first' }
+  }
+  if (bound === peerId) {
+    return { ok: true, bound: 'match' }
+  }
+  return { ok: false, reason: 'peer_identity_mismatch' }
+}

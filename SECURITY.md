@@ -70,6 +70,37 @@ Client offline sessions use a different token type (`type: 'local'`) — HMAC-SH
 the device's own `device_secret_identifier`. These are accepted only for local IPC calls on
 that device; the Host's WebSocket server rejects them outright.
 
+### Per-device transport identity, and tokens bound to the peer presenting them
+
+**A second, different private key exists on every device** (not only the Host), and it must not be
+confused with `host_signing_key` above: `device_identity_key` holds that device's Ed25519 **libp2p
+transport identity**. It never signs tokens and confers no role. Its only job is to make the
+device's libp2p PeerId stable across restarts — which was previously not true, because libp2p
+minted a fresh keypair on every process start.
+
+- **Custody.** Generated lazily the first time a device starts a sync node, stored in the local
+  SQLite database in the same singleton (`CHECK (id = 1)`) shape as `host_signing_key`, hex-encoded
+  in libp2p's own protobuf marshal format. It is never replicated: it appears in no projection, no
+  camp-scoped entity set, and no Automerge document, and a test pins that exclusion. It inherits
+  at-rest encryption from SQLCipher along with the rest of the database once at-rest encryption is
+  activated (`SHORESH_AT_REST_ENCRYPTION`); there is deliberately no separate key store for it.
+- **What it buys.** A session token is no longer a pure bearer credential. On `authenticate` and on
+  `login`, the peer identity libp2p's Noise handshake already proved for the connection is checked
+  against `devices.libp2p_peer_id` on a trust-on-first-use basis: the first peer id presented for a
+  device binds, every later one must match, and a mismatch is refused with reason
+  `peer_identity_mismatch` and close code `4405`, audited. A token stolen off one machine and
+  replayed from another is therefore rejected. This closes the property T155 characterized.
+- **Accepted cost, stated plainly.** Losing the key — an app reinstall, a database restored from
+  before it existed, a rollback of the schema past it — means the device presents a *new* identity
+  and is refused by every device that knew the old one. **This is deliberately treated as needing to
+  re-pair, not as an outage to route around.** Recovery is the existing flow: a director revokes the
+  device's row from another device, and it pairs again as new. There is currently **no in-app
+  message explaining a `4405` refusal to a director**, which is a known gap recorded in T162 rather
+  than a property of the design.
+- **Still open.** `devices.libp2p_peer_id` remains excluded from `authorize()` — admission ("who may
+  connect") and authorization ("what may this actor do") stay separate layers, and a guard test
+  enforces that `authorize.js` never reads the column.
+
 Token lifetime is 24 hours. The Host re-checks revocation status before issuing a renewal
 (`renew_token` WS message).
 

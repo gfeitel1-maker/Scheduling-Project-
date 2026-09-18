@@ -259,36 +259,26 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
   })
 })
 
-// --- T155: the properties the gate does NOT have, measured rather than assumed ---
+// --- T155/T162: the property T155 characterized is now closed ---
 //
 // An external review asked for adversarial coverage of replayed authentication,
 // simultaneous dials, and reconnect after a long offline period. Two of those
 // turned out to be already covered elsewhere in this file (an expired token is
 // rejected; a revoked device is rejected, and `revokeDevice` in main.js evicts a
 // still-connected one from the live admission set rather than waiting for a
-// disconnect). This block measures the one that is genuinely open, so it is a
-// characterized property rather than an assumption.
-describe('syncNode + auth gate — characterized limits (T155)', () => {
-  it('A CAMP TOKEN IS A BEARER CREDENTIAL: a DIFFERENT peer presenting the same valid token is admitted', async () => {
-    // This is not a regression and not (yet) a defect — it is the shape of the
-    // current design, written down so nobody has to infer it from the code.
-    //
-    // `evaluateAuthenticate` binds a token to the `device_id` INSIDE the token
-    // (connectionAuth.js). Nothing binds it to the libp2p peer id that presents
-    // it, so whoever holds the bytes can authenticate from any machine.
-    //
-    // Why it is not simply fixed here: `devices.libp2p_peer_id` exists (v57) but
-    // libp2p generates a fresh peer id on every process start — the column is
-    // documented as a routing convenience precisely because it is stale by
-    // design — so requiring the presented token's device to match the connecting
-    // peer id would reject every ordinary reconnect. Closing it means persisting
-    // a libp2p identity per device and binding tokens to it, which is a design
-    // decision with its own key-management consequences, not a test fix.
-    //
-    // What bounds the exposure meanwhile: obtaining the token means reaching a
-    // paired device's storage, and anyone who can do that already has the camp
-    // document — which IS the camp's data. The marginal gain is impersonation,
-    // not access. See SECURITY.md.
+// disconnect). T155 characterized the one that was genuinely open: a camp token
+// is a bearer credential, admitted from any peer that presents it. T162
+// (docs/adr/2026-09-14-device-identity-and-token-binding.md) closes it by
+// making each device's libp2p identity persistent (ensureDeviceIdentity) and
+// binding a token's device_id to the peer id that first presented it
+// (bindOrVerifyPeerIdentity, wired into evaluateAuthenticate/evaluateLogin).
+describe('syncNode + auth gate — characterized limits (T155), closed by T162', () => {
+  it('a token replayed from a peer other than the one it is bound to is rejected', async () => {
+    // `startSyncNode` now calls `ensureDeviceIdentity(db)` before starting the
+    // transport, so each node's peerId is persistent per-db rather than a
+    // fresh keypair every process start — this is the precondition that makes
+    // binding a token to a peer id meaningful instead of rejecting every
+    // ordinary reconnect (ADR §1/§2).
     const genesis = createEmptyDoc()
     const a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
     const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
@@ -301,13 +291,51 @@ describe('syncNode + auth gate — characterized limits (T155)', () => {
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
+    // FIRST authenticate: no peer id is bound yet for `deviceId`, so this
+    // binds it via TOFU to `a`'s (now persistent) peer id and admits.
     expect(await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })).toEqual({ type: 'auth_ok' })
 
     // The SAME token, replayed from a peer the Host has never seen before.
+    // `deviceId` is already bound to `a`'s peer id — the impostor's distinct
+    // peer id mismatches, so this is rejected.
     await impostor.dial(b.getMultiaddrs()[0])
     await waitFor(() => impostor.getPeers().length > 0)
     const replayed = await impostor.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })
-    expect(replayed).toEqual({ type: 'auth_ok' })
+    expect(replayed.type).toBe('auth_failed')
+  })
+
+  it('an ordinary reconnect across a process restart still succeeds (persistent identity, not a fresh peer id)', async () => {
+    // Simulates a device restarting: stop node `a`, then start a NEW
+    // startSyncNode against the SAME db. ensureDeviceIdentity loads the
+    // already-persisted keypair rather than generating a fresh one, so the
+    // new node's peerId is identical to the old one — the TOFU bind survives
+    // the restart and the reconnect is admitted, not rejected.
+    const genesis = createEmptyDoc()
+    let a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
+    const b = await startSyncNode({ deviceId: 'device-b', db: dbB, doc: A.clone(genesis) })
+    nodes.push(a, b)
+
+    const deviceId = randomUUID()
+    authorizeDeviceOnHost(deviceId)
+    const token = issueCampToken(dbB, randomUUID(), deviceId)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })).toEqual({ type: 'auth_ok' })
+    const peerIdBeforeRestart = a.peerId
+
+    await a.stop()
+    nodes = nodes.filter((n) => n !== a)
+
+    // Restart: same db, new startSyncNode call — same persisted identity.
+    a = await startSyncNode({ deviceId: 'device-a', db: dbA, doc: A.clone(genesis) })
+    nodes.push(a)
+    expect(a.peerId).toBe(peerIdBeforeRestart)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+    const reconnected = await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })
+    expect(reconnected).toEqual({ type: 'auth_ok' })
   })
 
   it('but revoking the device closes BOTH peers out — the credential follows the device, not the connection', async () => {

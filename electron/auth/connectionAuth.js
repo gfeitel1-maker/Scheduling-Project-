@@ -17,6 +17,7 @@ import { Buffer } from 'node:buffer'
 import { verifySessionToken, attemptLogin } from './localAuth.js'
 import { deviceTrustStatus, deviceTrustReason } from './deviceTrust.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
+import { bindOrVerifyPeerIdentity } from '../sync/automerge/peerIdentity.js'
 
 function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0
@@ -28,9 +29,19 @@ function isNonEmptyString(v) {
 // `code` mirrors syncServer.js's existing WS close-code convention exactly
 // (4401 invalid/tampered/expired token or device_id mismatch, 4402 a
 // structurally-valid `local` token rejected outright, 4403 device not
-// authorized, 4404 device revoked) so a caller on any transport can report
-// failures identically.
-export function evaluateAuthenticate(db, { token, device_id }) {
+// authorized, 4404 device revoked, 4405 peer_identity_mismatch — T162,
+// docs/adr/2026-09-14-device-identity-and-token-binding.md §3) so a caller on
+// any transport can report failures identically.
+//
+// `peerId` (T162, optional): the libp2p peer id that presented this token,
+// established by libp2p's own Noise handshake before this function is ever
+// called — not client-asserted data. When provided, bound via
+// bindOrVerifyPeerIdentity (TOFU: first contact binds, a later mismatch is
+// rejected) so a token copied off a paired device's disk no longer
+// authenticates from a different machine. Omitting it (every caller that
+// doesn't have a libp2p connection to report) skips the check entirely —
+// this is purely an admission-layer tightening, not a new required field.
+export function evaluateAuthenticate(db, { token, device_id, peerId }) {
   const verified = verifySessionToken(db, token)
   if (!verified || verified.deviceId !== device_id) {
     return { ok: false, code: 4401, reason: 'invalid_token' }
@@ -76,6 +87,21 @@ export function evaluateAuthenticate(db, { token, device_id }) {
       metadata: verified.jti ? { jti: verified.jti } : null,
     })
     return { ok: false, code: reason === 'device_revoked' ? 4404 : 4403, reason }
+  }
+
+  if (typeof peerId === 'string' && peerId.length > 0) {
+    const bind = bindOrVerifyPeerIdentity(db, verified.deviceId, peerId)
+    if (!bind.ok) {
+      recordAuditEvent(db, {
+        actorUserId: verified.userId,
+        deviceId: verified.deviceId,
+        action: 'auth.authenticate',
+        outcome: 'deny',
+        reason: bind.reason,
+        metadata: verified.jti ? { jti: verified.jti } : null,
+      })
+      return { ok: false, code: 4405, reason: bind.reason }
+    }
   }
 
   return { ok: true, verified }
@@ -145,7 +171,7 @@ export function evaluatePairingRequest(db, { device_id, device_name }) {
 // no reason field for these two cases) — leaking which one failed would
 // create a device-existence/authorization oracle (Security review finding
 // 4, carried over unchanged).
-export function evaluateLogin(db, { device_id, device_secret_identifier, name, pin }) {
+export function evaluateLogin(db, { device_id, device_secret_identifier, name, pin, peerId }) {
   const trust = deviceTrustStatus(db, device_id)
   if (!trust.found || !trust.authorized || trust.revoked) {
     return { ok: false, reason: 'not_paired' }
@@ -174,6 +200,26 @@ export function evaluateLogin(db, { device_id, device_secret_identifier, name, p
   if (result.locked) {
     return { ok: false, reason: 'locked', locked: true, retryAfterMs: result.retryAfterMs }
   }
+
+  // T162 peer identity bind (see evaluateAuthenticate's doc comment for the
+  // full rationale) — checked after attemptLogin succeeds, per ADR §3, so a
+  // failed PIN/lockout attempt never leaks whether this device's identity
+  // would also have mismatched. No numeric `code` on this branch, matching
+  // this function's existing no-code convention for every other rejection.
+  if (typeof peerId === 'string' && peerId.length > 0) {
+    const bind = bindOrVerifyPeerIdentity(db, device_id, peerId)
+    if (!bind.ok) {
+      recordAuditEvent(db, {
+        actorUserId: result.userId,
+        deviceId: device_id,
+        action: 'auth.login',
+        outcome: 'deny',
+        reason: bind.reason,
+      })
+      return { ok: false, reason: bind.reason }
+    }
+  }
+
   // `camp` (Stage 6 join flow, docs/adr/2026-09-08-libp2p-join-flow.md): the
   // identity a brand-new device needs and has no other way to obtain. Under the
   // op-log this rode along in syncServer.js's first-pairing `full_sync`

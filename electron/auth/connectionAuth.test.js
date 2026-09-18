@@ -6,10 +6,11 @@
 // transport.
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
-import { randomUUID, randomBytes, createPrivateKey, sign as edSign } from 'node:crypto'
+import { randomUUID, randomBytes, createPrivateKey, sign as edSign, scryptSync } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { ensureHostSigningKey, issueCampToken, issueLocalToken, issueDeviceToken } from './localAuth.js'
-import { evaluateAuthenticate } from './connectionAuth.js'
+import { signAuthFields } from './authSignature.js'
+import { evaluateAuthenticate, evaluateLogin } from './connectionAuth.js'
 
 
 // Discards the cached template. Per-test cleanup would rebuild the chain every time and
@@ -42,6 +43,27 @@ function setupCampWithAuthorizedDevice(deviceId) {
      VALUES (?, ?, ?, ?, 'authorized')`
   ).run(deviceId, 'Device', new Date().toISOString(), randomBytes(32).toString('hex'))
   return campId
+}
+
+// T162 (docs/adr/2026-09-14-device-identity-and-token-binding.md §3): sets up
+// an authorized device (with a device_secret_identifier for evaluateLogin's
+// own check) AND a user account attemptLogin can verify — mirrors
+// pairingLogin.test.js's insertUser, inlined here so this stays a pure unit
+// test isolated from libp2p (arbitrary peerId strings, same as existing
+// tests pass arbitrary device_id strings).
+function setupCampWithLoginableDevice(deviceId, { pin = '1234', role = 'admin' } = {}) {
+  const campId = setupCampWithAuthorizedDevice(deviceId)
+  const deviceSecretIdentifier = db
+    .prepare('SELECT device_secret_identifier FROM devices WHERE id = ?')
+    .get(deviceId).device_secret_identifier
+  const userId = randomUUID()
+  const salt = randomBytes(16).toString('hex')
+  const pinHash = scryptSync(pin, salt, 64).toString('hex')
+  const authSig = signAuthFields(db, { id: userId, role, pin_hash: pinHash, pin_salt: salt, cred_version: 1 })
+  db.prepare(
+    'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig, cred_version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
+  ).run(userId, campId, 'Director', pinHash, salt, role, authSig)
+  return { campId, deviceSecretIdentifier, userId, pin }
 }
 
 describe('evaluateAuthenticate — shared admission decision', () => {
@@ -168,5 +190,102 @@ describe('evaluateAuthenticate — shared admission decision', () => {
     expect(result.ok).toBe(false)
     expect(result.code).toBe(4403)
     expect(result.reason).toBe('device_not_authorized')
+  })
+})
+
+// T162 (docs/adr/2026-09-14-device-identity-and-token-binding.md §3/§4):
+// evaluateAuthenticate/evaluateLogin gain a `peerId` parameter and bind it to
+// the device via bindOrVerifyPeerIdentity. Passing NO peerId (every test
+// above) skips the bind check entirely — those tests exercise token/trust
+// logic in isolation, unchanged.
+describe('evaluateAuthenticate — peer identity binding (T162)', () => {
+  it('a device with no bound peer id yet still succeeds and binds on first contact', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+
+    const result = evaluateAuthenticate(db, { token, device_id: deviceId, peerId: 'peer-a' })
+
+    expect(result.ok).toBe(true)
+    expect(db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(deviceId).libp2p_peer_id).toBe('peer-a')
+  })
+
+  it('a matching bound peer id still succeeds', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+    db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run('peer-a', deviceId)
+
+    const result = evaluateAuthenticate(db, { token, device_id: deviceId, peerId: 'peer-a' })
+
+    expect(result.ok).toBe(true)
+  })
+
+  it('a mismatched bound peer id is rejected with 4405/peer_identity_mismatch', () => {
+    const deviceId = randomUUID()
+    setupCampWithAuthorizedDevice(deviceId)
+    const token = issueCampToken(db, randomUUID(), deviceId)
+    db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run('peer-a', deviceId)
+
+    const result = evaluateAuthenticate(db, { token, device_id: deviceId, peerId: 'peer-b' })
+
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe(4405)
+    expect(result.reason).toBe('peer_identity_mismatch')
+    // The bound value must be untouched by a rejected mismatch.
+    expect(db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(deviceId).libp2p_peer_id).toBe('peer-a')
+  })
+})
+
+describe('evaluateLogin — peer identity binding (T162)', () => {
+  it('a device with no bound peer id yet still succeeds and binds on first login', () => {
+    const deviceId = randomUUID()
+    const { deviceSecretIdentifier, pin } = setupCampWithLoginableDevice(deviceId)
+
+    const result = evaluateLogin(db, {
+      device_id: deviceId,
+      device_secret_identifier: deviceSecretIdentifier,
+      name: 'Director',
+      pin,
+      peerId: 'peer-a',
+    })
+
+    expect(result.ok).toBe(true)
+    expect(db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(deviceId).libp2p_peer_id).toBe('peer-a')
+  })
+
+  it('a matching bound peer id still succeeds at login', () => {
+    const deviceId = randomUUID()
+    const { deviceSecretIdentifier, pin } = setupCampWithLoginableDevice(deviceId)
+    db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run('peer-a', deviceId)
+
+    const result = evaluateLogin(db, {
+      device_id: deviceId,
+      device_secret_identifier: deviceSecretIdentifier,
+      name: 'Director',
+      pin,
+      peerId: 'peer-a',
+    })
+
+    expect(result.ok).toBe(true)
+  })
+
+  it('a mismatched bound peer id is rejected at login without a numeric code, matching the existing convention', () => {
+    const deviceId = randomUUID()
+    const { deviceSecretIdentifier, pin } = setupCampWithLoginableDevice(deviceId)
+    db.prepare('UPDATE devices SET libp2p_peer_id = ? WHERE id = ?').run('peer-a', deviceId)
+
+    const result = evaluateLogin(db, {
+      device_id: deviceId,
+      device_secret_identifier: deviceSecretIdentifier,
+      name: 'Director',
+      pin,
+      peerId: 'peer-b',
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.code).toBeUndefined()
+    expect(result.reason).toBe('peer_identity_mismatch')
+    expect(db.prepare('SELECT libp2p_peer_id FROM devices WHERE id = ?').get(deviceId).libp2p_peer_id).toBe('peer-a')
   })
 })

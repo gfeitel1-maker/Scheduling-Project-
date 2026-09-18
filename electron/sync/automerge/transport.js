@@ -63,7 +63,7 @@ const MAX_CONNECTIONS = 200
 // scoped discovery; omitted by default so tests keep dialing directly over
 // loopback (mDNS needs a real network interface — see discovery.js's own
 // module comment).
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -73,6 +73,12 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // only once internet transport is enabled. Injectable for tests; a real limiter by default.
   const rateLimiter = connectionRateLimiter ?? makeConnectionRateLimiter(now ? { now } : {})
   const node = await createLibp2p({
+    // T162 (docs/adr/2026-09-14-device-identity-and-token-binding.md §1): a
+    // persistent per-device identity, loaded by the caller (syncNode.js's
+    // startSyncNode via ensureDeviceIdentity) BEFORE this call — omitting it
+    // (every existing test that doesn't pass one) falls back to libp2p's own
+    // default of a fresh keypair per process start, unchanged from before.
+    ...(privateKey ? { privateKey } : {}),
     addresses: { listen: listen ?? DEFAULT_LISTEN },
     transports: [tcp()],
     connectionEncrypters: [noise()],

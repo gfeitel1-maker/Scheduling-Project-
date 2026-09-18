@@ -167,6 +167,33 @@ inconsistent.
   on every IPC call." One source of truth (`devices.libp2p_peer_id`), read fresh, same table the
   revocation check already re-queries in the same function.
 
+**CORRECTION (2026-09-17). The paragraph below overstates the cost, and the mistake is kept visible
+so the next reader does not rebuild it.** `device_id` lives in the `device_identity` table
+(`electron/db/localDb.js:3277`) — the **same SQLite database** as `device_identity_key`. Any event
+that destroys the identity key destroys the device id with it, so such a device presents an
+*unknown* `device_id`, fails `deviceTrustStatus` first, and is refused with **4403**
+(`connectionAuth.js:89`) — the ordinary "not authorized" path — never reaching the peer-identity
+check at :92. It then pairs as a new device. **An ordinary reinstall therefore does not produce a
+4405 and does not force a revoke-then-re-pair**: either the database survives (identity intact,
+nothing happens) or it does not (the device pairs as new).
+
+A 4405 requires the device id to SURVIVE while the keypair CHANGES — a partial divergence inside one
+database file. What actually produces it:
+
+  * a **v66 rollback round-trip** — `rollback/v66_down.js` drops `device_identity_key` and leaves
+    `device_identity` intact, so the device keeps its id and mints a new key while a Host that did
+    not roll back still holds the old binding;
+  * a **partial restore** that loses the key row while keeping the device row;
+  * a **replayed credential** — the attack this control exists to stop.
+
+That last item is why the refusal is surfaced neutrally, with no recovery instructions (T162 §0.1):
+the same message reaches a confused director and whoever is holding a copied credential, and the
+device cannot tell them apart. The legitimate rollback case reaches the remedy through a human who
+can verify who is asking.
+
+The original paragraph is retained below because its *mechanism* is right even though its triggers
+were not:
+
 **The reinstall / lost-laptop / restored-backup case, named precisely, as the owner accepted this
 cost explicitly:** a reinstalled app (or a laptop restored from a backup taken before the reinstall,
 or any event that discards `device_identity_key`) generates a **new** keypair on next launch. Its

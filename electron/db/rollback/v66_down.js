@@ -78,7 +78,13 @@ export function rollbackV66(db) {
       db.exec('ALTER TABLE elective_set_activities DROP COLUMN capacity_mode')
     }
 
-    db.prepare('DELETE FROM schema_migrations WHERE version = 66').run()
+    // `>= 66`, not `= 66`. This repo's convention since v46_down, and stated in
+    // PLATFORM_STATE: a bare equality strands any HIGHER version in the table, so
+    // rolling back v66 on a database that has since migrated to v67 leaves
+    // getSchemaVersion() reporting 67 while v66's tables are gone — a shape no
+    // migration path can produce and none will repair. v67 (T162) is the first
+    // migration stacked on top of this one, and is what exposed it.
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 66').run()
   })()
 
   return discarded

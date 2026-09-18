@@ -71,6 +71,7 @@ function parseSchemaReferences(sql) {
 // entry or an entry here — the scanner below fails otherwise.
 const ACCEPTED_NON_REFERENCES = [
   // -- camp/singleton scoping columns: point at camps, never a U2-deletable entity --
+  { table: 'device_identity_key', column: 'peer_id', reason: 'a libp2p PeerId string (this device\'s own transport identity, T162), not a pointer at any row — host-local, never replicated, never undone' },
   { table: 'users', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'source_aliases', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'declined_two_row_splits', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity (host-local decline-memory, never undone)' },
