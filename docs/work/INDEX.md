@@ -29,19 +29,20 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [recurrence_level is dead data](../../docs/work/tickets/T181-recurrence-level-is-dead-data.md) | open | — |
 | [days_of_operation needs the uniqueness its own comments already claim — and the round-1 design for it was wrong in four ways](../../docs/work/tickets/T205-days-of-operation-uniqueness-and-dedup-migration.md) | open | — |
+| [Rollback migrations stranding a higher schema_migrations row on bare equality — sweep plus a build-time guard](../../docs/work/tickets/T220-rollback-bare-equality-guard.md) | open | — |
 
 ### documentation-governance
 
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
-| [Write up the gate-semantics pattern: a gate answers a question about this tree at this moment, and is read as answering one about the repository](../../docs/work/tickets/T216-gate-semantics-write-up.md) | open | — |
+| [Write up the gate-semantics pattern: a gate answers a question about this tree at this moment, and is read as answering one about the repository](../../docs/work/tickets/T216-gate-semantics-write-up.md) | open | [T220-rollback-bare-equality-guard](../../docs/work/tickets/T220-rollback-bare-equality-guard.md) |
 
 ### security-auth
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | in-progress | — |
+| [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | in-progress | [T220-rollback-bare-equality-guard](../../docs/work/tickets/T220-rollback-bare-equality-guard.md) |
 | [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
 | [Headless DB key access for the MCP server and CLI (encryption flip-blocker #2)](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) | in-progress | — |
 | [The Tier-4 transport-boundary guard is blind to an HTTP rendezvous client](../../docs/work/tickets/T207-tier4-guard-blind-to-http-rendezvous.md) | in-progress | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |

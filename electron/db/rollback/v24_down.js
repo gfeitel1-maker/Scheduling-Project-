@@ -45,7 +45,12 @@ export function rollbackV24(db, { purgeJournal = false } = {}) {
       reverted += res.changes
     }
 
-    db.prepare('DELETE FROM schema_migrations WHERE version = 24').run()
+    // `>= 24`, not `= 24`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v24 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v24's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 24').run()
     if (purgeJournal) db.exec('DROP TABLE migration_v24_repoint_log')
   })()
 

@@ -29,7 +29,12 @@ export function rollbackV31(db) {
   db.transaction(() => {
     db.exec('DROP INDEX IF EXISTS idx_import_evidence_latest')
     db.exec('DROP TABLE IF EXISTS import_evidence')
-    db.prepare('DELETE FROM schema_migrations WHERE version = 31').run()
+    // `>= 31`, not `= 31`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v31 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v31's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 31').run()
   })()
 
   return { discardedEvidence: evidence }

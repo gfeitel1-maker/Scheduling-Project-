@@ -43,7 +43,12 @@ export function rollbackV25(db) {
 
   db.transaction(() => {
     db.exec('DROP TABLE IF EXISTS pending_restores')
-    db.prepare('DELETE FROM schema_migrations WHERE version = 25').run()
+    // `>= 25`, not `= 25`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v25 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v25's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 25').run()
   })()
 
   return { discardedRequests: pending }

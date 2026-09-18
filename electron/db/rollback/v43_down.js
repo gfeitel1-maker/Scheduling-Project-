@@ -46,7 +46,12 @@ export function rollbackV43(db) {
         db.exec(`ALTER TABLE elective_sets DROP COLUMN ${column}`)
       }
     }
-    db.prepare('DELETE FROM schema_migrations WHERE version = 43').run()
+    // `>= 43`, not `= 43`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v43 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v43's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 43').run()
   })()
 
   return discarded

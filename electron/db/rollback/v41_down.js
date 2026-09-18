@@ -37,7 +37,12 @@ export function rollbackV41(db) {
     db.exec('DROP TABLE IF EXISTS event_slots')
     db.exec('DROP TABLE IF EXISTS event_time_blocks')
     db.exec('DROP TABLE IF EXISTS event_groups')
-    db.prepare('DELETE FROM schema_migrations WHERE version = 41').run()
+    // `>= 41`, not `= 41`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v41 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v41's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 41').run()
   })()
 
   return discarded

@@ -33,7 +33,12 @@ export function rollbackV68(db) {
       db.exec('ALTER TABLE elective_set_activities DROP COLUMN status')
     }
 
-    db.prepare('DELETE FROM schema_migrations WHERE version = 68').run()
+    // `>= 68`, not `= 68`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v68 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v68's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 68').run()
   })()
 
   return discarded

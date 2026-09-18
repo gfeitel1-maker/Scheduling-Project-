@@ -51,7 +51,12 @@ export function rollbackV35(db) {
       .some((c) => c.name === 'elective_set_id')
     if (hasElectiveSetId) db.exec('ALTER TABLE template_slots DROP COLUMN elective_set_id')
 
-    db.prepare('DELETE FROM schema_migrations WHERE version = 35').run()
+    // `>= 35`, not `= 35`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v35 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v35's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 35').run()
   })()
 
   return discarded

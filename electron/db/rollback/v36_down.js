@@ -26,7 +26,12 @@ export function rollbackV36(db) {
       .some((c) => c.name === 'is_reusable')
     if (hasIsReusable) db.exec('ALTER TABLE elective_sets DROP COLUMN is_reusable')
 
-    db.prepare('DELETE FROM schema_migrations WHERE version = 36').run()
+    // `>= 36`, not `= 36`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v36 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v36's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 36').run()
   })()
 
   return discarded

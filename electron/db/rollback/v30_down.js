@@ -30,7 +30,12 @@ export function rollbackV30(db) {
   db.transaction(() => {
     db.exec('DROP INDEX IF EXISTS idx_source_aliases_lookup')
     db.exec('DROP TABLE IF EXISTS source_aliases')
-    db.prepare('DELETE FROM schema_migrations WHERE version = 30').run()
+    // `>= 30`, not `= 30`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v30 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v30's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 30').run()
   })()
 
   return { discardedAliases: aliases }

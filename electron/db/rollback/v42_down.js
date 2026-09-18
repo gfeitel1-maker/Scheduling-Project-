@@ -41,7 +41,12 @@ export function rollbackV42(db) {
     if (cols.includes('recurrence_level')) {
       db.exec('ALTER TABLE anchor_activities DROP COLUMN recurrence_level')
     }
-    db.prepare('DELETE FROM schema_migrations WHERE version = 42').run()
+    // `>= 42`, not `= 42`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v42 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v42's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 42').run()
   })()
 
   return discarded

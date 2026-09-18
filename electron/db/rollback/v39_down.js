@@ -31,7 +31,12 @@ export function rollbackV39(db) {
       db.exec('ALTER TABLE elective_set_activities DROP COLUMN camper_headcount')
     }
 
-    db.prepare('DELETE FROM schema_migrations WHERE version = 39').run()
+    // `>= 39`, not `= 39`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v39 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v39's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 39').run()
   })()
 
   return discarded

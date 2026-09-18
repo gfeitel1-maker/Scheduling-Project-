@@ -36,7 +36,12 @@ export function rollbackV38(db) {
       .some((c) => c.name === 'day_overrides_json')
     if (hasDayOverridesJson) db.exec('ALTER TABLE schedule_snapshots DROP COLUMN day_overrides_json')
 
-    db.prepare('DELETE FROM schema_migrations WHERE version = 38').run()
+    // `>= 38`, not `= 38`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v38 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v38's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 38').run()
   })()
 
   return discarded
