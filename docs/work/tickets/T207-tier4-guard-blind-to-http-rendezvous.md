@@ -1,7 +1,7 @@
 ---
 title: "The Tier-4 transport-boundary guard is blind to an HTTP rendezvous client"
 document_type: ticket
-status: in-progress
+status: closed
 created: 2026-09-17
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md, SECURITY.md]

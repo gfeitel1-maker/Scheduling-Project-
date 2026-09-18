@@ -1,7 +1,7 @@
 ---
 title: "Persistent per-device libp2p identity; bind session tokens to the presenting peer"
 document_type: ticket
-status: in-progress
+status: closed
 created: 2026-09-14
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]

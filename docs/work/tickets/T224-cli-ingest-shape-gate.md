@@ -1,7 +1,7 @@
 ---
 title: T224-cli-ingest-shape-gate
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-18
 archive_when: runIngestCli refuses a non-schedule-shaped workbook and the refusal is pinned by a test
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]

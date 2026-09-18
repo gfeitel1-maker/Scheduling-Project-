@@ -1,7 +1,7 @@
 ---
 title: "Rollback migrations stranding a higher schema_migrations row on bare equality — sweep plus a build-time guard"
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-18
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md]

@@ -1,7 +1,7 @@
 ---
 title: T196-assignment-engine
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-17
 archive_when: "ADR D14's withdrawn preference premise is resolved against a confirmed real input format, AND the engine ships with its determinism and findings suite green"
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]

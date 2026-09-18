@@ -29,7 +29,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [recurrence_level is dead data](../../docs/work/tickets/T181-recurrence-level-is-dead-data.md) | open | — |
 | [days_of_operation needs the uniqueness its own comments already claim — and the round-1 design for it was wrong in four ways](../../docs/work/tickets/T205-days-of-operation-uniqueness-and-dedup-migration.md) | open | — |
-| [Rollback migrations stranding a higher schema_migrations row on bare equality — sweep plus a build-time guard](../../docs/work/tickets/T220-rollback-bare-equality-guard.md) | open | — |
 
 ### documentation-governance
 
@@ -43,10 +42,8 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | in-progress | [T220-rollback-bare-equality-guard](../../docs/work/tickets/T220-rollback-bare-equality-guard.md) |
 | [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
 | [Headless DB key access for the MCP server and CLI (encryption flip-blocker #2)](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) | in-progress | — |
-| [The Tier-4 transport-boundary guard is blind to an HTTP rendezvous client](../../docs/work/tickets/T207-tier4-guard-blind-to-http-rendezvous.md) | in-progress | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [Phase B — signed rendezvous record contract and the camp rendezvous namespace](../../docs/work/tickets/T210-signed-rendezvous-record-and-namespace.md) | open | [2026-09-18-rendezvous-record-encoding-and-namespace-rotation](../../docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [Update-on-open: keep a device current before it is allowed to sync](../../docs/work/tickets/T222-update-on-open.md) | open | [2026-09-18-mixed-version-replication-out-of-scope](../../docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md) |
 
@@ -61,16 +58,13 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [T196-assignment-engine](../../docs/work/tickets/T196-assignment-engine.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) · [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) |
 | [T197-projection-and-export](../../docs/work/tickets/T197-projection-and-export.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T198-machine-access-adapters](../../docs/work/tickets/T198-machine-access-adapters.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T199-individual-electives-end-to-end](../../docs/work/tickets/T199-individual-electives-end-to-end.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T202-camper-record-purge-path](../../docs/work/tickets/T202-camper-record-purge-path.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T218-elective-export-third-party-adapter](../../docs/work/tickets/T218-elective-export-third-party-adapter.md) | open | [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) · [T226-camper-preference-import](../../docs/work/tickets/T226-camper-preference-import.md) |
 | [T219-multi-day-catalog-linkage](../../docs/work/tickets/T219-multi-day-catalog-linkage.md) | open | [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) |
-| [T221-agents-check-spurious-differs](../../docs/work/tickets/T221-agents-check-spurious-differs.md) | open | — |
 | [T223-shape-gate-page-granularity](../../docs/work/tickets/T223-shape-gate-page-granularity.md) | open | — |
-| [T224-cli-ingest-shape-gate](../../docs/work/tickets/T224-cli-ingest-shape-gate.md) | open | — |
 | [T226-camper-preference-import](../../docs/work/tickets/T226-camper-preference-import.md) | open | — |
 
 ## Decisions
