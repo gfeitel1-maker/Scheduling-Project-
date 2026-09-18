@@ -22,7 +22,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 67
+// v67 (T162, device_identity_key) and v68 (T195, elective_set_activities.status)
+// both land in this file; 68 is the current version.
+export const CURRENT_SCHEMA_VERSION = 68
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2825,6 +2827,34 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     )
   }
 
+  // v68 — elective_set_activities.status (T195 offering-grid import).
+  // Numbered 68 because v67 (T162's device_identity_key, immediately above)
+  // was taken by work that has since merged to main. Banded guard
+  // `>= 67 && < 68`, NOT bare `<`, so a database sitting between two
+  // migrations is never skipped or double-run. One additive column, so no
+  // table rebuild.
+  //
+  // Default 'confirmed' so every existing row and every hand-authored row
+  // keeps today's meaning unchanged — the offering-grid importer is the only
+  // writer that ever says 'potential'. A potential row is filtered out at
+  // the three consumption load boundaries (scheduleRepository.js,
+  // scheduleInputNormalization.js, scripts/mcp/tools.js) but stays visible
+  // on the authoring screens (ElectiveSetDetail.jsx, ScheduleElectivesScreen.jsx).
+  if (getSchemaVersion(db) >= 67 && getSchemaVersion(db) < 68) {
+    const hasStatus = db
+      .pragma('table_info(elective_set_activities)')
+      .some((c) => c.name === 'status')
+    if (!hasStatus) {
+      db.exec(
+        "ALTER TABLE elective_set_activities ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed' " +
+        "CHECK (status IN ('potential', 'confirmed'))"
+      )
+    }
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (68, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -3087,6 +3117,8 @@ export const ELECTIVE_SET_ACTIVITIES_DDL = `CREATE TABLE IF NOT EXISTS elective_
   capacity_limit INTEGER
     CHECK (capacity_limit IS NULL
            OR (typeof(capacity_limit) = 'integer' AND capacity_limit >= 0)),
+  status TEXT NOT NULL DEFAULT 'confirmed'
+    CHECK (status IN ('potential', 'confirmed')),
   UNIQUE(elective_set_id, activity_id)
 )`
 

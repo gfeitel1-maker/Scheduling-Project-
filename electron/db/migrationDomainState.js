@@ -124,6 +124,20 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // one (of which none exist on any surveyed database) stays available as a
   // write through the DOCUMENT, which is where it belongs.
   66,
+  // v67 has no migration block in THIS tree — the number is RESERVED by
+  // unmerged work on the claude/shoresh-rendezvous-wan-handoff-5f211b
+  // worktree (a committed, unpushed v67_down.js), so v68 (T195) skips
+  // straight past it rather than claim it. Classified schema-only (there is
+  // nothing here to classify any other way) so the "no gaps" check below
+  // stays meaningful rather than needing a carve-out for an unused number.
+  67,
+  // v68 (T195) ALTER-adds elective_set_activities.status, defaulted to
+  // 'confirmed' for every existing row. Schema-only: the DEFAULT gives every
+  // pre-existing row the SAME meaning it already had (a hand-authored or
+  // previously-imported offering was always, implicitly, confirmed) — no
+  // UPDATE re-decides anything. The importer that writes 'potential' is new
+  // code exercised after this migration, not part of it.
+  68,
 ])
 
 /** True if applying `version` can change what the camp means. */

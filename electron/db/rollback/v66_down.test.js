@@ -81,12 +81,15 @@ describe('rollbackV66', () => {
     db.close()
   })
 
-  it('drops the two capacity columns and leaves camper_headcount intact', () => {
+  it('drops the two capacity columns and leaves camper_headcount and status intact', () => {
     const db = freshDb()
     seed(db)
     rollbackV66(db)
+    // status (v68, T195) is a LATER migration's column, untouched by rolling
+    // back v66 — rollbackV66 only ever claimed to undo v66's own two
+    // capacity columns.
     const cols = db.pragma('table_info(elective_set_activities)').map((c) => c.name)
-    expect(cols).toEqual(['id', 'elective_set_id', 'activity_id', 'camper_headcount'])
+    expect(cols).toEqual(['id', 'elective_set_id', 'activity_id', 'camper_headcount', 'status'])
     // The one piece of good news: authored capacity is re-derivable.
     expect(
       db.prepare("SELECT camper_headcount FROM elective_set_activities WHERE id='m1'").get()
@@ -95,10 +98,32 @@ describe('rollbackV66', () => {
     db.close()
   })
 
-  it('returns schema_migrations to 65', () => {
+  // v68 (T195) now sits on top of v66 on a fresh db, which is what first
+  // exercised rollbackV66's CASCADING contract. `v66_down.js:87` deletes
+  // `WHERE version >= 66`, not `= 66` — this repo's convention since v46_down
+  // and stated in PLATFORM_STATE. A bare equality would strand every HIGHER
+  // version in the table, leaving getSchemaVersion() reporting 68 while v66's
+  // tables are gone: a shape no migration path can produce and none will
+  // repair.
+  //
+  // Re-migrating afterwards is safe because both stacked migrations are
+  // idempotent — v67 guards with CREATE TABLE IF NOT EXISTS (so the device's
+  // identity key survives; only the TOFU peer bindings re-null), and v68
+  // guards with a `hasStatus` pragma check before ADD COLUMN.
+  //
+  // This test previously asserted the OPPOSITE — that the v68 row survived —
+  // while also asserting the resulting version was 65. Those cannot both be
+  // true, and its comment stated as fact that rollbackV66 deletes only
+  // `= 66`. It was written against semantics this file has not had since
+  // v46_down, and is corrected here rather than flipped, so the convention is
+  // not quietly reversed by whoever last ran the suite.
+  it('cascades: its own row AND every higher version row are removed', () => {
     const db = freshDb()
     seed(db)
     rollbackV66(db)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 66').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 68').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version >= 66').get().c).toBe(0)
     expect(getSchemaVersion(db)).toBe(65)
     db.close()
   })

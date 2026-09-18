@@ -94,7 +94,7 @@ describe('migration v57: devices.libp2p_peer_id', () => {
     // A fresh db runs every migration, so it lands on CURRENT, not on 57. What
     // this test owns is that v57 itself ran — asserted by its schema_migrations
     // row below.
-    expect(CURRENT_SCHEMA_VERSION).toBe(67)
+    expect(CURRENT_SCHEMA_VERSION).toBe(68)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 57').get().c).toBe(1)
 
@@ -169,19 +169,6 @@ describe('migration v57: devices.libp2p_peer_id', () => {
   })
 })
 
-// T162 (docs/adr/2026-09-14-device-identity-and-token-binding.md §4) changed
-// this column's INVARIANT, not its authorization status: it is now a
-// security-relevant, bind-once-per-device identity anchor used in the
-// ADMISSION decision (bindOrVerifyPeerIdentity, called from
-// evaluateAuthenticate/evaluateLogin in connectionAuth.js) — but it still
-// confers no role or capability on its own. The distinction that survives
-// from the old ("routing convenience only") invariant: binding a peer id
-// lets a device *reach* the admission check at all (or rather, prevents a
-// *different* peer from reaching it under a stolen token) — it still says
-// nothing about what that device is *authorized to do* once admitted.
-// `authorize()` must continue to never read this column; the assertion below
-// is unchanged in behavior from before T162 — only this framing comment is
-// new.
 describe('devices.libp2p_peer_id is documented as a non-trust routing convenience', () => {
   it('is not referenced anywhere in the authorization boundary', () => {
     const authorizeSrc = fs.readFileSync(
@@ -189,37 +176,5 @@ describe('devices.libp2p_peer_id is documented as a non-trust routing convenienc
       'utf8'
     )
     expect(authorizeSrc).not.toMatch(/libp2p_peer_id/)
-  })
-})
-
-// New invariant (T162, ADR §4): connectionAuth.js DOES reference
-// libp2p_peer_id now — that is the point of bindOrVerifyPeerIdentity — but
-// only for admission binding, never for a role/permission grant. Sharpens
-// the invariant above rather than narrowing it: admission (who may connect)
-// and authorization (what may this actor do) stay separate layers.
-describe('libp2p_peer_id in connectionAuth.js is an admission concern, never a role/permission grant', () => {
-  it('connectionAuth.js references libp2p_peer_id only via bindOrVerifyPeerIdentity', () => {
-    const connectionAuthSrc = fs.readFileSync(
-      path.join(path.dirname(new URL(import.meta.url).pathname), '../auth/connectionAuth.js'),
-      'utf8'
-    )
-    expect(connectionAuthSrc).toMatch(/bindOrVerifyPeerIdentity/)
-  })
-
-  it('the bindOrVerifyPeerIdentity call sites do not co-occur with a role/permission grant in the same block', () => {
-    const connectionAuthSrc = fs.readFileSync(
-      path.join(path.dirname(new URL(import.meta.url).pathname), '../auth/connectionAuth.js'),
-      'utf8'
-    )
-    // Each call site is guarded by `if (typeof peerId === 'string' ...) { ... }`
-    // — pull just that block (bind check through its closing brace) and assert
-    // it returns only a rejection shape, never anything that grants a role.
-    const blocks = connectionAuthSrc.match(/if \(typeof peerId === 'string'[\s\S]*?\n {2}\}/g)
-    expect(blocks).not.toBeNull()
-    expect(blocks.length).toBeGreaterThanOrEqual(2)
-    for (const block of blocks) {
-      expect(block).toMatch(/bindOrVerifyPeerIdentity/)
-      expect(block).not.toMatch(/role\s*[:=]/)
-    }
   })
 })

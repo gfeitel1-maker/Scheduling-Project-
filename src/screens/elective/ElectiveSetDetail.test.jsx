@@ -88,6 +88,17 @@ describe('ElectiveSetDetail — offerings table', () => {
     expect(screen.getByLabelText('Capacity for Pottery').value).toBe('8')
   })
 
+  // T195 (offering-grid import) — this is the AUTHORING surface, one of two
+  // (with ScheduleElectivesScreen.jsx) that must keep seeing 'potential'
+  // offerings so a director can review and confirm them. Only the
+  // consumption boundaries (engine/conflicts/export/MCP) filter status.
+  it('shows a potential-status offering — the authoring screen is never status-filtered', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering({ status: 'potential' })] }))
+    renderDetail({ activities: [activity()] })
+
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+  })
+
   it('persists a capacity edit as the capacity_mode/capacity_limit pair, empty as unlimited', async () => {
     localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
     renderDetail({ activities: [activity()] })

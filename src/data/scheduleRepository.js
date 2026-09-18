@@ -97,10 +97,20 @@ export function createScheduleRepository({
       let elective_sets = []
       let elective_set_activities = []
       try {
-        ;[elective_sets, elective_set_activities] = await Promise.all([
+        let rawElectiveSetActivities
+        ;[elective_sets, rawElectiveSetActivities] = await Promise.all([
           localClient.list('elective_sets'),
           localClient.list('elective_set_activities'),
         ])
+        // T195 (offering-grid import) load-boundary filter: a 'potential'
+        // offering (imported, not yet director-confirmed) must never be
+        // placeable, counted toward capacity, or reach the grid/engine —
+        // this is one of the three consumption boundaries (the other two:
+        // scheduleInputNormalization.js, scripts/mcp/tools.js). Deliberately
+        // NOT filtered on the authoring screens (ElectiveSetDetail.jsx,
+        // ScheduleElectivesScreen.jsx), which call localClient.list directly
+        // and must keep seeing potential rows for the director to confirm.
+        elective_set_activities = rawElectiveSetActivities.filter((row) => row.status !== 'potential')
       } catch {
         // best-effort — see comment above
       }

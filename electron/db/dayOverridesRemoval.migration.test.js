@@ -56,7 +56,7 @@ describe('migration v59: Day Overrides removal', () => {
   it('declares the current schema version and creates neither the table nor the column on a fresh db', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(67)
+    expect(CURRENT_SCHEMA_VERSION).toBe(68)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 59').get().c).toBe(1)
     expect(tableExists(db, 'day_overrides')).toBe(false)
     expect(columns(db, 'schedule_snapshots')).not.toContain('day_overrides_json')

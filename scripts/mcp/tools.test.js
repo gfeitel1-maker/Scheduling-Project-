@@ -514,6 +514,47 @@ describe('scripts/mcp/tools.js', () => {
       expect(placed).toEqual({ group_id: group.id, day_id: day.id, time_block_id: block.id, kind: 'activity', ref_id: activity.id, name: activity.name })
     })
 
+    // T195 (offering-grid import) load boundary — a 'potential' offering
+    // must never reach an export. Two members of the same elective set: one
+    // confirmed (must appear), one potential (must not).
+    it('excludes a potential elective_set_activities row from the exported members list', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath, campId, userId } = bootstrapDb(dir)
+      ingestCommitTool({ file_path: SAMPLE }, { dbPath, allowWrite: true, authorUserId: userId })
+
+      const db = openLocalDb(dbPath)
+      const weekId = randomUUID()
+      db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order) VALUES (?, ?, ?, ?)').run(weekId, campId, 'Week 1', 0)
+      const templateId = randomUUID()
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, kind, name, week_id) VALUES (?, ?, ?, ?, ?)')
+        .run(templateId, campId, 'generated', 'Week 1', weekId)
+      const group = db.prepare('SELECT id FROM groups LIMIT 1').get()
+      const activities = db.prepare('SELECT id, name FROM activities LIMIT 2').all()
+      const [confirmedAct, potentialAct] = activities
+      const day = db.prepare('SELECT id FROM days_of_operation LIMIT 1').get()
+      const block = db.prepare('SELECT id FROM time_blocks LIMIT 1').get()
+
+      const electiveSetId = randomUUID()
+      db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(electiveSetId, campId, 'Choice')
+      db.prepare("INSERT INTO elective_set_activities (id, elective_set_id, activity_id, status) VALUES (?, ?, ?, 'confirmed')")
+        .run(randomUUID(), electiveSetId, confirmedAct.id)
+      db.prepare("INSERT INTO elective_set_activities (id, elective_set_id, activity_id, status) VALUES (?, ?, ?, 'potential')")
+        .run(randomUUID(), electiveSetId, potentialAct.id)
+      db.prepare(
+        'INSERT INTO template_slots (id, template_id, group_id, day_id, time_block_id, elective_set_id) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(randomUUID(), templateId, group.id, day.id, block.id, electiveSetId)
+      db.close()
+
+      const result = exportScheduleTool({ route: 'generated' }, { dbPath })
+
+      expect(result.ok).toBe(true)
+      const cell = result.export.cells.find((c) => c.group_id === group.id && c.day_id === day.id && c.time_block_id === block.id)
+      expect(cell.kind).toBe('elective')
+      expect(cell.members).toContain(confirmedAct.name)
+      expect(cell.members).not.toContain(potentialAct.name)
+    })
+
     it('returns needs_week when multiple weeks exist and week_id is omitted', () => {
       const dir = makeTmpDir()
       dirs.push(dir)

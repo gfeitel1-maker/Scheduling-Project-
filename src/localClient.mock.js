@@ -409,7 +409,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   // v66 (T194, ADR D3): camper_headcount is RETIRED FROM THE WRITE PATH — the
   // column stays in the table but no write may reach it. capacity_mode is the
   // authority; capacity_limit is ignored entirely when mode is 'unlimited'.
-  elective_set_activities: ['elective_set_id', 'activity_id', 'capacity_mode', 'capacity_limit'],
+  elective_set_activities: ['elective_set_id', 'activity_id', 'capacity_mode', 'capacity_limit', 'status'],
   // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-
   schedule_weeks: ['camp_id', 'name', 'sort_order', 'is_archived'],
   schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],

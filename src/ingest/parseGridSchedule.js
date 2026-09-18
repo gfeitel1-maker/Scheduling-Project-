@@ -151,16 +151,16 @@ function emptyResult() {
   }
 }
 
-/**
- * Normalize one or more grid pages into { orientation, timeAxis, groupAxis,
- * cells, unmapped } — per-cell `locationName` carries the majority-vote
- * location key result (see below); there is no top-level aggregate field.
- * Pure — no db, no entity/table knowledge.
- * See docs/adr/2026-08-22-event-schedule-import.md §2.
- */
-export function parseGridSchedule(pages) {
+// Shared orientation/axis/location-key detection for BOTH consumers
+// (parseGridSchedule's one-name-per-cell shape and parseGridScheduleMenu's
+// menu-per-cell shape). Everything about WHICH axis is time, WHAT the axis
+// labels are, and the location-key vote is identical between them — only the
+// innermost cell-population step differs, so that step is NOT here.
+// Returns `{ confident: false }` when the page's axes can't be told apart
+// (Red Hat #2: neither or both clear the time-majority test).
+function detectGrid(pages) {
   const list = Array.isArray(pages) ? pages : []
-  if (list.length === 0) return emptyResult()
+  if (list.length === 0) return { confident: false }
 
   // The schedule grid is the first page whose row-labels OR column-labels
   // clear the time majority; a lone page is used even if not confident, so
@@ -193,14 +193,57 @@ export function parseGridSchedule(pages) {
   // Neither axis clears the majority, OR BOTH do (Red Hat #2) — either way
   // the parser cannot tell which side is times, and must say so rather than
   // silently defaulting to rows-are-time.
-  if (!rowsAreTime && !columnsAreTime) {
-    return emptyResult()
-  }
-  if (rowsAreTime && columnsAreTime) {
-    return emptyResult()
-  }
+  if (!rowsAreTime && !columnsAreTime) return { confident: false }
+  if (rowsAreTime && columnsAreTime) return { confident: false }
 
-  const axis = rowsAreTime ? 'rows-are-time' : 'columns-are-time'
+  return {
+    confident: true,
+    axis: rowsAreTime ? 'rows-are-time' : 'columns-are-time',
+    rowsAreTime,
+    gridRows,
+    columns,
+    locationVotes,
+  }
+}
+
+// Builds the raw (sourceIndex-keyed) time/group axes and calls `addCell` for
+// every populated cell, in either orientation. Shared by both consumers —
+// only what `addCell` does with a raw cell string differs between them.
+function buildAxesAndCells(rowsAreTime, gridRows, columns, addCell) {
+  if (rowsAreTime) {
+    // Time rows only — a row with no label at all is metadata bleed-through
+    // (a repeated day/roll-call row above the real periods), not a period.
+    const timedRows = gridRows.filter((r) => String(r.label ?? '').trim())
+    const timeAxis = timedRows.map((r, i) => ({ ...parseTimeLabel(r.label), sourceLabel: r.label, sourceIndex: i }))
+    const groupAxis = columns
+      .map((name, i) => ({ name: String(name ?? '').trim(), sourceLabel: name, sourceIndex: i }))
+      .filter((g) => g.name)
+    timedRows.forEach((row, timeIndex) => {
+      groupAxis.forEach((g) => addCell(row.cells?.[g.sourceIndex], timeIndex, g.sourceIndex))
+    })
+    return { timeAxis, groupAxis }
+  }
+  const timeAxis = columns.map((name, i) => ({ ...parseTimeLabel(name), sourceLabel: name, sourceIndex: i }))
+  const namedRows = gridRows.filter((r) => String(r.label ?? '').trim())
+  const groupAxis = namedRows.map((r, i) => ({ name: String(r.label ?? '').trim(), sourceLabel: r.label, sourceIndex: i }))
+  namedRows.forEach((row, groupIndex) => {
+    timeAxis.forEach((t) => addCell(row.cells?.[t.sourceIndex], t.sourceIndex, groupIndex))
+  })
+  return { timeAxis, groupAxis }
+}
+
+/**
+ * Normalize one or more grid pages into { orientation, timeAxis, groupAxis,
+ * cells, unmapped } — per-cell `locationName` carries the majority-vote
+ * location key result (see below); there is no top-level aggregate field.
+ * Pure — no db, no entity/table knowledge.
+ * See docs/adr/2026-08-22-event-schedule-import.md §2.
+ */
+export function parseGridSchedule(pages) {
+  const grid = detectGrid(pages)
+  if (!grid.confident) return emptyResult()
+
+  const { axis, rowsAreTime, gridRows, columns, locationVotes } = grid
   const cells = []
   const unmapped = []
 
@@ -221,28 +264,7 @@ export function parseGridSchedule(pages) {
     })
   }
 
-  let timeAxis
-  let groupAxis
-
-  if (rowsAreTime) {
-    // Time rows only — a row with no label at all is metadata bleed-through
-    // (a repeated day/roll-call row above the real periods), not a period.
-    const timedRows = gridRows.filter((r) => String(r.label ?? '').trim())
-    timeAxis = timedRows.map((r, i) => ({ ...parseTimeLabel(r.label), sourceLabel: r.label, sourceIndex: i }))
-    groupAxis = columns
-      .map((name, i) => ({ name: String(name ?? '').trim(), sourceLabel: name, sourceIndex: i }))
-      .filter((g) => g.name)
-    timedRows.forEach((row, timeIndex) => {
-      groupAxis.forEach((g) => addCell(row.cells?.[g.sourceIndex], timeIndex, g.sourceIndex))
-    })
-  } else {
-    timeAxis = columns.map((name, i) => ({ ...parseTimeLabel(name), sourceLabel: name, sourceIndex: i }))
-    const namedRows = gridRows.filter((r) => String(r.label ?? '').trim())
-    groupAxis = namedRows.map((r, i) => ({ name: String(r.label ?? '').trim(), sourceLabel: r.label, sourceIndex: i }))
-    namedRows.forEach((row, groupIndex) => {
-      timeAxis.forEach((t) => addCell(row.cells?.[t.sourceIndex], t.sourceIndex, groupIndex))
-    })
-  }
+  const { timeAxis, groupAxis } = buildAxesAndCells(rowsAreTime, gridRows, columns, addCell)
 
   // Re-index axes and cells to dense 0..n-1 positions — sourceIndex above was
   // needed to align cells during the pass but downstream consumers (and the
@@ -267,5 +289,123 @@ export function parseGridSchedule(pages) {
     groupAxis: groupAxis.map(({ sourceIndex: _sourceIndex, ...rest }, i) => ({ ...rest, sourceIndex: i })),
     cells: reindexedCells,
     unmapped,
+  }
+}
+
+// --- Consumer 3: the offering-grid MENU parser (T195) --------------------
+//
+// The offering sheet's cell is a MENU (~13-20 names in one day/period cell),
+// not one name per cell. Reuses detectGrid/buildAxesAndCells UNCHANGED —
+// only the per-cell step changes: split raw text into N names sharing one
+// timeIndex/groupIndex, instead of reading one name.
+//
+// OPEN AND UNVERIFIABLE: the exact glyph characters and the cell-delimiter
+// convention (literal newlines in one XLSX cell? merged cells? sub-rows?)
+// are not known — the real artifact is outside this repo and off-limits.
+// `cellSplitter` is therefore an injected, swappable unit with a sensible
+// default (newline/semicolon-aware); this file's own default should not be
+// read as a confirmed convention.
+function defaultCellSplitter(rawText) {
+  return String(rawText ?? '')
+    .split(/[\n;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+// Also an unverified assumption: the actual glyph(s) a real offering sheet
+// uses to mark a linked (double-period / multi-day) offering are unknown.
+// asterisk/dagger are placeholders for the SHAPE of the feature — detect,
+// strip, and report — not a confirmed convention.
+const LINKAGE_GLYPHS = [
+  { marker: '*', markerType: 'asterisk' },
+  { marker: '†', markerType: 'dagger' }, // †
+]
+
+function stripLinkageGlyphs(name) {
+  let stripped = name
+  let markerType = null
+  for (const { marker, markerType: type } of LINKAGE_GLYPHS) {
+    if (stripped.includes(marker)) {
+      markerType = markerType ?? type
+      stripped = stripped.split(marker).join('')
+    }
+  }
+  return { stripped: stripped.trim(), markerType }
+}
+
+/**
+ * Like parseGridSchedule, but each cell is a MENU of names rather than a
+ * single name. Returns { orientation, timeAxis, groupAxis, cells, unmapped,
+ * linkageMarkers }. `populateElectiveGrid` (electiveSetPopulate.js) never
+ * reads linkageMarkers itself — it passes the array straight through.
+ */
+export function parseGridScheduleMenu(pages, { cellSplitter = defaultCellSplitter } = {}) {
+  const grid = detectGrid(pages)
+  if (!grid.confident) return { ...emptyResult(), linkageMarkers: [] }
+
+  const { axis, rowsAreTime, gridRows, columns, locationVotes } = grid
+  const cells = []
+  const unmapped = []
+  const linkageMarkers = []
+
+  function addCell(rawText, timeIndex, groupIndex) {
+    const raw = String(rawText ?? '').trim()
+    if (!raw) return
+    const names = cellSplitter(raw)
+    if (names.length === 0) {
+      unmapped.push({ sourceExcerpt: raw, reason: 'could not read an activity name from this cell' })
+      return
+    }
+    for (const rawName of names) {
+      const { stripped, markerType } = stripLinkageGlyphs(rawName)
+      const activityName = cleanCellValue(stripped)
+      if (!activityName) {
+        unmapped.push({ sourceExcerpt: rawName, reason: 'could not read an activity name from this cell' })
+        continue
+      }
+      const key = activityName.toLowerCase().replace(/\s+/g, ' ')
+      cells.push({
+        timeIndex,
+        groupIndex,
+        activityName,
+        locationName: locationVotes.get(key) ?? null,
+      })
+      if (markerType) {
+        linkageMarkers.push({
+          dayIndex: groupIndex,
+          periodIndex: timeIndex,
+          activityName,
+          markerType,
+          sourceExcerpt: rawName.trim(),
+        })
+      }
+    }
+  }
+
+  const { timeAxis, groupAxis } = buildAxesAndCells(rowsAreTime, gridRows, columns, addCell)
+
+  const timeIndexMap = new Map(timeAxis.map((t, i) => [t.sourceIndex, i]))
+  const groupIndexMap = new Map(groupAxis.map((g, i) => [g.sourceIndex, i]))
+  const canonicalMap = electCanonicalSpellings(cells.map((c) => c.activityName))
+  const reindexedCells = cells.map((c) => ({
+    ...c,
+    activityName: canonicalizeActivityName(c.activityName, canonicalMap),
+    timeIndex: timeIndexMap.get(c.timeIndex) ?? c.timeIndex,
+    groupIndex: groupIndexMap.get(c.groupIndex) ?? c.groupIndex,
+  }))
+  const reindexedMarkers = linkageMarkers.map((m) => ({
+    ...m,
+    activityName: canonicalizeActivityName(m.activityName, canonicalMap),
+    periodIndex: timeIndexMap.get(m.periodIndex) ?? m.periodIndex,
+    dayIndex: groupIndexMap.get(m.dayIndex) ?? m.dayIndex,
+  }))
+
+  return {
+    orientation: { axis, confident: true },
+    timeAxis: timeAxis.map(({ sourceIndex: _sourceIndex, ...rest }, i) => ({ ...rest, sourceIndex: i })),
+    groupAxis: groupAxis.map(({ sourceIndex: _sourceIndex, ...rest }, i) => ({ ...rest, sourceIndex: i })),
+    cells: reindexedCells,
+    unmapped,
+    linkageMarkers: reindexedMarkers,
   }
 }
