@@ -1,0 +1,22 @@
+# T209 Phase A — deployment CONFIGURATION for the owner, not something this repository's
+# workflow runs. Nothing in this ticket deploys this Worker, registers a domain, or touches a
+# Cloudflare account. See ../README.md for what deploying it requires and who is responsible for
+# each piece of it.
+#
+# This file has no test coverage and is not exercised by `npm run test` — it is inert until an
+# owner runs `wrangler deploy` by hand, which is explicitly outside this ticket's scope.
+
+name = "shoresh-rendezvous"
+main = "worker.js"
+compatibility_date = "2026-09-17"
+
+# The owner creates this KV namespace once (`wrangler kv namespace create RENDEZVOUS_KV`) and
+# fills in the id below. Left blank here on purpose — a committed namespace id would be either a
+# placeholder nobody catches or a real one that should not be in git history.
+[[kv_namespaces]]
+binding = "RENDEZVOUS_KV"
+id = ""
+
+# See ../README.md — Cloudflare-side rate limiting and log-retention configuration are owner
+# deployment decisions and are NOT expressed in this file, because they are account/dashboard
+# settings this repository's workflow has no authority over.
