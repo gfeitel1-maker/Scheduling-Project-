@@ -138,6 +138,10 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // UPDATE re-decides anything. The importer that writes 'potential' is new
   // code exercised after this migration, not part of it.
   68,
+  // v69 (T210) creates rendezvous_sequence, a device-local, never-synced singleton table (same
+  // exclusion class as device_identity_key/host_signing_key). Schema-only: it touches no table
+  // the document models, and no existing row's meaning changes.
+  69,
 ])
 
 /** True if applying `version` can change what the camp means. */

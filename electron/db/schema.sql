@@ -137,6 +137,16 @@ CREATE TABLE IF NOT EXISTS device_identity_key (
   created_at TEXT NOT NULL
 );
 
+-- Per-device singleton, same shape and exclusion class as device_identity_key/host_signing_key
+-- above: the device-local, disposable publish sequence for signed rendezvous records
+-- (docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md, Decision 2). See
+-- electron/sync/automerge/rendezvousSequence.js. NEVER included in any full-sync SELECT/payload,
+-- NEVER sent over the wire, NEVER added to DIRECT_CAMP_ENTITIES/PROJECTIONS/MODELED_ENTITIES.
+CREATE TABLE IF NOT EXISTS rendezvous_sequence (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  seq INTEGER NOT NULL DEFAULT 0
+);
+
 -- Host-only table, like host_signing_key. NEVER included in any full-sync
 -- SELECT/payload, NEVER sent over the wire, NEVER added to DIRECT_CAMP_ENTITIES
 -- or PROJECTIONS. Import (and therefore alias confirmation) only ever runs on
