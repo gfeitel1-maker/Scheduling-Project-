@@ -124,6 +124,16 @@ let currentMainWindowGetter = () => null
 // bouncing the director to login for them would hide the real problem
 // behind reassuring copy. Those three still throw 'invalid session'
 // unchanged, they just don't fire the push.
+//
+// codeForAuthRejectedReason maps each of these to the close-code useDeviceMode
+// already understands. Four are keys in authRejectedSender.js's REASON_TO_CODE;
+// 'user_not_found' intentionally is NOT — it takes that function's `?? 4401`
+// fallback, which lands on the benign "Your session ended. Please sign in
+// again." copy. That is the correct message for a deleted user (re-login is
+// exactly the honest next step), so the fallback is deliberate, not an omission.
+// It is left out of REASON_TO_CODE on purpose: that table is the network-
+// handshake vocabulary (connectionAuth.js), which never emits 'user_not_found',
+// and its own drift guard is scoped to that source.
 export const SESSION_INVALID_REASONS = new Set([
   'invalid_token',
   'user_not_found',

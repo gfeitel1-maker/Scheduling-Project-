@@ -605,20 +605,47 @@ describe('write handler', () => {
     }
   })
 
-  // T228 drift guard — if a future authorize()/deviceTrust denial reason
-  // means "this session/device can no longer act" and SESSION_INVALID_REASONS
-  // isn't updated to include it, that reason silently falls back to the
-  // unactionable-fallback path this ticket exists to close. Fails loudly
-  // instead of that reverting quietly.
-  it('SESSION_INVALID_REASONS covers every known session/identity/trust denial reason (T228 drift guard)', () => {
-    for (const reason of [
-      'invalid_token',
-      'user_not_found',
-      'device_not_found',
-      'device_not_authorized',
-      'device_revoked',
-    ]) {
-      expect(SESSION_INVALID_REASONS.has(reason), `SESSION_INVALID_REASONS is missing '${reason}'`).toBe(true)
+  // T228 drift guard — DERIVED FROM SOURCE, not a hardcoded copy of the set.
+  // Every denial reason authorize() can produce (its literal deny(...) reasons
+  // plus deviceTrustReason()'s possible outputs) must be classified as EITHER
+  // session-invalid (in SESSION_INVALID_REASONS → routes to login) OR in the
+  // known non-session set below (forbidden / transient / caller-bug → no
+  // route). If a future edit to authorize.js or deviceTrust.js adds a NEW
+  // denial reason and nobody classifies it, this fails loudly — instead of
+  // that reason silently taking the unactionable fallback path this ticket
+  // exists to close. Mirrors authRejectedSender.test.js's source-parsing drift
+  // guard rather than re-stating a literal list (this repo's standing lesson:
+  // a guard's expected set must derive from external truth, not from the thing
+  // it guards).
+  it('every authorize()/deviceTrust denial reason is explicitly classified (T228 drift guard, source-derived)', () => {
+    const authorizeSrc = fs.readFileSync(new URL('./auth/authorize.js', import.meta.url), 'utf8')
+    const deviceTrustSrc = fs.readFileSync(new URL('./auth/deviceTrust.js', import.meta.url), 'utf8')
+    // deny(db, action, <role>, '<reason>', ...) — the 4th arg when it is a literal.
+    const denyLiteralReasons = [...authorizeSrc.matchAll(/deny\(\s*db,\s*action,\s*[^,]+,\s*'([a-z_]+)'/g)].map((m) => m[1])
+    // authorize.js's one dynamic reason is deviceTrustReason(trust); its outputs:
+    const trustReasons = [...deviceTrustSrc.matchAll(/return '([a-z_]+)'/g)].map((m) => m[1])
+    const allReasons = new Set([...denyLiteralReasons, ...trustReasons])
+
+    // Non-vacuity: prove the regexes actually matched the reasons we know exist.
+    expect(allReasons.size).toBeGreaterThanOrEqual(6)
+    for (const r of ['invalid_token', 'user_not_found', 'db_error', 'forbidden', 'device_revoked']) {
+      expect(allReasons.has(r), `drift-guard regex failed to find known reason '${r}' — the parse broke`).toBe(true)
+    }
+
+    // Reasons that deliberately do NOT route to login (see SESSION_INVALID_REASONS
+    // comment in main.js): a permission denial, a transient failure, or a caller bug.
+    const KNOWN_NON_SESSION_REASONS = new Set([
+      'forbidden',
+      'db_error',
+      'invalid_action',
+      'device_token_not_valid_for_authorization',
+    ])
+    for (const reason of allReasons) {
+      if (KNOWN_NON_SESSION_REASONS.has(reason)) continue
+      expect(
+        SESSION_INVALID_REASONS.has(reason),
+        `denial reason '${reason}' is produced by authorize.js/deviceTrust.js but is neither in SESSION_INVALID_REASONS nor KNOWN_NON_SESSION_REASONS — classify it (T228)`
+      ).toBe(true)
     }
   })
 
