@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import Database from 'better-sqlite3'
 import { initSchema } from '../../db/localDb.js'
-import { recordLibp2pPeerId, bindOrVerifyPeerIdentity } from './peerIdentity.js'
+import { recordLibp2pPeerId, bindOrVerifyPeerIdentity, createBoundPeerTrust } from './peerIdentity.js'
 
 function freshDb() {
   const db = new Database(':memory:')
@@ -129,5 +129,68 @@ describe('bindOrVerifyPeerIdentity — a peer id already claimed by another devi
       }),
     }
     expect(() => bindOrVerifyPeerIdentity(exploding, 'device-a', 'peer-x')).toThrow(/locked/)
+  })
+})
+
+// T208: createBoundPeerTrust(db) is the real local-trust check that replaces
+// syncNode.js's permissive lanTopologyTrust stub. It must return true only for
+// a peer id bound to a devices row that is authorized and not revoked, and
+// must query fresh every call (mutualAuth never caches the verdict).
+describe('createBoundPeerTrust', () => {
+  it('returns true for a peer id bound to an authorized, non-revoked device', () => {
+    const db = freshDb()
+    db.prepare(
+      "INSERT INTO devices (id, name, libp2p_peer_id, authorized_at) VALUES ('d1', 'Device 1', 'peer-a', '2026-01-01')"
+    ).run()
+    const isTrusted = createBoundPeerTrust(db)
+    expect(isTrusted('peer-a')).toBe(true)
+  })
+
+  it('returns false when the device is bound but never authorized', () => {
+    const db = freshDb()
+    db.prepare(
+      "INSERT INTO devices (id, name, libp2p_peer_id) VALUES ('d1', 'Device 1', 'peer-a')"
+    ).run()
+    const isTrusted = createBoundPeerTrust(db)
+    expect(isTrusted('peer-a')).toBe(false)
+  })
+
+  it('returns false when the device is bound and authorized but later revoked', () => {
+    const db = freshDb()
+    db.prepare(
+      "INSERT INTO devices (id, name, libp2p_peer_id, authorized_at, revoked_at) VALUES ('d1', 'Device 1', 'peer-a', '2026-01-01', '2026-02-01')"
+    ).run()
+    const isTrusted = createBoundPeerTrust(db)
+    expect(isTrusted('peer-a')).toBe(false)
+  })
+
+  it('returns false for an unknown peer id', () => {
+    const db = freshDb()
+    db.prepare(
+      "INSERT INTO devices (id, name, libp2p_peer_id, authorized_at) VALUES ('d1', 'Device 1', 'peer-a', '2026-01-01')"
+    ).run()
+    const isTrusted = createBoundPeerTrust(db)
+    expect(isTrusted('peer-unknown')).toBe(false)
+  })
+
+  it('returns false for an empty or non-string peer id, without querying', () => {
+    const db = freshDb()
+    const isTrusted = createBoundPeerTrust(db)
+    expect(isTrusted('')).toBe(false)
+    expect(isTrusted(null)).toBe(false)
+    expect(isTrusted(undefined)).toBe(false)
+    expect(isTrusted(42)).toBe(false)
+  })
+
+  it('re-queries the db on every call, so a revocation between two calls takes effect immediately', () => {
+    const db = freshDb()
+    db.prepare(
+      "INSERT INTO devices (id, name, libp2p_peer_id, authorized_at) VALUES ('d1', 'Device 1', 'peer-a', '2026-01-01')"
+    ).run()
+    const isTrusted = createBoundPeerTrust(db)
+    expect(isTrusted('peer-a')).toBe(true)
+
+    db.prepare("UPDATE devices SET revoked_at = '2026-03-01' WHERE id = 'd1'").run()
+    expect(isTrusted('peer-a')).toBe(false)
   })
 })

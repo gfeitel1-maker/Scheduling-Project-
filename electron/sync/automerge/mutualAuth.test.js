@@ -237,18 +237,26 @@ describe('wireMutualAuth — a hung authenticate must not pin the dedupe slot', 
 })
 
 // T208: the policy syncNode puts in force by default is a deliberate, named
-// decision — not an accident of a missing argument. If someone changes what
-// the production node trusts, this test is where they must say so.
+// decision — not an accident of a missing argument. The old permissive
+// lanTopologyTrust stub (`() => true`) is gone; the default is now
+// createBoundPeerTrust(db), a real check against the `devices` table. See
+// peerIdentity.test.js's `createBoundPeerTrust` suite for that function's own
+// coverage; this just confirms syncNode.js wires it in as the default.
 describe('syncNode default trust policy (T208)', () => {
-  it('is the named LAN-topology policy, which trusts every mDNS-discovered peer', async () => {
-    const { lanTopologyTrust } = await import('./syncNode.js')
-    expect(typeof lanTopologyTrust).toBe('function')
-    // Deliberately permissive: peer ids are not stable across restarts on this
-    // tree (transport.js persists no private key), so a peer-id-based check
-    // would break all sync. The control here is mDNS topology, not this
-    // predicate. Closing it for real is T162 (persistent identity + token
-    // binding). See syncNode.js's comment above lanTopologyTrust.
-    expect(lanTopologyTrust('any-peer-id')).toBe(true)
+  it('defaults isPeerTrusted to createBoundPeerTrust(db), not a permissive stub', async () => {
+    const { createBoundPeerTrust } = await import('./peerIdentity.js')
+    expect(typeof createBoundPeerTrust).toBe('function')
+
+    const Database = (await import('better-sqlite3')).default
+    const { initSchema } = await import('../../db/localDb.js')
+    const db = new Database(':memory:')
+    initSchema(db)
+
+    const isTrusted = createBoundPeerTrust(db)
+    // An unbound/unknown peer id is refused — the opposite of the old stub's
+    // "trust every discovered peer" behavior.
+    expect(isTrusted('any-peer-id')).toBe(false)
+    db.close()
   })
 })
 
