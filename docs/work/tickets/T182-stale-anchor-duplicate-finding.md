@@ -1,7 +1,7 @@
 ---
 title: "Surface a stale anchor/regular duplicate in an already-generated schedule (ANCHOR_DUPLICATE finding)"
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-16
 task_class: scheduling-engine
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-09-16-anchor-duplicate-finding.md]
@@ -10,6 +10,13 @@ archive_when: computeFindings emits ANCHOR_DUPLICATE (generated route only) from
 ---
 
 # T182 — Stale anchor/regular duplicate finding (ANCHOR_DUPLICATE)
+
+**Closed 2026-09-18.** `archive_when` met. `ANCHOR_DUPLICATE` is emitted from
+`src/engine/buildSchedule.js` via the shared per-group anchor-exclusion helper, keyed through
+`src/screens/schedule/findingKey.js`, and rendered by `src/screens/ScheduleScreen.jsx`
+(generated route only). The agreed merge order held: #443 → T180 → this.
+
+Shipped as #445.
 
 ## Confirmed problem (do not re-litigate)
 An anchor (`anchor_activities`) references its activity BY NAME. PR #443 makes an anchor's name

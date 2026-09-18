@@ -1,7 +1,7 @@
 ---
 title: "Persistent per-device libp2p identity; bind session tokens to the presenting peer"
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-09-14
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
@@ -16,6 +16,60 @@ Owner decision, 2026-09-14: close the bearer-token property T155 characterized
 credential... nothing binds it to the libp2p peer presenting it." Design: see
 `docs/adr/2026-09-14-device-identity-and-token-binding.md`. This ticket does not re-derive the
 design; each slice below cites the ADR section it implements.
+
+## 0. Implementation note, 2026-09-17 — the slice text's schema version is STALE
+
+Slices 1–4 were implemented on `claude/shoresh-rendezvous-wan-handoff-5f211b`. The ticket and its
+ADR were written when the schema was at v59 and say to add **v60**. By the time the work ran, v60
+was already taken (`users.auth_sig`), as were v61–v65. **The work landed as v66**: guard
+`>= 65 && < 66`, `CURRENT_SCHEMA_VERSION` 66, rollback `electron/db/rollback/v66_down.js`. Fifteen
+sibling migration tests assert the version by literal and were all bumped. Nothing else in the ADR
+was found stale — the table shape, the `@libp2p/crypto` protobuf/hex encoding, lazy creation before
+`startTransport`, TOFU semantics and the `4405` code were all verified against the installed
+`@libp2p/crypto@5.1.23` / `@libp2p/peer-id@5.1.9` / `libp2p@2.10.0` and matched.
+
+Slice 5 (docs) is not done. Archiving still requires it, plus a green `npm run verify`.
+
+Two invariants were checked independently of the implementing agent's report: `authorize.js` still
+contains zero references to `libp2p_peer_id`, and `device_identity_key` appears in none of
+`PROJECTIONS`, `campDocument.js`, or `campScopedEntities.js`.
+
+## 0.1 Review outcome, 2026-09-17 — what was fixed, and what is deliberately left
+
+`security` scored 5 and found no exploitable vulnerability; it confirmed by tracing the real code
+that the bound peer id is the Noise-established `connection.remotePeer`, never a client-asserted
+field, and that the never-synced and `authorize()` invariants hold and are pinned by tests.
+`red-hat` scored 3. Every finding below was re-confirmed in the file before being acted on.
+
+**Fixed in this change:**
+- `bindOrVerifyPeerIdentity` did its first-bind `UPDATE` with no error handling, so the
+  two-devices-one-peer-id collision the ADR calls "correctly rejected" was in fact a raw
+  `SQLITE_CONSTRAINT` thrown out of an admission decision — skipping the caller's audit record. It
+  now returns `{ ok: false, reason: 'peer_identity_mismatch' }` for a constraint violation and
+  re-throws everything else, matching `recordLibp2pPeerId`'s documented posture one function above.
+  Two tests cover it, including that a genuine `SQLITE_BUSY` still throws.
+- An `ensureDeviceIdentity` failure was indistinguishable from a transport failure in
+  `main.js`'s catch-all, whose comment frames such failures as safe to shrug off. Identity failure
+  is not that class of event, and `startSyncNode` now re-throws with a message saying so.
+- `SECURITY.md` now documents `device_identity_key` — custody, what it buys, the accepted re-pair
+  cost, and the `4405` behaviour.
+
+**Deliberately NOT fixed, with reasons:**
+- **No director-facing message for a `4405` refusal.** A director whose device stops syncing after
+  an ordinary reinstall sees nothing explaining why, and the fix (revoke from a *different* device)
+  is non-obvious. This is real and it is a **product decision**, already named as an open question
+  in the ADR. Inventing an error surface inside the auth seam is the wrong place to decide it.
+  **Owner decision needed.**
+- **The fleet-wide TOFU window.** The migration nulls every `libp2p_peer_id` at once, so a stale
+  token for a rarely-used device could claim that device's identity before the real machine returns,
+  and the legitimate device is then the one forced to re-pair. This is inherent to combining TOFU
+  with the clean cutover the owner chose; narrowing it means abandoning the clean cutover. Recorded,
+  not silently absorbed.
+- **The rollback round trip** destroys the rolled-back device's own identity, not merely its peers'
+  bindings — a larger blast radius than the ADR states. Noted here so the ADR's cost line is not
+  read as complete.
+- **`lanTopologyTrust` is still `() => true`.** T162 removes the technical reason it had to be, but
+  changing it is T208's follow-on and was kept out so the identity work could be gated on its own.
 
 ## Global constraints (apply to every slice)
 

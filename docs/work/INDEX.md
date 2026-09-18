@@ -19,6 +19,8 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
+| [Phase A — Cloudflare Worker and KV rendezvous bulletin board (source and tests only)](../../docs/work/tickets/T209-rendezvous-worker-phase-a.md) | open | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
+| [Three IPC listeners survived the Stage 6c cutover with no possible sender, and one of them is a trap on upgraded devices](../../docs/work/tickets/T213-dead-pairing-push-listeners.md) | open | — |
 | [Residual findings from the libp2p 3.x migration: stream-close race, dead it-pipe dependency, and what same-version tests cannot see](../../docs/work/tickets/T217-libp2p-3x-residual-findings.md) | open | — |
 
 ### database-sync
@@ -33,40 +35,31 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
-
-### scheduling-engine
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Surface a stale anchor/regular duplicate in an already-generated schedule (ANCHOR_DUPLICATE finding)](../../docs/work/tickets/T182-stale-anchor-duplicate-finding.md) | in-progress | [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) |
+| [Write up the gate-semantics pattern: a gate answers a question about this tree at this moment, and is read as answering one about the repository](../../docs/work/tickets/T216-gate-semantics-write-up.md) | open | — |
 
 ### security-auth
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | open | — |
+| [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | in-progress | — |
 | [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
 | [Headless DB key access for the MCP server and CLI (encryption flip-blocker #2)](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) | in-progress | — |
-| [Upgrade libp2p 2.10.0 to 3.3.11 to close GHSA-vrf4-mx87-p53w, and answer whether a mixed-version camp can still sync](../../docs/work/tickets/T215-libp2p-3x-upgrade.md) | open | [T217-libp2p-3x-residual-findings](../../docs/work/tickets/T217-libp2p-3x-residual-findings.md) |
+| [The Tier-4 transport-boundary guard is blind to an HTTP rendezvous client](../../docs/work/tickets/T207-tier4-guard-blind-to-http-rendezvous.md) | in-progress | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
+| [The discovery-to-auth seam sends this device's session token to any discovered peer](../../docs/work/tickets/T208-discovery-seam-has-no-local-trust-filter.md) | in-progress | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
+| [Phase B — signed rendezvous record contract and the camp rendezvous namespace](../../docs/work/tickets/T210-signed-rendezvous-record-and-namespace.md) | open | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
+| [Upgrade libp2p 2.10.0 to 3.3.11 to close GHSA-vrf4-mx87-p53w, and answer whether a mixed-version camp can still sync](../../docs/work/tickets/T215-libp2p-3x-upgrade.md) | open | [2026-09-18-post-ship-cleanup-audit](../../docs/work/runs/2026-09-18-post-ship-cleanup-audit.md) · [T217-libp2p-3x-residual-findings](../../docs/work/tickets/T217-libp2p-3x-residual-findings.md) |
 
 ### test-infrastructure
 
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
-
-### ui-ux-design
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Finding dismissals are coordinate-only, so a materially-changed finding at the same coordinates is masked](../../docs/work/tickets/T185-payload-addressed-finding-dismissal.md) | in-progress | [2026-09-16-payload-addressed-finding-dismissal-design](../../docs/work/specs/2026-09-16-payload-addressed-finding-dismissal-design.md) |
+| [Phase E — measure whether WAN failure is discovery or direct dial](../../docs/work/tickets/T212-wan-connectivity-measurement.md) | open | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 
 ### unclassified
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [T193-overlay-reconstruction-and-route-validator](../../docs/work/tickets/T193-overlay-reconstruction-and-route-validator.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
-| [T194-participant-data-substrate](../../docs/work/tickets/T194-participant-data-substrate.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) · [2026-09-17-t194-participant-substrate-design](../../docs/work/specs/2026-09-17-t194-participant-substrate-design.md) |
 | [T196-assignment-engine](../../docs/work/tickets/T196-assignment-engine.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) · [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) |
 | [T197-projection-and-export](../../docs/work/tickets/T197-projection-and-export.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T198-machine-access-adapters](../../docs/work/tickets/T198-machine-access-adapters.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
@@ -74,7 +67,6 @@ Regenerate with `npm run index:work`.
 | [T202-camper-record-purge-path](../../docs/work/tickets/T202-camper-record-purge-path.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T218-elective-export-third-party-adapter](../../docs/work/tickets/T218-elective-export-third-party-adapter.md) | open | [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) |
 | [T219-multi-day-catalog-linkage](../../docs/work/tickets/T219-multi-day-catalog-linkage.md) | open | [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) |
-| [T62-engine-schedules-anchor-activities-as-regular-slots](../../docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md) | open | [2026-09-16-anchor-scope-single-resolver](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) · [T180-recurring-event-division-scope-is-snapshotted](../../docs/work/tickets/T180-recurring-event-division-scope-is-snapshotted.md) · [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) · [T63-anchor-group-ids-parsing-belongs-at-the-boundary](../../docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md) · [T65-schedule-stats-bar-accuracy](../../docs/work/tickets/T65-schedule-stats-bar-accuracy.md) |
 
 ## Decisions
 
@@ -189,10 +181,10 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: The camp game talks to Shoresh through a boring explicit contract, never through its data](../../docs/adr/2026-09-13-game-integration-boundary.md) | accepted | not_started | — |
 | [Migrate off npm-published SheetJS (xlsx) to the advisory-fixed line](../../docs/adr/2026-09-13-sheetjs-parser-advisory-migration.md) | accepted | implemented | — |
 | [ADR: Persistent per-device libp2p identity, binding a session token to the peer presenting it](../../docs/adr/2026-09-14-device-identity-and-token-binding.md) | accepted | not_started | [T162-device-identity-and-token-binding](../../docs/work/tickets/T162-device-identity-and-token-binding.md) |
-| [Internet-reachable transport requires a full security re-assessment (enforced gate)](../../docs/adr/2026-09-14-internet-transport-security-gate.md) | accepted | implemented | [2026-09-15-ephemeral-join-secret-for-wan-discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) · [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) · [T215-libp2p-3x-upgrade](../../docs/work/tickets/T215-libp2p-3x-upgrade.md) |
+| [Internet-reachable transport requires a full security re-assessment (enforced gate)](../../docs/adr/2026-09-14-internet-transport-security-gate.md) | accepted | implemented | [2026-09-15-ephemeral-join-secret-for-wan-discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) · [2026-09-17-wan-rendezvous-seam](../../docs/adr/2026-09-17-wan-rendezvous-seam.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) · [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) · [T215-libp2p-3x-upgrade](../../docs/work/tickets/T215-libp2p-3x-upgrade.md) |
 | [Take users' auth fields (role, pin_hash, pin_salt) off the replicated document](../../docs/adr/2026-09-14-users-auth-fields-off-the-replicated-document.md) | accepted | implemented | [T172-credential-signature-replay-and-degrade-permanence](../../docs/work/tickets/T172-credential-signature-replay-and-degrade-permanence.md) |
 | [At-rest encryption of the camp document and SQLite — scoping](../../docs/adr/2026-09-15-at-rest-encryption-scoping.md) | accepted | in_progress | [T175-at-rest-encryption-activation](../../docs/work/tickets/T175-at-rest-encryption-activation.md) · [T176-only-this-computer-warning](../../docs/work/tickets/T176-only-this-computer-warning.md) |
-| [Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) | accepted | proposed | — |
+| [Ephemeral, rotating, KDF-hardened join secret for WAN (public-DHT) discovery](../../docs/adr/2026-09-15-ephemeral-join-secret-for-wan-discovery.md) | accepted | proposed | [2026-09-17-wan-rendezvous-seam](../../docs/adr/2026-09-17-wan-rendezvous-seam.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [Opinion GateReport inputs are bound to a real, completed subagent dispatch](../../docs/adr/2026-09-15-opinion-report-dispatch-provenance.md) | accepted | shipped | — |
 | [Shared anchor-exclusion helper for the ANCHOR_DUPLICATE finding (T182)](../../docs/adr/2026-09-16-anchor-duplicate-finding.md) | accepted | not_started | [T182-stale-anchor-duplicate-finding](../../docs/work/tickets/T182-stale-anchor-duplicate-finding.md) |
 | [Anchor scope is resolved through one shared module, in two explicit projections, and never re-read from raw columns](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) | accepted | shipped | [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) |
@@ -200,6 +192,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [An index on a table any migration rebuilds is declared in two places, and index parity between a fresh database's first and second open is a guarded invariant](../../docs/adr/2026-09-16-index-survival-across-table-rebuilds.md) | accepted | shipped | [T189-index-lost-across-schedule-snapshots-rebuild](../../docs/work/tickets/T189-index-lost-across-schedule-snapshots-rebuild.md) |
 | [localClient.write gets a caller-side bounded timeout that answers as a normal write failure; days_of_operation gets the UNIQUE index its own comments already claimed](../../docs/adr/2026-09-17-bounded-write-timeout-and-days-of-operation-uniqueness.md) | accepted | in_progress | [2026-09-17-t203-bounded-write-timeout-and-days-of-operation-uniqueness](../../docs/work/runs/2026-09-17-t203-bounded-write-timeout-and-days-of-operation-uniqueness.md) |
 | [Individual elective scheduling — campers as a participant layer inside elective containers](../../docs/adr/2026-09-17-individual-elective-scheduling.md) | accepted | not-started | [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) · [2026-09-17-t194-participant-substrate-design](../../docs/work/specs/2026-09-17-t194-participant-substrate-design.md) · [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) · [T192-elective-governance-gate](../../docs/work/tickets/T192-elective-governance-gate.md) · [T193-overlay-reconstruction-and-route-validator](../../docs/work/tickets/T193-overlay-reconstruction-and-route-validator.md) · [T194-participant-data-substrate](../../docs/work/tickets/T194-participant-data-substrate.md) · [T195-preference-import-service](../../docs/work/tickets/T195-preference-import-service.md) · [T196-assignment-engine](../../docs/work/tickets/T196-assignment-engine.md) · [T197-projection-and-export](../../docs/work/tickets/T197-projection-and-export.md) · [T198-machine-access-adapters](../../docs/work/tickets/T198-machine-access-adapters.md) · [T199-individual-electives-end-to-end](../../docs/work/tickets/T199-individual-electives-end-to-end.md) · [T202-camper-record-purge-path](../../docs/work/tickets/T202-camper-record-purge-path.md) · [T218-elective-export-third-party-adapter](../../docs/work/tickets/T218-elective-export-third-party-adapter.md) · [T219-multi-day-catalog-linkage](../../docs/work/tickets/T219-multi-day-catalog-linkage.md) |
+| [WAN rendezvous seam: HTTP side-channel discovery, identity-key signing, and the Tier-4 guard gap it exposes](../../docs/adr/2026-09-17-wan-rendezvous-seam.md) | proposed | proposed | [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 
 ## Runs
 
@@ -208,6 +201,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-09-18 | [Post-ship cleanup audit — ticket status reconciliation, T173 archival, branch and worktree reclamation](../../docs/work/runs/2026-09-18-post-ship-cleanup-audit.md) | documentation-governance | pass | pass |
 | 2026-09-17 | [fix: give a failed camp bootstrap a retry affordance (closes T201)](../../docs/work/runs/2026-09-17-fix-give-a-failed-camp-bootstrap-a-retry-affordance-closes-t.md) | ui-ux-design | pass | pass |
 | 2026-09-17 | [fix: meet DESIGN_STANDARD §5c on the op-rejected notice banner (closes T204)](../../docs/work/runs/2026-09-17-fix-meet-design-standard-5c-on-the-op-rejected-notice-banner.md) | ui-ux-design | pass | pass |
 | 2026-09-17 | [fix: surface both bootstrap failures in one notice (closes T200)](../../docs/work/runs/2026-09-17-fix-surface-both-bootstrap-failures-in-one-notice-closes-t20.md) | ui-ux-design | pass | pass |
@@ -267,6 +261,7 @@ either the document is stranded or an edge was never declared.
 - [docs/work/handoffs/2026-09-09-post-stage6-handoff.md](../../docs/work/handoffs/2026-09-09-post-stage6-handoff.md)
 - [docs/work/handoffs/2026-09-16-multi-session-day-handoff.md](../../docs/work/handoffs/2026-09-16-multi-session-day-handoff.md)
 - [docs/work/handoffs/2026-09-17-individual-elective-scheduling-handoff.md](../../docs/work/handoffs/2026-09-17-individual-elective-scheduling-handoff.md)
+- [docs/work/handoffs/2026-09-18-post-ship-cleanup-audit-handoff.md](../../docs/work/handoffs/2026-09-18-post-ship-cleanup-audit-handoff.md)
 - [docs/work/handoffs/slices-2-3-handoff.md](../../docs/work/handoffs/slices-2-3-handoff.md)
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
 - [docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md](../../docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md)

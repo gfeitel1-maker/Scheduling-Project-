@@ -13,7 +13,8 @@
 // to true — which you may only do after the ADR's re-assessment is recorded. Flipping it forces
 // you to open this file and read the ADR pointer, which is exactly the checkpoint we want.
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { findInternetEgress } from './internetRendezvousScan.js'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -86,6 +87,47 @@ describe('Tier-4 internet-transport boundary guard', () => {
         `production node. That is the boundary change this gate exists to catch.`
       ).toBe(false)
     }
+  })
+
+  // T207 (docs/work/tickets/T207-tier4-guard-blind-to-http-rendezvous.md). The three assertions
+  // above are package-shaped and marker-shaped, and the rendezvous design in
+  // docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md defeats all three without malice: an
+  // HTTPS fetch to a Cloudflare Worker is not an npm libp2p package, is not imported by
+  // transport.js, and a rendezvous service appended AFTER createMdnsDiscovery( still satisfies that
+  // regex. A node could publish its real WAN addresses to a public bulletin board with a green
+  // gate. So the boundary is also asserted BEHAVIOURALLY: the sync path reaches the network only
+  // through libp2p, to peers found on the link-local network. Any outbound internet egress of its
+  // own — by any name, in any file — is the boundary change this gate exists to catch.
+  // The detection is a separately-tested pure function; see internetRendezvousScan.js for what it
+  // can and cannot see.
+  it('the sync path performs no internet egress of its own (unless signed off)', () => {
+    if (INTERNET_TRANSPORT_SIGNOFF) return
+    const syncDir = join(repoRoot, 'electron', 'sync')
+    const files = []
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) walk(full)
+        else if (entry.name.endsWith('.js') && !entry.name.endsWith('.test.js')) files.push(full)
+      }
+    }
+    walk(syncDir)
+    // The scanner itself names egress primitives in its own pattern table, so exclude it.
+    const scanned = files.filter((f) => !f.endsWith('internetRendezvousScan.js'))
+    expect(scanned.length, 'no sync source files found — the walk is broken, not the tree clean').toBeGreaterThan(5)
+
+    const offenders = scanned
+      .map((f) => [f.slice(repoRoot.length + 1), findInternetEgress(readFileSync(f, 'utf8'))])
+      .filter(([, hits]) => hits.length > 0)
+      .map(([rel, hits]) => `${rel} (${hits.join(', ')})`)
+
+    expect(offenders,
+      `The sync path now reaches the internet directly: ${offenders.join('; ')}. ` +
+      `Shoresh's threat model assumes sync traffic goes only through libp2p to link-local peers; ` +
+      `an internet rendezvous client (e.g. a Cloudflare Worker bulletin board) removes that ` +
+      `assumption even though it adds no libp2p package. Complete the re-assessment in ` +
+      `docs/adr/2026-09-14-internet-transport-security-gate.md, then set INTERNET_TRANSPORT_SIGNOFF=true here.`
+    ).toEqual([])
   })
 
   it('transport.js imports no internet-transport package directly (unless signed off)', () => {

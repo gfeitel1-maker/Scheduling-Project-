@@ -118,6 +118,20 @@ CREATE TABLE IF NOT EXISTS host_signing_key (
   created_at TEXT NOT NULL
 );
 
+-- Per-device singleton, like host_signing_key but held by EVERY device (Host
+-- or Client), not just the Host. Makes this device's libp2p PeerId stable
+-- across restarts — see electron/auth/deviceIdentity.js's ensureDeviceIdentity
+-- and docs/adr/2026-09-14-device-identity-and-token-binding.md §1/§2. NEVER
+-- included in any full-sync SELECT/payload, NEVER sent over the wire, NEVER
+-- added to DIRECT_CAMP_ENTITIES/PROJECTIONS/MODELED_ENTITIES — same exclusion
+-- class as host_signing_key.
+CREATE TABLE IF NOT EXISTS device_identity_key (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  peer_id TEXT NOT NULL,
+  private_key TEXT NOT NULL, -- hex-encoded libp2p protobuf-marshaled PrivateKey
+  created_at TEXT NOT NULL
+);
+
 -- Host-only table, like host_signing_key. NEVER included in any full-sync
 -- SELECT/payload, NEVER sent over the wire, NEVER added to DIRECT_CAMP_ENTITIES
 -- or PROJECTIONS. Import (and therefore alias confirmation) only ever runs on

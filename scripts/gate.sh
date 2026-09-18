@@ -89,6 +89,7 @@ while (( start <= ${#SPECS} )); do
 done
 step integration npm run test:integration
 step security npm run security
+step licenses npm run licenses:check
 step governance npm run check:governance
 
 # Terminal marker, written only once every step above has run.

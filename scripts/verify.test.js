@@ -43,8 +43,8 @@ describe('verify gate wrapper', () => {
       expect(v.code).toBe(1)
       expect(v.line).toMatch(/FAILED/)
     })
-    it('never downgrades lint / agents:check / security (deterministic) under load', () => {
-      for (const step of ['lint', 'agents:check', 'security']) {
+    it('never downgrades lint / agents:check / security / licenses:check (deterministic) under load', () => {
+      for (const step of ['lint', 'agents:check', 'security', 'licenses:check']) {
         expect(verdict({ step, ms: 99_000 }, { oversubscribed: true }).code).toBe(1)
       }
     })
@@ -122,6 +122,7 @@ describe('verify gate wrapper', () => {
     expect(VERIFY_STEPS).toEqual([
       'agents:check',
       'check:governance',
+      'licenses:check',
       'build',
       'security',
       'test:integration',
@@ -138,6 +139,7 @@ describe('verify gate wrapper', () => {
     const COST = {
       'agents:check': 0.2,
       'check:governance': 1.2,
+      'licenses:check': 1.5,
       build: 2.8,
       security: 5.9,
       'test:integration': 20.6,
@@ -150,11 +152,12 @@ describe('verify gate wrapper', () => {
   })
 
   // The reorder must not silently drop or add a gate: same set, different sequence.
-  it('still runs exactly the six gates, none removed by the reorder', () => {
+  it('still runs exactly the eight gates, none removed by the reorder', () => {
     expect([...VERIFY_STEPS].sort()).toEqual([
       'agents:check',
       'build',
       'check:governance',
+      'licenses:check',
       'lint',
       'security',
       'test',

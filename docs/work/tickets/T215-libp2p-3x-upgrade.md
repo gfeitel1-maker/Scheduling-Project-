@@ -11,6 +11,48 @@ archive_when: "npm audit reports no high/critical advisory against @libp2p/peer-
 
 # T215 — libp2p 2.10.0 → 3.3.11
 
+**Status audited 2026-09-18 — DELIBERATELY LEFT OPEN.** Two of the three `archive_when`
+conditions are met; the third is not, and the ticket stays open because of it. Both live sessions
+that worked on the upgrade were asked independently and agreed.
+
+1. **Advisory clear — MET.** `npm audit --omit=dev` returns 0 vulnerabilities, and the fix was
+   verified in the installed `@libp2p/peer-store@12.0.28` source rather than taken on the audit
+   tool's word: `consumePeerRecord` now derives the peer id from the envelope's own signer and
+   rejects a mismatch.
+2. **Tier-4 guard package list re-checked against 3.x names — MET.** All nine forbidden names
+   survived the major unchanged, so no renames were needed. The re-check also surfaced two internet
+   transports missing from the list entirely — `@chainsafe/libp2p-quic` and
+   `@libp2p/webrtc-direct` — both added in #472. Worth knowing why QUIC was absent: it was
+   uninstallable under `@libp2p/interface@^2.11.0`, so **the dependency graph had been doing that
+   guarding accidentally**, and the 3.x bump removed that protection.
+3. **Mixed-version (2.10 ↔ 3.x) replication — NOT MET.** It has not been demonstrated, and its
+   failure has not been surfaced to a director either. Nothing about this condition has happened.
+
+**Why condition 3 must not be reassigned to [[T217]].** T217 is scoped to the three residual
+findings (the `authenticateWith` close-race where `security` and `red-hat` reached opposite
+conclusions, the dead `it-pipe` dependency, and the enumerated list of what same-version tests
+structurally cannot see). T217 *names* the cross-version run as the thing that would settle several
+of its items, but it does not own the condition. Moving it would make both tickets closeable while
+the demonstration never happens.
+
+**The substance, so a later reader isn't guessing.** The protocol IDs are byte-identical across the
+major — Noise `/noise`, Yamux `/yamux/1.0.0`, multistream `/multistream/1.0.0`, identify
+`/ipfs/id/1.0.0` — which is the basis for expecting interop. But **Yamux's initial window size is
+negotiated in-band *after* protocol selection**, so it sits underneath that equality argument
+entirely: the IDs can match and the connection still misbehave once data moves. "Connects, then
+misbehaves" is exactly what a green single-version suite cannot see. T194's scenario 31 (two
+devices, real partition, concurrent writes, heal) passes under libp2p 3 — but at 3.3.11 on *both*
+nodes.
+
+**Ownership: claimed**, by the session on `claude/shoresh-rendezvous-wan-handoff-5f211b`, queued
+behind the current merge train. The run uses `test/integration/harnessAutomerge.js`'s injectable
+`startSyncNode` seam — two checkouts at different versions, two node processes, one machine over
+loopback.
+
+**Correction worth recording:** the merge did **not** make this run impossible. A 2.10 tree is
+reproducible from the lockfile at that sha with `git worktree add <dir> 08e971b && npm ci`. It got
+less convenient, not impossible.
+
 Numbering: T214 was claimed by another session (`claude/t214-libp2p-advisory`, PR #471) between one
 check and the next. See the handoff — a number is only really yours once pushed.
 

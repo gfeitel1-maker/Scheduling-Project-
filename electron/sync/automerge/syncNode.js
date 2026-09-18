@@ -16,9 +16,39 @@ import { reconcile } from '../../automerge/reconcile.js'
 import { recordConflicts, clearResolvedConflicts } from '../../automerge/conflictStore.js'
 import { synthesizeOpEvents } from './docDiffEvents.js'
 import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../../auth/connectionAuth.js'
-import { recordLibp2pPeerId } from './peerIdentity.js'
 import { appendReceivedOps } from '../../automerge/historyLedger.js'
 import { wireMutualAuth } from './mutualAuth.js'
+import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
+
+// T208. wireMutualAuth now REQUIRES a decision about who may receive this
+// device's session token. This is the decision in force today, named rather
+// than left implicit, so that it is visible, testable, and impossible to
+// mistake for a real cryptographic check.
+//
+// WHY IT IS NOT (YET) A PEER-ID LOOKUP AGAINST `devices`. T162
+// (docs/adr/2026-09-14-device-identity-and-token-binding.md) landed the
+// precondition this needed — startSyncNode now calls ensureDeviceIdentity(db)
+// and passes its persisted privateKey into startTransport, so a device's
+// PeerId is stable across restarts, not regenerated every process start.
+// That closes the reason this predicate previously COULD NOT be a real
+// devices-table lookup. Wiring it as one is left to a follow-on (T208/T211's
+// own scope), not done here: `bindOrVerifyPeerIdentity`'s TOFU bind (also
+// T162) is scoped to the authenticate/login admission path specifically, and
+// turning THIS predicate into a real check is a separate design question —
+// e.g. whether "trusted to dial" should require the same bind state, or a
+// different one, for a peer discovered before it has ever authenticated.
+//
+// WHAT ACTUALLY BOUNDS THIS TODAY: discovery is mDNS-only, on a camp-scoped
+// link-local multicast tag, which is the pre-existing accepted boundary
+// (docs/adr/2026-09-14-internet-transport-security-gate.md). Topology is the
+// control, not this predicate. That is a real residual risk on a shared LAN —
+// see T208 — and it is NOT closed by this function.
+//
+// WHAT THIS DOES CLOSE: a second discovery mechanism can no longer be wired in
+// without its caller supplying a real predicate, because the seam throws
+// without one. Rendezvous (T211) must pass a genuine trust check; it cannot
+// inherit this one.
+export const lanTopologyTrust = () => true
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { sharesGenesis } from '../../automerge/campDocument.js'
 import { joinCode as joinCodeFor, joinProof, verifyJoinProof } from '../joinCode.js'
@@ -45,7 +75,7 @@ import { joinCode as joinCodeFor, joinProof, verifyJoinProof } from '../joinCode
 // only computes and hands them off. Wrapped in try/catch so a consumer's own throw can never break
 // sync or escape as an unhandled rejection — sync must keep converging regardless of what a push-
 // event listener does with what it's handed.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, peerDiscovery, onAuthRejected, listen, now } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now } = {}) {
   // Stage 5f: this module no longer keeps a private `state.doc` — the doc lives in liveDoc.js's
   // `docRegistry`, keyed by THIS `db`, so that a local write (liveDoc.recordLocalWrite) and a
   // remote merge (handleReceived below) mutate the exact same document instead of two copies that
@@ -55,6 +85,36 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // this is a no-op re-set of the same value; tests that construct a doc directly and hand it to
   // startSyncNode need this to establish the registry entry in the first place).
   setCurrentDoc(db, doc)
+
+  // T162 (docs/adr/2026-09-14-device-identity-and-token-binding.md §1/§2):
+  // load (or generate, on first run) this device's persistent libp2p
+  // identity BEFORE startTransport, so its PeerId is stable across restarts
+  // — the precondition bindOrVerifyPeerIdentity's TOFU bind depends on.
+  // Red Hat finding, 2026-09-17: main.js catches every startSyncNode failure with a
+  // single console.error whose comment frames it as a transport problem ("port in use,
+  // WASM/ESM load failure") that is safe to shrug off. An identity failure is NOT that
+  // class of event: a transport failure is transient, while a device that cannot
+  // establish or read its own keypair can never sync until someone fixes the disk or
+  // the row — and both look identical to a director, who sees only that nothing
+  // syncs. Re-throw with a message that names the cause unmistakably, so the log says
+  // which of the two happened.
+  //
+  // NOT fixed here, and deliberately: there is still no director-facing surface for
+  // this. Giving it one is the same product decision as rendering a 4405
+  // peer_identity_mismatch legibly, and it is recorded as an owner question in
+  // docs/work/tickets/T162-device-identity-and-token-binding.md rather than invented
+  // inside this seam.
+  let deviceIdentityPrivateKey
+  try {
+    ({ privateKey: deviceIdentityPrivateKey } = await ensureDeviceIdentity(db))
+  } catch (err) {
+    throw new Error(
+      `device identity could not be established, so this device cannot sync at all ` +
+      `(this is NOT a transient transport failure — see electron/auth/deviceIdentity.js): ` +
+      `${err?.message ?? err}`,
+      { cause: err }
+    )
+  }
 
   // Shared post-merge step (projectAll + onProjected/onRemoteOps + error handling), used by BOTH
   // the whole-doc receive path (handleReceived, below — kept for the adversarial-input tests and
@@ -296,8 +356,11 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // `login` are 5d-2 and are not handled here; any other message type is
   // already rejected by authGate.js before this is even called.
   async function onAuthenticate(msg, { fromPeerId }) {
-    const result = evaluateAuthenticate(db, { token: msg.token, device_id: msg.device_id })
-    if (result.ok) recordLibp2pPeerId(db, msg.device_id, fromPeerId)
+    // T162: peerId binding now happens INSIDE evaluateAuthenticate
+    // (bindOrVerifyPeerIdentity) — recordLibp2pPeerId's unconditional
+    // overwrite is no longer called here, since it would let a reinstalled/
+    // impostor device bypass the mismatch check.
+    const result = evaluateAuthenticate(db, { token: msg.token, device_id: msg.device_id, peerId: fromPeerId })
     return result.ok ? { ok: true } : { ok: false, reason: result.reason }
   }
 
@@ -363,19 +426,22 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // join (admitPeer bootstraps that session) and never again after a
     // restart, in one direction, with nothing logged on either side. Every
     // earlier test seeded this row by hand, which is why nothing caught it.
+    // T162: peerId binding now happens INSIDE evaluateLogin
+    // (bindOrVerifyPeerIdentity), same reasoning as onAuthenticate above.
     const result = evaluateLogin(db, {
       device_id: msg.device_id,
       device_secret_identifier: msg.device_secret_identifier,
       name: msg.name,
       pin: msg.pin,
+      peerId: fromPeerId,
     })
-    if (result.ok) recordLibp2pPeerId(db, msg.device_id, fromPeerId)
     return result.ok ? { ...result, hostDeviceId: deviceId } : result
   }
 
   const transport = await startTransport({
     listen,
     deviceId,
+    privateKey: deviceIdentityPrivateKey,
     onDocReceived: handleReceived,
     onSyncMessageReceived: handleSyncMessage,
     // Stage 5f-2: initial-sync-on-admission is back, this time built on the real sync protocol
@@ -423,7 +489,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   let authToken = null
   wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
-    { deviceId, getToken: () => authToken, onRejected: onAuthRejected }
+    { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? lanTopologyTrust }
   )
 
   return {

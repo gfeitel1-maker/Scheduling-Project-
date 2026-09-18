@@ -454,9 +454,21 @@ export class AmClient {
       await waitForCond(() => this.node.getPeers().includes(this.hostPeerId))
     }
     this.node.setAuthToken(this.token)
-    await this.node.authenticateWith(this.hostPeerId, {
-      type: 'authenticate', token: this.token, device_id: this.deviceId,
-    })
+    // Mirrors wireMutualAuth's redial-once (electron/sync/automerge/mutualAuth.js).
+    // Since T162 a restarted Host returns under the SAME PeerId, so getPeers()
+    // above can still name the dead connection, the dial is skipped, and this
+    // authenticate goes into a closed stream. Production redials once; so does
+    // this, or the harness would be stricter than the product it models.
+    try {
+      await this.node.authenticateWith(this.hostPeerId, {
+        type: 'authenticate', token: this.token, device_id: this.deviceId,
+      })
+    } catch {
+      await this.node.dial(host.node.getMultiaddrs()[0])
+      await this.node.authenticateWith(this.hostPeerId, {
+        type: 'authenticate', token: this.token, device_id: this.deviceId,
+      })
+    }
     await host.node.authenticateWith(this.node.peerId, {
       type: 'authenticate', token: host.adminToken, device_id: host.deviceId,
     })

@@ -115,6 +115,9 @@ console.log(`  listening: ${node.getMultiaddrs().map(String).join(', ') || '(non
 
 const mutual = wireMutualAuth(node, {
   deviceId, getToken: () => token,
+  // T208: this is the LAN convergence harness — same policy the production
+  // node runs under (syncNode.js's lanTopologyTrust), stated explicitly.
+  isPeerTrusted: () => true,
   onRejected: (i) => console.log(`  ⚠️  outbound auth rejected: ${JSON.stringify(i)}`),
 })
 // NOTE: wireMutualAuth already registers its OWN onPeerDiscovery handler and dials/authenticates

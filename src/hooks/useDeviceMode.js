@@ -17,7 +17,20 @@ const DEVICE_REVOKED_REASON =
   "This device's access was removed. Ask your director or admin to re-approve it, then sign in again."
 const BENIGN_SESSION_ENDED_REASON = 'Your session ended. Please sign in again.'
 
+// 4405 (peer_identity_mismatch, T162 — docs/adr/2026-09-14-device-identity-and-token-binding.md
+// §3) is deliberately excluded from DEVICE_REVOKED_CODES rather than folded into it. The same
+// screen is shown to a confused director whose device legitimately drifted its bound identity AND
+// to an attacker sitting at a stolen laptop with a copied credential — and this device cannot tell
+// those two apart. DEVICE_REVOKED_REASON's "re-approve it" instruction is exactly how an attacker
+// gets re-admitted; printing it here would hand them the playbook. The legitimate case is meant to
+// reach that remedy through a human (the director) who can verify who is actually asking, not
+// through self-service copy on this screen. Do not "improve" this by merging it into the revoked
+// set or adding recovery steps — that is the mistake this comment exists to prevent.
+const PEER_IDENTITY_MISMATCH_CODE = 4405
+const PEER_IDENTITY_MISMATCH_REASON = "This device can't connect to the camp. Contact your director."
+
 function reasonForAuthRejectedCode(code) {
+  if (code === PEER_IDENTITY_MISMATCH_CODE) return PEER_IDENTITY_MISMATCH_REASON
   return DEVICE_REVOKED_CODES.has(code) ? DEVICE_REVOKED_REASON : BENIGN_SESSION_ENDED_REASON
 }
 
