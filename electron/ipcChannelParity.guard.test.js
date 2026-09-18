@@ -32,38 +32,21 @@ function walk(dir, files = []) {
 // CLAUDE.md's "Stage 6 Cutover COMPLETE"), spun off separately rather than silently fixed here so
 // this ticket (reconnecting shoresh:auth-rejected specifically) stays surgical. Remove an entry
 // the moment its sender is restored — this list must only ever shrink.
-// These three are exempt because they are DEAD LISTENERS, not missing senders — verified
-// 2026-09-17 (T213). They are severed halves of the Stage 6c WebSocket cutover:
+// EMPTY, and that is the point (2026-09-18). This list once held three channels —
+// 'shoresh:pairing-approved', 'shoresh:pairing-denied', 'shoresh:token-renewed' — severed halves of
+// the Stage 6c WebSocket cutover: listeners in preload.js with no sender anywhere, driving phases
+// (pairing_pending / pairing_denied) gated on `joinHost`, which nothing had written since that
+// cutover. #470 deleted the whole dead path, so the exemption's precondition is gone and the guard
+// now enforces for real against every channel.
 //
-//   * 'shoresh:pairing-approved' / 'shoresh:pairing-denied' — the live join flow is entirely the
-//     POLLING IPC path (JoinByCodeScreen -> joinAwaitPairingDecision), which resolves synchronously
-//     through joinSession.js's waitForPairingDecision. syncNode.js's sendPairingApproved/Denied are
-//     libp2p WIRE messages to the joining peer, not webContents.send. Nothing can fire these.
-//   * 'shoresh:token-renewed' — no renewal mechanism exists anywhere in electron/ or src/; only the
-//     listener and its mock survive.
+// Verified before clearing rather than assumed: all three greps return 0 in electron/preload.js on
+// this tree.
 //
-// The phases these would drive (pairing_pending / pairing_denied, useDeviceMode.js:309-310) are
-// gated on `joinHost`, whose ONLY writer is selectJoinHost — which has no callers (verified by
-// grep -a across src/, electron/, scripts/, test/, and by checking for dynamic `device[...]` access,
-// since `graphify affected` returns "No unique node match" for a hook-returned property and is
-// inconclusive here by its own documented blind spot).
-//
-// ONE CORRECTION to the "unreachable" framing, and it is why this is a ticket rather than a
-// shrug: `joinHost` HYDRATES FROM localStorage (useDeviceMode.js:53). A device upgraded from a
-// pre-Stage-6c build with a leftover `shoresh-join-host` value enters pairing_pending and — with
-// these listeners dead — can never leave it. Unreachable on a fresh install; a trap on an upgraded
-// one.
-//
-// Removing only the three listeners would leave pairingStatus able to reach 'pending' but never
-// 'approved'/'denied'. The deletion is T213 and is deliberately NOT done here — it is structural
-// work on the device phase machine, outside this change's approved scope. When it lands, these
-// come out and the guard enforces for real.
-//
-// Note the asymmetry that kept this invisible: 'shoresh:pairing-request' (Host side) IS live. The
-// cutover severed DIRECTIONS of a flow rather than whole flows, so a half-live channel family reads
-// as healthy from either end. That is the class this guard is valuable against, beyond the one dead
-// channel that prompted it.
-const KNOWN_GAPS = ['shoresh:pairing-approved', 'shoresh:pairing-denied', 'shoresh:token-renewed']
+// Keep this empty. An entry here is a channel whose listener can never fire — either wire the
+// sender or delete the listener. The defect that started this work (shoresh:auth-rejected had a
+// listener and no sender, so every authoritative Host refusal was invisible to the director) is
+// exactly what a populated allowlist would let recur silently.
+const KNOWN_GAPS = []
 
 describe('ipcChannelParity guard — every preload listener has a sender', () => {
   it('shoresh:auth-rejected has a real sender in electron/ (the defect this ticket fixes)', () => {

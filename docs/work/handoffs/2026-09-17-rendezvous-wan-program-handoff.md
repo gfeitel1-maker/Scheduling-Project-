@@ -97,6 +97,20 @@ from the transcript. Two independent reasons:
 What shipped instead: the refusal is surfaced neutrally with no cause and no remedy, and the
 reasoning is written at the site so a future reader does not "improve" it back into a wizard.
 
+## The merge train completed 2026-09-18 — `main` is `bab5528`
+
+In order: **#472** (T215, libp2p 3.3.11, closing GHSA-vrf4-mx87-p53w) → **#470** (the pairing-push
+deletion) → **#467** → **#471** → **#473** (T194, the participant data substrate at schema v66).
+
+Two consequences for this branch, both now done rather than pending:
+
+- **Schema: the conditional resolved to renumber.** T194 took v66 first, so ours moved to **v67**
+  (`CURRENT_SCHEMA_VERSION`, guard `>= 66 && < 67`, `rollback/v67_down.js`, the
+  `migrationDomainState.js` classification entry, and 18 literal test assertions). The rule held as
+  written: numbers follow merge order, verified at rebase — not an advance allocation.
+- **`KNOWN_GAPS` is now empty.** #470 deleted the three dead channels, so the guard enforces against
+  every channel with no allowlist. That closes the loop this whole thread opened with.
+
 ## REBASE CHECKLIST — in order, and the first item is not optional
 
 `main` moved a long way while this branch sat: `8825015` (T215, libp2p 3.x) then `8e66547` (#470,
