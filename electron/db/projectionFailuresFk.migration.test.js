@@ -62,7 +62,10 @@ function preRound7Db(tag = 'pf-migrated') {
   // has no separate row per in-place edit), but re-running the v66 block is
   // what the round-7 fix must do on databases that already hold 66. Simulate
   // that by rewinding the stamp so initSchema's guard fires again.
-  db.prepare('DELETE FROM schema_migrations WHERE version = 66').run()
+  // `>= 66` for the same reason v66_down.js uses it: a bare equality leaves a
+  // stacked v67 row behind, so the database would claim to be at 67 while this
+  // helper intends it to be at 65, and the v66 migration under test never re-runs.
+  db.prepare('DELETE FROM schema_migrations WHERE version >= 66').run()
   return db
 }
 

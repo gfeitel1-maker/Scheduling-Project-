@@ -1,10 +1,11 @@
 // @vitest-environment node
 //
-// Migration v66 — device_identity_key, the per-device persistent libp2p
+// Migration v67 — device_identity_key, the per-device persistent libp2p
 // transport identity (T162, docs/adr/2026-09-14-device-identity-and-token-
 // binding.md §1/§5). NOTE: the ADR/ticket text was written against v60 when
 // this repo was at v59; v60-v65 are already taken by other work, so this
-// migration is v66 — the version number is corrected here, the design is not.
+// migration is v67 (v66 went to T194's participant substrate) — the version
+// number is corrected here, the design is not.
 //
 // Same shape as importDecisions.migration.test.js (v63): fresh-vs-migrated
 // schema equivalence and the LOCAL-ONLY guarantee this design rests on — plus
@@ -40,11 +41,11 @@ function tmpFile(tag) {
 }
 
 function freshDb() {
-  return openLocalDb(tmpFile('v66-fresh'))
+  return openLocalDb(tmpFile('v67-fresh'))
 }
 
 function migratedDb() {
-  const db = new Database(tmpFile('v66-migrated'))
+  const db = new Database(tmpFile('v67-migrated'))
   db.pragma('foreign_keys = ON')
   initSchema(db)
   db.exec('DROP TABLE IF EXISTS device_identity_key')
@@ -60,10 +61,13 @@ const tableInfo = (db) =>
 const tableSql = (db) =>
   db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'device_identity_key'").get()?.sql
 
-describe('migration v66: device_identity_key', () => {
-  it('creates the table on a fresh database and declares schema version 66', () => {
+describe('migration v67: device_identity_key', () => {
+  it('creates the table on a fresh database and declares schema version 67', () => {
     const db = freshDb()
-    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 66').get().c).toBe(1)
+    // 67, not 66. This asserted `version = 66` after the rebase and still passed —
+    // on T194's v66 row, not ours. A test that reads another migration's stamp is
+    // not testing this migration at all.
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 67').get().c).toBe(1)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(CURRENT_SCHEMA_VERSION).toBe(67)
     expect(db.prepare('SELECT COUNT(*) c FROM device_identity_key').get().c).toBe(0)
