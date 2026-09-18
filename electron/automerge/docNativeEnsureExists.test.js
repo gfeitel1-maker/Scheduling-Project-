@@ -123,7 +123,10 @@ describe('doc-native ensureExists — six op-log-backed entities project from a 
       // table, but no longer a PROJECTIONS field). A newly-materialized
       // offering is 'unlimited' — which is exactly what a NULL
       // camper_headcount always meant, per schema.sql's own declaration.
-      expected: { id: 'esa-1', elective_set_id: 'es-1', activity_id: 'act-1', capacity_mode: 'unlimited', capacity_limit: null },
+      // status arrived in v68 (T195): the importer is the only writer that
+      // ever says 'potential' — a hand/doc-authored row keeps the schema
+      // DEFAULT, 'confirmed'.
+      expected: { id: 'esa-1', elective_set_id: 'es-1', activity_id: 'act-1', capacity_mode: 'unlimited', capacity_limit: null, status: 'confirmed' },
     },
     {
       entity: 'event_slots',

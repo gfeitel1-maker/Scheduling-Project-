@@ -147,9 +147,10 @@ describe('migration v35: fresh vs migrated equivalence', () => {
     // individual-elective-scheduling.md D3) — same story again: this v35 test
     // runs against the CURRENT schema, so it must expect them, and they are
     // ALTER-appended on a migrated db so they must be LAST and in this order.
+    // status arrived in v68 (T195, offering-grid import) — same story again.
     expect(db.pragma('table_info(elective_set_activities)').map((c) => c.name)).toEqual([
       'id', 'elective_set_id', 'activity_id', 'camper_headcount',
-      'capacity_mode', 'capacity_limit',
+      'capacity_mode', 'capacity_limit', 'status',
     ])
     db.close()
   })

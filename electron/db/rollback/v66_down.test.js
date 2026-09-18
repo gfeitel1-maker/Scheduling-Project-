@@ -81,12 +81,15 @@ describe('rollbackV66', () => {
     db.close()
   })
 
-  it('drops the two capacity columns and leaves camper_headcount intact', () => {
+  it('drops the two capacity columns and leaves camper_headcount and status intact', () => {
     const db = freshDb()
     seed(db)
     rollbackV66(db)
+    // status (v68, T195) is a LATER migration's column, untouched by rolling
+    // back v66 — rollbackV66 only ever claimed to undo v66's own two
+    // capacity columns.
     const cols = db.pragma('table_info(elective_set_activities)').map((c) => c.name)
-    expect(cols).toEqual(['id', 'elective_set_id', 'activity_id', 'camper_headcount'])
+    expect(cols).toEqual(['id', 'elective_set_id', 'activity_id', 'camper_headcount', 'status'])
     // The one piece of good news: authored capacity is re-derivable.
     expect(
       db.prepare("SELECT camper_headcount FROM elective_set_activities WHERE id='m1'").get()
@@ -95,11 +98,19 @@ describe('rollbackV66', () => {
     db.close()
   })
 
-  it('returns schema_migrations to 65', () => {
+  // v68 (T195) now sits on top of v66 on a fresh db. rollbackV66 only
+  // deletes schema_migrations WHERE version = 66 — it does not, and was
+  // never asked to, cascade-undo a LATER migration — so a db that has run
+  // v68 still reports schema version 68 after v66 is rolled back. This is
+  // the same non-cascading contract v66_down.js has always had; it is only
+  // now exercised because v66 is no longer the newest migration.
+  it('removes only its own schema_migrations row — a later migration (v68) is untouched', () => {
     const db = freshDb()
     seed(db)
     rollbackV66(db)
-    expect(getSchemaVersion(db)).toBe(65)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 66').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 68').get().c).toBe(1)
+    expect(getSchemaVersion(db)).toBe(68)
     db.close()
   })
 
@@ -109,7 +120,7 @@ describe('rollbackV66', () => {
     rollbackV66(db)
     expect(() => rollbackV66(db)).not.toThrow()
     expect(rollbackV66(db)).toEqual({ campers: 0, electivePreferences: 0, electiveAssignments: 0 })
-    expect(getSchemaVersion(db)).toBe(65)
+    expect(getSchemaVersion(db)).toBe(68)
     db.close()
   })
 

@@ -61,8 +61,12 @@ function preRound7Db(tag = 'pf-migrated') {
   // Undo the round-7 stamp state: schema_migrations still says 66 (this repo
   // has no separate row per in-place edit), but re-running the v66 block is
   // what the round-7 fix must do on databases that already hold 66. Simulate
-  // that by rewinding the stamp so initSchema's guard fires again.
-  db.prepare('DELETE FROM schema_migrations WHERE version = 66').run()
+  // that by rewinding the stamp so initSchema's guard fires again. Rewinds
+  // every version >= 66 (not just 66 itself) — v68 (T195) now sits on top,
+  // and its guard is `>= 66 && < 68`, so leaving its stamp in place would
+  // make getSchemaVersion report 68 and skip BOTH the v66 rebuild and the
+  // v68 block below it.
+  db.prepare('DELETE FROM schema_migrations WHERE version >= 66').run()
   return db
 }
 
