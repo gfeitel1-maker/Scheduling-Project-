@@ -127,6 +127,11 @@ contextBridge.exposeInMainWorld('shoresh', {
   // T105: the durability read seam's first production caller
   // (electron/ops/durableElectiveSets.js, T110) — mirrors listUsers's shape.
   listDurableElectiveSets: (token) => ipcRenderer.invoke('shoresh:list-durable-elective-sets', { token }),
+  // The individual-elective run path (T227). Admin-only in the main process;
+  // the renderer parses the sheet itself and only the WRITE crosses here.
+  commitElectiveRun: (args) => ipcRenderer.invoke('shoresh:commit-elective-run', args),
+  listElectiveRuns: (token) => ipcRenderer.invoke('shoresh:list-elective-runs', { token }),
+  getElectiveRun: (args) => ipcRenderer.invoke('shoresh:get-elective-run', args),
   // Slice D — read-only, mirrors listDurableElectiveSets's shape.
   listImportEvidence: (token) => ipcRenderer.invoke('shoresh:list-import-evidence', { token }),
   // T114 follow-up — read-only, mirrors listImportEvidence's shape for the

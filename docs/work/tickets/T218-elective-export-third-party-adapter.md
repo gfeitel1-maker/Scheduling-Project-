@@ -38,3 +38,23 @@ may export as a flat per-camper table, not a grid.
 
 Either a concrete third-party format is identified and specified well enough to start an
 implementation ticket, or the owner explicitly defers this indefinitely with a recorded reason.
+
+## De-gated by owner ruling, 2026-09-18
+
+**This ticket no longer blocks anything.** The owner's direction: assume camps can supply a camper id
+on the sheet, and do not wait for a real third-party export before building.
+
+Two consequences worth stating plainly, because "de-gated" is not "solved":
+
+1. **The camper-id assumption is now load-bearing.** `deriveCamperId`'s name-fallback path still
+   exists and is still correct for a paper form, but the design is now built expecting the external
+   id to be there. Where it is absent, a camp with same-name campers will be **blocked at import**
+   by `commitElectiveRun` — correctly, and by design, but the failure lands on the director rather
+   than on us. On a fabricated 100-camper sheet, 13% of rows collided by name alone.
+2. **The mapping layer is what makes this safe to assume.** `inferPreferenceMapping` proposes a
+   column layout and the director corrects it, so an unseen export shape is a mapping rather than a
+   code change. That property is the reason the assumption is affordable — if the parser ever
+   hardcodes a layout, this ticket becomes blocking again.
+
+Kept OPEN rather than closed: the real export format is still unknown, and the first real import is
+still where that gets learned. It is no longer a prerequisite for building.
