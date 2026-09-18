@@ -7,8 +7,25 @@
 // per-entity template importers (SetupScreenShell's Download Template ->
 // Import from Excel, for Locations/Electives/Special Events/germination) are
 // non-schedule workbooks BY DESIGN and must never reach this check — so this
-// lives as its own module, imported only from ImportScreen.jsx, not folded
-// into a shared workbook helper both paths use (ticket's Red Hat risk #2).
+// lives as its own module, imported only by that path's entry points, not
+// folded into a shared workbook helper both paths use (ticket's Red Hat
+// risk #2).
+//
+// There are TWO such entry points, not one:
+//   - src/screens/ImportScreen.jsx  — the director's drag-and-drop import
+//   - scripts/ingestCli.js          — runIngestCli, which is also what
+//                                     scripts/mcp/tools.js's ingest_preview
+//                                     and ingest_commit run (T222)
+// The CLI/MCP site was added in T222, after a camper elective-selection
+// workbook committed its column headers ('#1', '#2', 'Division') as 33 camp
+// groups and 33 tiers through a path that had never called this gate.
+//
+// KNOWN LIMITATION — this predicate is whole-FILE (`pages.some`) while
+// extractEntities is per-PAGE, so one schedule-shaped page admits every other
+// page in the file to extraction. A workbook mixing a selection sheet with a
+// day x period menu passes here and its selection sheet is still extracted.
+// That granularity mismatch is docs/work/tickets/T223-shape-gate-page-
+// granularity.md, deliberately not fixed by adjusting a ratio here.
 //
 // A page (title/columns/rows, the shape workbookToPages and parseTextGrid
 // both produce) is positive evidence of a schedule if it has EITHER axis a
