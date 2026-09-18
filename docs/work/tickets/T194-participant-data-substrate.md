@@ -1,7 +1,7 @@
 ---
 title: T194-participant-data-substrate
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
 archive_when: the five entities ship with full registry parity
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, SECURITY.md]
@@ -10,6 +10,21 @@ related_specs: [docs/work/specs/2026-09-17-individual-elective-scheduling-implem
 ---
 
 # T194 — Slice 2: the participant data substrate
+
+**Closed 2026-09-18.** `archive_when` ("the five entities ship with full registry
+parity") met by #473, at schema v66.
+
+**Frontmatter count drift, recorded rather than silently corrected:** this ticket says *five*
+entities; the substrate shipped *seven*. The count grew during design and the frontmatter was never
+updated. Anyone later reading "five" here against seven in the code should read it as this drift,
+not as a missing pair.
+
+T194 is **not an umbrella ticket.** T195–T199 and T202 are sibling tickets with their own
+`archive_when` clauses, not children of this one. The programme's completion lives in
+`docs/adr/2026-09-17-individual-elective-scheduling.md`. Leaving T194 open would have
+misrepresented an unfinished slice rather than an unfinished programme.
+
+Shipped as #473.
 
 Seven synced entities at schema **v66** (`CURRENT_SCHEMA_VERSION = 65`, `electron/db/localDb.js:25`):
 `campers`, `elective_assignment_runs`, `elective_occurrences`, `elective_choices`,

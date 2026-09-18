@@ -34,12 +34,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
 
-### scheduling-engine
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Surface a stale anchor/regular duplicate in an already-generated schedule (ANCHOR_DUPLICATE finding)](../../docs/work/tickets/T182-stale-anchor-duplicate-finding.md) | in-progress | [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) |
-
 ### security-auth
 
 | Ticket | Status | Referenced by |
@@ -47,7 +41,7 @@ Regenerate with `npm run index:work`.
 | [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | open | — |
 | [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
 | [Headless DB key access for the MCP server and CLI (encryption flip-blocker #2)](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) | in-progress | — |
-| [Upgrade libp2p 2.10.0 to 3.3.11 to close GHSA-vrf4-mx87-p53w, and answer whether a mixed-version camp can still sync](../../docs/work/tickets/T215-libp2p-3x-upgrade.md) | open | [T217-libp2p-3x-residual-findings](../../docs/work/tickets/T217-libp2p-3x-residual-findings.md) |
+| [Upgrade libp2p 2.10.0 to 3.3.11 to close GHSA-vrf4-mx87-p53w, and answer whether a mixed-version camp can still sync](../../docs/work/tickets/T215-libp2p-3x-upgrade.md) | open | [2026-09-18-post-ship-cleanup-audit](../../docs/work/runs/2026-09-18-post-ship-cleanup-audit.md) · [T217-libp2p-3x-residual-findings](../../docs/work/tickets/T217-libp2p-3x-residual-findings.md) |
 
 ### test-infrastructure
 
@@ -55,25 +49,16 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 
-### ui-ux-design
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Finding dismissals are coordinate-only, so a materially-changed finding at the same coordinates is masked](../../docs/work/tickets/T185-payload-addressed-finding-dismissal.md) | in-progress | [2026-09-16-payload-addressed-finding-dismissal-design](../../docs/work/specs/2026-09-16-payload-addressed-finding-dismissal-design.md) |
-
 ### unclassified
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [T193-overlay-reconstruction-and-route-validator](../../docs/work/tickets/T193-overlay-reconstruction-and-route-validator.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
-| [T194-participant-data-substrate](../../docs/work/tickets/T194-participant-data-substrate.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) · [2026-09-17-t194-participant-substrate-design](../../docs/work/specs/2026-09-17-t194-participant-substrate-design.md) |
 | [T195-preference-import-service](../../docs/work/tickets/T195-preference-import-service.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T196-assignment-engine](../../docs/work/tickets/T196-assignment-engine.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T197-projection-and-export](../../docs/work/tickets/T197-projection-and-export.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T198-machine-access-adapters](../../docs/work/tickets/T198-machine-access-adapters.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T199-individual-electives-end-to-end](../../docs/work/tickets/T199-individual-electives-end-to-end.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T202-camper-record-purge-path](../../docs/work/tickets/T202-camper-record-purge-path.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
-| [T62-engine-schedules-anchor-activities-as-regular-slots](../../docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md) | open | [2026-09-16-anchor-scope-single-resolver](../../docs/adr/2026-09-16-anchor-scope-single-resolver.md) · [T180-recurring-event-division-scope-is-snapshotted](../../docs/work/tickets/T180-recurring-event-division-scope-is-snapshotted.md) · [T183-anchor-scope-reading-consolidation](../../docs/work/tickets/T183-anchor-scope-reading-consolidation.md) · [T63-anchor-group-ids-parsing-belongs-at-the-boundary](../../docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md) · [T65-schedule-stats-bar-accuracy](../../docs/work/tickets/T65-schedule-stats-bar-accuracy.md) |
 
 ## Decisions
 
@@ -207,6 +192,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-09-18 | [Post-ship cleanup audit — ticket status reconciliation, T173 archival, branch and worktree reclamation](../../docs/work/runs/2026-09-18-post-ship-cleanup-audit.md) | documentation-governance | pass | pass |
 | 2026-09-17 | [fix: give a failed camp bootstrap a retry affordance (closes T201)](../../docs/work/runs/2026-09-17-fix-give-a-failed-camp-bootstrap-a-retry-affordance-closes-t.md) | ui-ux-design | pass | pass |
 | 2026-09-17 | [fix: meet DESIGN_STANDARD §5c on the op-rejected notice banner (closes T204)](../../docs/work/runs/2026-09-17-fix-meet-design-standard-5c-on-the-op-rejected-notice-banner.md) | ui-ux-design | pass | pass |
 | 2026-09-17 | [fix: surface both bootstrap failures in one notice (closes T200)](../../docs/work/runs/2026-09-17-fix-surface-both-bootstrap-failures-in-one-notice-closes-t20.md) | ui-ux-design | pass | pass |
