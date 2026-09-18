@@ -98,19 +98,33 @@ describe('rollbackV66', () => {
     db.close()
   })
 
-  // v68 (T195) now sits on top of v66 on a fresh db. rollbackV66 only
-  // deletes schema_migrations WHERE version = 66 — it does not, and was
-  // never asked to, cascade-undo a LATER migration — so a db that has run
-  // v68 still reports schema version 68 after v66 is rolled back. This is
-  // the same non-cascading contract v66_down.js has always had; it is only
-  // now exercised because v66 is no longer the newest migration.
-  it('removes only its own schema_migrations row — a later migration (v68) is untouched', () => {
+  // v68 (T195) now sits on top of v66 on a fresh db, which is what first
+  // exercised rollbackV66's CASCADING contract. `v66_down.js:87` deletes
+  // `WHERE version >= 66`, not `= 66` — this repo's convention since v46_down
+  // and stated in PLATFORM_STATE. A bare equality would strand every HIGHER
+  // version in the table, leaving getSchemaVersion() reporting 68 while v66's
+  // tables are gone: a shape no migration path can produce and none will
+  // repair.
+  //
+  // Re-migrating afterwards is safe because both stacked migrations are
+  // idempotent — v67 guards with CREATE TABLE IF NOT EXISTS (so the device's
+  // identity key survives; only the TOFU peer bindings re-null), and v68
+  // guards with a `hasStatus` pragma check before ADD COLUMN.
+  //
+  // This test previously asserted the OPPOSITE — that the v68 row survived —
+  // while also asserting the resulting version was 65. Those cannot both be
+  // true, and its comment stated as fact that rollbackV66 deletes only
+  // `= 66`. It was written against semantics this file has not had since
+  // v46_down, and is corrected here rather than flipped, so the convention is
+  // not quietly reversed by whoever last ran the suite.
+  it('cascades: its own row AND every higher version row are removed', () => {
     const db = freshDb()
     seed(db)
     rollbackV66(db)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 66').get().c).toBe(0)
-    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 68').get().c).toBe(1)
-    expect(getSchemaVersion(db)).toBe(68)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 68').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version >= 66').get().c).toBe(0)
+    expect(getSchemaVersion(db)).toBe(65)
     db.close()
   })
 
@@ -120,7 +134,7 @@ describe('rollbackV66', () => {
     rollbackV66(db)
     expect(() => rollbackV66(db)).not.toThrow()
     expect(rollbackV66(db)).toEqual({ campers: 0, electivePreferences: 0, electiveAssignments: 0 })
-    expect(getSchemaVersion(db)).toBe(68)
+    expect(getSchemaVersion(db)).toBe(65)
     db.close()
   })
 

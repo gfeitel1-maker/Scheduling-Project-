@@ -79,7 +79,7 @@ describe('migration v68: fresh vs migrated equivalence', () => {
 
   it('migrates a pre-v68 MIGRATED db forward to 68, defaulting existing rows to confirmed', () => {
     const db = preV68Db()
-    expect(getSchemaVersion(db)).toBe(66)
+    expect(getSchemaVersion(db)).toBe(67)
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare("INSERT INTO elective_sets (id, camp_id, name) VALUES ('set1', 'camp1', 'Chugim')").run()
     db.prepare(

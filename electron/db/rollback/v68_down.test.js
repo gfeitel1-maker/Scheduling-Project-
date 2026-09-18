@@ -44,7 +44,7 @@ describe('rollbackV68', () => {
     const cols = db.pragma('table_info(elective_set_activities)').map((c) => c.name)
     expect(cols).not.toContain('status')
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 68').get().c).toBe(0)
-    expect(getSchemaVersion(db)).toBe(66)
+    expect(getSchemaVersion(db)).toBe(67)
     db.close()
   })
 
