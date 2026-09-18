@@ -6,10 +6,21 @@ created: 2026-09-17
 task_class: architecture
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
 related_tickets: [docs/work/tickets/T215-libp2p-3x-upgrade.md]
+related_adrs: [docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md]
 archive_when: "The cross-version interop run has happened, the authenticateWith close race is either proven benign or fixed, and it-pipe is removed or its retention justified"
 ---
 
 # T217 — Residual findings from T215
+
+**Item 3 closed 2026-09-18, items 1 and 2 remain open.** `docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md`
+records the owner's decision that Shoresh does not promise mixed-version replication, which removes
+the premise of item 3 below (cross-version interop is now out of scope rather than untested) — see
+the ADR for why this is a decision, not a demonstration, and for two side findings (a pairing
+join-approval race, and a same-version harness hang) that surfaced during the one cross-version
+interop attempt made and are recorded there rather than here, since neither is specific to this
+ticket's residual-findings scope. Items 1 (`authenticateWith` close race) and 2 (dead `it-pipe`
+dependency) are unaffected by that decision and stay open; this ticket's `status` therefore stays
+`open` until they close too.
 
 Raised by `red-hat` on the libp2p 3.x migration. The one **HIGH** finding it found —
 an unbounded `onDrain()` wait that wedged a sender forever when a peer stopped reading — was fixed
@@ -41,7 +52,12 @@ to avoid lockfile churn on a security fix. Remove it, or record why it stays —
 auditing the stream model will otherwise reasonably infer the pipe-based model is still live
 somewhere.
 
-## 3. What same-version tests structurally cannot see — the honest list
+## 3. What same-version tests structurally cannot see — the honest list — CLOSED, out of scope
+
+**Closed 2026-09-18, not demonstrated.** `docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md`
+decided that Shoresh does not promise 2.x↔3.x interop, so the gap this section describes is out of
+scope rather than an open risk to close by testing. The list below is left as-is as the historical
+record of what was known at the time; do not read its continued presence as an open item.
 
 Every test in T215 runs 3.x against 3.x, and once `package.json` carries only the 3.x line, **2.x↔3.x
 interop is not testable in this repo at all**. Blind spots, stated so nobody mistakes a green suite
