@@ -107,7 +107,8 @@ were asked independently and agreed. The condition was explicitly NOT moved onto
 doing so would make both tickets closeable while the demonstration never happens.
 
 **Archived:** the T173 design spec and ticket, which existed only on two unmerged branches.
-Preserved at `docs/archive/completed-specs/`. Slice 1 shipped (#418, byte-identical to the branch
+Preserved, as historical record and not current guidance, under `docs/archive/completed-specs/`.
+Slice 1 shipped (#418, byte-identical to the branch
 copy); slices 2–4 were never built and their premise is disproven by #434 — eight real workbooks
 produced zero journal rows because the importer asks nothing. Rebasing was rejected: both branches
 minted schema v62–v64 for device-side journal tables and `main` converged on a different

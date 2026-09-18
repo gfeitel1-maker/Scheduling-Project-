@@ -1,14 +1,6 @@
----
-title: "Seedlings — the importer learns from what the director confirms"
-document_type: ticket
-status: closed
-created: 2026-09-15
-task_class: architecture
-governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
-related_specs: [docs/archive/completed-specs/2026-09-15-seedlings-importer-learning-design.md]
-related_tickets: [docs/work/tickets/T157-camp-acquired-knowledge-pattern.md]
-archive_when: the importer records every decision it presents, pre-fills answers it has learned or can read off the camp's own data, and retires a seedling that is corrected twice in a row
----
+> **ARCHIVED — historical record, not current authority.**
+> Ticket preserved from two deleted branches; it never existed on `main`. Not current work.
+> Current law: [`docs/governance/GOVERNANCE_INDEX.md`](../../governance/GOVERNANCE_INDEX.md)
 
 <!-- doc-refs:historical -->
 > **Archived 2026-09-18 by the post-ship cleanup audit.**

@@ -1,13 +1,6 @@
----
-title: "Seedlings: the importer learns from what the director confirms"
-document_type: spec
-status: superseded
-created: 2026-09-15
-task_class: architecture
-governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md]
-related_tickets: [docs/work/tickets/T157-camp-acquired-knowledge-pattern.md]
-related_adrs: [docs/adr/2026-09-13-game-integration-boundary.md]
----
+> **ARCHIVED — historical record, not current authority.**
+> Design spec for seedling slices 2-4, which were never built and whose premise is now disproven.
+> Current law: [`docs/governance/GOVERNANCE_INDEX.md`](../../governance/GOVERNANCE_INDEX.md)
 
 <!-- doc-refs:historical -->
 > **Archived 2026-09-18 by the post-ship cleanup audit.**
