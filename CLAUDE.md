@@ -62,6 +62,22 @@ npx electron-rebuild -f -w better-sqlite3   # before npm run electron:dev
 npm rebuild better-sqlite3                   # before npm run test
 ```
 
+**A git worktree needs its own `npm ci`.** A worktree under `.claude/worktrees/` often has a
+`node_modules` holding nothing but a Vite cache, and Node then resolves every package by walking UP
+to the main checkout's `node_modules` — which sits at whatever commit the MAIN checkout has checked
+out, not your branch's. If your branch changes a dependency version, a gate run in that worktree
+silently exercises the OLD version while the tree under test declares the new one: a green that
+describes neither tree. Run `npm ci` in the worktree itself, and confirm the resolved version rather
+than trusting that the install reported success.
+
+Note that the obvious probe fails misleadingly for some modern packages: `require('libp2p/package.json')`
+throws `ERR_PACKAGE_PATH_NOT_EXPORTED`, because libp2p 3.x's `exports` map does not expose
+`./package.json`. That is the exports map talking, not a broken install. Read the file directly:
+
+```bash
+node -p "JSON.parse(require('fs').readFileSync('./node_modules/libp2p/package.json','utf8')).version"
+```
+
 ## Architecture
 
 **This app has migrated from a Supabase (Postgres + Auth + RLS) cloud backend to a local-first design.** The active, current architecture is Electron + an Automerge (CRDT) document replicated peer-to-peer over libp2p, with SQLite as a local projection of that document. The legacy pre-rebuild Supabase path has been fully retired: it lives at `legacy/supabase/` for historical reference only, is not imported by any active code under `src/` or `electron/`, and `@supabase/supabase-js` is no longer a dependency of this project. `src/hooks/useSession.js` no longer exists. See "Legacy Supabase path" below for details.
