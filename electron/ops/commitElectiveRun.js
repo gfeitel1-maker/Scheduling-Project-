@@ -35,6 +35,9 @@ export function commitElectiveRun(db, {
   sourceSha256 = null,
   parsed,
   assignments = [],
+  occurrences = [],
+  scheduleWeekId = null,
+  scheduleTemplateId = null,
 }) {
   // REFUSALS FIRST, before a transaction is opened.
   //
@@ -63,7 +66,13 @@ export function commitElectiveRun(db, {
 
   const runId = randomUUID()
   const camperIds = new Set((parsed?.campers ?? []).map((c) => c.id))
+  const occurrenceIds = new Set(occurrences.map((o) => o.id))
   const choiceIdByKey = new Map()
+
+  // The single distinct tier among occurrences, or null when the set's
+  // occurrences span more than one tier (or there are none) — T229.
+  const distinctTierIds = new Set(occurrences.map((o) => o.tier_id).filter((t) => t != null))
+  const tierId = distinctTierIds.size === 1 ? [...distinctTierIds][0] : null
 
   try {
     runAtomic(db, () => {
@@ -79,12 +88,25 @@ export function commitElectiveRun(db, {
 
       write('elective_assignment_runs', runId, {
         camp_id: campId,
+        schedule_week_id: scheduleWeekId,
+        schedule_template_id: scheduleTemplateId,
+        tier_id: tierId,
         name,
         status: 'draft',
         source_filename: sourceFilename,
         source_sha256: sourceSha256,
         solver_version: SOLVER_VERSION,
       })
+
+      for (const occ of occurrences) {
+        write('elective_occurrences', occ.id, {
+          run_id: runId,
+          elective_set_id: occ.elective_set_id,
+          day_id: occ.day_id,
+          time_block_id: occ.time_block_id,
+          tier_id: occ.tier_id,
+        })
+      }
 
       for (const c of parsed.campers ?? []) {
         write('campers', c.id, {
@@ -116,6 +138,12 @@ export function commitElectiveRun(db, {
         // explain. Fail the whole run instead.
         if (!camperIds.has(a.camper_id)) {
           throw new Error(`assignment names a camper the sheet did not contain: ${a.camper_id}`)
+        }
+        // Same discipline: the two halves (occurrences derived from the
+        // schedule, assignments from the solver) must agree, or the whole
+        // run fails rather than writing an assignment pointing at nothing.
+        if (!occurrenceIds.has(a.occurrence_id)) {
+          throw new Error(`assignment names an occurrence not in this run: ${a.occurrence_id}`)
         }
         write('elective_assignments', deriveElectiveAssignmentId(runId, a.camper_id, a.occurrence_id), {
           run_id: runId,

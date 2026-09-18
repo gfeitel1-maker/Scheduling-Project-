@@ -56,6 +56,11 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
   const [locations, setLocations] = useState([])
   const [tiers, setTiers] = useState([])
   const [groups, setGroups] = useState([])
+  const [days, setDays] = useState([])
+  const [timeBlocks, setTimeBlocks] = useState([])
+  const [templateSlots, setTemplateSlots] = useState([])
+  const [scheduleTemplates, setScheduleTemplates] = useState([])
+  const [scheduleWeeks, setScheduleWeeks] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [selectedId, setSelectedId] = useState(initialElectiveSetId)
@@ -65,13 +70,21 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
     setLoading(true)
     setError(null)
     try {
-      const [setsData, offeringsData, activitiesData, locationsData, tiersData, groupsData] = await Promise.all([
+      const [
+        setsData, offeringsData, activitiesData, locationsData, tiersData, groupsData,
+        daysData, timeBlocksData, templateSlotsData, scheduleTemplatesData, scheduleWeeksData,
+      ] = await Promise.all([
         localClient.list('elective_sets'),
         localClient.list('elective_set_activities'),
         localClient.list('activities'),
         localClient.list('locations'),
         localClient.list('tiers'),
         localClient.list('groups'),
+        localClient.list('days_of_operation'),
+        localClient.list('time_blocks'),
+        localClient.list('template_slots'),
+        localClient.list('schedule_templates'),
+        localClient.list('schedule_weeks'),
       ])
       setSets((setsData || []).filter((s) => s.camp_id === campId))
       setOfferings(offeringsData || [])
@@ -79,6 +92,11 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
       setLocations((locationsData || []).filter((l) => l.camp_id === campId))
       setTiers((tiersData || []).filter((t) => t.camp_id === campId))
       setGroups((groupsData || []).filter((g) => g.camp_id === campId))
+      setDays((daysData || []).filter((d) => d.camp_id === campId))
+      setTimeBlocks((timeBlocksData || []).filter((t) => t.camp_id === campId))
+      setTemplateSlots(templateSlotsData || [])
+      setScheduleTemplates((scheduleTemplatesData || []).filter((t) => t.camp_id === campId))
+      setScheduleWeeks(scheduleWeeksData || [])
     } catch {
       setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
@@ -108,6 +126,11 @@ export default function ScheduleElectivesScreen({ campId, role, onNavigate, init
           locations={locations}
           tiers={tiers}
           groups={groups}
+          days={days}
+          timeBlocks={timeBlocks}
+          templateSlots={templateSlots}
+          scheduleTemplates={scheduleTemplates}
+          scheduleWeeks={scheduleWeeks}
           refreshActivities={load}
           onBack={() => { setSelectedId(null); load() }}
         />

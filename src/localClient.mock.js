@@ -21,6 +21,7 @@ import { deriveLocationId } from '../electron/ops/locationId.js'
 // this time so :5200 can prove a version got created without a second resolver.
 import { resolveImportedPlacements } from '../electron/ops/resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from '../electron/ops/scheduleTemplateId.js'
+import { hasContradictoryRanks } from './ingest/preferenceSheet.js'
 
 const STORE_KEY = 'shoresh-mock-state'
 
@@ -1543,7 +1544,10 @@ export const mockShoresh = {
   // one most worth seeing while building the screen. The op-log write is what
   // degrades here (the mock has no operations table) — same additive-
   // degradation discipline as the stubs around this one.
-  async commitElectiveRun({ name, parsed, assignments = [], sourceFilename = null } = {}) {
+  async commitElectiveRun({
+    name, parsed, assignments = [], sourceFilename = null,
+    occurrences = [], scheduleWeekId = null, scheduleTemplateId = null,
+  } = {}) {
     const sameName = parsed?.sameNameCampers ?? []
     if (sameName.length > 0) {
       const who = sameName.map((c) => `${c.display_name} (rows ${c.rowNumbers.join(', ')})`).join('; ')
@@ -1554,11 +1558,29 @@ export const mockShoresh = {
           'Resolve these before importing — two children sharing a name would be merged into one record.',
       }
     }
+    // Mirrors the real commitElectiveRunHandler's other refusal (T229 parity
+    // fix): a same-rank collision must block in browser-dev exactly as it
+    // blocks under electron:dev.
+    if (hasContradictoryRanks(parsed)) {
+      return {
+        ok: false,
+        error: 'a camper holds the same preference rank twice — the sheet cannot be read unambiguously.',
+      }
+    }
     const state = loadState()
     const runId = `run-${(state.elective_assignment_runs || []).length + 1}`
+    const distinctTierIds = new Set(occurrences.map((o) => o.tier_id).filter((t) => t != null))
+    const tierId = distinctTierIds.size === 1 ? [...distinctTierIds][0] : null
     state.elective_assignment_runs = [
       ...(state.elective_assignment_runs || []),
-      { id: runId, name, status: 'draft', source_filename: sourceFilename, solver_version: 'mock' },
+      {
+        id: runId, name, status: 'draft', source_filename: sourceFilename, solver_version: 'mock',
+        schedule_week_id: scheduleWeekId, schedule_template_id: scheduleTemplateId, tier_id: tierId,
+      },
+    ]
+    state.elective_occurrences = [
+      ...(state.elective_occurrences || []),
+      ...occurrences.map((occ) => ({ ...occ, run_id: runId })),
     ]
     state.campers = parsed.campers ?? []
     state.elective_assignments = assignments.map((a, i) => ({ id: `${runId}-${i}`, run_id: runId, ...a }))

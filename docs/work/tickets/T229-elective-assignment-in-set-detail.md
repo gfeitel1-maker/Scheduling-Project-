@@ -72,3 +72,44 @@ Owner ruling 2026-09-18: **the export is however someone wants it — Excel or J
 export in the app.** ADR D9's "staff consume the export" is not a licence to design a new artifact.
 Reuse `src/utils/exportWorkbook.js` and `src/utils/exportScheduleJson.js`; do not add a third export
 path.
+
+## AMENDMENT — CORRECTION 1: the occurrence table above is wrong; the code wins
+
+This section's premise table said occurrence ← `elective_sets.day_id`/`time_block_id`/group scope.
+**That is wrong**, in the same way the capacity finding above was wrong: written from reasoning about
+the schema, not from reading what the engine and renderer actually consume. Grep confirms nothing
+reads `elective_sets.day_id`/`time_block_id` for placement, and `electron/db/schema.sql`'s own comment
+on `elective_occurrences` says occurrences are "re-derived from live template_slots on every
+generation (D6)".
+
+**Occurrences are the distinct `(day_id, time_block_id, tier_id)` cells in `template_slots` where
+`elective_set_id` matches the set**, with `tier_id` resolved from the slot's `group_id` via
+`groups.find(g => g.id === slot.group_id)?.tier_id`. Several groups of the same tier in the same cell
+collapse to one occurrence. A slot whose group has no tier is excluded and reported as an
+`UNTIERED_GROUP` finding. Implemented in `src/screens/elective/assignment/deriveOccurrences.js`,
+pinned by `deriveOccurrences.test.js`.
+
+`template_slots` rows belong to a `schedule_templates` row (manual or generated route), and neither
+route is canonical. When the set is placed on more than one candidate template, the director picks
+which to solve against at that moment; the choice is not persisted — same rule as the export ruling
+above.
+
+## AMENDMENT — `elective_choice_offerings` stays unwritten in this slice
+
+`commitElectiveRun` writes `elective_occurrences`, `elective_assignment_runs` (with schedule/tier
+linkage), and `elective_assignments` as of this slice, but does **not** write
+`elective_choice_offerings`. That table exists for linked (multi-period) choices — ADR D12 — which
+this slice does not author; every choice here is the single-period degenerate case, and nothing reads
+`elective_choice_offerings` yet. Deferred to whatever ticket adds linked-choice authoring.
+
+## AMENDMENT — export is not literally `exportWorkbook.js`/`exportScheduleJson.js`
+
+Both utilities were checked before reuse. `exportWorkbook.js` is the S4a enrichment round-trip (fixed
+`SHEET_LAYOUT`, `shoresh_id`, `META_SHEET`, re-import baseline diff) — a contract this artifact never
+round-trips through. `exportScheduleJson.js`'s `buildScheduleExport` is keyed group × day × time_block
+with one activity per cell — it cannot express a (camper, occurrence) roster. Neither can hold this
+shape literally. The smallest honest reading: one new module,
+`src/screens/elective/assignment/exportElectiveRun.js`, whose Excel path goes through the same
+sanitizer every export in this repo uses (`aoaToSanitizedSheet`) and whose JSON path follows
+`exportScheduleJson.js`'s own `format_version` convention. Still one export path for elective runs, not
+a third general one.
