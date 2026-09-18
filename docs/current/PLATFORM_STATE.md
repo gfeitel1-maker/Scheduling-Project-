@@ -4,9 +4,13 @@ _Last updated: 2026-09-18 (**T195 rescoped: the preference-import premise was wr
 import ships in its place — schema v68.** Round 1 of T195 (parked, preserved in git history at
 `d140614`, removed from the tip) built a ranked-choice-per-occurrence preference importer. Real camp
 artifacts, examined outside this repo, contradicted that premise — see the "Prior" entry immediately
-below for the paragraph this supersedes, and the draft ADR amendment at
-`docs/work/specs/2026-09-18-t195-adr-amendment-draft.md` for the full account (not yet accepted; the
-ADR itself is untouched). **T195 is now offering-grid import only** — no campers, no ranks, no
+below for the paragraph this supersedes, and **D14 of
+`docs/adr/2026-09-17-individual-elective-scheduling.md`** for the full account. That amendment was
+**owner-accepted on 2026-09-18** and now lives in the ADR itself, in that document's established
+correction style (D4, D9): the superseded text is struck and marked rather than deleted, so a later
+reader sees that a premise was checked and failed. D14 keeps OBSERVED separate from INFERRED — the
+camp artifacts are the observation; that per-occurrence decomposition therefore does not hold is
+written as the inference it is. **T195 is now offering-grid import only** — no campers, no ranks, no
 identity, no assignment. `src/ingest/parseGridSchedule.js` gains `parseGridScheduleMenu(pages,
 { cellSplitter })`, reusing the existing orientation/time/canonicalization logic unchanged; only the
 per-cell step changes from one name to a MENU of names sharing one timeIndex/groupIndex.

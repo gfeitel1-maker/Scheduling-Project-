@@ -22,6 +22,15 @@ function runCheck(env = {}) {
       cwd: ROOT,
       env: { ...process.env, ...env },
       encoding: 'utf8',
+      // T221: capture stderr instead of letting it through to OUR stderr. Node's
+      // execFileSync both captures a child's stderr AND echoes it to the parent by
+      // default, so the corruption test below — which deliberately makes the generator
+      // print `DIFFERS  docs/governance/agent-bindings/manifest.json` and `1 profile(s)
+      // diverged` — leaked those two lines into the gate log of an entirely PASSING run.
+      // Three sessions across two branches read that as a real `agents:check` failure and
+      // re-diagnosed it from scratch. The assertions below are unaffected: e.stderr is
+      // still populated under 'pipe'.
+      stdio: ['pipe', 'pipe', 'pipe'],
     })
     return { code: 0, output }
   } catch (e) {
