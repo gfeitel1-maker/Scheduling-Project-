@@ -98,6 +98,28 @@ describe('mockShoresh — elective_set_activities and template_slots.elective_se
     )
   })
 
+  // H5 (T229 round 2) — the ordinary "Add Offering" UI writes only
+  // elective_set_id/activity_id (ElectiveSetDetail's buildCreateFields), so a
+  // freshly created row must read back with the SAME defaults schema.sql
+  // gives the real electron path (status:'confirmed', capacity_mode:
+  // 'unlimited'), not undefined — undefined reads as "not confirmed" AND
+  // "capacity zero" to buildOfferings.js, silently closing every new offering
+  // created through the normal browser-dev flow.
+  it('a freshly created row defaults to status confirmed and capacity_mode unlimited, matching schema.sql', async () => {
+    const { mockShoresh } = await import('./localClient.mock.js')
+    globalThis.localStorage.setItem(
+      'shoresh-mock-state',
+      JSON.stringify({ camp: { id: 'camp-1' }, users: [], conflicts: [], devices: [] })
+    )
+    await mockShoresh.write({ entity: 'elective_set_activities', entity_id: 'esa-defaults', field: 'elective_set_id', value: 'es-1' })
+    await mockShoresh.write({ entity: 'elective_set_activities', entity_id: 'esa-defaults', field: 'activity_id', value: 'act-1' })
+
+    const rows = await mockShoresh.list(null, 'elective_set_activities')
+    const row = rows.find((r) => r.id === 'esa-defaults')
+    expect(row.status).toBe('confirmed')
+    expect(row.capacity_mode).toBe('unlimited')
+  })
+
   it('template_slots.elective_set_id is a writable field, distinct from activity_id', async () => {
     const { mockShoresh } = await import('./localClient.mock.js')
     globalThis.localStorage.setItem(

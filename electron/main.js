@@ -1687,7 +1687,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // needs to cross the boundary. That keeps the mapping-correction loop
   // interactive without a round trip per keystroke.
   function commitElectiveRunHandler(args) {
-    const { token, name, sourceFilename = null, sourceSha256 = null, parsed, assignments = [] } = args ?? {}
+    const {
+      token, name, sourceFilename = null, sourceSha256 = null, parsed, assignments = [],
+      occurrences = [], scheduleWeekId = null, scheduleTemplateId = null, runId = null,
+    } = args ?? {}
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.write' })
     if (!isNonEmptyString(name)) throw new Error('a run needs a name')
@@ -1706,6 +1709,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       sourceSha256,
       parsed,
       assignments,
+      occurrences,
+      scheduleWeekId,
+      scheduleTemplateId,
+      runId,
     })
   }
 

@@ -22,6 +22,7 @@ import { clearElectivePermissionOnRemoval } from '../../ingest/electivePermissio
 import { createActivity } from '../schedule/createActivityHelper'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../../utils/exportSanitize.js'
 import { useLatestTimeout } from '../../hooks/useLatestTimeout'
+import AssignmentPanel from './assignment/AssignmentPanel.jsx'
 
 const repository = createSetupCrudRepository({ localClient })
 // createActivityHelper.js's createActivity (and populateElectiveSet, which
@@ -159,7 +160,10 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
   )
 }
 
-export default function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, refreshActivities, onBack }) {
+export default function ElectiveSetDetail({
+  set, role, activities, locations, tiers, groups, refreshActivities, onBack, onNavigate,
+  days = [], timeBlocks = [], templateSlots = [], scheduleTemplates = [], scheduleWeeks = [],
+}) {
   const { rows: offerings, loading, error, setError, adding, add, reload } = useCrudScreen({
     entity: 'elective_set_activities',
     campId: set.id,
@@ -439,6 +443,23 @@ export default function ElectiveSetDetail({ set, role, activities, locations, ti
           onCancel={() => setConfirmClear(false)}
         />
       )}
+
+      <AssignmentPanel
+        electiveSetId={set.id}
+        campId={set.camp_id}
+        setActivities={offerings}
+        activities={activities}
+        groups={groups}
+        tiers={tiers}
+        days={days}
+        timeBlocks={timeBlocks}
+        templateSlots={templateSlots}
+        scheduleTemplates={scheduleTemplates}
+        scheduleWeeks={scheduleWeeks}
+        role={role}
+        onError={setError}
+        onNavigate={onNavigate}
+      />
     </div>
   )
 }

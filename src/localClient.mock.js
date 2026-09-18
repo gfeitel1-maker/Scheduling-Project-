@@ -21,6 +21,7 @@ import { deriveLocationId } from '../electron/ops/locationId.js'
 // this time so :5200 can prove a version got created without a second resolver.
 import { resolveImportedPlacements } from '../electron/ops/resolveImportedPlacements.js'
 import { deriveScheduleTemplateId } from '../electron/ops/scheduleTemplateId.js'
+import { hasContradictoryRanks } from './ingest/preferenceSheet.js'
 
 const STORE_KEY = 'shoresh-mock-state'
 
@@ -261,6 +262,27 @@ const UNIQUE_KEYS = {
 export const UNIQUE_FIELD_ENTITIES = {
   locations: 'name',
   activities: 'name',
+}
+
+// H5 (T229 round 2) — columns electron/db/schema.sql declares NOT NULL
+// DEFAULT (elective_set_activities.status/capacity_mode, schema.sql:1087-
+// 1099). This is a MOCK-ONLY gap, not a projection defect: the real
+// electron/ops/projections.js ensureExists does
+// `INSERT OR IGNORE INTO elective_set_activities (id, elective_set_id,
+// activity_id) VALUES (?, ?, ?)` (projections.js:494) and SQLite materialises
+// the NOT NULL DEFAULTs on that INSERT — the real row comes back with
+// status:'confirmed'/capacity_mode:'unlimited' whether or not the write path
+// ever named those columns. This mock has no schema behind its rows at all —
+// write() below persists exactly the fields it is given — so a freshly
+// created row here had NO status/capacity_mode until this fix: undefined,
+// not the schema default. That silently made every new elective offering
+// (ElectiveSetDetail's "Add Offering" flow writes only
+// elective_set_id/activity_id) both unconfirmed AND capacity-zero to
+// buildOfferings.js, but only in browser-dev — the packaged/electron:dev app
+// was never affected. Stamped on new-row creation only, mirroring how
+// camp_id is stamped below.
+const SCHEMA_DEFAULTS = {
+  elective_set_activities: { capacity_mode: 'unlimited', status: 'confirmed' },
 }
 
 // Registered listeners for the mock's event-style methods (onOpApplied,
@@ -573,7 +595,11 @@ export const mockShoresh = {
     const uniqueKey = UNIQUE_KEYS[entity]
     const isNew = idx === -1
     const base = isNew
-      ? { id: entity_id, ...(uniqueKey?.includes('camp_id') && state.camp ? { camp_id: state.camp.id } : {}) }
+      ? {
+          id: entity_id,
+          ...(SCHEMA_DEFAULTS[entity] ?? {}),
+          ...(uniqueKey?.includes('camp_id') && state.camp ? { camp_id: state.camp.id } : {}),
+        }
       : rows[idx]
     const candidate = { ...base, [field]: coerceIntegerAffinity(entity, field, value) }
 
@@ -1543,22 +1569,48 @@ export const mockShoresh = {
   // one most worth seeing while building the screen. The op-log write is what
   // degrades here (the mock has no operations table) — same additive-
   // degradation discipline as the stubs around this one.
-  async commitElectiveRun({ name, parsed, assignments = [], sourceFilename = null } = {}) {
+  async commitElectiveRun({
+    name, parsed, assignments = [], sourceFilename = null,
+    occurrences = [], scheduleWeekId = null, scheduleTemplateId = null, runId: providedRunId = null,
+  } = {}) {
     const sameName = parsed?.sameNameCampers ?? []
     if (sameName.length > 0) {
       const who = sameName.map((c) => `${c.display_name} (rows ${c.rowNumbers.join(', ')})`).join('; ')
+      const noun = sameName.length === 1 ? 'camper name appears' : 'camper names appear'
       return {
         ok: false,
         error:
-          `${sameName.length} camper name(s) appear on more than one row with no camper id to tell them apart: ${who}. ` +
+          `${sameName.length} ${noun} on more than one row with no camper id to tell them apart: ${who}. ` +
           'Resolve these before importing — two children sharing a name would be merged into one record.',
       }
     }
+    // Mirrors the real commitElectiveRunHandler's other refusal (T229 parity
+    // fix): a same-rank collision must block in browser-dev exactly as it
+    // blocks under electron:dev.
+    if (hasContradictoryRanks(parsed)) {
+      return {
+        ok: false,
+        error: 'a camper holds the same preference rank twice — the sheet cannot be read unambiguously.',
+      }
+    }
     const state = loadState()
-    const runId = `run-${(state.elective_assignment_runs || []).length + 1}`
-    state.elective_assignment_runs = [
-      ...(state.elective_assignment_runs || []),
-      { id: runId, name, status: 'draft', source_filename: sourceFilename, solver_version: 'mock' },
+    const existing = (state.elective_assignment_runs || []).find((r) => r.id === providedRunId)
+    const runId = providedRunId ?? `run-${(state.elective_assignment_runs || []).length + 1}`
+    const distinctTierIds = new Set(occurrences.map((o) => o.tier_id).filter((t) => t != null))
+    const tierId = distinctTierIds.size === 1 ? [...distinctTierIds][0] : null
+    const runRow = {
+      id: runId, name, status: 'draft', source_filename: sourceFilename, solver_version: 'mock',
+      schedule_week_id: scheduleWeekId, schedule_template_id: scheduleTemplateId, tier_id: tierId,
+    }
+    // H1 parity — a retried commit of the SAME solve (same runId) replaces
+    // this run's row rather than appending a second one, matching the real
+    // op-log's per-field last-write-wins on one record.
+    state.elective_assignment_runs = existing
+      ? (state.elective_assignment_runs || []).map((r) => (r.id === runId ? runRow : r))
+      : [...(state.elective_assignment_runs || []), runRow]
+    state.elective_occurrences = [
+      ...(state.elective_occurrences || []).filter((o) => o.run_id !== runId),
+      ...occurrences.map((occ) => ({ ...occ, run_id: runId })),
     ]
     state.campers = parsed.campers ?? []
     state.elective_assignments = assignments.map((a, i) => ({ id: `${runId}-${i}`, run_id: runId, ...a }))

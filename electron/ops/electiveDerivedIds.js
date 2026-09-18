@@ -83,7 +83,7 @@ function join(components) {
 // combining mark, no zero-width character passes.
 const OPAQUE = /^[A-Za-z0-9_.:-]+$/
 
-function opaque(name, value) {
+export function opaque(name, value) {
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(`electiveDerivedIds: component ${name} must be a non-empty string`)
   }
