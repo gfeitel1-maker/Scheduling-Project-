@@ -21,7 +21,7 @@ So the kit is split in two:
 | File | Rendered by | Largest display size |
 |---|---|---|
 | `tree-full-wide-login.png` | `LoginScreen` hero | 420px wide |
-| `forest-circle.png` | `CampBootstrapScreen` (64px), `PairingPendingScreen` (56px), `RootMap` empty state (140px) | 140px |
+| `forest-circle.png` | `CampBootstrapScreen` (64px), `RootMap` empty state (140px) | 140px |
 | `root-pattern-bg.jpg` | `ModeSelectScreen` background | tiled |
 | `root-system-celebration.png` | `postImportBanner` | banner width |
 | `icons/decorative-sprout.png` | `SeedScreen` mark | — |

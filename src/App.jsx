@@ -26,7 +26,6 @@ import ScheduleScreen from './screens/ScheduleScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
 import TrashScreen from './screens/TrashScreen'
 import DeviceManagerScreen from './screens/DeviceManagerScreen'
-import PairingPendingScreen from './screens/PairingPendingScreen'
 import SeedScreen from './screens/SeedScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
 import { usePendingConflicts } from './hooks/usePendingConflicts'
@@ -661,14 +660,6 @@ export default function App() {
     // to, a question that has no meaning once every device holds the whole
     // camp document.
     return <JoinByCodeScreen onBack={device.backToModeSelect} onJoined={device.retry} />
-  }
-
-  if (device.phase === 'pairing_pending') {
-    return <PairingPendingScreen denied={false} onBack={device.backToModeSelect} />
-  }
-
-  if (device.phase === 'pairing_denied') {
-    return <PairingPendingScreen denied onBack={device.backToModeSelect} />
   }
 
   if (device.phase === 'login') {

@@ -4,17 +4,7 @@ import { localClient } from '../localClient'
 const MODE_KEY = 'shoresh-mode'
 const TOKEN_KEY = 'shoresh-token'
 const ROLE_KEY = 'shoresh-role'
-const JOIN_HOST_KEY = 'shoresh-join-host'
 const DEFAULT_HOST_PORT = 7777
-
-function readJSON(key) {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
 
 // T87 fix round: a director staring at a bounced-to-login screen with no
 // explanation can't tell "my token just expired" from "this tablet was
@@ -37,7 +27,6 @@ function reasonForAuthRejectedCode(code) {
 export function useDeviceMode() {
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState(() => localStorage.getItem(MODE_KEY))
-  const [joinHost, setJoinHost] = useState(() => readJSON(JOIN_HOST_KEY))
   // Which join experience to present. Both must work while SHORESH_SYNC_ENGINE
   // still defaults to `oplog`; this and the branch that reads it go away with
   // the WS layer in Stage 6c.
@@ -59,7 +48,6 @@ export function useDeviceMode() {
   const [campIsEmpty, setCampIsEmpty] = useState(null)
   const [error, setError] = useState(null)
   const [initNonce, setInitNonce] = useState(0)
-  const [pairingStatus, setPairingStatus] = useState(null) // null | 'pending' | 'approved' | 'denied'
   // Director-facing explanation for why they landed back on the login screen.
   // null = ordinary (fresh device, deliberate logout, benign local-expiry).
   // Set only by an authoritative Host rejection (onAuthRejected) — see
@@ -134,23 +122,24 @@ export function useDeviceMode() {
 
         if (mode === 'host' && c) {
           await localClient.chooseMode({ mode: 'host', campName: c.name, port: DEFAULT_HOST_PORT })
-        } else if (mode === 'client' && joinHost) {
+        } else if (mode === 'client') {
           // Only a LOCALLY-VERIFIED token is handed to the transport layer —
           // never the raw localStorage value — so a token this device's own
           // signature/expiry check already knows is dead is never even
           // attempted on the wire. The Host re-verifies independently
           // regardless (defense-in-depth, not the sole gate).
+          //
+          // No host/port: a Client is not dialing an address any more
+          // (docs/adr/2026-09-08-libp2p-join-flow.md), and chooseMode reads
+          // only { mode, token }. This branch used to be gated on a stored
+          // `joinHost`, which nothing has written since the Stage 6c cutover
+          // removed the address picker — so a device that joined by code
+          // silently skipped chooseMode entirely and never handed its token
+          // to the libp2p node on restart.
           await localClient.chooseMode({
-            mode: 'client', host: joinHost.host, port: joinHost.port,
+            mode: 'client',
             token: verifiedToken || undefined,
           })
-          // Check if this device is already paired
-          const pairingInfo = await localClient.getDevicePairingStatus()
-          if (!pairingInfo.isPaired) {
-            setPairingStatus('pending')
-            if (active) setLoading(false)
-            return
-          }
         }
 
         if (active) setLoading(false)
@@ -162,35 +151,16 @@ export function useDeviceMode() {
     }
     init()
     return () => { active = false }
-    // Runs once per initNonce (mount, or an explicit retry) — mode/joinHost read
-    // from their initial (persisted) values.
+    // Runs once per initNonce (mount, or an explicit retry) — `mode` read
+    // from its initial (persisted) value.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initNonce])
 
-  // Register pairing push-event listeners once, on mount
+  // Register the auth-rejected push listener once, on mount
   useEffect(() => {
     if (pairingListenersRegistered.current) return
     pairingListenersRegistered.current = true
 
-    if (localClient.onPairingApproved) {
-      localClient.onPairingApproved(() => {
-        setPairingStatus('approved')
-        setInitNonce((n) => n + 1)
-      })
-    }
-    if (localClient.onPairingDenied) {
-      localClient.onPairingDenied(() => {
-        setPairingStatus('denied')
-      })
-    }
-    if (localClient.onTokenRenewed) {
-      localClient.onTokenRenewed((newToken) => {
-        if (newToken) {
-          localStorage.setItem(TOKEN_KEY, newToken)
-          setToken(newToken)
-        }
-      })
-    }
     // T87 Part 3: the Host has authoritatively rejected this device's token
     // (revoked, tampered, mismatched device_id — see syncClient.js's
     // onAuthRejected). Run the SAME cleanup as a locally-failed verifySession
@@ -221,17 +191,6 @@ export function useDeviceMode() {
     localStorage.setItem(MODE_KEY, 'client')
     setMode('client')
   }, [])
-
-  const selectJoinHost = useCallback(async (host) => {
-    try {
-      await localClient.chooseMode({ mode: 'client', host: host.host, port: host.port })
-      localStorage.setItem(JOIN_HOST_KEY, JSON.stringify(host))
-      setJoinHost(host)
-      await refreshCamp()
-    } catch (err) {
-      setError(err && err.message ? err.message : String(err))
-    }
-  }, [refreshCamp])
 
   const login = useCallback(async (name, pin) => {
     const result = await localClient.login(name, pin)
@@ -276,9 +235,7 @@ export function useDeviceMode() {
 
   const backToModeSelect = useCallback(() => {
     localStorage.removeItem(MODE_KEY)
-    localStorage.removeItem(JOIN_HOST_KEY)
     setMode(null)
-    setJoinHost(null)
   }, [])
 
   let phase
@@ -287,14 +244,11 @@ export function useDeviceMode() {
   else if (!mode) phase = 'mode-select'
   else if (mode === 'host' && !camp) phase = 'bootstrap'
   // `!camp` matters for the libp2p join flow (docs/adr/2026-09-08-libp2p-join-flow.md):
-  // a device that joined by code has a camp but no `joinHost` — that is a
-  // WS-era concept (an address and port) with no libp2p equivalent. Having a
-  // camp IS having joined, so such a device goes on to sign in rather than
-  // being sent back to the Join screen forever. A WS client is unaffected: it
-  // always has `joinHost` set by the time it has a camp.
-  else if (mode === 'client' && !joinHost && !camp) phase = 'join'
-  else if (mode === 'client' && joinHost && pairingStatus === 'pending') phase = 'pairing_pending'
-  else if (mode === 'client' && joinHost && pairingStatus === 'denied') phase = 'pairing_denied'
+  // having a camp IS having joined, so a device that joined by code goes on to
+  // sign in rather than being sent back to the Join screen forever. Pairing has
+  // no phase of its own here: the decision arrives over libp2p and is awaited
+  // inside JoinByCodeScreen's own step machine (joinAwaitPairingDecision).
+  else if (mode === 'client' && !camp) phase = 'join'
   else if (!token) phase = 'login'
   else phase = 'session'
 
@@ -305,14 +259,11 @@ export function useDeviceMode() {
     syncEngine,
     campIsEmpty,
     role,
-    joinHost,
-    pairingStatus,
     sessionEndedReason,
     error,
     retry,
     chooseHost,
     chooseJoin,
-    selectJoinHost,
     bootstrapCamp,
     login,
     logout,

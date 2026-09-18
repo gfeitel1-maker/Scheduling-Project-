@@ -80,11 +80,10 @@ contextBridge.exposeInMainWorld('shoresh', {
   listDevices: (token) => ipcRenderer.invoke('shoresh:list-devices', { token }),
   revokeDevice: (args) => ipcRenderer.invoke('shoresh:revoke-device', args),
   onPairingRequest: (callback) => ipcRenderer.on('shoresh:pairing-request', (_event, data) => callback(data)),
-  onPairingApproved: (callback) => ipcRenderer.on('shoresh:pairing-approved', () => callback()),
-  onPairingDenied: (callback) => ipcRenderer.on('shoresh:pairing-denied', () => callback()),
-  onTokenRenewed: (callback) => ipcRenderer.on('shoresh:token-renewed', (_event, data) => callback(data.token)),
-  // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3) — mirrors
-  // onTokenRenewed's payload-forwarding shape; carries only the numeric close code.
+  // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3) — forwards a
+  // field off the payload rather than the payload itself; carries only the
+  // numeric close code. _Prior: this comment described the shape as mirroring
+  // ~~onTokenRenewed~~, which was removed as an orphaned channel with no sender._
   onAuthRejected: (callback) => ipcRenderer.on('shoresh:auth-rejected', (_event, data) => callback(data.code)),
   // §9 project-file lifecycle
   getCurrentProject: () => ipcRenderer.invoke('shoresh:get-current-project'),

@@ -247,15 +247,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
   }
 
-  // Deliberately NOT wrapped in authorize(). `args` here is
-  // { mode, campName, port, host, hostAddress } — there has never been a
-  // `token` field in this handler's signature, and `src/hooks/useDeviceMode.js`
+  // Deliberately NOT wrapped in authorize(). `src/hooks/useDeviceMode.js`
   // calls chooseMode() as part of its pre-login init effect (before
-  // verifySession is even attempted), and again from selectJoinHost()/
-  // bootstrapCamp() on the Join/Bootstrap screens, all of which render before
-  // `phase === 'session'`. There is no session to derive a role from at this
-  // point in the flow — same category as login/verify-session, per the ADR's
-  // open question, resolved here by reading the actual call sites rather than
+  // verifySession is even attempted), and again from bootstrapCamp() on the
+  // Bootstrap screen, both of which render before `phase === 'session'`.
+  // There is no session to derive a role from at this point in the flow —
+  // same category as login/verify-session, per the ADR's open question,
+  // resolved here by reading the actual call sites rather than
   // T16 — commit an import the director approved in the preview. Admin only:
   // it creates setup records in bulk, which is the same authority the setup
   // screens already require.
