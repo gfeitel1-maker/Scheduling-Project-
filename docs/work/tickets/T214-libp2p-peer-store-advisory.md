@@ -1,15 +1,44 @@
 ---
 title: "A new high npm advisory against @libp2p/peer-store fails the security gate on every branch, and the only offered fix is a semver-major libp2p bump"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, SECURITY.md]
-depends_on: "Blocks every open PR, including T206 (#467), which did not cause it and touches no dependency file. Not caused by any commit in this repo."
+depends_on: "Resolved by T215 (#472). Blocked every open PR while it stood — #467 (T206), #470, #471 — none of which caused it or touched a dependency file. Not caused by any commit in this repo."
 archive_when: "`npm run security` reports 0 findings on a clean checkout of main, the trusted-LAN/peer-identity implication of the advisory has been assessed against SECURITY.md rather than only silenced, and whatever was decided (upgrade, pin, or documented accepted tradeoff with a human gate) is recorded"
 ---
 
-# T214 — the libp2p peer-store advisory reds the gate repo-wide
+# T214 — the libp2p peer-store advisory that redded the gate repo-wide
+
+**RESOLVED the same night, by T215 (#472): `libp2p` 2.10.0 → ^3.3.11 on `main` at `8825015`.**
+`npm run security` returns `0 findings` on the resulting tree, confirmed independently on more than
+one worktree. Every blocked PR went green on a rebase.
+
+**Read the rest of this ticket in the past tense.** It is kept as the record of *why the tree went
+red on a night nobody changed a dependency* — the thing that is incomprehensible six months later —
+and of two conclusions that outlive the incident: the narrow pin is impossible (below), and the
+security gate has no exception mechanism for dependency advisories (below). Everything written as
+"is failing" describes 2026-09-17 between roughly 19:28 and the T215 merge.
+
+**One thing the resolution was larger than the title suggests.** T215 was not a single-package bump.
+Six packages moved, five of them majors — the whole transport stack:
+
+| package | from | to |
+|---|---|---|
+| `libp2p` | 2.10.0 | ^3.3.11 |
+| `@chainsafe/libp2p-noise` | ^16.1.5 | ^17.0.0 |
+| `@chainsafe/libp2p-yamux` | ^7.0.4 | ^8.0.1 |
+| `@libp2p/identify` | ^3.0.39 | ^4.1.14 |
+| `@libp2p/mdns` | ^11.0.47 | ^12.0.32 |
+| `@libp2p/tcp` | ^10.1.19 | ^11.0.28 |
+
+**What is still open after this ticket closes**, and should not be lost with it: the **two-device
+cross-version question** in "Verification the upgrade needs" below was deliberately deferred until
+after the merge rather than answered before it. Encryption, muxing, discovery and TCP all changed
+majors at once. Whether a device on the new stack can discover, authenticate against and replicate
+with one still on the old stack is **unverified**. A camp's devices do not upgrade together, and that
+failure would land on a director's second device days later. If a sync defect appears, start here.
 
 ## What is failing
 
