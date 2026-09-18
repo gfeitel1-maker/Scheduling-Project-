@@ -251,3 +251,40 @@ describe('syncNode default trust policy (T208)', () => {
     expect(lanTopologyTrust('any-peer-id')).toBe(true)
   })
 })
+
+// T162 made a device's PeerId stable across restarts, which means a Host that
+// restarts comes back under the SAME PeerId — and a peer still listing the dead
+// connection will authenticate into a closed stream. Caught by integration
+// scenario 13 ("the Host vanishes mid-exchange"), which passed on main and
+// failed here for exactly this reason.
+describe('wireMutualAuth — a connection getPeers() still lists, but which is dead', () => {
+  it('redials once and succeeds, rather than waiting for the next discovery', async () => {
+    const handle = fakeHandle()
+    handle.getPeers = () => ['peer-b']          // stale: claims connected
+    let calls = 0
+    handle.authenticateWith = vi.fn().mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) throw new Error('stream closed')   // the dead connection
+      return { type: 'auth_ok' }
+    })
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(handle.dial).toHaveBeenCalledWith('peer-b')   // it redialled
+    expect(calls).toBe(2)                                 // and retried once
+  })
+
+  it('does NOT retry when we already dialled — a failure there is a real one', async () => {
+    const handle = fakeHandle()
+    handle.getPeers = () => []                   // not connected: we dial
+    handle.authenticateWith = vi.fn().mockRejectedValue(new Error('nope'))
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(1)
+  })
+})

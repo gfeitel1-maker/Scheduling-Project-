@@ -118,7 +118,12 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     const alreadyConnected = () =>
       (syncNodeHandle.getPeers?.() ?? []).some((p) => String(p) === String(peerId))
 
-    if (!alreadyConnected()) {
+    // Did we reuse a connection getPeers() claimed to have? If that claim turns
+    // out to be stale, the authenticate below fails and we redial once — see the
+    // catch block. Tracked here because only this branch knows we skipped a dial.
+    let reusedExistingConnection = alreadyConnected()
+
+    if (!reusedExistingConnection) {
       try {
         await syncNodeHandle.dial(peerId)
       } catch (err) {
@@ -133,7 +138,29 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     }
 
     try {
-      const reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId })
+      let reply
+      try {
+        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId })
+      } catch (err) {
+        // T162 made a device's PeerId STABLE across restarts. That closed a real
+        // hole, and opened this one: when a Host restarts, it comes back under
+        // the SAME PeerId, so a peer that still lists the now-dead connection
+        // reuses it and authenticates into a closed stream. Before T162 a
+        // restart always produced a fresh PeerId, so getPeers() could not name
+        // a dead connection and this path did not exist.
+        //
+        // The failure is recoverable either way — the catch below clears
+        // `attempted` and the next discovery retries — but that costs a whole
+        // announce interval on every Host restart, which is the common case
+        // (someone closed the laptop). Redial once instead, and only when we
+        // actually skipped the dial: if we already dialled, a failure here is a
+        // real one and must not be retried into.
+        if (!reusedExistingConnection) throw err
+        reusedExistingConnection = false
+        console.warn(`mutualAuth: authenticate to ${peerId} failed over a connection getPeers() still listed; redialling once: ${err?.message ?? err}`)
+        await syncNodeHandle.dial(peerId)
+        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId })
+      }
       release()
       if (!reply || reply.type !== 'auth_ok') {
         // Red Hat finding on 5d-1: a legitimately-paired device rejected by
