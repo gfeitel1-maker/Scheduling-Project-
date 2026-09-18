@@ -88,3 +88,21 @@ decision is never touched by any re-import; a potential offering is invisible to
 schedule conflicts, and every export, while remaining visible on both authoring screens; the
 migration (`elective_set_activities.status`, schema v68) round-trips fresh vs. migrated with an
 identical column set, and rolls back cleanly.
+
+## Known maintainability risk — the status filter is a convention, not a choke point
+
+`status = 'confirmed'` is enforced at **three independent call sites**
+(`src/data/scheduleRepository.js`, `electron/ops/scheduleInputNormalization.js`,
+`scripts/mcp/tools.js`) rather than at one shared boundary. A fourth consumer of
+`elective_set_activities` that loads the table directly will not inherit the filter, and nothing
+mechanical will catch it — a `potential` offering would then be placeable by the engine, counted
+toward capacity, or exported.
+
+Three sites was the deliberate choice over filtering at ~12 read sites (almost all of which receive
+the list as a parameter) and over a global filter, which would break the two authoring screens
+(`ElectiveSetDetail.jsx`, `ScheduleElectivesScreen.jsx`) that must keep seeing `potential` rows so a
+director can confirm them. But three-by-convention is still weaker than one-by-construction, and the
+right fix if a fourth consumer ever appears is a single shared loader rather than a fourth copy of
+the rule.
+
+Raised by the security pass as a non-finding; recorded here rather than dropped.
