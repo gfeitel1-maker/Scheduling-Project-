@@ -141,6 +141,42 @@ describe('buildElectiveAssignments', () => {
     expect(key(buildElectiveAssignments(inputs))).toBe(key(buildElectiveAssignments(shuffled)))
   })
 
+  // T231 — an occurrence nobody can attend, or with nothing on offer, used to
+  // `continue` with no finding at all. Found by a real-data probe against a
+  // camp database: a malformed attendance map made every camper ineligible and
+  // the engine returned `{assignments: [], findings: []}` — a clean, empty,
+  // successful-looking result. Silence is the wrong answer here: a director
+  // whose division names do not match their tier names gets an empty schedule
+  // and no reason for it.
+  it('reports an occurrence nobody is eligible for, instead of skipping it silently', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1')],
+      offerings: [offering('o1', 'archery', 'a-arch')],
+      preferences: [pref('c1', 'archery', 1)],
+      attendance: {}, // nobody attends anything — the shape a wrapper-passing caller produces
+    })
+    expect(out.assignments).toEqual([])
+    expect(out.findings).toContainEqual(
+      expect.objectContaining({ kind: 'NO_CAMPERS', occurrence_id: 'o1' })
+    )
+  })
+
+  it('reports an occurrence with no offerings, instead of skipping it silently', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1'), occ('o2')],
+      offerings: [offering('o1', 'archery', 'a-arch')],
+      preferences: [pref('c1', 'archery', 1)],
+    })
+    expect(out.findings).toContainEqual(
+      expect.objectContaining({ kind: 'NO_OFFERINGS', occurrence_id: 'o2' })
+    )
+  })
+
+  // The empty-input case must stay quiet — no occurrences means no work, not a
+  // problem to report. Without this the fix would make every empty preview
+  // shout.
   it('returns empty rather than throwing on empty input', () => {
     const out = buildElectiveAssignments({ campers: [], occurrences: [], offerings: [], preferences: [] })
     expect(out.assignments).toEqual([])
