@@ -88,7 +88,31 @@ export function buildElectiveAssignments({
       .filter((o) => o.occurrence_id === occurrenceId)
       .sort((a, b) => (a.labelKey < b.labelKey ? -1 : a.labelKey > b.labelKey ? 1 : 0))
     const who = camperIds.filter((id) => attends(id, occurrenceId))
-    if (who.length === 0 || here.length === 0) continue
+    // T231 — say so, rather than skipping quietly. This branch used to
+    // `continue` with no finding, so an occurrence nobody could attend
+    // produced a clean empty result indistinguishable from "no work to do".
+    // Found by a real-data probe where a malformed attendance map made every
+    // camper ineligible: zero assignments, zero findings, no error. The
+    // realistic version is a camp whose division names do not match their tier
+    // names — the director gets an empty schedule and no reason for it.
+    if (here.length === 0) {
+      findings.push({
+        kind: 'NO_OFFERINGS',
+        occurrence_id: occurrenceId,
+        message: 'Nothing is offered in this period, so nobody was placed in it.',
+      })
+      continue
+    }
+    if (who.length === 0) {
+      findings.push({
+        kind: 'NO_CAMPERS',
+        occurrence_id: occurrenceId,
+        message:
+          'No camper is eligible for this period — check that the divisions on the sheet match the ' +
+          'camp\u2019s division names.',
+      })
+      continue
+    }
 
     const cost = who.map((camperId) =>
       here.map((o) => {
