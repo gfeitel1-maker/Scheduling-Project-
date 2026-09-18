@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest'
-import { createEmptyDoc } from '../../automerge/campDocument.js'
+import * as A from '@automerge/automerge'
+import { createEmptyDoc, recordKey } from '../../automerge/campDocument.js'
 import {
   readRendezvousNamespace,
   mintRendezvousNamespace,
@@ -80,5 +81,43 @@ describe('rotateRendezvousNamespace', () => {
     const doc = createEmptyDoc()
     const rotated = rotateRendezvousNamespace(doc, CAMP_ID)
     expect(Object.keys(rotated).sort()).toEqual(['doc', 'epoch', 'namespace'])
+  })
+})
+
+// T210 round 2, item 1: concurrent rotation must never split the namespace/epoch pair. Real
+// Automerge fork/merge, in the style of electron/automerge/reconcile.test.js's `diverge` helper —
+// not a mock — because the property under test is what Automerge's own per-key conflict
+// resolution actually does to two concurrent writes.
+describe('concurrent rotation is atomic (namespace and epoch can never split)', () => {
+  it('a merge of two concurrent rotations yields one ORIGINAL pair, never a mix', () => {
+    const base = mintRendezvousNamespace(createEmptyDoc(), CAMP_ID, {
+      randomBytes: () => Buffer.from('00'.repeat(32), 'hex'),
+    }).doc
+
+    const rotatedA = rotateRendezvousNamespace(A.clone(base), CAMP_ID, {
+      randomBytes: () => Buffer.from('aa'.repeat(32), 'hex'),
+    })
+    const rotatedB = rotateRendezvousNamespace(A.clone(base), CAMP_ID, {
+      randomBytes: () => Buffer.from('bb'.repeat(32), 'hex'),
+    })
+
+    const merged = A.merge(A.clone(rotatedA.doc), rotatedB.doc)
+    const survivor = readRendezvousNamespace(merged, CAMP_ID)
+
+    // The survivor must be exactly one of the two whole pairs a device actually produced —
+    // never A's namespace with B's epoch or vice versa.
+    const validPairs = [
+      { namespace: rotatedA.namespace, epoch: rotatedA.epoch },
+      { namespace: rotatedB.namespace, epoch: rotatedB.epoch },
+    ]
+    expect(validPairs).toContainEqual(survivor)
+  })
+
+  it('rejects a malformed stored value instead of silently parsing it', () => {
+    const minted = mintRendezvousNamespace(createEmptyDoc(), CAMP_ID)
+    const corrupted = A.change(minted.doc, (d) => {
+      d.camps[recordKey(CAMP_ID, 'rendezvousDiscovery')] = 'garbage'
+    })
+    expect(() => readRendezvousNamespace(corrupted, CAMP_ID)).toThrow(/malformed/i)
   })
 })

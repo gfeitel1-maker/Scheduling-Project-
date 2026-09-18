@@ -1,6 +1,41 @@
 # Shoresh — Platform State
 
-_Last updated: 2026-09-18 (**T195 rescoped: the preference-import premise was wrong, and the offering-grid
+_Last updated: 2026-09-18 (**T210, Phase B — the signed rendezvous record contract, and the camp
+rendezvous namespace, schema v69. Pure library code, not wired into any running path.**
+`electron/sync/automerge/rendezvousRecord.js` defines the canonical signed byte encoding
+(`docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md`): a fixed-order,
+length-prefixed concatenation — never `JSON.stringify` — signed with the publishing device's own
+libp2p Ed25519 identity key and self-verifying against the record's own `peerId`. `verify()` returns
+a decidable, never-throwing verdict (`signatureValid`/`fresh`/`monotonic`) rather than one boolean,
+against a caller-supplied `{lastEpoch, lastSeq}` watermark, epoch-major. **Anti-replay is split by
+scope and lifetime**: `epoch` lives on the `camps` Automerge document as part of a single scalar
+field, `rendezvousDiscovery` (`electron/sync/automerge/rendezvousNamespace.js`), so it survives a
+device rebuild; `seq` is device-local and disposable, in the new v69 `rendezvous_sequence` table
+(`electron/db/schema.sql`, `electron/db/rollback/v69_down.js`) — a device-local, never-synced
+singleton in the same exclusion class as `device_identity_key`/`host_signing_key`, guarded the same
+way and never registered in `PROJECTIONS`/`campScopedEntities.js`/`MODELED_ENTITIES`. **Namespace
+and epoch are ONE document key, not two** — a round-2 review finding (the ADR's Decision 3a):
+Automerge's per-key conflict resolution would otherwise let two devices rotating concurrently merge
+into a namespace/epoch pair neither device generated, and a director resolving what looked like two
+unrelated conflicts could pick exactly that mix by hand. `rendezvousDiscovery` holds a fixed-shape
+string `v1:<decimal epoch>:<64 hex namespace chars>`, strictly parsed — a malformed value throws
+rather than half-parsing. **Nothing here is imported by `electron/main.js` or any production sync or
+discovery path** (`INTERNET_TRANSPORT_SIGNOFF` stays `false`, the Tier-4 guard in
+`electron/sync/automerge/transportBoundary.guard.test.js` is unmodified); wiring is T211 and remains
+parked. Also fixed in round 2: the u64 wire fields (`epoch`/`seq`/`issuedAt`/`expiresAt`) now reject
+a value above `Number.MAX_SAFE_INTEGER` on both encode and decode instead of silently rounding it
+via `Number(bigint)`, and `verify()` rejects a record whose `expiresAt` precedes its `issuedAt` as
+malformed rather than reasoning about an inverted freshness window. **Revocation limitation, stated
+rather than assumed**: revoking a device stops IT from receiving further document state on the
+revoking device's own connection (`electron/sync/automerge/transport.js`'s `revokePeer`), but no code
+path tears down a THIRD device's connection to a revoked peer merely because the revocation arrived
+through sync — that device keeps trusting the peer until its own trust check independently fires.
+Closing that gap is T211's problem. T210 stays `status: open` in
+`docs/work/tickets/T210-signed-rendezvous-record-and-namespace.md`: its own `archive_when` text is
+met, but its stated dependency ("T207 must land first") is not, and this round left that fact
+recorded rather than silently overridden. Prior header note follows.)_
+
+_Prior: 2026-09-18 (**T195 rescoped: the preference-import premise was wrong, and the offering-grid
 import ships in its place — schema v68.** Round 1 of T195 (parked, preserved in git history at
 `d140614`, removed from the tip) built a ranked-choice-per-occurrence preference importer. Real camp
 artifacts, examined outside this repo, contradicted that premise — see the "Prior" entry immediately

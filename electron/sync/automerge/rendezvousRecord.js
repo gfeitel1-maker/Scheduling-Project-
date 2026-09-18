@@ -66,7 +66,12 @@ function writeLengthPrefixed(bytes) {
   return Buffer.concat([writeVarint(bytes.length), Buffer.from(bytes)])
 }
 
+// Symmetric with readVarint's Number.isSafeInteger guard below: a u64 field above
+// Number.MAX_SAFE_INTEGER (2^53-1) cannot round-trip through a JS Number, and epoch/seq feed the
+// monotonicity comparison directly — refuse to encode one rather than write bytes that would
+// decode to a rounded, wrong value.
 function writeU64BE(n) {
+  if (!Number.isSafeInteger(n)) throw new Error('rendezvousRecord: u64 field exceeds Number.MAX_SAFE_INTEGER')
   const buf = Buffer.alloc(8)
   buf.writeBigUInt64BE(BigInt(n))
   return buf
@@ -74,7 +79,11 @@ function writeU64BE(n) {
 
 function readU64BE(buf, offset) {
   if (offset + 8 > buf.length) throw new Error('rendezvousRecord: truncated u64')
-  return Number(buf.readBigUInt64BE(offset))
+  const value = buf.readBigUInt64BE(offset)
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error('rendezvousRecord: u64 field exceeds Number.MAX_SAFE_INTEGER')
+  }
+  return Number(value)
 }
 
 // Byte-lexicographic sort of the UTF-8 encoded addresses. This is what makes two callers who
@@ -84,6 +93,17 @@ function sortedAddressBytes(addresses) {
   encoded.sort(Buffer.compare)
   return encoded
 }
+
+// The four fixed-width 8-byte fields, in wire order. Both buildSignedBytes and decode() iterate
+// THIS array rather than each independently naming the four fields — item 4 of the T210 round-2
+// review found the two sides enumerating the same sequence by hand, with nothing but the test
+// suite forcing them to agree. `namespace`, `peerId` and `addresses` stay hand-paired below
+// (namespaceBytes/readBytes(32) and writeLengthPrefixed/readLengthPrefixed are already the same
+// shared helpers on both sides, and addresses is a variable-length list with its own count prefix)
+// — a single generic table spanning all 7 fields would have to abstract three genuinely different
+// shapes (fixed 32 bytes, one length-prefixed scalar, four identical u64s, a counted list) for one
+// real win, so only the part that is actually a duplicated identical shape is unified.
+const U64_FIELDS = ['epoch', 'seq', 'issuedAt', 'expiresAt']
 
 function namespaceBytes(namespace) {
   const buf = Buffer.from(String(namespace), 'hex')
@@ -98,17 +118,15 @@ function namespaceBytes(namespace) {
  * internally, so callers never need to pre-sort, and two logically-identical records with
  * differently-ordered address arrays produce byte-identical output.
  */
-export function buildSignedBytes({ namespace, peerId, epoch, seq, issuedAt, expiresAt, addresses }) {
+export function buildSignedBytes(record) {
+  const { namespace, peerId, addresses } = record
   const addressList = sortedAddressBytes(addresses ?? [])
   return Buffer.concat([
     DOMAIN_PREFIX,
     Buffer.from([VERSION]),
     namespaceBytes(namespace),
     writeLengthPrefixed(Buffer.from(String(peerId), 'utf8')),
-    writeU64BE(epoch),
-    writeU64BE(seq),
-    writeU64BE(issuedAt),
-    writeU64BE(expiresAt),
+    ...U64_FIELDS.map((field) => writeU64BE(record[field])),
     writeVarint(addressList.length),
     ...addressList.map(writeLengthPrefixed),
   ])
@@ -147,14 +165,12 @@ function decode(bytes) {
   offset += 32
   const peerIdField = readLengthPrefixed(buf, offset)
   offset = peerIdField.next
-  const epoch = readU64BE(buf, offset)
-  offset += 8
-  const seq = readU64BE(buf, offset)
-  offset += 8
-  const issuedAt = readU64BE(buf, offset)
-  offset += 8
-  const expiresAt = readU64BE(buf, offset)
-  offset += 8
+  const u64s = {}
+  for (const field of U64_FIELDS) {
+    u64s[field] = readU64BE(buf, offset)
+    offset += 8
+  }
+  const { epoch, seq, issuedAt, expiresAt } = u64s
   const { value: addressCount, next: afterCount } = readVarint(buf, offset)
   offset = afterCount
   const addresses = []
@@ -167,6 +183,12 @@ function decode(bytes) {
   const signedBytes = buf.subarray(0, offset)
   const signature = buf.subarray(offset)
   if (signature.length !== SIGNATURE_LENGTH) return { malformed: true }
+
+  // An inverted window (expiresAt before issuedAt) can only be a bug or an attack — there is no
+  // legitimate record for which it is true. Reject it here, before the two independent boundary
+  // comparisons in verify()'s `fresh` check, rather than let two separately-passing comparisons
+  // reason about a window that never made sense.
+  if (expiresAt < issuedAt) return { malformed: true }
 
   return {
     record: {

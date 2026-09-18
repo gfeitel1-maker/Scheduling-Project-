@@ -230,3 +230,62 @@ describe('monotonicity (epoch-major watermark)', () => {
     expect(verdict.monotonic).toBe(false)
   })
 })
+
+// T210 round 2, item 3: readU64BE used to do `Number(bigint)`, silently rounding above
+// Number.MAX_SAFE_INTEGER (2^53-1) — its sibling readVarint already enforces
+// Number.isSafeInteger, but the four u64 fields (epoch, seq, issuedAt, expiresAt) feed the
+// monotonicity comparison directly, so two distinct u64s above the safe-integer boundary could
+// decode to the same rounded Number and be treated as equal/monotonic when they are not.
+describe('u64 fields reject values above Number.MAX_SAFE_INTEGER (no silent rounding)', () => {
+  const UNSAFE = Number.MAX_SAFE_INTEGER + 2 // an even integer just past the boundary
+  const boundaryRecordFor = (field) => baseRecord({ [field]: UNSAFE })
+
+  for (const field of ['epoch', 'seq', 'issuedAt', 'expiresAt']) {
+    it(`buildSignedBytes refuses to encode an unsafe ${field}`, () => {
+      expect(() => buildSignedBytes(boundaryRecordFor(field))).toThrow()
+    })
+
+    it(`verify() rejects a decoded wire record whose ${field} was written unsafely large`, () => {
+      // Bypass buildSignedBytes's own guard to prove the DECODE side also rejects rather than
+      // silently rounding, in case the two ever drift apart.
+      const record = baseRecord({ [field]: Number.MAX_SAFE_INTEGER })
+      const wire = signRecord(record, keyA)
+      // Corrupt the field's 8 raw bytes in place to an unsafe u64 value, keeping everything else
+      // (including the signature) as-is — verify() must fail closed as malformed, not throw
+      // uncaught and not silently round.
+      const buf = Buffer.from(wire)
+      const fieldOffsets = { epoch: 0, seq: 8, issuedAt: 16, expiresAt: 24 }
+      const namespaceLen = 32
+      const peerIdFieldLen = 1 + Buffer.byteLength(peerIdA, 'utf8') // varint(<128) + utf8 bytes
+      const u64Start = DOMAIN_PREFIX.length + 1 + namespaceLen + peerIdFieldLen
+      const offset = u64Start + fieldOffsets[field]
+      buf.writeBigUInt64BE(BigInt(Number.MAX_SAFE_INTEGER) + 2n, offset)
+
+      const verdict = verify(buf, { now: record.issuedAt })
+      expect(verdict.ok).toBe(false)
+      expect(verdict.reason).toBe('malformed')
+    })
+  }
+})
+
+// T210 round 2, item 5: verify() did not check issuedAt <= expiresAt. Decision: reject an inverted
+// record as malformed — it can only be a bug or an attack, and rejecting it before running the two
+// independent boundary comparisons is cheaper than reasoning about what an inverted window means.
+describe('inverted issuedAt/expiresAt window is rejected as malformed', () => {
+  it('rejects a record whose expiresAt is before its issuedAt', () => {
+    const now = Date.parse('2026-09-18T12:00:00Z')
+    const record = baseRecord({ issuedAt: now, expiresAt: now - 1000 })
+    const wire = signRecord(record, keyA)
+    const verdict = verify(wire, { now })
+    expect(verdict.ok).toBe(false)
+    expect(verdict.reason).toBe('malformed')
+  })
+
+  it('accepts a record whose expiresAt equals issuedAt (zero-width but not inverted)', () => {
+    const now = Date.parse('2026-09-18T12:00:00Z')
+    const record = baseRecord({ issuedAt: now, expiresAt: now })
+    const wire = signRecord(record, keyA)
+    const verdict = verify(wire, { now })
+    expect(verdict.ok).toBe(true)
+  })
+})

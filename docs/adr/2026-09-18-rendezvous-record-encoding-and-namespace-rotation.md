@@ -89,13 +89,16 @@ A single monotonic counter cannot survive a device rebuild (the counter resets t
 still-live KV record from before the rebuild carries a higher value and wins) or a backup restored
 from before a device's removal. Splitting the anti-replay material by scope and lifetime closes both:
 
-- **`epoch`** lives on the `camps` Automerge record as `rendezvousEpoch`, alongside a new
-  `rendezvousNamespace` field (32 bytes of `crypto.randomBytes`, hex-encoded). Both are additive
-  fields on an entity already in `MODELED_ENTITIES` using the flat per-field record shape, so there
-  is no document-shape change beyond two new fields and no migration. It starts at 1 when rendezvous
-  is first enabled and is incremented **only** on an explicit rotation, never by ordinary publishing.
-  Because it is in the document it reaches every currently-syncing device for free, exactly as
-  `camps.signing_public_key` already does.
+- **`epoch`** and the namespace it is paired with live on the `camps` Automerge record.
+  _Prior: this originally described `epoch` and namespace as two separate fields,
+  `rendezvousEpoch` and `rendezvousNamespace`. That was found to be a design defect during round-2
+  review (see the new "Decision 3a" below) and is superseded by a single field,
+  `rendezvousDiscovery`, before this ADR's implementation state left `proposed`. Both are additive
+  to an entity already in `MODELED_ENTITIES` using the flat per-field record shape, so there is no
+  document-shape change beyond one new field and no migration._ It starts at epoch 1 when rendezvous
+  is first enabled and the epoch component is incremented **only** on an explicit rotation, never by
+  ordinary publishing. Because it is in the document it reaches every currently-syncing device for
+  free, exactly as `camps.signing_public_key` already does.
 - **`seq`** is device-local: a new singleton SQLite table `rendezvous_sequence` (migration v69, the
   `id = 1` shape `device_identity_key` uses), incremented before each publish attempt. It is never
   registered in `PROJECTIONS`, `campScopedEntities.js` or `MODELED_ENTITIES` — the same exclusion
@@ -112,11 +115,40 @@ the watermark is persisted belongs to T211; T210's obligation is that `verify()`
 caller-supplied `{lastEpoch, lastSeq}` and returns a monotonicity verdict alongside the signature
 verdict, so the wiring layer has a complete, decidable function to call.
 
+## Decision 3a — namespace and epoch are ONE document field, not two (round-2 correction)
+
+Added during round-2 review, before this ADR left `proposed`: Red Hat confirmed against
+`electron/automerge/reconcile.js` that conflict resolution is per document key, adjudicated
+independently for each key. With `rendezvousNamespace` and `rendezvousEpoch` as two separate keys,
+two devices rotating concurrently could merge into a pair **neither device ever generated** — device
+A's namespace with device B's epoch. A director resolving what look like two unrelated single-field
+conflicts could pick exactly that mix by hand, with no way to see from either conflict prompt that
+they were coupled. Worse, if the surviving epoch is lower than one already published under, every
+future publish fails `rendezvousRecord.js`'s monotonicity check — a self-inflicted denial of service
+on the feature rotation exists to fix.
+
+**Decision:** store the pair as one scalar document field, `camps.rendezvousDiscovery`, holding a
+fixed-shape string `v1:<decimal epoch>:<64 hex namespace chars>` — deliberately not something
+JSON-shaped a naive merge or reorder could still split. Automerge's conflict resolution operates on
+one key at a time, so a single key can only ever resolve to one of the whole values written to it:
+splitting becomes structurally impossible rather than merely unlikely. A conflict on this field is a
+whole pair for a director to choose between, which is the CRDT property Decision 3 (below) actually
+needs. The reader is strict: a value not matching the fixed shape is rejected outright rather than
+half-parsed, so a corrupted or hand-edited value fails loud instead of returning a namespace with no
+epoch or vice versa.
+
+This also corrects Decision 5's idempotency claim below: `mintRendezvousNamespace` is idempotent
+against *sequential* calls only. Two devices minting concurrently both observe "no existing
+namespace" and both write; one wins the merge and the other's `minted: true` return value does not
+reflect what survives. That race exists regardless of field count. What Decision 3a's single-field
+shape guarantees is that the *loser's* write is a whole, self-consistent pair — never a value mixed
+from both attempts.
+
 ## Decision 3 — rotation reuses the existing revocation boundary; no new primitive
 
-`rotateRendezvousNamespace()` mints fresh bytes and increments `epoch`, written through
-`campDocument.js`'s low-level `recordKey`/`readRecord` primitives — the same flat per-field record
-shape every modeled entity uses.
+`rotateRendezvousNamespace()` mints a fresh namespace and increments the epoch together as the
+single `rendezvousDiscovery` field (Decision 3a), written through `campDocument.js`'s low-level
+`recordKey`/`readRecord` primitives — the same flat per-field record shape every modeled entity uses.
 
 _Prior: this ADR first said "through the same document path `signing_public_key` uses." That was
 wrong, found during implementation and corrected here. `camps.signing_public_key` is **not** a
@@ -130,6 +162,25 @@ enforces rather than on anything new:
 
 1. Automerge sync is gated by the existing device-trust/revocation check. A revoked device stops
    receiving document state, so it never learns the post-revocation namespace or epoch.
+
+   **Confirmed, with a stated limitation (round-2 review).** `electron/main.js:973`'s `revokeDevice`
+   calls `getAutomergeNode()?.revokePeer(peerId)`, and `electron/sync/automerge/transport.js`'s
+   `revokePeer` (~line 356) deletes the peer from `authenticatedPeers`, the same set `broadcastDoc`
+   and the inbound-message handler gate on. So **on the device that performs the revocation**, the
+   live connection to the revoked peer stops carrying document state immediately — no reconnect
+   needed. That much is verified, not assumed.
+
+   The residual: `revokePeer` is called only from that one explicit `revokeDevice` handler. Nothing
+   in `syncNode.js` or `transport.js` calls it in reaction to a revocation *arriving* through
+   Automerge sync from another device — there is no code path where receiving the revocation as
+   document state causes a device to tear down its own live connection to the revoked peer. A
+   revoked device that stays connected to a **third** device (one that has not yet independently
+   revoked it) can keep receiving document state — including a post-rotation namespace/epoch —
+   through that third device until the third device's own trust check fires, on whatever trigger
+   that is (a future reconnect, an explicit revocation of its own, or nothing at all if that trigger
+   does not exist yet). This is not a claim this ADR resolves; closing it is T211's problem, which is
+   parked. Stated here rather than left implicit in "a revoked device stops receiving document
+   state," which is true only from the revoking device's own point of view.
 2. KV entries expire on their own (<= 2h TTL). A departed device leaves at most one stale,
    address-only record under a namespace nobody polls any more.
 
