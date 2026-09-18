@@ -29,7 +29,7 @@
  * catastrophically wrong. So arm 2 has device B assign a DIFFERENT camper and
  * asserts the count is 2: distinct keys must stay distinct.
  */
-import { AmHost, AmClient, makeTmpDir, cleanupDirs, waitFor } from '../harnessAutomerge.js'
+import { setupTwoJoinedDevices, partitionClients, healPartition, cleanupDirs, waitFor } from '../harnessAutomerge.js'
 import { readRecord } from '../../../electron/automerge/campDocument.js'
 import { deriveElectiveAssignmentId } from '../../../electron/ops/electiveDerivedIds.js'
 
@@ -71,22 +71,12 @@ export async function run() {
   let host, clientA, clientB
 
   try {
-    const tmpDir = makeTmpDir()
+    const setup = await setupTwoJoinedDevices()
+    host = setup.host
+    clientA = setup.clientA
+    clientB = setup.clientB
+    const { tmpDir, campId } = setup
     dirs.push(tmpDir)
-    const dirA = `${tmpDir}/clientA-userdata`
-    const dirB = `${tmpDir}/clientB-userdata`
-
-    host = new AmHost(`${tmpDir}/host.db`)
-    await host.start()
-    const { campId } = await host.bootstrap()
-
-    clientA = new AmClient(`${tmpDir}/clientA.db`)
-    clientA.open()
-    await clientA.join(host)
-
-    clientB = new AmClient(`${tmpDir}/clientB.db`)
-    clientB.open()
-    await clientB.join(host)
 
     // The run and its occurrence exist on every device BEFORE the partition —
     // a director creates the run, then two people work on it. The parent must
@@ -105,8 +95,7 @@ export async function run() {
 
     // ---- PARTITION. Each device restarts onto a fresh node that is not dialed
     // to the Host, so the writes below genuinely cannot reach the other side.
-    await clientA.restart(dirA, campId)
-    await clientB.restart(dirB, campId)
+    await partitionClients({ tmpDir, clientA, clientB, campId })
 
     // ---- Both independently generate an assignment for the SAME triple,
     // through the real write path. Neither knows the other is doing it.
@@ -143,8 +132,7 @@ export async function run() {
     }
 
     // ---- HEAL.
-    await clientA.reconnect(host)
-    await clientB.reconnect(host)
+    await healPartition({ host, clientA, clientB })
 
     // Wait until both devices have actually seen the other's write, so the
     // assertions below are made on a MERGED document rather than on a device
