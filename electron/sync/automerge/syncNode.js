@@ -18,6 +18,7 @@ import { synthesizeOpEvents } from './docDiffEvents.js'
 import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../../auth/connectionAuth.js'
 import { appendReceivedOps } from '../../automerge/historyLedger.js'
 import { wireMutualAuth } from './mutualAuth.js'
+import { createConnectivityEmitter } from './connectivityEvents.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { createBoundPeerTrust } from './peerIdentity.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
@@ -491,9 +492,14 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // symmetry, not the absence of a row, is why this limitation predates T208 and is
   // unchanged by it.
   let authToken = null
+  // T212 (docs/work/tickets/T212-wan-connectivity-measurement.md): the env read is deliberately
+  // HERE, not inside connectivityEvents.js or mutualAuth.js — both stay dependency-free and
+  // unit-testable with an injected emitter. Default (unset) keeps addresses classified, never
+  // literal, in shipped behavior; an operator running the WAN test matrix by hand opts in.
+  const emitter = createConnectivityEmitter({ verboseAddrs: process.env.SHORESH_CONNECTIVITY_LOG_ADDRS === '1' })
   wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
-    { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db) }
+    { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter }
   )
 
   return {

@@ -19,6 +19,8 @@
 // onPeerDiscovery), so it is unit-testable against a small fake handle
 // without a real libp2p node or SQLite (see mutualAuth.test.js).
 //
+import { createConnectivityEmitter, classifyError, EVENTS } from './connectivityEvents.js'
+
 // `getToken()` returns this device's own current, valid session token (a
 // Host self-issues one; a Client uses whatever it was last handed by a
 // successful login/pairing) or null/undefined if none is available yet — in
@@ -59,7 +61,14 @@ const NEGATIVE_CACHE_TTL_MS = 5_000
 // flood — oldest entry evicted once this is exceeded.
 const NEGATIVE_CACHE_MAX_SIZE = 500
 
-export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now() } = {}) {
+// T212 (docs/work/tickets/T212-wan-connectivity-measurement.md) + ADR
+// docs/adr/2026-09-18-connectivity-observability-event-vocabulary.md: `emitter` is optional and
+// defaults to a real, console-backed one, so every existing caller keeps working unchanged and
+// still gets the new observability for free. A caller that wants literal multiaddrs logged (the
+// WAN test matrix, run by hand) passes its own emitter with verboseAddrs: true — this module never
+// reads process.env itself.
+
+export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter() } = {}) {
   if (typeof isPeerTrusted !== 'function') {
     throw new TypeError(
       'wireMutualAuth requires an isPeerTrusted(peerId) predicate: this seam decides who receives ' +
@@ -112,14 +121,17 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     // permission, and failing open here would reintroduce the exact defect the
     // predicate exists to close.
     let trusted = false
+    let trustCheckErrored = false
     try {
       trusted = isPeerTrusted(peerId) === true
     } catch (err) {
       console.error(`mutualAuth: trust check for ${peerId} failed, treating as untrusted: ${err?.message ?? err}`)
       trusted = false
+      trustCheckErrored = true
     }
     if (!trusted) {
       recordDenial(peerId)
+      emitter.emit(EVENTS.TRUST_CHECK_REJECTED, { peerId, reason: trustCheckErrored ? 'trust_check_error' : 'untrusted' })
       return
     }
     // Trusted: drop any stale denial record so a peer that becomes trusted is
@@ -136,6 +148,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     const stall = setTimeout(() => {
       if (attempted.delete(peerId)) {
         console.error(`mutualAuth: attempt against ${peerId} stalled past ${attemptTimeoutMs}ms; releasing it so a later discovery can retry`)
+        emitter.emit(EVENTS.ATTEMPT_STALLED, { peerId, attemptTimeoutMs })
       }
     }, attemptTimeoutMs)
     stall.unref?.()
@@ -178,12 +191,17 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
           release()
           attempted.delete(peerId)
           console.error(`mutualAuth: dial to ${peerId} failed and no existing connection to reuse (will retry on next discovery): ${err?.message ?? err}`)
+          emitter.emit(EVENTS.DIAL_FAILED, { peerId, reused: false, errorClass: classifyError(err) })
           return
         }
         console.warn(`mutualAuth: dial to ${peerId} failed, but an inbound connection exists — authenticating over that instead: ${err?.message ?? err}`)
       }
     }
 
+    let retried = false
+    // Set when a dial failure inside the redial branch below has already emitted DIAL_FAILED —
+    // the outer catch must not also emit AUTH_ERROR for the same underlying failure.
+    let dialFailureEmitted = false
     try {
       let reply
       try {
@@ -204,8 +222,15 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
         // real one and must not be retried into.
         if (!reusedExistingConnection) throw err
         reusedExistingConnection = false
+        retried = true
         console.warn(`mutualAuth: authenticate to ${peerId} failed over a connection getPeers() still listed; redialling once: ${err?.message ?? err}`)
-        await syncNodeHandle.dial(peerId)
+        try {
+          await syncNodeHandle.dial(peerId)
+        } catch (dialErr) {
+          dialFailureEmitted = true
+          emitter.emit(EVENTS.DIAL_FAILED, { peerId, reused: true, errorClass: classifyError(dialErr) })
+          throw dialErr
+        }
         reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId })
       }
       release()
@@ -222,15 +247,22 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
         console.error(`mutualAuth: peer ${peerId} rejected our authenticate: ${JSON.stringify(reply)}`)
         onRejected?.(peerId, reply)
         attempted.delete(peerId)
+        emitter.emit(EVENTS.AUTH_REJECTED, { peerId, retried })
+      } else {
+        emitter.emit(EVENTS.AUTH_OK, { peerId })
       }
     } catch (err) {
       release()
       attempted.delete(peerId)
       console.error(`mutualAuth: authenticateWith ${peerId} failed (will retry on next discovery): ${err?.message ?? err}`)
+      if (!dialFailureEmitted) {
+        emitter.emit(EVENTS.AUTH_ERROR, { peerId, retried, errorClass: classifyError(err) })
+      }
     }
   }
 
-  syncNodeHandle.onPeerDiscovery(({ id }) => {
+  syncNodeHandle.onPeerDiscovery(({ id, multiaddrs }) => {
+    emitter.emit(EVENTS.PEER_DISCOVERED, { peerId: id, multiaddrs })
     tryAuthenticate(id).catch((err) => {
       console.error(`mutualAuth: unexpected error authenticating with discovered peer: ${err?.message ?? err}`)
     })

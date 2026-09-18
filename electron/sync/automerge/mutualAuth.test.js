@@ -374,3 +374,142 @@ describe('wireMutualAuth — negative cache for untrusted peers (T208 round 2)',
     expect(trustCheck).toHaveBeenCalledTimes(2)
   })
 })
+
+// ── T212 (docs/work/tickets/T212-wan-connectivity-measurement.md) + ADR
+// docs/adr/2026-09-18-connectivity-observability-event-vocabulary.md: wireMutualAuth emits
+// connectivity events through an injected emitter, so a WAN pairing failure can be classified
+// as discovery-layer vs dial-layer vs auth-layer from logs alone.
+describe('wireMutualAuth — connectivity event emission (T212)', () => {
+  function fakeEmitter() {
+    const events = []
+    return { events, emit: (name, fields) => events.push({ name, fields }) }
+  }
+
+  it('emits PEER_DISCOVERED then DIAL_FAILED when a peer is discovered but the dial never succeeds (load-bearing distinction)', async () => {
+    const handle = {
+      getPeers: () => [],
+      dial: async () => { throw new Error('ECONNREFUSED') },
+      authenticateWith: async () => ({ type: 'auth_ok' }),
+      onPeerDiscovery: (cb) => { handle._fire = cb },
+    }
+    const emitter = fakeEmitter()
+    wireMutualAuth(handle, { deviceId: 'me', getToken: () => 'tok', isPeerTrusted: () => true, emitter })
+
+    handle._fire({ id: 'peer-x', multiaddrs: ['/ip4/203.0.113.9/tcp/4001'] })
+    await new Promise((r) => setTimeout(r, 10))
+
+    const names = emitter.events.map((e) => e.name)
+    expect(names).toEqual(['PEER_DISCOVERED', 'DIAL_FAILED'])
+    expect(emitter.events[1].fields.reused).toBe(false)
+  })
+
+  it('emits neither PEER_DISCOVERED nor DIAL_FAILED for a peer that is never discovered', async () => {
+    const handle = fakeHandle()
+    const emitter = fakeEmitter()
+    wireMutualAuth(handle, { deviceId: 'me', getToken: () => 'tok', isPeerTrusted: () => true, emitter })
+
+    // No fireDiscovery call at all.
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(emitter.events).toEqual([])
+  })
+
+  it('emits AUTH_OK on a successful authenticate', async () => {
+    const handle = fakeHandle()
+    const emitter = fakeEmitter()
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true, emitter })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+
+    const names = emitter.events.map((e) => e.name)
+    expect(names).toEqual(['PEER_DISCOVERED', 'AUTH_OK'])
+  })
+
+  it('emits AUTH_REJECTED (not AUTH_OK) when the peer rejects our authenticate', async () => {
+    const handle = fakeHandle()
+    handle.authenticateWith = vi.fn().mockResolvedValue({ type: 'auth_failed', reason: 'device_revoked' })
+    const emitter = fakeEmitter()
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true, emitter })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+
+    const names = emitter.events.map((e) => e.name)
+    expect(names).toEqual(['PEER_DISCOVERED', 'AUTH_REJECTED'])
+  })
+
+  it('emits AUTH_ERROR when authenticateWith throws with no reused connection to retry', async () => {
+    const handle = fakeHandle()
+    handle.authenticateWith = vi.fn().mockRejectedValue(new Error('ECONNRESET'))
+    const emitter = fakeEmitter()
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true, emitter })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+
+    const names = emitter.events.map((e) => e.name)
+    expect(names).toEqual(['PEER_DISCOVERED', 'AUTH_ERROR'])
+  })
+
+  it('emits TRUST_CHECK_REJECTED (reason: untrusted) for a peer local trust denies, and no dial/auth events', async () => {
+    const handle = fakeHandle()
+    const emitter = fakeEmitter()
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => false, emitter })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+
+    const names = emitter.events.map((e) => e.name)
+    expect(names).toEqual(['PEER_DISCOVERED', 'TRUST_CHECK_REJECTED'])
+    expect(emitter.events[1].fields.reason).toBe('untrusted')
+    expect(handle.dial).not.toHaveBeenCalled()
+  })
+
+  it('emits TRUST_CHECK_REJECTED (reason: trust_check_error) when isPeerTrusted throws', async () => {
+    const handle = fakeHandle()
+    const emitter = fakeEmitter()
+    wireMutualAuth(handle, {
+      deviceId: 'device-a',
+      getToken: () => 'tok-1',
+      isPeerTrusted: () => { throw new Error('db exploded') },
+      emitter,
+    })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+
+    const names = emitter.events.map((e) => e.name)
+    expect(names).toEqual(['PEER_DISCOVERED', 'TRUST_CHECK_REJECTED'])
+    expect(emitter.events[1].fields.reason).toBe('trust_check_error')
+  })
+
+  it('emits ATTEMPT_STALLED when the attempt watchdog fires before dial/auth resolves', async () => {
+    vi.useFakeTimers()
+    try {
+      const handle = fakeHandle()
+      handle.dial = () => new Promise(() => {}) // never resolves
+      const emitter = fakeEmitter()
+      wireMutualAuth(handle, {
+        deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true,
+        attemptTimeoutMs: 100, emitter,
+      })
+
+      handle.fireDiscovery('peer-b')
+      await vi.advanceTimersByTimeAsync(101)
+
+      const names = emitter.events.map((e) => e.name)
+      expect(names).toEqual(['PEER_DISCOVERED', 'ATTEMPT_STALLED'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('defaults to a working emitter (console-backed) when none is injected, without throwing', async () => {
+    const handle = fakeHandle()
+    wireMutualAuth(handle, { deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true })
+
+    expect(() => handle.fireDiscovery('peer-b')).not.toThrow()
+    await new Promise((r) => setTimeout(r, 10))
+  })
+})
