@@ -1,19 +1,26 @@
 ---
 title: "Upgrade libp2p 2.10.0 to 3.3.11 to close GHSA-vrf4-mx87-p53w, and answer whether a mixed-version camp can still sync"
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-17
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md, SECURITY.md]
-related_adrs: [docs/adr/2026-09-14-internet-transport-security-gate.md]
+related_adrs: [docs/adr/2026-09-14-internet-transport-security-gate.md, docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md]
 archive_when: "npm audit reports no high/critical advisory against @libp2p/peer-store, the Tier-4 guard's package list has been re-checked against 3.x names, and mixed-version (2.10 <-> 3.x) replication has been demonstrated or its failure surfaced to the director"
 ---
 
 # T215 — libp2p 2.10.0 → 3.3.11
 
-**Status audited 2026-09-18 — DELIBERATELY LEFT OPEN.** Two of the three `archive_when`
-conditions are met; the third is not, and the ticket stays open because of it. Both live sessions
-that worked on the upgrade were asked independently and agreed.
+**Closed 2026-09-18 — all three `archive_when` conditions are now met.** Conditions 1 and 2 were
+met as of the 2026-09-18 audit below. **Condition 3 is met by a recorded product decision, not by a
+demonstration**: `docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md` records the
+owner's decision that Shoresh does not promise mixed-version replication — a camp's devices all run
+the same build, enforced (once built) by update-on-open. This satisfies the condition's "or its
+failure surfaced to the director" branch by removing the promise at the product level. **A future
+reader must not read this as "cross-version replication was tested and works."** It was not — see
+the ADR for the one interop attempt made (branch `worktree-agent-a05ea47d10e1c405e`, discarded,
+verdict inconclusive) and for the load-bearing gap this decision leaves open (update-on-open does
+not exist yet; tracked as `docs/work/tickets/T222-update-on-open.md`).
 
 1. **Advisory clear — MET.** `npm audit --omit=dev` returns 0 vulnerabilities, and the fix was
    verified in the installed `@libp2p/peer-store@12.0.28` source rather than taken on the audit
@@ -25,8 +32,9 @@ that worked on the upgrade were asked independently and agreed.
    `@libp2p/webrtc-direct` — both added in #472. Worth knowing why QUIC was absent: it was
    uninstallable under `@libp2p/interface@^2.11.0`, so **the dependency graph had been doing that
    guarding accidentally**, and the 3.x bump removed that protection.
-3. **Mixed-version (2.10 ↔ 3.x) replication — NOT MET.** It has not been demonstrated, and its
-   failure has not been surfaced to a director either. Nothing about this condition has happened.
+3. **Mixed-version (2.10 ↔ 3.x) replication — MET by decision.** See
+   `docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md`. It has not been demonstrated to
+   work; the product no longer promises it, so the condition's "or" branch closes it.
 
 **Why condition 3 must not be reassigned to [[T217]].** T217 is scoped to the three residual
 findings (the `authenticateWith` close-race where `security` and `red-hat` reached opposite
