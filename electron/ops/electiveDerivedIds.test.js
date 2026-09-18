@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  deriveCamperId,
   electiveChoiceLabelKey,
   deriveElectiveOccurrenceId,
   deriveElectiveChoiceId,
@@ -298,5 +299,65 @@ describe('cross product — every corpus label through the full derivation chain
     expect(() => deriveElectivePreferenceId('run-1', 'camper-1', 'Arts & Crafts')).toThrow(
       /choice_id/i
     )
+  })
+})
+
+// T226 — camper identity. Owner-approved 2026-09-18: key on external_id when
+// the sheet supplies one, otherwise on the normalized display name, with
+// same-name collisions surfaced to the director rather than merged.
+describe('deriveCamperId', () => {
+  it('is stable for the same external id — two devices importing one sheet converge', () => {
+    const a = deriveCamperId('camp-1', { externalId: 'CM-4417' })
+    const b = deriveCamperId('camp-1', { externalId: 'CM-4417' })
+    expect(a).toBe(b)
+  })
+
+  it('is stable for the same name when there is no external id', () => {
+    expect(deriveCamperId('camp-1', { displayName: 'Ari Green' }))
+      .toBe(deriveCamperId('camp-1', { displayName: 'Ari Green' }))
+  })
+
+  // The whole point of keying on the camp: two camps may both have an "Ari
+  // Green", and they are not the same child.
+  it('separates the same name in different camps', () => {
+    expect(deriveCamperId('camp-1', { displayName: 'Ari Green' }))
+      .not.toBe(deriveCamperId('camp-2', { displayName: 'Ari Green' }))
+  })
+
+  // An external-id camper and a name-keyed camper must never be able to
+  // collide. The probe uses an external id that is EXACTLY what the name
+  // canonicalizer produces for 'Ari Green' — without the mode tag in the key
+  // these two derivations would be byte-identical, so this is the case the tag
+  // exists for, not a decorative assertion.
+  it('cannot collide across the two key modes', () => {
+    expect(electiveChoiceLabelKey('Ari Green')).toBe('arigreen') // the collision this guards
+    expect(deriveCamperId('camp-1', { externalId: 'arigreen' }))
+      .not.toBe(deriveCamperId('camp-1', { displayName: 'Ari Green' }))
+  })
+
+  // An external id is a surrogate from another system, and is held to the same
+  // opaque alphabet as every other surrogate component — which closes the
+  // whitespace/Unicode skew at the source rather than normalizing it later.
+  // Refusing loudly is the point: a camp-management id with a space in it is
+  // a mapping mistake worth stopping on, not something to silently fold.
+  it('refuses a non-opaque external id rather than folding it', () => {
+    expect(() => deriveCamperId('camp-1', { externalId: 'Ari Green' })).toThrow(/opaque/i)
+  })
+
+  // Same normalization rule as the choice-label key: two devices transcribing
+  // one sheet plausibly differ in spacing, and that must not fork the camper.
+  it('folds whitespace and case the way the choice-label key does', () => {
+    expect(deriveCamperId('camp-1', { displayName: 'Ari  Green' }))
+      .toBe(deriveCamperId('camp-1', { displayName: 'ari green' }))
+  })
+
+  it('prefers the external id when both are present, so a rename cannot fork the camper', () => {
+    expect(deriveCamperId('camp-1', { externalId: 'CM-4417', displayName: 'Ari Green' }))
+      .toBe(deriveCamperId('camp-1', { externalId: 'CM-4417', displayName: 'Ari Greene' }))
+  })
+
+  it('refuses a camper with neither key rather than minting an unstable id', () => {
+    expect(() => deriveCamperId('camp-1', {})).toThrow(/external_id or display_name/i)
+    expect(() => deriveCamperId('camp-1', { displayName: '   ' })).toThrow(/external_id or display_name/i)
   })
 })
