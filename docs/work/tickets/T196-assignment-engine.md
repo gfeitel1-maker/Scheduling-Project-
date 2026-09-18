@@ -148,3 +148,29 @@ locks; all-full; no-ranked-choice; overlapping occurrence; empty occurrence; clo
 another does not** (the choice must be refused whole); stable finding order.
 Manual moves and locks recompute capacity and eligibility immediately — manual override is not an
 escape hatch, and over-capacity placement is not permitted in this release.
+
+## Measured on a 100-camper fabricated fixture (2026-09-18)
+
+85 campers (the fixture's generator produced same-name collisions, correctly collapsed by T226),
+30 occurrences, 4 offerings each at capacity 30.
+
+| | no repeats | repeats allowed |
+|---|---|---|
+| camper-slots filled | 2218 / 2550 | **2550 / 2550** |
+| NO_CAPACITY findings | 18 | **0** |
+| mean placement rank | 12.63 | **6.14** |
+| top-3 placements | 256 | **926** |
+| never-requested placements | 249 | **0** |
+
+The first column is why the no-repeat rule was removed: it was not a tuning problem, it made ~13% of
+camper-slots structurally unfillable.
+
+**Variety did not collapse when repeats were allowed** — median 13 distinct activities per camper
+across 30 periods (min 9, max 16). No cap was needed because capacity is already scarce: only 30 of
+85 campers can hold a given activity in a period, so competition spreads them. **That is the
+condition to watch, not the repeat count** — a camp running electives with capacity well above
+enrolment would lose this property and could see a camper parked in one activity all week. If that is
+ever observed, a per-choice cap (the option the owner declined on 2026-09-18, when it was
+hypothetical) becomes the fix.
+
+Solve time 259ms for 2550 placements — not a performance concern at camp scale.

@@ -44,24 +44,28 @@ describe('buildElectiveAssignments', () => {
     expect(bumped.flags).toContain('NOT_TOP_CHOICE')
   })
 
-  // Constraint 3 — the global-ranking consequence, and the reason occurrences
-  // cannot be solved independently.
-  it('never gives a camper the same choice twice across the week', () => {
+  // Owner ruling 2026-09-18: repeats ARE normal — a camper swims twice a week.
+  // An earlier build forbade them, inferring "the preference is consumed" from
+  // D14 to mean "the camper may never attend again". Those are different rules,
+  // and collapsing them left 332 of 2550 camper-slots unfillable on a
+  // 100-camper fixture, because with 4 offerings per period a camper ran out of
+  // choices they had not already used. This test replaces the one that asserted
+  // the opposite; the old behaviour is in git history, not silently dropped.
+  it('allows a camper the same choice in more than one period', () => {
     const out = buildElectiveAssignments({
       campers: [{ id: 'c1' }],
       occurrences: [occ('o1'), occ('o2')],
-      offerings: [
-        offering('o1', 'archery', 'a-arch'), offering('o1', 'gaga', 'a-gaga'),
-        offering('o2', 'archery', 'a-arch'), offering('o2', 'gaga', 'a-gaga'),
-      ],
-      preferences: [pref('c1', 'archery', 1), pref('c1', 'gaga', 2)],
+      offerings: [offering('o1', 'archery', 'a-arch'), offering('o2', 'archery', 'a-arch')],
+      preferences: [pref('c1', 'archery', 1)],
     })
     expect(out.assignments).toHaveLength(2)
-    expect(new Set(out.assignments.map((a) => a.labelKey)).size).toBe(2)
+    expect(out.assignments.every((a) => a.activity_id === 'a-arch')).toBe(true)
+    expect(out.assignments.every((a) => a.preference_rank === 1)).toBe(true)
+    expect(out.findings).toEqual([])
   })
 
   // R3 again, at its hardest: nothing the camper ranked is left.
-  it('still places a camper whose ranked choices are all exhausted, and flags it', () => {
+  it('places a camper into something they never asked for rather than leaving them out', () => {
     const out = buildElectiveAssignments({
       campers: [{ id: 'c1' }],
       occurrences: [occ('o1'), occ('o2')],

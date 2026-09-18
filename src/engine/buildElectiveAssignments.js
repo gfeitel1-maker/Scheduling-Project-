@@ -14,17 +14,19 @@
 // Three constraints:
 //   1. each (camper, occurrence) gets exactly one activity
 //   2. each (activity, occurrence) holds at most its capacity
-//   3. a camper takes a given choice at most once across the week
 //
-// 1 and 2 alone are a clean bipartite min-cost flow. 3 couples the occurrences
-// and is not expressible as a capacity in that same network — encoding it wants
-// a per-(camper, choice) node bounded at 1, while 1 wants (camper, occurrence)
-// as the demand node. Both at once is an integer program, not a flow.
+// A THIRD CONSTRAINT WAS TRIED AND REMOVED. An earlier build also forbade a
+// camper the same choice twice across the week, inferring that from D14's "a
+// placement consumes that preference". That inference was wrong: "your ranking
+// is counted once" and "you may never attend this again" are different rules.
+// Measured on a 100-camper fixture, forbidding repeats left 332 of 2550
+// camper-slots unfillable — with four offerings a period, campers ran out of
+// choices they had not already used — and pushed the mean placement to rank
+// 12.6 of 25. Owner ruling 2026-09-18: repeats are normal, a camper swims twice
+// a week. The rule is gone, and this paragraph is why, so nobody re-derives it.
 //
 // APPROACH: solve occurrences in a deterministic order, each as its own
-// min-cost max-flow over each camper's REMAINING preferences, consuming a
-// camper's preference for a choice when they are placed into it. Constraint 3
-// then holds by construction.
+// min-cost max-flow over that camper's preferences.
 //
 // This is APPROXIMATE and deliberately so. A globally optimal assignment may
 // beat any fixed occurrence order, and a camper unlucky early is not
@@ -78,9 +80,6 @@ export function buildElectiveAssignments({
     rankOf.get(p.camper_id).set(p.labelKey, p.rank)
   }
 
-  // Consumed choices, per camper — constraint 3's whole implementation.
-  const taken = new Map(camperIds.map((id) => [id, new Set()]))
-
   const attends = (camperId, occurrenceId) =>
     attendance ? (attendance[camperId] ?? []).includes(occurrenceId) : true
 
@@ -93,7 +92,6 @@ export function buildElectiveAssignments({
 
     const cost = who.map((camperId) =>
       here.map((o) => {
-        if (taken.get(camperId).has(o.labelKey)) return null // constraint 3
         const rank = rankOf.get(camperId)?.get(o.labelKey)
         return rank == null ? UNRANKED_COST : rank
       })
@@ -113,7 +111,6 @@ export function buildElectiveAssignments({
       const flags = []
       if (rank == null) flags.push('NOT_REQUESTED')
       else if (rank > 1) flags.push('NOT_TOP_CHOICE')
-      taken.get(camperId).add(o.labelKey)
       assignments.push({
         camper_id: camperId,
         occurrence_id: occurrenceId,
