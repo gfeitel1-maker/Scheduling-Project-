@@ -116,6 +116,22 @@ dependency-level lever is the blanket `FAILING_SEVERITIES` constant. So "add a t
 is not a thing that can be done — it is a mechanism that would have to be *built*, on the security
 gate, under merge-queue pressure.
 
+## Verification the upgrade needs — a green unit suite is not enough
+
+Whoever takes the upgrade should have a **two-device check**, not only a green `npm run test`. This
+is precisely the seam where a green suite and a broken transport coexist comfortably: the unit tests
+construct libp2p nodes in-process, and the question that actually matters is whether a device on
+libp2p@3 can discover, authenticate against and replicate with a device still on 2.x — a camp's
+devices do not upgrade simultaneously. `npm run test:integration` is mandatory for this task class
+and is closer, but it is still one process.
+
+Note also that `test:integration` runs **after** the security step in `scripts/verify.js`, which
+short-circuits. So for as long as this advisory is unresolved, every branch's gate stops before
+reaching the integration suite — meaning work that depends on migration/projection/merge evidence is
+not merely blocked, it is running without the evidence it most needs. Run those steps individually
+and state which ones did not execute; a report listing the green steps while silently omitting the
+ones that never ran is indistinguishable from a pass.
+
 ## Suggested handling
 
 Security review, then Red Hat on the multi-device upgrade path, before Maker touches the lockfile.
