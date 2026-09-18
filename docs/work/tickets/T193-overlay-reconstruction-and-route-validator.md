@@ -1,7 +1,7 @@
 ---
 title: T193-overlay-reconstruction-and-route-validator
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
 archive_when: both fixes ship and are folded into PLATFORM_STATE
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -10,6 +10,12 @@ related_specs: [docs/work/specs/2026-09-17-individual-elective-scheduling-implem
 ---
 
 # T193 — Slice 1: overlay-aware schedule state and a route-wide resource validator
+
+**Closed 2026-09-18.** `archive_when` met — both fixes shipped and are folded into
+PLATFORM_STATE. Verified independently by the session that built it: `src/engine/routeConflicts.js`
+is present on `main`, as is the renamed `docs/work/tickets/T202-camper-record-purge-path.md`.
+
+Shipped as #465.
 
 **Severable, and owner-ratified as such (2026-09-17).** These are pre-existing defects on shipped
 surfaces — an MCP caller gets a falsely clean schedule state today, with no campers involved. This

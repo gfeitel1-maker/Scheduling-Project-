@@ -1,7 +1,7 @@
 ---
 title: T62-engine-schedules-anchor-activities-as-regular-slots
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-07
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_tickets: [docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md]
@@ -10,6 +10,16 @@ archive_when: an activity an anchor NAMES never appears as a regular slot for th
 ---
 
 # T62 — The engine places anchor activities a second time as regular slots
+
+**Closed 2026-09-18.** `archive_when` met. `src/engine/anchorActivityLink.js` resolves an
+anchor's activity by NAME (`anchor_activities` has no `activity_id` column and never did), and
+`src/engine/buildSchedule.js` excludes the resolved ids per group. The regression is pinned on the
+row shape the app actually writes — `src/engine/buildSchedule.test.js` "never places an anchored
+activity as a regular slot when the anchor links by NAME (real row shape)" — and the synthetic
+`activity_id` that let this defect hide for a month is now blocked at the fixture level by
+`src/engine/fixtureSchemaParity.test.js`.
+
+Shipped as #443.
 
 **Risk:** Medium — touches `src/engine/buildSchedule.js`, the pure scheduling engine.
 **Task class:** scheduling-engine. `buildSchedule.test.js` is a mandatory gate

@@ -1,7 +1,7 @@
 ---
 title: "Finding dismissals are coordinate-only, so a materially-changed finding at the same coordinates is masked"
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-16
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/work/specs/2026-09-16-payload-addressed-finding-dismissal-design.md]
@@ -10,6 +10,15 @@ archive_when: findingDismissKey is the single shared source of the dismissal key
 ---
 
 # T185 — Payload-addressed finding dismissal
+
+**Closed 2026-09-18.** `archive_when` met. `findingDismissKey`
+(`src/screens/schedule/findingKey.js`) is the single shared source of the dismissal key, and both
+sides route through it — the filter at `src/screens/ScheduleScreen.jsx:571`
+(`findings.filter(f => !dismissedFindingKeys.has(findingDismissKey(f)))`) and the dismiss write at
+`src/screens/ScheduleScreen.jsx:629`. The pure key and the masking scenario are pinned by
+`src/screens/schedule/findingKey.test.js`.
+
+Shipped as #448.
 
 ## Confirmed problem (premise corrected against code — do not re-litigate)
 `dismissedFindingKeys` (`src/screens/schedule/useRouteState.js`, per-route in-memory `Set`) keys a
