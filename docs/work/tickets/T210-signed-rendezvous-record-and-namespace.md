@@ -1,7 +1,7 @@
 ---
 title: "Phase B — signed rendezvous record contract and the camp rendezvous namespace"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/WORK_RECORD_STANDARD.md, SECURITY.md]
@@ -41,11 +41,36 @@ The `archive_when` condition's own text is met: `rendezvousRecord.js` verifies a
 the signing device's own key (33 passing tests including tamper-each-field), and
 `rendezvousNamespace.js` implements generation, document-backed storage/propagation, and rotation
 per the ADR, with a round-2 fix making the namespace/epoch pair unsplittable under concurrent
-rotation (single `rendezvousDiscovery` field — see the ADR's Decision 3a). This status is left
-`open` rather than `completed` anyway, because this ticket's own "Depends on: T207 must land first"
-is not yet satisfied — `T207-tier4-guard-blind-to-http-rendezvous.md` is still `in-progress`. The
-code itself does not widen any boundary (Decision 4: no network egress, not imported by any
-production path, Tier-4 guard unmodified and green), so nothing here is unsafe to have merged ahead
-of T207 — but the ticket's stated sequencing is a fact about this ticket, not something this round
-of work should silently override. Flip to `completed` once T207 lands, or when someone re-reviews
-the dependency and decides it no longer applies.
+rotation (single `rendezvousDiscovery` field — see the ADR's Decision 3a).
+
+_Prior: this status was left `open` anyway, because this ticket's own "Depends on: T207 must land
+first" was not yet satisfied — `T207-tier4-guard-blind-to-http-rendezvous.md` was still
+`in-progress`. That dependency is now discharged: T207 is `closed` on `main` (#491, which also
+wrote the behavioural egress assertion into the ADR that its prose had described but not carried)._
+
+## Closed 2026-09-18 — evidence per clause
+
+Flipped to `completed`. Each clause of `archive_when`, against the tree:
+
+| Clause | Evidence |
+|---|---|
+| "signed by a device's libp2p identity key verifies only for that device" | `rendezvousRecord.js`'s `verify()` recovers the public key from the record's **own** `peerId` field, never from a caller- or record-supplied key blob; `rendezvousRecord.test.js`'s "a record signed by key A but claiming peerId B fails verification", against real `generateKeyPair('Ed25519')` keys. |
+| "tamper of any field fails verification" | `rendezvousRecord.test.js`'s `tamper each field` block loops over every field name, so a field added later without a case is visible rather than silently uncovered. |
+| namespace **generation** | `mintRendezvousNamespace` — 32 bytes from `crypto.randomBytes`, epoch starts at 1. |
+| namespace **storage** | one scalar `camps.rendezvousDiscovery` document field (ADR Decision 3a). |
+| namespace **propagation** | it is a field on a modeled document record, so it replicates by ordinary Automerge sync; exercised by the fork/merge concurrency test, which uses real Automerge rather than a mock. |
+| namespace **rotation** | `rotateRendezvousNamespace` changes namespace and epoch together, monotonically, and never touches device-local sequence state. |
+
+**The one judgment call, stated so it can be disagreed with.** The rotation clause reads "implemented
+as the ADR specifies", and `rendezvousNamespace.js` deliberately ships no rotation **trigger**. That
+is not a shortfall against the clause, because the referent is the ADR, and the ADR's Decision 3
+explicitly scopes the trigger out: whether rotation fires automatically on every device revocation
+or is a director-initiated action is recorded there as an open **product** question, not an
+unfinished implementation task. So the mechanism is what the ADR specifies, and the mechanism is
+what shipped. A reader who thinks the clause should have meant an end-to-end rotation a director can
+actually perform is disagreeing with the ADR's scoping, not with this ticket — reopen the ADR
+question rather than this ticket.
+
+**What is deliberately still not true, and is not this ticket's to make true.** Nothing in
+production mints a namespace, so no device has one: these modules are reachable only from their own
+tests. Wiring is T211, which is parked and gated. `INTERNET_TRANSPORT_SIGNOFF` remains `false`.
