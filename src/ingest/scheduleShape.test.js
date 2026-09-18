@@ -65,6 +65,32 @@ describe('isScheduleShaped (T146)', () => {
     expect(isScheduleShaped(campC.pages)).toBe(true)
   })
 
+  // T222/Red Hat — a camp whose export abbreviates its day headers had a real
+  // schedule refused. Harmless in the GUI (the director sees the message and
+  // can say otherwise); an operational regression on the CLI/MCP path, which
+  // T222 newly subjected to this gate. Widening is the safe direction: this
+  // predicate's stated bias is strongly toward accepting, and every case below
+  // moves a file from refused to accepted, never the reverse.
+  it.each([
+    [['Mon', 'Tue', 'Wed', 'Thu', 'Fri']],
+    [['Mo', 'Tu', 'We', 'Th', 'Fr']],
+    [['Mon.', 'Tues.', 'Weds.', 'Thurs.', 'Fri.']],
+    [['MON', 'TUE', 'WED', 'THU', 'FRI']],
+  ])('accepts abbreviated day columns %j', (columns) => {
+    // Row labels deliberately do NOT match the clock-time regex, so the day
+    // axis is the only thing that can carry these.
+    expect(isScheduleShaped([{ title: 'Sheet1', columns, rows: [{ label: '915' }, { label: '930' }] }])).toBe(true)
+  })
+
+  // The other half of Red Hat's finding, deliberately NOT fixed: a bare-number
+  // time label stays unrecognised. Loosening the time regex to accept '915'
+  // would make any numeric row label a time, which is exactly the campus-map
+  // legend case T146 exists to refuse. Pinned so the decision is visible and a
+  // later change to it is deliberate.
+  it('still declines a page whose only axis is bare-number row labels', () => {
+    expect(isScheduleShaped([{ title: 'Sheet1', columns: ['A', 'B', 'C'], rows: [{ label: '915' }, { label: '930' }] }])).toBe(false)
+  })
+
   it('declines an empty page list', () => {
     expect(isScheduleShaped([])).toBe(false)
   })

@@ -47,8 +47,24 @@
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const TIME_LABEL = /\d{1,2}\s*[:.]\s*\d{2}/
 
+// 'Weds' is the one common abbreviation that is not a prefix of its day
+// ('wednesday' goes w-e-d-n), so it is listed rather than derived.
+const DAY_ABBREVIATION_ALIASES = { weds: 'wednesday', tues: 'tuesday', thur: 'thursday', thurs: 'thursday' }
+
+// Accepts a day name written in full or abbreviated — 'Mon', 'Mon.', 'MON',
+// 'Tues', 'Weds' (T222, Red Hat): a camp whose export abbreviates its headers
+// had a real schedule refused by the CLI/MCP gate.
+//
+// A two-character floor is what keeps this from becoming a wildcard: a single
+// letter would make any column starting with S, M, T, W or F a day, and this
+// predicate's whole job is to require POSITIVE evidence. Everything here only
+// ever moves a file from refused toward accepted, matching this module's
+// stated bias, and the 60%/50% majority thresholds below still have to be met.
 function isDayName(text) {
-  return DAY_NAMES.includes(String(text ?? '').trim().toLowerCase())
+  const word = String(text ?? '').trim().toLowerCase().replace(/[^a-z]/g, '')
+  if (word.length < 2) return false
+  if (DAY_ABBREVIATION_ALIASES[word]) return true
+  return DAY_NAMES.some((day) => day.startsWith(word))
 }
 
 function hasDayColumns(columns) {

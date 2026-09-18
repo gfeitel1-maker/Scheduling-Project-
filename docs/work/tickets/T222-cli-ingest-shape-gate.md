@@ -59,3 +59,26 @@ a shared workbook helper.
 This does **not** catch a workbook that mixes a selection-sheet tab with a schedule-shaped tab. See
 T223 — that is a different defect in the gate's own granularity, and this ticket must not be closed
 by claiming otherwise.
+
+## Round 2 — Red Hat finding, and what was done about it
+
+Red Hat reproduced a real false refusal end-to-end: a workbook with abbreviated day headers
+(`Mon`/`Tue`/…) and bare-number time labels (`915`) is refused. The predicate is pre-existing T146
+code and unchanged by this ticket, but T222 is what newly exposes CLI and MCP operators to it, so it
+is this ticket's problem.
+
+**Fixed:** `isDayName` now accepts abbreviated day names — `Mon`, `Mon.`, `MON`, `Tues`, `Weds`,
+and the two-letter forms — with a two-character floor so a single initial cannot make any column a
+day. This only ever moves a file from refused toward accepted, matching the module's stated bias, and
+the 60%/50% majority thresholds are unchanged. Re-verified on the real schedule corpus: the six real
+schedule workbooks parse identically, and the two campus-map templates are still refused.
+
+**Deliberately not fixed:** a bare-number row label (`915`, `930`) is still not recognised as a time.
+Loosening `TIME_LABEL` to accept it would make any numeric row label a time axis, which is precisely
+the campus-map legend case T146 exists to refuse — it would trade a loud false refusal for the silent
+false acceptance that started this whole thread. Pinned by a test so the decision is visible rather
+than implicit. A camp that hits this sees a clear message and can reformat, and the GUI path has
+always had the same behaviour.
+
+Also corrected: `scripts/ingest-sweep.mjs` labelled every refusal `did not parse`, which is now wrong
+for a file that parsed fine and was refused on shape. It picks the label from the message.
