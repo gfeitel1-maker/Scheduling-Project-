@@ -19,6 +19,8 @@
 // onPeerDiscovery), so it is unit-testable against a small fake handle
 // without a real libp2p node or SQLite (see mutualAuth.test.js).
 //
+import { createConnectivityEmitter, classifyError, EVENTS } from './connectivityEvents.js'
+
 // `getToken()` returns this device's own current, valid session token (a
 // Host self-issues one; a Client uses whatever it was last handed by a
 // successful login/pairing) or null/undefined if none is available yet — in
@@ -59,7 +61,35 @@ const NEGATIVE_CACHE_TTL_MS = 5_000
 // flood — oldest entry evicted once this is exceeded.
 const NEGATIVE_CACHE_MAX_SIZE = 500
 
-export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now() } = {}) {
+// PEER_DISCOVERED dedupe window (Security finding, T212 round 2). mDNS re-announces periodically
+// for every peer, healthy or not — without this, emit() fires once per announce with no bound,
+// which is both a log-flood vector for a peer-id-churning/rapidly-re-announcing peer AND, for the
+// ordinary case of a healthy already-authenticated peer, an unbroken stream of PEER_DISCOVERED
+// with no follow-up that reads identically to the exact failure mode this ticket exists to detect.
+// Kept well under NEGATIVE_CACHE_TTL_MS's neighborhood but distinct from it — this bounds a
+// per-peer LOG line, not a trust re-check.
+//
+// DELIBERATELY NOT 30_000 (Red Hat, T212 round 2). `attemptTimeoutMs` defaults to 30_000, and an
+// equal value makes the two windows resonate at exactly the moment an analyst most needs a clean
+// signal: when the stall watchdog fires at ~30s and clears `attempted`, the re-announce that
+// triggers the retry lands near the boundary of the discovery window opened by the original
+// attempt's own PEER_DISCOVERED — so the announce explaining "why did a new attempt start right
+// after ATTEMPT_STALLED" is systematically likely to be folded into a repeatCount instead of
+// appearing as its own line beside the retry. Choosing a value that is not a small-integer multiple
+// of the stall timeout decorrelates them, so the aliasing cannot be systematic.
+const DISCOVERY_EMIT_WINDOW_MS = 19_000
+// Bounds discoveryEmitState the same way NEGATIVE_CACHE_MAX_SIZE bounds deniedRecently: caps memory
+// growth under a peer-id-churning flood.
+const DISCOVERY_EMIT_STATE_MAX_SIZE = 500
+
+// T212 (docs/work/tickets/T212-wan-connectivity-measurement.md) + ADR
+// docs/adr/2026-09-18-connectivity-observability-event-vocabulary.md: `emitter` is optional and
+// defaults to a real, console-backed one, so every existing caller keeps working unchanged and
+// still gets the new observability for free. A caller that wants literal multiaddrs logged (the
+// WAN test matrix, run by hand) passes its own emitter with verboseAddrs: true — this module never
+// reads process.env itself.
+
+export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter() } = {}) {
   if (typeof isPeerTrusted !== 'function') {
     throw new TypeError(
       'wireMutualAuth requires an isPeerTrusted(peerId) predicate: this seam decides who receives ' +
@@ -74,6 +104,24 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
   // stuck forever.
   const attempted = new Set()
 
+  // peerId -> monotonic attempt counter. A fresh id per attempt (not per peer) lets an analyst
+  // reading the emitted log tell which events belong to which attempt, and lets rate computations
+  // avoid double-counting the stall race described below.
+  const attemptCounters = new Map()
+  function nextAttemptId(peerId) {
+    const id = (attemptCounters.get(peerId) ?? 0) + 1
+    attemptCounters.set(peerId, id)
+    return id
+  }
+
+  // peerId -> { lastEmitAt, suppressedCount }. Bounds PEER_DISCOVERED emission so a peer-id-churning
+  // or rapidly re-announcing peer (mDNS re-announces periodically even for a healthy,
+  // already-authenticated peer) does not drive one log line per announce with no bound — see the
+  // module header. A suppressed announce still counts toward the next emitted line's
+  // `repeatCount`, so "still being discovered N times" stays distinguishable from "stopped being
+  // discovered" instead of just silently going quiet in the log.
+  const discoveryEmitState = new Map()
+
   // peerId -> ms timestamp of last denial. Lives HERE, not inside isPeerTrusted —
   // the predicate stays pure and uncached so callers can reason about it directly
   // (see peerIdentity.js's createBoundPeerTrust comment). Insertion order doubles as
@@ -87,6 +135,25 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     if (deniedRecently.size > NEGATIVE_CACHE_MAX_SIZE) {
       deniedRecently.delete(deniedRecently.keys().next().value)
     }
+  }
+
+  // Returns true if this announce should emit PEER_DISCOVERED now (first time, or the dedupe
+  // window has elapsed), attaching how many prior announces since the last emission it is
+  // summarizing. Returns false when the announce should be silently counted instead.
+  function shouldEmitDiscovery(peerId) {
+    const state = discoveryEmitState.get(peerId)
+    const nowMs = now()
+    if (!state || nowMs - state.lastEmitAt >= DISCOVERY_EMIT_WINDOW_MS) {
+      const repeatCount = state?.suppressedCount ?? 0
+      discoveryEmitState.delete(peerId)
+      discoveryEmitState.set(peerId, { lastEmitAt: nowMs, suppressedCount: 0 })
+      if (discoveryEmitState.size > DISCOVERY_EMIT_STATE_MAX_SIZE) {
+        discoveryEmitState.delete(discoveryEmitState.keys().next().value)
+      }
+      return { emit: true, repeatCount }
+    }
+    state.suppressedCount += 1
+    return { emit: false, repeatCount: 0 }
   }
 
   async function tryAuthenticate(peerId) {
@@ -112,14 +179,17 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     // permission, and failing open here would reintroduce the exact defect the
     // predicate exists to close.
     let trusted = false
+    let trustCheckErrored = false
     try {
       trusted = isPeerTrusted(peerId) === true
     } catch (err) {
       console.error(`mutualAuth: trust check for ${peerId} failed, treating as untrusted: ${err?.message ?? err}`)
       trusted = false
+      trustCheckErrored = true
     }
     if (!trusted) {
       recordDenial(peerId)
+      emitter.emit(EVENTS.TRUST_CHECK_REJECTED, { peerId, reason: trustCheckErrored ? 'trust_check_error' : 'untrusted' })
       return
     }
     // Trusted: drop any stale denial record so a peer that becomes trusted is
@@ -127,6 +197,17 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     deniedRecently.delete(peerId)
 
     attempted.add(peerId)
+    const attemptId = nextAttemptId(peerId)
+
+    // Set by the stall watchdog below. The underlying dial/authenticateWith promise is NOT
+    // cancelled when the watchdog fires (a real pre-existing defect, spun off as
+    // docs/work/tickets/T230-stalled-dial-is-never-cancelled.md — not fixed here), so this
+    // function's own code keeps running after ATTEMPT_STALLED has already been emitted for this
+    // attemptId. Every terminal emit below checks this flag first so a late settlement is not
+    // ALSO reported as DIAL_FAILED/AUTH_ERROR/AUTH_OK for the same attempt — that would double
+    // an analyst's failure count for one real event and could attribute a stale settlement to
+    // whatever newer attempt has since reused the same peerId/attempted slot.
+    let stalled = false
 
     // A peer that accepts the connection and then never replies would otherwise
     // hold this dedupe slot forever: `attempted` is cleared on dial failure and
@@ -135,7 +216,9 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     // a reconnection DoS requiring no forged signature. Bound it.
     const stall = setTimeout(() => {
       if (attempted.delete(peerId)) {
+        stalled = true
         console.error(`mutualAuth: attempt against ${peerId} stalled past ${attemptTimeoutMs}ms; releasing it so a later discovery can retry`)
+        emitter.emit(EVENTS.ATTEMPT_STALLED, { peerId, attemptTimeoutMs, attemptId })
       }
     }, attemptTimeoutMs)
     stall.unref?.()
@@ -148,6 +231,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
       // an explicit re-run once a token exists) to retry.
       release()
       attempted.delete(peerId)
+      if (!stalled) emitter.emit(EVENTS.NO_TOKEN, { peerId, attemptId })
       return
     }
 
@@ -178,12 +262,17 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
           release()
           attempted.delete(peerId)
           console.error(`mutualAuth: dial to ${peerId} failed and no existing connection to reuse (will retry on next discovery): ${err?.message ?? err}`)
+          if (!stalled) emitter.emit(EVENTS.DIAL_FAILED, { peerId, reused: false, errorClass: classifyError(err), attemptId })
           return
         }
         console.warn(`mutualAuth: dial to ${peerId} failed, but an inbound connection exists — authenticating over that instead: ${err?.message ?? err}`)
       }
     }
 
+    let retried = false
+    // Set when a dial failure inside the redial branch below has already emitted DIAL_FAILED —
+    // the outer catch must not also emit AUTH_ERROR for the same underlying failure.
+    let dialFailureEmitted = false
     try {
       let reply
       try {
@@ -204,8 +293,15 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
         // real one and must not be retried into.
         if (!reusedExistingConnection) throw err
         reusedExistingConnection = false
+        retried = true
         console.warn(`mutualAuth: authenticate to ${peerId} failed over a connection getPeers() still listed; redialling once: ${err?.message ?? err}`)
-        await syncNodeHandle.dial(peerId)
+        try {
+          await syncNodeHandle.dial(peerId)
+        } catch (dialErr) {
+          dialFailureEmitted = true
+          if (!stalled) emitter.emit(EVENTS.DIAL_FAILED, { peerId, reused: true, errorClass: classifyError(dialErr), attemptId })
+          throw dialErr
+        }
         reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId })
       }
       release()
@@ -222,15 +318,25 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
         console.error(`mutualAuth: peer ${peerId} rejected our authenticate: ${JSON.stringify(reply)}`)
         onRejected?.(peerId, reply)
         attempted.delete(peerId)
+        if (!stalled) emitter.emit(EVENTS.AUTH_REJECTED, { peerId, retried, attemptId })
+      } else if (!stalled) {
+        emitter.emit(EVENTS.AUTH_OK, { peerId, attemptId })
       }
     } catch (err) {
       release()
       attempted.delete(peerId)
       console.error(`mutualAuth: authenticateWith ${peerId} failed (will retry on next discovery): ${err?.message ?? err}`)
+      if (!dialFailureEmitted && !stalled) {
+        emitter.emit(EVENTS.AUTH_ERROR, { peerId, retried, errorClass: classifyError(err), attemptId })
+      }
     }
   }
 
-  syncNodeHandle.onPeerDiscovery(({ id }) => {
+  syncNodeHandle.onPeerDiscovery(({ id, multiaddrs }) => {
+    const { emit: shouldEmit, repeatCount } = shouldEmitDiscovery(id)
+    if (shouldEmit) {
+      emitter.emit(EVENTS.PEER_DISCOVERED, { peerId: id, multiaddrs, repeatCount })
+    }
     tryAuthenticate(id).catch((err) => {
       console.error(`mutualAuth: unexpected error authenticating with discovered peer: ${err?.message ?? err}`)
     })

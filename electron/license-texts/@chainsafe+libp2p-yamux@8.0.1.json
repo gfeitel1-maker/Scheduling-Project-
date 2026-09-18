@@ -1,0 +1,7 @@
+{
+  "name": "@chainsafe/libp2p-yamux",
+  "version": "8.0.1",
+  "license": "Apache-2.0 OR MIT",
+  "homepage": "https://github.com/ChainSafe/js-libp2p-yamux#readme",
+  "licenseText": null
+}

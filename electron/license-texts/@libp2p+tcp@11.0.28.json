@@ -1,0 +1,7 @@
+{
+  "name": "@libp2p/tcp",
+  "version": "11.0.28",
+  "license": "Apache-2.0 OR MIT",
+  "homepage": "https://github.com/libp2p/js-libp2p/tree/main/packages/transport-tcp#readme",
+  "licenseText": null
+}
