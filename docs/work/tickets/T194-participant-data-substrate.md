@@ -26,7 +26,7 @@ misrepresented an unfinished slice rather than an unfinished programme.
 
 Shipped as #473.
 
-Seven synced entities at schema **v66** (`CURRENT_SCHEMA_VERSION = 65`, `electron/db/localDb.js:25`):
+Seven synced entities, landed at schema **v66** (the repo has moved past that since; `CURRENT_SCHEMA_VERSION` in `electron/db/localDb.js` is the current value, not this one):
 `campers`, `elective_assignment_runs`, `elective_occurrences`, `elective_choices`,
 `elective_choice_offerings`, `elective_preferences`, `elective_assignments`. Fields in the spec §2.
 
