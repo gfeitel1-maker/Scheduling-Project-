@@ -1,0 +1,146 @@
+// Committing a parsed preference sheet and a solved assignment into the
+// participant tables (T196/T226, ADR docs/adr/2026-09-17-individual-elective-
+// scheduling.md).
+//
+// Every write goes through appendOp, never a direct INSERT: that is what makes
+// these rows replicate to the camp's other devices, and what backs Trash,
+// Restore and entity history. A direct INSERT would produce rows that exist on
+// one device and nowhere else, with no history — the failure mode the op log
+// exists to prevent.
+//
+// The whole commit is ONE transaction. A part-written run is worse than no run:
+// it would leave campers with no preferences, or preferences pointing at a run
+// that has no assignments, and nothing downstream distinguishes that from a
+// director who genuinely stopped half way.
+import { randomUUID } from 'node:crypto'
+import { appendOp, runAtomic } from './operations.js'
+import {
+  deriveElectiveChoiceId,
+  deriveElectivePreferenceId,
+  deriveElectiveAssignmentId,
+} from './electiveDerivedIds.js'
+import { hasContradictoryRanks } from '../../src/ingest/preferenceSheet.js'
+
+const SOLVER_VERSION = 'buildElectiveAssignments@1'
+
+/**
+ * @returns {{ok: true, runId, counts} | {ok: false, error}}
+ */
+export function commitElectiveRun(db, {
+  campId,
+  deviceId,
+  authorUserId = null,
+  name,
+  sourceFilename = null,
+  sourceSha256 = null,
+  parsed,
+  assignments = [],
+}) {
+  // REFUSALS FIRST, before a transaction is opened.
+  //
+  // T226 found that a same-name collision does not merely duplicate a camper:
+  // three rows naming one child produced ONE camper holding 75 preferences with
+  // three different rank-1 choices. A solver handed that resolves it by taking
+  // whichever it saw first — a silent decision about a real child's week. The
+  // parser reporting the collision is not enough on its own; refusing to WRITE
+  // it is what makes the report load-bearing.
+  const sameName = parsed?.sameNameCampers ?? []
+  if (sameName.length > 0) {
+    const who = sameName.map((c) => `${c.display_name} (rows ${c.rowNumbers.join(', ')})`).join('; ')
+    return {
+      ok: false,
+      error:
+        `${sameName.length} camper name(s) appear on more than one row with no camper id to tell them apart: ${who}. ` +
+        'Resolve these before importing — two children sharing a name would be merged into one record.',
+    }
+  }
+  if (hasContradictoryRanks(parsed)) {
+    return {
+      ok: false,
+      error: 'a camper holds the same preference rank twice — the sheet cannot be read unambiguously.',
+    }
+  }
+
+  const runId = randomUUID()
+  const camperIds = new Set((parsed?.campers ?? []).map((c) => c.id))
+  const choiceIdByKey = new Map()
+
+  try {
+    runAtomic(db, () => {
+      const write = (entity, entity_id, fields) => {
+        for (const [field, value] of Object.entries(fields)) {
+          if (value === undefined) continue
+          appendOp(db, {
+            entity, entity_id, field, value,
+            author_user_id: authorUserId, device_id: deviceId, client_write_id: randomUUID(),
+          })
+        }
+      }
+
+      write('elective_assignment_runs', runId, {
+        camp_id: campId,
+        name,
+        status: 'draft',
+        source_filename: sourceFilename,
+        source_sha256: sourceSha256,
+        solver_version: SOLVER_VERSION,
+      })
+
+      for (const c of parsed.campers ?? []) {
+        write('campers', c.id, {
+          camp_id: campId,
+          display_name: c.display_name,
+          external_id: c.external_id ?? null,
+          is_active: 1,
+        })
+      }
+
+      for (const ch of parsed.choices ?? []) {
+        const id = deriveElectiveChoiceId(runId, ch.labelKey)
+        choiceIdByKey.set(ch.labelKey, id)
+        write('elective_choices', id, { run_id: runId, label: ch.label, is_linked: 0 })
+      }
+
+      for (const p of parsed.preferences ?? []) {
+        const choiceId = choiceIdByKey.get(p.labelKey)
+        if (!choiceId) throw new Error(`preference names a choice the sheet did not list: ${p.labelKey}`)
+        write('elective_preferences', deriveElectivePreferenceId(runId, p.camper_id, choiceId), {
+          run_id: runId, camper_id: p.camper_id, choice_id: choiceId, rank: p.rank,
+        })
+      }
+
+      for (const a of assignments) {
+        // A solver output naming a camper the sheet never contained means the
+        // two halves disagree; committing it would create an assignment row
+        // pointing at nothing, which no screen can render and no export can
+        // explain. Fail the whole run instead.
+        if (!camperIds.has(a.camper_id)) {
+          throw new Error(`assignment names a camper the sheet did not contain: ${a.camper_id}`)
+        }
+        write('elective_assignments', deriveElectiveAssignmentId(runId, a.camper_id, a.occurrence_id), {
+          run_id: runId,
+          occurrence_id: a.occurrence_id,
+          camper_id: a.camper_id,
+          activity_id: a.activity_id,
+          choice_id: choiceIdByKey.get(a.labelKey) ?? null,
+          preference_rank: a.preference_rank ?? null,
+          source: 'solver',
+        })
+      }
+    })
+  } catch (e) {
+    // The transaction rolled back; nothing was written.
+    return { ok: false, error: e.message }
+  }
+
+  return {
+    ok: true,
+    runId,
+    counts: {
+      campers: parsed.campers?.length ?? 0,
+      choices: parsed.choices?.length ?? 0,
+      preferences: parsed.preferences?.length ?? 0,
+      assignments: assignments.length,
+    },
+  }
+}

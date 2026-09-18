@@ -11,29 +11,75 @@ related_specs: [docs/work/specs/2026-09-17-individual-elective-scheduling-implem
 
 # T196 — Slice 4: the assignment engine
 
-> ## BLOCKED ON A WITHDRAWN PREMISE — read this before scoping anything below
+> ## Premise rewritten 2026-09-18 — read this before comparing against older drafts
 >
-> **The "for each independent occurrence, run a deterministic min-cost max-flow" decomposition in
-> this ticket and in the implementation spec §7 rests on a premise that has been withdrawn.**
-> See **D14** of `docs/adr/2026-09-17-individual-elective-scheduling.md` (owner-accepted
-> 2026-09-18).
+> This ticket previously specified "for each independent occurrence, run a deterministic min-cost
+> max-flow". **That decomposition is withdrawn** (ADR D14). It is preserved in git history, not
+> silently edited away: the text below replaces it rather than amending it.
 >
-> Real camp artifacts showed camper preferences arriving as a **single globally ranked list** or a
-> **chosen-schedule-plus-alternates planner** — not as a rank per camper per occurrence. If a
-> preference is expressed once globally, placing a camper into an activity in one occurrence
-> consumes that preference for **every** other occurrence of it, so occurrences of the same activity
-> are **not independent**.
+> The reason it was withdrawn is still the reason: preferences are ranked **globally** — a camper
+> ranks each elective once for the session — so placing a camper into an activity at one occurrence
+> consumes that preference for every other occurrence of it. Occurrences of the same activity are
+> **not independent**, and treating them as independent sub-problems would let one camper be placed
+> into Water Ski three times while their #2 goes unfilled.
 >
-> D11's choice of min-cost max-flow is **not** what is in question — the *shape of the network* is:
-> what is a node, what is an edge, and what "independent" means.
->
-> **What is still unknown matters as much as what changed.** Only blank forms and catalog sheets have
-> been examined — no completed camper response — and the real submissions arrive through a
-> third-party portal whose export nobody has seen (tracked at T218). So the old premise is retired,
-> but **no replacement premise is established**. Do not scope this ticket against either observed
-> format as though it were confirmed.
->
-> Nothing needs to be unbuilt: no solver code exists. This is a spec risk recorded ahead of the work.
+> D11's choice of min-cost max-flow is NOT in question. The network shape is.
+
+## What is now known, and what is still not
+
+**Known** (T226, merged): the input shape. `parsePreferenceSheet` produces campers, choices (labels)
+and preferences `(camper, choice, rank)` from a sheet whose column layout is a mapping rather than a
+constant. That is the solver's input, and it exists.
+
+**Still unknown**: the transport (T218 — the third-party export nobody has seen). This does not block
+the solver, because the mapping layer absorbs a new layout without a code change. Do not re-block on
+it.
+
+## Owner rulings this ticket is built against (2026-09-18)
+
+- **R3 — never unplaced.** When a camper's top choices are full, assign their best AVAILABLE choice
+  and flag it. Every camper always has a placement. A flag, not an empty slot.
+- **R4 — fairness is NOT modeled in this pass.** The engine does not spread disappointment across
+  campers. This is a recorded deferral, not an oversight: the owner's direction is to build the
+  straightforward version, look at real output against the 100-camper fixture, and decide then.
+
+## The coupling, stated precisely
+
+Three constraints, and the third is what makes this harder than `buildSchedule`:
+
+1. Each (camper, occurrence) the camper attends gets **exactly one** activity.
+2. Each (activity, occurrence) holds at most its **capacity**.
+3. ~~A camper takes a given choice **at most once across the week**.~~
+
+_Prior: constraint 3 was specified as a hard no-repeat rule, inferred from D14's "placing a camper
+consumes that preference". **That inference was wrong and the constraint is removed** — see the
+measurements below and the correction appended to D14. "Your ranking is counted once" and "you may
+never attend again" are different rules. The occurrences remain coupled for SCORING, which is what
+D14 actually establishes._
+
+With repeats allowed, constraints 1 and 2 are a clean bipartite min-cost flow per occurrence, which
+is what the engine implements — optimally within an occurrence, in a deterministic occurrence
+order.
+
+## Approach — sequential min-cost flow with preference consumption
+
+Solve occurrences in a **deterministic order**, each as its own min-cost max-flow over that camper's
+preferences.
+
+This keeps D11's solver and stays deterministic and
+explainable — a director can be told "Monday period 2 was filled first, and by then Water Ski was
+full." It is **approximate**: a globally optimal assignment may do better than any fixed occurrence
+order, and a camper unlucky in an early occurrence is not compensated later. That second property is
+exactly what R4 defers, so the approximation and the deferral are the same decision, not two.
+
+**This is the first cut, chosen for legibility over optimality, and it is reversible** — the network
+lives behind a pure function, so a later exact formulation replaces it without touching callers.
+
+## Determinism
+
+Same discipline as `buildSchedule.js`: identical inputs produce an identical assignment, including
+tie-breaks. Occurrence order and every tie-break must be a total order over stable ids, never
+iteration order of a Map or object.
 
 `src/engine/buildElectiveAssignments.js` — a pure deterministic module. Plain objects in,
 assignments plus findings out. No database access, no file parsing, no UI, no writes. Same
@@ -106,3 +152,29 @@ locks; all-full; no-ranked-choice; overlapping occurrence; empty occurrence; clo
 another does not** (the choice must be refused whole); stable finding order.
 Manual moves and locks recompute capacity and eligibility immediately — manual override is not an
 escape hatch, and over-capacity placement is not permitted in this release.
+
+## Measured on a 100-camper fabricated fixture (2026-09-18)
+
+85 campers (the fixture's generator produced same-name collisions, correctly collapsed by T226),
+30 occurrences, 4 offerings each at capacity 30.
+
+| | no repeats | repeats allowed |
+|---|---|---|
+| camper-slots filled | 2218 / 2550 | **2550 / 2550** |
+| NO_CAPACITY findings | 18 | **0** |
+| mean placement rank | 12.63 | **6.14** |
+| top-3 placements | 256 | **926** |
+| never-requested placements | 249 | **0** |
+
+The first column is why the no-repeat rule was removed: it was not a tuning problem, it made ~13% of
+camper-slots structurally unfillable.
+
+**Variety did not collapse when repeats were allowed** — median 13 distinct activities per camper
+across 30 periods (min 9, max 16). No cap was needed because capacity is already scarce: only 30 of
+85 campers can hold a given activity in a period, so competition spreads them. **That is the
+condition to watch, not the repeat count** — a camp running electives with capacity well above
+enrolment would lose this property and could see a camper parked in one activity all week. If that is
+ever observed, a per-choice cap (the option the owner declined on 2026-09-18, when it was
+hypothetical) becomes the fix.
+
+Solve time 259ms for 2550 placements — not a performance concern at camp scale.
