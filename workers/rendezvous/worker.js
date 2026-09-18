@@ -31,6 +31,17 @@
 //     lists namespaces, and `GET /v1/peers/<namespace>` returns nothing useful without already
 //     knowing one. It cannot stop someone who already has a namespace (e.g. a departed staffer) from
 //     continuing to read/write it until the owner rotates it (T210 Decision 3) or the TTL expires.
+//   - Lockout via the per-namespace cap. MAX_PEERS_PER_NAMESPACE is a fixed cap on distinct peer
+//     ids per namespace, and it is a lockout primitive, not just an abuse bound: anyone who knows
+//     the namespace can register up to the cap in fabricated peer ids. Already-registered peers
+//     keep refreshing without limit (re-registering an existing peer id is exempt from the cap —
+//     see handleRegister), but a NEW legitimate device (e.g. a re-imaged staff laptop) that has
+//     not registered yet is then permanently refused with 429 until the owner rotates the
+//     namespace (T210) or an existing entry's TTL expires and frees a slot. Namespace rotation
+//     (T210 Decision 3) closes this by invalidating the attacker's knowledge of the namespace;
+//     lowering MAX_PEERS_PER_NAMESPACE does not close it — it only changes how many fabricated
+//     registrations the attack needs, and is a product question (how many devices a camp legitimately
+//     runs) rather than a security fix. Do not "fix" this finding by silently lowering the constant.
 //   - Traffic analysis. Cloudflare's own request logs (source IP, path, timing) are outside this
 //     Worker's control and, per the spec, outlive the ~2h record TTL. This file does not log request
 //     bodies, IPs, namespaces, or peer ids anywhere (see the LOGGING note below) — but the owner is
@@ -56,7 +67,12 @@ const RECORD_B64_RE = /^[A-Za-z0-9+/=]+$/
 const KEY_PREFIX = 'shoresh:rendezvous'
 const TTL_SECONDS = 2 * 60 * 60 // ~2h, per the ticket and spec
 const MAX_RECORD_B64_BYTES = 8 * 1024 // generous headroom over a real signed record (~600 bytes)
-const MAX_PEERS_PER_NAMESPACE = 200 // abuse bound: caps both write-amplification and GET response size
+export const MAX_PEERS_PER_NAMESPACE = 200 // abuse bound: caps both write-amplification and GET response size
+// Headroom over MAX_RECORD_B64_BYTES for the surrounding JSON structure (namespace, peerId,
+// field names, quoting). This is the cap the register endpoint enforces BEFORE parsing the
+// body at all, via Content-Length when present and via a manual byte count on the stream when
+// it is not (a chunked request has no Content-Length header to trust).
+const MAX_BODY_BYTES = MAX_RECORD_B64_BYTES + 2048
 
 function json(status, body) {
   return new Response(JSON.stringify(body), {
@@ -69,10 +85,51 @@ function kvKey(namespace, peerId) {
   return `${KEY_PREFIX}:${namespace}:${peerId}`
 }
 
+// Reads the request body as text while enforcing maxBytes, rejecting BEFORE the full body is
+// buffered — a Content-Length over the cap is rejected without reading the stream at all; when
+// Content-Length is absent (a chunked request has none), the stream is read incrementally and
+// aborted the moment the running total crosses the cap.
+async function readBoundedBody(request, maxBytes) {
+  const declaredLength = request.headers.get('content-length')
+  if (declaredLength !== null) {
+    const length = Number(declaredLength)
+    if (!Number.isFinite(length) || length > maxBytes) {
+      return { tooLarge: true }
+    }
+  }
+
+  const reader = request.body.getReader()
+  const chunks = []
+  let received = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    received += value.byteLength
+    if (received > maxBytes) {
+      await reader.cancel()
+      return { tooLarge: true }
+    }
+    chunks.push(value)
+  }
+
+  const buffer = new Uint8Array(received)
+  let offset = 0
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return { text: new TextDecoder().decode(buffer) }
+}
+
 async function handleRegister(request, kv) {
+  const body = await readBoundedBody(request, MAX_BODY_BYTES)
+  if (body.tooLarge) {
+    return json(413, { error: 'request body too large' })
+  }
+
   let payload
   try {
-    payload = await request.json()
+    payload = JSON.parse(body.text)
   } catch {
     return json(400, { error: 'malformed JSON body' })
   }

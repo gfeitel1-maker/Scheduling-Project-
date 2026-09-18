@@ -27,6 +27,13 @@ validates namespace/peer-id shape strictly (so they cannot be used to forge or c
 caps the record size, and caps entries per namespace. It does **not** rate-limit by caller, and it
 does not, and cannot, control Cloudflare's own edge request logging.
 
+**The per-namespace cap is a lockout primitive, not just an abuse bound.** Anyone who knows a
+namespace can register up to `MAX_PEERS_PER_NAMESPACE` fabricated peer ids in it. Already-registered
+peers keep refreshing without limit, but a new legitimate device (e.g. a re-imaged staff laptop)
+that has not registered yet is then permanently refused with 429 until the owner rotates the
+namespace (T210 Decision 3) or an existing entry's TTL expires. Namespace rotation closes this;
+lowering the cap does not — see the fuller note in `worker.js`'s file header.
+
 ## What the owner must configure before or at deploy time
 
 1. **Rate limiting / WAF.** `POST /v1/register` is unauthenticated by design (any previously

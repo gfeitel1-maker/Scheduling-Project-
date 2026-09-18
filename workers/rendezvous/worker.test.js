@@ -8,7 +8,7 @@
 // handler-level round-trip rather than a live network one — see the report for
 // why that is the honest reading of "in-repo, no deploy".
 import { describe, it, expect } from 'vitest'
-import { handleRequest, NAMESPACE_RE } from './worker.js'
+import { handleRequest, NAMESPACE_RE, MAX_PEERS_PER_NAMESPACE } from './worker.js'
 import { FakeKvNamespace } from './fakeKv.js'
 
 const VALID_NAMESPACE = 'a'.repeat(64)
@@ -77,11 +77,21 @@ describe('POST /v1/register', () => {
     expect(res.status).toBe(400)
   })
 
-  it('rejects an oversized record blob', async () => {
+  it('rejects a record exceeding the field-level cap with 400 (body still under the overall size cap)', async () => {
+    const { env } = makeEnv()
+    // Just over MAX_RECORD_B64_BYTES (8192) but comfortably under the overall body-size cap
+    // (MAX_RECORD_B64_BYTES + 2048), so this exercises the field-specific 400, not the 413
+    // pre-parse size gate covered separately below.
+    const oversizedRecord = 'a'.repeat(8200)
+    const res = await handleRequest(registerRequest({ record: oversizedRecord }), env)
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a body far exceeding the overall size cap with 413', async () => {
     const { env } = makeEnv()
     const huge = Buffer.alloc(1024 * 1024, 'a').toString('base64')
     const res = await handleRequest(registerRequest({ record: huge }), env)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(413)
   })
 
   it('rejects malformed JSON', async () => {
@@ -104,9 +114,8 @@ describe('POST /v1/register', () => {
 
   it('enforces a cap on entries per namespace', async () => {
     const { env } = makeEnv()
-    const MAX = 200 // must match worker.js's MAX_PEERS_PER_NAMESPACE for this test to be meaningful
     let lastStatus
-    for (let i = 0; i < MAX + 5; i++) {
+    for (let i = 0; i < MAX_PEERS_PER_NAMESPACE + 5; i++) {
       const res = await handleRequest(
         registerRequest({ peerId: `peer-${i}-${'x'.repeat(10)}`, namespace: OTHER_NAMESPACE }),
         env
@@ -114,6 +123,40 @@ describe('POST /v1/register', () => {
       lastStatus = res.status
     }
     expect(lastStatus).toBe(429)
+  })
+
+  it('rejects a request whose declared Content-Length exceeds the cap with 413, without parsing the body', async () => {
+    const { env } = makeEnv()
+    // The body itself is invalid JSON. If the handler parsed it anyway, malformed-JSON
+    // handling would return 400 — so a 413 here proves the size check ran first and the
+    // parse never happened.
+    const req = new Request('https://rendezvous.example/v1/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': '99999999' },
+      body: 'not valid json',
+    })
+    const res = await handleRequest(req, env)
+    expect(res.status).toBe(413)
+  })
+
+  it('bounds an oversized body even when Content-Length is absent (chunked transfer)', async () => {
+    const { env } = makeEnv()
+    const stream = new ReadableStream({
+      start(controller) {
+        // Larger than any legitimate register payload, sent with no Content-Length header.
+        controller.enqueue(new TextEncoder().encode('a'.repeat(64 * 1024)))
+        controller.close()
+      },
+    })
+    const req = new Request('https://rendezvous.example/v1/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: stream,
+      duplex: 'half',
+    })
+    expect(req.headers.get('content-length')).toBeNull()
+    const res = await handleRequest(req, env)
+    expect(res.status).toBe(413)
   })
 })
 
@@ -199,6 +242,35 @@ describe('method/route handling', () => {
     const req = new Request('https://rendezvous.example/', { method: 'GET' })
     const res = await handleRequest(req, env)
     expect(res.status).toBe(404)
+  })
+
+  it('returns a clean 404 with no body content for /v1/peers with no trailing segment', async () => {
+    const { env } = makeEnv()
+    const req = new Request('https://rendezvous.example/v1/peers', { method: 'GET' })
+    const res = await handleRequest(req, env)
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body).toEqual({ error: 'not found' })
+  })
+
+  it('returns a clean 404 for /v1/peers/ with an empty namespace segment', async () => {
+    const { env } = makeEnv()
+    const req = new Request('https://rendezvous.example/v1/peers/', { method: 'GET' })
+    const res = await handleRequest(req, env)
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body).toEqual({ error: 'not found' })
+  })
+
+  it('returns a clean 404 for /v1/peers/<namespace>/extra with a trailing extra segment', async () => {
+    const { env } = makeEnv()
+    const req = new Request(`https://rendezvous.example/v1/peers/${VALID_NAMESPACE}/extra`, {
+      method: 'GET',
+    })
+    const res = await handleRequest(req, env)
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body).toEqual({ error: 'not found' })
   })
 })
 

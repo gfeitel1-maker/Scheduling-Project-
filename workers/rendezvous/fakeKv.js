@@ -3,8 +3,17 @@
 // injectable clock so a TTL boundary can be crossed deterministically in a test
 // without a real 2-hour wait or a `wrangler`/`miniflare` dependency.
 //
-// This is test infrastructure, not a KV reimplementation — it does not model KV's
-// eventual consistency across edge PoPs (see worker.js's comment on that).
+// This is test infrastructure, not a KV reimplementation, and it is not faithful in three
+// documented ways:
+//   - Eventual consistency across edge PoPs (see worker.js's comment on that) is not modeled;
+//     `get` immediately reflects every `put`, which a real deployment cannot promise.
+//   - `list` always returns `list_complete: true` with no cursor — there is no pagination here.
+//     Real Workers KV can return a partial page (`list_complete: false` plus a `cursor`) even
+//     under a namespace's key count, and this fake will never exercise that path.
+//   - There is no minimum TTL enforced. Real Workers KV rejects `expirationTtl` below its
+//     documented ~60s floor; this fake accepts any value, including 0 or negative, so a future
+//     change that lowers TTL_SECONDS below that floor would pass these tests and then fail at
+//     an actual deploy.
 export class FakeKvNamespace {
   constructor({ now = () => Date.now() } = {}) {
     this._now = now
