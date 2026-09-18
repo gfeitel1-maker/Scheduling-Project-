@@ -79,6 +79,18 @@ re-assessment above is recorded (as an ADR or an entry in the security-program d
 switch forces someone to open the guard file, which points back here — the checkpoint is
 unavoidable by construction.
 
+**Amended 2026-09-18 (T207) — the boundary is also asserted behaviourally, because the three
+assertions above are package-shaped and marker-shaped and the boundary is not.** An HTTPS `fetch`
+to a bulletin-board service is not an npm libp2p package, is not imported by `transport.js`, and a
+rendezvous service appended *after* `createMdnsDiscovery(` in the `peerDiscovery` array still
+satisfies that regex. A node could have published its real WAN addresses to a public board with a
+fully green gate. The guard therefore adds a fourth assertion: **no file under `electron/sync/**`
+may perform internet egress of its own, by any name, in any file** — detection lives in the
+separately-tested pure function `electron/sync/automerge/internetRendezvousScan.js`, whose own
+header states what it can and cannot see. The sync path reaches the network only through libp2p, to
+peers found on the link-local network; anything else is the boundary change this gate exists to
+catch.
+
 ## Consequences
 
 - The boundary change can no longer happen silently or incrementally; it trips a red build.
@@ -90,7 +102,11 @@ unavoidable by construction.
 
 ## Verification
 
-- The guard passes on the current LAN-only tree (3 assertions green).
+- The guard passes on the current LAN-only tree (assertions green; three at the time of writing,
+  four since T207 added the egress assertion described above).
 - Adding any listed package, importing one in `transport.js`, or wiring an internet rendezvous
   (DHT/bootstrap/relay) into `electron/main.js`'s discovery turns the suite red with a message pointing here — confirmed by construction (the
   assertions read the live `package.json` and `transport.js`).
+- The egress assertion is confirmed by a **planted defect** rather than by construction: a
+  rendezvous client added under `electron/sync/**` turns the suite red, and its removal turns it
+  green again. That is the check the earlier three could not make — see T207.

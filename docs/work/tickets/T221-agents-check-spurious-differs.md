@@ -1,7 +1,7 @@
 ---
 title: T221-agents-check-spurious-differs
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-18
 archive_when: the deliberate-corruption test no longer prints DIFFERS into a passing gate log
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md]
