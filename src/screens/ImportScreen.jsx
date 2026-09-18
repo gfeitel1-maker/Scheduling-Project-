@@ -1870,8 +1870,8 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                 </div>
                 {declinedPages.length > 0 && (
                   <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
-                    {declinedPages.map((title) => (
-                      <li key={title}>
+                    {declinedPages.map((title, i) => (
+                      <li key={`${title}-${i}`}>
                         Tab "{title}" doesn't look like a schedule (no day columns or time-of-day
                         rows), so nothing was imported from it.
                       </li>

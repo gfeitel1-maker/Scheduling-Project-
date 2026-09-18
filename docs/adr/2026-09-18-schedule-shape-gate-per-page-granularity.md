@@ -104,3 +104,9 @@ intend to refuse.
   design surfaces it as a declined tab rather than silently dropping or wrongly extracting it — which
   is diagnosable and fixable without another laundering incident, but it is still a page dropped from
   extraction until (if ever) option 1's inheritance rule is designed with evidence behind it.
+- **Deliberate: `declinedPages` does not change the CLI/MCP result's `ok`/`exitCode`.** Declining a
+  non-schedule tab (a "Read me" tab, a roster tab) is expected on a valid multi-tab schedule
+  workbook, so failing the exit code on every such import would be noise and would regress the
+  normal case; visibility — the `declinedPages` result field, the printed "declined tabs" section in
+  `scripts/ingest.js`, and the UI's "Not recognised" bullet list — is the mitigation, not a non-zero
+  exit.
