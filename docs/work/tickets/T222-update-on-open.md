@@ -61,3 +61,29 @@ premise is only true once this ticket closes.
   `docs/adr/2026-09-14-internet-transport-security-gate.md` §4 for the class of question that
   applies).
 - Silent update failure that leaves a director unable to sync with no explanation.
+
+## Before you close or de-scope this ticket — read this
+
+This is the direction of the dependency that gets read least, and it is written here deliberately.
+A session deciding whether update-on-open is worth building will read **this ticket**; it will not
+necessarily open `docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md`, which is the
+document whose correctness depends on the answer.
+
+**Closing this ticket as unnecessary silently reopens a question the owner already closed.** The
+ADR does not say "mixed-version replication was tested and works" — it says the promise was
+*removed at the product level*, and it removed that promise on the strength of update-on-open
+existing. Drop the mechanism and the decision does not revert to "safe by default"; it reverts to
+the unanswered question, with an `archive_when` on a closed T215 that is no longer satisfied and a
+2.x↔3.x compatibility claim nobody ever demonstrated.
+
+So the only two valid ways to close this ticket are:
+
+1. **Build it** (after the owner's scoping pass — see Scope above), or
+2. **Take the decision back to the owner**, get a recorded replacement for how a camp is kept on
+   one build, and amend
+   `docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md` in the same change. Amending the
+   ADR is not optional cleanup; it is the thing that keeps the record honest.
+
+Closing it as "no longer needed" without doing (2) leaves a `status: accepted`, `authority:
+normative` ADR asserting a safety property with nothing behind it. That is worse than never having
+written the decision down, because the next reader will trust it.
