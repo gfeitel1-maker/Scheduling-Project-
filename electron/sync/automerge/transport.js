@@ -301,6 +301,16 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
       // ones out from under a caller that used this repeatedly (seen in
       // authGate.test.js's MAX_PENDING_PAIRING test, which dials AUTH_PROTO
       // 50+ times on one connection).
+      //
+      // T217 finding 1, settled empirically: this close CANNOT truncate the
+      // unawaited `receiveFramed` iteration above. `AbstractStream.close()`
+      // closes the WRITABLE half only — it never touches `readStatus` or
+      // `readBuffer`; the method that discards unread inbound data is the
+      // separate `closeRead()`, which this does not call. A second frame
+      // pipelined on this stream is still delivered to the reader, even if it
+      // arrives after the close. Pinned by
+      // ./transportAuthCloseRace.test.js, which also exercises the teardowns
+      // that DO truncate (`closeRead`, `abort`) so the result is not vacuous.
       await stream.close().catch(() => {})
     }
   }
