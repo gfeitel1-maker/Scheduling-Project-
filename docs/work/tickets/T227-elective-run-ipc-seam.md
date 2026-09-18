@@ -16,7 +16,7 @@ related_tickets: [docs/work/tickets/T196-assignment-engine.md, docs/work/tickets
 T196 and T226 shipped the whole domain layer — parse, solve, commit — but **the renderer could not
 reach any of it.** None of the seven participant entities had an IPC channel, so the feature was
 usable only from Node and the MCP path. This ticket is the seam; the director-facing screen is
-T228.
+T229.
 
 Splitting them is deliberate. This half carries the **security** consequence — it is the boundary
 where a renderer first gets access to records about identifiable children — and it deserves to be
@@ -46,7 +46,7 @@ Three channels: `commit-elective-run`, `list-elective-runs`, `get-elective-run`.
 
 `src/localClient.mock.js` reproduces the same-name refusal faithfully. That is the behaviour a
 director meets first, and the one most worth seeing while building the screen — a mock that quietly
-accepts a colliding sheet would let T228 be built against a flow that cannot happen.
+accepts a colliding sheet would let T229 be built against a flow that cannot happen.
 
 The op-log write is what degrades in the mock (it has no `operations` table), matching the
 additive-degradation discipline of the stubs around it.

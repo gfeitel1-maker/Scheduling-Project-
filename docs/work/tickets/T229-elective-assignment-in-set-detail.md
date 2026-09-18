@@ -1,5 +1,5 @@
 ---
-title: T228-elective-assignment-in-set-detail
+title: T229-elective-assignment-in-set-detail
 document_type: ticket
 status: open
 created: 2026-09-18
@@ -9,7 +9,7 @@ related_adrs: [docs/adr/2026-09-17-individual-elective-scheduling.md]
 related_tickets: [docs/work/tickets/T227-elective-run-ipc-seam.md, docs/work/tickets/T196-assignment-engine.md]
 ---
 
-# T228 — camper assignment inside the elective set builder
+# T229 — camper assignment inside the elective set builder
 
 ## There is no new screen, and there was no open question
 
