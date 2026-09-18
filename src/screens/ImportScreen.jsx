@@ -453,10 +453,16 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
 
       // T146 — decline a workbook that was never schedule-shaped (a campus
       // map, a legend sheet) instead of extracting one-character residual
-      // "activities" from its grid coordinates and legend keys. Scoped to
-      // this path only — the per-entity template importers on Locations/
+      // "activities" from its grid coordinates and legend keys. Scoped to the
+      // SCHEDULE import path — the per-entity template importers on Locations/
       // Electives/Special Events read non-schedule workbooks by design and
       // never call isScheduleShaped.
+      //
+      // This is one of TWO call sites on that path. The other is
+      // scripts/ingestCli.js (T224), which is what the MCP ingest tools run.
+      // Change the acceptance behaviour in one and check the other: the two
+      // refusal messages are worded for their own audience and are
+      // deliberately not shared, so they can drift.
       if (!isScheduleShaped(pages)) {
         setProposal(null)
         setError(

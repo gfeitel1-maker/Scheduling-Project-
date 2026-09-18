@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import * as XLSX from 'xlsx'
 
 import { openLocalDb } from '../electron/db/localDb.js'
 import { runIngestCli } from './ingestCli.js'
@@ -185,5 +186,65 @@ describe('runIngestCli', () => {
     expect(second.ok).toBe(true)
     expect(second.summary.created.groups).toBe(0)
     expect(second.summary.created.activities).toBe(0)
+  })
+
+  // T224 — the CLI/MCP path must refuse a workbook that is not a schedule.
+  //
+  // Found by running a synthetic camper elective-selection sheet through this
+  // CLI: it committed the form's COLUMN HEADERS ('#1', '#2', 'Division', ...)
+  // as camp groups and again as tiers, reported ok/exitCode 0, and dropped
+  // every camper name without a warning. src/ingest/scheduleShape.js already
+  // implements this refusal and was imported only from ImportScreen.jsx, so
+  // the UI enforced a gate the CLI and the MCP tools bypassed entirely.
+  //
+  // The fixture is fabricated here at runtime rather than committed: it stands
+  // in for a real camp's selection form, and no such artifact belongs in this
+  // repo.
+  function writeSelectionSheet(dir) {
+    const header = ['Camper Name', 'Division', 'Swim Alternative (Y/N)', '#1', '#2', '#3', '#4', '#5']
+    const rows = [
+      header,
+      ['Ari Green', 'Arad', 'N', 'Archery', 'Gaga', 'Sailing', 'Ceramics', 'Tennis'],
+      ['Noa Katz', 'Bogrim', 'Y', 'Ceramics', 'Tennis', 'Archery', 'Gaga', 'Sailing'],
+      ['Lev Stern', 'Arad', 'N', 'Sailing', 'Archery', 'Tennis', 'Ceramics', 'Gaga'],
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Camper Selections')
+    const file = path.join(dir, 'selections.xlsx')
+    fs.writeFileSync(file, XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+    return file
+  }
+
+  it('refuses a camper selection sheet instead of committing its column headers as groups', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = bootstrapDb(dir)
+    const file = writeSelectionSheet(dir)
+
+    const result = runIngestCli({ file, dbPath, action: 'commit' })
+
+    expect(result.ok).toBe(false)
+    expect(result.exitCode).not.toBe(0)
+    expect(result.error).toMatch(/schedule/i)
+    // No proposal was formed at all, so there is nothing to mistake for a
+    // partial success.
+    expect(result.summary).toBeNull()
+
+    // And the refusal is a refusal, not a report: the database is untouched.
+    const after = openLocalDb(dbPath)
+    expect(after.prepare('SELECT COUNT(*) c FROM groups').get().c).toBe(0)
+    expect(after.prepare('SELECT COUNT(*) c FROM tiers').get().c).toBe(0)
+    expect(after.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(0)
+    after.close()
+  })
+
+  // Guards the other half: the gate must not start refusing real schedules.
+  it('still accepts a real schedule file', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = bootstrapDb(dir)
+    const result = runIngestCli({ file: SAMPLE, dbPath, action: 'preview' })
+    expect(result.ok).toBe(true)
+    expect(result.exitCode).toBe(0)
   })
 })

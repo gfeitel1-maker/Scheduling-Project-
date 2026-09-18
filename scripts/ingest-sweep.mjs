@@ -145,7 +145,15 @@ function main() {
     let prev
     try { prev = runIngestCli({ file: full, dbPath, mode: 'add', action: 'preview' }) }
     catch (e) { console.log(`\n### ${f}\n  CRASH: ${e.message}`); continue }
-    if (prev.error) { console.log(`\n### ${f}\n  did not parse: ${prev.error}`); continue }
+    // "did not parse" was accurate when the only possible error was a failed
+    // read. Since T224 this branch also covers a file that parsed fine and was
+    // then REFUSED as not schedule-shaped, so the label is chosen from the
+    // message rather than assumed.
+    if (prev.error) {
+      const label = /does not look like a schedule/.test(prev.error) ? 'not a schedule' : 'did not parse'
+      console.log(`\n### ${f}\n  ${label}: ${prev.error}`)
+      continue
+    }
 
     const b = breakdown(full)
     console.log(`\n### ${f}`)

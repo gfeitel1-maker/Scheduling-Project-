@@ -7,8 +7,25 @@
 // per-entity template importers (SetupScreenShell's Download Template ->
 // Import from Excel, for Locations/Electives/Special Events/germination) are
 // non-schedule workbooks BY DESIGN and must never reach this check — so this
-// lives as its own module, imported only from ImportScreen.jsx, not folded
-// into a shared workbook helper both paths use (ticket's Red Hat risk #2).
+// lives as its own module, imported only by that path's entry points, not
+// folded into a shared workbook helper both paths use (ticket's Red Hat
+// risk #2).
+//
+// There are TWO such entry points, not one:
+//   - src/screens/ImportScreen.jsx  — the director's drag-and-drop import
+//   - scripts/ingestCli.js          — runIngestCli, which is also what
+//                                     scripts/mcp/tools.js's ingest_preview
+//                                     and ingest_commit run (T224)
+// The CLI/MCP site was added in T224, after a camper elective-selection
+// workbook committed its column headers ('#1', '#2', 'Division') as 33 camp
+// groups and 33 tiers through a path that had never called this gate.
+//
+// KNOWN LIMITATION — this predicate is whole-FILE (`pages.some`) while
+// extractEntities is per-PAGE, so one schedule-shaped page admits every other
+// page in the file to extraction. A workbook mixing a selection sheet with a
+// day x period menu passes here and its selection sheet is still extracted.
+// That granularity mismatch is docs/work/tickets/T223-shape-gate-page-
+// granularity.md, deliberately not fixed by adjusting a ratio here.
 //
 // A page (title/columns/rows, the shape workbookToPages and parseTextGrid
 // both produce) is positive evidence of a schedule if it has EITHER axis a
@@ -30,8 +47,24 @@
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const TIME_LABEL = /\d{1,2}\s*[:.]\s*\d{2}/
 
+// 'Weds' is the one common abbreviation that is not a prefix of its day
+// ('wednesday' goes w-e-d-n), so it is listed rather than derived.
+const DAY_ABBREVIATION_ALIASES = { weds: 'wednesday', tues: 'tuesday', thur: 'thursday', thurs: 'thursday' }
+
+// Accepts a day name written in full or abbreviated — 'Mon', 'Mon.', 'MON',
+// 'Tues', 'Weds' (T224, Red Hat): a camp whose export abbreviates its headers
+// had a real schedule refused by the CLI/MCP gate.
+//
+// A two-character floor is what keeps this from becoming a wildcard: a single
+// letter would make any column starting with S, M, T, W or F a day, and this
+// predicate's whole job is to require POSITIVE evidence. Everything here only
+// ever moves a file from refused toward accepted, matching this module's
+// stated bias, and the 60%/50% majority thresholds below still have to be met.
 function isDayName(text) {
-  return DAY_NAMES.includes(String(text ?? '').trim().toLowerCase())
+  const word = String(text ?? '').trim().toLowerCase().replace(/[^a-z]/g, '')
+  if (word.length < 2) return false
+  if (DAY_ABBREVIATION_ALIASES[word]) return true
+  return DAY_NAMES.some((day) => day.startsWith(word))
 }
 
 function hasDayColumns(columns) {

@@ -474,6 +474,20 @@ so its contract is about honesty rather than perfection.
 - **`npm run ingest:sweep` runs on the committed fixtures** in
   `docs/work/specs/samples/` as well as on workbooks, and is the regression net
   for all of the above.
+- **A workbook that is not schedule-shaped is refused, on every entry path.**
+  `src/ingest/scheduleShape.js`'s `isScheduleShaped` requires positive evidence
+  of a schedule — day-name columns, a day-named page title, or clock-time row
+  labels — and is called both from `src/screens/ImportScreen.jsx` and, since
+  T224, from `scripts/ingestCli.js`, which is what `scripts/mcp/tools.js`'s
+  `ingest_preview`/`ingest_commit` run. Before T224 only the GUI enforced it, so
+  the CLI and MCP would extract entities from any workbook at all: a campus-map
+  template proposed 23 groups, 23 tiers and 21 "activities" (its legend keys —
+  "building", "tent", "court") and reported success. The gate is **whole-file**
+  (`pages.some`) while extraction is per-page, so a file mixing a schedule page
+  with a non-schedule page still passes and the non-schedule page is still
+  extracted — see `docs/work/tickets/T223-shape-gate-page-granularity.md`. The
+  per-entity template importers (Locations, Electives, Special Events) are
+  non-schedule workbooks by design and deliberately never reach this check.
 
 Known gap: the text-grid parser does not join period labels wrapped across two
 lines, so `"9:50- Block" / "10:25  1"` is read as two fragments and that period
