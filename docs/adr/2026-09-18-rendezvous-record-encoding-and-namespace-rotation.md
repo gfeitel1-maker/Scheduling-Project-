@@ -2,7 +2,7 @@
 title: "Rendezvous record encoding and camp namespace rotation"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-09-18
 program: security-hardening
 affects:
@@ -14,7 +14,7 @@ affects:
   - docs/adr/2026-09-17-wan-rendezvous-seam.md
   - docs/work/tickets/T210-signed-rendezvous-record-and-namespace.md
   - docs/work/tickets/T209-rendezvous-worker-phase-a.md
-implementation_state: proposed
+implementation_state: implemented
 ---
 
 # Rendezvous record encoding and camp namespace rotation
