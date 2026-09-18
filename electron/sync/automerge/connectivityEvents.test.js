@@ -65,7 +65,9 @@ describe('connectivityEvents: allowlist drops unknown fields (defect: credential
     const lines = []
     const { emit } = createConnectivityEmitter({ sink: (line) => lines.push(line) })
 
-    emit(EVENTS.AUTH_OK, { peerId: 'peer-1', token: 'super-secret-token-value', pin: '1234' })
+    // Not a real credential: a deliberately credential-shaped fixture, which is the whole point —
+    // the assertions below prove the emitter DROPS it rather than writing it to a log line.
+    emit(EVENTS.AUTH_OK, { peerId: 'peer-1', token: 'super-secret-token-value', pin: '1234' }) // security-gate:allow
 
     expect(lines).toHaveLength(1)
     expect(lines[0]).not.toContain('super-secret-token-value')

@@ -1,0 +1,7 @@
+{
+  "name": "@libp2p/mdns",
+  "version": "12.0.32",
+  "license": "Apache-2.0 OR MIT",
+  "homepage": "https://github.com/libp2p/js-libp2p/tree/main/packages/peer-discovery-mdns#readme",
+  "licenseText": null
+}

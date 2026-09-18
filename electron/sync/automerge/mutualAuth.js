@@ -68,7 +68,16 @@ const NEGATIVE_CACHE_MAX_SIZE = 500
 // with no follow-up that reads identically to the exact failure mode this ticket exists to detect.
 // Kept well under NEGATIVE_CACHE_TTL_MS's neighborhood but distinct from it — this bounds a
 // per-peer LOG line, not a trust re-check.
-const DISCOVERY_EMIT_WINDOW_MS = 30_000
+//
+// DELIBERATELY NOT 30_000 (Red Hat, T212 round 2). `attemptTimeoutMs` defaults to 30_000, and an
+// equal value makes the two windows resonate at exactly the moment an analyst most needs a clean
+// signal: when the stall watchdog fires at ~30s and clears `attempted`, the re-announce that
+// triggers the retry lands near the boundary of the discovery window opened by the original
+// attempt's own PEER_DISCOVERED — so the announce explaining "why did a new attempt start right
+// after ATTEMPT_STALLED" is systematically likely to be folded into a repeatCount instead of
+// appearing as its own line beside the retry. Choosing a value that is not a small-integer multiple
+// of the stall timeout decorrelates them, so the aliasing cannot be systematic.
+const DISCOVERY_EMIT_WINDOW_MS = 19_000
 // Bounds discoveryEmitState the same way NEGATIVE_CACHE_MAX_SIZE bounds deniedRecently: caps memory
 // growth under a peer-id-churning flood.
 const DISCOVERY_EMIT_STATE_MAX_SIZE = 500

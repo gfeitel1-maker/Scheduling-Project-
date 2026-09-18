@@ -1,0 +1,7 @@
+{
+  "name": "@multiformats/multiaddr",
+  "version": "13.0.3",
+  "license": "Apache-2.0 OR MIT",
+  "homepage": "https://github.com/multiformats/js-multiaddr#readme",
+  "licenseText": null
+}
