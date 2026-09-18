@@ -23,6 +23,7 @@
 // bulk-replace entity, template_slots, are out of scope for this document
 // layer; see campDocument.js).
 import { randomUUID } from 'node:crypto'
+import os from 'node:os'
 import { applyProjection } from '../ops/projections.js'
 import { DELETE_FIELD, applyBulkReplaceProjection } from '../ops/operations.js'
 import { DOMAIN_SNAPSHOT_ORDER, BULK_REPLACE_ENTITIES } from '../ops/campScopedEntities.js'
@@ -61,6 +62,13 @@ function recordRowProjectionFailure(db, { entity, entityId, field, error }) {
     const opId = randomUUID()
     const now = new Date().toISOString()
     const deviceId = getOrCreateDeviceId(db)
+    // Self-sufficient (T194 round 6, Defect 2): early in sync, or right after a rebuild into a
+    // fresh db (rebuildSupportCommand.js), this device's own `devices` row may not exist yet —
+    // main.js's startup ensureDeviceRow normally creates it, but recording a projection failure
+    // must not depend on that having already run. LOCAL only: `devices` is a non-document table
+    // (see hostOnlyExclusion.test.js's NON_DOCUMENT_TABLES), so this can never reach the Automerge
+    // document or another peer.
+    db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
     db.prepare(
       `INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp, source)
        VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`
@@ -70,7 +78,6 @@ function recordRowProjectionFailure(db, { entity, entityId, field, error }) {
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     ).run(opId, entity, entityId, field ?? '', boundedErrorMessage(error), now, STORE_PROJECTION)
   } catch (recordErr) {
-    // eslint-disable-next-line no-console
     console.error(`projector: could not record a projection failure for '${entity}'/'${entityId}':`, recordErr)
   }
 }
@@ -292,7 +299,6 @@ function upsertUsersEntity(db, doc) {
           outcome: 'deny',
           reason: 'auth_sig missing or invalid on a credential change — refused on the merge path (Q1 enforcement)',
         })
-        // eslint-disable-next-line no-console
         console.error(
           `projector: REFUSED an unsigned/forged credential change for user ${id} (auth_sig did not verify) — keeping current local credentials. Q1 enforcement.`
         )
@@ -307,7 +313,7 @@ function upsertUsersEntity(db, doc) {
   }
 }
 
-function upsertEntity(db, doc, entity) {
+function upsertEntity(db, doc, entity, failures = null) {
   if (BULK_REPLACE_MODELED_ENTITIES.has(entity)) upsertBulkReplaceEntity(db, doc, entity)
   if (!MODELED_ENTITIES.has(entity)) return
   if (entity === 'camps') {
@@ -327,7 +333,7 @@ function upsertEntity(db, doc, entity) {
   for (const id of listRecordIds(doc, entity)) {
     const row = readRecord(doc, entity, id)
     if (!row) continue
-    upsertRow(db, entity, id, row, fields, outstandingIds)
+    upsertRow(db, entity, id, row, fields, outstandingIds, failures)
   }
 }
 
@@ -373,7 +379,7 @@ function resolveProjectionFailure(db, entity, entityId) {
 // (visible, diagnosable, self-healing once the row is fixed or removed) instead — and the drop is
 // recorded in `projection_failures`, not just logged, so it is repairable rather than merely
 // visible in a console nobody is watching (T194 round 3, Defect 2).
-function upsertRow(db, entity, id, row, fields, outstandingIds = null) {
+function upsertRow(db, entity, id, row, fields, outstandingIds = null, failures = null) {
   const savepoint = `row_${++rowSavepointCounter}`
   db.exec(`SAVEPOINT ${savepoint}`)
   let failedField = null
@@ -399,11 +405,14 @@ function upsertRow(db, entity, id, row, fields, outstandingIds = null) {
     db.exec(`RELEASE ${savepoint}`)
     // One line for the ROW, not one per field (up to 9 near-duplicates for elective_assignments
     // before this fix).
-    // eslint-disable-next-line no-console
     console.error(
       `projector: skipping doc '${entity}' row '${id}' (field '${failedField}') — ${err.message}`
     )
     recordRowProjectionFailure(db, { entity, entityId: id, field: failedField, error: err })
+    // Handed back to the caller (projectAll) so it can be REPORTED without projectAll itself
+    // throwing — containment must stay non-fatal (T194 round 6, Defect 1: this is how syncNode's
+    // onProjectionError learns about a contained row instead of only a console line nobody watches).
+    failures?.push({ entity, entityId: id, field: failedField, error: err })
   }
 }
 
@@ -563,11 +572,13 @@ function assertDocIsSupersetOrEmpty(db, doc) {
 export function projectAll(db, doc) {
   assertConflictsRecorded(db, doc)
   assertDocIsSupersetOrEmpty(db, doc)
+  const failures = []
   const run = db.transaction(() => {
-    for (const entity of MODELED_ORDER) upsertEntity(db, doc, entity)
+    for (const entity of MODELED_ORDER) upsertEntity(db, doc, entity, failures)
     for (const entity of [...MODELED_ORDER].reverse()) deleteReconcileEntity(db, doc, entity)
   })
   run()
+  return failures
 }
 
 // Prove SQLite is disposable: wipe table(s) and re-derive them from the

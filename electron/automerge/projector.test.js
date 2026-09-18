@@ -335,6 +335,71 @@ describe('projector — a projection failure resolves once the document row actu
   })
 })
 
+// T194 round 6, Defect 1. A contained row failure used to be console-only from projectAll's point
+// of view — the caller (syncNode.js) had no way to learn about it, because projectAll only ever
+// signals failure by THROWING, and containment (round 3) deliberately made a bad row non-fatal.
+// projectAll must hand back what it contained so a caller (syncNode's onProjectionError) can still
+// tell the app, without becoming fatal itself.
+describe('projectAll — contained row failures are returned, not just logged', () => {
+  it('returns an array describing the skipped row while the rest of the batch still succeeds', () => {
+    db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(getOrCreateDeviceId(db), 'Self')
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
+    // Violates the CHECK (status IN ('draft', 'final'))
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'status', value: 'bogus' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swim' })
+
+    const realError = console.error
+    console.error = () => {}
+    let result
+    try {
+      result = projectAll(db, doc)
+    } finally {
+      console.error = realError
+    }
+
+    expect(Array.isArray(result)).toBe(true)
+    expect(result.length).toBe(1)
+    expect(result[0].entity).toBe('elective_assignment_runs')
+    expect(result[0].entityId).toBe('run-bad')
+    expect(result[0].error).toBeInstanceOf(Error)
+    // The rest of the batch was not aborted by the contained row.
+    expect(db.prepare('SELECT name FROM activities WHERE id = ?').get('act-1')?.name).toBe('Swim')
+  })
+})
+
+// T194 round 6, Defect 2. recordRowProjectionFailure mints a synthetic op whose device_id must
+// satisfy operations.device_id's FK to devices(id). Early in sync (or right after a rebuild into a
+// fresh db — rebuildSupportCommand.js), THIS device may not have its own devices row yet; the fix
+// must be self-sufficient rather than relying on some other startup step having already run.
+describe('projector — recording a projection failure is self-sufficient', () => {
+  it('records the failure even when this device has no devices row yet', () => {
+    // Deliberately do NOT insert a devices row for getOrCreateDeviceId(db) — reproduces early-sync
+    // / rebuild-into-fresh-db state.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'status', value: 'bogus' })
+
+    const errors = []
+    const realError = console.error
+    console.error = (...args) => errors.push(args.join(' '))
+    try {
+      expect(() => projectAll(db, doc)).not.toThrow()
+    } finally {
+      console.error = realError
+    }
+
+    // No "could not record" failure leaked to the console — recording must succeed on its own.
+    expect(errors.some((e) => e.includes('could not record a projection failure'))).toBe(false)
+    const failure = db.prepare('SELECT * FROM projection_failures WHERE entity_id = ?').get('run-bad')
+    expect(failure).toBeTruthy()
+    expect(failure.resolved_at).toBeNull()
+  })
+})
+
 // T194 round 4, Defect 3. PROJECTION_FAILURE_OP_FIELD must never collide with a real column name
 // for any entity, or the sentinel op would be indistinguishable from a genuine field write to
 // every consumer that keys off `field` (getEntityHistory, lastKnownFields/lastKnownFieldSources,
@@ -342,7 +407,7 @@ describe('projector — a projection failure resolves once the document row actu
 // src/components/schedule/slotCellConstants.test.js pins ACTIVITY_COLORS.
 describe('PROJECTION_FAILURE_OP_FIELD collides with no real column, and no other sentinel', () => {
   it('is not a projected field for any entity', () => {
-    for (const [entity, projection] of Object.entries(PROJECTIONS)) {
+    for (const projection of Object.values(PROJECTIONS)) {
       expect(projection.fields ?? []).not.toContain(PROJECTION_FAILURE_OP_FIELD)
     }
   })

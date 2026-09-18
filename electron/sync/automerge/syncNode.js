@@ -82,8 +82,21 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
 
   function projectAndNotify(merged, before, fromPeerId) {
     try {
-      projectAll(db, merged)
+      const contained = projectAll(db, merged)
       onProjected?.(merged)
+      // Containment (round 3) made a bad row non-fatal — projectAll no longer throws for it, so
+      // the app must learn about it here instead of only in projection_failures/the console
+      // (T194 round 6, Defect 1). Reuses the same onProjectionError callback the fatal path below
+      // already calls: one row per contained failure, never fatal, sync keeps converging either way.
+      if (onProjectionError && contained?.length) {
+        for (const failure of contained) {
+          try {
+            onProjectionError(failure.error, merged, fromPeerId)
+          } catch (err) {
+            console.error(`syncNode: onProjectionError consumer threw (non-fatal, sync continues): ${err?.message ?? err}`)
+          }
+        }
+      }
       // Synthesized once and used twice: the local history ledger writes rows
       // for what arrived, and the renderer is notified. Computing the diff
       // separately for each would be wasted work on the receive path, which a
