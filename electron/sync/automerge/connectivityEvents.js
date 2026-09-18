@@ -24,20 +24,27 @@ export const EVENTS = Object.freeze({
   // Vocabulary only. Reserved for the still-parked rendezvous adapter (T211) — no running code
   // emits this today, and nothing under electron/sync/automerge/rendezvous*.js is imported here.
   RENDEZVOUS_UNAVAILABLE: 'RENDEZVOUS_UNAVAILABLE',
+  NO_TOKEN: 'NO_TOKEN',
 })
 
 // Per-event field allowlist, beyond the shared { ts, peerId, source }. This is itself a leak
 // guard (ADR Decision 1): a field not named here is silently dropped rather than passed through,
 // so a caller that accidentally hands emit() a token or PIN under a made-up key does not leak it.
-const FIELD_ALLOWLIST = Object.freeze({
+// NOTE (Code Reviewer, T212 round 2): PEER_DISCOVERED's entry below is NOT authoritative for that
+// event's shape — its real field set comes from buildPeerDiscoveredFields()/emit()'s special-case
+// branch (multiaddrCount/multiaddrClasses/repeatCount, plus multiaddrs when verboseAddrs), not from
+// this list. It is listed only so the EVENTS/FIELD_ALLOWLIST key-parity invariant below has an
+// entry to compare against. Every other event's list below IS authoritative.
+export const FIELD_ALLOWLIST = Object.freeze({
   [EVENTS.PEER_DISCOVERED]: [],
   [EVENTS.TRUST_CHECK_REJECTED]: ['reason'],
-  [EVENTS.DIAL_FAILED]: ['reused', 'errorClass'],
-  [EVENTS.ATTEMPT_STALLED]: ['attemptTimeoutMs'],
-  [EVENTS.AUTH_REJECTED]: ['retried'],
-  [EVENTS.AUTH_ERROR]: ['retried', 'errorClass'],
-  [EVENTS.AUTH_OK]: [],
+  [EVENTS.DIAL_FAILED]: ['reused', 'errorClass', 'attemptId'],
+  [EVENTS.ATTEMPT_STALLED]: ['attemptTimeoutMs', 'attemptId'],
+  [EVENTS.AUTH_REJECTED]: ['retried', 'attemptId'],
+  [EVENTS.AUTH_ERROR]: ['retried', 'errorClass', 'attemptId'],
+  [EVENTS.AUTH_OK]: ['attemptId'],
   [EVENTS.RENDEZVOUS_UNAVAILABLE]: ['reason'],
+  [EVENTS.NO_TOKEN]: ['attemptId'],
 })
 
 const ERROR_CLASSES = Object.freeze(['timeout', 'refused', 'reset', 'unreachable', 'unknown'])
@@ -53,12 +60,19 @@ export function classifyError(err) {
   return ERROR_CLASSES.includes(code) ? code : 'unknown'
 }
 
+// 'cgnat' is its own class, not folded into 'private' (Security finding, T212 round 2): a CGNAT
+// peer (behind its ISP's shared address, RFC 6598) is exactly the case the D/F NAT-traversal
+// decision turns on — it is NOT under this device's own network administration the way an RFC1918
+// address is, and folding it into 'private' would make a carrier-NAT peer indistinguishable from
+// one on a home router the operator controls, hiding the very signal the measurement exists to
+// surface.
 function classifyIp4(ip) {
   const parts = ip.split('.').map(Number)
   if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return 'public'
   const [a, b] = parts
   if (a === 127) return 'loopback'
   if (a === 10) return 'private'
+  if (a === 100 && b >= 64 && b <= 127) return 'cgnat'
   if (a === 172 && b >= 16 && b <= 31) return 'private'
   if (a === 192 && b === 168) return 'private'
   if (a === 169 && b === 254) return 'private'
@@ -68,6 +82,11 @@ function classifyIp4(ip) {
 function classifyIp6(ip) {
   const lower = ip.toLowerCase()
   if (lower === '::1') return 'loopback'
+  // IPv4-mapped IPv6 (::ffff:a.b.c.d) embeds a real IPv4 address — classify by that address's own
+  // rules rather than falling through to 'public', or a private/CGNAT peer reached via a
+  // dual-stack socket would misreport as publicly reachable.
+  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
+  if (mapped) return classifyIp4(mapped[1])
   if (lower.startsWith('fe80') || lower.startsWith('fc') || lower.startsWith('fd')) return 'private'
   return 'public'
 }
@@ -79,7 +98,7 @@ export function classifyMultiaddr(addr) {
   const str = String(addr)
   const ip4 = str.match(/\/ip4\/([\d.]+)(?:\/|$)/)
   if (ip4) return classifyIp4(ip4[1])
-  const ip6 = str.match(/\/ip6\/([0-9a-fA-F:]+)(?:\/|$)/)
+  const ip6 = str.match(/\/ip6\/([0-9a-fA-F:.]+)(?:\/|$)/)
   if (ip6) return classifyIp6(ip6[1])
   return 'public'
 }
@@ -96,6 +115,10 @@ function buildPeerDiscoveredFields(fields, verboseAddrs) {
     multiaddrCount: multiaddrs.length,
     multiaddrClasses: multiaddrs.map(classifyMultiaddr),
   }
+  // repeatCount: how many announces this emission summarizes, set by the caller's own dedupe
+  // window (mutualAuth.js) — this module has no notion of "recent" on its own. Present only when
+  // the caller passes it, so a single first-time discovery keeps the pre-existing shape.
+  if (Number.isInteger(fields.repeatCount) && fields.repeatCount > 0) out.repeatCount = fields.repeatCount
   if (verboseAddrs) out.multiaddrs = multiaddrs
   return out
 }

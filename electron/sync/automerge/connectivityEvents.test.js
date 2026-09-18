@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest'
-import { createConnectivityEmitter, classifyMultiaddr, classifyError, EVENTS } from './connectivityEvents.js'
+import { createConnectivityEmitter, classifyMultiaddr, classifyError, EVENTS, FIELD_ALLOWLIST } from './connectivityEvents.js'
 
 const PUBLIC_ADDR = '/ip4/203.0.113.7/tcp/4001/p2p/12D3KooWabc'
 const PRIVATE_ADDR = '/ip4/192.168.1.5/tcp/4001/p2p/12D3KooWabc'
@@ -17,6 +17,22 @@ describe('connectivityEvents: address classification (privacy boundary)', () => 
 
   it('classifies loopback as loopback', () => {
     expect(classifyMultiaddr(LOOPBACK_ADDR)).toBe('loopback')
+  })
+
+  it('classifies an RFC 6598 CGNAT address (100.64.0.0/10) as its own cgnat class, not public (Security)', () => {
+    expect(classifyMultiaddr('/ip4/100.64.1.2/tcp/4001')).toBe('cgnat')
+    expect(classifyMultiaddr('/ip4/100.127.255.254/tcp/4001')).toBe('cgnat')
+  })
+
+  it('does not misclassify addresses just outside the CGNAT range as cgnat', () => {
+    expect(classifyMultiaddr('/ip4/100.63.255.255/tcp/4001')).toBe('public')
+    expect(classifyMultiaddr('/ip4/100.128.0.0/tcp/4001')).toBe('public')
+  })
+
+  it('unwraps an IPv4-mapped IPv6 address and classifies the embedded IPv4 (Security)', () => {
+    expect(classifyMultiaddr('/ip6/::ffff:192.168.1.5/tcp/4001')).toBe('private')
+    expect(classifyMultiaddr('/ip6/::ffff:100.64.1.2/tcp/4001')).toBe('cgnat')
+    expect(classifyMultiaddr('/ip6/::ffff:203.0.113.7/tcp/4001')).toBe('public')
   })
 })
 
@@ -109,6 +125,12 @@ describe('connectivityEvents: vocabulary-only reserved event', () => {
     const { emit } = createConnectivityEmitter({ sink: (line) => lines.push(line) })
     emit(EVENTS.RENDEZVOUS_UNAVAILABLE, { peerId: 'peer-1', reason: 'disabled' })
     expect(JSON.parse(lines[0]).reason).toBe('disabled')
+  })
+})
+
+describe('connectivityEvents: EVENTS/FIELD_ALLOWLIST key parity (Code Reviewer)', () => {
+  it('has exactly one FIELD_ALLOWLIST entry per EVENTS key, so a new event cannot silently ship without an allowlist entry', () => {
+    expect(Object.keys(EVENTS).sort()).toEqual(Object.keys(FIELD_ALLOWLIST).sort())
   })
 })
 
