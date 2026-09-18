@@ -24,6 +24,7 @@ import { commitIngest } from '../electron/ops/ingest.js'
 import { parseTextGrid } from '../src/ingest/textGrid.js'
 import { workbookToPages } from '../src/ingest/sheetGrid.js'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../src/ingest/extractEntities.js'
+import { isScheduleShaped } from '../src/ingest/scheduleShape.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { readWorkbookSafely, unescapeRow } from '../src/utils/exportSanitize.js'
 
@@ -90,6 +91,28 @@ export function runIngestCli({ file, dbPath, mode = 'add', action = 'preview', a
   }
   if (!pages || pages.length === 0) {
     return errorResult(base, 'No schedule could be read out of that file.')
+  }
+
+  // T222 — the same precondition ImportScreen.jsx enforces before it will
+  // extract anything. It was previously imported ONLY there, so a director
+  // using the app was protected from pointing the importer at a non-schedule
+  // workbook and the CLI/MCP operator was not: a camper elective-selection
+  // form committed its column headers ('#1', '#2', 'Division') as camp groups
+  // and again as tiers, and reported exit 0.
+  //
+  // This is the same schedule import path the UI gate covers, not a widening
+  // of it — runIngestCli only ever drives commitIngest. The per-entity
+  // template importers (Locations, Electives, Special Events) are non-schedule
+  // workbooks by design and must continue never to reach this check; see the
+  // scoping note at the top of src/ingest/scheduleShape.js.
+  //
+  // Refused BEFORE extractEntities, so no proposal exists to be mistaken for a
+  // partial success, and the db is untouched by construction.
+  if (!isScheduleShaped(pages)) {
+    return errorResult(
+      base,
+      'that file does not look like a schedule — expected either day-name columns or clock-time row labels, and found neither'
+    )
   }
 
   const proposal = extractEntities({ pages })
