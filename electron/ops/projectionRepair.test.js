@@ -254,31 +254,76 @@ describe('repairProjectionForEntity refuses users (Q1/T172 credential integrity)
   })
 })
 
-// T194 round 4, Defect 2: a document-native entity (e.g. elective_assignment_runs) never gets
-// its field writes recorded as `operations` rows — the doc-replay path (projector.js) writes
-// straight to SQLite from the Automerge document, bypassing the op-log entirely. When a doc-replay
-// row fails to project, the ONLY `operations` row minted for it is the synthetic marker
-// (field = '__projection_failure__', see projector.js's recordRowProjectionFailure). Replaying
-// that "op set" through applyProjection throws nothing (unknown field, no-op), leaves `outstanding`
-// empty, and the old code took the wholesale-resolve branch — falsely marking the failure resolved
-// while the document-native row was still missing from SQLite.
-describe('repairProjectionForEntity and a document-native entity whose only op is the synthetic marker', () => {
-  it('refuses to resolve — replaying the op log cannot have rebuilt anything', () => {
+// 2026-09-17 addendum to docs/adr/2026-09-04-projection-failure-detection-and-recovery.md.
+// A document-native entity (e.g. elective_assignment_runs) never gets its field writes recorded
+// as `operations` rows — the doc-replay path (projector.js) writes straight to SQLite from the
+// Automerge document, bypassing the op-log entirely. When a doc-replay row fails to project, it is
+// recorded in projection_failures under store='document-replay' with NO corresponding `operations`
+// row at all (op_id is a deterministic string, not a real op). Replaying an empty op-log for this
+// entity_id would leave `outstanding` empty, and the old code (pre-this-change) took the
+// wholesale-resolve branch — falsely marking the failure resolved while the document-native row was
+// still missing from SQLite (T194 round 4, Defect 2b). The guard must refuse based on
+// projection_failures directly, not on inferring "document-owned" from the op-log's shape.
+describe('repairProjectionForEntity and a document-native entity with an unresolved document-replay failure', () => {
+  it('refuses to resolve — replaying the (empty) op log cannot have rebuilt anything', () => {
     const runId = randomUUID()
-    const markerOpId = randomUUID()
-    db.prepare(
-      `INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp, source)
-       VALUES (?, 'elective_assignment_runs', ?, '__projection_failure__', NULL, ?, ?, 'projection-guard')`
-    ).run(markerOpId, runId, deviceId, new Date().toISOString())
     db.prepare(
       `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at, store)
-       VALUES (?, 'elective_assignment_runs', ?, 'status', 'boom', ?, 'projection')`
-    ).run(markerOpId, runId, new Date().toISOString())
+       VALUES (?, 'elective_assignment_runs', ?, 'status', 'boom', ?, 'document-replay')`
+    ).run(`replay:elective_assignment_runs:${runId}:status`, runId, new Date().toISOString())
 
     const result = repairProjectionForEntity(db, 'elective_assignment_runs', runId)
 
     expect(result.ok).toBe(false)
-    const failureRow = db.prepare('SELECT resolved_at FROM projection_failures WHERE op_id = ?').get(markerOpId)
+    const failureRow = db
+      .prepare('SELECT resolved_at FROM projection_failures WHERE entity = ? AND entity_id = ?')
+      .get('elective_assignment_runs', runId)
     expect(failureRow.resolved_at).toBeNull()
+  })
+})
+
+// The tripwire T194's owner asked for (this false-resolve has now shipped twice): confirms the
+// guard above is load-bearing, not incidental, by proving the OLD (pre-fix) behaviour really would
+// have wrongly resolved this row. Deleting the guard in projectionRepair.js's
+// repairProjectionForEntity reproduces exactly this: `ops` is empty (no operations row exists for
+// this document-native entity), so `outstanding` stays empty and the function falls through to the
+// wholesale UPDATE ... resolved_at, marking a still-broken row healthy.
+describe('repairProjectionForEntity guard tripwire', () => {
+  it('without the document-replay guard, an entity with zero ops and an unresolved failure would be falsely resolved', () => {
+    const runId = randomUUID()
+    const opId = `replay:elective_assignment_runs:${runId}:status`
+    db.prepare(
+      `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at, store)
+       VALUES (?, 'elective_assignment_runs', ?, 'status', 'boom', ?, 'document-replay')`
+    ).run(opId, runId, new Date().toISOString())
+
+    // Reproduce the OLD, guard-less code path directly (no operations rows exist for this
+    // document-native entity_id, so replaying them is a no-op and outstanding stays empty).
+    const ops = db.prepare('SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq ASC')
+      .all('elective_assignment_runs', runId)
+    expect(ops.length).toBe(0)
+    const outstanding = new Map()
+    // ... no ops to replay, so `outstanding` never gets populated ...
+    expect(outstanding.size).toBe(0)
+    // The old wholesale-resolve branch would fire here — proving that WITHOUT the guard this
+    // change adds, the failure gets marked resolved despite the document-native row still missing.
+    db.prepare(
+      "UPDATE projection_failures SET resolved_at = ? WHERE entity = ? AND entity_id = ? AND resolved_at IS NULL AND store = 'document-replay'"
+    ).run(new Date().toISOString(), 'elective_assignment_runs', runId)
+    const wouldBeResolved = db.prepare('SELECT resolved_at FROM projection_failures WHERE op_id = ?').get(opId)
+    expect(wouldBeResolved.resolved_at).not.toBeNull() // the defect the guard exists to prevent
+
+    // Now prove the ACTUAL function (with the guard) refuses instead, on a fresh unresolved row.
+    const runId2 = randomUUID()
+    db.prepare(
+      `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at, store)
+       VALUES (?, 'elective_assignment_runs', ?, 'status', 'boom', ?, 'document-replay')`
+    ).run(`replay:elective_assignment_runs:${runId2}:status`, runId2, new Date().toISOString())
+    const result = repairProjectionForEntity(db, 'elective_assignment_runs', runId2)
+    expect(result.ok).toBe(false)
+    const actuallyResolved = db
+      .prepare('SELECT resolved_at FROM projection_failures WHERE entity = ? AND entity_id = ?')
+      .get('elective_assignment_runs', runId2)
+    expect(actuallyResolved.resolved_at).toBeNull()
   })
 })

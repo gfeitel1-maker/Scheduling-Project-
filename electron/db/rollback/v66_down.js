@@ -27,6 +27,16 @@
 // is the one stated two paragraphs above — the document and the op-log — not a
 // surviving column.
 //
+// ROUND 7 ADDENDUM — projection_failures.op_id's FK to operations(id) was
+// also dropped in place (schema.sql, and a table-rebuild step folded into the
+// v66 migration block in localDb.js, since CREATE TABLE IF NOT EXISTS is a
+// no-op on any db that already has the table). This rollback does NOT restore
+// that FK: doing so would require re-validating every existing op_id against
+// operations(id), and any 'document-replay' row (whose op_id is a
+// deterministic string, not a real operations(id)) would then fail to
+// reinsert. The FK removal is one-way; rolling back v66 rolls back the seven
+// participant tables and the two capacity columns only.
+//
 // Usage:  node electron/db/rollback/v66_down.js <path-to-shoresh.sqlite>
 
 // Reverse DOMAIN_SNAPSHOT_ORDER, so foreign_keys = ON never sees a dangling

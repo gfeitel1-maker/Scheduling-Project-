@@ -199,6 +199,28 @@ the same working tree; the headline decisions:
   "missing space is the same choice" rule. Documented in the module's "does NOT close" list rather
   than fixed: the operation order is `whitespaceInsensitiveName`'s, shared repo-wide.
 
+### Projection-failure recording, replaced (2026-09-17)
+
+Rounds 3-6 of this ticket patched `recordRowProjectionFailure`'s FK-satisfying synthetic
+`operations` row three times in a row — leaked history entry, false-resolve, and a fresh-db throw.
+The owner ruled the shape itself was wrong and replaced it: `projection_failures.op_id` no longer
+has a foreign key to `operations`, and a new `store = 'document-replay'` value with a deterministic
+string `op_id` replaces the fabrication outright. See the 2026-09-17 addendum to
+`docs/adr/2026-09-04-projection-failure-detection-and-recovery.md` for the full account and the
+corrected shape; `repairProjectionForEntity`'s document-owned refusal is re-keyed against
+`projection_failures` directly, with a tripwire test confirming it goes red if the guard is removed.
+
+### Considered and deliberately not touched
+
+- `electron/sync/automerge/transport.js`'s `authenticateWith` opens a stream via `dialProtocol` and
+  never closes it on any path (success, parse failure, or send failure). Pre-existing, not
+  introduced here; harmless under the current transport but fatal under libp2p v3. Owned by the
+  concurrent libp2p-upgrade branch, which rewrites this file — deliberately not fixed here to avoid
+  a guaranteed conflict.
+- The related `onDrain()` unbounded-await pattern (a peer that stops reading wedging the sender
+  forever) was checked for and does not exist anywhere in this repository — a checked-and-absent
+  negative, not an omission.
+
 ### Undisclosed expansion of the approved build list, disclosed
 
 `electron/ops/mergeActivity.js`'s `ACTIVITY_REFERRERS` was expanded to cover the new

@@ -22,8 +22,6 @@
 // rather than guessing (host-only tables, parent-scoped tables, and the one
 // bulk-replace entity, template_slots, are out of scope for this document
 // layer; see campDocument.js).
-import { randomUUID } from 'node:crypto'
-import os from 'node:os'
 import { applyProjection } from '../ops/projections.js'
 import { DELETE_FIELD, applyBulkReplaceProjection } from '../ops/operations.js'
 import { DOMAIN_SNAPSHOT_ORDER, BULK_REPLACE_ENTITIES } from '../ops/campScopedEntities.js'
@@ -33,50 +31,27 @@ import { verifyAuthFields } from '../auth/authSignature.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
-import { getOrCreateDeviceId } from '../db/localDb.js'
-import { STORE_PROJECTION, boundedErrorMessage } from '../ops/documentWriteFailures.js'
+import { STORE_DOCUMENT_REPLAY, boundedErrorMessage } from '../ops/documentWriteFailures.js'
 
-// Sentinel `operations.field` for the synthetic op minted below — never a real column name for
-// any entity's PROJECTIONS.fields, so it can never be picked up by anything that reads real
-// per-field history (historyLedger/restore's lastKnownFieldSources, trash). The synthetic op
-// exists ONLY to satisfy projection_failures.op_id's FK to operations(id); it must stay inert
-// against every other consumer of that table.
-export const PROJECTION_FAILURE_OP_FIELD = '__projection_failure__'
-
-// Record that one doc-replay row was dropped whole (see upsertRow below). Reuses
-// projection_failures (electron/ops/documentWriteFailures.js) rather than inventing a second
-// mechanism — store='projection' because the fact of the matter is "this failed to reach
-// SQLite", the exact case that store value already means, and repairProjectionForEntity's
-// replay-the-op-log remedy is the right one once the row is fixed or removed on a peer (unlike
-// store='document', whose remedy would be to trust SQLite over the document — backwards here,
-// since the document has the row and SQLite does not).
-//
-// projection_failures.op_id is a real FK to operations(id), and at this point in projectAll
-// (before appendReceivedOps, which runs strictly after — see syncNode.js) no operations row for
-// this write exists yet. A minimal synthetic op is inserted to satisfy the FK, tagged with the
-// inert sentinel field above so it can never be mistaken for real field history. Both inserts are
-// wrapped in their own try/catch: a failure to record the failure must never re-break the
-// projection it is trying to report on.
+// Record that one doc-replay row was dropped whole (see upsertRow below), in
+// projection_failures (electron/ops/documentWriteFailures.js) under
+// store='document-replay' — this failure has no op-log op (the doc-replay path writes straight to
+// SQLite, never through appendOp), so op_id is a deterministic string derived from the failure
+// itself rather than a real operations(id): nothing is fabricated to satisfy a foreign key. See the
+// 2026-09-17 addendum to docs/adr/2026-09-04-projection-failure-detection-and-recovery.md.
+// `ON CONFLICT(op_id) DO UPDATE` makes a repeated failure on the same (entity, entityId, field)
+// collapse onto the same row rather than accumulate duplicates. Wrapped in its own try/catch: a
+// failure to record the failure must never re-break the projection it is trying to report on.
 function recordRowProjectionFailure(db, { entity, entityId, field, error }) {
   try {
-    const opId = randomUUID()
+    const opId = `replay:${entity}:${entityId}:${field ?? ''}`
     const now = new Date().toISOString()
-    const deviceId = getOrCreateDeviceId(db)
-    // Self-sufficient (T194 round 6, Defect 2): early in sync, or right after a rebuild into a
-    // fresh db (rebuildSupportCommand.js), this device's own `devices` row may not exist yet —
-    // main.js's startup ensureDeviceRow normally creates it, but recording a projection failure
-    // must not depend on that having already run. LOCAL only: `devices` is a non-document table
-    // (see hostOnlyExclusion.test.js's NON_DOCUMENT_TABLES), so this can never reach the Automerge
-    // document or another peer.
-    db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
-    db.prepare(
-      `INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp, source)
-       VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`
-    ).run(opId, entity, entityId, PROJECTION_FAILURE_OP_FIELD, deviceId, now, 'projection-guard')
     db.prepare(
       `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at, store)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(opId, entity, entityId, field ?? '', boundedErrorMessage(error), now, STORE_PROJECTION)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(op_id) DO UPDATE SET
+         error_message = excluded.error_message, failed_at = excluded.failed_at, store = excluded.store`
+    ).run(opId, entity, entityId, field ?? '', boundedErrorMessage(error), now, STORE_DOCUMENT_REPLAY)
   } catch (recordErr) {
     console.error(`projector: could not record a projection failure for '${entity}'/'${entityId}':`, recordErr)
   }
@@ -345,7 +320,7 @@ function outstandingProjectionFailureRowIds(db, entity) {
       `SELECT DISTINCT entity_id FROM projection_failures
        WHERE entity = ? AND resolved_at IS NULL AND store = ?`
     )
-    .all(entity, STORE_PROJECTION)
+    .all(entity, STORE_DOCUMENT_REPLAY)
   return new Set(rows.map((r) => r.entity_id))
 }
 
@@ -353,12 +328,12 @@ function outstandingProjectionFailureRowIds(db, entity) {
 // 2b): a document-native row's real "repair" isn't a replay, it's a peer sending a corrected
 // value, which arrives here as an ordinary field write and simply projects on the next pass. Once
 // it does, the row has genuinely reached SQLite from the document, and any outstanding
-// store='projection' failure for it is stale — resolve it, the same way repairProjectionForEntity
+// store='document-replay' failure for it is stale — resolve it, the same way repairProjectionForEntity
 // resolves a clean op-log replay.
 function resolveProjectionFailure(db, entity, entityId) {
   db.prepare(
     `UPDATE projection_failures SET resolved_at = ? WHERE entity = ? AND entity_id = ? AND resolved_at IS NULL AND store = ?`
-  ).run(new Date().toISOString(), entity, entityId, STORE_PROJECTION)
+  ).run(new Date().toISOString(), entity, entityId, STORE_DOCUMENT_REPLAY)
 }
 
 // Project one row, atomically. Contained per-ROW (T194 round 3), not per-field (round 2's gap):

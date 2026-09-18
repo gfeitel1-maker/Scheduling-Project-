@@ -22,6 +22,12 @@
 export const STORE_PROJECTION = 'projection'
 export const STORE_DOCUMENT = 'document'
 
+// A document-native row (full-document replay, electron/automerge/projector.js) that cannot be
+// projected into SQLite at all — never an op-log op, so op_id cannot be a real operations(id) (see
+// the 2026-09-17 addendum to docs/adr/2026-09-04-projection-failure-detection-and-recovery.md).
+// The remedy is re-projecting from the document, never op-log replay.
+export const STORE_DOCUMENT_REPLAY = 'document-replay'
+
 // projection_failures is PII-adjacent (T194 round 4, Defect 4): error.message is written verbatim
 // from whatever threw. No validator on this path interpolates a written VALUE into its thrown
 // message today, so nothing leaks — but that is a property of the validators, not of this table,

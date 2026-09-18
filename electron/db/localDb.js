@@ -2737,6 +2737,52 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         // these rows with it NULL. "Reversible" is accurate today and is not a
         // standing property.
       }
+
+      // Round 7: drop projection_failures.op_id's FK to operations(id).
+      // schema.sql was edited in place to remove it, but `CREATE TABLE IF NOT
+      // EXISTS` is a no-op on any database that already has the table — every
+      // database at v55+, i.e. every database in existence, since origin/main
+      // is at 65. Without this rebuild the hard FK survives on every existing
+      // db and a 'document-replay' failure's deterministic op_id (which by
+      // design points at no operations row) is rejected by SQLITE_CONSTRAINT
+      // and silently swallowed by recordRowProjectionFailure's own try/catch
+      // — the exact defect this migration exists to fix, re-entered through
+      // schema.sql alone.
+      //
+      // Guarded by presence of the FK (not by column/table existence) so this
+      // is idempotent: a db that already lacks the FK (fresh, or already
+      // rebuilt) is left alone.
+      const pfHasFk = db.pragma('foreign_key_list(projection_failures)').length > 0
+      if (pfHasFk) {
+        db.pragma('foreign_keys = OFF')
+        try {
+          db.exec(`
+            CREATE TABLE projection_failures_v66 (
+              op_id TEXT PRIMARY KEY,
+              entity TEXT NOT NULL,
+              entity_id TEXT NOT NULL,
+              field TEXT NOT NULL,
+              error_message TEXT NOT NULL,
+              failed_at TEXT NOT NULL,
+              resolved_at TEXT,
+              store TEXT NOT NULL DEFAULT 'projection'
+            );
+            INSERT INTO projection_failures_v66
+              SELECT op_id, entity, entity_id, field, error_message, failed_at, resolved_at, store
+              FROM projection_failures;
+            DROP TABLE projection_failures;
+            ALTER TABLE projection_failures_v66 RENAME TO projection_failures;
+            CREATE INDEX IF NOT EXISTS idx_projection_failures_unresolved
+              ON projection_failures(entity, entity_id) WHERE resolved_at IS NULL;
+          `)
+        } finally {
+          // Belt-and-suspenders, same as the v49/v50 blocks: PRAGMA
+          // foreign_keys is a no-op while a transaction is open, so this is
+          // never actually OFF here today; the finally guards a future
+          // refactor that moves the DDL out of the transaction.
+          db.pragma('foreign_keys = ON')
+        }
+      }
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (66, ?)').run(

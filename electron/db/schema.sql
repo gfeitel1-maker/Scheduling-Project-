@@ -375,8 +375,17 @@ CREATE TABLE IF NOT EXISTS device_health_events (
 CREATE INDEX IF NOT EXISTS idx_device_health_events_unresolved
   ON device_health_events(kind, occurred_at) WHERE resolved_at IS NULL;
 
+-- op_id has NO foreign key to operations(id) (2026-09-17 addendum below): a
+-- store='document-replay' failure (a document-native row that cannot be
+-- projected during full-document replay, electron/automerge/projector.js) has
+-- no op — nothing was written, so there is nothing in `operations` to point
+-- at. Its op_id is instead a deterministic string derived from the failure
+-- itself (entity/entity_id/field). The other two store values' op_ids remain
+-- real operations(id) values by convention, just no longer enforced by a DB
+-- constraint. See the ADR addendum in
+-- docs/adr/2026-09-04-projection-failure-detection-and-recovery.md.
 CREATE TABLE IF NOT EXISTS projection_failures (
-  op_id TEXT PRIMARY KEY REFERENCES operations(id),
+  op_id TEXT PRIMARY KEY,
   entity TEXT NOT NULL,
   entity_id TEXT NOT NULL,
   field TEXT NOT NULL,
@@ -386,7 +395,10 @@ CREATE TABLE IF NOT EXISTS projection_failures (
   -- Which store the op failed to reach (schema v58). 'projection' = it did not
   -- reach SQLite, repairable by replaying the op-log. 'document' = it reached
   -- SQLite but not the Automerge document, where that same replay would be
-  -- WRONG (SQLite is already correct). See electron/ops/documentWriteFailures.js.
+  -- WRONG (SQLite is already correct). 'document-replay' (2026-09-17) = a
+  -- document-native row dropped whole during full-document replay; never an
+  -- op-log op, repairable only by re-projecting from the document. See
+  -- electron/ops/documentWriteFailures.js.
   store TEXT NOT NULL DEFAULT 'projection'
 );
 CREATE INDEX IF NOT EXISTS idx_projection_failures_unresolved

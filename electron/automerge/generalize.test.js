@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openLocalDb, getOrCreateDeviceId } from '../db/localDb.js'
+import { openLocalDb } from '../db/localDb.js'
 import { appendOp } from '../ops/operations.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
 import { PROJECTIONS } from '../ops/projections.js'
@@ -237,12 +237,6 @@ describe('Automerge generalization slice — FK-safe projectAll ordering', () =>
   // what projectAll would do if cohorts were not ordered ahead of tiers) and confirming the right
   // order recovers cleanly.
   it('the wrong order drops the row and records a failure; the right order does neither — proving DOMAIN_SNAPSHOT_ORDER is load-bearing, not incidental', () => {
-    // INSERT OR IGNORE the recordRowProjectionFailure precondition (projector.test.js's own
-    // pattern): the synthetic op it inserts needs operations.device_id to satisfy a real FK to
-    // devices(id), and getOrCreateDeviceId's device_identity id is a different id than the
-    // fixture's 'device-1' devices row.
-    db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(getOrCreateDeviceId(db), 'Self')
-
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'cohorts', entity_id: 'cohort-1', field: 'camp_id', value: 'camp-1' })
     doc = applyWrite(doc, { entity: 'tiers', entity_id: 'tier-1', field: 'camp_id', value: 'camp-1' })
@@ -314,8 +308,6 @@ describe('Automerge generalization slice — inconsistent doc is a rules-layer b
     // skipped and recorded rather than escaping — that is correct, not a
     // defect. Guarding against ever PRODUCING such a doc is the Stage-2
     // rules layer's job, not this projector's.
-    db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(getOrCreateDeviceId(db), 'Self')
-
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'tiers', entity_id: 't1', field: 'camp_id', value: 'camp-1' })
     doc = applyWrite(doc, { entity: 'tiers', entity_id: 't1', field: 'cohort_id', value: 'c1' })

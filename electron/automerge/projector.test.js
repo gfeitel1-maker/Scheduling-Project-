@@ -10,11 +10,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { openLocalDb, getOrCreateDeviceId } from '../db/localDb.js'
+import { openLocalDb } from '../db/localDb.js'
 import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD } from '../ops/operations.js'
 import { STAGE1_ENTITY, createEmptyDoc, applyWrite, readRecord } from './campDocument.js'
-import { projectEntity, rebuildFromDoc, projectAll, PROJECTION_FAILURE_OP_FIELD } from './projector.js'
-import { PROJECTIONS } from '../ops/projections.js'
+import { projectEntity, rebuildFromDoc, projectAll } from './projector.js'
 import { reconcile } from './reconcile.js'
 import { recordConflicts } from './conflictStore.js'
 
@@ -259,10 +258,6 @@ describe('projector — one unprojectable row does not abort the batch', () => {
 // same pass still projects.
 describe('projector — a multi-field row is atomic: a later field failing leaves no partial row', () => {
   it('rolls back the whole row, records exactly one failure, and does not abort the batch', () => {
-    // Mirrors main.js's real startup order (ensureDeviceRow): this device's own row exists in
-    // `devices` before any projection runs, which is what lets the failure-recording synthetic
-    // op (projector.js's recordRowProjectionFailure) satisfy operations.device_id's FK.
-    db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(getOrCreateDeviceId(db), 'Self')
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
     doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
@@ -295,7 +290,7 @@ describe('projector — a multi-field row is atomic: a later field failing leave
     const failures = db.prepare('SELECT * FROM projection_failures WHERE entity_id = ?').all('run-bad')
     expect(failures.length).toBe(1)
     expect(failures[0].entity).toBe('elective_assignment_runs')
-    expect(failures[0].store).toBe('projection')
+    expect(failures[0].store).toBe('document-replay')
     expect(failures[0].resolved_at).toBeNull()
   })
 })
@@ -308,7 +303,6 @@ describe('projector — a multi-field row is atomic: a later field failing leave
 // `checkProjectionHealth` keeps reporting the camp unhealthy forever.
 describe('projector — a projection failure resolves once the document row actually projects', () => {
   it('clears the outstanding projection_failures row on the next successful pass for that row', () => {
-    db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(getOrCreateDeviceId(db), 'Self')
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
     doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
@@ -342,7 +336,6 @@ describe('projector — a projection failure resolves once the document row actu
 // tell the app, without becoming fatal itself.
 describe('projectAll — contained row failures are returned, not just logged', () => {
   it('returns an array describing the skipped row while the rest of the batch still succeeds', () => {
-    db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(getOrCreateDeviceId(db), 'Self')
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
     doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
@@ -370,50 +363,35 @@ describe('projectAll — contained row failures are returned, not just logged', 
   })
 })
 
-// T194 round 6, Defect 2. recordRowProjectionFailure mints a synthetic op whose device_id must
-// satisfy operations.device_id's FK to devices(id). Early in sync (or right after a rebuild into a
-// fresh db — rebuildSupportCommand.js), THIS device may not have its own devices row yet; the fix
-// must be self-sufficient rather than relying on some other startup step having already run.
-describe('projector — recording a projection failure is self-sufficient', () => {
-  it('records the failure even when this device has no devices row yet', () => {
-    // Deliberately do NOT insert a devices row for getOrCreateDeviceId(db) — reproduces early-sync
-    // / rebuild-into-fresh-db state.
+// 2026-09-17 addendum to docs/adr/2026-09-04-projection-failure-detection-and-recovery.md:
+// recordRowProjectionFailure no longer mints a synthetic `operations`/`devices` row at all (it
+// used to, purely to satisfy projection_failures.op_id's FK — see the round-6 defect the old
+// version of this test guarded, now structurally impossible since there is nothing left to insert
+// that could hit that FK). This proves recording still works with neither table pre-seeded.
+describe('projector — recording a projection failure touches no operations or devices row', () => {
+  it('records the failure without inserting into operations or devices', () => {
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
     doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
     doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'status', value: 'bogus' })
 
-    const errors = []
+    const opsCountBefore = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
+    const devicesCountBefore = db.prepare('SELECT COUNT(*) AS n FROM devices').get().n
+
     const realError = console.error
-    console.error = (...args) => errors.push(args.join(' '))
+    console.error = () => {}
     try {
       expect(() => projectAll(db, doc)).not.toThrow()
     } finally {
       console.error = realError
     }
 
-    // No "could not record" failure leaked to the console — recording must succeed on its own.
-    expect(errors.some((e) => e.includes('could not record a projection failure'))).toBe(false)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM operations').get().n).toBe(opsCountBefore)
+    expect(db.prepare('SELECT COUNT(*) AS n FROM devices').get().n).toBe(devicesCountBefore)
     const failure = db.prepare('SELECT * FROM projection_failures WHERE entity_id = ?').get('run-bad')
     expect(failure).toBeTruthy()
+    expect(failure.store).toBe('document-replay')
+    expect(failure.op_id).toBe("replay:elective_assignment_runs:run-bad:status")
     expect(failure.resolved_at).toBeNull()
-  })
-})
-
-// T194 round 4, Defect 3. PROJECTION_FAILURE_OP_FIELD must never collide with a real column name
-// for any entity, or the sentinel op would be indistinguishable from a genuine field write to
-// every consumer that keys off `field` (getEntityHistory, lastKnownFields/lastKnownFieldSources,
-// repairProjectionForEntity's outstanding-by-field map). Pinned the way
-// src/components/schedule/slotCellConstants.test.js pins ACTIVITY_COLORS.
-describe('PROJECTION_FAILURE_OP_FIELD collides with no real column, and no other sentinel', () => {
-  it('is not a projected field for any entity', () => {
-    for (const projection of Object.values(PROJECTIONS)) {
-      expect(projection.fields ?? []).not.toContain(PROJECTION_FAILURE_OP_FIELD)
-    }
-  })
-
-  it('differs from DELETE_FIELD and BULK_REPLACE_FIELD', () => {
-    expect(PROJECTION_FAILURE_OP_FIELD).not.toBe(DELETE_FIELD)
-    expect(PROJECTION_FAILURE_OP_FIELD).not.toBe(BULK_REPLACE_FIELD)
   })
 })

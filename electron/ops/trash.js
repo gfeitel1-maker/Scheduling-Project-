@@ -68,11 +68,10 @@ export function getEntityHistory(db, { entity, entity_id }) {
     .all(entity, entity_id)
 
   // Not every `operations` row for this (entity, entity_id) is a real field write. Besides the
-  // DELETE_FIELD/BULK_REPLACE_FIELD sentinels handled below, a synthetic marker op can exist too
-  // (electron/automerge/projector.js's recordRowProjectionFailure mints one solely to satisfy
-  // projection_failures.op_id's FK) — and any stale pre-v29 field name would have the same shape.
-  // Filter to real columns the same way lastKnownFields/lastKnownFieldSources already do, so a
-  // director's history view never surfaces a field that isn't actually on the record.
+  // DELETE_FIELD/BULK_REPLACE_FIELD sentinels handled below, a stale pre-v29 field name (or any
+  // other foreign/unknown field) could have the same shape. Filter to real columns the same way
+  // lastKnownFields/lastKnownFieldSources already do, so a director's history view never surfaces a
+  // field that isn't actually on the record.
   const projection = PROJECTIONS[entity]
   const allowedFields = new Set(projection ? projection.fields : [])
   const isDisplayableField = (field) =>

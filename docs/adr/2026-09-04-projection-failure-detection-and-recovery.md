@@ -315,3 +315,51 @@ an explicit decision, not silent implementation judgment.
   `authorize()` (existing IPC gate, no new authority model).
 - **New**: `projection_failures` table (schema v55), `repairProjectionForEntity` function,
   `checkProjectionHealth`/`repairProjectionEntity` IPC handlers.
+
+## Addendum (2026-09-17): document-native replay failures and the operations FK
+
+T194 (the participant-data substrate) introduced a third failure kind this ADR did not anticipate:
+a row read during full-document replay (`projectAll`, `electron/automerge/projector.js`) that
+cannot be projected into SQLite at all — a legacy or malformed document-native row, never an
+op-log op. Recording it through this table's original shape required `op_id` to resolve a real
+`operations(id)` — a foreign key this ADR specified because every failure kind known at the time
+*was* a real op. The document-native case has no op: nothing was written, so there is nothing to
+point at.
+
+Round 3 through round 6 of T194 patched this by minting a synthetic `operations` row purely to
+satisfy the FK (a fabricated `device_id`-owned write, tagged with a sentinel field
+`'__projection_failure__'`), then patched three consequences of that fabrication in turn: it leaked
+into the director-facing entity-history panel (round 4), it caused `repairProjectionForEntity` to
+falsely mark the failure resolved because the sentinel is not a real field op (round 4), and it
+threw outright on a fresh database with no self `devices` row yet, because `operations.device_id`
+is itself a NOT NULL FK (round 6).
+
+Three consecutive rounds patching one mechanism, each a correct fix to a real defect, is treated
+here as a shape signal rather than a sequence of unrelated bugs: a device-local **history ledger**
+(`operations`) should never contain a row asserting that a write occurred when none did, no matter
+how narrowly the row is tagged to keep it out of the UI. Every fix so far worked by teaching another
+reader to recognize and exclude the fabrication; none removed the fabrication itself.
+
+**Correction:** `projection_failures.op_id` no longer carries a foreign key to `operations(id)`.
+A third `store` value, `'document-replay'` (alongside the existing `'projection'` and
+`'document'`, `electron/ops/documentWriteFailures.js`), identifies this failure kind. For it,
+`op_id` is a deterministic string derived from the failure itself — `entity`, `entity_id`, and
+`field` — never a row inserted into `operations`. Nothing is fabricated; the identifier names the
+fact of the failure, not an invented event. `recordRowProjectionFailure` no longer writes to
+`operations` or `devices` at all, which removes the round-6 defect's precondition rather than
+guarding around it, and `PROJECTION_FAILURE_OP_FIELD` and its exclusion filters (entity-history,
+Trash/Restore) are removed as dead code rather than left as inert guards against a mechanism that
+no longer exists.
+
+`repairProjectionForEntity`'s refusal for document-owned entities (the round-4 fix) is re-expressed
+against this shape: it now checks `projection_failures` directly for an unresolved
+`store = 'document-replay'` row on the entity, rather than inferring document-ownership from the
+op-log's shape (which, absent the synthetic op, would otherwise show zero ops and wrongly imply
+nothing needs repairing). The repair remedy for this store is `rebuildFromDoc` (re-project the
+entity from the document), never op-log replay — the same distinction round 4 already established,
+now enforced structurally instead of by a field-name convention.
+
+This does not change detection or recovery for the two failure kinds this ADR originally addressed
+(`'projection'`, `'document'`); their `op_id`s remain real operation ids, unaffected by the FK's
+removal. `checkProjectionHealth` reports the third `store` value distinctly rather than folding it
+into either existing category.

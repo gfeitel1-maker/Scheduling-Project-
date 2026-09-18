@@ -13,8 +13,7 @@
 // renderer-facing IPC in v1 (ADR "Product decisions" #3).
 import { isBulkReplaceOp, applyBulkReplaceProjection } from './operations.js'
 import { applyProjection } from './projections.js'
-import { STORE_PROJECTION, boundedErrorMessage } from './documentWriteFailures.js'
-import { PROJECTION_FAILURE_OP_FIELD } from '../automerge/projector.js'
+import { STORE_PROJECTION, STORE_DOCUMENT_REPLAY, boundedErrorMessage } from './documentWriteFailures.js'
 
 export function repairProjectionForEntity(db, entity, entity_id) {
   // Q1/T172: `users` credential fields (role/pin_hash/pin_salt) are trusted ONLY through the
@@ -30,27 +29,35 @@ export function repairProjectionForEntity(db, entity, entity_id) {
         'through applyProjection. Rebuild the user from the document instead.'
     )
   }
-  const ops = db
-    .prepare('SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq ASC')
-    .all(entity, entity_id)
-
   // A document-native entity (projector.js's doc-replay path) never gets its field writes
-  // recorded as `operations` rows — only a projection failure on one of its rows mints an op at
-  // all, and that op is the synthetic marker (PROJECTION_FAILURE_OP_FIELD), never a real field.
-  // Replaying an op set that contains no real field op could not possibly have rebuilt anything —
-  // applyProjection no-ops on the sentinel field rather than throwing, so `outstanding` would stay
+  // recorded as `operations` rows at all — the doc-replay path writes straight to SQLite from the
+  // Automerge document, bypassing the op-log entirely. Replaying an op-log that holds none of this
+  // row's real field writes could not possibly have rebuilt anything: `outstanding` would stay
   // empty and the wholesale-resolve branch below would fire on a row this function never touched,
-  // falsely declaring the document-native failure resolved (T194 round 4, Defect 2). Refuse
-  // instead of silently doing nothing and reporting success.
-  if (ops.length > 0 && !ops.some((op) => op.field !== PROJECTION_FAILURE_OP_FIELD)) {
+  // falsely declaring the document-native failure resolved (T194 round 4, Defect 2 — and again,
+  // from the opposite direction, when the synthetic-op FK workaround that originally guarded this
+  // was removed; see the 2026-09-17 ADR addendum). Refuse based on projection_failures directly —
+  // an unresolved store='document-replay' row on this entity means its projection is document-owned
+  // — rather than inferring document-ownership from the op-log's shape, which has no signal once
+  // there is no synthetic op to look for.
+  const docReplayFailure = db
+    .prepare(
+      `SELECT 1 FROM projection_failures WHERE entity = ? AND entity_id = ? AND resolved_at IS NULL AND store = ?`
+    )
+    .get(entity, entity_id, STORE_DOCUMENT_REPLAY)
+  if (docReplayFailure) {
     return {
       ok: false,
       reason:
-        `entity '${entity}' has no real field ops in the local op-log for '${entity_id}' — its ` +
+        `entity '${entity}' has an unresolved document-replay projection failure for '${entity_id}' — its ` +
         'projection is document-owned and cannot be repaired by replaying the op-log. Rebuild it ' +
         'from the document instead (electron/automerge/projector.js).',
     }
   }
+
+  const ops = db
+    .prepare('SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq ASC')
+    .all(entity, entity_id)
 
   // Outstanding failures keyed by `field`, not a single "last" slot. This is
   // the fix for the falsely-resolved-entity defect: a success on op #7's
@@ -128,5 +135,11 @@ export function checkProjectionHealth(db) {
   const failures = db
     .prepare('SELECT * FROM projection_failures WHERE resolved_at IS NULL AND store = ?')
     .all(STORE_PROJECTION)
-  return { failures }
+  // Reported distinctly, not folded into `failures`: this store's remedy is re-projecting from the
+  // document (rebuildFromDoc), never op-log replay, so a caller must not be able to route one into
+  // repairProjectionForEntity's op-log path by mistaking it for a 'projection' failure.
+  const documentReplayFailures = db
+    .prepare('SELECT * FROM projection_failures WHERE resolved_at IS NULL AND store = ?')
+    .all(STORE_DOCUMENT_REPLAY)
+  return { failures, documentReplayFailures }
 }
