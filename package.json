@@ -2,6 +2,7 @@
   "name": "shoresh",
   "private": true,
   "version": "0.1.0",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
@@ -29,6 +30,8 @@
     "agents:check": "node scripts/generateAgentProfiles.js",
     "agents:generate": "node scripts/generateAgentProfiles.js --write",
     "gate:shadow-check": "node scripts/shadowGateEnvelope.js",
+    "licenses": "node scripts/generate-licenses.js",
+    "licenses:check": "node scripts/generate-licenses.js --check",
     "verify": "node scripts/verify.js",
     "security": "node scripts/security-gate.js",
     "gate": "zsh scripts/gate.sh"
@@ -75,6 +78,7 @@
     "globals": "^17.5.0",
     "jsdom": "^29.1.1",
     "pngjs": "^7.0.0",
+    "tar": "^7.5.20",
     "vite": "^8.0.9",
     "vitest": "^4.1.7"
   },

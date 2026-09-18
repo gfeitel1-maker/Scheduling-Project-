@@ -79,6 +79,21 @@ export function readBuildInfo(dir, isPackaged = true) {
 // packaged build returns the app's real 0.1.0, so the footer read
 // "v43.1.1 · …" in development — a version number belonging to a different
 // piece of software entirely.
+// Turns already-read build info + version into the About panel's fields.
+// Extracted so the About panel (electron/main.js's
+// installAppMenuAndAboutPanel) and the sidebar footer
+// (shoresh:get-current-project) provably report the SAME label from the same
+// inputs via formatBuildLabel, rather than each computing it inline where the
+// two could silently drift.
+export function buildAboutPanelOptions({ info, version }) {
+  return {
+    applicationName: 'Shoresh',
+    applicationVersion: typeof version === 'string' && version.length > 0 ? version : '0.0.0',
+    version: formatBuildLabel(info, version),
+    copyright: 'Copyright 2026 Gregory Feitel and contributors',
+  }
+}
+
 export function readAppVersion(dir) {
   const base = dir ?? path.dirname(fileURLToPath(import.meta.url))
   try {
