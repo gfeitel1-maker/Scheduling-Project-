@@ -13,7 +13,8 @@
 // renderer-facing IPC in v1 (ADR "Product decisions" #3).
 import { isBulkReplaceOp, applyBulkReplaceProjection } from './operations.js'
 import { applyProjection } from './projections.js'
-import { STORE_PROJECTION } from './documentWriteFailures.js'
+import { STORE_PROJECTION, boundedErrorMessage } from './documentWriteFailures.js'
+import { PROJECTION_FAILURE_OP_FIELD } from '../automerge/projector.js'
 
 export function repairProjectionForEntity(db, entity, entity_id) {
   // Q1/T172: `users` credential fields (role/pin_hash/pin_salt) are trusted ONLY through the
@@ -32,6 +33,24 @@ export function repairProjectionForEntity(db, entity, entity_id) {
   const ops = db
     .prepare('SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq ASC')
     .all(entity, entity_id)
+
+  // A document-native entity (projector.js's doc-replay path) never gets its field writes
+  // recorded as `operations` rows — only a projection failure on one of its rows mints an op at
+  // all, and that op is the synthetic marker (PROJECTION_FAILURE_OP_FIELD), never a real field.
+  // Replaying an op set that contains no real field op could not possibly have rebuilt anything —
+  // applyProjection no-ops on the sentinel field rather than throwing, so `outstanding` would stay
+  // empty and the wholesale-resolve branch below would fire on a row this function never touched,
+  // falsely declaring the document-native failure resolved (T194 round 4, Defect 2). Refuse
+  // instead of silently doing nothing and reporting success.
+  if (ops.length > 0 && !ops.some((op) => op.field !== PROJECTION_FAILURE_OP_FIELD)) {
+    return {
+      ok: false,
+      reason:
+        `entity '${entity}' has no real field ops in the local op-log for '${entity_id}' — its ` +
+        'projection is document-owned and cannot be repaired by replaying the op-log. Rebuild it ' +
+        'from the document instead (electron/automerge/projector.js).',
+    }
+  }
 
   // Outstanding failures keyed by `field`, not a single "last" slot. This is
   // the fix for the falsely-resolved-entity defect: a success on op #7's
@@ -76,7 +95,7 @@ export function repairProjectionForEntity(db, entity, entity_id) {
          VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(op_id) DO UPDATE SET
            error_message = excluded.error_message, failed_at = excluded.failed_at, store = excluded.store`
-      ).run(op.id, op.entity, op.entity_id, op.field, error.message, now, STORE_PROJECTION)
+      ).run(op.id, op.entity, op.entity_id, op.field, boundedErrorMessage(error), now, STORE_PROJECTION)
     }
     const reasons = Array.from(outstanding.values())
       .map(({ error }) => error.message)

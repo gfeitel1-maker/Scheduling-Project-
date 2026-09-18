@@ -253,3 +253,32 @@ describe('repairProjectionForEntity refuses users (Q1/T172 credential integrity)
     expect(() => repairProjectionForEntity(db, 'users', 'some-user-id')).toThrow(/refusing entity 'users'|Host-signed/)
   })
 })
+
+// T194 round 4, Defect 2: a document-native entity (e.g. elective_assignment_runs) never gets
+// its field writes recorded as `operations` rows — the doc-replay path (projector.js) writes
+// straight to SQLite from the Automerge document, bypassing the op-log entirely. When a doc-replay
+// row fails to project, the ONLY `operations` row minted for it is the synthetic marker
+// (field = '__projection_failure__', see projector.js's recordRowProjectionFailure). Replaying
+// that "op set" through applyProjection throws nothing (unknown field, no-op), leaves `outstanding`
+// empty, and the old code took the wholesale-resolve branch — falsely marking the failure resolved
+// while the document-native row was still missing from SQLite.
+describe('repairProjectionForEntity and a document-native entity whose only op is the synthetic marker', () => {
+  it('refuses to resolve — replaying the op log cannot have rebuilt anything', () => {
+    const runId = randomUUID()
+    const markerOpId = randomUUID()
+    db.prepare(
+      `INSERT INTO operations (id, entity, entity_id, field, value, device_id, timestamp, source)
+       VALUES (?, 'elective_assignment_runs', ?, '__projection_failure__', NULL, ?, ?, 'projection-guard')`
+    ).run(markerOpId, runId, deviceId, new Date().toISOString())
+    db.prepare(
+      `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at, store)
+       VALUES (?, 'elective_assignment_runs', ?, 'status', 'boom', ?, 'projection')`
+    ).run(markerOpId, runId, new Date().toISOString())
+
+    const result = repairProjectionForEntity(db, 'elective_assignment_runs', runId)
+
+    expect(result.ok).toBe(false)
+    const failureRow = db.prepare('SELECT resolved_at FROM projection_failures WHERE op_id = ?').get(markerOpId)
+    expect(failureRow.resolved_at).toBeNull()
+  })
+})

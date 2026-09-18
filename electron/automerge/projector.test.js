@@ -11,9 +11,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb, getOrCreateDeviceId } from '../db/localDb.js'
-import { appendOp, DELETE_FIELD } from '../ops/operations.js'
+import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD } from '../ops/operations.js'
 import { STAGE1_ENTITY, createEmptyDoc, applyWrite, readRecord } from './campDocument.js'
-import { projectEntity, rebuildFromDoc, projectAll } from './projector.js'
+import { projectEntity, rebuildFromDoc, projectAll, PROJECTION_FAILURE_OP_FIELD } from './projector.js'
+import { PROJECTIONS } from '../ops/projections.js'
 import { reconcile } from './reconcile.js'
 import { recordConflicts } from './conflictStore.js'
 
@@ -296,5 +297,58 @@ describe('projector — a multi-field row is atomic: a later field failing leave
     expect(failures[0].entity).toBe('elective_assignment_runs')
     expect(failures[0].store).toBe('projection')
     expect(failures[0].resolved_at).toBeNull()
+  })
+})
+
+// T194 round 4, Defect 2b. repairProjectionForEntity (electron/ops/projectionRepair.js) cannot
+// resolve a document-native entity's projection failure — it replays the op-log, which this
+// entity never writes to. The real, document-aware self-heal has to live where the actual repair
+// happens: the NEXT successful projectAll pass, once the document's row for this id no longer
+// violates whatever constraint tripped it. Without this, a fixed row projects correctly but
+// `checkProjectionHealth` keeps reporting the camp unhealthy forever.
+describe('projector — a projection failure resolves once the document row actually projects', () => {
+  it('clears the outstanding projection_failures row on the next successful pass for that row', () => {
+    db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(getOrCreateDeviceId(db), 'Self')
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'name', value: 'Week 1 Draft' })
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'status', value: 'bogus' })
+
+    const realError = console.error
+    console.error = () => {}
+    try {
+      projectAll(db, doc)
+    } finally {
+      console.error = realError
+    }
+    expect(
+      db.prepare('SELECT resolved_at FROM projection_failures WHERE entity_id = ?').get('run-bad').resolved_at
+    ).toBeNull()
+
+    // The peer that caused the bad value now sends a corrected one — the document row is fixed.
+    doc = applyWrite(doc, { entity: 'elective_assignment_runs', entity_id: 'run-bad', field: 'status', value: 'draft' })
+    projectAll(db, doc)
+
+    expect(db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get('run-bad')?.status).toBe('draft')
+    const failure = db.prepare('SELECT resolved_at FROM projection_failures WHERE entity_id = ?').get('run-bad')
+    expect(failure.resolved_at).not.toBeNull()
+  })
+})
+
+// T194 round 4, Defect 3. PROJECTION_FAILURE_OP_FIELD must never collide with a real column name
+// for any entity, or the sentinel op would be indistinguishable from a genuine field write to
+// every consumer that keys off `field` (getEntityHistory, lastKnownFields/lastKnownFieldSources,
+// repairProjectionForEntity's outstanding-by-field map). Pinned the way
+// src/components/schedule/slotCellConstants.test.js pins ACTIVITY_COLORS.
+describe('PROJECTION_FAILURE_OP_FIELD collides with no real column, and no other sentinel', () => {
+  it('is not a projected field for any entity', () => {
+    for (const [entity, projection] of Object.entries(PROJECTIONS)) {
+      expect(projection.fields ?? []).not.toContain(PROJECTION_FAILURE_OP_FIELD)
+    }
+  })
+
+  it('differs from DELETE_FIELD and BULK_REPLACE_FIELD', () => {
+    expect(PROJECTION_FAILURE_OP_FIELD).not.toBe(DELETE_FIELD)
+    expect(PROJECTION_FAILURE_OP_FIELD).not.toBe(BULK_REPLACE_FIELD)
   })
 })

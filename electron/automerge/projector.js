@@ -33,14 +33,14 @@ import { recordAuditEvent } from '../audit/auditLog.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
 import { getOrCreateDeviceId } from '../db/localDb.js'
-import { STORE_PROJECTION } from '../ops/documentWriteFailures.js'
+import { STORE_PROJECTION, boundedErrorMessage } from '../ops/documentWriteFailures.js'
 
 // Sentinel `operations.field` for the synthetic op minted below — never a real column name for
 // any entity's PROJECTIONS.fields, so it can never be picked up by anything that reads real
 // per-field history (historyLedger/restore's lastKnownFieldSources, trash). The synthetic op
 // exists ONLY to satisfy projection_failures.op_id's FK to operations(id); it must stay inert
 // against every other consumer of that table.
-const PROJECTION_FAILURE_OP_FIELD = '__projection_failure__'
+export const PROJECTION_FAILURE_OP_FIELD = '__projection_failure__'
 
 // Record that one doc-replay row was dropped whole (see upsertRow below). Reuses
 // projection_failures (electron/ops/documentWriteFailures.js) rather than inventing a second
@@ -68,7 +68,7 @@ function recordRowProjectionFailure(db, { entity, entityId, field, error }) {
     db.prepare(
       `INSERT INTO projection_failures (op_id, entity, entity_id, field, error_message, failed_at, store)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(opId, entity, entityId, field ?? '', String(error?.message ?? error ?? 'unknown'), now, STORE_PROJECTION)
+    ).run(opId, entity, entityId, field ?? '', boundedErrorMessage(error), now, STORE_PROJECTION)
   } catch (recordErr) {
     // eslint-disable-next-line no-console
     console.error(`projector: could not record a projection failure for '${entity}'/'${entityId}':`, recordErr)
@@ -319,11 +319,40 @@ function upsertEntity(db, doc, entity) {
     return
   }
   const fields = PROJECTIONS[entity].fields
+  // Loaded ONCE per entity per pass (one indexed query, not one per row) — the outstanding
+  // store='projection' failures for this entity, so a successful upsertRow below can tell
+  // cheaply (a Set.has, no query) whether this row even has anything to resolve. Only the rows
+  // that actually match get the resolving UPDATE.
+  const outstandingIds = outstandingProjectionFailureRowIds(db, entity)
   for (const id of listRecordIds(doc, entity)) {
     const row = readRecord(doc, entity, id)
     if (!row) continue
-    upsertRow(db, entity, id, row, fields)
+    upsertRow(db, entity, id, row, fields, outstandingIds)
   }
+}
+
+// See recordRowProjectionFailure above for why this table and this store value. Scoped to
+// resolved_at IS NULL, which idx_projection_failures_unresolved(entity, entity_id) covers.
+function outstandingProjectionFailureRowIds(db, entity) {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT entity_id FROM projection_failures
+       WHERE entity = ? AND resolved_at IS NULL AND store = ?`
+    )
+    .all(entity, STORE_PROJECTION)
+  return new Set(rows.map((r) => r.entity_id))
+}
+
+// The document-aware self-heal repairProjectionForEntity cannot provide (T194 round 4, Defect
+// 2b): a document-native row's real "repair" isn't a replay, it's a peer sending a corrected
+// value, which arrives here as an ordinary field write and simply projects on the next pass. Once
+// it does, the row has genuinely reached SQLite from the document, and any outstanding
+// store='projection' failure for it is stale — resolve it, the same way repairProjectionForEntity
+// resolves a clean op-log replay.
+function resolveProjectionFailure(db, entity, entityId) {
+  db.prepare(
+    `UPDATE projection_failures SET resolved_at = ? WHERE entity = ? AND entity_id = ? AND resolved_at IS NULL AND store = ?`
+  ).run(new Date().toISOString(), entity, entityId, STORE_PROJECTION)
 }
 
 // Project one row, atomically. Contained per-ROW (T194 round 3), not per-field (round 2's gap):
@@ -344,7 +373,7 @@ function upsertEntity(db, doc, entity) {
 // (visible, diagnosable, self-healing once the row is fixed or removed) instead — and the drop is
 // recorded in `projection_failures`, not just logged, so it is repairable rather than merely
 // visible in a console nobody is watching (T194 round 3, Defect 2).
-function upsertRow(db, entity, id, row, fields) {
+function upsertRow(db, entity, id, row, fields, outstandingIds = null) {
   const savepoint = `row_${++rowSavepointCounter}`
   db.exec(`SAVEPOINT ${savepoint}`)
   let failedField = null
@@ -361,6 +390,10 @@ function upsertRow(db, entity, id, row, fields) {
       applyProjection(db, { entity, entity_id: id, field, value: row[field], knownRow: row })
     }
     db.exec(`RELEASE ${savepoint}`)
+    if (outstandingIds?.has(id)) {
+      resolveProjectionFailure(db, entity, id)
+      outstandingIds.delete(id)
+    }
   } catch (err) {
     db.exec(`ROLLBACK TO ${savepoint}`)
     db.exec(`RELEASE ${savepoint}`)
