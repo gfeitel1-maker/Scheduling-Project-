@@ -11,29 +11,71 @@ related_specs: [docs/work/specs/2026-09-17-individual-elective-scheduling-implem
 
 # T196 — Slice 4: the assignment engine
 
-> ## BLOCKED ON A WITHDRAWN PREMISE — read this before scoping anything below
+> ## Premise rewritten 2026-09-18 — read this before comparing against older drafts
 >
-> **The "for each independent occurrence, run a deterministic min-cost max-flow" decomposition in
-> this ticket and in the implementation spec §7 rests on a premise that has been withdrawn.**
-> See **D14** of `docs/adr/2026-09-17-individual-elective-scheduling.md` (owner-accepted
-> 2026-09-18).
+> This ticket previously specified "for each independent occurrence, run a deterministic min-cost
+> max-flow". **That decomposition is withdrawn** (ADR D14). It is preserved in git history, not
+> silently edited away: the text below replaces it rather than amending it.
 >
-> Real camp artifacts showed camper preferences arriving as a **single globally ranked list** or a
-> **chosen-schedule-plus-alternates planner** — not as a rank per camper per occurrence. If a
-> preference is expressed once globally, placing a camper into an activity in one occurrence
-> consumes that preference for **every** other occurrence of it, so occurrences of the same activity
-> are **not independent**.
+> The reason it was withdrawn is still the reason: preferences are ranked **globally** — a camper
+> ranks each elective once for the session — so placing a camper into an activity at one occurrence
+> consumes that preference for every other occurrence of it. Occurrences of the same activity are
+> **not independent**, and treating them as independent sub-problems would let one camper be placed
+> into Water Ski three times while their #2 goes unfilled.
 >
-> D11's choice of min-cost max-flow is **not** what is in question — the *shape of the network* is:
-> what is a node, what is an edge, and what "independent" means.
->
-> **What is still unknown matters as much as what changed.** Only blank forms and catalog sheets have
-> been examined — no completed camper response — and the real submissions arrive through a
-> third-party portal whose export nobody has seen (tracked at T218). So the old premise is retired,
-> but **no replacement premise is established**. Do not scope this ticket against either observed
-> format as though it were confirmed.
->
-> Nothing needs to be unbuilt: no solver code exists. This is a spec risk recorded ahead of the work.
+> D11's choice of min-cost max-flow is NOT in question. The network shape is.
+
+## What is now known, and what is still not
+
+**Known** (T226, merged): the input shape. `parsePreferenceSheet` produces campers, choices (labels)
+and preferences `(camper, choice, rank)` from a sheet whose column layout is a mapping rather than a
+constant. That is the solver's input, and it exists.
+
+**Still unknown**: the transport (T218 — the third-party export nobody has seen). This does not block
+the solver, because the mapping layer absorbs a new layout without a code change. Do not re-block on
+it.
+
+## Owner rulings this ticket is built against (2026-09-18)
+
+- **R3 — never unplaced.** When a camper's top choices are full, assign their best AVAILABLE choice
+  and flag it. Every camper always has a placement. A flag, not an empty slot.
+- **R4 — fairness is NOT modeled in this pass.** The engine does not spread disappointment across
+  campers. This is a recorded deferral, not an oversight: the owner's direction is to build the
+  straightforward version, look at real output against the 100-camper fixture, and decide then.
+
+## The coupling, stated precisely
+
+Three constraints, and the third is what makes this harder than `buildSchedule`:
+
+1. Each (camper, occurrence) the camper attends gets **exactly one** activity.
+2. Each (activity, occurrence) holds at most its **capacity**.
+3. A camper takes a given choice **at most once across the week** — the global-ranking consequence.
+
+Constraints 1 and 2 alone are a clean bipartite min-cost flow. Constraint 3 couples the occurrences,
+and is not expressible as a capacity in that same network: the natural encoding needs a per-(camper,
+choice) node whose flow bound is 1, while constraint 1 needs (camper, occurrence) as the demand node.
+Both at once is an integer program, not a flow.
+
+## Approach — sequential min-cost flow with preference consumption
+
+Solve occurrences in a **deterministic order**, each as its own min-cost max-flow over the campers'
+REMAINING (unconsumed) preferences, and consume a camper's preference for a choice when they are
+placed into it.
+
+This keeps D11's solver, makes constraint 3 hold by construction, and stays deterministic and
+explainable — a director can be told "Monday period 2 was filled first, and by then Water Ski was
+full." It is **approximate**: a globally optimal assignment may do better than any fixed occurrence
+order, and a camper unlucky in an early occurrence is not compensated later. That second property is
+exactly what R4 defers, so the approximation and the deferral are the same decision, not two.
+
+**This is the first cut, chosen for legibility over optimality, and it is reversible** — the network
+lives behind a pure function, so a later exact formulation replaces it without touching callers.
+
+## Determinism
+
+Same discipline as `buildSchedule.js`: identical inputs produce an identical assignment, including
+tie-breaks. Occurrence order and every tie-break must be a total order over stable ids, never
+iteration order of a Map or object.
 
 `src/engine/buildElectiveAssignments.js` — a pure deterministic module. Plain objects in,
 assignments plus findings out. No database access, no file parsing, no UI, no writes. Same
