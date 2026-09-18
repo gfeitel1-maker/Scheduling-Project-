@@ -36,7 +36,12 @@ export function rollbackV34(db) {
     db.exec('DROP TABLE IF EXISTS special_day_slots')
     db.exec('DROP TABLE IF EXISTS special_day_time_blocks')
     db.exec('DROP TABLE IF EXISTS special_days')
-    db.prepare('DELETE FROM schema_migrations WHERE version = 34').run()
+    // `>= 34`, not `= 34`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v34 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v34's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 34').run()
   })()
 
   return discarded

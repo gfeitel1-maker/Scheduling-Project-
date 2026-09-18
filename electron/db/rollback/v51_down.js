@@ -57,7 +57,12 @@ export function rollbackV51(db) {
       `)
       db.pragma('foreign_keys = ON')
     }
-    db.prepare('DELETE FROM schema_migrations WHERE version = 51').run()
+    // `>= 51`, not `= 51`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v51 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v51's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 51').run()
   })()
 
   return { recurringDiscarded: discarded }

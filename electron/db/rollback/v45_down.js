@@ -39,7 +39,12 @@ export function rollbackV45(db) {
     if (eventCols.includes('location_id')) {
       db.exec('ALTER TABLE events DROP COLUMN location_id')
     }
-    db.prepare('DELETE FROM schema_migrations WHERE version = 45').run()
+    // `>= 45`, not `= 45`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v45 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v45's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 45').run()
   })()
 
   return discarded

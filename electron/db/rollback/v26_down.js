@@ -97,7 +97,12 @@ export function rollbackV26(db, { purgeJournal = false, purgeSnapshots = false }
       }
     }
 
-    db.prepare('DELETE FROM schema_migrations WHERE version = 26').run()
+    // `>= 26`, not `= 26`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v26 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v26's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 26').run()
     if (purgeJournal) db.exec('DROP TABLE migration_v26_retired_orphan_log')
   })()
 

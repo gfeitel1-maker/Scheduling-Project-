@@ -126,6 +126,36 @@ The same lesson without a payload: the deletion in #470 swept only `src/` and `e
 removed symbols. It came back clean, so nothing broke — but the method had the identical gap.
 **Sweep `test/` and `scripts/` too.**
 
+## Family 3 — the paired test asserted something adjacent to the bug, not the bug (T220)
+
+A third shape, distinct from staleness (Family 1) and abstention (Family 2): the check ran, on the
+right file, and passed — but it was measuring a fact that happens to hold identically whether the
+bug is present or fixed.
+
+**T220** (`docs/work/tickets/T220-rollback-bare-equality-guard.md`): 20 of 29 rollback migrations
+under `electron/db/rollback/` deleted their `schema_migrations` row with a bare
+`WHERE version = N` instead of `WHERE version >= N`. The defect: rolling back vN on a database since
+migrated to vN+1 strands the higher-version row, so `getSchemaVersion()` reports N+1 while vN's
+tables are gone — a shape no migration path can produce and none will repair.
+
+`v68_down.test.js:46` asserts `SELECT COUNT(*) c FROM schema_migrations WHERE version = 68` is `0`
+after rollback. That assertion is **true identically** whether the production line reads `= 68` or
+`>= 68` — a fresh single-version rollback deletes row 68 either way; the two predicates only diverge
+on a row for a version *higher* than 68, which this test's fixture never seeds. The test looked like
+line-level coverage of the exact statement containing the bug and covered an adjacent fact instead.
+Same pairing existed in `v66_down.test.js`, and by construction in every other rollback's test.
+
+| Member | What it measured | What it was read as |
+|---|---|---|
+| `v68_down.test.js:46` (and the equivalent in every rollback test) | "the row for exactly N is gone after rollback" — true under both `=` and `>=` | "the schema_migrations cleanup at this line is correct" |
+
+The general form, worth naming alongside Families 1 and 2: **a test can cite the exact line
+containing a bug and still not test the bug**, when the assertion's predicate happens to be
+invariant across the buggy and fixed code paths. Line-level proximity between a test and a defect is
+not evidence the test would catch that defect — only running the test against both versions of the
+code is. (See `test-driven-development`'s verify-RED step, and the non-vacuity proof required in
+T220: plant the bad pattern, watch the guard go red, remove it, watch it go green.)
+
 ## Cousins from the same evening — not gate mechanics, same error
 
 - `pgrep verify.js` matched **another session's** gate in a different checkout; read as "my gate is

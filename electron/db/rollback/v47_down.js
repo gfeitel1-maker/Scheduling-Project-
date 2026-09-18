@@ -28,7 +28,12 @@ export function rollbackV47(db) {
 
   db.transaction(() => {
     db.exec('DROP TABLE IF EXISTS declined_two_row_splits')
-    db.prepare('DELETE FROM schema_migrations WHERE version = 47').run()
+    // `>= 47`, not `= 47`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v47 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v47's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 47').run()
   })()
 
   return { discardedDeclines: declines }

@@ -45,7 +45,12 @@ export function rollbackV40(db) {
       .some((c) => c.name === 'event_id')
     if (hasEventId) db.exec('ALTER TABLE template_slots DROP COLUMN event_id')
 
-    db.prepare('DELETE FROM schema_migrations WHERE version = 40').run()
+    // `>= 40`, not `= 40`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v40 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v40's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 40').run()
   })()
 
   return discarded

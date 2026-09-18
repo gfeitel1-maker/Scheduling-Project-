@@ -25,7 +25,12 @@ export function rollbackV37(db) {
       .some((c) => c.name === 'notes')
     if (hasNotes) db.exec('ALTER TABLE special_days DROP COLUMN notes')
 
-    db.prepare('DELETE FROM schema_migrations WHERE version = 37').run()
+    // `>= 37`, not `= 37`. A bare equality strands any HIGHER version in the
+    // table, so rolling back v37 on a database that has since migrated further
+    // leaves getSchemaVersion() reporting the higher version while v37's tables
+    // are gone — a shape no migration path can produce and none will repair.
+    // Convention since v46_down (see T220).
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 37').run()
   })()
 
   return discarded
