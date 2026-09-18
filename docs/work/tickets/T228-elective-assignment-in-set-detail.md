@@ -34,27 +34,37 @@ No new tables, and no data a director has to re-enter:
 | offering | `elective_set_activities.activity_id`, filtered to `status = 'confirmed'` |
 | capacity | `elective_set_activities.capacity_mode` / `capacity_limit` (T194) |
 
-## FINDING — the default capacity makes the solver degenerate
+## RETRACTED FINDING — the default capacity does NOT make the solver degenerate
 
-**`capacity_mode` defaults to `'unlimited'`** (`electron/db/schema.sql`).
+_This section first claimed that `capacity_mode`'s `'unlimited'` default would make every camper win
+their #1 in every period and sit in one activity all week. **That claim was written from reasoning,
+not measurement, and it is false.** It is kept here, corrected, rather than deleted, because the
+wrong reasoning is the useful part._
 
-T196's measurements reported that variety held without a per-choice cap — median 13 distinct
-activities per camper over 30 periods — and attributed that to capacity being scarce. **That
-attribution was measured against a fixture with a hardcoded capacity of 30.** With the shipped
-default, every offering is unlimited, every camper wins their #1 in every period, and a camper sits
-in one activity all week.
+Measured on the same 100-camper fixture, changing only capacity:
 
-The condition T196 flagged as "worth watching" is therefore **the default**, not an unusual
-configuration. This is a real behaviour change to design for, not a tuning note:
+```
+capacity=30         distinct activities/camper  min 9  median 13  max 16   mean rank 6.31
+capacity=unlimited  distinct activities/camper  min 9  median 13  max 16   mean rank 6.30
+```
 
-1. An unlimited offering must be surfaced to the director before generation, not after — a director
-   who has not set capacities is about to get a degenerate week and should be told, in the flag
-   vocabulary this repo already uses rather than a banner.
-2. The per-choice repeat cap the owner declined on 2026-09-18 was declined **while hypothetical**.
-   It is no longer hypothetical, and should be put back to them with this measurement attached.
+Essentially identical. So T196's note — that variety survives without a per-choice cap **because
+capacity is scarce** — had the right observation and the **wrong mechanism**, and this ticket then
+inherited that wrong mechanism and drew a false conclusion from it.
 
-Neither is decided here. Both are recorded so the screen is not built as though the fixture's
-numbers were the real ones.
+**The real mechanism is the MENU.** Each period offers only 4 of ~30 activities, so a camper cannot
+receive the same first choice in every period because it is not offered in every period. Variety
+comes from how the offerings are spread across the week, not from capacity at all.
+
+What follows for the screen:
+
+1. **No unlimited-capacity warning is needed** on the grounds claimed above. Capacity still matters
+   for its own reason — an over-subscribed activity — but it is not what protects variety.
+2. **The per-choice repeat cap stays declined.** The owner declined it on 2026-09-18 while it was
+   hypothetical; the case for reopening it rested on this retracted finding and has gone with it.
+3. **The condition actually worth watching is a THIN MENU** — an elective set whose periods all offer
+   the same few activities. That is the configuration where a camper could be parked in one activity
+   all week, and it is a property of how the director authored the set, not of capacity.
 
 ## Export is not bespoke
 
