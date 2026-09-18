@@ -51,6 +51,17 @@ function makeTarball({ pkgJson, licenseFileName, licenseText }) {
   return { buffer, integrity }
 }
 
+// The cache stores the FULL resolved record ({ name, version, license,
+// homepage, licenseText }) as JSON, named `<name, "/" -> "+">@<version>.json`
+// — not just raw license text — so a cache hit never needs to consult disk
+// for any field. See the tier-order comment in generate-licenses.js.
+function writeCacheRecord(root, name, version, record) {
+  const dir = path.join(root, 'electron', 'license-texts')
+  fs.mkdirSync(dir, { recursive: true })
+  const filename = `${name.replace(/\//g, '+')}@${version}.json`
+  fs.writeFileSync(path.join(dir, filename), JSON.stringify(record, null, 2) + '\n')
+}
+
 function fakeFetchOk(buffer) {
   return async () => ({
     ok: true,
@@ -78,6 +89,23 @@ describe('buildLicenseManifest', () => {
     // deliberately not writing missing-pkg to disk
     await expect(buildLicenseManifest(root)).rejects.toThrow(/missing-pkg/)
     await expect(buildLicenseManifest(root)).rejects.toThrow(/npm ci/)
+  })
+
+  it('throws its own corruption error, and does NOT fall through to a network fetch, when package.json is present but not valid JSON', async () => {
+    writeLock(root, {
+      'node_modules/corrupt-pkg': {
+        version: '1.0.0',
+        resolved: 'https://registry.npmjs.org/corrupt-pkg/-/corrupt-pkg-1.0.0.tgz',
+        integrity: 'sha512-doesnotmatter',
+      },
+    })
+    const dir = path.join(root, 'node_modules', 'corrupt-pkg')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'package.json'), '{ this is not valid json')
+    const fetchImpl = async () => {
+      throw new Error('must not be called — a corrupt package.json is not a missing package')
+    }
+    await expect(buildLicenseManifest(root, { fetchImpl })).rejects.toThrow(/corrupt-pkg.*not valid JSON/s)
   })
 
   it('throws on a package with a missing/unclassifiable license field', async () => {
@@ -244,12 +272,17 @@ describe('buildLicenseManifest', () => {
 // construction in every test below; these exercise tier 2 (committed cache)
 // and tier 3 (fetch + verify + extract), plus every hard-failure mode.
 describe('buildLicenseManifest — package missing from node_modules entirely', () => {
-  it('tier 2: uses the committed electron/license-texts/ cache and never calls fetch', async () => {
+  it('tier 1: uses the committed electron/license-texts/ cache record and never calls fetch', async () => {
     writeLock(root, {
       'node_modules/cached-pkg': { version: '1.0.0', license: 'MIT' },
     })
-    fs.mkdirSync(path.join(root, 'electron', 'license-texts'), { recursive: true })
-    fs.writeFileSync(path.join(root, 'electron', 'license-texts', 'cached-pkg@1.0.0.txt'), 'CACHED TEXT')
+    writeCacheRecord(root, 'cached-pkg', '1.0.0', {
+      name: 'cached-pkg',
+      version: '1.0.0',
+      license: 'MIT',
+      homepage: null,
+      licenseText: 'CACHED TEXT',
+    })
     const fetchImpl = async () => {
       throw new Error('must not be called — cache should have satisfied this package')
     }
@@ -259,20 +292,22 @@ describe('buildLicenseManifest — package missing from node_modules entirely', 
     ])
   })
 
-  it('tier 2: escapes "/" in a scoped package name for the cache filename', async () => {
+  it('tier 1: escapes "/" in a scoped package name for the cache filename', async () => {
     writeLock(root, {
       'node_modules/@scope/cached-pkg': { version: '2.0.0', license: 'ISC' },
     })
-    fs.mkdirSync(path.join(root, 'electron', 'license-texts'), { recursive: true })
-    fs.writeFileSync(
-      path.join(root, 'electron', 'license-texts', '@scope+cached-pkg@2.0.0.txt'),
-      'SCOPED CACHED TEXT'
-    )
+    writeCacheRecord(root, '@scope/cached-pkg', '2.0.0', {
+      name: '@scope/cached-pkg',
+      version: '2.0.0',
+      license: 'ISC',
+      homepage: null,
+      licenseText: 'SCOPED CACHED TEXT',
+    })
     const packages = await buildLicenseManifest(root, { fetchImpl: async () => { throw new Error('no network') } })
     expect(packages[0]).toMatchObject({ name: '@scope/cached-pkg', licenseText: 'SCOPED CACHED TEXT' })
   })
 
-  it('tier 3: fetches, verifies integrity, extracts package.json + LICENSE, and writes the cache for next time', async () => {
+  it('tier 3: fetches, verifies integrity, extracts package.json + LICENSE, and writes the cache record for next time', async () => {
     const { buffer, integrity } = makeTarball({
       pkgJson: { name: 'fetched-pkg', version: '1.0.0', license: 'Apache-2.0', homepage: 'https://example.com/fetched-pkg' },
       licenseFileName: 'LICENSE',
@@ -295,8 +330,14 @@ describe('buildLicenseManifest — package missing from node_modules entirely', 
         licenseText: 'FETCHED LICENSE TEXT',
       },
     ])
-    const cached = fs.readFileSync(path.join(root, 'electron', 'license-texts', 'fetched-pkg@1.0.0.txt'), 'utf8')
-    expect(cached).toBe('FETCHED LICENSE TEXT')
+    const cached = JSON.parse(fs.readFileSync(path.join(root, 'electron', 'license-texts', 'fetched-pkg@1.0.0.json'), 'utf8'))
+    expect(cached).toEqual({
+      name: 'fetched-pkg',
+      version: '1.0.0',
+      license: 'Apache-2.0',
+      homepage: 'https://example.com/fetched-pkg',
+      licenseText: 'FETCHED LICENSE TEXT',
+    })
   })
 
   it('tier 3 is skipped on a cache hit even when resolved/integrity are present (cache wins, no fetch call)', async () => {
@@ -308,8 +349,13 @@ describe('buildLicenseManifest — package missing from node_modules entirely', 
         integrity: 'sha512-doesnotmatter',
       },
     })
-    fs.mkdirSync(path.join(root, 'electron', 'license-texts'), { recursive: true })
-    fs.writeFileSync(path.join(root, 'electron', 'license-texts', 'either-tier-pkg@1.0.0.txt'), 'FROM CACHE')
+    writeCacheRecord(root, 'either-tier-pkg', '1.0.0', {
+      name: 'either-tier-pkg',
+      version: '1.0.0',
+      license: 'MIT',
+      homepage: null,
+      licenseText: 'FROM CACHE',
+    })
     let fetchCalled = false
     const packages = await buildLicenseManifest(root, {
       fetchImpl: async () => {
@@ -347,7 +393,7 @@ describe('buildLicenseManifest — package missing from node_modules entirely', 
     await expect(buildLicenseManifest(root, { fetchImpl: fakeFetchOk(buffer) })).rejects.toThrow(
       /trust problem/i
     )
-    expect(fs.existsSync(path.join(root, 'electron', 'license-texts', 'tampered-pkg@1.0.0.txt'))).toBe(false)
+    expect(fs.existsSync(path.join(root, 'electron', 'license-texts', 'tampered-pkg@1.0.0.json'))).toBe(false)
   })
 
   it('hard-fails with a distinct message when the fetch itself fails (network error)', async () => {
@@ -398,6 +444,111 @@ describe('buildLicenseManifest — package missing from node_modules entirely', 
     })
     const packages = await buildLicenseManifest(root, { fetchImpl: fakeFetchOk(buffer) })
     expect(packages[0].license).toBe('BSD-3-Clause')
+  })
+
+  // Non-vacuity check for the cache-hit branch: disk carries a DIFFERENT
+  // license and homepage than the committed cache record. If the cache-hit
+  // branch fell back to reading any field off disk (the exact bug this
+  // reordering exists to close — see the tier-order comment), this would
+  // pick up the disk license/homepage and fail. Every field must come from
+  // the committed record, none from disk.
+  it('a cache hit sources every field from the committed record, never from disk, even when disk disagrees', async () => {
+    writeLock(root, {
+      'node_modules/both-present': { version: '1.0.0', license: 'MIT' },
+    })
+    writePkg(
+      root,
+      'node_modules/both-present',
+      { name: 'both-present', version: '1.0.0', license: 'ISC', homepage: 'https://disk-only.example.com/wrong' },
+      { LICENSE: 'DISK TEXT (should lose)' }
+    )
+    writeCacheRecord(root, 'both-present', '1.0.0', {
+      name: 'both-present',
+      version: '1.0.0',
+      license: 'Apache-2.0',
+      homepage: 'https://committed.example.com/correct',
+      licenseText: 'CACHE TEXT (should win)',
+    })
+    const packages = await buildLicenseManifest(root)
+    expect(packages).toEqual([
+      {
+        name: 'both-present',
+        version: '1.0.0',
+        license: 'Apache-2.0',
+        homepage: 'https://committed.example.com/correct',
+        licenseText: 'CACHE TEXT (should win)',
+      },
+    ])
+  })
+
+  it('fetch timeout/failure message names the commit-the-cache remedy, not `npm ci`', async () => {
+    writeLock(root, {
+      'node_modules/timeout-pkg': {
+        version: '1.0.0',
+        resolved: 'https://registry.npmjs.org/timeout-pkg/-/timeout-pkg-1.0.0.tgz',
+        integrity: 'sha512-doesnotmatter',
+      },
+    })
+    const fetchImpl = async () => {
+      const err = new Error('The operation was aborted due to timeout')
+      err.name = 'TimeoutError'
+      throw err
+    }
+    await expect(buildLicenseManifest(root, { fetchImpl })).rejects.toThrow(/electron\/license-texts/)
+  })
+
+  it('bounds the fetch with an AbortSignal timeout', async () => {
+    const { buffer, integrity } = makeTarball({
+      pkgJson: { name: 'signal-pkg', version: '1.0.0', license: 'MIT' },
+      licenseFileName: 'LICENSE',
+      licenseText: 'SIGNAL TEXT',
+    })
+    writeLock(root, {
+      'node_modules/signal-pkg': {
+        version: '1.0.0',
+        resolved: 'https://registry.npmjs.org/signal-pkg/-/signal-pkg-1.0.0.tgz',
+        integrity,
+      },
+    })
+    let receivedOptions
+    const fetchImpl = async (url, options) => {
+      receivedOptions = options
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        arrayBuffer: async () => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
+      }
+    }
+    await buildLicenseManifest(root, { fetchImpl })
+    expect(receivedOptions.signal).toBeInstanceOf(AbortSignal)
+  })
+})
+
+describe('buildLicenseManifest — cache filename collisions and orphans', () => {
+  it('throws when two packages in the production set would collide on the same cache filename', async () => {
+    writeLock(root, {
+      'node_modules/@a/b': { version: '1.0.0' },
+      'node_modules/@a+b': { version: '1.0.0' },
+    })
+    writePkg(root, 'node_modules/@a/b', { name: '@a/b', version: '1.0.0', license: 'MIT' })
+    writePkg(root, 'node_modules/@a+b', { name: '@a+b', version: '1.0.0', license: 'MIT' })
+    await expect(buildLicenseManifest(root)).rejects.toThrow(/collide/i)
+  })
+
+  it('throws when electron/license-texts/ contains a file that does not correspond to any production dependency', async () => {
+    writeLock(root, {
+      'node_modules/still-here': { version: '1.0.0' },
+    })
+    writePkg(root, 'node_modules/still-here', { name: 'still-here', version: '1.0.0', license: 'MIT' })
+    writeCacheRecord(root, 'long-gone-pkg', '9.9.9', {
+      name: 'long-gone-pkg',
+      version: '9.9.9',
+      license: 'MIT',
+      homepage: null,
+      licenseText: 'ORPHAN TEXT',
+    })
+    await expect(buildLicenseManifest(root)).rejects.toThrow(/long-gone-pkg@9\.9\.9/)
   })
 })
 

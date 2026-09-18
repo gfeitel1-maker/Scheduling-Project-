@@ -1,6 +1,4 @@
-// The quality gate — lint + agents:check + test + test:integration + security + licenses:check +
-// check:governance, in order,
-// stopping at the first failure.
+// The quality gate — runs VERIFY_STEPS below, in order, stopping at the first failure.
 //
 // Why this exists instead of a bare `a && b && c` npm chain: a chain prints no
 // verdict, so `npm run verify 2>&1 | tail -N` (a common way to fit the long output
@@ -36,6 +34,8 @@ import { acquire, lockPath, repoKey } from './gateLock.js'
 export const VERIFY_STEPS = [
   'agents:check',
   'check:governance',
+  // tier 3 (fetch) in generate-licenses.js is bounded by its own FETCH_TIMEOUT_MS, so
+  // this step's worst case stays bounded even when the registry is unreachable.
   'licenses:check',
   'build',
   'security',

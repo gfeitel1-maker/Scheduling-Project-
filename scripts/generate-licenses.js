@@ -71,47 +71,75 @@ function findLicenseText(dir) {
 }
 
 // ---------------------------------------------------------------------------
-// Three-tier license TEXT sourcing.
+// Three-tier license sourcing, in PREFERENCE order: cache, then disk,
+// then fetch.
 //
-// Tier 1 (disk) covers ~177/178 production packages: the package is present
-// in node_modules and findLicenseText() reads it straight off disk, exactly
-// as before. Tier 2/3 exist for the remaining case — a package whose
-// node_modules directory is entirely absent even though it is a genuine
-// production dependency (e.g. an optionalDependency like
-// better-sqlite3-multiple-ciphers whose prebuild doesn't cover this Node
-// version). Previously that was an unconditional hard failure telling the
-// developer to re-run `npm ci`, which is unactionable when the package
-// cannot install on this machine at all.
-//
-// Tier 2 (cache): electron/license-texts/ holds one committed text file per
-// package, named `<name, "/" replaced with "+">@<version>.txt`. The "+"
+// Tier 1 (cache): electron/license-texts/ holds one committed JSON record per
+// package, named `<name, "/" replaced with "+">@<version>.json`. The "+"
 // substitution keeps scoped package names (e.g. "@foo/bar") on one flat
-// filename with no subdirectories. Once a package has been recovered once
-// (tier 3), every subsequent run — including on a machine that can't install
-// or reach the network — is offline-green from this cache.
+// filename with no subdirectories. Each record is the FULL resolved entry —
+// { name, version, license, homepage, licenseText } — not just the license
+// text. When a record exists for a package's exact name@version, it is used
+// IN PREFERENCE to whatever is on disk, and disk is not consulted AT ALL for
+// that package: every field comes from the committed record.
 //
-// Tier 3 (fetch+verify): only reached on a cache miss. Downloads the tarball
-// at the lockfile entry's own `resolved` URL, verifies the bytes against that
+// This ordering, and the whole-record shape (round 3 → round 4, Red Hat
+// findings), matter because the cache is committed state and node_modules is
+// not:
+//   - on this repo's own CI (Linux), every optionalDependency installs, so a
+//     disk-first order meant tiers 2/3 were only ever exercised on a
+//     macOS/Node-25 dev machine — the code that exists for the hard case
+//     never ran under the gate of record. Cache-first makes CI exercise the
+//     exact same bytes a dev machine does, regardless of what happened to
+//     install locally.
+//   - caching only the license TEXT and still reading `license`/`homepage`
+//     from disk when disk happened to be present reintroduced the exact
+//     machine-dependence this round exists to close: better-sqlite3-
+//     multiple-ciphers is absent on a Node-25 dev machine (no prebuild) but
+//     installs on Linux CI, so a text-only cache would read `homepage: null`
+//     on one machine and a real URL — read off whatever the tarball on CI
+//     happens to contain — on the other, silently diverging bytes for a diff
+//     that touched none of this. Caching the WHOLE record and never falling
+//     back to disk on a cache hit removes that split entirely.
+//   - a hand-edited or corrupted cache file used to be trusted only when disk
+//     was absent, so a bad cache entry sitting next to a healthy on-disk
+//     install had no way to ever be read or noticed. Cache-first means a
+//     corrupted cache file now changes the generated manifest on EVERY
+//     machine and EVERY platform, so `licenses:check` goes red rather than
+//     silently shipping wrong text.
+//
+// Tier 2 (disk): only reached on a cache miss. The package is present in
+// node_modules and findLicenseText() reads it straight off disk, exactly as
+// before. This is still how the large majority of production packages are
+// resolved — cache files only exist for the minority that needed tier 3 at
+// some point.
+//
+// Tier 3 (fetch+verify): only reached when a package is on neither the cache
+// nor disk — e.g. an optionalDependency like better-sqlite3-multiple-ciphers
+// whose prebuild doesn't cover this Node version. Downloads the tarball at
+// the lockfile entry's own `resolved` URL, verifies the bytes against that
 // entry's committed `integrity` SRI hash BEFORE trusting them (a mismatch is
 // treated as a trust problem, not a license-generation bug), extracts
 // package.json and the LICENSE-family file from the tarball in memory using
 // the SAME findLicenseText/classifyLicense logic as the disk path, and writes
-// the recovered text to the cache so the next run doesn't need the network.
+// the recovered record — every field, sourced only from the verified
+// tarball and the lockfile entry, never from disk — to the cache so the next
+// run doesn't need the network.
 function cacheFileName(name, version) {
-  return `${name.replace(/\//g, '+')}@${version}.txt`
+  return `${name.replace(/\//g, '+')}@${version}.json`
 }
 
-function readCachedLicenseText(cacheDir, name, version) {
+function readCachedRecord(cacheDir, name, version) {
   try {
-    return fs.readFileSync(path.join(cacheDir, cacheFileName(name, version)), 'utf8')
+    return JSON.parse(fs.readFileSync(path.join(cacheDir, cacheFileName(name, version)), 'utf8'))
   } catch {
     return null
   }
 }
 
-function writeCachedLicenseText(cacheDir, name, version, text) {
+function writeCachedRecord(cacheDir, name, version, record) {
   fs.mkdirSync(cacheDir, { recursive: true })
-  fs.writeFileSync(path.join(cacheDir, cacheFileName(name, version)), text)
+  fs.writeFileSync(path.join(cacheDir, cacheFileName(name, version)), JSON.stringify(record, null, 2) + '\n')
 }
 
 function verifyIntegrity(buffer, integrity, label) {
@@ -172,39 +200,42 @@ function extractPackageFromTarball(buffer) {
   })
 }
 
+// `licenses:check` runs second in VERIFY_STEPS (scripts/verify.js), placed
+// there as a cheap fail-fast step — an unbounded fetch would let a
+// network-unreachable machine hang that step for as long as DNS/registry
+// takes. This bounds tier 3's worst case to a fixed timeout instead.
+const FETCH_TIMEOUT_MS = 30_000
+
+// The correct remedy for a machine that cannot reach the registry
+// (restricted CI egress, offline dev) is not `npm ci` — that fails the same
+// way. It is: generate on a machine that CAN reach the registry, commit the
+// resulting electron/license-texts/<file>.txt, and re-run.
+const UNREACHABLE_REMEDY =
+  'If this machine cannot reach the registry (restricted CI egress, offline dev), generate on a machine ' +
+  'that can, commit the resulting electron/license-texts/<file>.txt, and re-run — `npm ci` will fail the same way.'
+
 async function fetchTarball(url, label, fetchImpl) {
   let response
   try {
-    response = await fetchImpl(url)
+    response = await fetchImpl(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   } catch (err) {
-    throw new Error(`generate-licenses: failed to fetch "${label}" from ${url} — ${err.message}`)
+    throw new Error(`generate-licenses: failed to fetch "${label}" from ${url} — ${err.message}. ${UNREACHABLE_REMEDY}`)
   }
   if (!response.ok) {
     throw new Error(
-      `generate-licenses: failed to fetch "${label}" from ${url} — HTTP ${response.status} ${response.statusText}`
+      `generate-licenses: failed to fetch "${label}" from ${url} — HTTP ${response.status} ${response.statusText}. ${UNREACHABLE_REMEDY}`
     )
   }
   const arrayBuffer = await response.arrayBuffer()
   return Buffer.from(arrayBuffer)
 }
 
-// Resolves a package whose node_modules directory does not exist at all:
-// tries the committed cache, then falls back to fetch+verify+extract,
-// writing the cache on success. Never returns partial/unverified data.
+// Resolves a package whose node_modules directory does not exist at all AND
+// has no cache record (the caller already checked the cache — see the
+// tier-order comment above): fetch+verify+extract, writing the recovered
+// record to the cache on success. Never returns partial/unverified data.
 async function resolveMissingPackage({ name, version, entry, cacheDir, fetchImpl }) {
   const label = `${name}@${version}`
-  const cachedText = readCachedLicenseText(cacheDir, name, version)
-  if (cachedText !== null) {
-    // Classification still comes from the lockfile entry's own `license`
-    // field (npm records it there from the package's package.json at
-    // publish time) — this is committed data, so it's just as offline and
-    // deterministic as the cached text, and avoids re-fetching every run.
-    const license = classifyLicense(entry)
-    if (license === null) {
-      throw new Error(`generate-licenses: cannot classify license for "${label}" (missing from node_modules, and its package-lock.json entry has no usable license field)`)
-    }
-    return { name, version, license, homepage: null, licenseText: cachedText }
-  }
 
   if (typeof entry.resolved !== 'string' || !entry.resolved || typeof entry.integrity !== 'string' || !entry.integrity) {
     throw new Error(
@@ -222,17 +253,15 @@ async function resolveMissingPackage({ name, version, entry, cacheDir, fetchImpl
     throw new Error(`generate-licenses: cannot classify license for "${label}"`)
   }
 
-  if (licenseText !== null) {
-    writeCachedLicenseText(cacheDir, name, version, licenseText)
-  }
-
-  return {
+  const record = {
     name,
     version,
     license,
     homepage: typeof pkgJson.homepage === 'string' ? pkgJson.homepage : null,
     licenseText,
   }
+  writeCachedRecord(cacheDir, name, version, record)
+  return record
 }
 
 function classifyLicense(pkgJson) {
@@ -288,47 +317,121 @@ function deriveNameFromKey(key) {
   return key.slice(key.lastIndexOf(marker) + marker.length)
 }
 
+// cacheFileName only escapes "/" (for scoped names), so a scoped package
+// like "@a/b" and a literally-named package "@a+b" both produce
+// "@a+b@<version>.txt" — npm names may legally contain "+". No such
+// collision exists in this repo's dependency set today, but silently
+// clobbering one cached file with another's text would be a wrong-
+// attribution bug with no test surface to catch it later. Fail loudly at
+// generation time instead of leaving it as a comment-only acknowledgement.
+function checkCacheFilenameCollisions(productionEntries) {
+  const byFilename = new Map()
+  for (const { name, version } of productionEntries) {
+    const filename = cacheFileName(name, version)
+    const key = `${name}@${version}`
+    if (!byFilename.has(filename)) byFilename.set(filename, new Set())
+    byFilename.get(filename).add(key)
+  }
+  for (const [filename, keys] of byFilename) {
+    if (keys.size > 1) {
+      throw new Error(
+        `generate-licenses: cache filename "${filename}" would collide between ${[...keys].sort().join(' and ')} — ` +
+          `cacheFileName() is not injective for this package set.`
+      )
+    }
+  }
+}
+
+// Nothing else enumerates electron/license-texts/, so a cache file for a
+// package that is no longer a dependency (or is now at a different version)
+// would stay forever, unreferenced — an attribution-accuracy risk in the
+// opposite direction from a missing license: a committed license text for
+// something the app does not actually ship. Fail generation (not just
+// --check) so the stale file can't silently ride along; the run that wrote
+// electron/license-texts/ is a fine place to also require it stay accurate.
+function checkOrphanedCacheFiles(cacheDir, expectedKeys) {
+  let files
+  try {
+    files = fs.readdirSync(cacheDir)
+  } catch {
+    return // no cache directory at all — nothing to orphan
+  }
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue
+    const base = file.slice(0, -'.json'.length)
+    const at = base.lastIndexOf('@')
+    const key = at > 0 ? `${base.slice(0, at).replace(/\+/g, '/')}@${base.slice(at + 1)}` : null
+    if (key === null || !expectedKeys.has(key)) {
+      throw new Error(
+        `generate-licenses: electron/license-texts/${file} does not correspond to any current production ` +
+          `dependency${key ? ` (parsed as "${key}")` : ''} — remove it, or a stale license text will silently ` +
+          `ship again if that name@version ever reappears.`
+      )
+    }
+  }
+}
+
 export async function buildLicenseManifest(rootDir, { fetchImpl = globalThis.fetch } = {}) {
   const lock = JSON.parse(fs.readFileSync(path.join(rootDir, 'package-lock.json'), 'utf8'))
   const lockPackages = lock.packages || {}
   const packages = new Map()
   const cacheDir = path.join(rootDir, 'electron', 'license-texts')
 
+  const productionEntries = []
   for (const [key, entry] of Object.entries(lockPackages)) {
     if (key === '') continue // the root project entry itself
     if (entry.dev) continue
-
     if (isPlatformGatedOut(entry)) continue // expected absence — not an error
+    productionEntries.push({ key, entry, name: deriveNameFromKey(key), version: entry.version })
+  }
 
+  checkCacheFilenameCollisions(productionEntries)
+  checkOrphanedCacheFiles(cacheDir, new Set(productionEntries.map((e) => `${e.name}@${e.version}`)))
+
+  for (const { key, entry, name, version } of productionEntries) {
     const dir = path.join(rootDir, key)
-    let pkgJson
     let resolved
-    try {
-      pkgJson = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
-      const license = classifyLicense(pkgJson)
-      if (license === null) {
-        throw new Error(`generate-licenses: cannot classify license for "${pkgJson.name}@${pkgJson.version}"`)
+
+    // Tier 1: a committed cache record for this exact name@version wins over
+    // whatever is (or isn't) on disk — see the tier-order comment above. On a
+    // cache hit, disk is not read at all: every field comes from the record.
+    const cached = readCachedRecord(cacheDir, name, version)
+    if (cached !== null) {
+      resolved = cached
+    } else {
+      try {
+        const pkgJson = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+        const license = classifyLicense(pkgJson)
+        if (license === null) {
+          throw new Error(`generate-licenses: cannot classify license for "${pkgJson.name}@${pkgJson.version}"`)
+        }
+        resolved = {
+          name: pkgJson.name,
+          version: pkgJson.version,
+          license,
+          homepage: typeof pkgJson.homepage === 'string' ? pkgJson.homepage : null,
+          licenseText: findLicenseText(dir),
+        }
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          // Package directory is entirely absent from node_modules (e.g. a
+          // no-prebuild optionalDependency on this Node version) — see the
+          // three-tier sourcing block above for why this is no longer an
+          // unconditional hard failure.
+          resolved = await resolveMissingPackage({ name, version, entry, cacheDir, fetchImpl })
+        } else if (err instanceof SyntaxError) {
+          // The directory IS present but its package.json is corrupt — this
+          // is not "missing", so it must not silently trigger a network
+          // fetch. Fail loudly with its own message instead.
+          throw new Error(
+            `generate-licenses: "${name}@${version}"'s node_modules/package.json exists but is not valid JSON — ` +
+              `this is corruption, not a missing package. Fix or reinstall it; do not treat it as recoverable ` +
+              `from cache or the network.`
+          )
+        } else {
+          throw err
+        }
       }
-      resolved = {
-        name: pkgJson.name,
-        version: pkgJson.version,
-        license,
-        homepage: typeof pkgJson.homepage === 'string' ? pkgJson.homepage : null,
-        licenseText: findLicenseText(dir),
-      }
-    } catch (err) {
-      if (!(err.code === 'ENOENT' || err instanceof SyntaxError)) throw err
-      // Package directory is entirely absent from node_modules (e.g. a
-      // no-prebuild optionalDependency on this Node version) — see the
-      // three-tier sourcing block above for why this is no longer an
-      // unconditional hard failure.
-      resolved = await resolveMissingPackage({
-        name: deriveNameFromKey(key),
-        version: entry.version,
-        entry,
-        cacheDir,
-        fetchImpl,
-      })
     }
 
     const dedupeKey = `${resolved.name}@${resolved.version}`
