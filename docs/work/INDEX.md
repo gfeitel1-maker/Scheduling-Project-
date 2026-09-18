@@ -47,6 +47,7 @@ Regenerate with `npm run index:work`.
 | [Persistent per-device libp2p identity; bind session tokens to the presenting peer](../../docs/work/tickets/T162-device-identity-and-token-binding.md) | open | — |
 | [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
 | [Headless DB key access for the MCP server and CLI (encryption flip-blocker #2)](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) | in-progress | — |
+| [A new high npm advisory against @libp2p/peer-store fails the security gate on every branch, and the only offered fix is a semver-major libp2p bump](../../docs/work/tickets/T214-libp2p-peer-store-advisory.md) | open | — |
 | [Upgrade libp2p 2.10.0 to 3.3.11 to close GHSA-vrf4-mx87-p53w, and answer whether a mixed-version camp can still sync](../../docs/work/tickets/T215-libp2p-3x-upgrade.md) | open | [T217-libp2p-3x-residual-findings](../../docs/work/tickets/T217-libp2p-3x-residual-findings.md) |
 
 ### test-infrastructure
