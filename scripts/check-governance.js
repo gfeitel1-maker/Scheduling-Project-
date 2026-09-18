@@ -609,8 +609,6 @@ export const DELIBERATELY_ABSENT = new Map([
     'same deletion, named by full path in PLATFORM_STATE.md\'s "Removed / Replaced" section'],
   ['provenance.s2a.test.js',
     'retired with the WebSocket transport; CRDT_SECURITY_GAPS.md names it to record which test went away and why'],
-  ['v67_down.js',
-    'reserved but never committed on THIS tree — an unmerged worktree elsewhere (claude/shoresh-rendezvous-wan-handoff-5f211b) has an unpushed v67_down.js; PLATFORM_STATE.md and localDb.js name it to record why v68 (T195) skips past 67 rather than claim it'],
 
   // Named inside a LIVE section of PLATFORM_STATE.md — a row or sentence whose
   // job is to say what the current thing replaced. Each is a one-line "X, which
