@@ -1,9 +1,9 @@
 ---
 title: "Multi-device erasure: signed purge tombstones (denylist), genesis rotation as break-glass"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: in_progress
 date: 2026-09-19
 decided: 2026-09-19
 deciders: [product-owner]
@@ -19,27 +19,27 @@ related_adrs:
   - docs/adr/2026-09-14-device-identity-and-token-binding.md
 related_tickets:
   - docs/work/tickets/T202-camper-record-purge-path.md
-  - docs/work/tickets/T-NNN-multi-device-erasure-propagation.md
+  - docs/work/tickets/T233-multi-device-erasure-propagation.md
 program: security-hardening
 affects: []
 ---
 
 # Multi-device erasure: signed purge tombstones (denylist), genesis rotation as break-glass
 
-> **Status: PROPOSED (2026-09-19), REVISED after Security + Red Hat review.** Follow-up to T202,
-> which built a real single-device purge (`electron/automerge/purgeSupportCommand.js`) but left one
-> honest gap: **nothing stops an already-paired stale peer from reintroducing a purged record via
-> ordinary sync**, because `sharesGenesis()` is the only admission gate. The envelope-encryption ADR
-> (2026-09-19) rejected crypto-shredding and named genesis rotation as the presumed path; this ADR
-> examines it and recommends a **signed purge-tombstone denylist** instead — but the first draft of
-> that recommendation was over-claimed, and an adversarial review corrected it. **What survives review
-> (confidence high):** the denylist cleanly solves *reintroduction* (sub-problem 1) and *immediate
-> logical erasure* fleet-wide, cheaply, without the fleet lockout genesis rotation causes. **What the
-> review changed (this is not settled):** the byte-erasure half (sub-problem 2) must NOT be built by
-> auto-triggering T202's whole-device rebuild on every peer — that reproduces the very blast radius
-> this ADR rejected genesis rotation for. Byte-erasure on peers is rescoped to a separate targeted
-> slice (S3) and needs an Architect design pass before it is buildable. The two premise errors the
-> first draft made about the trust root and the merge seam are corrected below.
+> **Status: ACCEPTED (2026-09-19), reviewed (Security + Red Hat), now being implemented as T233.**
+> Follow-up to T202, which built a real single-device purge (`electron/automerge/purgeSupportCommand.js`)
+> but left one honest gap: **nothing stops an already-paired stale peer from reintroducing a purged
+> record via ordinary sync**, because `sharesGenesis()` is the only admission gate. The
+> envelope-encryption ADR (2026-09-19) rejected crypto-shredding and named genesis rotation as the
+> presumed path; this ADR examines it and adopts a **signed purge-tombstone denylist** instead. The
+> first draft over-claimed and made two premise errors (trust root, merge seam); the adversarial review
+> corrected them and they are folded in below. **The decision, settled:** the denylist solves
+> *reintroduction* (sub-problem 1) and *immediate logical erasure* fleet-wide, cheaply, without the
+> fleet lockout genesis rotation causes — and the product owner has decided (2026-09-19) that **logical
+> erasure ("invisible forever") is the required guarantee** (see "The erasure guarantee"). *Physical*
+> fleet byte-erasure is therefore out of scope: it has no stable form cheaper than a coordinated fleet
+> cutover (≈ genesis rotation), which is retained as break-glass. S1+S2 are the full deliverable; S3 is
+> visibility only.
 
 ## The gap, and the two sub-problems inside it
 
