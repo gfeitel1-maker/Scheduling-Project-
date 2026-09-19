@@ -395,8 +395,19 @@ describe('purgeCamperRecord', () => {
       throw new Error('forced crash between rebuild and key-restore')
     })
     try {
-      expect(() => purgeCamperRecord({ dbPath, userDataDir, entityId: camperId }))
-        .toThrow(/forced crash between rebuild and key-restore/)
+      // The thrown error names the purge context and where the keys still live, and chains the
+      // original failure as `cause` rather than swallowing it.
+      let thrown
+      try {
+        purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+      } catch (err) {
+        thrown = err
+      }
+      expect(thrown).toBeInstanceOf(Error)
+      expect(thrown.message).toMatch(/keys were NOT restored after the purge rebuild/)
+      expect(thrown.message).toMatch(/pre-migration backup/)
+      expect(thrown.cause).toBeInstanceOf(Error)
+      expect(thrown.cause.message).toMatch(/forced crash between rebuild and key-restore/)
     } finally {
       spy.mockRestore()
     }
