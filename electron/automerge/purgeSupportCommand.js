@@ -63,6 +63,10 @@
 // `operations` table (only emptied by the LAST step, the rebuild) still carries rows for entityId,
 // so the "no camper row AND no operations history" guard does not fire until the purge has
 // genuinely finished — at which point refusing a second run is the correct behavior, not a bug.
+// EXCEPTION (5b/FIX3): the one window auto-recovery does NOT cover is after the rebuild completes
+// but before key-restore finishes — by then operations is already emptied, so a re-run hits the
+// FIX4 refusal. That window is instead covered by ordering restore before the shred, so the
+// pre-migration backup (still holding the original keys) survives as a manual recovery source.
 //
 // Not reliable for OTHER devices: nothing here changes the app-wide Automerge genesis, so a stale,
 // already-paired peer still shares genesis with the purged device and an ordinary sync merge can
