@@ -348,6 +348,24 @@ op-log included — to `<dbPath>.pre-migration-<ts>.bak`, and **nothing ever del
 through the existing rebuild tool leaves the entire pre-purge database next to the live one. T202
 must handle this explicitly.
 
+*Resolved by T202 (2026-09-18).* `electron/automerge/purgeSupportCommand.js` exports
+`purgeCamperRecord`, composed alongside `rebuildSupportCommand.js` rather than folding a purge flag
+into it. It deletes the target camper and its dependent `elective_preferences`/
+`elective_assignments` rows from the live projection, regenerates a fresh document via
+`seedAllFromSqlite(oldDb, createEmptyDoc())` (so the new document's history never mentions the
+purged rows), rebuilds SQLite from that document through the existing
+`rebuildProjectionFromDocumentAtPath` pipeline (which empties `operations` as a side effect of the
+whole-file rebuild), and then shreds every `*.pre-migration-*.bak` for that database path — the
+backup-defeats-the-purge trap named above. The shred is purge-only and lives in the wrapper, not in
+`writePreMigrationBackup` itself, so the three ordinary call sites that need their backups kept
+(the plain rebuild, and `localDb.js`/`sqliteCipher.js`'s migration and rekey paths) are unaffected.
+
+Explicitly **out of scope**, per the ticket: a targeted op-log prune (this purge clears the whole
+`operations` table via the whole-file rebuild, not a per-record delete) and a runtime per-camp
+genesis rotation (the app-wide genesis is unchanged; a purged device's fresh document still shares
+genesis with every other device's, which is why an untouched peer must re-pair, not resync — see
+`purgeSupportCommand.test.js`'s "known gap" case, which demonstrates rather than fixes this).
+
 ### D11 — Min-cost max-flow is retained
 
 Red Hat asked whether greedy-by-rank would do. Assessed honestly: for a camp of ~200 campers across

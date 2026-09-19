@@ -344,6 +344,25 @@ Access is admin-only (D9): no non-admin role has any in-app read path to any of 
 receive the exported artifact instead. See `electron/auth/participantEntitiesAdminOnly.test.js`,
 which asserts the negative.
 
+#### Camper-record purge — what it does and does not reach (T202)
+
+A camper record can be purged via a support-level command (`purgeCamperRecord`,
+`electron/automerge/purgeSupportCommand.js`), not a director-facing button. Purge deletes the
+projection row and its dependent rows, empties this device's `operations` history for that record,
+discards every `*.pre-migration-*.bak` for this device's database (these are otherwise **never**
+automatically pruned — the retention pruner `rotatePreResolveBackups` covers only
+`*.pre-resolve-*.sqlite` conflict/bulk-replace snapshots), and regenerates this device's
+`.automerge` from the post-purge state.
+
+What it does not reach: every other device that has synced this camp still holds the camper's full
+history in its own `.automerge` and `operations` until it re-pairs against the purged device rather
+than resuming merge sync — ordinary CRDT merge would reintroduce the removed history, so
+re-pairing (not resync) is required and is a manual coordinated step. Any copy of the `.automerge`
+or database made before purge is untouched. There is no per-record erasure within Automerge's
+history; a purge is always a whole-device document regeneration. There is no runtime per-camp
+genesis rotation; the app-wide genesis root is unchanged by a purge and is changed only by a
+coordinated source-edit-plus-release.
+
 ### A camp token is a bearer credential (T155)
 
 `evaluateAuthenticate` binds a token to the `device_id` carried **inside** the token. Nothing binds
