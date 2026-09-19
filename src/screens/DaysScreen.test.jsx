@@ -92,7 +92,7 @@ describe('DaysScreen', () => {
     expect(screen.queryByPlaceholderText('Order')).toBeNull()
   })
 
-  it('adds a day from the inline blank row by writing each field via localClient.write, label first, deriving sort_order from day_of_week', async () => {
+  it('adds a day from the inline blank row by writing each field via localClient.write, day_of_week first (UNIQUE_FIRST_FIELD guard), deriving sort_order from day_of_week', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())
@@ -102,7 +102,7 @@ describe('DaysScreen', () => {
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
     const [, , , firstField] = localClient.write.mock.calls[0]
-    expect(firstField).toBe('label')
+    expect(firstField).toBe('day_of_week')
     const fieldsWritten = localClient.write.mock.calls.map(c => c[3])
     expect(fieldsWritten).toEqual(expect.arrayContaining(['label', 'camp_id', 'day_of_week', 'sort_order']))
     const sortOrderCall = localClient.write.mock.calls.find(c => c[3] === 'sort_order')
