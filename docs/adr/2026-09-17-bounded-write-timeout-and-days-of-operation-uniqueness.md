@@ -334,3 +334,34 @@ that framing (durable-refuse-only, no resolve). Round 2 does not just restate th
 it: the repair genuinely is authored through the document, via the ordinary write primitive, using ids the
 migration itself recorded. No further ratification is needed; the design is back in line with what
 Amendment 2 originally argued for.
+
+### Round 3 (2026-09-18) — fail closed on a non-'applied' document outcome
+
+Round 2's `resolvePendingDomainStateMigrations` discarded `appendOp`'s return value and cleared
+`resolved_at` unconditionally. `appendOp` never throws on a document-write failure — it catches
+internally and returns the op with `op[DOCUMENT_OUTCOME]` set to `'failed'` (see
+`electron/ops/operations.js`) rather than `'applied'`. Red Hat verified this in code: a transient
+document-write failure (a locked/corrupt doc file, an in-flight save collision) would still clear
+the marker, `shouldRefuseSyncForDomainMigration` would then return `false`, sync would resume, and a
+peer's `projectAll` delete-reconcile would RESURRECT the exact duplicate row v70 deleted — the
+CRDT-merge resurrection this entire ticket exists to prevent, with the one safety net that was
+supposed to catch it disarmed. Worse than the original "refuses forever" defect, and reachable any
+time the document dual-write genuinely fails.
+
+Fixed by treating ONLY `'applied'` as a landed tombstone: each `appendOp` call's return is now
+inspected, and `resolved_at` is set for a marker only when EVERY one of its losers came back
+`'applied'`. Any other outcome (`'failed'`, `'not-modeled'`, `'deferred'`, `'engine-off'` —
+`days_of_operation` is modeled, so a healthy write's outcome is always `'applied'`) leaves the WHOLE
+marker unresolved — a partial batch (one loser out of three fails) does not track partial progress;
+it simply retries every loser on the next call, which is safe because `appendOp`'s `DELETE_FIELD` is
+already idempotent for an entity_id absent from SQLite or the document (the property FIX 2's design
+already relied on). This is what makes the retry cheap rather than requiring new bookkeeping.
+
+Proven with a test that stubs `recordLocalWrite` (the seam `operations.js` itself calls) to throw for
+one specific entity_id, producing a genuine non-`'applied'` `DOCUMENT_OUTCOME` through the real
+plumbing rather than reimplementing it: (1) a single poisoned loser leaves `resolved_at` NULL and
+`shouldRefuseSyncForDomainMigration` still returns `true`; (2) a 3-loser batch with 1 poisoned leaves
+the marker unresolved entirely, not partially; (3) a control run with no poisoned loser still resolves
+normally, proving the stub doesn't break the happy path; (4) a retry after the transient failure
+clears succeeds and the tombstone lands. All four were verified red-before-green by reverting the fix
+and confirming the first three failed for the right reason (the old code resolved anyway).

@@ -42,7 +42,7 @@
  * table shape. Each entry names what it does so the classification can be
  * checked rather than trusted.
  */
-import { appendOp, DELETE_FIELD } from '../ops/operations.js'
+import { appendOp, DELETE_FIELD, DOCUMENT_OUTCOME } from '../ops/operations.js'
 
 export const DOMAIN_STATE_MIGRATIONS = new Map([
   [11, 'cohort de-duplication re-points time_blocks.cohort_id and anchor_activities.cohort_id'],
@@ -221,13 +221,42 @@ export function resolvePendingDomainStateMigrations(db, { device_id = null } = {
     try {
       payload = JSON.parse(marker.detail)
     } catch {
+      // FOR FUTURE MIGRATION AUTHORS: a marker whose `detail` is not this
+      // resolver's {note, losers} JSON shape is left UNRESOLVED forever by
+      // this loop — never guessed at, never resolved by accident. A future
+      // domain-state migration that wants its own marker auto-resolved must
+      // write `detail` in this exact shape (or extend this function to
+      // recognize its own), or plan for a human/future-ticket resolution path
+      // instead.
       continue // not a structured marker this resolver understands — leave it, never guess
     }
     const losers = Array.isArray(payload.losers) ? payload.losers : []
 
+    // FAIL CLOSED (T205 round 3, Red Hat HIGH): appendOp never THROWS on a
+    // document-write failure — it returns the op with op[DOCUMENT_OUTCOME] set
+    // to 'failed' instead of 'applied' (electron/ops/operations.js). The
+    // return was previously discarded and resolved_at was set unconditionally,
+    // so a transient document-write failure would still clear the marker, sync
+    // would resume, and a peer's projectAll delete-reconcile would RESURRECT
+    // the exact duplicate row v70 deleted — the CRDT-merge resurrection this
+    // ticket exists to prevent, with the safety net disarmed. days_of_operation
+    // IS modeled, so a healthy write's outcome is 'applied'; ANY other outcome
+    // ('failed', 'not-modeled', 'deferred', 'engine-off') means the tombstone
+    // did not land and must count as not-yet-resolved.
+    //
+    // A PARTIAL batch fails the WHOLE marker, not just the failed loser: this
+    // module's own design already relies on appendOp's DELETE_FIELD being an
+    // idempotent no-op for an entity_id already gone from SQLite or already
+    // absent from the document (see the module comment above), so re-running
+    // every loser on a later retry is safe and cheap — there is no reason to
+    // track partial progress inside one marker.
+    let allApplied = true
     for (const { entity, entity_id } of losers) {
-      appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id: null, device_id })
+      const op = appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id: null, device_id })
+      if (op[DOCUMENT_OUTCOME] !== 'applied') allApplied = false
     }
+
+    if (!allApplied) continue // leave resolved_at NULL — retried on the next call/launch
 
     db.prepare('UPDATE domain_state_migration_pending SET resolved_at = ? WHERE version = ?').run(
       new Date().toISOString(),
