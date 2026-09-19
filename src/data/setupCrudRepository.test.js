@@ -2,7 +2,7 @@
 // captures every call) — no React render, no Electron. Mirrors
 // scheduleRepository.test.js's fake-collaborator style.
 import { describe, it, expect, vi } from 'vitest'
-import { createSetupCrudRepository, UNIQUE_FIRST_FIELD, REQUIRED_FIRST_ON_WRITE, orderFieldsForWrite } from './setupCrudRepository'
+import { createSetupCrudRepository, UNIQUE_FIRST_FIELD, REQUIRED_FIRST_ON_WRITE, orderFieldsForWrite, orderFieldsForCreate } from './setupCrudRepository'
 
 function makeFakeClient({ writeResult = { status: 'applied' }, deleteResult = { status: 'applied' } } = {}) {
   const calls = { write: [], deleteEntity: [] }
@@ -154,17 +154,49 @@ describe('createSetupCrudRepository — createRecord', () => {
     expect(UNIQUE_FIRST_FIELD.days_of_operation).toBe('day_of_week')
   })
 
-  it('UNIQUE_FIRST_FIELD guard: throws synchronously, before any write, when the registered unique field is not first', async () => {
+  // Reversal (2026-09-18): see docs/adr/2026-08-15-locations-concurrent-create-collision.md
+  // "Reversal" section. createRecord now auto-reorders the registered unique
+  // field to the front instead of throwing when it's out of order.
+  it('UNIQUE_FIRST_FIELD auto-reorder: moves the registered unique field to the front instead of throwing when it is not first', async () => {
     expect(UNIQUE_FIRST_FIELD.locations).toBe('name')
     const client = makeFakeClient()
     const repo = createSetupCrudRepository({ localClient: client, getToken })
+    await repo.createRecord('locations', 'loc-new', { camp_id: 'camp-1', name: 'Pool', capacity: 1 })
+    expect(client.calls.write.map((c) => c[3])).toEqual(['name', 'camp_id', 'capacity'])
+  })
+
+  it('UNIQUE_FIRST_FIELD auto-reorder: moves the unique field to the front even when built last, not just out of position by one', async () => {
+    const client = makeFakeClient()
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
+    await repo.createRecord('locations', 'loc-new', { camp_id: 'camp-1', capacity: 1, notes: null, name: 'Pool' })
+    expect(client.calls.write[0][3]).toBe('name')
+    expect(client.calls.write.map((c) => c[3])).toEqual(['name', 'camp_id', 'capacity', 'notes'])
+  })
+
+  it('UNIQUE_FIRST_FIELD: throws when the registered unique field is ABSENT from the create object, before any write', async () => {
+    const client = makeFakeClient()
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
     await expect(
-      repo.createRecord('locations', 'loc-new', { camp_id: 'camp-1', name: 'Pool', capacity: 1 })
-    ).rejects.toThrow(/"name" must be the first field — got "camp_id"/)
-    // Zero writes and zero cleanup attempts — the guard fires before
-    // writeFields is ever called, so nothing was created to clean up.
+      repo.createRecord('locations', 'loc-new', { camp_id: 'camp-1', capacity: 1 })
+    ).rejects.toThrow(/must include "name"/)
     expect(client.calls.write).toHaveLength(0)
     expect(client.calls.deleteEntity).toHaveLength(0)
+  })
+
+  it('days_of_operation: auto-reorders day_of_week to the front when built out of order', async () => {
+    const client = makeFakeClient()
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
+    await repo.createRecord('days_of_operation', 'd-new', { label: 'Monday', day_of_week: 1, sort_order: 1 })
+    expect(client.calls.write.map((c) => c[3])).toEqual(['day_of_week', 'label', 'sort_order'])
+  })
+
+  it('days_of_operation: throws when day_of_week is absent from the create object', async () => {
+    const client = makeFakeClient()
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
+    await expect(
+      repo.createRecord('days_of_operation', 'd-new', { label: 'Monday', sort_order: 1 })
+    ).rejects.toThrow(/must include "day_of_week"/)
+    expect(client.calls.write).toHaveLength(0)
   })
 
   it('UNIQUE_FIRST_FIELD guard: does not fire for an entity absent from the registry', async () => {
@@ -172,6 +204,14 @@ describe('createSetupCrudRepository — createRecord', () => {
     const repo = createSetupCrudRepository({ localClient: client, getToken })
     await repo.createRecord('time_blocks', 'tb1', { sort_order: 1, label: 'Monday' })
     expect(client.calls.write.map((c) => c[3])).toEqual(['sort_order', 'label'])
+  })
+})
+
+describe('orderFieldsForCreate', () => {
+  it('is a no-op for an entity not registered in UNIQUE_FIRST_FIELD', () => {
+    expect(orderFieldsForCreate('time_blocks', { sort_order: 1, label: 'Monday' })).toEqual([
+      ['sort_order', 1], ['label', 'Monday'],
+    ])
   })
 })
 
