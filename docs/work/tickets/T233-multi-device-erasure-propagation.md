@@ -109,6 +109,24 @@ findings (tombstone-survives-regen; no per-peer whole-device rebuild; Host-only 
 the ADR and the slices above. Before Maker starts: S3 needs its own Architect pass; Verifier evidence on
 the inverted known-gap test gates any claim of done.
 
+## Final status (2026-09-19)
+
+**Delivered and verified: S1 + S2 (the erasure mechanism).** Signed purge-tombstone entity + signing
+primitive; Host-only purge with crash-safe key recovery from the pre-migration backup; projection-time
+verify+monotonic gate with SQLite-direct denylist sweep; the inverted `purgeSupportCommand.test.js`
+"known gap" test proves a stale peer's reintroduction is **refused** fleet-wide. Reviewed across three
+rounds (Security 5/5 on the core; Red Hat's round-1 FATAL crash-recovery bug + all HIGH/MEDIUM/EDGE
+findings, and its round-2 findings on the fix itself, all closed with non-vacuous tests). **Full
+`npm run verify` green by real exit code: 506 files, 6672 passed / 5 skipped, integration 22/22,
+security gate 0, build + lint clean.**
+
+**Remaining (ticket stays open for this): S3 per-peer erasure-state UI** (success predicate #5 /
+`archive_when`'s "per-peer erasure state is observable"). Only the return-value honesty half of S3
+shipped (`propagationPending`). A director-facing per-peer view has no home yet — the purge is a
+support command with **no** director-facing UI at all — so this is gated on a purge UI existing and is
+deliberately deferred, not silently dropped. Physical fleet byte-erasure is out of scope by owner
+decision (logical erasure is the guarantee; genesis rotation is the break-glass).
+
 ## Implementation notes (2026-09-19, Maker — S1 + S2 + S3 return-value honesty)
 
 **Schema version: v72.** `tombstones (id TEXT PRIMARY KEY, entity TEXT NOT NULL, version INTEGER
