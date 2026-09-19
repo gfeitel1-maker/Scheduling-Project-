@@ -149,6 +149,14 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // the FIRST domain-state migration above v52 to actually be reachable
   // (T205), and durably records that fact via domain_state_migration_pending
   // so a plain restart cannot silently re-enable sync past it.
+  //
+  // v71 (T181) DROPs anchor_activities.recurrence_level and
+  // elective_sets.recurrence_level. Schema-only: no application code path has
+  // ever written a non-default value to this column on either table (the
+  // T181 sweep, docs/work/tickets/T181-recurrence-level-is-dead-data.md,
+  // established that as evidence), so dropping it changes no camp's meaning
+  // — there is no value being discarded, only an always-default column.
+  71,
 ])
 
 /** True if applying `version` can change what the camp means. */

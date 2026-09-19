@@ -93,7 +93,10 @@ describe('populateElectiveGrid', () => {
     expect(mondayWrite.fields).toMatchObject({
       camp_id: CAMP_ID, day_id: 'day-mon', time_block_id: 'tb-1', schedule_week_id: WEEK_ID,
     })
-    // recurrence_level is explicitly NOT set by this import (non-goal).
+    // recurrence_level was removed from elective_sets in v71/T181 (dead data) —
+    // it no longer exists as a column at all. This assertion is now a cheap
+    // guard against a future write reintroducing the field, not a claim that
+    // the column exists and is deliberately skipped.
     expect(mondayWrite.fields).not.toHaveProperty('recurrence_level')
   })
 

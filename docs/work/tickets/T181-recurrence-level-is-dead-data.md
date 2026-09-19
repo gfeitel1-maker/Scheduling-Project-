@@ -1,11 +1,11 @@
 ---
 title: "recurrence_level is dead data"
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-16
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md]
-archive_when: the owner decides remove-vs-keep and, if removal, the v65 migration ships and PLATFORM_STATE.md line 196 is corrected
+archive_when: done — owner approved removal, v71 migration shipped, PLATFORM_STATE.md corrected
 ---
 
 # T181 — `recurrence_level` is dead data
@@ -349,3 +349,44 @@ irreversible consequence.)
    this sweep, but a Maker executing the migration should re-check that
    surface specifically since it wasn't in the original registry list this
    ticket named.
+
+---
+
+## 2026-09-18 — landed as v71
+
+Owner approved removal (option 1). Retargeted from the v65 plan above to
+**v71** (versions 65-70 were taken by other work landed in the interim —
+T180's `unit_ids`, T210's `rendezvous_sequence`, T205's `days_of_operation`
+de-duplication, etc.). Shipped:
+
+- `electron/db/schema.sql` — `recurrence_level` removed from both
+  `anchor_activities` and `elective_sets` CREATE TABLE blocks; explanatory
+  comments updated to describe only the surviving columns.
+- `electron/db/localDb.js` — `CURRENT_SCHEMA_VERSION` bumped 70→71; new v71
+  migration block (`ALTER TABLE ... DROP COLUMN recurrence_level` on both
+  tables, guarded `>= 70 && < 71`); `ELECTIVE_SETS_DDL` constant updated to
+  match.
+- `electron/db/rollback/v71_down.js` + `v71_down.test.js` — re-adds the
+  column at its default; states plainly there is no non-default value to
+  restore.
+- `electron/db/recurrenceLevelRemoval.migration.test.js` — new migration
+  test, non-vacuity checked (column present at v70, gone at v71, fresh
+  install matches migrated).
+- Registries updated: `src/localClient.mock.js`, `electron/ops/projections.js`.
+- `docs/current/PLATFORM_STATE.md` — stale "carries recurrence_level"
+  claims corrected; v71 DROPPED note added to the live schema_migrations
+  ledger.
+- Confirmed no `electron/mcp/` (or any MCP server) directory exists in this
+  tree — item 3 above is moot; there is no such surface to check.
+- Automerge: confirmed no change to document shape or `GENESIS_B64` — the
+  flat record shape means the field simply stops being written; nothing
+  regenerates GENESIS from this change.
+
+3 pre-existing tests (`electron/db/anchorRecurrence.migration.test.js`,
+`electron/db/electiveSetsBinding.migration.test.js`) turned out to exercise
+HEAD schema via `freshDb()`, not just their own historical version as this
+ticket's plan assumed — updated rather than left as originally scoped, per
+the plan's own "verify this assumption by running them" instruction.
+`electron/db/rollback/v51_down.js` needed a small fix (dynamic column list)
+since its recreate step assumed `recurrence_level` always exists on
+`anchor_activities`, which v71 makes untrue.

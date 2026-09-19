@@ -68,11 +68,15 @@ function preV51Db(tag = 'v51-migrated') {
     recurrence_level TEXT NOT NULL DEFAULT 'daily',
     location_id TEXT
   )`)
+  // recurrence_level is intentionally NOT selected from anchor_activities_tmp —
+  // that table came from a fully-migrated (head, v71) db, which no longer has
+  // the column (T181 dropped it). It is declared above with its own DEFAULT
+  // instead, matching the value it always held anyway (v42's DEFAULT 'daily').
   db.exec(`INSERT INTO anchor_activities
     (id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
-     is_all_groups, group_ids, notes, schedule_week_id, recurrence_level, location_id)
+     is_all_groups, group_ids, notes, schedule_week_id, location_id)
     SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
-           is_all_groups, group_ids, notes, schedule_week_id, recurrence_level, location_id
+           is_all_groups, group_ids, notes, schedule_week_id, location_id
     FROM anchor_activities_tmp`)
   db.exec('DROP TABLE anchor_activities_tmp')
   db.pragma('foreign_keys = ON')
@@ -89,7 +93,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
   it('declares schema version 51 on a fresh db and gives anchor_activities the kind column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(70)
+    expect(CURRENT_SCHEMA_VERSION).toBe(71)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 51').get().c).toBe(1)
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
     expect(cols).toContain('kind')
@@ -117,7 +121,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
     const db = freshDb()
     expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).toEqual([
       'id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks',
-      'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'kind', 'unit_ids',
+      'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'location_id', 'kind', 'unit_ids',
     ])
     db.close()
   })
@@ -332,6 +336,32 @@ describe('rollbackV51', () => {
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
     expect(cols).not.toContain('kind')
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 51').get().c).toBe(0)
+    expect(db.prepare("SELECT name FROM anchor_activities WHERE id = 'a1'").get().name).toBe('Flagpole')
+    db.close()
+  })
+
+  it('still works on a db that has ALSO taken v71 (recurrence_level already dropped) — the reverse-ordering hazard', () => {
+    // v51_down.js's recreate step used to assume recurrence_level always exists
+    // on anchor_activities. Once v71 (T181) drops it, rolling back v51 on a
+    // head db hits that column during the recreate unless the step is made
+    // conditional — this is the exact case v51_down.js's `hasRecurrenceLevel`
+    // guard exists for. Non-vacuous: confirm the pre-state (head, v71 applied,
+    // column absent) before calling rollbackV51.
+    const db = freshDb()
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
+    expect(CURRENT_SCHEMA_VERSION).toBe(71)
+    expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).not.toContain('recurrence_level')
+
+    db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
+    db.prepare(
+      "INSERT INTO anchor_activities (id, camp_id, name, kind, is_all_groups, group_ids) VALUES ('a1', 'camp1', 'Flagpole', 'fixed', 1, NULL)"
+    ).run()
+
+    expect(() => rollbackV51(db)).not.toThrow()
+
+    const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+    expect(cols).not.toContain('kind')
+    expect(cols).not.toContain('recurrence_level')
     expect(db.prepare("SELECT name FROM anchor_activities WHERE id = 'a1'").get().name).toBe('Flagpole')
     db.close()
   })

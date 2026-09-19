@@ -724,16 +724,14 @@ CREATE TABLE IF NOT EXISTS time_blocks (
 -- drop) rather than removed; name/time_block_id/notes are added by the
 -- version-16 migration in localDb.js for existing dbs that already ran this
 -- file at an earlier version.
--- schedule_week_id/recurrence_level (v42, docs/work/specs/2026-08-23-unified-
--- schedule-overlay-slices.md Slice 1) are storage-only. schedule_week_id NULL
--- preserves today's implicit meaning exactly (all-weeks). recurrence_level is
--- NOT NULL DEFAULT 'daily': every existing anchor IS daily-recurring, so the
--- DEFAULT labels them concretely instead of leaving that meaning implicit in
--- a NULL, and SQLite's ADD COLUMN ... NOT NULL DEFAULT 'daily' populates
--- existing rows for free — still zero backfill logic. Appended LAST — added
--- by an ALTER TABLE in the v42 migration in localDb.js for existing dbs, so
--- column order must match here for a fresh install to be byte-identical to a
--- migrated one.
+-- schedule_week_id (v42, docs/work/specs/2026-08-23-unified-
+-- schedule-overlay-slices.md Slice 1) is storage-only. schedule_week_id NULL
+-- preserves today's implicit meaning exactly (all-weeks). Appended LAST —
+-- added by an ALTER TABLE in the v42 migration in localDb.js for existing
+-- dbs, so column order must match here for a fresh install to be
+-- byte-identical to a migrated one. (v42 also added `recurrence_level`,
+-- dropped in v71/T181 — dead data, superseded by `kind`/`day_id`/
+-- `schedule_week_id`; see docs/work/tickets/T181-recurrence-level-is-dead-data.md.)
 -- location_id (v45, docs/work/specs/2026-08-23-slice4-engine-location-
 -- contention.md §1/§6): nullable FK-by-convention to locations(id), NO
 -- DB-level FOREIGN KEY — matches activities.location_id exactly. NULL =
@@ -763,7 +761,6 @@ CREATE TABLE IF NOT EXISTS anchor_activities (
   group_ids TEXT,
   notes TEXT,
   schedule_week_id TEXT REFERENCES schedule_weeks(id),
-  recurrence_level TEXT NOT NULL DEFAULT 'daily',
   location_id TEXT,
   kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring')),
   -- v65 (T180): the age DIVISIONS a Recurring Event is scoped to, as a JSON
@@ -1033,20 +1030,19 @@ CREATE TABLE IF NOT EXISTS special_day_slots (
 -- appends, so declaring it last here keeps a fresh install's column order
 -- byte-identical to a migrated one (same column-order-trap precedent as
 -- activities.location_id).
--- day_id/time_block_id/is_all_groups/group_ids/schedule_week_id/
--- recurrence_level (v43, docs/work/specs/2026-08-23-unified-schedule-overlay-
+-- day_id/time_block_id/is_all_groups/group_ids/schedule_week_id
+-- (v43, docs/work/specs/2026-08-23-unified-schedule-overlay-
 -- slices.md Slice 3a) give elective_sets the recurring-event binding shape,
 -- mirroring anchor_activities' binding columns exactly. All storage-only:
 -- NULL binding fields preserve today's implicit meaning (unbound, the
 -- existing hand-filled case). time_block_id carries no REFERENCES clause,
 -- matching anchor_activities.time_block_id. schedule_week_id NULL means all
--- weeks. recurrence_level is NOT NULL DEFAULT 'daily' — electives are
--- recurring, so the DEFAULT labels every existing set concretely instead of
--- leaving that meaning implicit in a NULL, and SQLite's ADD COLUMN ... NOT
--- NULL DEFAULT 'daily' populates existing rows for free — zero backfill
--- logic. Appended LAST — added by an ALTER TABLE in the v43 migration in
+-- weeks. Appended LAST — added by an ALTER TABLE in the v43 migration in
 -- localDb.js for existing dbs, so column order must match here for a fresh
--- install to be byte-identical to a migrated one.
+-- install to be byte-identical to a migrated one. (v43 also added
+-- `recurrence_level`, dropped in v71/T181 — dead data, superseded by
+-- `day_id`/`schedule_week_id`; see
+-- docs/work/tickets/T181-recurrence-level-is-dead-data.md.)
 CREATE TABLE IF NOT EXISTS elective_sets (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
@@ -1058,7 +1054,6 @@ CREATE TABLE IF NOT EXISTS elective_sets (
   is_all_groups INTEGER,
   group_ids TEXT,
   schedule_week_id TEXT REFERENCES schedule_weeks(id),
-  recurrence_level TEXT NOT NULL DEFAULT 'daily',
   UNIQUE(camp_id, name)
 );
 

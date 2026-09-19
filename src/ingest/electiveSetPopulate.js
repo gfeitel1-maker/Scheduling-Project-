@@ -113,10 +113,11 @@ const NOT_CONFIDENT_MESSAGE =
  * eventGridPopulate.js's pattern. Orientation-not-confident refuses the
  * WHOLE sheet, writing nothing (same posture as eventGridPopulate.js).
  *
- * `recurrence_level` is deliberately NOT set by this import — an explicit
- * non-goal; the column keeps its schema DEFAULT ('daily') for a newly-minted
- * set. `parsed.linkageMarkers` is never read here — it passes straight
- * through in the return shape for the caller to surface, never applied.
+ * `recurrence_level` no longer exists (removed in v71/T181 — dead data,
+ * superseded by kind/day_id/schedule_week_id), so there is nothing for this
+ * import to set. `parsed.linkageMarkers` is never read here — it passes
+ * straight through in the return shape for the caller to surface, never
+ * applied.
  */
 export async function populateElectiveGrid(parsed, {
   campId, scheduleWeekId, repo, existingDays, existingTimeBlocks, existingElectiveSets, existingActivities, existingOfferings,

@@ -69,9 +69,15 @@ function preV65Db(tag = 'v65-pre') {
             AND (group_ids IS NULL OR group_ids = '[]'))
       )
     );
+    -- recurrence_level is intentionally NOT selected from anchor_activities_tmp —
+    -- that table came from a fully-migrated (head, v71) db, which no longer has
+    -- the column (T181 dropped it). It is declared above with its own DEFAULT
+    -- instead, matching the value it always held anyway (v42's DEFAULT 'daily').
     INSERT INTO anchor_activities
+      (id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
+       is_all_groups, group_ids, notes, schedule_week_id, location_id, kind)
       SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
-             is_all_groups, group_ids, notes, schedule_week_id, recurrence_level,
+             is_all_groups, group_ids, notes, schedule_week_id,
              location_id, kind
       FROM anchor_activities_tmp;
     DROP TABLE anchor_activities_tmp;
@@ -85,7 +91,7 @@ describe('v65 — anchor_activities.unit_ids (division scope)', () => {
   it('a fresh db lands at CURRENT_SCHEMA_VERSION and carries unit_ids', () => {
     const db = openLocalDb(tmpFile('v65-fresh'))
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(70)
+    expect(CURRENT_SCHEMA_VERSION).toBe(71)
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
     expect(cols).toContain('unit_ids')
     expect(cols).toContain('unit_id')

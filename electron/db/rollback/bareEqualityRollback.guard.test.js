@@ -34,7 +34,7 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // which there are zero). Assert the count explicitly so a future rollback
     // file changes this number and forces a look, rather than silently
     // enlarging or shrinking what's covered.
-    expect(files.length).toBe(31)
+    expect(files.length).toBe(32)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

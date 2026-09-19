@@ -23,9 +23,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-// v67 (T162, device_identity_key), v68 (T195, elective_set_activities.status), and v69 (T210,
-// rendezvous_sequence) all land in this file; 69 is the current version.
-export const CURRENT_SCHEMA_VERSION = 70
+// v67 (T162, device_identity_key), v68 (T195, elective_set_activities.status), v69 (T210,
+// rendezvous_sequence), v70 (T205, days_of_operation dedupe), and v71 (T181, recurrence_level
+// removal) all land in this file; 71 is the current version.
+export const CURRENT_SCHEMA_VERSION = 71
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3017,6 +3018,36 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     )
   }
 
+  // v71 (T181) — DROP the dead `recurrence_level` column from
+  // anchor_activities and elective_sets. Superseded by `kind`
+  // ('fixed'/'recurring'), `day_id` (NULL = every day), and
+  // `schedule_week_id` (NULL = every week) — the column predates that shape
+  // (added v42/v43, before `kind` landed in v51) and was never wired to
+  // anything once `kind` took over as the real discriminator. This is a
+  // pure DDL removal with no consequential data loss: no application code
+  // path has ever written a non-default value to this column on either
+  // table — the T181 sweep (docs/work/tickets/T181-recurrence-level-is-dead-
+  // data.md) established that as evidence, not assumption. Neither column
+  // sits in an index or a CHECK constraint, so a plain `ALTER TABLE ...
+  // DROP COLUMN` applies — no table rebuild needed (unlike v51/v65, which
+  // rebuilt anchor_activities to grow its CHECK constraint).
+  if (getSchemaVersion(db) >= 70 && getSchemaVersion(db) < 71) {
+    db.transaction(() => {
+      const anchorCols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+      if (anchorCols.includes('recurrence_level')) {
+        db.exec('ALTER TABLE anchor_activities DROP COLUMN recurrence_level')
+      }
+      const electiveCols = db.pragma('table_info(elective_sets)').map((c) => c.name)
+      if (electiveCols.includes('recurrence_level')) {
+        db.exec('ALTER TABLE elective_sets DROP COLUMN recurrence_level')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (71, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -3265,7 +3296,6 @@ export const ELECTIVE_SETS_DDL = `CREATE TABLE IF NOT EXISTS elective_sets (
   is_all_groups INTEGER,
   group_ids TEXT,
   schedule_week_id TEXT REFERENCES schedule_weeks(id),
-  recurrence_level TEXT NOT NULL DEFAULT 'daily',
   UNIQUE(camp_id, name)
 )`
 

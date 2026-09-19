@@ -139,8 +139,8 @@ describe('every referrer is re-pointed — including the ones with no foreign ke
 describe('elective_set_activities — where a blind re-point breaks a UNIQUE constraint', () => {
   function mkSet() {
     const id = randomUUID()
-    db.prepare('INSERT INTO elective_sets (id, camp_id, name, is_reusable, recurrence_level) VALUES (?, ?, ?, 0, ?)')
-      .run(id, campId, 'Choice', 'week')
+    db.prepare('INSERT INTO elective_sets (id, camp_id, name, is_reusable) VALUES (?, ?, ?, 0)')
+      .run(id, campId, 'Choice')
     return id
   }
   const addMember = (setId, activityId) => {
