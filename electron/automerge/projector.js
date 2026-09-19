@@ -28,6 +28,7 @@ import { DOMAIN_SNAPSHOT_ORDER, BULK_REPLACE_ENTITIES } from '../ops/campScopedE
 import { assertNoUnrecordedConflicts } from './reconcile.js'
 import { listRecordIds, readRecord, hasAnyRecord } from './campDocument.js'
 import { verifyAuthFields } from '../auth/authSignature.js'
+import { verifyTombstone } from './tombstoneSignature.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { PROJECTIONS } from '../ops/projections.js'
 import { STAGE1_ENTITY, MODELED_ENTITIES, BULK_REPLACE_MODELED_ENTITIES, DEFERRED_ENTITIES } from './campDocument.js'
@@ -99,7 +100,13 @@ const DOMAIN_ORDER_WITH_SNAPSHOTS = (() => {
 // insert to succeed — though in practice `camps` never inserts a new row via this path at all (see
 // PROJECTIONS.camps.ensureExists: it only ever matches or refuses, never creates — the singleton
 // camps row is created exclusively by bootstrapCamp/the pairing flow, never by doc replay).
-const DOMAIN_ORDER_WITH_CAMPS_AND_USERS = ['camps', 'users', ...DOMAIN_ORDER_WITH_SNAPSHOTS]
+// `tombstones` (T233, docs/adr/2026-09-19-multi-device-erasure-propagation.md): positioned right
+// after `users`, before every domain entity — it MUST project before `campers` (and the two
+// elective_* participant tables it also denylist-gates), because upsertEntity's denylist check
+// below reads the just-projected SQLite `tombstones` table to decide whether to skip/delete a row.
+// A tombstone has no FK of its own (its id is an opaque reference to ANOTHER table's row, not a
+// real foreign key), so this position is safe for every other table's FK ordering too.
+const DOMAIN_ORDER_WITH_CAMPS_AND_USERS = ['camps', 'users', 'tombstones', ...DOMAIN_ORDER_WITH_SNAPSHOTS]
 
 // FK-safe apply order, filtered to just the entities this document layer models (DOMAIN_SNAPSHOT_
 // ORDER, extended above, also lists deferred entities, which are out of scope here).
@@ -288,6 +295,84 @@ function upsertUsersEntity(db, doc) {
   }
 }
 
+// T233 ENFORCEMENT (docs/adr/2026-09-19-multi-device-erasure-propagation.md). The signed
+// purge-tombstone denylist, modeled as a sibling of upsertUsersEntity's CREDENTIAL_FIELDS pattern:
+// a tombstone merges into the CRDT unconditionally, and is refused at PROJECTION time (not
+// mid-merge — Security F2: there is no per-op merge-time rejection seam) unless it carries a
+// verifying Host signature AND a version that is not older than what this device already has.
+//   - `id` IS the tombstoned target's own id — not a separately-minted tombstone id.
+//   - The trust root is read from the LOCAL `camps.signing_public_key` column (Security F1) —
+//     NEVER from the document; PROJECTIONS.camps.fields is ['name'] and stays that way.
+//   - No signing key on this device (e.g. a fresh rebuild pre-first-sync) means it cannot verify,
+//     so it SKIPS an unverifiable tombstone entirely (keep-last-known, same policy as
+//     upsertUsersEntity's no-key branch) rather than either accepting or refusing it.
+//   - A refusal is loud: recordAuditEvent (outcome 'deny', NOT 'denied' — see upsertUsersEntity's
+//     own note on the CHECK constraint) plus a console.error, never a silent drop.
+function upsertTombstonesEntity(db, doc) {
+  const pub = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()?.signing_public_key || null
+  const fields = PROJECTIONS.tombstones.fields
+  for (const id of listRecordIds(doc, 'tombstones')) {
+    const row = readRecord(doc, 'tombstones', id)
+    if (!row) continue
+    // A tombstone with no entity/version/sig yet is an incomplete write in flight (fields arrive
+    // one at a time on the wire in the general case) — nothing to verify yet, skip silently.
+    if (!row.entity || row.version === undefined || row.version === null || !row.sig) continue
+
+    if (!pub) {
+      // No signing key on this device yet — cannot verify. Keep-last-known: never apply an
+      // unverifiable tombstone (same reasoning as upsertUsersEntity's no-key branch).
+      continue
+    }
+
+    const current = db.prepare('SELECT version FROM tombstones WHERE id = ?').get(id)
+    const verified = verifyTombstone(pub, { id, entity: row.entity, version: Number(row.version) }, row.sig)
+    // Monotonicity mirrors upsertUsersEntity's cred_version guard: `>=`, not `>`, so re-applying
+    // the SAME genuinely-signed tombstone (a re-sync, a re-merge) is an idempotent no-op rather
+    // than a refusal — only a version STRICTLY LOWER than what this device already has is a
+    // replay of a stale tombstone and gets refused.
+    const monotonic = Number(row.version) >= Number(current?.version ?? 0)
+
+    if (!verified || !monotonic) {
+      recordAuditEvent(db, {
+        targetType: 'tombstones',
+        targetId: id,
+        action: 'tombstones.refused',
+        // 'deny', NOT 'denied' — audit_events.outcome is CHECK (outcome IN ('allow','deny')).
+        outcome: 'deny',
+        reason: 'tombstone signature invalid or version not monotonic — refused at projection (T233 enforcement)',
+      })
+      console.error(
+        `projector: REFUSED an unsigned/forged/stale tombstone for '${id}' (entity=${row.entity}) — T233 enforcement.`
+      )
+      continue
+    }
+
+    for (const field of fields) {
+      if (!(field in row)) continue
+      applyProjection(db, { entity: 'tombstones', entity_id: id, field, value: row[field], knownRow: row })
+    }
+  }
+}
+
+// The denylist: which entities are gated by a `campers` tombstone, and which column on that
+// entity's own row carries the camper id to check. `campers` is gated by its own `id`;
+// elective_preferences/elective_assignments are gated by their `camper_id` field — participant
+// data that must vanish along with the camper it describes (ADR "Design" section).
+const TOMBSTONE_DENYLISTED_ENTITIES = {
+  campers: { idField: 'id', tombstoneEntity: 'campers' },
+  elective_preferences: { idField: 'camper_id', tombstoneEntity: 'campers' },
+  elective_assignments: { idField: 'camper_id', tombstoneEntity: 'campers' },
+}
+
+// Every id VERIFIED-and-projected into SQLite's `tombstones` table for one target entity type —
+// reading this back (rather than re-verifying here) is safe and cheap: upsertTombstonesEntity
+// above already refused to write any row that failed signature/monotonicity, so a plain id in
+// this table is, by construction, a real tombstone. Loaded once per entity per pass.
+function tombstonedIds(db, tombstoneEntity) {
+  const rows = db.prepare('SELECT id FROM tombstones WHERE entity = ?').all(tombstoneEntity)
+  return new Set(rows.map((r) => r.id))
+}
+
 function upsertEntity(db, doc, entity, failures = null) {
   if (BULK_REPLACE_MODELED_ENTITIES.has(entity)) upsertBulkReplaceEntity(db, doc, entity)
   if (!MODELED_ENTITIES.has(entity)) return
@@ -299,15 +384,34 @@ function upsertEntity(db, doc, entity, failures = null) {
     upsertUsersEntity(db, doc)
     return
   }
+  if (entity === 'tombstones') {
+    upsertTombstonesEntity(db, doc)
+    return
+  }
   const fields = PROJECTIONS[entity].fields
   // Loaded ONCE per entity per pass (one indexed query, not one per row) — the outstanding
   // store='projection' failures for this entity, so a successful upsertRow below can tell
   // cheaply (a Set.has, no query) whether this row even has anything to resolve. Only the rows
   // that actually match get the resolving UPDATE.
   const outstandingIds = outstandingProjectionFailureRowIds(db, entity)
+  // T233: this entity's tombstone denylist, if it has one (see TOMBSTONE_DENYLISTED_ENTITIES).
+  // `tombstones` itself projects earlier in MODELED_ORDER (see DOMAIN_ORDER_WITH_CAMPS_AND_USERS),
+  // so this query always reflects the current pass's verified tombstones, not a stale prior one.
+  const denylist = TOMBSTONE_DENYLISTED_ENTITIES[entity]
+  const tombstoned = denylist ? tombstonedIds(db, denylist.tombstoneEntity) : null
   for (const id of listRecordIds(doc, entity)) {
     const row = readRecord(doc, entity, id)
     if (!row) continue
+    if (denylist) {
+      const gateValue = denylist.idField === 'id' ? id : row[denylist.idField]
+      if (gateValue && tombstoned.has(gateValue)) {
+        // Refuse to project this row AND delete it if a prior pass (or a pre-tombstone sync)
+        // already put it in SQLite — this is the core of the erasure guarantee: the record is
+        // never visible in the projection again, on any device, from this point forward.
+        db.prepare(`DELETE FROM ${entity} WHERE id = ?`).run(id)
+        continue
+      }
+    }
     upsertRow(db, entity, id, row, fields, outstandingIds, failures)
   }
 }

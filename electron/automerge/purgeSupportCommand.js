@@ -68,6 +68,8 @@ import { openLocalDb } from '../db/localDb.js'
 import { docPath as automergeDocPath, loadDoc as loadAutomergeDoc, saveDoc as saveAutomergeDoc } from '../sync/automerge/docStore.js'
 import { createEmptyDoc, sharesGenesis } from './campDocument.js'
 import { seedAllFromSqlite } from './seed.js'
+import { signTombstone } from './tombstoneSignature.js'
+import { projectAll } from './projector.js'
 import {
   validateRebuildSource,
   rebuildProjectionFromDocumentAtPath,
@@ -105,8 +107,26 @@ function shredPreMigrationBackups(dbPath) {
 export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = null, entityId }) {
   let campId
   let removed
+  let tombstone
+  let freshDoc
+  let hostSigningKeyRow
+  let deviceIdentityKeyRow
+  let campSigningRow
   const oldDb = openLocalDb(dbPath, { key })
   try {
+    // T233 (docs/adr/2026-09-19-multi-device-erasure-propagation.md), Host-only purge: only the
+    // Host holds host_signing_key, so only the Host can mint the signed tombstone that makes an
+    // erasure reach the fleet. A purge that "succeeds" locally without minting one reproduces the
+    // exact reintroduction gap this ticket closes — refuse outright, before any mutation, rather
+    // than silently purging this device alone.
+    const hostKeyExists = oldDb.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()
+    if (!hostKeyExists) {
+      throw new RebuildRefusalError(
+        'purgeCamperRecord: this device has no host_signing_key row — only the Host can mint the ' +
+          'signed purge tombstone that propagates an erasure to the rest of the fleet. Run this ' +
+          'purge on the Host device.'
+      )
+    }
     const campRow = oldDb.prepare('SELECT id FROM camps LIMIT 1').get()
     const resolvedDocPath = campRow ? automergeDocPath(userDataDir, campRow.id) : null
     let doc
@@ -141,12 +161,29 @@ export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = nu
     // FIX1: deletes + document regeneration + genesis check all inside ONE transaction, so a
     // failure anywhere in this block rolls the deletes back — no split between "SQLite purged" and
     // "document still holds it". seedAllFromSqlite only reads oldDb, so it is safe here.
-    const freshDoc = oldDb.transaction(() => {
+    freshDoc = oldDb.transaction(() => {
       removed = {
         elective_assignments: oldDb.prepare('DELETE FROM elective_assignments WHERE camper_id = ?').run(entityId).changes,
         elective_preferences: oldDb.prepare('DELETE FROM elective_preferences WHERE camper_id = ?').run(entityId).changes,
         campers: oldDb.prepare('DELETE FROM campers WHERE id = ?').run(entityId).changes,
       }
+
+      // T233: mint the signed tombstone and persist it into SQLite BEFORE seedAllFromSqlite runs
+      // (the regen trap, Red Hat HIGH) — seedAllFromSqlite rebuilds the document FROM SQLite, not
+      // by carrying the old document forward, so a tombstone that only lived in the document would
+      // be discarded by the very rebuild meant to carry it. IDEMPOTENT RE-RUN (this file's header
+      // IDEMPOTENCY note): an existing tombstone for this id keeps its already-minted version
+      // rather than incrementing again — a crash-recovery retry re-signs and re-inserts the SAME
+      // version, never regressing or needlessly advancing it.
+      const existingTombstone = oldDb.prepare('SELECT version FROM tombstones WHERE id = ?').get(entityId)
+      const version = existingTombstone?.version ?? 1
+      const sig = signTombstone(oldDb, { id: entityId, entity: 'campers', version })
+      oldDb
+        .prepare(
+          'INSERT OR REPLACE INTO tombstones (id, entity, version, sig, created_at) VALUES (?, ?, ?, ?, ?)'
+        )
+        .run(entityId, 'campers', version, sig, new Date().toISOString())
+      tombstone = { id: entityId, entity: 'campers', version }
 
       const candidate = seedAllFromSqlite(oldDb, createEmptyDoc())
       if (!sharesGenesis(candidate)) {
@@ -162,6 +199,20 @@ export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = nu
     // Save happens AFTER the transaction commits (FIX1) — never before, so the on-disk document
     // never reflects deletes that could still have been rolled back.
     saveAutomergeDoc(userDataDir, campId, freshDoc, cipher)
+
+    // T233 key preservation (Red Hat R3 + Security F4), PURGE-PATH ONLY: rebuildProjectionFromDocumentAtPath
+    // below reuses the disaster-recovery rebuild, which correctly wipes host_signing_key/
+    // device_identity_key/camps.signing_secret for that use case — but here the purge would
+    // otherwise silently strip this Host of its own credential-signing key and re-mint a fresh
+    // camps.signing_secret/signing_public_key, invalidating every signature (including the
+    // tombstone just minted above) that the OLD key produced. Captured here, held ONLY in these
+    // JS variables (never written to any temp file or unencrypted disk location) for the narrow
+    // window until the restore below, then written back through the ordinary encrypted-if-cipher-
+    // enabled openLocalDb path — never staged to disk unencrypted at any point.
+    hostSigningKeyRow = oldDb.prepare('SELECT * FROM host_signing_key WHERE id = 1').get() || null
+    deviceIdentityKeyRow = oldDb.prepare('SELECT * FROM device_identity_key WHERE id = 1').get() || null
+    campSigningRow =
+      oldDb.prepare('SELECT signing_secret, signing_public_key FROM camps WHERE id = ?').get(campId) || null
   } finally {
     oldDb.close()
   }
@@ -171,6 +222,46 @@ export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = nu
   // writes here (of the ALREADY-mutated db from the block above) is shredded below along with every
   // other pre-migration backup for this dbPath.
   const rebuildResult = rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, cipher, key })
+
+  // Restore the captured key material (purge-path only — rebuildSupportCommand.js's own
+  // disaster-recovery rebuild keeps wiping keys, correctly, for THAT caller). Writing it back
+  // through openLocalDb rather than raw SQL keeps this on the same encrypted-if-cipher-enabled
+  // path every other write to this db uses.
+  const restoreDb = openLocalDb(dbPath, { key })
+  try {
+    if (hostSigningKeyRow) {
+      restoreDb
+        .prepare(
+          'INSERT OR REPLACE INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)'
+        )
+        .run(hostSigningKeyRow.public_key, hostSigningKeyRow.private_key, hostSigningKeyRow.created_at)
+    }
+    if (deviceIdentityKeyRow) {
+      restoreDb
+        .prepare(
+          'INSERT OR REPLACE INTO device_identity_key (id, peer_id, private_key, created_at) VALUES (1, ?, ?, ?)'
+        )
+        .run(deviceIdentityKeyRow.peer_id, deviceIdentityKeyRow.private_key, deviceIdentityKeyRow.created_at)
+    }
+    if (campSigningRow) {
+      restoreDb
+        .prepare('UPDATE camps SET signing_secret = ?, signing_public_key = ? WHERE id = ?')
+        .run(campSigningRow.signing_secret, campSigningRow.signing_public_key, campId)
+    }
+    // Re-project: rebuildProjectionFromDocumentAtPath's own internal projectAll pass ran with NO
+    // camps.signing_public_key yet (the key restore above happens strictly AFTER that rebuild, by
+    // necessity — the rebuild deletes and recreates the db file), so upsertTombstonesEntity's
+    // no-key branch would have SKIPPED applying the very tombstone this purge just minted (keep-
+    // last-known, never apply an unverifiable change — same policy as upsertUsersEntity). Now that
+    // the key is back, re-running projectAll against the same fresh document lets it verify and
+    // apply on this second, idempotent pass — exactly the "genuine value applies once the key is
+    // present" case upsertUsersEntity's own comment already documents for credential changes.
+    if (campSigningRow?.signing_public_key && freshDoc) {
+      projectAll(restoreDb, freshDoc)
+    }
+  } finally {
+    restoreDb.close()
+  }
 
   const backupsRemoved = shredPreMigrationBackups(dbPath)
 
@@ -186,5 +277,12 @@ export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = nu
     notRecoverable: rebuildResult.notRecoverable,
     before: rebuildResult.before,
     after: rebuildResult.after,
+    // T233: the tombstone this purge minted, and an explicit honesty flag — this purge has
+    // erased the record LOCALLY, but fleet propagation depends on this tombstone reaching at
+    // least one live peer, which this function cannot itself confirm (see the ADR's residual
+    // risks section). Callers must not report fleet-erasure as complete from this return value
+    // alone.
+    tombstone,
+    propagationPending: true,
   }
 }

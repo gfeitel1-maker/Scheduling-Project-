@@ -74,6 +74,9 @@ describe('Automerge generalization slice — modeled entity set is pinned to DIR
       ...Object.keys(PARENT_SCOPED_ENTITIES),
       'camps',
       'users',
+      // T233 (docs/adr/2026-09-19-multi-device-erasure-propagation.md): the signed purge-tombstone
+      // denylist, added to EXTRA_MODELED_ENTITIES the same way camps/users were.
+      'tombstones',
     ].filter((e) => !DEFERRED_ENTITIES.has(e))
     const expectedScopes = [...BULK_REPLACE_MODELED_ENTITIES].map((e) => `${e}_scopes`)
     // Field provenance (docs/adr/2026-09-09-field-provenance-in-the-document.md)

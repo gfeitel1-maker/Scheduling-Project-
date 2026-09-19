@@ -133,6 +133,21 @@ export const PROJECTIONS = {
         )
         .run(id),
   },
+  // tombstones (T233 — docs/adr/2026-09-19-multi-device-erasure-propagation.md): `id` IS the
+  // purged target entity's own id, not a separately-minted tombstone id — same singleton-by-id
+  // shape as `users` above, no camp scoping (a tombstone names no camp; it names a record).
+  // Enforcement (signature verification + monotonicity) happens in the projector
+  // (upsertTombstonesEntity), not here — this ensureExists only creates the placeholder row a
+  // field-by-field projection needs, exactly like every other entity's ensureExists.
+  tombstones: {
+    table: 'tombstones',
+    key: 'id',
+    fields: ['entity', 'version', 'sig', 'created_at'],
+    ensureExists: (db, id) =>
+      db
+        .prepare("INSERT OR IGNORE INTO tombstones (id, entity, version, sig) VALUES (?, '', 0, '')")
+        .run(id),
+  },
   cohorts: {
     table: 'cohorts',
     key: 'id',

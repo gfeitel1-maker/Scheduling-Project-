@@ -1379,3 +1379,19 @@ CREATE TABLE IF NOT EXISTS elective_assignments (
   is_locked INTEGER NOT NULL DEFAULT 0,
   solver_generation TEXT
 );
+
+-- tombstones (v72, T233 — docs/adr/2026-09-19-multi-device-erasure-propagation.md).
+-- A Host-signed, monotonically-versioned purge tombstone: a grow-only, add-only denylist that
+-- fits CRDT merge trivially because it is PRESENCE, not absence. `id` IS the purged target
+-- entity's own id (e.g. a campers.id) — not a separately-minted tombstone id — so the row's
+-- primary key directly names what it denies. Payload is deliberately minimal: id + entity +
+-- version + signature only, no name, no reason (owner ruling, 2026-09-19). Enforcement (signature
+-- verification + monotonicity) happens at PROJECTION time (electron/automerge/projector.js), not
+-- here — this table only stores the row; SQLite has no way to verify an Ed25519 signature itself.
+CREATE TABLE IF NOT EXISTS tombstones (
+  id TEXT PRIMARY KEY,
+  entity TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  sig TEXT NOT NULL,
+  created_at TEXT
+);

@@ -10,15 +10,30 @@ import * as A from '@automerge/automerge'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, generateKeyPairSync } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { appendOp } from '../ops/operations.js'
 import * as seedModule from './seed.js'
 import { seedAllFromSqlite } from './seed.js'
 import { saveDoc, loadDoc } from '../sync/automerge/docStore.js'
 import { sharesGenesis, recordKey } from './campDocument.js'
+import { projectAll } from './projector.js'
 import { rebuildProjectionFromDocumentAtPath, RebuildRefusalError } from './rebuildSupportCommand.js'
 import { purgeCamperRecord } from './purgeSupportCommand.js'
+
+// T233 (docs/adr/2026-09-19-multi-device-erasure-propagation.md): purgeCamperRecord is now
+// Host-only — it refuses to run at all without a host_signing_key row (see the new describe block
+// below for that refusal itself). Every OTHER test in this file exercises a purge that must
+// actually succeed, so each needs a real Host key installed on the fixture db first.
+function installHostKey(db, campId) {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519')
+  const publicKeyHex = publicKey.export({ type: 'spki', format: 'der' }).toString('hex')
+  const privateKeyHex = privateKey.export({ type: 'pkcs8', format: 'der' }).toString('hex')
+  db.prepare('INSERT INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)')
+    .run(publicKeyHex, privateKeyHex, new Date().toISOString())
+  db.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(publicKeyHex, campId)
+  return { publicKeyHex, privateKeyHex }
+}
 
 let files = []
 let dirs = []
@@ -105,9 +120,21 @@ describe('purgeCamperRecord', () => {
     expect(fs.existsSync(priorRebuild.backupPath)).toBe(true)
     expect(preMigrationBackups(dbPath).length).toBe(1)
 
+    // installHostKey AFTER the ordinary prior rebuild above, which (correctly, for an ORDINARY
+    // rebuild) wipes any signing key — this simulates the Host having already bootstrapped its
+    // key before running the purge that follows.
+    const postRebuildDb = openLocalDb(dbPath)
+    installHostKey(postRebuildDb, campId)
+    postRebuildDb.close()
+
     const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
 
     expect(result.campId).toBe(campId)
+    // T233: the return value carries the minted tombstone and an honest propagation-pending flag
+    // — this purge erases the record LOCALLY; fleet propagation depends on the tombstone reaching
+    // at least one live peer, which purgeCamperRecord cannot itself confirm.
+    expect(result.tombstone).toEqual({ id: camperId, entity: 'campers', version: 1 })
+    expect(result.propagationPending).toBe(true)
 
     const verifyDb = openLocalDb(dbPath)
     expect(verifyDb.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeUndefined()
@@ -115,19 +142,31 @@ describe('purgeCamperRecord', () => {
     expect(verifyDb.prepare('SELECT * FROM operations WHERE entity_id = ?').all(camperId)).toEqual([])
     expect(verifyDb.prepare('SELECT * FROM operations WHERE entity_id = ?').all(prefId)).toEqual([])
     expect(verifyDb.prepare('SELECT * FROM groups WHERE id = ?').get(groupId)).toBeTruthy()
+    // T233: the tombstone itself IS a real row, by design — logical erasure (owner: "invisible
+    // forever") is what this ticket delivers, not physical byte-erasure (out of scope; see the
+    // ADR's "erasure guarantee" section).
+    expect(verifyDb.prepare('SELECT id, entity, version FROM tombstones WHERE id = ?').get(camperId)).toEqual({
+      id: camperId, entity: 'campers', version: 1,
+    })
+    // Host key preserved across the purge (T233 S1) — the same key that minted the tombstone
+    // above, so the tombstone's own signature still verifies with the post-purge public key.
+    expect(verifyDb.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()).toBeTruthy()
     verifyDb.close()
 
     expect(preMigrationBackups(dbPath).length).toBe(0)
 
     const newDoc = loadDoc(userDataDir, campId)
     const changes = A.getAllChanges(newDoc)
-    const touchesPurgedIds = changes.some((change) => {
+    // prefId (the elective_preferences row's OWN id) must never appear anywhere in the fresh
+    // document's history — that record and everything under its id is genuinely gone. camperId is
+    // NOT checked the same way here: it deliberately persists forever as the tombstone's own id
+    // (accepted, opaque, PII-free — owner ruling, see the ADR's "erasure guarantee" section) even
+    // though the camper record itself is gone from every collection that describes a person.
+    const touchesPrefId = changes.some((change) => {
       const decoded = A.decodeChange(change)
-      return decoded.ops.some(
-        (op) => typeof op.key === 'string' && (op.key.includes(camperId) || op.key.includes(prefId))
-      )
+      return decoded.ops.some((op) => typeof op.key === 'string' && op.key.includes(prefId))
     })
-    expect(touchesPurgedIds).toBe(false)
+    expect(touchesPrefId).toBe(false)
   })
 
   it('non-vacuity: purges an operations row that was never materialized into a projection table', () => {
@@ -144,6 +183,7 @@ describe('purgeCamperRecord', () => {
     db.prepare('DELETE FROM campers WHERE id = ?').run(camperId)
     expect(db.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeUndefined()
     expect(db.prepare('SELECT * FROM operations WHERE entity_id = ?').all(camperId).length).toBeGreaterThan(0)
+    installHostKey(db, campId)
 
     const doc = seedAllFromSqlite(db)
     const userDataDir = newUserDataDir('opsonly')
@@ -157,7 +197,15 @@ describe('purgeCamperRecord', () => {
     verifyDb.close()
   })
 
-  it('known gap: an untouched peer old document still shares genesis and could reintroduce the camper on merge', () => {
+  // T233 CLOSURE OF T202'S KNOWN GAP (docs/adr/2026-09-19-multi-device-erasure-propagation.md).
+  // Before T233: a stale peer's ordinary merge reintroduced the purged camper's ROW into SQLite —
+  // this exact test used to assert `reintroduced` (at the projection level) was `true`. After
+  // T233: the record's flat fields still merge back into the DOCUMENT (Automerge has no op-level
+  // delete — this is the accepted "logical, not physical, erasure" — see the ADR's "erasure
+  // guarantee" section), but the signed tombstone ALSO merges back in, and PROJECTING that merged
+  // document refuses to ever materialize the camper again. The reintroduction is refused where it
+  // actually matters: in what the app ever shows.
+  it('T233: a stale peer merging its pre-purge document back in is REFUSED at projection — the camper never reappears', () => {
     const { db, dbPath } = newDb('gap')
     const campId = randomUUID()
     const deviceId = 'device-1'
@@ -166,6 +214,7 @@ describe('purgeCamperRecord', () => {
       campId, deviceId, camperId, groupId: randomUUID(),
       prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
     })
+    installHostKey(db, campId)
     const oldPeerDoc = seedAllFromSqlite(db)
     const userDataDir = newUserDataDir('gap')
     saveDoc(userDataDir, campId, oldPeerDoc)
@@ -178,9 +227,19 @@ describe('purgeCamperRecord', () => {
     expect(sharesGenesis(purgedDoc)).toBe(true)
 
     const merged = A.merge(A.clone(purgedDoc), oldPeerDoc)
+    // The document-level fact hasn't changed: the stale peer's flat camper fields DO merge back
+    // in — Automerge has no op-level delete, and this is exactly the residual-bytes reality the
+    // ADR accepts (logical, not physical, erasure).
     const camperKeyPrefix = recordKey(camperId, '')
-    const reintroduced = Object.keys(merged.campers || {}).some((k) => k.startsWith(camperKeyPrefix))
-    expect(reintroduced).toBe(true)
+    const reintroducedInDoc = Object.keys(merged.campers || {}).some((k) => k.startsWith(camperKeyPrefix))
+    expect(reintroducedInDoc).toBe(true)
+
+    // The projection-level fact IS what T233 changes: projecting the merged document must NOT
+    // resurrect the camper — the tombstone (which merged back in alongside the stale row) gates it.
+    const projDb = openLocalDb(dbPath)
+    projectAll(projDb, merged)
+    expect(projDb.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeUndefined()
+    projDb.close()
   })
 
   it('round 2 FIX1: rolls back the deletes when something fails after them, inside one transaction (no split state)', () => {
@@ -193,6 +252,7 @@ describe('purgeCamperRecord', () => {
       campId, deviceId, camperId, groupId: randomUUID(),
       prefId, runId: randomUUID(), choiceId: randomUUID(),
     })
+    installHostKey(db, campId)
     const doc = seedAllFromSqlite(db)
     const userDataDir = newUserDataDir('atomic')
     saveDoc(userDataDir, campId, doc)
@@ -217,6 +277,10 @@ describe('purgeCamperRecord', () => {
     const verifyDb = openLocalDb(dbPath)
     expect(verifyDb.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeTruthy()
     expect(verifyDb.prepare('SELECT * FROM elective_preferences WHERE camper_id = ?').all(camperId).length).toBeGreaterThan(0)
+    // T233: the tombstone insert is INSIDE the same transaction as the deletes — a rollback must
+    // undo it too, or a failed purge would leave a signed tombstone denying a camper that was
+    // never actually removed.
+    expect(verifyDb.prepare('SELECT * FROM tombstones WHERE id = ?').get(camperId)).toBeUndefined()
     verifyDb.close()
 
     // Idempotent re-run: retrying with the real implementation now succeeds and actually purges.
@@ -227,7 +291,7 @@ describe('purgeCamperRecord', () => {
     verifyDb2.close()
   })
 
-  it('round 2 FIX2: purging a camper also erases camp-wide host-only state and this device signing key (pinned, not silent)', () => {
+  it('round 2 FIX2: purging a camper also erases camp-wide host-only state (pinned, not silent) — but T233 now PRESERVES the signing key', () => {
     const { db, dbPath } = newDb('collateral')
     const campId = randomUUID()
     const deviceId = 'device-1'
@@ -238,13 +302,13 @@ describe('purgeCamperRecord', () => {
     })
     // conflicts is a genuinely HOST-ONLY table (never in MODELED_ENTITIES/DIRECT_CAMP_ENTITIES —
     // electron/ops/campScopedEntities.js), unlike schedule_snapshots (which IS document-replicated
-    // and correctly survives a rebuild via seedAllFromSqlite). This is the real collateral case.
+    // and correctly survives a rebuild via seedAllFromSqlite). This is the real collateral case
+    // that remains true after T233 — only the signing key's fate has changed (see below).
     const conflictId = randomUUID()
     db.prepare(
       'INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(conflictId, 'campers', camperId, 'display_name', '{}', '{}', 'op1', new Date().toISOString())
-    db.prepare('INSERT INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)')
-      .run('a'.repeat(64), 'b'.repeat(64), new Date().toISOString())
+    const { publicKeyHex } = installHostKey(db, campId)
 
     expect(db.prepare('SELECT * FROM conflicts WHERE id = ?').get(conflictId)).toBeTruthy()
     expect(db.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()).toBeTruthy()
@@ -261,7 +325,14 @@ describe('purgeCamperRecord', () => {
 
     const verifyDb = openLocalDb(dbPath)
     expect(verifyDb.prepare('SELECT * FROM conflicts WHERE id = ?').get(conflictId)).toBeUndefined()
-    expect(verifyDb.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()).toBeUndefined()
+    // T233 (Red Hat R3 + Security F4): unlike the ordinary disaster-recovery rebuild, a PURGE now
+    // preserves the Host's signing key across the rebuild — losing it would silently invalidate
+    // every future purge on this device (it could never sign another tombstone) and would have
+    // invalidated the signature on the tombstone this very purge just minted.
+    const preservedKey = verifyDb.prepare('SELECT public_key FROM host_signing_key WHERE id = 1').get()
+    expect(preservedKey).toBeTruthy()
+    expect(preservedKey.public_key).toBe(publicKeyHex)
+    expect(verifyDb.prepare('SELECT signing_public_key FROM camps WHERE id = ?').get(campId).signing_public_key).toBe(publicKeyHex)
     verifyDb.close()
   })
 
@@ -274,6 +345,7 @@ describe('purgeCamperRecord', () => {
       campId, deviceId, camperId: realCamperId, groupId: randomUUID(),
       prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
     })
+    installHostKey(db, campId)
     const doc = seedAllFromSqlite(db)
     const userDataDir = newUserDataDir('norow')
     saveDoc(userDataDir, campId, doc)
@@ -288,6 +360,37 @@ describe('purgeCamperRecord', () => {
     expect(preMigrationBackups(dbPath).length).toBe(0)
     const verifyDb = openLocalDb(dbPath)
     expect(verifyDb.prepare('SELECT * FROM campers WHERE id = ?').get(realCamperId)).toBeTruthy()
+    verifyDb.close()
+  })
+
+  // T233 S1: Host-only purge enforcement (Red Hat R3 + Security F4) — only the Host holds
+  // host_signing_key, so only the Host can mint the signed tombstone. A purge on a non-Host
+  // device (e.g. a Client, or a Host that hasn't yet been through bootstrapCamp's key-minting)
+  // must be refused OUTRIGHT, before any mutation — never a local "success" that mints no
+  // tombstone, which would reproduce the exact reintroduction gap this ticket closes.
+  it('T233: refuses a purge on a device with no host_signing_key row — no mutation, no tombstone, camper untouched', () => {
+    const { db, dbPath } = newDb('nohost')
+    const campId = randomUUID()
+    const deviceId = 'device-1'
+    const camperId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId, camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    // Deliberately NO installHostKey(db, campId) here — this is a Client device.
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('nohost')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    expect(() => purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })).toThrow(RebuildRefusalError)
+    expect(() => purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })).toThrow(/only the Host can mint/)
+
+    // No mutation at all: no backup, no tombstone, the camper fully intact.
+    expect(preMigrationBackups(dbPath).length).toBe(0)
+    const verifyDb = openLocalDb(dbPath)
+    expect(verifyDb.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeTruthy()
+    expect(verifyDb.prepare('SELECT * FROM tombstones WHERE id = ?').get(camperId)).toBeUndefined()
     verifyDb.close()
   })
 })

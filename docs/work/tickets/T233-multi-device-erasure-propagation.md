@@ -118,3 +118,115 @@ corrections (trust root off-document; projection-time gating not mid-merge) and 
 findings (tombstone-survives-regen; no per-peer whole-device rebuild; Host-only purge) are folded into
 the ADR and the slices above. Before Maker starts: S3 needs its own Architect pass; Verifier evidence on
 the inverted known-gap test gates any claim of done.
+
+## Implementation notes (2026-09-19, Maker — S1 + S2 + S3 return-value honesty)
+
+**Schema version: v72.** `tombstones (id TEXT PRIMARY KEY, entity TEXT NOT NULL, version INTEGER
+NOT NULL, sig TEXT NOT NULL, created_at TEXT)` added to `electron/db/schema.sql`;
+`CURRENT_SCHEMA_VERSION` bumped 71→72 in `electron/db/localDb.js` with the usual
+`>= 71 && < 72` migration guard (the table itself is created unconditionally by schema.sql on every
+db open, same as every other `CREATE TABLE IF NOT EXISTS` in this file — the migration block only
+backfills the version marker for a db migrating forward).
+
+**GENESIS_B64 was regenerated (SEVENTH REGENERATION).** `tombstones` was added to
+`EXTRA_MODELED_ENTITIES` (`electron/automerge/campDocument.js`) — the same list `camps`/`users` sit
+in, for the same reason: a tombstone names no camp, and it needs the same bespoke,
+security-sensitive projector handling `users`' credential fields already require. It was added to
+`GENESIS_ENTITIES` (alphabetically, between `time_blocks` and `users`) and `GENESIS_B64` was
+regenerated using the documented recipe (same pinned `ACTOR`/`TIME`, only the entity list changed).
+New pinned head: `885392d2d6af8251adea2f4f7735e478d12d6810d8e066116b580a10a261b698`. Updated the one
+test that pins it — `electron/automerge/campDocument.test.js`'s "createEmptyDoc always clones the
+same frozen genesis root" — and `electron/automerge/generalize.test.js`'s derived-modeled-set
+expectation list. Per the ADR's own accepted pre-production tradeoff, every existing `.automerge`
+file is invalidated by this regeneration.
+
+**S1 — `electron/automerge/tombstoneSignature.js` (new)**, TDD'd first in
+`tombstoneSignature.test.js` (8 tests): `signTombstone`/`verifyTombstone`/`canonicalTombstoneMessage`,
+structurally identical to `electron/auth/authSignature.js`'s `SIGNED_FIELDS`/`canonicalAuthMessage`
+pattern, domain-separated under `shoresh-tombstone-sig-v1`, signing `{id, entity, version}` in that
+fixed order.
+
+**S1 — `electron/automerge/purgeSupportCommand.js`**: `purgeCamperRecord` now refuses outright (no
+mutation) on a device with no `host_signing_key` row (`RebuildRefusalError`, before any mutation —
+mirrors FIX4's existing early-refusal shape). Inside the existing single transaction, a tombstone
+`{id: entityId, entity: 'campers', version}` is signed and `INSERT OR REPLACE`d into `tombstones`
+BEFORE `seedAllFromSqlite` runs, so it round-trips into the regenerated document (closing the "regen
+trap" the ADR names). Version is idempotent-safe: an existing tombstone for the same id keeps its
+already-minted version on a crash-recovery retry rather than incrementing.
+
+Key preservation (Security F4, purge-path only): `host_signing_key`, `device_identity_key`, and
+`camps.{signing_secret,signing_public_key}` are captured into plain JS variables (never written to
+any file) before `oldDb.close()`, then restored through an ordinary `openLocalDb` connection AFTER
+`rebuildProjectionFromDocumentAtPath` completes. **One subtlety discovered during implementation,
+not anticipated by the ADR text:** the rebuild's own internal `projectAll` pass runs BEFORE the key
+restore (the rebuild deletes and recreates the db file, so there is no earlier point to restore
+into), which means the just-minted tombstone cannot verify and project during that first pass — the
+no-key branch correctly skips an unverifiable change (same policy as `upsertUsersEntity`). Fixed by
+re-running `projectAll` against the same fresh document immediately after the key restore, an
+idempotent second pass that lets the tombstone (and anything else gated on the now-present key)
+verify and apply. This is the "genuine value applies once the key is present" case
+`upsertUsersEntity`'s own comment already documents for credential changes, applied to the same
+purge flow. `rebuildSupportCommand.js`'s disaster-recovery rebuild is untouched — it keeps wiping
+keys, correctly, for that caller.
+
+Return value adds `tombstone: {id, entity, version}` and `propagationPending: true` — S3's
+return-value honesty requirement. Director-facing UI for this (S3's other half, per-peer erasure
+state) is explicitly NOT built here, per the brief.
+
+**S2 — `electron/automerge/projector.js`**: `upsertTombstonesEntity` (modeled on `upsertUsersEntity`)
+reads the trust root from the LOCAL `camps.signing_public_key` column only (never the document —
+Security F1), verifies signature + monotonic version (`>=`, so a re-applied identical tombstone is
+an idempotent no-op; a strictly lower version is refused as stale), and on refusal records an audit
+event (`outcome: 'deny'`, matching the existing CHECK-constraint gotcha) plus a `console.error` —
+never a silent drop. `tombstones` was inserted into `MODELED_ORDER` immediately after `users` (before
+every domain entity), so it always projects before the `campers` denylist check reads it.
+
+The denylist itself is a small table (`TOMBSTONE_DENYLISTED_ENTITIES`) mapping `campers` (by its own
+`id`) and `elective_preferences`/`elective_assignments` (by their `camper_id` field) to the
+`campers`-tombstone set, read fresh once per `projectAll` pass via a plain `SELECT id FROM
+tombstones WHERE entity = ?` (safe to trust without re-verifying, because `upsertTombstonesEntity`
+already refused to write any row that failed verification). A denylisted row is skipped during
+upsert AND actively `DELETE`d if a prior pass (or a pre-tombstone sync) already projected it — this
+is the actual erasure mechanism: the record is never visible again, on any device, from that point
+forward, even though its raw fields remain mergeable into the CRDT history (accepted — see the
+ADR's "erasure guarantee").
+
+New test file `electron/automerge/tombstoneProjection.test.js` (5 tests): valid tombstone
+suppresses+deletes; unsigned/forged tombstone refused (with an audit-event assertion); stale
+(lower-version) tombstone refused once a newer one has projected; the two elective_* participant
+tables are also suppressed+deleted; no local signing key means the tombstone is skipped
+(keep-last-known) and the camper still projects.
+
+**S2 — the inverted known-gap test.** `purgeSupportCommand.test.js`'s "known gap" test is renamed
+and inverted: the raw document-level fact is UNCHANGED and still asserted (a stale peer's merge
+does put the camper's flat fields back into the document — Automerge has no op-level delete, this
+is the accepted logical-not-physical-erasure tradeoff), but a new second half now `projectAll`s the
+merged document and asserts the camper is refused — never appears in SQLite. This is the ticket's
+core success predicate, closing T202's documented gap.
+
+Every other existing purge test needed an `installHostKey` fixture helper added (purge is now
+Host-only) and one test (`round 2 FIX2`) had its assertion inverted from "signing key wiped" to
+"signing key preserved," since key preservation is now the intended, tested behavior superseding
+that prior collateral note. A new test confirms the Host-only refusal itself (no mutation, no
+tombstone, camper untouched on a device with no `host_signing_key`).
+
+**Registry drift caught by existing guards, fixed as they demanded** (no scope creep — these are the
+project's own "a new entity needs a decision everywhere" tripwires, working as designed):
+`electron/ops/projectionsEntityParity.test.js`'s `NON_CAMP_SCOPED_PROJECTIONS` (tombstones names no
+camp, same reasoning as `users`) and `electron/ops/restore.js`'s `RESTORE_DECISIONS` (refused — a
+signed permanent denylist entry must never be undoable by an ordinary trash/restore action).
+
+**Deviation from the brief:** none identified. S3's UI (director-facing per-peer erasure state) was
+deliberately not built, per the brief's own instruction that only the return-value honesty half of
+S3 is in scope here.
+
+**Verification run (raw, this session):**
+- `tombstoneSignature.test.js`: 8/8 passed.
+- `tombstoneProjection.test.js`: 5/5 passed.
+- `purgeSupportCommand.test.js`: 8/8 passed.
+- `campDocument.test.js`: 16/16 passed.
+- `generalize.test.js`: 13/13 passed.
+- `electron/automerge electron/auth electron/ops` full suites: 110 files, 1354/1354 passed.
+- `npm run check:governance`: no findings.
+- `npm run lint`: 0 errors (26 pre-existing warnings, unrelated to this change).
+- `npm run test:integration`: 22/22 libp2p scenarios passed.
