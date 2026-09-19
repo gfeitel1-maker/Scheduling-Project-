@@ -99,13 +99,15 @@ describe('migration v36: fresh vs migrated equivalence', () => {
 
   it('declares elective_sets columns in order — is_reusable (v36) then the v43 binding columns last', () => {
     const db = freshDb()
-    // day_id..recurrence_level arrived in v43 (unified-schedule-overlay
-    // Slice 3a). This v36 test runs against the CURRENT schema (freshDb
-    // migrates all the way up), so it must expect them, appended last.
+    // day_id..schedule_week_id arrived in v43 (unified-schedule-overlay
+    // Slice 3a; a sixth column, recurrence_level, arrived alongside them but
+    // was dropped in v71/T181 — dead data). This v36 test runs against the
+    // CURRENT schema (freshDb migrates all the way up), so it must expect
+    // the surviving columns, appended last.
     expect(db.pragma('table_info(elective_sets)').map((c) => c.name)).toEqual([
       'id', 'camp_id', 'name', 'sort_order', 'is_reusable',
       'day_id', 'time_block_id', 'is_all_groups', 'group_ids',
-      'schedule_week_id', 'recurrence_level',
+      'schedule_week_id',
     ])
     db.close()
   })

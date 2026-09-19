@@ -312,7 +312,7 @@ export const PROJECTIONS = {
     key: 'id',
     fields: [
       'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes',
-      'schedule_week_id', 'recurrence_level', 'location_id',
+      'schedule_week_id', 'location_id',
       // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
       // addendum): ingest now writes span_blocks on a confirmed recurring
       // multi-block candidate. Already a live, engine-consumed column
@@ -436,14 +436,14 @@ export const PROJECTIONS = {
     // name/sort_order, so it belongs in this allowlist (not
     // PROJECTION_FIELD_EXCEPTIONS, which is only for server/migration-only
     // columns).
-    // day_id/time_block_id/is_all_groups/group_ids/schedule_week_id/
-    // recurrence_level (v43, Slice 3a): the recurring-event binding shape,
+    // day_id/time_block_id/is_all_groups/group_ids/schedule_week_id
+    // (v43, Slice 3a): the recurring-event binding shape,
     // mirroring anchor_activities' fields entry — a normal renderer write
     // once the elective screen wires this up, applied generically via the
     // UPDATE path below like every other field here.
     fields: [
       'camp_id', 'name', 'sort_order', 'is_reusable',
-      'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
+      'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id',
     ],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/special_days/etc.ensureExists above.

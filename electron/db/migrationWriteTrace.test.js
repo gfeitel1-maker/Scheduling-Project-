@@ -347,6 +347,28 @@ const ACKNOWLEDGED_UNKNOWNS = new Map([
         'and it touches neither the document nor the orphaned collection.',
     },
   ],
+  [
+    'v71 anchor_activities.recurrence_level',
+    {
+      blockHash: '2f1c6c3901fb',
+      why:
+        'Plain `ALTER TABLE ... DROP COLUMN recurrence_level` (T181) — the column sat in no ' +
+        'index and no CHECK constraint, so no table recreate was needed. No SELECT copies ' +
+        'or transforms any value; the column simply stops existing. Every application code ' +
+        'path only ever wrote the schema default to it (the T181 sweep established that as ' +
+        'evidence), so there is no non-default value this drop could discard.',
+    },
+  ],
+  [
+    'v71 elective_sets.recurrence_level',
+    {
+      blockHash: '2f1c6c3901fb',
+      why:
+        'Plain `ALTER TABLE ... DROP COLUMN recurrence_level` (T181) — same shape and same ' +
+        'reasoning as anchor_activities.recurrence_level above: no index, no CHECK, no ' +
+        'recreate, no value ever non-default.',
+    },
+  ],
 ])
 
 /** The text of one migration's own block in localDb.js, hashed. */

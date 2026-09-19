@@ -75,10 +75,13 @@ const tableInfo = (db, table) =>
   }))
 
 describe('migration v43: fresh vs migrated equivalence', () => {
-  it('declares schema version 43 on a fresh db and gives elective_sets all six binding columns', () => {
+  it('declares schema version 43 on a fresh db and gives elective_sets five of its six original binding columns', () => {
+    // v43 added six binding columns; recurrence_level (the sixth) was
+    // dropped in v71/T181 — dead data, superseded by day_id/schedule_week_id.
+    // A fresh (head) db therefore carries the five survivors only.
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(70)
+    expect(CURRENT_SCHEMA_VERSION).toBe(71)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 43').get().c).toBe(1)
     const cols = db.pragma('table_info(elective_sets)').map((c) => c.name)
     expect(cols).toContain('day_id')
@@ -86,7 +89,7 @@ describe('migration v43: fresh vs migrated equivalence', () => {
     expect(cols).toContain('is_all_groups')
     expect(cols).toContain('group_ids')
     expect(cols).toContain('schedule_week_id')
-    expect(cols).toContain('recurrence_level')
+    expect(cols).not.toContain('recurrence_level')
     db.close()
   })
 
@@ -107,33 +110,32 @@ describe('migration v43: fresh vs migrated equivalence', () => {
     migrated.close()
   }, 30000)
 
-  it('declares elective_sets columns in order, the six binding columns appended last', () => {
+  it('declares elective_sets columns in order, the surviving five binding columns appended last', () => {
     const db = freshDb()
     expect(db.pragma('table_info(elective_sets)').map((c) => c.name)).toEqual([
       'id', 'camp_id', 'name', 'sort_order', 'is_reusable',
-      'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
+      'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id',
     ])
     db.close()
   })
 
-  it('no backfill logic — the five nullable columns stay NULL, recurrence_level reads the DEFAULT for every existing set', () => {
+  it('no backfill logic — the five nullable columns stay NULL for every existing set', () => {
     const db = preV43Db()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare("INSERT INTO elective_sets (id, camp_id, name) VALUES ('es1', 'camp1', 'Afternoon Electives')").run()
     initSchema(db)
     const row = db
-      .prepare('SELECT day_id, time_block_id, is_all_groups, group_ids, schedule_week_id, recurrence_level FROM elective_sets WHERE id = ?')
+      .prepare('SELECT day_id, time_block_id, is_all_groups, group_ids, schedule_week_id FROM elective_sets WHERE id = ?')
       .get('es1')
     expect(row.day_id).toBeNull()
     expect(row.time_block_id).toBeNull()
     expect(row.is_all_groups).toBeNull()
     expect(row.group_ids).toBeNull()
     expect(row.schedule_week_id).toBeNull()
-    expect(row.recurrence_level).toBe('daily')
     // No op was written for the migration — a DDL-only change, matching v42's posture.
     expect(
       db.prepare(
-        "SELECT COUNT(*) c FROM operations WHERE entity = 'elective_sets' AND field IN ('day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level')"
+        "SELECT COUNT(*) c FROM operations WHERE entity = 'elective_sets' AND field IN ('day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id')"
       ).get().c
     ).toBe(0)
     db.close()
@@ -146,18 +148,17 @@ describe('migration v43: fresh vs migrated equivalence', () => {
     db.prepare("INSERT INTO elective_sets (id, camp_id, name) VALUES ('es1', 'camp1', 'Afternoon Electives')").run()
     initSchema(db) // runs v43
     db.prepare(
-      "UPDATE elective_sets SET schedule_week_id = 'wk1', recurrence_level = 'weekly' WHERE id = 'es1'"
+      "UPDATE elective_sets SET schedule_week_id = 'wk1' WHERE id = 'es1'"
     ).run()
     db.prepare('DELETE FROM schema_migrations WHERE version >= 43').run()
     initSchema(db) // re-run v43
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    for (const column of ['day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level']) {
+    for (const column of ['day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id']) {
       expect(db.pragma('table_info(elective_sets)').filter((c) => c.name === column)).toHaveLength(1)
     }
     // Re-running the migration must not clobber a value already set.
-    const row = db.prepare('SELECT schedule_week_id, recurrence_level FROM elective_sets WHERE id = ?').get('es1')
+    const row = db.prepare('SELECT schedule_week_id FROM elective_sets WHERE id = ?').get('es1')
     expect(row.schedule_week_id).toBe('wk1')
-    expect(row.recurrence_level).toBe('weekly')
     db.close()
   })
 
@@ -166,14 +167,20 @@ describe('migration v43: fresh vs migrated equivalence', () => {
     const match = schemaText.match(/CREATE TABLE IF NOT EXISTS elective_sets \([\s\S]*?\n\);/)
     expect(match, 'expected an elective_sets CREATE TABLE block in schema.sql').toBeTruthy()
     expect(match[0]).toContain(
-      "is_reusable INTEGER NOT NULL DEFAULT 1,\n  day_id TEXT REFERENCES days_of_operation(id),\n  time_block_id TEXT,\n  is_all_groups INTEGER,\n  group_ids TEXT,\n  schedule_week_id TEXT REFERENCES schedule_weeks(id),\n  recurrence_level TEXT NOT NULL DEFAULT 'daily',\n  UNIQUE(camp_id, name)\n);"
+      "is_reusable INTEGER NOT NULL DEFAULT 1,\n  day_id TEXT REFERENCES days_of_operation(id),\n  time_block_id TEXT,\n  is_all_groups INTEGER,\n  group_ids TEXT,\n  schedule_week_id TEXT REFERENCES schedule_weeks(id),\n  UNIQUE(camp_id, name)\n);"
     )
   })
 })
 
 describe('rollbackV43', () => {
-  it('drops all six new columns and the schema_migrations row, reporting discarded row counts', () => {
+  it('drops all six original columns and the schema_migrations row, reporting discarded row counts', () => {
+    // recurrence_level (the sixth v43 column) was dropped forward in v71/T181,
+    // so a head db no longer has it. Re-add it here (mirroring how v43 itself
+    // added it) to exercise rollbackV43's full original behavior — it still
+    // guards on column presence, so this proves that guard still does the
+    // right thing against a genuine pre-v71 shape, not just a no-op.
     const db = freshDb()
+    db.exec("ALTER TABLE elective_sets ADD COLUMN recurrence_level TEXT NOT NULL DEFAULT 'daily'")
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare("INSERT INTO schedule_weeks (id, camp_id, name) VALUES ('wk1', 'camp1', 'Week 1')").run()
     db.prepare(

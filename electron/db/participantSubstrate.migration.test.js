@@ -93,7 +93,7 @@ const seedCamp = (db) => {
 describe('migration v66: version and table presence', () => {
   it('declares schema version 66 on a fresh db', () => {
     const db = freshDb()
-    expect(CURRENT_SCHEMA_VERSION).toBe(70)
+    expect(CURRENT_SCHEMA_VERSION).toBe(71)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 66').get().c).toBe(1)
     db.close()

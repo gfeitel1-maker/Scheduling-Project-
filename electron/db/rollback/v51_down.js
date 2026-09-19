@@ -30,6 +30,13 @@ export function rollbackV51(db) {
   db.transaction(() => {
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
     if (cols.includes('kind')) {
+      // recurrence_level (T181/v71) may or may not still be on this table —
+      // it existed when v51 first ran, but a db that has since taken v71
+      // (recurrence_level DROPped) no longer has it. Build the recreate
+      // column list dynamically rather than assuming either shape, so this
+      // rollback still works whichever order v51/v71 were applied or
+      // reverted in.
+      const hasRecurrenceLevel = cols.includes('recurrence_level')
       db.pragma('foreign_keys = OFF')
       db.exec(`
         CREATE TABLE anchor_activities_v51down (
@@ -45,12 +52,13 @@ export function rollbackV51(db) {
           group_ids TEXT,
           notes TEXT,
           schedule_week_id TEXT REFERENCES schedule_weeks(id),
-          recurrence_level TEXT NOT NULL DEFAULT 'daily',
+          ${hasRecurrenceLevel ? "recurrence_level TEXT NOT NULL DEFAULT 'daily'," : ''}
           location_id TEXT
         );
         INSERT INTO anchor_activities_v51down
           SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
-                 is_all_groups, group_ids, notes, schedule_week_id, recurrence_level, location_id
+                 is_all_groups, group_ids, notes, schedule_week_id,
+                 ${hasRecurrenceLevel ? 'recurrence_level,' : ''} location_id
           FROM anchor_activities;
         DROP TABLE anchor_activities;
         ALTER TABLE anchor_activities_v51down RENAME TO anchor_activities;

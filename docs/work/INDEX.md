@@ -31,7 +31,6 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [recurrence_level is dead data](../../docs/work/tickets/T181-recurrence-level-is-dead-data.md) | open | — |
 | [days_of_operation needs the uniqueness its own comments already claim — and the round-1 design for it was wrong in four ways](../../docs/work/tickets/T205-days-of-operation-uniqueness-and-dedup-migration.md) | open | — |
 
 ### documentation-governance

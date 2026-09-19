@@ -407,7 +407,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   // of PROJECTIONS.anchor_activities.fields, kept honest by
   // electron/ipcSurfaceParity.test.js's drift check like every other entry
   // in this allowlist.
-  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'span_blocks', 'kind', 'unit_ids'],
+  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'location_id', 'span_blocks', 'kind', 'unit_ids'],
   week_activity_exclusions: ['week_id', 'activity_id'],
   week_group_exclusions: ['week_id', 'group_id'],
   week_location_exclusions: ['week_id', 'location_id'],
@@ -422,12 +422,12 @@ export const MOCK_WRITE_ALLOWLIST = {
   // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md) —
   // hand-transcribed mirror of PROJECTIONS.elective_sets/
   // elective_set_activities.fields, same discipline as T40 above.
-  // day_id/time_block_id/is_all_groups/group_ids/schedule_week_id/
-  // recurrence_level (v43, Slice 3a) — recurring-event binding shape,
+  // day_id/time_block_id/is_all_groups/group_ids/schedule_week_id
+  // (v43, Slice 3a) — recurring-event binding shape,
   // mirroring anchor_activities' allowlist entry.
   elective_sets: [
     'camp_id', 'name', 'sort_order', 'is_reusable',
-    'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
+    'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id',
   ],
   // Per-offering capacity. camper_headcount (v39, Electives Slice 1) was the
   // original single-number field and is deliberately ABSENT from this list.

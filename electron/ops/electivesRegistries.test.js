@@ -23,12 +23,12 @@ describe('v35 registry coverage — elective_sets', () => {
   it('is a projected entity (writes materialize, not silently discarded)', () => {
     expect(PROJECTIONS.elective_sets).toBeTruthy()
     // is_reusable added v36 (T110, docs/adr/2026-08-20-electives-authoring.md D2).
-    // day_id/time_block_id/is_all_groups/group_ids/schedule_week_id/
-    // recurrence_level added v43 (unified-schedule-overlay Slice 3a,
+    // day_id/time_block_id/is_all_groups/group_ids/schedule_week_id added
+    // v43 (unified-schedule-overlay Slice 3a,
     // docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md).
     expect(PROJECTIONS.elective_sets.fields).toEqual([
       'camp_id', 'name', 'sort_order', 'is_reusable',
-      'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
+      'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id',
     ])
   })
 
@@ -45,7 +45,7 @@ describe('v35 registry coverage — elective_sets', () => {
     expect(RESTORE_DECISIONS.elective_sets).toBeDefined()
     expect(MOCK_WRITE_ALLOWLIST.elective_sets).toEqual([
       'camp_id', 'name', 'sort_order', 'is_reusable',
-      'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
+      'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id',
     ])
   })
 })
