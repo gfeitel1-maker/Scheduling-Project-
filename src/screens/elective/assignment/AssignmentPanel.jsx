@@ -184,15 +184,29 @@ export default function AssignmentPanel({
       // day/block seats the SAME campers in both. attendance is null (skip
       // matching) when occurrences span at most one tier -- the common case,
       // where there is nothing to disambiguate.
-      const { attendance, unmatchedCount } = buildAttendance({ campers: parsed.campers, occurrences: occs, tiers })
+      const { attendance, unmatched } = buildAttendance({ campers: parsed.campers, occurrences: occs, tiers })
       const { assignments, findings } = buildElectiveAssignments({
         campers: parsed.campers, occurrences: occs, offerings, preferences: parsed.preferences, attendance,
       })
       const mismatchFindings = findMismatches({ offerings, preferences: parsed.preferences })
-      const attendanceFindings = unmatchedCount > 0 ? [{
+      // T232 — one finding PER unmatched division value, naming the value and
+      // the division it probably meant. The previous version reported only a
+      // count, which told a director that something was wrong and nothing
+      // about what to fix: they were left to find three rows in a hundred-row
+      // spreadsheet they may not have authored.
+      //
+      // The suggestion is a PROPOSAL and nothing acts on it (T144's standing
+      // decision that word-form variants are never merged automatically). The
+      // camper's placement is unchanged — still considered for every
+      // occurrence rather than dropped, per the never-unplaced ruling.
+      const attendanceFindings = (unmatched ?? []).map((u) => ({
         kind: 'UNMATCHED_DIVISION',
-        message: `${unmatchedCount} camper(s) had no division matching a division on this schedule -- they were considered for every occurrence.`,
-      }] : []
+        division: u.division,
+        suggestion: u.suggestion,
+        message: u.suggestion
+          ? `${u.camperCount} camper(s) list the division \u201C${u.division}\u201D, which is not a division on this schedule \u2014 did you mean \u201C${u.suggestion}\u201D? They were considered for every occurrence.`
+          : `${u.camperCount} camper(s) list the division \u201C${u.division}\u201D, which is not a division on this schedule. They were considered for every occurrence.`,
+      }))
       setResult({ assignments, findings: [...findings, ...mismatchFindings, ...attendanceFindings] })
       setPhase('preview')
       setAnnouncement(

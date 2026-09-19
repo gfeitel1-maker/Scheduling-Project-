@@ -12,6 +12,7 @@
 // whitespace/case canonicalizer the rest of this feature already keys
 // choices and camper names on -- a director transcribing "Older Campers" and
 // "OlderCampers" means the same division.
+import { suggestDivisionMatch } from './suggestDivisionMatch.js'
 import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerivedIds.js'
 
 /**
@@ -27,7 +28,7 @@ import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerived
 export function buildAttendance({ campers = [], occurrences = [], tiers = [] } = {}) {
   const distinctTierIds = new Set(occurrences.map((o) => o.tier_id).filter((t) => t != null))
   if (distinctTierIds.size <= 1) {
-    return { attendance: null, unmatchedCount: 0 }
+    return { attendance: null, unmatchedCount: 0, unmatched: [] }
   }
 
   const tierIdByNameKey = new Map(tiers.map((t) => [electiveChoiceLabelKey(t.name ?? ''), t.id]))
@@ -35,6 +36,11 @@ export function buildAttendance({ campers = [], occurrences = [], tiers = [] } =
 
   const attendance = {}
   let unmatchedCount = 0
+  // T232 — group the unmatched by the VALUE the sheet carried, not by camper.
+  // A director fixes a spelling once; being told "3 campers" and left to find
+  // them in a hundred-row spreadsheet is a count, not a decision.
+  const unmatchedByValue = new Map()
+  const tierNames = tiers.map((t) => t?.name).filter(Boolean)
   for (const camper of campers) {
     const divisionKey = camper.division ? electiveChoiceLabelKey(camper.division) : ''
     const matchedTierId = divisionKey ? tierIdByNameKey.get(divisionKey) : undefined
@@ -44,9 +50,21 @@ export function buildAttendance({ campers = [], occurrences = [], tiers = [] } =
       // than dropped, and the caller surfaces how many that affected.
       attendance[camper.id] = allOccurrenceIds
       unmatchedCount += 1
+      const raw = String(camper.division ?? '').trim()
+      if (!unmatchedByValue.has(raw)) {
+        unmatchedByValue.set(raw, {
+          division: raw,
+          camperCount: 0,
+          // PROPOSE, NEVER MERGE (T144). Nothing here changes the camper's
+          // division or their attendance — it names the division they probably
+          // meant so the sheet can be corrected.
+          suggestion: suggestDivisionMatch(raw, tierNames),
+        })
+      }
+      unmatchedByValue.get(raw).camperCount += 1
       continue
     }
     attendance[camper.id] = occurrences.filter((o) => o.tier_id === matchedTierId).map((o) => o.id)
   }
-  return { attendance, unmatchedCount }
+  return { attendance, unmatchedCount, unmatched: [...unmatchedByValue.values()] }
 }

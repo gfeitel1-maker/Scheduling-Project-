@@ -82,3 +82,44 @@ describe('buildAttendance', () => {
     expect(unmatchedCount).toBe(0)
   })
 })
+
+// T232 — a count is not actionable. Name the values, and propose the division
+// the sheet probably meant (propose, never merge — T144's standing decision).
+describe('unmatched divisions are named, with a proposal', () => {
+  const tiers = [{ id: 't1', name: 'Bogrim' }, { id: 't2', name: 'Machanayim' }]
+  const occurrences = [{ id: 'o1', tier_id: 't1' }, { id: 'o2', tier_id: 't2' }]
+
+  it('reports each unmatched division value with the camper count and a suggestion', () => {
+    const campers = [
+      { id: 'c1', display_name: 'A', division: 'Bogrimm' },
+      { id: 'c2', display_name: 'B', division: 'Bogrimm' },
+      { id: 'c3', display_name: 'C', division: 'Bogrim' },
+    ]
+    const { unmatched, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
+    expect(unmatchedCount).toBe(2)
+    expect(unmatched).toEqual([{ division: 'Bogrimm', camperCount: 2, suggestion: 'Bogrim' }])
+  })
+
+  it('reports a value with no plausible match as having no suggestion', () => {
+    const campers = [{ id: 'c1', display_name: 'A', division: 'Waterfront' }]
+    const { unmatched } = buildAttendance({ campers, occurrences, tiers })
+    expect(unmatched).toEqual([{ division: 'Waterfront', camperCount: 1, suggestion: null }])
+  })
+
+  it('reports nothing when every division matches', () => {
+    const campers = [{ id: 'c1', display_name: 'A', division: 'Bogrim' }]
+    const { unmatched, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
+    expect(unmatched).toEqual([])
+    expect(unmatchedCount).toBe(0)
+  })
+
+  // The fallback is unchanged: an unmatched camper is still considered for
+  // every occurrence rather than dropped (owner ruling: never unplaced). This
+  // slice makes the problem legible, it does not change who gets placed.
+  it('still considers an unmatched camper for every occurrence', () => {
+    const campers = [{ id: 'c1', display_name: 'A', division: 'Bogrimm' }]
+    const { attendance } = buildAttendance({ campers, occurrences, tiers })
+    expect(attendance.c1).toEqual(['o1', 'o2'])
+  })
+})
+
