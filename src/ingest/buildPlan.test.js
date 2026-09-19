@@ -403,7 +403,7 @@ describe('fieldsFor locations (T119)', () => {
 // carrying camp_id — leaving a permanently blank-name row with no UI cleanup
 // path. Writing `name` first means the loser is rejected before anything
 // materializes. This is the ordering the authored-create path already enforces
-// via setupCrudRepository's UNIQUE_FIRST_FIELD guard, and the ordering
+// via setupCrudRepository's UNIQUE_FIRST_FIELD auto-reorder, and the ordering
 // commitElectiveCandidates adopted for elective_sets (ingest.js:638-643).
 describe('fieldsFor unique-first ordering (T115)', () => {
   for (const entity of Object.keys(UNIQUE_FIRST_FIELD)) {

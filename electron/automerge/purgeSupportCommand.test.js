@@ -26,6 +26,7 @@ import {
 import { purgeCamperRecord } from './purgeSupportCommand.js'
 import { acquireSupportCommandLock } from './supportCommandLock.js'
 import { signTombstone } from './tombstoneSignature.js'
+import * as hostKeyPreservation from './hostKeyPreservation.js'
 
 // T233 (docs/adr/2026-09-19-multi-device-erasure-propagation.md): purgeCamperRecord is now
 // Host-only — it refuses to run at all without a host_signing_key row (see the new describe block
@@ -297,7 +298,7 @@ describe('purgeCamperRecord', () => {
     verifyDb2.close()
   })
 
-  it('round 2 FIX2: purging a camper also erases camp-wide host-only state (pinned, not silent) — but T233 now PRESERVES the signing key', () => {
+  it('round 2 FIX2: purging a camper still erases camp-wide host-only state that is NOT identity (pinned, not silent)', () => {
     const { db, dbPath } = newDb('collateral')
     const campId = randomUUID()
     const deviceId = 'device-1'
@@ -308,16 +309,18 @@ describe('purgeCamperRecord', () => {
     })
     // conflicts is a genuinely HOST-ONLY table (never in MODELED_ENTITIES/DIRECT_CAMP_ENTITIES —
     // electron/ops/campScopedEntities.js), unlike schedule_snapshots (which IS document-replicated
-    // and correctly survives a rebuild via seedAllFromSqlite). This is the real collateral case
-    // that remains true after T233 — only the signing key's fate has changed (see below).
+    // and correctly survives a rebuild via seedAllFromSqlite). It is NOT device-identity, so unlike
+    // the signing/identity keys (see the 5b preservation tests below) it is still lost on purge —
+    // that accepted collateral is pinned here so it can't silently change.
     const conflictId = randomUUID()
     db.prepare(
       'INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(conflictId, 'campers', camperId, 'display_name', '{}', '{}', 'op1', new Date().toISOString())
-    const { publicKeyHex } = installHostKey(db, campId)
+    // Host key required: the merged purge is Host-only (T233). Preservation of that key is asserted
+    // by the dedicated 5b tests below, not here — this test pins only the non-identity collateral.
+    installHostKey(db, campId)
 
     expect(db.prepare('SELECT * FROM conflicts WHERE id = ?').get(conflictId)).toBeTruthy()
-    expect(db.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()).toBeTruthy()
 
     const doc = seedAllFromSqlite(db)
     const userDataDir = newUserDataDir('collateral')
@@ -331,15 +334,135 @@ describe('purgeCamperRecord', () => {
 
     const verifyDb = openLocalDb(dbPath)
     expect(verifyDb.prepare('SELECT * FROM conflicts WHERE id = ?').get(conflictId)).toBeUndefined()
-    // T233 (Red Hat R3 + Security F4): unlike the ordinary disaster-recovery rebuild, a PURGE now
-    // preserves the Host's signing key across the rebuild — losing it would silently invalidate
-    // every future purge on this device (it could never sign another tombstone) and would have
-    // invalidated the signature on the tombstone this very purge just minted.
-    const preservedKey = verifyDb.prepare('SELECT public_key FROM host_signing_key WHERE id = 1').get()
-    expect(preservedKey).toBeTruthy()
-    expect(preservedKey.public_key).toBe(publicKeyHex)
-    expect(verifyDb.prepare('SELECT signing_public_key FROM camps WHERE id = ?').get(campId).signing_public_key).toBe(publicKeyHex)
     verifyDb.close()
+  })
+
+  // ---- 5b: the signing/identity keys are PRESERVED across a purge (T202 follow-up) ----
+
+  it('5b: preserves host_signing_key, device_identity_key, and camps.signing_public_key byte-identical', () => {
+    const { db, dbPath } = newDb('preserve')
+    const campId = randomUUID()
+    const deviceId = 'device-1'
+    const camperId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId, camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    // A REAL Ed25519 host key: T233's purge actually SIGNS a tombstone with it, so a placeholder
+    // hex string would throw at createPrivateKey. installHostKey also mirrors the public half into
+    // camps.signing_public_key (localAuth.js ensureHostSigningKey behavior), which projector.js
+    // excludes from the document so it must be preserved out-of-band across the rebuild.
+    const { publicKeyHex: hostPub, privateKeyHex: hostPriv } = installHostKey(db, campId)
+    const peerId = '12D3KooWFakePeerIdForTest'
+    const devPriv = 'c'.repeat(72)
+    const devCreated = new Date().toISOString()
+    db.prepare('INSERT INTO device_identity_key (id, peer_id, private_key, created_at) VALUES (1, ?, ?, ?)')
+      .run(peerId, devPriv, devCreated)
+
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('preserve')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+
+    // The result reports exactly which artifacts were restored — never the key bytes themselves.
+    expect(result.keysRestored).toEqual({
+      hostSigningKey: true,
+      deviceIdentityKey: true,
+      campsSigningPublicKey: true,
+    })
+
+    const verifyDb = openLocalDb(dbPath)
+    const host = verifyDb.prepare('SELECT public_key, private_key, created_at FROM host_signing_key WHERE id = 1').get()
+    expect(host.public_key).toBe(hostPub)
+    expect(host.private_key).toBe(hostPriv)
+    expect(host.created_at).toBeTruthy()
+    const dev = verifyDb.prepare('SELECT peer_id, private_key, created_at FROM device_identity_key WHERE id = 1').get()
+    expect(dev).toEqual({ peer_id: peerId, private_key: devPriv, created_at: devCreated })
+    // camps.signing_public_key survives AND stays matched to the preserved host public key, so this
+    // device can verify its own tokens immediately — no dependence on a later lazy backfill.
+    expect(verifyDb.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key).toBe(hostPub)
+    verifyDb.close()
+  })
+
+  it('5b: does NOT preserve camps.signing_secret (retired legacy HMAC field — deliberately inert loss)', () => {
+    const { db, dbPath } = newDb('secret')
+    const campId = randomUUID()
+    const camperId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId: 'device-1', camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    // buildCampWithCamper already sets signing_secret to 'a'.repeat(64).
+    expect(db.prepare('SELECT signing_secret FROM camps LIMIT 1').get().signing_secret).toBe('a'.repeat(64))
+    installHostKey(db, campId) // real Ed25519 key so the Host-only purge can sign its tombstone
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('secret')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+
+    const verifyDb = openLocalDb(dbPath)
+    // signing_secret is never in the document and is deliberately not preserved, so it comes back
+    // empty. This pins the deliberate exclusion so it can't quietly start being preserved.
+    expect(verifyDb.prepare('SELECT signing_secret FROM camps LIMIT 1').get().signing_secret).toBeNull()
+    verifyDb.close()
+  })
+
+  // NOTE (T233 merge): #514's "a Client (no host_signing_key) skips that artifact without error"
+  // test was REMOVED here. Its premise — a Client running purgeCamperRecord — is impossible under
+  // T233's Host-only refusal (a device with no host_signing_key is refused before any key work), and
+  // that refusal is covered by the dedicated Host-only-purge test below. The graceful "skip a missing
+  // artifact" behavior of restorePreservableKeys is still unit-tested in hostKeyPreservation.test.js.
+
+  it('FIX3: a crash between rebuild and key-restore leaves the pre-migration backup holding the original key', () => {
+    const { db, dbPath } = newDb('crashwindow')
+    const campId = randomUUID()
+    const camperId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId: 'device-1', camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    const { publicKeyHex: hostPub, privateKeyHex: hostPriv } = installHostKey(db, campId) // real key: the purge signs a tombstone
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('crashwindow')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    // Force a crash AFTER the rebuild has completed but BEFORE restore finishes. Shredding the
+    // backups must NOT have run yet, so the backup — which still holds the original host_signing_key
+    // (it was copied from the pre-rebuild db) — survives as a manual recovery source.
+    const spy = vi.spyOn(hostKeyPreservation, 'restorePreservableKeys').mockImplementationOnce(() => {
+      throw new Error('forced crash between rebuild and key-restore')
+    })
+    try {
+      // The thrown error names the purge context and where the keys still live, and chains the
+      // original failure as `cause` rather than swallowing it.
+      let thrown
+      try {
+        purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+      } catch (err) {
+        thrown = err
+      }
+      expect(thrown).toBeInstanceOf(Error)
+      expect(thrown.message).toMatch(/keys were NOT restored after the purge rebuild/)
+      expect(thrown.message).toMatch(/pre-migration backup/)
+      expect(thrown.cause).toBeInstanceOf(Error)
+      expect(thrown.cause.message).toMatch(/forced crash between rebuild and key-restore/)
+    } finally {
+      spy.mockRestore()
+    }
+
+    const backups = preMigrationBackups(dbPath)
+    expect(backups.length).toBeGreaterThan(0)
+    const backupPath = path.join(path.dirname(dbPath), backups[0])
+    const backupDb = openLocalDb(backupPath)
+    const recovered = backupDb.prepare('SELECT public_key, private_key FROM host_signing_key WHERE id = 1').get()
+    backupDb.close()
+    files.push(backupPath)
+    expect(recovered).toEqual({ public_key: hostPub, private_key: hostPriv })
   })
 
   it('round 2 FIX4: refuses a whole-device purge when the id has no camper row and no operations history', () => {

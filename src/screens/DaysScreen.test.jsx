@@ -92,7 +92,7 @@ describe('DaysScreen', () => {
     expect(screen.queryByPlaceholderText('Order')).toBeNull()
   })
 
-  it('adds a day from the inline blank row by writing each field via localClient.write, day_of_week first (UNIQUE_FIRST_FIELD guard), deriving sort_order from day_of_week', async () => {
+  it('adds a day from the inline blank row by writing each field via localClient.write, day_of_week first (UNIQUE_FIRST_FIELD auto-reorder), deriving sort_order from day_of_week', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No days yet')).not.toBeNull())

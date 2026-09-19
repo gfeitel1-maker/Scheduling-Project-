@@ -354,9 +354,10 @@ never mentions the purged rows. The three deletes, the document regeneration, an
 sanity-check all run inside **one SQLite transaction**: a failure anywhere in that block rolls the
 deletes back rather than leaving SQLite purged while the on-disk `.automerge` (the source of truth)
 still holds the camper — a split state that would otherwise look recoverable and not be. A crash in
-the narrow window after that transaction commits but before the save/rebuild/backup-shred below
-finish is recovered by simply **re-running `purgeCamperRecord` with the same id** — every step past
-the transaction is idempotent.
+the window after the transaction commits but before the rebuild completes is recovered by simply
+**re-running `purgeCamperRecord` with the same id** — those steps are idempotent. (The one window
+this does NOT cover is after the rebuild completes but before key-restore finishes; see "Ordering and
+the one crash window" below.)
 
 **This purge is a WHOLE-DEVICE rebuild, not a scoped delete, and the collateral is real, not
 theoretical.** It reuses `rebuildProjectionFromDocumentAtPath`, which deletes and recreates this
@@ -365,20 +366,53 @@ Every table this device keeps that is **not** document-replicated is wiped **cam
 same stroke — confirmed against the schema, this is `conflicts`, `import_evidence`,
 `import_decisions`, `open_reconciliation_decisions`, `pending_writes`, `pending_restores`,
 `device_health_events`, `projection_failures`, `source_aliases`, `compound_cell_decisions`,
-`location_word_decisions`, and `declined_two_row_splits` — **plus this device's own
-`host_signing_key` and `device_identity_key` rows and `camps.signing_secret`**. (`schedule_snapshots`
-and every other camp-scoped entity in `MODELED_ENTITIES`/`GENESIS_ENTITIES`, by contrast, ARE
-document-replicated and correctly survive — they round-trip back in via the fresh document, exactly
-as an ordinary sync would carry them.) A Host that purges one camper loses its credential-minting
-key in the same stroke and must re-establish device identity afterward; this is the SAME collateral
-`rebuildProjectionFromDocumentAtPath`'s own `NOT_RECOVERABLE_NOTICE` already documents for
-disaster-recovery, reused here for a new purpose. `purgeCamperRecord`'s return value relays that
-notice (`notRecoverable`/`before`/`after`) rather than dropping it, and this is pinned by a test that
-seeds a `conflicts` row and a `host_signing_key` row before purging and asserts both are gone
-afterward. **Preserving or re-establishing keys across a purge is explicitly out of scope here** —
-tracked as a separate follow-up ticket, not attempted in this slice. Because that collateral is real
-even when nothing needed purging, `purgeCamperRecord` **refuses outright** — before doing anything
-destructive — when the given id names no camper row and has no `operations` history on this device.
+`location_word_decisions`, and `declined_two_row_splits` — plus `camps.signing_secret` (the retired
+legacy HMAC field, never read, whose loss is inert). (`schedule_snapshots` and every other
+camp-scoped entity in `MODELED_ENTITIES`/`GENESIS_ENTITIES`, by contrast, ARE document-replicated and
+correctly survive — they round-trip back in via the fresh document, exactly as an ordinary sync would
+carry them.)
+
+**This device's signing/identity keys ARE preserved across the purge (T202 follow-up).** The three
+load-bearing device-identity artifacts — `host_signing_key` (Host-only, the credential-minting
+private key), `device_identity_key` (every device's stable libp2p PeerId key), and
+`camps.signing_public_key` (the local mirror used to VERIFY credential changes, excluded from the
+document) — are read out of the pre-rebuild database and written back into the freshly-rebuilt one,
+byte-identical, by `electron/automerge/hostKeyPreservation.js`. A purge therefore no longer silently
+strips a live Host of its ability to mint credentials, nor changes this device's PeerId (which would
+otherwise trip `peer_identity_mismatch`/`4405` on every already-paired peer). The rationale is that a
+purge is **not** a "device lost/reset" event — the machine stays alive and stays Host — so the
+`KEY_RECOVERY_STORY.md` "re-establish identity / re-pair" answer does not apply; and the three
+artifacts are pure-random keypairs that encode no camper data, so preserving them weakens no
+erasure claim. Preservation is confined to `purgeCamperRecord`: the shared
+`rebuildProjectionFromDocumentAtPath` (disaster-recovery on a possibly-new machine) stays destructive,
+where re-establishing identity is the correct answer. Because that reverses the behavior the
+rebuild's own `NOT_RECOVERABLE_NOTICE` describes, `purgeCamperRecord` returns its **own**
+`PURGE_NOT_RECOVERABLE_NOTICE` (`notRecoverable`/`keysRestored`/`before`/`after`) rather than relaying
+the rebuild's now-inaccurate one, and pins the behavior with tests: the keys survive byte-identical, a
+Client with no `host_signing_key` skips it cleanly, and `camps.signing_secret` is confirmed **not**
+preserved. **`purgeCamperRecord` is a camper-erasure tool, NOT a credential-rotation or
+compromised-device-remediation tool** — because it now preserves the keys, it must not be reached for
+to "wipe" a suspected-compromised Host; the answer there remains device revocation + re-pairing.
+
+**Ordering and the one crash window this preserves through.** Restore runs AFTER the rebuild and
+BEFORE the pre-migration backups are shredded. That order is load-bearing: the backup the rebuild
+writes still holds the original keys (it is copied from the pre-rebuild database), so a crash in the
+narrow window between rebuild-finish and restore-finish leaves that backup as a manual recovery
+source. This is the one window the transaction/idempotency guarantees below cannot auto-recover —
+once the rebuild completes, the camper row and its `operations` history are gone, so a re-run hits the
+refusal — an accepted, bounded regression, recoverable by hand rather than silently. A forced-throw
+test pins that the backup survives and still contains the key.
+
+**Operational precondition (documented, not enforced).** Run `purgeCamperRecord` only with the app /
+sync node stopped on this device. `ensureHostSigningKey`/`ensureDeviceIdentity` lazily mint a fresh
+key into an empty table on app startup; a concurrently-running app could mint an interim key into the
+freshly-rebuilt table before restore writes the original back. No running-instance marker exists in
+this codebase to enforce against, and the sibling support command `rebuild_projection_from_document`
+carries the same unenforced precondition.
+
+Because that collateral is real even when nothing needed purging, `purgeCamperRecord` **refuses
+outright** — before doing anything destructive — when the given id names no camper row and has no
+`operations` history on this device.
 
 `purgeCamperRecord` also empties this device's `operations` history for the whole ledger (the
 whole-file rebuild's side effect, not a targeted per-record prune) and discards every

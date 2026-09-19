@@ -30,18 +30,26 @@
 //      targeted prune; T202 is whole-device-history purge, not per-record op-log pruning — see the
 //      ticket's exit condition). BLAST RADIUS, STATED EXPLICITLY (round 2, FIX2): this is a
 //      WHOLE-DEVICE rebuild. It reprojects ONLY the modeled, document-replicated entities — every
-//      non-modeled, host-only table on this device (schedule_snapshots, conflicts, import_evidence,
-//      import_decisions, open_reconciliation_decisions, pending_writes, pending_restores,
-//      device_health_events, projection_failures, source_aliases, compound_cell_decisions,
-//      location_word_decisions, declined_two_row_splits, and this device's own
-//      host_signing_key/device_identity_key rows, plus camps.signing_secret) is wiped along with
-//      it, camp-wide, not just for the purged camper. A Host that purges a camper loses its
-//      credential-minting key in the same stroke and must re-establish device identity afterward.
-//      rebuildIntoFreshDb's own NOT_RECOVERABLE_NOTICE already documents this for disaster-recovery
-//      callers; purgeCamperRecord's return value relays it (notRecoverable/before/after below) so
-//      no caller can miss it, and SECURITY.md states it plainly rather than only inheriting it.
-//      Preserving/re-establishing keys across a purge is explicitly out of scope here — tracked as
-//      a follow-up ticket, not attempted in this slice.
+//      non-modeled, host-only table on this device (PURGE_WIPED_TABLES in purgeCollateral.js:
+//      conflicts, import_evidence, import_decisions, open_reconciliation_decisions, pending_writes,
+//      pending_restores, device_health_events, projection_failures, source_aliases,
+//      compound_cell_decisions, location_word_decisions, declined_two_row_splits, plus the
+//      camps.signing_secret column) is wiped along with it, camp-wide, not just for the purged
+//      camper. That collateral is an accepted tradeoff. (schedule_snapshots is MODELED — it is
+//      document-replicated and round-trips back via the fresh document, so it is NOT collateral;
+//      purgeCollateral.js and its test are the source of truth this list must match.)
+//   5b. PRESERVE THIS DEVICE'S SIGNING/IDENTITY KEYS across the rebuild (T202 follow-up). The three
+//      load-bearing device-identity artifacts — host_signing_key, device_identity_key, and
+//      camps.signing_public_key — are read out of the pre-rebuild db (step 3's oldDb) and written
+//      back into the freshly-rebuilt db, byte-identical, so a purge no longer silently strips a live
+//      Host of its ability to mint credentials or changes this device's stable libp2p PeerId. A
+//      purge is not a "device lost/reset" event (the machine stays alive and stays Host), so the
+//      KEY_RECOVERY_STORY "re-establish identity" answer does not apply. See hostKeyPreservation.js
+//      for the full rationale, scope (exactly these three — signing_secret and rendezvous_sequence
+//      are deliberately NOT preserved), and the documented app-must-be-stopped precondition. Restore
+//      happens BEFORE the step-6 shred (see FIX3 below), and purgeCamperRecord returns its own
+//      PURGE_NOT_RECOVERABLE_NOTICE (the rebuild's NOT_RECOVERABLE_NOTICE is now wrong for a purge:
+//      it says the keys must be re-established, which is exactly what 5b reverses).
 //   6. Shred EVERY `*.pre-migration-*.bak` for this dbPath — the step that otherwise silently
 //      defeats the whole procedure (D10). This shred is PURGE-ONLY: it must never run from
 //      rebuildSupportCommand.js's own rebuild, or from localDb.js/sqliteCipher.js's migration and
@@ -58,6 +66,10 @@
 // `operations` table (only emptied by the LAST step, the rebuild) still carries rows for entityId,
 // so the "no camper row AND no operations history" guard does not fire until the purge has
 // genuinely finished — at which point refusing a second run is the correct behavior, not a bug.
+// EXCEPTION (5b/FIX3): the one window auto-recovery does NOT cover is after the rebuild completes
+// but before key-restore finishes — by then operations is already emptied, so a re-run hits the
+// FIX4 refusal. That window is instead covered by ordering restore before the shred, so the
+// pre-migration backup (still holding the original keys) survives as a manual recovery source.
 //
 // Not reliable for OTHER devices: nothing here changes the app-wide Automerge genesis, so a stale,
 // already-paired peer still shares genesis with the purged device and an ordinary sync merge can
@@ -78,6 +90,12 @@ import {
   UNDECRYPTABLE_NOTICE,
 } from './rebuildSupportCommand.js'
 import { acquireSupportCommandLock } from './supportCommandLock.js'
+import {
+  readPreservableKeys,
+  restorePreservableKeys,
+  writePreservableKeysInto,
+  PURGE_NOT_RECOVERABLE_NOTICE,
+} from './hostKeyPreservation.js'
 
 // Same glob-by-basename approach rotatePreResolveBackups (electron/db/projectManager.js) uses for
 // its own `*.pre-resolve-*.sqlite` family — writePreMigrationBackup's own files are otherwise NEVER
@@ -111,9 +129,10 @@ function shredPreMigrationBackups(dbPath) {
 }
 
 // T233 round 2, finding 1: crash-safe key recovery from the pre-migration backup rebuild already
-// writes. rebuildProjectionFromDocumentAtPathCore backs up dbPath (which still has
-// host_signing_key/device_identity_key/camps.signing_secret intact) BEFORE it wipes and recreates
-// the file — so the intact key material sits on disk in that `.bak` throughout the exact window a
+// writes. rebuildProjectionFromDocumentAtPathCore backs up dbPath (which still has the three
+// preservable artifacts — host_signing_key/device_identity_key/camps.signing_public_key — intact)
+// BEFORE it wipes and recreates the file — so the intact key material sits on disk in that `.bak`
+// throughout the exact window a
 // crash between the wipe and the in-memory key restore would otherwise destroy it permanently. Read
 // via a throwaway COPY of the backup (opened through the ordinary openLocalDb path, honoring the
 // same SQLite `key` this device uses) rather than the backup file itself, so nothing here mutates
@@ -143,15 +162,12 @@ function findRecoverableKeyBackup(dbPath, { key }) {
       fs.copyFileSync(backupPath, tmpCopy)
       const bakDb = openLocalDb(tmpCopy, { key })
       try {
-        const hostSigningKeyRow = bakDb.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()
-        if (!hostSigningKeyRow) continue
-        const deviceIdentityKeyRow = bakDb.prepare('SELECT * FROM device_identity_key WHERE id = 1').get() || null
-        const campRow = bakDb.prepare('SELECT signing_secret, signing_public_key FROM camps LIMIT 1').get()
-        return {
-          hostSigningKeyRow,
-          deviceIdentityKeyRow,
-          campSigningRow: campRow || null,
-        }
+        // Same 3-artifact scope and shape hostKeyPreservation.js uses everywhere else (no
+        // camps.signing_secret — deliberately not preserved). A backup with no host_signing_key row
+        // (e.g. from a Client, or a pre-key-era db) is not a key-recovery source — skip it.
+        const preservable = readPreservableKeys(bakDb)
+        if (!preservable.hostSigningKey) continue
+        return preservable
       } finally {
         bakDb.close()
       }
@@ -164,26 +180,6 @@ function findRecoverableKeyBackup(dbPath, { key }) {
     }
   }
   return null
-}
-
-// Shared by the crash-recovery path above (restoring into oldDb before the transaction) and the
-// post-rebuild restore below (restoring into restoreDb after rebuildProjectionFromDocumentAtPathCore
-// recreates the file) — identical INSERT OR REPLACE / UPDATE shape either way.
-function restoreKeyMaterial(db, { hostSigningKeyRow, deviceIdentityKeyRow, campSigningRow }, campId) {
-  if (hostSigningKeyRow) {
-    db.prepare(
-      'INSERT OR REPLACE INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)'
-    ).run(hostSigningKeyRow.public_key, hostSigningKeyRow.private_key, hostSigningKeyRow.created_at)
-  }
-  if (deviceIdentityKeyRow) {
-    db.prepare(
-      'INSERT OR REPLACE INTO device_identity_key (id, peer_id, private_key, created_at) VALUES (1, ?, ?, ?)'
-    ).run(deviceIdentityKeyRow.peer_id, deviceIdentityKeyRow.private_key, deviceIdentityKeyRow.created_at)
-  }
-  if (campSigningRow && campId) {
-    db.prepare('UPDATE camps SET signing_secret = ?, signing_public_key = ? WHERE id = ?')
-      .run(campSigningRow.signing_secret, campSigningRow.signing_public_key, campId)
-  }
 }
 
 // T233 round 2, finding 2: the LOCKED entry point. Acquires the machine-wide, dbPath-keyed
@@ -206,9 +202,7 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
   let removed
   let tombstone
   let freshDoc
-  let hostSigningKeyRow
-  let deviceIdentityKeyRow
-  let campSigningRow
+  let preservedKeys
   const oldDb = openLocalDb(dbPath, { key })
   try {
     // T233 (docs/adr/2026-09-19-multi-device-erasure-propagation.md), Host-only purge: only the
@@ -231,7 +225,7 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
     if (!hostKeyExists) {
       const recovered = findRecoverableKeyBackup(dbPath, { key })
       if (recovered) {
-        restoreKeyMaterial(oldDb, recovered, oldDb.prepare('SELECT id FROM camps LIMIT 1').get()?.id)
+        writePreservableKeysInto(oldDb, recovered)
         hostKeyExists = oldDb.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()
         didRecoverKeys = true
       }
@@ -291,6 +285,11 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
       )
     }
 
+    // 5b: capture this device's signing/identity keys BEFORE the rebuild destroys them. Read-only,
+    // and the purge transaction below never touches these tables, so capturing here (before it) sees
+    // exactly the keys the pre-purge device held. Absent rows come back null and are skipped later.
+    preservedKeys = readPreservableKeys(oldDb)
+
     // FIX1: deletes + document regeneration + genesis check all inside ONE transaction, so a
     // failure anywhere in this block rolls the deletes back — no split between "SQLite purged" and
     // "document still holds it". seedAllFromSqlite only reads oldDb, so it is safe here.
@@ -330,22 +329,10 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
     })()
 
     // Save happens AFTER the transaction commits (FIX1) — never before, so the on-disk document
-    // never reflects deletes that could still have been rolled back.
+    // never reflects deletes that could still have been rolled back. (Key material for the device
+    // was already captured into `preservedKeys` via readPreservableKeys(oldDb) above, before the
+    // transaction — the single capture; restored after the rebuild below.)
     saveAutomergeDoc(userDataDir, campId, freshDoc, cipher)
-
-    // T233 key preservation (Red Hat R3 + Security F4), PURGE-PATH ONLY: rebuildProjectionFromDocumentAtPath
-    // below reuses the disaster-recovery rebuild, which correctly wipes host_signing_key/
-    // device_identity_key/camps.signing_secret for that use case — but here the purge would
-    // otherwise silently strip this Host of its own credential-signing key and re-mint a fresh
-    // camps.signing_secret/signing_public_key, invalidating every signature (including the
-    // tombstone just minted above) that the OLD key produced. Captured here, held ONLY in these
-    // JS variables (never written to any temp file or unencrypted disk location) for the narrow
-    // window until the restore below, then written back through the ordinary encrypted-if-cipher-
-    // enabled openLocalDb path — never staged to disk unencrypted at any point.
-    hostSigningKeyRow = oldDb.prepare('SELECT * FROM host_signing_key WHERE id = 1').get() || null
-    deviceIdentityKeyRow = oldDb.prepare('SELECT * FROM device_identity_key WHERE id = 1').get() || null
-    campSigningRow =
-      oldDb.prepare('SELECT signing_secret, signing_public_key FROM camps WHERE id = ?').get(campId) || null
   } finally {
     oldDb.close()
   }
@@ -358,26 +345,46 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
   // shredded below along with every other pre-migration backup for this dbPath.
   const rebuildResult = rebuildProjectionFromDocumentAtPathCore({ dbPath, userDataDir, cipher, key })
 
-  // Restore the captured key material (purge-path only — rebuildSupportCommand.js's own
-  // disaster-recovery rebuild keeps wiping keys, correctly, for THAT caller). Writing it back
-  // through openLocalDb rather than raw SQL keeps this on the same encrypted-if-cipher-enabled
-  // path every other write to this db uses.
-  const restoreDb = openLocalDb(dbPath, { key })
+  // 5b: write the preserved keys back into the freshly-rebuilt db, BEFORE the step-6 shred.
+  // FIX3 — ORDERING IS LOAD-BEARING: the pre-migration backup rebuild just wrote (and which the
+  // shred below deletes) still holds the ORIGINAL keys, because it was copied from the pre-rebuild
+  // db. Restoring before shredding means a crash in the narrow window between rebuild-finish and
+  // restore-finish leaves that backup as a manual recovery source for the keys. This is the one
+  // crash window the IDEMPOTENCY note below cannot auto-recover: once the rebuild has completed the
+  // camper row and its operations history are gone, so a re-run hits the FIX4 refusal — an accepted,
+  // bounded regression, recoverable by hand from the still-present backup rather than silently.
+  let keysRestored
   try {
-    restoreKeyMaterial(restoreDb, { hostSigningKeyRow, deviceIdentityKeyRow, campSigningRow }, campId)
-    // Re-project: rebuildProjectionFromDocumentAtPathCore's own internal projectAll pass ran with NO
-    // camps.signing_public_key yet (the key restore above happens strictly AFTER that rebuild, by
-    // necessity — the rebuild deletes and recreates the db file), so upsertTombstonesEntity's
-    // no-key branch would have SKIPPED applying the very tombstone this purge just minted (keep-
-    // last-known, never apply an unverifiable change — same policy as upsertUsersEntity). Now that
-    // the key is back, re-running projectAll against the same fresh document lets it verify and
-    // apply on this second, idempotent pass — exactly the "genuine value applies once the key is
-    // present" case upsertUsersEntity's own comment already documents for credential changes.
-    if (campSigningRow?.signing_public_key && freshDoc) {
-      projectAll(restoreDb, freshDoc)
+    keysRestored = restorePreservableKeys({ dbPath, key, preservedKeys, openLocalDb })
+  } catch (cause) {
+    // Restore threw AFTER the rebuild but BEFORE the step-6 shred, so FIX3's ordering holds: the
+    // shred below never runs and the pre-migration backup still holds this device's ORIGINAL keys.
+    // The default error would surface with no purge context, so name what happened and where the
+    // keys still live. No key bytes are logged. SECURITY.md §347 documents the recovery path.
+    throw new Error(
+      'purgeCamperRecord: keys were NOT restored after the purge rebuild. This device\'s original ' +
+        `signing/identity keys are still in the pre-migration backup at ${dbPath}.pre-migration-*.bak ` +
+        '(NOT shredded — the shred is skipped on this failure). Restore them by hand before shredding; ' +
+        'see SECURITY.md §347.',
+      { cause }
+    )
+  }
+
+  // T233: re-project now that the keys are back. The rebuild's own internal projectAll ran with NO
+  // camps.signing_public_key (it was wiped by the rebuild and restored only just above), so
+  // upsertTombstonesEntity's no-key branch SKIPPED applying the tombstone this purge just minted —
+  // keep-last-known, never apply an unverifiable change (same policy as upsertUsersEntity). With the
+  // verifier key restored, one more idempotent projectAll verifies and applies it into THIS device's
+  // own tombstones table + denylist, so the purging device itself refuses a later stale-peer
+  // re-merge of the camper (the inverted "known gap" test asserts exactly this). Runs only when the
+  // public key actually came back.
+  if (keysRestored?.campsSigningPublicKey && freshDoc) {
+    const reprojectDb = openLocalDb(dbPath, { key })
+    try {
+      projectAll(reprojectDb, freshDoc)
+    } finally {
+      reprojectDb.close()
     }
-  } finally {
-    restoreDb.close()
   }
 
   const backupsRemoved = shredPreMigrationBackups(dbPath)
@@ -386,12 +393,14 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
     campId,
     entityId,
     removed,
+    keysRestored,
     backupsRemoved,
     docPath: rebuildResult.docPath,
-    // FIX2: relay the rebuild's own disaster-recovery warning rather than dropping it — this purge
-    // IS that whole-device rebuild, run for a new purpose, and callers must see the same collateral
-    // notice a disaster-recovery caller would.
-    notRecoverable: rebuildResult.notRecoverable,
+    // FIX2 + 5b: purgeCamperRecord issues its OWN not-recoverable notice rather than relaying the
+    // rebuild's NOT_RECOVERABLE_NOTICE, which is now wrong for a purge — it says the signing keys
+    // "come back empty and must be re-established", the exact behavior 5b reverses. This notice
+    // states what a purge truly does not recover (the operations ledger) and that the keys survive.
+    notRecoverable: PURGE_NOT_RECOVERABLE_NOTICE,
     before: rebuildResult.before,
     after: rebuildResult.after,
     // T233: the tombstone this purge minted, and an explicit honesty flag — this purge has

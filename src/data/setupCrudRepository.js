@@ -43,14 +43,27 @@ export const UNIQUE_FIRST_FIELD = {
 // UPDATE, even though the SAME field set narrows correctly once `kind` is
 // applied first.
 //
-// Unlike UNIQUE_FIRST_FIELD above (a programmer-error guard that THROWS if a
-// caller gets the order wrong, because getting it wrong there needs a human
-// to notice and fix the call site), this is enforced automatically, silently,
-// for every caller — a Red Hat review found the FIRST version of this ADR's
-// work had gotten the ordering right in two writers (electron/ops/ingest.js,
-// AnchorModal.save) and wrong in a third (AnchorsScreen's XLSX import),
-// proving per-call-site discipline is not enough. Registering the field here
-// means a future writer can't reintroduce the bug by forgetting.
+// Like UNIQUE_FIRST_FIELD above (which, since the 2026-09-18 reversal, also
+// auto-reorders its field to the front rather than throwing on misorder), this
+// is enforced automatically, silently, for every caller — a Red Hat review
+// found the FIRST version of this ADR's work had gotten the ordering right in
+// two writers (electron/ops/ingest.js, AnchorModal.save) and wrong in a third
+// (AnchorsScreen's XLSX import), proving per-call-site discipline is not
+// enough. Registering the field here means a future writer can't reintroduce
+// the bug by forgetting. The one behavioral difference from UNIQUE_FIRST_FIELD:
+// this reorder is a no-op when the field is absent from a write (an edit that
+// only touches `notes` legitimately omits `kind`), whereas a create MUST carry
+// its UNIQUE_FIRST_FIELD field, so orderFieldsForCreate throws on absence.
+//
+// COMPOSITION: these two registries MUST stay disjoint. createRecord applies
+// orderFieldsForCreate (UNIQUE_FIRST_FIELD → front) first, then writeFields
+// applies orderFieldsForWrite (REQUIRED_FIRST_ON_WRITE → front) second and
+// unconditionally — so if an entity were ever registered in BOTH, the
+// REQUIRED_FIRST_ON_WRITE field would silently win position 0, displacing the
+// collision-guarded field. No entity is in both today (anchor_activities only
+// here); if one ever needs both, that priority conflict is a Governor-level
+// decision (unique-field safety vs. cross-column CHECK safety), not a silent
+// last-writer-wins default.
 export const REQUIRED_FIRST_ON_WRITE = {
   anchor_activities: 'kind',
 }
@@ -66,6 +79,32 @@ export function orderFieldsForWrite(entity, fields) {
   if (!requiredFirst || !(requiredFirst in fields)) return entries
   const first = entries.find(([field]) => field === requiredFirst)
   const rest = entries.filter(([field]) => field !== requiredFirst)
+  return [first, ...rest]
+}
+
+// Returns `fields`' entries as [field, value] pairs, with the entity's
+// UNIQUE_FIRST_FIELD field moved to the front — mirrors orderFieldsForWrite/
+// REQUIRED_FIRST_ON_WRITE above, applied to the same lesson that guard encodes:
+// a future writer must not be able to reintroduce T205's bug by building the
+// create object in the wrong order. Throws ONLY when the registered field is
+// ABSENT — a create that never emits the unique field is genuinely
+// unprotectable (no op ever reaches detectUniqueFieldCollision for it; for
+// days_of_operation the same-weekday collision then lands on ensureExists's
+// INSERT OR IGNORE and is silently dropped).
+export function orderFieldsForCreate(entity, fields) {
+  const uniqueFirst = UNIQUE_FIRST_FIELD[entity]
+  if (!uniqueFirst) return Object.entries(fields)
+  if (!(uniqueFirst in fields)) {
+    throw new Error(
+      `createRecord(${entity}): must include "${uniqueFirst}" — a create on this entity has an ` +
+      `app-level UNIQUE constraint (docs/adr/2026-08-15-locations-concurrent-create-collision.md); ` +
+      `a create that never writes this field leaves the row permanently unprotected against a ` +
+      `same-value collision.`
+    )
+  }
+  const entries = Object.entries(fields)
+  const first = entries.find(([field]) => field === uniqueFirst)
+  const rest = entries.filter(([field]) => field !== uniqueFirst)
   return [first, ...rest]
 }
 
@@ -97,26 +136,17 @@ export function createSetupCrudRepository({
     // typically `name` — may already have created it via ensureExists), then
     // rethrows the ORIGINAL error, never a cleanup error.
     //
-    // T9 / Decision B: a UNIQUE_FIRST_FIELD-registered entity MUST write that
-    // field first. This is a programmer-error guard, not a user-facing error
-    // path — it should never fire given correctly written callers. Writing
-    // any other field first can create a permanently orphaned row: if a
-    // non-unique field (e.g. capacity) writes first and succeeds, then the
-    // unique field collides and is rejected, ensureExists has already
-    // materialized a blank-name row nothing will ever finish naming. This
-    // guard is the one place `createRecord` is reused by a future call site
-    // (the M4 CSV importer) whose field order isn't hand-written the way
-    // LocationsScreen.jsx's is — see
-    // docs/adr/2026-08-15-locations-concurrent-create-collision.md.
-    async createRecord(entity, id, orderedFields) {
-      const requiredFirst = UNIQUE_FIRST_FIELD[entity]
-      if (requiredFirst && Object.keys(orderedFields)[0] !== requiredFirst) {
-        throw new Error(
-          `createRecord(${entity}): "${requiredFirst}" must be the first field — got "${Object.keys(orderedFields)[0]}". ` +
-          `A create on this entity has an app-level UNIQUE constraint (docs/adr/2026-08-15-locations-concurrent-create-collision.md); ` +
-          `writing any other field first can create a permanently orphaned row if the constrained field is later rejected.`
-        )
-      }
+    // T9 / Decision B (reversed 2026-09-18, see the ADR's "Reversal" section):
+    // a UNIQUE_FIRST_FIELD-registered entity's field is now auto-reordered to
+    // the front rather than requiring the caller to have built it first — a
+    // future writer (e.g. the M4 CSV importer) whose field order isn't
+    // hand-written the way LocationsScreen.jsx's is can no longer reintroduce
+    // T205's bug by getting the order wrong, because there is no wrong order
+    // to get: orderFieldsForCreate fixes it up. It still throws when the
+    // registered field is ABSENT — that create is genuinely unprotectable —
+    // see docs/adr/2026-08-15-locations-concurrent-create-collision.md.
+    async createRecord(entity, id, fields) {
+      const orderedFields = Object.fromEntries(orderFieldsForCreate(entity, fields))
       try {
         await writeFields(entity, id, orderedFields)
       } catch (err) {
