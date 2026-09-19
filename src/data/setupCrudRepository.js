@@ -43,14 +43,27 @@ export const UNIQUE_FIRST_FIELD = {
 // UPDATE, even though the SAME field set narrows correctly once `kind` is
 // applied first.
 //
-// Unlike UNIQUE_FIRST_FIELD above (a programmer-error guard that THROWS if a
-// caller gets the order wrong, because getting it wrong there needs a human
-// to notice and fix the call site), this is enforced automatically, silently,
-// for every caller — a Red Hat review found the FIRST version of this ADR's
-// work had gotten the ordering right in two writers (electron/ops/ingest.js,
-// AnchorModal.save) and wrong in a third (AnchorsScreen's XLSX import),
-// proving per-call-site discipline is not enough. Registering the field here
-// means a future writer can't reintroduce the bug by forgetting.
+// Like UNIQUE_FIRST_FIELD above (which, since the 2026-09-18 reversal, also
+// auto-reorders its field to the front rather than throwing on misorder), this
+// is enforced automatically, silently, for every caller — a Red Hat review
+// found the FIRST version of this ADR's work had gotten the ordering right in
+// two writers (electron/ops/ingest.js, AnchorModal.save) and wrong in a third
+// (AnchorsScreen's XLSX import), proving per-call-site discipline is not
+// enough. Registering the field here means a future writer can't reintroduce
+// the bug by forgetting. The one behavioral difference from UNIQUE_FIRST_FIELD:
+// this reorder is a no-op when the field is absent from a write (an edit that
+// only touches `notes` legitimately omits `kind`), whereas a create MUST carry
+// its UNIQUE_FIRST_FIELD field, so orderFieldsForCreate throws on absence.
+//
+// COMPOSITION: these two registries MUST stay disjoint. createRecord applies
+// orderFieldsForCreate (UNIQUE_FIRST_FIELD → front) first, then writeFields
+// applies orderFieldsForWrite (REQUIRED_FIRST_ON_WRITE → front) second and
+// unconditionally — so if an entity were ever registered in BOTH, the
+// REQUIRED_FIRST_ON_WRITE field would silently win position 0, displacing the
+// collision-guarded field. No entity is in both today (anchor_activities only
+// here); if one ever needs both, that priority conflict is a Governor-level
+// decision (unique-field safety vs. cross-column CHECK safety), not a silent
+// last-writer-wins default.
 export const REQUIRED_FIRST_ON_WRITE = {
   anchor_activities: 'kind',
 }
