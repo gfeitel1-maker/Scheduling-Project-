@@ -33,15 +33,20 @@
 //      non-modeled, host-only table on this device (schedule_snapshots, conflicts, import_evidence,
 //      import_decisions, open_reconciliation_decisions, pending_writes, pending_restores,
 //      device_health_events, projection_failures, source_aliases, compound_cell_decisions,
-//      location_word_decisions, declined_two_row_splits, and this device's own
-//      host_signing_key/device_identity_key rows, plus camps.signing_secret) is wiped along with
-//      it, camp-wide, not just for the purged camper. A Host that purges a camper loses its
-//      credential-minting key in the same stroke and must re-establish device identity afterward.
-//      rebuildIntoFreshDb's own NOT_RECOVERABLE_NOTICE already documents this for disaster-recovery
-//      callers; purgeCamperRecord's return value relays it (notRecoverable/before/after below) so
-//      no caller can miss it, and SECURITY.md states it plainly rather than only inheriting it.
-//      Preserving/re-establishing keys across a purge is explicitly out of scope here — tracked as
-//      a follow-up ticket, not attempted in this slice.
+//      location_word_decisions, declined_two_row_splits, plus camps.signing_secret) is wiped along
+//      with it, camp-wide, not just for the purged camper. That collateral is an accepted tradeoff.
+//   5b. PRESERVE THIS DEVICE'S SIGNING/IDENTITY KEYS across the rebuild (T202 follow-up). The three
+//      load-bearing device-identity artifacts — host_signing_key, device_identity_key, and
+//      camps.signing_public_key — are read out of the pre-rebuild db (step 3's oldDb) and written
+//      back into the freshly-rebuilt db, byte-identical, so a purge no longer silently strips a live
+//      Host of its ability to mint credentials or changes this device's stable libp2p PeerId. A
+//      purge is not a "device lost/reset" event (the machine stays alive and stays Host), so the
+//      KEY_RECOVERY_STORY "re-establish identity" answer does not apply. See hostKeyPreservation.js
+//      for the full rationale, scope (exactly these three — signing_secret and rendezvous_sequence
+//      are deliberately NOT preserved), and the documented app-must-be-stopped precondition. Restore
+//      happens BEFORE the step-6 shred (see FIX3 below), and purgeCamperRecord returns its own
+//      PURGE_NOT_RECOVERABLE_NOTICE (the rebuild's NOT_RECOVERABLE_NOTICE is now wrong for a purge:
+//      it says the keys must be re-established, which is exactly what 5b reverses).
 //   6. Shred EVERY `*.pre-migration-*.bak` for this dbPath — the step that otherwise silently
 //      defeats the whole procedure (D10). This shred is PURGE-ONLY: it must never run from
 //      rebuildSupportCommand.js's own rebuild, or from localDb.js/sqliteCipher.js's migration and
@@ -58,6 +63,10 @@
 // `operations` table (only emptied by the LAST step, the rebuild) still carries rows for entityId,
 // so the "no camper row AND no operations history" guard does not fire until the purge has
 // genuinely finished — at which point refusing a second run is the correct behavior, not a bug.
+// EXCEPTION (5b/FIX3): the one window auto-recovery does NOT cover is after the rebuild completes
+// but before key-restore finishes — by then operations is already emptied, so a re-run hits the
+// FIX4 refusal. That window is instead covered by ordering restore before the shred, so the
+// pre-migration backup (still holding the original keys) survives as a manual recovery source.
 //
 // Not reliable for OTHER devices: nothing here changes the app-wide Automerge genesis, so a stale,
 // already-paired peer still shares genesis with the purged device and an ordinary sync merge can
@@ -74,6 +83,11 @@ import {
   RebuildRefusalError,
   UNDECRYPTABLE_NOTICE,
 } from './rebuildSupportCommand.js'
+import {
+  readPreservableKeys,
+  restorePreservableKeys,
+  PURGE_NOT_RECOVERABLE_NOTICE,
+} from './hostKeyPreservation.js'
 
 // Same glob-by-basename approach rotatePreResolveBackups (electron/db/projectManager.js) uses for
 // its own `*.pre-resolve-*.sqlite` family — writePreMigrationBackup's own files are otherwise NEVER
@@ -105,6 +119,7 @@ function shredPreMigrationBackups(dbPath) {
 export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = null, entityId }) {
   let campId
   let removed
+  let preservedKeys
   const oldDb = openLocalDb(dbPath, { key })
   try {
     const campRow = oldDb.prepare('SELECT id FROM camps LIMIT 1').get()
@@ -137,6 +152,11 @@ export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = nu
           "module's header) — refusing to run it for an id that has nothing to purge."
       )
     }
+
+    // 5b: capture this device's signing/identity keys BEFORE the rebuild destroys them. Read-only,
+    // and the purge transaction below never touches these tables, so capturing here (before it) sees
+    // exactly the keys the pre-purge device held. Absent rows come back null and are skipped later.
+    preservedKeys = readPreservableKeys(oldDb)
 
     // FIX1: deletes + document regeneration + genesis check all inside ONE transaction, so a
     // failure anywhere in this block rolls the deletes back — no split between "SQLite purged" and
@@ -172,18 +192,30 @@ export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = nu
   // other pre-migration backup for this dbPath.
   const rebuildResult = rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, cipher, key })
 
+  // 5b: write the preserved keys back into the freshly-rebuilt db, BEFORE the step-6 shred.
+  // FIX3 — ORDERING IS LOAD-BEARING: the pre-migration backup rebuild just wrote (and which the
+  // shred below deletes) still holds the ORIGINAL keys, because it was copied from the pre-rebuild
+  // db. Restoring before shredding means a crash in the narrow window between rebuild-finish and
+  // restore-finish leaves that backup as a manual recovery source for the keys. This is the one
+  // crash window the IDEMPOTENCY note below cannot auto-recover: once the rebuild has completed the
+  // camper row and its operations history are gone, so a re-run hits the FIX4 refusal — an accepted,
+  // bounded regression, recoverable by hand from the still-present backup rather than silently.
+  const keysRestored = restorePreservableKeys({ dbPath, key, preservedKeys, openLocalDb })
+
   const backupsRemoved = shredPreMigrationBackups(dbPath)
 
   return {
     campId,
     entityId,
     removed,
+    keysRestored,
     backupsRemoved,
     docPath: rebuildResult.docPath,
-    // FIX2: relay the rebuild's own disaster-recovery warning rather than dropping it — this purge
-    // IS that whole-device rebuild, run for a new purpose, and callers must see the same collateral
-    // notice a disaster-recovery caller would.
-    notRecoverable: rebuildResult.notRecoverable,
+    // FIX2 + 5b: purgeCamperRecord issues its OWN not-recoverable notice rather than relaying the
+    // rebuild's NOT_RECOVERABLE_NOTICE, which is now wrong for a purge — it says the signing keys
+    // "come back empty and must be re-established", the exact behavior 5b reverses. This notice
+    // states what a purge truly does not recover (the operations ledger) and that the keys survive.
+    notRecoverable: PURGE_NOT_RECOVERABLE_NOTICE,
     before: rebuildResult.before,
     after: rebuildResult.after,
   }
