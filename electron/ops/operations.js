@@ -587,6 +587,14 @@ export const UNIQUE_FIELD_ENTITIES = {
   // multipattern-split.md), which mints new activity rows (e.g. "Swim (rec)")
   // two devices could both create.
   activities: { table: 'activities', field: 'name', scopeColumn: 'camp_id' },
+  // days_of_operation has UNIQUE(camp_id, day_of_week) as of T205. Registered
+  // so a genuinely-concurrent cross-device collision on the same weekday with
+  // DIFFERENT ids (the Host-seed-races-invite onboarding race — deterministic
+  // ids close the SAME-id case structurally, this closes the different-id
+  // case) becomes a typed, director-resolvable conflict instead of a raw
+  // SQLITE_CONSTRAINT_UNIQUE thrown deep inside a shared projection
+  // transaction. See docs/work/tickets/T205-days-of-operation-uniqueness-and-dedup-migration.md.
+  days_of_operation: { table: 'days_of_operation', field: 'day_of_week', scopeColumn: 'camp_id' },
 }
 
 // Returns the colliding row's current { id, ...fields } if `op` would

@@ -23,6 +23,8 @@ import { resolveImportedPlacements } from '../electron/ops/resolveImportedPlacem
 import { deriveScheduleTemplateId } from '../electron/ops/scheduleTemplateId.js'
 import { hasContradictoryRanks } from './ingest/preferenceSheet.js'
 
+import { parseDayOfWeek } from '../electron/ops/dayId.js'
+
 const STORE_KEY = 'shoresh-mock-state'
 
 // Transcribed from electron/ops/ingest.js (NAME_COLUMN / COHORT_SCOPED /
@@ -238,6 +240,7 @@ const UNIQUE_KEYS = {
   special_days: ['camp_id', 'name'],
   elective_sets: ['camp_id', 'name'],
   events: ['camp_id', 'name'],
+  days_of_operation: ['camp_id', 'day_of_week'],
 }
 
 // Mirrors electron/ops/operations.js's UNIQUE_FIELD_ENTITIES exactly (D2,
@@ -594,11 +597,17 @@ export const mockShoresh = {
     // exists.
     const uniqueKey = UNIQUE_KEYS[entity]
     const isNew = idx === -1
+    // T205: mirror electron/ops/projections.js's days_of_operation.ensureExists
+    // — stamp day_of_week at row-creation time when entity_id is a
+    // deterministic day id, so the mock's UNIQUE(camp_id, day_of_week)
+    // emulation is complete from the first write, exactly like camp_id above.
+    // A non-deterministic (legacy) id yields null here, same as the real path.
     const base = isNew
       ? {
           id: entity_id,
           ...(SCHEMA_DEFAULTS[entity] ?? {}),
           ...(uniqueKey?.includes('camp_id') && state.camp ? { camp_id: state.camp.id } : {}),
+          ...(entity === 'days_of_operation' ? { day_of_week: parseDayOfWeek(entity_id) } : {}),
         }
       : rows[idx]
     const candidate = { ...base, [field]: coerceIntegerAffinity(entity, field, value) }

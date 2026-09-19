@@ -13,6 +13,8 @@ import {
   SCHEMA_ONLY_MIGRATIONS,
   isDomainStateMigration,
   domainStateMigrationsIn,
+  unresolvedDomainStateMigrations,
+  shouldRefuseSyncForDomainMigration,
 } from './migrationDomainState.js'
 
 describe('every migration is classified', () => {
@@ -48,20 +50,24 @@ describe('the span query the startup guard asks', () => {
   it('reports only migrations inside (from, to]', () => {
     expect(domainStateMigrationsIn(11, 12)).toEqual([12])
     expect(domainStateMigrationsIn(12, 12)).toEqual([])
-    expect(domainStateMigrationsIn(32, CURRENT_SCHEMA_VERSION)).toEqual([])
+    expect(domainStateMigrationsIn(32, CURRENT_SCHEMA_VERSION)).toEqual([70])
   })
 
   it('a fresh database (from 0) reports every one of them — and has no document by definition', () => {
     expect(domainStateMigrationsIn(0, CURRENT_SCHEMA_VERSION)).toEqual([...DOMAIN_STATE_MIGRATIONS.keys()].sort((a, b) => a - b))
   })
 
-  it('THE PROPERTY THAT MAKES THIS UNREACHABLE TODAY: nothing above v52 changes domain state', () => {
-    // A database that has ever produced a .automerge file has run a build from
-    // the document era, so it is at v57 or higher. If this ever fails, the guard
-    // in main.js has stopped being theoretical and the migration needs to write
-    // through the document instead.
+  it('T205: v70 is the FIRST domain-state migration above v52 — made reachable on purpose', () => {
+    // Until T205, nothing above v52 changed domain state, so main.js's
+    // sync-start guard was provably unreachable (a database with a document is
+    // already at v57+). v70 (days_of_operation dedupe) is the first migration
+    // to actually run against real data above that line, which is exactly why
+    // T205 hardened the guard to be durable across restarts
+    // (domain_state_migration_pending) instead of leaving it as the
+    // one-launch-only WeakMap span. A future migration in this set must get
+    // the SAME durable-marker treatment, not just a classification entry.
     const aboveDocumentEra = [...DOMAIN_STATE_MIGRATIONS.keys()].filter((v) => v > 52)
-    expect(aboveDocumentEra).toEqual([])
+    expect(aboveDocumentEra).toEqual([70])
   })
 
   it('isDomainStateMigration agrees with the map', () => {
@@ -140,5 +146,39 @@ describe('the startup guard fires on the span, not on the schema version', () =>
     // domain-state migration at vN, and a camp with a document is opened by it.
     // Simulated here with a historical one, since none above v52 exists (yet).
     expect(domainStateMigrationsIn(30, 33)).toEqual([32])
+  })
+})
+
+describe('T205 part D: durable domain-state refusal', () => {
+  it('unresolvedDomainStateMigrations reads rows with resolved_at IS NULL', () => {
+    const db = { prepare: () => ({ all: () => [{ version: 70, detail: 'x', created_at: 't' }] }) }
+    expect(unresolvedDomainStateMigrations(db)).toEqual([{ version: 70, detail: 'x', created_at: 't' }])
+  })
+
+  it('shouldRefuseSyncForDomainMigration: never refuses when no document exists', () => {
+    expect(
+      shouldRefuseSyncForDomainMigration({ docExists: false, riskyThisLaunch: [70], unresolvedMarkers: [{ version: 70 }] })
+    ).toBe(false)
+  })
+
+  it('shouldRefuseSyncForDomainMigration: refuses on THIS launch\'s own risky span (existing behavior)', () => {
+    expect(
+      shouldRefuseSyncForDomainMigration({ docExists: true, riskyThisLaunch: [70], unresolvedMarkers: [] })
+    ).toBe(true)
+  })
+
+  // THE ONE-LAUNCH-ONLY DEFECT'S FIX: a SECOND launch (fresh process, empty
+  // WeakMap) reports NOTHING risky for its own span (from === to), but the
+  // durable marker from the FIRST launch is still unresolved — must still refuse.
+  it('shouldRefuseSyncForDomainMigration: refuses on a SECOND launch via the durable marker alone, even with an empty per-launch span', () => {
+    expect(
+      shouldRefuseSyncForDomainMigration({ docExists: true, riskyThisLaunch: [], unresolvedMarkers: [{ version: 70 }] })
+    ).toBe(true)
+  })
+
+  it('shouldRefuseSyncForDomainMigration: does not refuse when nothing is risky and nothing is pending', () => {
+    expect(
+      shouldRefuseSyncForDomainMigration({ docExists: true, riskyThisLaunch: [], unresolvedMarkers: [] })
+    ).toBe(false)
   })
 })

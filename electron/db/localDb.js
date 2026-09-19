@@ -24,7 +24,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
 // v67 (T162, device_identity_key), v68 (T195, elective_set_activities.status), and v69 (T210,
 // rendezvous_sequence) all land in this file; 69 is the current version.
-export const CURRENT_SCHEMA_VERSION = 69
+export const CURRENT_SCHEMA_VERSION = 70
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -2874,6 +2874,137 @@ const DEVICE_HEALTH_EVENTS_DDL = `
       )
     `)
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (69, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v70 (T205) — days_of_operation UNIQUE(camp_id, day_of_week), re-derived
+  // after round 1 (T203) failed review four ways. See
+  // docs/work/tickets/T205-days-of-operation-uniqueness-and-dedup-migration.md
+  // and docs/adr/2026-09-17-bounded-write-timeout-and-days-of-operation-uniqueness.md
+  // Amendment 3.
+  //
+  // Verified premise: duplicate days_of_operation rows arise from ORDINARY
+  // multi-device onboarding (a Host's un-awaited seedDays racing an immediate
+  // second-device invite on a brand-new camp), not only from a hang — so this
+  // dedupe branch is a routine path, not dead code, and correctness here
+  // matters for real camps.
+  //
+  // Candidate set MUST include day_of_week IS NULL rows (round 1's `WHERE
+  // day_of_week IS NOT NULL` filter is exactly why it never saw the torn
+  // NULL-day rows defect 1 produces — a row whose day_of_week field write
+  // collided and was rejected, leaving camp_id/label materialized and
+  // day_of_week permanently NULL). Each is healed onto its weekday (derived
+  // from `label`, which the torn write DID succeed in setting) when no other
+  // complete row already holds that weekday, or repointed-then-removed as a
+  // loser when one does — the SAME determination (label match) drives both
+  // branches; only which decision it feeds differs.
+  //
+  // Referencer columns repointed, enumerated by what they HOLD (not by
+  // `REFERENCES` — template_slots.day_id and elective_occurrences.day_id
+  // declare no FK at all, which is exactly how round 1 missed
+  // template_slots.day_id and orphaned live schedule data):
+  //   template_slots.day_id (no FK), anchor_activities.day_id (FK),
+  //   elective_sets.day_id (FK), elective_occurrences.day_id (no FK).
+  //
+  // Survivor PKs are NOT re-keyed (bounded-challenge decision, Amendment 3):
+  // the synchronous join path plus seedDays' weekday-match protect existing
+  // camps, and a brand-new camp's rows are deterministic by construction
+  // (electron/ops/dayId.js) — re-keying would force a second repoint pass for
+  // no correctness benefit.
+  //
+  // Domain-state (T205 part D): this is the FIRST domain-state migration
+  // above v52 (see electron/db/migrationDomainState.js) to actually run
+  // against real data — it edits/deletes modeled rows. When it deletes ANY
+  // row, it durably records that fact in domain_state_migration_pending so
+  // main.js's sync-start guard keeps refusing to sync ACROSS RESTARTS, not
+  // just for the launch that ran the migration (the WeakMap-based
+  // migrationSpans only covers that one launch — see migrationDomainState.js's
+  // header and main.js's guard). No auto-repair: resolving this marker is a
+  // future ticket's job, done by republishing the reconciled state through
+  // the document.
+  if (getSchemaVersion(db) >= 69 && getSchemaVersion(db) < 70) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS domain_state_migration_pending (
+          version INTEGER PRIMARY KEY,
+          detail TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          resolved_at TEXT
+        )
+      `)
+
+      const repointDayReferencers = (fromId, toId) => {
+        db.prepare('UPDATE template_slots SET day_id = ? WHERE day_id = ?').run(toId, fromId)
+        db.prepare('UPDATE anchor_activities SET day_id = ? WHERE day_id = ?').run(toId, fromId)
+        db.prepare('UPDATE elective_sets SET day_id = ? WHERE day_id = ?').run(toId, fromId)
+        db.prepare('UPDATE elective_occurrences SET day_id = ? WHERE day_id = ?').run(toId, fromId)
+      }
+
+      const LABEL_TO_DOW = { Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5 }
+      let deletedCount = 0
+
+      // Heal-or-lose every NULL-day orphan BEFORE the standard dedupe below,
+      // so a healed row participates in it like any other complete row.
+      const nullDayRows = db
+        .prepare('SELECT id, camp_id, label FROM days_of_operation WHERE day_of_week IS NULL')
+        .all()
+      for (const row of nullDayRows) {
+        const derivedDow = LABEL_TO_DOW[row.label]
+        if (derivedDow == null) continue // not determinable — leave the NULL as-is, never fabricate
+
+        const survivor = db
+          .prepare('SELECT id FROM days_of_operation WHERE camp_id = ? AND day_of_week = ? AND id != ?')
+          .get(row.camp_id, derivedDow, row.id)
+
+        if (survivor) {
+          repointDayReferencers(row.id, survivor.id)
+          db.prepare('DELETE FROM days_of_operation WHERE id = ?').run(row.id)
+          deletedCount++
+        } else {
+          db.prepare('UPDATE days_of_operation SET day_of_week = ? WHERE id = ?').run(derivedDow, row.id)
+        }
+      }
+
+      // Standard MIN(rowid)-survivor dedupe (idx_cohorts_camp_name / idx_groups_camp_name
+      // precedent), now that every determinable row has a non-NULL day_of_week.
+      const survivors = db
+        .prepare(
+          `SELECT camp_id, day_of_week, MIN(rowid) as keep_rowid
+           FROM days_of_operation WHERE day_of_week IS NOT NULL
+           GROUP BY camp_id, day_of_week HAVING COUNT(*) > 1`
+        )
+        .all()
+
+      for (const { camp_id, day_of_week, keep_rowid } of survivors) {
+        const keepRow = db.prepare('SELECT id FROM days_of_operation WHERE rowid = ?').get(keep_rowid)
+        const dupes = db
+          .prepare('SELECT id FROM days_of_operation WHERE camp_id = ? AND day_of_week = ? AND rowid != ?')
+          .all(camp_id, day_of_week, keep_rowid)
+
+        for (const { id: dupeId } of dupes) {
+          repointDayReferencers(dupeId, keepRow.id)
+          db.prepare('DELETE FROM days_of_operation WHERE id = ?').run(dupeId)
+          deletedCount++
+        }
+      }
+
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_days_of_operation_camp_day ON days_of_operation(camp_id, day_of_week)'
+      )
+
+      if (deletedCount > 0) {
+        db.prepare(
+          `INSERT OR IGNORE INTO domain_state_migration_pending (version, detail, created_at)
+           VALUES (70, ?, ?)`
+        ).run(
+          `days_of_operation dedupe deleted ${deletedCount} duplicate row(s) and repointed their referencers`,
+          new Date().toISOString()
+        )
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (70, ?)').run(
       new Date().toISOString()
     )
   }

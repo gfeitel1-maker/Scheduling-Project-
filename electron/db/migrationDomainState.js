@@ -54,6 +54,7 @@ export const DOMAIN_STATE_MIGRATIONS = new Map([
   [26, 'retires orphan template_slots rows'],
   [27, 'backfills schedule_templates.week_id from the camp default week'],
   [32, 'backfillLocations — mints locations rows and sets activities.location_id'],
+  [70, 'days_of_operation de-duplication re-points template_slots/anchor_activities/elective_sets/elective_occurrences.day_id (T205)'],
 ])
 
 // DELIBERATELY NOT IN THE SET ABOVE, though they do run UPDATE against a table
@@ -142,6 +143,10 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // exclusion class as device_identity_key/host_signing_key). Schema-only: it touches no table
   // the document models, and no existing row's meaning changes.
   69,
+  // v70 is DELIBERATELY NOT here — see DOMAIN_STATE_MIGRATIONS above. It is
+  // the FIRST domain-state migration above v52 to actually be reachable
+  // (T205), and durably records that fact via domain_state_migration_pending
+  // so a plain restart cannot silently re-enable sync past it.
 ])
 
 /** True if applying `version` can change what the camp means. */
@@ -160,4 +165,30 @@ export function domainStateMigrationsIn(from, to) {
     if (version > from && version <= to) out.push(version)
   }
   return out.sort((a, b) => a - b)
+}
+
+// T205 part D: the per-process migrationSpans WeakMap only reports a span for
+// the launch that actually RAN a migration — on the NEXT launch (any process,
+// any restart), `from === to` and domainStateMigrationsIn returns [], even
+// though the risk this guard exists for has not gone away. This reads a
+// DURABLE record instead: a domain-state migration that actually changed rows
+// (see localDb.js's v70 block, the first to populate this table) inserts a
+// row into domain_state_migration_pending, and it stays there — deliberately,
+// per this file's "WHY NOT AUTO-REPAIR" — until something resolves it by
+// republishing the reconciled state through the document.
+export function unresolvedDomainStateMigrations(db) {
+  return db
+    .prepare('SELECT version, detail, created_at FROM domain_state_migration_pending WHERE resolved_at IS NULL')
+    .all()
+}
+
+// The single decision main.js's sync-start guard makes, pulled out so it can
+// be unit-tested without booting Electron or a real document. Refuse to start
+// sync when EITHER signal says a domain-state migration has run against a
+// camp that already has a document: the per-launch span (migrationSpanFor,
+// for the launch that ran it) OR the durable marker (unresolvedDomainStateMigrations,
+// for every launch after — the fix for the one-launch-only defect).
+export function shouldRefuseSyncForDomainMigration({ docExists, riskyThisLaunch = [], unresolvedMarkers = [] }) {
+  if (!docExists) return false
+  return riskyThisLaunch.length > 0 || unresolvedMarkers.length > 0
 }

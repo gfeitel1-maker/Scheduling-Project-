@@ -202,3 +202,75 @@ Every other caller is unaffected: the per-caller enumeration above — independe
 ### Why decision 3 was removed rather than fixed in place
 
 Round 1's review panel established that decision 3 as designed does **not** close the hazard it was added for, and that its migration carries a live data-loss defect. The details, and the unverified premise that now governs whether the migration's delete branch is routine or exceptional, belong to T205. The short version: `days_of_operation.ensureExists` leaves `day_of_week` NULL at row creation, and SQLite treats NULLs as distinct, so the constraint never fires where it was supposed to. The index as specified above would not have delivered the safety this ADR claimed for it — which is the substantive reason to re-derive it rather than port it forward.
+
+## Amendment 3 (2026-09-18) — T205 ships: premise verified TRUE, re-derived design, decision 3 lands
+
+**Premise verdict: TRUE.** T205's §1 required checking, not assuming, whether duplicate
+`days_of_operation` rows arise only from the bounded-timeout race Amendment 2 described, or from
+ordinary multi-device onboarding. It is the latter, and the mechanism is different from the one this
+ADR originally analyzed: a **Host's un-awaited `seedDays` call racing an immediate second-device
+invite on a brand-new camp**. The join path itself is safe (a joining device's `waitForCamp` →
+`onProjected` runs before its own `seedDays`), but nothing makes the Host's own mount-time `seedDays`
+call complete before a second device can be invited and start seeding independently. Two devices each
+minting `crypto.randomUUID()` for the same weekday on the same brand-new camp is therefore a **routine
+onboarding path**, not an exceptional one — the dedupe/repoint migration below runs against real
+director data on real machines, and getting it wrong is live data loss, not a theoretical edge case.
+
+### The re-derived design (not a port of decision 3 as originally specified)
+
+Four parts, closing the four defects T205 §3 catalogued in round 1's implementation:
+
+1. **Prevention, structurally.** `electron/ops/dayId.js` adds `deriveDayId(campId, dayOfWeek)`, the
+   same deterministic-id pattern as `scheduleTemplateId.js`/`locationId.js`. `seedDays` now mints this
+   id (instead of `crypto.randomUUID()`) when creating a weekday row that doesn't exist locally. Two
+   devices racing the SAME brand-new camp now mint the SAME id, so the Automerge record they each write
+   converges to one row instead of forking into two — closing the race at its source rather than only
+   cleaning up after it. `projections.js`'s `days_of_operation.ensureExists` was also changed to stamp
+   `day_of_week` (parsed back out of a deterministic id) in the SAME insert as `camp_id`/`label` —
+   closing defect 1, the NULL-at-creation window that made the constraint inert. A non-deterministic
+   (legacy, pre-T205) id falls back to the old NULL behavior rather than throwing.
+2. **Typed conflict registration.** `days_of_operation` is now registered in `UNIQUE_FIELD_ENTITIES`
+   (`electron/ops/operations.js`), `day_of_week` scoped by `camp_id` — closing defect 2. A genuinely-
+   concurrent collision between two DIFFERENT ids (a pre-T205 legacy row racing a fresh one, or two
+   legacy rows) becomes a typed, director-resolvable conflict instead of an unhandled
+   `SQLITE_CONSTRAINT_UNIQUE`. This also required updating the two registries T115 keeps in lockstep
+   with `UNIQUE_FIELD_ENTITIES` — `src/data/setupCrudRepository.js`'s `UNIQUE_FIRST_FIELD` and
+   `src/ingest/buildPlan.js`'s field-write order for `days_of_operation` creates — and, while doing so,
+   fixing a second latent bug the new constraint surfaced: `buildPlan.js`'s fallback for an
+   unrecognized day label used the raw import-array index as `day_of_week`, which could collide with a
+   REAL weekday (1-5) already on the camp. The fallback is now `-1 - index`, staying outside the
+   weekday range.
+3. **Migration v70 dedupe, no PK re-keying.** Schema v70 adds `UNIQUE(camp_id, day_of_week)` and
+   dedupes existing rows, keeping `MIN(rowid)` as survivor — the `idx_cohorts_camp_name`/
+   `idx_groups_camp_name` precedent. Its candidate set explicitly **includes `day_of_week IS NULL`**
+   rows (round 1's defect 1 blind spot): each is healed onto its label-derived weekday when no
+   complete row already claims it, or repointed-then-removed as a loser when one does. Every
+   `day_id`-HOLDING column is repointed before a loser is deleted, enumerated by content rather than by
+   `REFERENCES` declaration — `template_slots.day_id` and `elective_occurrences.day_id` declare no FK
+   at all, which is exactly how round 1's three separate grep-based enumerations missed
+   `template_slots.day_id` and silently orphaned live schedule data (defect 3). **Survivor primary keys
+   are NOT re-keyed** — a bounded Governor challenge concluded re-keying is unnecessary: the
+   synchronous join path plus `seedDays`' weekday-match protect existing camps from ever needing it,
+   and a brand-new camp's rows are deterministic by construction (part 1 above), so re-keying would
+   force a second repoint pass for no correctness benefit.
+4. **Durable domain-state refusal, not auto-repair (defect 4).** v70 is the first domain-state
+   migration above v52 (`electron/db/migrationDomainState.js`) to actually be reachable and run against
+   real data. The existing guard (`main.js`) was **one-launch-only**: it read a per-process `WeakMap`
+   span that only ever describes the launch that ran a migration, so a plain restart made
+   `domainStateMigrationsIn` report nothing risky and silently re-armed sync against a document that
+   still held the rows the migration deleted — `projectAll`'s delete-reconcile would have resurrected
+   them. This is now closed with a durable marker: when v70 actually deletes a row, it inserts into a
+   new `domain_state_migration_pending` table (version, detail, created_at, resolved_at). `main.js`'s
+   guard now refuses to start sync when EITHER the current launch's span is risky OR an unresolved
+   marker exists — so a second, third, or Nth launch still refuses. **No auto-repair**: nothing in this
+   ticket clears `resolved_at`. The eventual repair is a future ticket's job — republish the reconciled
+   post-migration state through the document (the only mechanism that can distinguish "the document is
+   stale" from "the document correctly still has a tombstone SQLite doesn't"), then mark the marker
+   resolved. Until then the device keeps working locally (local-first's whole point) but will not
+   exchange state it might be about to lose.
+
+### Owner-decision check
+
+No row this migration would delete represents data a camp genuinely needs: every candidate is either
+an exact-duplicate weekday row (a repeat mint of "Monday") or a torn NULL-day orphan produced by a
+write that never completed successfully in the first place. Nothing here required stopping to ask.

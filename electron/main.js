@@ -44,7 +44,7 @@ import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
-import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn } from './db/migrationDomainState.js'
+import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn, unresolvedDomainStateMigrations, shouldRefuseSyncForDomainMigration } from './db/migrationDomainState.js'
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
@@ -2830,28 +2830,42 @@ if (isElectronEntryPoint()) {
       // Unreachable today by construction — every domain-state migration is
       // below v52, and a database with a document is already at v57+ — which is
       // exactly why it is cheap to put the guard in before it is needed.
+      // T205 part D: TWO signals, not one. migrationSpanFor only reports the
+      // launch that actually RAN a migration (its WeakMap is per-process, so
+      // the next launch has from===to and reports nothing risky) — that was
+      // the one-launch-only defect: a plain restart silently re-enabled sync
+      // against a document that still held the rows a migration deleted.
+      // unresolvedDomainStateMigrations reads a DURABLE marker instead, so
+      // this refuses on every subsequent launch too, until something resolves
+      // it by republishing the reconciled state through the document (no
+      // auto-repair — see migrationDomainState.js's header).
       const migrationSpan = migrationSpanFor(db)
-      if (migrationSpan && fs.existsSync(automergeDocPath(userDataPath, campId))) {
-        const risky = domainStateMigrationsIn(migrationSpan.from, migrationSpan.to)
-        if (risky.length > 0) {
-          const detail = risky.map((v) => `v${v} (${DOMAIN_STATE_MIGRATIONS.get(v)})`).join('; ')
-          console.error(
-            `automerge sync: NOT starting. A domain-state migration ran on this launch against a camp ` +
-              `that already has a document: ${detail}. SQLite now holds camp meaning the document does not, ` +
-              `and projecting the document would undo it. See electron/db/migrationDomainState.js.`
-          )
-          recordAuditEvent(db, {
-            actorUserId: null,
-            deviceId: null,
-            action: 'sync.blocked_by_domain_migration',
-            targetType: 'document',
-            targetId: campId,
-            outcome: 'deny',
-            reason: detail,
-            metadata: { from: migrationSpan.from, to: migrationSpan.to, versions: risky },
-          })
-          return
-        }
+      const riskyThisLaunch = migrationSpan ? domainStateMigrationsIn(migrationSpan.from, migrationSpan.to) : []
+      const unresolvedMarkers = unresolvedDomainStateMigrations(db)
+      const docExists = fs.existsSync(automergeDocPath(userDataPath, campId))
+      if (shouldRefuseSyncForDomainMigration({ docExists, riskyThisLaunch, unresolvedMarkers })) {
+        const versions = [...new Set([...riskyThisLaunch, ...unresolvedMarkers.map((m) => m.version)])].sort(
+          (a, b) => a - b
+        )
+        const detail = versions
+          .map((v) => `v${v} (${DOMAIN_STATE_MIGRATIONS.get(v) ?? unresolvedMarkers.find((m) => m.version === v)?.detail})`)
+          .join('; ')
+        console.error(
+          `automerge sync: NOT starting. A domain-state migration ran against a camp that already has a ` +
+            `document (or is still unresolved from a prior launch): ${detail}. SQLite now holds camp meaning ` +
+            `the document does not, and projecting the document would undo it. See electron/db/migrationDomainState.js.`
+        )
+        recordAuditEvent(db, {
+          actorUserId: null,
+          deviceId: null,
+          action: 'sync.blocked_by_domain_migration',
+          targetType: 'document',
+          targetId: campId,
+          outcome: 'deny',
+          reason: detail,
+          metadata: { from: migrationSpan?.from ?? null, to: migrationSpan?.to ?? null, versions },
+        })
+        return
       }
 
       ensureAutomergeDocSeeded(db)
