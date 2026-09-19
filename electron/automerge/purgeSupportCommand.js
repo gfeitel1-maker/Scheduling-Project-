@@ -63,7 +63,9 @@
 // already-paired peer still shares genesis with the purged device and an ordinary sync merge can
 // reintroduce the purged history — see SECURITY.md and this file's own "known gap" test.
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { docPath as automergeDocPath, loadDoc as loadAutomergeDoc, saveDoc as saveAutomergeDoc } from '../sync/automerge/docStore.js'
 import { createEmptyDoc, sharesGenesis } from './campDocument.js'
@@ -72,15 +74,17 @@ import { signTombstone } from './tombstoneSignature.js'
 import { projectAll } from './projector.js'
 import {
   validateRebuildSource,
-  rebuildProjectionFromDocumentAtPath,
+  rebuildProjectionFromDocumentAtPathCore,
   RebuildRefusalError,
   UNDECRYPTABLE_NOTICE,
 } from './rebuildSupportCommand.js'
+import { acquireSupportCommandLock } from './supportCommandLock.js'
 
 // Same glob-by-basename approach rotatePreResolveBackups (electron/db/projectManager.js) uses for
 // its own `*.pre-resolve-*.sqlite` family — writePreMigrationBackup's own files are otherwise NEVER
-// pruned by anything (see SECURITY.md's "Known limitations" note this ticket adds).
-function shredPreMigrationBackups(dbPath) {
+// pruned by anything (see SECURITY.md's "Known limitations" note this ticket adds). Shared by
+// shredPreMigrationBackups and findRecoverableKeyBackup below, which both need the same listing.
+function listPreMigrationBackups(dbPath) {
   const dir = path.dirname(dbPath)
   const base = path.basename(dbPath)
   let entries
@@ -89,22 +93,100 @@ function shredPreMigrationBackups(dbPath) {
   } catch {
     return []
   }
+  return entries
+    .filter((name) => name.startsWith(`${base}.pre-migration-`) && name.endsWith('.bak'))
+    .map((name) => path.join(dir, name))
+}
+
+function shredPreMigrationBackups(dbPath) {
   const removed = []
-  for (const name of entries) {
-    if (name.startsWith(`${base}.pre-migration-`) && name.endsWith('.bak')) {
-      const fullPath = path.join(dir, name)
-      try {
-        fs.unlinkSync(fullPath)
-        removed.push(fullPath)
-      } catch {
-        /* disk race — best effort, same tolerance as rotatePreResolveBackups */
-      }
+  for (const fullPath of listPreMigrationBackups(dbPath)) {
+    try {
+      fs.unlinkSync(fullPath)
+      removed.push(fullPath)
+    } catch {
+      /* disk race — best effort, same tolerance as rotatePreResolveBackups */
     }
   }
   return removed
 }
 
-export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = null, entityId }) {
+// T233 round 2, finding 1: crash-safe key recovery from the pre-migration backup rebuild already
+// writes. rebuildProjectionFromDocumentAtPathCore backs up dbPath (which still has
+// host_signing_key/device_identity_key/camps.signing_secret intact) BEFORE it wipes and recreates
+// the file — so the intact key material sits on disk in that `.bak` throughout the exact window a
+// crash between the wipe and the in-memory key restore would otherwise destroy it permanently. Read
+// via a throwaway COPY of the backup (opened through the ordinary openLocalDb path, honoring the
+// same SQLite `key` this device uses) rather than the backup file itself, so nothing here mutates
+// or locks a file that still needs to survive until this purge's own final shred step.
+function findRecoverableKeyBackup(dbPath, { key }) {
+  // Newest-first: the ISO-timestamp suffix in each backup's name sorts lexicographically.
+  const backups = listPreMigrationBackups(dbPath).sort().reverse()
+  for (const backupPath of backups) {
+    const tmpCopy = path.join(os.tmpdir(), `shoresh-purge-key-recovery-${randomUUID()}.sqlite`)
+    try {
+      fs.copyFileSync(backupPath, tmpCopy)
+      const bakDb = openLocalDb(tmpCopy, { key })
+      try {
+        const hostSigningKeyRow = bakDb.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()
+        if (!hostSigningKeyRow) continue
+        const deviceIdentityKeyRow = bakDb.prepare('SELECT * FROM device_identity_key WHERE id = 1').get() || null
+        const campRow = bakDb.prepare('SELECT signing_secret, signing_public_key FROM camps LIMIT 1').get()
+        return {
+          hostSigningKeyRow,
+          deviceIdentityKeyRow,
+          campSigningRow: campRow || null,
+        }
+      } finally {
+        bakDb.close()
+      }
+    } catch {
+      continue // this backup is unreadable (undecryptable, corrupt) — try the next-newest
+    } finally {
+      for (const suffix of ['', '-wal', '-shm']) {
+        try { fs.unlinkSync(`${tmpCopy}${suffix}`) } catch { /* best-effort cleanup */ }
+      }
+    }
+  }
+  return null
+}
+
+// Shared by the crash-recovery path above (restoring into oldDb before the transaction) and the
+// post-rebuild restore below (restoring into restoreDb after rebuildProjectionFromDocumentAtPathCore
+// recreates the file) — identical INSERT OR REPLACE / UPDATE shape either way.
+function restoreKeyMaterial(db, { hostSigningKeyRow, deviceIdentityKeyRow, campSigningRow }, campId) {
+  if (hostSigningKeyRow) {
+    db.prepare(
+      'INSERT OR REPLACE INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)'
+    ).run(hostSigningKeyRow.public_key, hostSigningKeyRow.private_key, hostSigningKeyRow.created_at)
+  }
+  if (deviceIdentityKeyRow) {
+    db.prepare(
+      'INSERT OR REPLACE INTO device_identity_key (id, peer_id, private_key, created_at) VALUES (1, ?, ?, ?)'
+    ).run(deviceIdentityKeyRow.peer_id, deviceIdentityKeyRow.private_key, deviceIdentityKeyRow.created_at)
+  }
+  if (campSigningRow && campId) {
+    db.prepare('UPDATE camps SET signing_secret = ?, signing_public_key = ? WHERE id = ?')
+      .run(campSigningRow.signing_secret, campSigningRow.signing_public_key, campId)
+  }
+}
+
+// T233 round 2, finding 2: the LOCKED entry point. Acquires the machine-wide, dbPath-keyed
+// support-command lock (supportCommandLock.js, shared with rebuildSupportCommand.js) for this
+// purge's ENTIRE duration — including its internal call into the rebuild core below — so two
+// purges, or a purge racing an ordinary rebuild, on the same dbPath serialize rather than
+// interleave against the same SQLite file. See supportCommandLock.js for what this lock does and
+// does NOT cover (purge/rebuild vs each other, not vs the live app's hot sync path).
+export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = null, entityId, lockOptions }) {
+  const release = acquireSupportCommandLock(dbPath, lockOptions)
+  try {
+    return purgeCamperRecordLocked({ dbPath, userDataDir, cipher, key, entityId })
+  } finally {
+    release()
+  }
+}
+
+function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = null, entityId }) {
   let campId
   let removed
   let tombstone
@@ -119,7 +201,24 @@ export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = nu
     // erasure reach the fleet. A purge that "succeeds" locally without minting one reproduces the
     // exact reintroduction gap this ticket closes — refuse outright, before any mutation, rather
     // than silently purging this device alone.
-    const hostKeyExists = oldDb.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()
+    let hostKeyExists = oldDb.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()
+
+    // T233 round 2, finding 1: crash-safe recovery, tried BEFORE the Host-only refusal below — a
+    // crash between rebuildProjectionFromDocumentAtPathCore's wipe (which also wipes
+    // host_signing_key) and this function's own in-memory key restore would otherwise permanently
+    // destroy this device's only signing key AND make a recovery re-run trip the refusal below,
+    // bricking the Host. If a `.bak` written by that same rebuild before the wipe still holds the
+    // key, restore it into the live db first — this makes a crashed-mid-purge re-run recover the
+    // key, then proceed idempotently, exactly as the module header's "re-run to recover" guarantee
+    // promises. A genuine non-Host device (no key, no recoverable `.bak`) still falls through to
+    // the refusal unchanged.
+    if (!hostKeyExists) {
+      const recovered = findRecoverableKeyBackup(dbPath, { key })
+      if (recovered) {
+        restoreKeyMaterial(oldDb, recovered, oldDb.prepare('SELECT id FROM camps LIMIT 1').get()?.id)
+        hostKeyExists = oldDb.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()
+      }
+    }
     if (!hostKeyExists) {
       throw new RebuildRefusalError(
         'purgeCamperRecord: this device has no host_signing_key row — only the Host can mint the ' +
@@ -144,13 +243,23 @@ export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = nu
     // never touches the db or writes a backup, exactly like an ordinary rebuild refusal.
     ;({ campId } = validateRebuildSource(oldDb, doc))
 
+    // T233 round 2, finding 1 continued: now that the key (if recovered above) is present and
+    // campId is known, catch up any change gated on it — chiefly a tombstone this same purge
+    // minted before a crash, which the rebuild's own internal projectAll pass could not have
+    // applied without a signing key (see rebuildProjectionFromDocumentAtPathCore/upsertTombstonesEntity's
+    // keep-last-known no-key branch). Idempotent: reprojecting an already-consistent document is a
+    // no-op.
+    if (doc) projectAll(oldDb, doc)
+
     // FIX4: refuse a whole-device purge (see the blast-radius comment above) for an id that names
-    // nothing at all — a typo, or a camper already purged. Checked against BOTH the live
-    // projection and this device's operations history so a camper mid-recovery (see IDEMPOTENCY
-    // above) is never mistaken for one that never existed.
+    // nothing at all — a typo, or a camper already purged. Checked against the live projection,
+    // this device's operations history, AND its tombstones table (round 2, finding 1) so a camper
+    // recovered mid-crash-recovery — already fully purged except for the key-restore/shred tail
+    // end, evidenced by its own tombstone row — is never mistaken for an id that never existed.
     const camperExists = oldDb.prepare('SELECT 1 FROM campers WHERE id = ?').get(entityId)
     const hasOpHistory = oldDb.prepare('SELECT 1 FROM operations WHERE entity_id = ? LIMIT 1').get(entityId)
-    if (!camperExists && !hasOpHistory) {
+    const hasTombstone = oldDb.prepare('SELECT 1 FROM tombstones WHERE id = ?').get(entityId)
+    if (!camperExists && !hasOpHistory && !hasTombstone) {
       throw new RebuildRefusalError(
         `Refusing: no camper record or operations history exists for id ${entityId} on this ` +
           'device. This purge is a whole-device rebuild with real collateral cost (see this ' +
@@ -218,10 +327,12 @@ export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = nu
   }
 
   // Rebuild SQLite from the fresh, camper-free document — reuses the exact
-  // validate->backup->delete->recreate->project pipeline an ordinary rebuild uses. The backup it
-  // writes here (of the ALREADY-mutated db from the block above) is shredded below along with every
-  // other pre-migration backup for this dbPath.
-  const rebuildResult = rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, cipher, key })
+  // validate->backup->delete->recreate->project pipeline an ordinary rebuild uses. Calls the
+  // UNLOCKED core (round 2, finding 2) because this whole function already holds the
+  // support-command lock for its entire duration — calling the locked export here would deadlock
+  // against itself. The backup it writes here (of the ALREADY-mutated db from the block above) is
+  // shredded below along with every other pre-migration backup for this dbPath.
+  const rebuildResult = rebuildProjectionFromDocumentAtPathCore({ dbPath, userDataDir, cipher, key })
 
   // Restore the captured key material (purge-path only — rebuildSupportCommand.js's own
   // disaster-recovery rebuild keeps wiping keys, correctly, for THAT caller). Writing it back
@@ -229,26 +340,8 @@ export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = nu
   // path every other write to this db uses.
   const restoreDb = openLocalDb(dbPath, { key })
   try {
-    if (hostSigningKeyRow) {
-      restoreDb
-        .prepare(
-          'INSERT OR REPLACE INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)'
-        )
-        .run(hostSigningKeyRow.public_key, hostSigningKeyRow.private_key, hostSigningKeyRow.created_at)
-    }
-    if (deviceIdentityKeyRow) {
-      restoreDb
-        .prepare(
-          'INSERT OR REPLACE INTO device_identity_key (id, peer_id, private_key, created_at) VALUES (1, ?, ?, ?)'
-        )
-        .run(deviceIdentityKeyRow.peer_id, deviceIdentityKeyRow.private_key, deviceIdentityKeyRow.created_at)
-    }
-    if (campSigningRow) {
-      restoreDb
-        .prepare('UPDATE camps SET signing_secret = ?, signing_public_key = ? WHERE id = ?')
-        .run(campSigningRow.signing_secret, campSigningRow.signing_public_key, campId)
-    }
-    // Re-project: rebuildProjectionFromDocumentAtPath's own internal projectAll pass ran with NO
+    restoreKeyMaterial(restoreDb, { hostSigningKeyRow, deviceIdentityKeyRow, campSigningRow }, campId)
+    // Re-project: rebuildProjectionFromDocumentAtPathCore's own internal projectAll pass ran with NO
     // camps.signing_public_key yet (the key restore above happens strictly AFTER that rebuild, by
     // necessity — the rebuild deletes and recreates the db file), so upsertTombstonesEntity's
     // no-key branch would have SKIPPED applying the very tombstone this purge just minted (keep-

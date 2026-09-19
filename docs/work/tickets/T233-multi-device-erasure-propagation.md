@@ -10,12 +10,7 @@ related_adrs: [docs/adr/2026-09-19-multi-device-erasure-propagation.md, docs/adr
 related_tickets: [docs/work/tickets/T202-camper-record-purge-path.md]
 ---
 
-# T-NNN — Multi-device erasure propagation via signed purge tombstones
-
-> **Ticket number is a placeholder.** Do NOT assume `NNN`. This repo has a documented cross-worktree
-> ticket-number collision hazard: at creation time, scan **every** worktree and open PR for the next
-> free T-number and assign it in the same step, then rename this file. See the multi-session
-> coordination note in project memory.
+# T233 — Multi-device erasure propagation via signed purge tombstones
 
 ## Why
 
@@ -211,9 +206,42 @@ project's own "a new entity needs a decision everywhere" tripwires, working as d
 camp, same reasoning as `users`) and `electron/ops/restore.js`'s `RESTORE_DECISIONS` (refused — a
 signed permanent denylist entry must never be undoable by an ordinary trash/restore action).
 
-**Deviation from the brief:** none identified. S3's UI (director-facing per-peer erasure state) was
-deliberately not built, per the brief's own instruction that only the return-value honesty half of
-S3 is in scope here.
+**Deviation from the brief:** the ADR's own "Residual risks" section required a per-device
+purge/regen serialization lock ("A single per-device purge/regen serialization lock is required,
+with a test for two triggers inside one sync window"), and the S1+S2 implementation above shipped
+without one — the concurrency requirement was missed, not a considered trade-off. Round 2 review
+(Security + Red Hat + Code Reviewer) caught this and three other findings; round 2 closed them:
+
+1. **Crash-safe key recovery** (`purgeSupportCommand.js`): a crash between the rebuild's wipe of
+   `host_signing_key`/`device_identity_key`/`camps.signing_secret` and this function's in-memory
+   key restore could permanently destroy the Host's only signing key, and the Host-only refusal
+   added in S1 would then block the documented "re-run to recover" idempotent retry — bricking the
+   Host. Fixed by recovering the key material from the `*.pre-migration-*.bak` the rebuild itself
+   writes before wiping (when the live db has none), before evaluating the Host-only refusal.
+2. **Purge/rebuild serialization lock** (`supportCommandLock.js`, new): the ADR-required lock,
+   built as a machine-wide, dbPath-keyed advisory lock (modeled on `scripts/gateLock.js`'s
+   stale-pid-takeover design) that `purgeCamperRecord` holds for its whole duration and
+   `rebuildProjectionFromDocumentAtPath` also acquires, so purge-vs-purge and purge-vs-rebuild
+   serialize. Scope, stated explicitly: this does NOT make the app's hot projectAll/sync path
+   lock-aware — that would be a materially larger change to a hot path, out of scope for this
+   ticket. Purge-vs-live-app-sync is covered operationally: both purge and rebuild are offline
+   support commands a person runs deliberately (see `rebuildSupportCommand.js`'s own header), not
+   something that fires during normal app operation.
+3. **Denylist SQLite sweep** (`projector.js`): the per-row denylist check inside `upsertEntity`
+   reads `camper_id` from the DOCUMENT record, which can lag SQLite's own copy of the same row
+   (fields arrive one at a time) — a record whose id the doc already knows but whose `camper_id`
+   field hasn't landed yet slipped through undeleted even though SQLite's own column, written via
+   the per-field `applyProjection` hot path that never consults this denylist, already named the
+   tombstoned camper. Fixed with a direct `DELETE ... WHERE <idField> IN (...)` sweep against
+   SQLite's own columns, run after the per-row loop.
+4. **Bulk-replace/denylist disjointness guard** (`projector.js`): `upsertEntity` returns early for
+   a `BULK_REPLACE_MODELED_ENTITIES` entity, before the denylist gate ever runs — harmless today
+   (the two sets are disjoint) but unenforced. Added a module-load assertion that throws if they
+   ever overlap, plus a pinning test.
+
+S3's UI (director-facing per-peer erasure state) remains deliberately not built, per the brief's
+own instruction that only the return-value honesty half of S3 is in scope here — that part is
+unchanged from round 1.
 
 **Verification run (raw, this session):**
 - `tombstoneSignature.test.js`: 8/8 passed.
@@ -225,3 +253,13 @@ S3 is in scope here.
 - `npm run check:governance`: no findings.
 - `npm run lint`: 0 errors (26 pre-existing warnings, unrelated to this change).
 - `npm run test:integration`: 22/22 libp2p scenarios passed.
+
+**Round 2 verification run (raw):**
+- `supportCommandLock.test.js` (new): 3/3 passed.
+- `purgeSupportCommand.test.js`: 10/10 passed (8 existing + 2 new: crash-safe key recovery,
+  lock refusal).
+- `tombstoneProjection.test.js`: 7/7 passed (5 existing + 2 new: SQLite-side denylist sweep,
+  bulk-replace/denylist disjointness guard).
+- `npm test -- electron/automerge electron/db`: 80 files, 747 passed, 4 skipped (pre-existing).
+- `npm run lint`: 0 errors (26 pre-existing warnings, unrelated).
+- `npm run check:governance`: no findings.

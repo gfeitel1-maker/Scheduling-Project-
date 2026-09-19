@@ -358,10 +358,27 @@ function upsertTombstonesEntity(db, doc) {
 // entity's own row carries the camper id to check. `campers` is gated by its own `id`;
 // elective_preferences/elective_assignments are gated by their `camper_id` field — participant
 // data that must vanish along with the camper it describes (ADR "Design" section).
-const TOMBSTONE_DENYLISTED_ENTITIES = {
+export const TOMBSTONE_DENYLISTED_ENTITIES = {
   campers: { idField: 'id', tombstoneEntity: 'campers' },
   elective_preferences: { idField: 'camper_id', tombstoneEntity: 'campers' },
   elective_assignments: { idField: 'camper_id', tombstoneEntity: 'campers' },
+}
+
+// T233 round 2, finding 4: upsertEntity (below) returns early for a BULK_REPLACE_MODELED_ENTITIES
+// entity, BEFORE the denylist gate below ever runs — a future bulk-replace entity added to
+// TOMBSTONE_DENYLISTED_ENTITIES would silently bypass tombstone gating. No entity is in both sets
+// today (harmless), but nothing enforced that. Fail loudly at module load rather than let it drift
+// in silently.
+for (const entity of Object.keys(TOMBSTONE_DENYLISTED_ENTITIES)) {
+  if (BULK_REPLACE_MODELED_ENTITIES.has(entity)) {
+    throw new Error(
+      `projector.js: '${entity}' is in both TOMBSTONE_DENYLISTED_ENTITIES and ` +
+        'BULK_REPLACE_MODELED_ENTITIES. upsertEntity returns after the bulk-replace branch, ' +
+        'before the tombstone denylist gate runs (T233 round 2 finding 4) — a bulk-replace ' +
+        "entity would bypass tombstone gating entirely. This needs explicit projector support " +
+        'before it can be added to both lists.'
+    )
+  }
 }
 
 // Every id VERIFIED-and-projected into SQLite's `tombstones` table for one target entity type —
@@ -413,6 +430,19 @@ function upsertEntity(db, doc, entity, failures = null) {
       }
     }
     upsertRow(db, entity, id, row, fields, outstandingIds, failures)
+  }
+  // T233 round 2, finding 3: sweep SQLite directly, AFTER the doc-row loop above, for any row
+  // whose OWN SQLite column already names a tombstoned id. Run after (not instead of) the loop,
+  // because the loop's own upsertRow calls can otherwise resurrect exactly what this is meant to
+  // remove: a record whose id the doc already knows but whose camper_id field hasn't landed yet
+  // (fields arrive one at a time) has gateValue undefined above and is upserted from the doc's
+  // partial fields — even though its SQLite copy (written via the per-field applyProjection hot
+  // path, which never consults this denylist) already carries the real camper_id. Reading
+  // SQLite's own column here, after the loop, closes that window regardless of doc state.
+  if (denylist && tombstoned.size > 0) {
+    const column = denylist.idField
+    const placeholders = [...tombstoned].map(() => '?').join(',')
+    db.prepare(`DELETE FROM ${entity} WHERE ${column} IN (${placeholders})`).run(...tombstoned)
   }
 }
 

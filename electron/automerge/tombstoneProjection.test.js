@@ -10,8 +10,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { generateKeyPairSync } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
-import { createEmptyDoc, applyWrite } from './campDocument.js'
-import { projectAll } from './projector.js'
+import { createEmptyDoc, applyWrite, BULK_REPLACE_MODELED_ENTITIES } from './campDocument.js'
+import { projectAll, TOMBSTONE_DENYLISTED_ENTITIES } from './projector.js'
 import { signTombstone } from './tombstoneSignature.js'
 
 let files = []
@@ -132,6 +132,33 @@ describe('projector — tombstone admission gate (T233)', () => {
     expect(db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(assignId)).toBeUndefined()
   })
 
+  it('T233 round 2 finding 3: a doc-known record whose camper_id field has not yet arrived, but whose SQLite copy already has it, is still deleted for a tombstoned camper', () => {
+    installHostKey(db)
+    const camperId = 'camper-6'
+    const prefId = 'pref-partial'
+    // SQLite already holds the FULL row, as a genuine local write would produce (an app screen
+    // writes an entity's fields to SQLite via applyProjection's per-field hot path, which does
+    // NOT consult the tombstone denylist at all — only projectAll's upsertEntity does).
+    db.prepare('INSERT INTO elective_preferences (id, run_id, camper_id, rank) VALUES (?, ?, ?, ?)')
+      .run(prefId, 'run-x', camperId, 1)
+
+    let doc = createEmptyDoc()
+    doc = putCamper(doc, camperId)
+    // The doc DOES know this record's id (only run_id has landed) — camper_id has not arrived yet
+    // (fields arrive one at a time on the wire, same reasoning the tombstone fields above rely
+    // on). Before this fix, NEITHER existing mechanism caught this: the per-row denylist check
+    // reads row.camper_id from the DOC (undefined here, so the gate never fires), and
+    // deleteReconcileEntity's generic non-doc-row cleanup does not fire either, because the id IS
+    // a known doc record — only camper_id is missing. The row's camper_id in SQLITE is already
+    // set, though, which is exactly what the new denylist sweep reads instead of the doc.
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: prefId, field: 'run_id', value: 'run-x' })
+    doc = tombstoneDoc(doc, db, { id: camperId, entity: 'campers', version: 1 })
+
+    projectAll(db, doc)
+
+    expect(db.prepare('SELECT * FROM elective_preferences WHERE id = ?').get(prefId)).toBeUndefined()
+  })
+
   it('no signing key on this device: an unverifiable tombstone is skipped (keep-last-known), camper still projects', () => {
     // Deliberately no installHostKey(db) — camps.signing_public_key stays NULL.
     const camperId = 'camper-5'
@@ -145,5 +172,16 @@ describe('projector — tombstone admission gate (T233)', () => {
 
     expect(db.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeTruthy()
     expect(db.prepare('SELECT * FROM tombstones WHERE id = ?').get(camperId)).toBeUndefined()
+  })
+
+  it('T233 round 2 finding 4: no entity is ever both tombstone-denylisted and bulk-replace-modeled', () => {
+    // upsertEntity (projector.js) returns after the BULK_REPLACE_MODELED_ENTITIES branch, BEFORE
+    // the tombstone denylist gate runs — a future bulk-replace entity added to
+    // TOMBSTONE_DENYLISTED_ENTITIES would silently bypass tombstone gating. Today the sets are
+    // disjoint (harmless), but nothing enforced that. This pins the invariant so a silent
+    // regression fails a test instead of shipping a bypass.
+    for (const entity of Object.keys(TOMBSTONE_DENYLISTED_ENTITIES)) {
+      expect(BULK_REPLACE_MODELED_ENTITIES.has(entity)).toBe(false)
+    }
   })
 })

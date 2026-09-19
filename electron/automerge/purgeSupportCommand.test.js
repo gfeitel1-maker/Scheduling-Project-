@@ -18,8 +18,14 @@ import { seedAllFromSqlite } from './seed.js'
 import { saveDoc, loadDoc } from '../sync/automerge/docStore.js'
 import { sharesGenesis, recordKey } from './campDocument.js'
 import { projectAll } from './projector.js'
-import { rebuildProjectionFromDocumentAtPath, RebuildRefusalError } from './rebuildSupportCommand.js'
+import {
+  rebuildProjectionFromDocumentAtPath,
+  rebuildProjectionFromDocumentAtPathCore,
+  RebuildRefusalError,
+} from './rebuildSupportCommand.js'
 import { purgeCamperRecord } from './purgeSupportCommand.js'
+import { acquireSupportCommandLock } from './supportCommandLock.js'
+import { signTombstone } from './tombstoneSignature.js'
 
 // T233 (docs/adr/2026-09-19-multi-device-erasure-propagation.md): purgeCamperRecord is now
 // Host-only — it refuses to run at all without a host_signing_key row (see the new describe block
@@ -392,5 +398,115 @@ describe('purgeCamperRecord', () => {
     expect(verifyDb.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeTruthy()
     expect(verifyDb.prepare('SELECT * FROM tombstones WHERE id = ?').get(camperId)).toBeUndefined()
     verifyDb.close()
+  })
+
+  // T233 round 2, finding 1: a crash between rebuildProjectionFromDocumentAtPathCore's wipe (which
+  // destroys host_signing_key/device_identity_key/camps.signing_secret on the LIVE db) and
+  // purgeCamperRecord's own in-memory key restore must not permanently destroy the Host's signing
+  // key, and a re-run afterward must recover and complete rather than tripping the Host-only
+  // refusal (which would otherwise brick the Host — see the module header's "re-run to recover"
+  // guarantee).
+  it('T233 round 2 finding 1: recovers the signing key from a pre-migration backup after a simulated crash between rebuild and key restore, and completes on re-run', () => {
+    const { db, dbPath } = newDb('crash')
+    const campId = randomUUID()
+    const deviceId = 'device-1'
+    const camperId = randomUUID()
+    const prefId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId, camperId, groupId: randomUUID(),
+      prefId, runId: randomUUID(), choiceId: randomUUID(),
+    })
+    const { publicKeyHex } = installHostKey(db, campId)
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('crash')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    // Manually reproduce the state a real purge reaches right before it crashes: the transaction
+    // (deletes + signed tombstone insert + document regen) has committed and the fresh document has
+    // been saved, but the SQLite rebuild step is about to run. Then run ONLY that rebuild step
+    // directly (bypassing purgeCamperRecord) — this is the exact moment a real crash would land:
+    // AFTER rebuildProjectionFromDocumentAtPathCore has wiped host_signing_key (and written a
+    // `.pre-migration-*.bak` of the still-key-intact db beforehand) but BEFORE any key restore runs.
+    const preRebuildDb = openLocalDb(dbPath)
+    preRebuildDb.prepare('DELETE FROM elective_preferences WHERE camper_id = ?').run(camperId)
+    preRebuildDb.prepare('DELETE FROM campers WHERE id = ?').run(camperId)
+    const sig = signTombstone(preRebuildDb, { id: camperId, entity: 'campers', version: 1 })
+    preRebuildDb
+      .prepare('INSERT OR REPLACE INTO tombstones (id, entity, version, sig, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(camperId, 'campers', 1, sig, new Date().toISOString())
+    const freshDoc = seedAllFromSqlite(preRebuildDb, undefined)
+    preRebuildDb.close()
+    saveDoc(userDataDir, campId, freshDoc)
+
+    // The crash: run the rebuild core directly, then STOP — no key restore, exactly the window
+    // finding 1 describes. This also produces the `.bak` (of the just-mutated, still-key-intact db)
+    // that the recovery path must read.
+    rebuildProjectionFromDocumentAtPathCore({ dbPath, userDataDir })
+    expect(preMigrationBackups(dbPath).length).toBeGreaterThan(0)
+    const crashedDb = openLocalDb(dbPath)
+    expect(crashedDb.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()).toBeUndefined()
+    crashedDb.close()
+
+    // The re-run: purgeCamperRecord with the SAME entityId must NOT refuse — it must recover the
+    // key from the backup, then complete (finishing the key-restore/reproject/shred tail).
+    const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+    expect(result.campId).toBe(campId)
+
+    const verifyDb = openLocalDb(dbPath)
+    const restoredKey = verifyDb.prepare('SELECT public_key FROM host_signing_key WHERE id = 1').get()
+    expect(restoredKey).toBeTruthy()
+    expect(restoredKey.public_key).toBe(publicKeyHex)
+    expect(verifyDb.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeUndefined()
+    expect(verifyDb.prepare('SELECT id, entity, version FROM tombstones WHERE id = ?').get(camperId)).toEqual({
+      id: camperId, entity: 'campers', version: 1,
+    })
+    verifyDb.close()
+
+    // A genuine non-Host device — no key, and no recoverable backup at all — must still be refused.
+    const { db: freshNonHostDb, dbPath: freshNonHostPath } = newDb('crash-nonhost')
+    const freshCampId = randomUUID()
+    const freshCamperId = randomUUID()
+    buildCampWithCamper(freshNonHostDb, {
+      campId: freshCampId, deviceId: 'device-2', camperId: freshCamperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    const freshDoc2 = seedAllFromSqlite(freshNonHostDb)
+    const freshUserDataDir = newUserDataDir('crash-nonhost')
+    saveDoc(freshUserDataDir, freshCampId, freshDoc2)
+    freshNonHostDb.close()
+    expect(() => purgeCamperRecord({ dbPath: freshNonHostPath, userDataDir: freshUserDataDir, entityId: freshCamperId }))
+      .toThrow(/only the Host can mint/)
+  })
+
+  // T233 round 2, finding 2: a per-device purge/regen serialization lock. Two purge invocations
+  // against the same dbPath must not interleave — the second must either wait for the first or be
+  // refused deterministically, never run concurrently against the same file.
+  it('T233 round 2 finding 2: a second purge against the same dbPath while the lock is held is refused deterministically', () => {
+    const { db, dbPath } = newDb('lock')
+    const campId = randomUUID()
+    const camperId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId: 'device-1', camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    installHostKey(db, campId)
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('lock')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    // Hold the lock ourselves, simulating another purge/rebuild already in flight.
+    const release = acquireSupportCommandLock(dbPath)
+    try {
+      expect(() => purgeCamperRecord({ dbPath, userDataDir, entityId: camperId, lockOptions: { timeoutMs: 50, pollMs: 10 } }))
+        .toThrow(/another purge or rebuild is already running/)
+    } finally {
+      release()
+    }
+
+    // Once released, an ordinary purge proceeds normally.
+    const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+    expect(result.campId).toBe(campId)
   })
 })
