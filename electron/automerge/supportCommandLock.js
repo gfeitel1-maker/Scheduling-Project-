@@ -20,10 +20,16 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 
 function lockPathFor(dbPath) {
-  const key = dbPath.replace(/[^a-zA-Z0-9]/g, '_').slice(-120)
-  return path.join(os.tmpdir(), `shoresh-support-command-lock-${key}.lock`)
+  // Hash the FULL path (Red Hat round-2 finding): a plain last-120-chars slice collides for two
+  // distinct dbPaths that share a long trailing segment, which would let a purge/rebuild against
+  // one camp spuriously block another. A sha256 of the whole path is collision-safe; a short
+  // human-readable tail is appended only to make the lock file recognizable when debugging.
+  const digest = createHash('sha256').update(dbPath).digest('hex').slice(0, 32)
+  const tail = dbPath.replace(/[^a-zA-Z0-9]/g, '_').slice(-40)
+  return path.join(os.tmpdir(), `shoresh-support-command-lock-${digest}-${tail}.lock`)
 }
 
 function processAlive(pid) {

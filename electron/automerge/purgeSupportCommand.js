@@ -63,7 +63,6 @@
 // already-paired peer still shares genesis with the purged device and an ordinary sync merge can
 // reintroduce the purged history — see SECURITY.md and this file's own "known gap" test.
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
@@ -120,10 +119,26 @@ function shredPreMigrationBackups(dbPath) {
 // same SQLite `key` this device uses) rather than the backup file itself, so nothing here mutates
 // or locks a file that still needs to survive until this purge's own final shred step.
 function findRecoverableKeyBackup(dbPath, { key }) {
+  const dir = path.dirname(dbPath)
+  const base = path.basename(dbPath)
+  const RECOVERY_PREFIX = `${base}.purge-key-recovery-`
+  // The throwaway copy is written into the DB's OWN directory (Red Hat round-2 finding), NOT
+  // os.tmpdir(): when at-rest encryption is off the `.bak` is plaintext, and a copy in a
+  // world-readable system temp dir would be a materially wider exposure than the userData location
+  // this data already lives in. Co-locating it keeps the same trust boundary as the backups
+  // themselves. Also sweep any orphan left by a crash INSIDE the copy/open window on a prior run —
+  // the one path the per-iteration finally below cannot cover.
+  try {
+    for (const name of fs.readdirSync(dir)) {
+      if (name.startsWith(RECOVERY_PREFIX)) {
+        try { fs.unlinkSync(path.join(dir, name)) } catch { /* best-effort */ }
+      }
+    }
+  } catch { /* dir unreadable — nothing to sweep */ }
   // Newest-first: the ISO-timestamp suffix in each backup's name sorts lexicographically.
   const backups = listPreMigrationBackups(dbPath).sort().reverse()
   for (const backupPath of backups) {
-    const tmpCopy = path.join(os.tmpdir(), `shoresh-purge-key-recovery-${randomUUID()}.sqlite`)
+    const tmpCopy = path.join(dir, `${RECOVERY_PREFIX}${randomUUID()}.sqlite`)
     try {
       fs.copyFileSync(backupPath, tmpCopy)
       const bakDb = openLocalDb(tmpCopy, { key })
@@ -212,11 +227,13 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
     // key, then proceed idempotently, exactly as the module header's "re-run to recover" guarantee
     // promises. A genuine non-Host device (no key, no recoverable `.bak`) still falls through to
     // the refusal unchanged.
+    let didRecoverKeys = false
     if (!hostKeyExists) {
       const recovered = findRecoverableKeyBackup(dbPath, { key })
       if (recovered) {
         restoreKeyMaterial(oldDb, recovered, oldDb.prepare('SELECT id FROM camps LIMIT 1').get()?.id)
         hostKeyExists = oldDb.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()
+        didRecoverKeys = true
       }
     }
     if (!hostKeyExists) {
@@ -243,19 +260,26 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
     // never touches the db or writes a backup, exactly like an ordinary rebuild refusal.
     ;({ campId } = validateRebuildSource(oldDb, doc))
 
-    // T233 round 2, finding 1 continued: now that the key (if recovered above) is present and
-    // campId is known, catch up any change gated on it — chiefly a tombstone this same purge
-    // minted before a crash, which the rebuild's own internal projectAll pass could not have
-    // applied without a signing key (see rebuildProjectionFromDocumentAtPathCore/upsertTombstonesEntity's
-    // keep-last-known no-key branch). Idempotent: reprojecting an already-consistent document is a
-    // no-op.
-    if (doc) projectAll(oldDb, doc)
+    // T233 round 2, finding 1 continued — GATED to the recovery case (Red Hat round-2 review).
+    // ONLY when this call actually recovered keys from a crashed prior purge, catch up any change
+    // gated on the now-restored key — chiefly a tombstone this same purge minted before the crash,
+    // which the rebuild's own internal projectAll pass could not apply without a signing key
+    // (upsertTombstonesEntity's keep-last-known no-key branch). This MUST run before the FIX4 check
+    // below, because that check reads the tombstones TABLE and the recovered tombstone is still
+    // only in the document until this projects it in. It is gated to `didRecoverKeys` so the NORMAL
+    // purge path never runs a projectAll here — that closes Red Hat's finding that an unconditional
+    // projectAll made a typo'd-id no-op refusal (a) commit a projection pass and (b) risk an
+    // unrelated assertConflictsRecorded throw instead of the clean "nothing to purge" message.
+    // In the recovery case a projectAll is legitimate mid-purge work, not a refusal path.
+    if (didRecoverKeys && doc) projectAll(oldDb, doc)
 
     // FIX4: refuse a whole-device purge (see the blast-radius comment above) for an id that names
     // nothing at all — a typo, or a camper already purged. Checked against the live projection,
     // this device's operations history, AND its tombstones table (round 2, finding 1) so a camper
     // recovered mid-crash-recovery — already fully purged except for the key-restore/shred tail
-    // end, evidenced by its own tombstone row — is never mistaken for an id that never existed.
+    // end, evidenced by its own tombstone row (projected in by the recovery pass above) — is never
+    // mistaken for an id that never existed. In the normal (non-recovery) path no projectAll ran
+    // above, so this refusal stays a TRUE no-op (module header contract, point 1).
     const camperExists = oldDb.prepare('SELECT 1 FROM campers WHERE id = ?').get(entityId)
     const hasOpHistory = oldDb.prepare('SELECT 1 FROM operations WHERE entity_id = ? LIMIT 1').get(entityId)
     const hasTombstone = oldDb.prepare('SELECT 1 FROM tombstones WHERE id = ?').get(entityId)
