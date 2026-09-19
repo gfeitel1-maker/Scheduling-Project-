@@ -31,66 +31,92 @@ gate and it cannot refuse a specific record. This ticket closes that gap for the
 ## Success predicate (observable)
 
 Given two paired devices A and B sharing a camp:
-1. A purges a camper (existing `purgeCamperRecord`).
-2. When B next reconnects, B **refuses** to reintroduce that camper into its projection, **and** B
-   erases the camper's values from its own `.automerge` history — with no re-pairing and no genesis
-   change, and with A and B still fully syncing every other record.
+1. A purges a camper (via `purgeCamperRecord`, run on the Host or Host-co-signed — see S1).
+2. When B next reconnects, B **refuses to project** that camper (it never re-appears in the UI/SQLite),
+   with no re-pairing and no genesis change, and with A and B still fully syncing every other record.
+   This is *logical erasure* and is the core deliverable.
 3. `purgeSupportCommand.test.js`'s current "known gap" test is inverted: it must now assert the
    reintroduction is **refused**, not demonstrated.
-4. A director can observe per-peer erasure state (which devices have confirmed the erasure).
+4. `purgeCamperRecord` does not report fleet-erasure as complete until the tombstone has replicated to
+   ≥1 live peer; until then the director sees "erased locally, propagation pending".
+5. A director can observe per-peer erasure state.
+6. *Physical* byte-erasure of the record from peers' `.automerge` history is S3 (see below) and is NOT
+   required for this ticket's core predicate — logical erasure (2) is.
 
 ## Non-goals
 
-- Reaching off-device copies (backups, exports, snapshots on a device that never reconnects) — out of
-  reach for any approach; stated as a limit, not solved.
-- Defending against a malicious peer running modified code — the accepted partial-trust limit.
-- Genesis rotation — explicitly the rejected alternative (see the ADR); it survives only as a
-  documented break-glass for evicting a compromised peer, which is a separate concern.
+- **Automatic physical byte-erasure on peers via a per-peer whole-device rebuild.** Explicitly
+  rejected by review: T202's rebuild wipes each device's `pending_writes`/`conflicts`/etc camp-wide, so
+  firing it fleet-wide per purge is real silent data loss. Physical byte-erasure is a *targeted* rewrite,
+  deferred to S3.
+- Reaching off-device copies (backups, exports, snapshots on a device that never reconnects).
+- Defending against a malicious peer running modified code — accepted partial-trust limit.
+- Genesis rotation — retained only as documented break-glass (full fleet byte-erasure now / evicting a
+  compromised peer), not this ticket's mechanism.
 
-## Design (from ADR 2026-09-19-multi-device-erasure-propagation)
+## Design (from ADR 2026-09-19-multi-device-erasure-propagation, post-review)
 
-Signed, grow-only purge-tombstone set in the replicated document; merge-boundary denylist check in
-`syncNode.js` applied in causal order; per-device local regeneration triggered on learning a tombstone.
-Tombstone payload is **ID + monotonic erasure version + Host signature only** — no name, no reason
-(mirrors T194's free-text guard for participant entities).
+A Host-signed, monotonically-versioned purge-tombstone modeled on the **shipped** `CREDENTIAL_FIELDS` /
+`verifyAuthFields` / `cred_version` pattern in `electron/automerge/projector.js` (`upsertUsersEntity`):
+a **SQLite-backed entity seeded into the document** (so it survives T202's `seedAllFromSqlite` regen —
+a tombstone living only in the doc would be discarded), merged unconditionally, then **gated at
+projection time** — the projector refuses to project (and deletes) any tombstoned record, and refuses
+to apply an unsigned or stale tombstone. Anti-backdating comes from the signed monotonic version, NOT
+from Automerge op ordering (there is no mid-merge per-op rejection seam — `syncNode.js` merges whole
+changesets). Payload: **ID + monotonic version + Host signature only** — no name, no reason.
 
 ## Slices
 
-- **S1 — Tombstone model + signing + key-preservation.** Grow-only signed set (ID + monotonic version
-  + Host signature, nothing else). **Preserve host-only key material across the purge** —
-  `host_signing_key`, `device_identity_key`, `camps.signing_secret` captured before the rebuild and
-  restored after, purge-path only (leave `rebuildSupportCommand.js`'s disaster-recovery rebuild wiping
-  keys, as it should). Without this the Host re-mints a fresh key and overwrites
-  `camps.signing_public_key`, so no prior signature — tombstone or camp/device token — still verifies.
-  Verifier: a purge preserves `host_signing_key` and `camps.signing_public_key` (pinned by a test that
-  seeds both and asserts they survive, the mirror of T202's test that asserts host-only tables are
-  wiped by the *disaster-recovery* rebuild); a valid tombstone is produced and verifies; a tampered
-  tombstone is rejected.
-- **S2 — Admission enforcement.** Denylist check at the merge boundary, causal-order applied, loud
-  (observable) rejection rather than the current silent drop. Verifier: the inverted "known gap" test.
-- **S3 — Propagated byte erasure + visibility.** Local regeneration on learning a tombstone; per-peer
-  erasure state (UNKNOWN → ERASED → CONFIRMED) surfaced to the director. Verifier: two-device
-  propagation scenario.
+- **S1 — Tombstone model + signing + Host-only purge + key-preservation.** The SQLite-backed,
+  seeded-into-the-document, Host-signed, monotonically-versioned tombstone entity (sibling of
+  `CREDENTIAL_FIELDS`). **Host-only purge:** refuse `purgeCamperRecord` on a non-Host device (no
+  `host_signing_key`) with a clear message, or provide a Host co-sign path — a local "success" that
+  mints no tombstone reproduces the gap this ticket closes. **Key preservation across the purge:**
+  capture `host_signing_key`/`device_identity_key`/`camps.signing_secret` before the rebuild, restore
+  after, purge-path only, **in memory only — never staged to disk unencrypted** (leave
+  `rebuildSupportCommand.js`'s disaster-recovery rebuild wiping keys). The verifier key is read from the
+  **local SQLite column** populated by the authenticated join/login reply — it is NOT and must NOT be a
+  document-replicated field (`PROJECTIONS.camps.fields` is `['name']`; adding `signing_public_key` there
+  would reopen a trust-root-poisoning hole). Verifiers: valid tombstone survives the seed/regen
+  round-trip and verifies; tampered/stale tombstone refused; non-Host purge refused (or co-signed);
+  purge preserves `host_signing_key`/`camps.signing_public_key`; preserved key material never hits disk.
+- **S2 — Projection-time admission gate.** In the projector (NOT mid-merge), refuse to project any
+  tombstoned record and delete it if present; refuse to apply an unsigned/stale tombstone; make
+  rejection observable, not a silent drop. No whole-device rebuild on this path. Verifier: the inverted
+  `purgeSupportCommand.test.js` "known gap" test; plus a concurrency test (two tombstones / a tombstone
+  arriving mid-purge) against a single per-device purge/regen serialization lock.
+- **S3 — Physical byte-erasure on peers + visibility. NEEDS ITS OWN ARCHITECT PASS BEFORE BUILD.** A
+  *targeted* history rewrite removing only the tombstoned record's ops while preserving each device's
+  host-only local state — the targeted op-prune T202 deferred, NOT a per-peer whole-device rebuild.
+  Plus per-peer erasure state (UNKNOWN → LOGICALLY_ERASED → BYTES_ERASED) and the propagation-pending
+  signal. Until S3 ships, the guarantee is logical erasure (S1/S2) + physical fleet byte-erasure via
+  the break-glass (genesis rotation).
 
 ## Seams that need test-first attention (per constitution rule 5)
 
-- The merge-admission gate in `electron/sync/automerge/syncNode.js` (security + sync seam).
-- The purge ordering in `electron/automerge/purgeSupportCommand.js` (data-erasure seam; must not
-  re-open T202's atomicity guarantees).
-- Signature verification trust root — reuse device-identity distribution (ADR 2026-09-14), do not mint
-  a second one.
+- The projector's admission/refusal gate (`electron/automerge/projector.js`) — modeled on
+  `upsertUsersEntity`'s existing signed+monotonic guard (security + sync seam).
+- `purgeCamperRecord` (`electron/automerge/purgeSupportCommand.js`) — Host-only enforcement, tombstone
+  persistence into SQLite, key preservation; must not re-open T202's atomicity guarantees.
+- Trust root: read the Host verifier key from local SQLite (join/login-reply channel), never from the
+  document.
 
-## Human decisions — both resolved (2026-09-19), start is unblocked
+## Human decisions
 
-1. **Legal/product: RESOLVED — yes** (product owner). Retaining the opaque, PII-free purged UUID in a
-   permanent tombstone satisfies erasure for this data class. Consequence: the tombstone carries ID +
-   version + signature only, no name/reason.
-2. **Scope: RESOLVED — in-scope, S1.** The `host_signing_key`-across-purge preservation is part of this
-   ticket (purge-path only), being both a prerequisite for verifiable tombstones and the fix for T202's
-   deferred key-loss gap.
+1. **Legal/product: RESOLVED — yes** (owner). Opaque PII-free UUID retained in the tombstone → tombstone
+   carries ID + version + signature only.
+2. **Scope: RESOLVED — in-scope, S1.** `host_signing_key`-across-purge preservation is part of this
+   ticket, purge-path only.
+3. **OPEN — the S3 guarantee.** Is "immediate logical erasure everywhere + physical byte-erasure via
+   break-glass" acceptable as the *shipped* guarantee, with the targeted history rewrite as a later
+   enhancement? Or must automatic physical byte-erasure across the fleet be in the first release
+   (requires building the targeted rewrite now + its own Architect/Red Hat pass)? Surfaced by the
+   Security/Red Hat review; needs a product+engineering decision before S3.
 
-## Review
+## Review status
 
-Architecturally-significant + touches auth/sync/erasure seams → Architect (done: the ADR), then the
-full loop with **Security** and **Red Hat** mandatory (this is a security-critical erasure gate), plus
-Verifier evidence on the inverted known-gap test before any claim of done.
+Architect ADR done; **Security + Red Hat review complete (2026-09-19)** — two Security MUST-FIX premise
+corrections (trust root off-document; projection-time gating not mid-merge) and three Red Hat HIGH
+findings (tombstone-survives-regen; no per-peer whole-device rebuild; Host-only purge) are folded into
+the ADR and the slices above. Before Maker starts: S3 needs its own Architect pass; Verifier evidence on
+the inverted known-gap test gates any claim of done.

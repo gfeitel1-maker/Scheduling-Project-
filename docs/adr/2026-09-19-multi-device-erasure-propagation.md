@@ -1,5 +1,5 @@
 ---
-title: "Multi-device erasure: signed purge tombstones, not genesis rotation"
+title: "Multi-device erasure: signed purge tombstones (denylist), genesis rotation as break-glass"
 document_type: adr
 status: proposed
 authority: normative
@@ -24,186 +24,227 @@ program: security-hardening
 affects: []
 ---
 
-# Multi-device erasure: signed purge tombstones, not genesis rotation
+# Multi-device erasure: signed purge tombstones (denylist), genesis rotation as break-glass
 
-> **Status: PROPOSED (2026-09-19).** Follow-up to T202, which built a real single-device purge
-> (`electron/automerge/purgeSupportCommand.js`) but left one honest gap open: **nothing stops an
-> already-paired stale peer from reintroducing a purged record via ordinary sync.** The
-> envelope-encryption ADR (2026-09-19) rejected crypto-shredding and named "per-camp genesis rotation"
-> as the presumed forward path. **This ADR examines that path and recommends against it**, in favour of
-> a **signed, replicated purge-tombstone denylist enforced at the sync-admission seam, which drives a
-> per-device local history regeneration.** Confidence: **medium-high** on the mechanism shape;
-> two questions are flagged as needing human/legal sign-off (see "What a human must decide").
+> **Status: PROPOSED (2026-09-19), REVISED after Security + Red Hat review.** Follow-up to T202,
+> which built a real single-device purge (`electron/automerge/purgeSupportCommand.js`) but left one
+> honest gap: **nothing stops an already-paired stale peer from reintroducing a purged record via
+> ordinary sync**, because `sharesGenesis()` is the only admission gate. The envelope-encryption ADR
+> (2026-09-19) rejected crypto-shredding and named genesis rotation as the presumed path; this ADR
+> examines it and recommends a **signed purge-tombstone denylist** instead — but the first draft of
+> that recommendation was over-claimed, and an adversarial review corrected it. **What survives review
+> (confidence high):** the denylist cleanly solves *reintroduction* (sub-problem 1) and *immediate
+> logical erasure* fleet-wide, cheaply, without the fleet lockout genesis rotation causes. **What the
+> review changed (this is not settled):** the byte-erasure half (sub-problem 2) must NOT be built by
+> auto-triggering T202's whole-device rebuild on every peer — that reproduces the very blast radius
+> this ADR rejected genesis rotation for. Byte-erasure on peers is rescoped to a separate targeted
+> slice (S3) and needs an Architect design pass before it is buildable. The two premise errors the
+> first draft made about the trust root and the merge seam are corrected below.
 
-## The gap this must close, stated exactly
+## The gap, and the two sub-problems inside it
 
-T202 erases a camper on the device that runs it: it regenerates a fresh `.automerge` whose history
-never mentions the row (`purgeCamperRecord` → `seedAllFromSqlite(oldDb, createEmptyDoc())`), so the
-bytes are genuinely gone *on that device*. What it cannot do is reach the fleet. `sharesGenesis()`
-(`electron/automerge/campDocument.js`) is the **only** admission gate `electron/sync/automerge/syncNode.js`
-applies, and it cannot distinguish "a peer worth merging" from "a peer whose stale copy of this exact
-record must never come back." So the next time a stale peer reconnects, an ordinary merge reintroduces
-the record. `purgeSupportCommand.test.js`'s "known gap" test demonstrates this directly.
+T202 erases a camper on the device that runs it — it regenerates a fresh `.automerge` whose history
+never mentions the row. It cannot reach the fleet: the next time a stale peer reconnects, an ordinary
+merge reintroduces the record (`purgeSupportCommand.test.js`'s "known gap" test shows this).
 
-Two sub-problems hide inside "reach the fleet," and conflating them is what made genesis rotation look
-necessary:
+"Reach the fleet" is two problems, and conflating them is what over-scoped the first draft:
 
-1. **Reintroduction:** stop a stale peer's copy from coming *back* into the live projection.
-2. **Byte erasure:** get the purged values physically *out* of every device's history, not just the
-   originating one.
+1. **Reintroduction:** stop a stale peer's copy from coming *back* into the live projection. This is
+   the problem that actually bites and the one the denylist solves cleanly.
+2. **Physical byte erasure:** get the purged values physically *out* of every device's `.automerge`
+   history, not just the originating one. This is genuinely hard, and — as the review established —
+   is NOT solved for free by the denylist.
 
-## What the divergent exploration surfaced
+## What the divergent exploration surfaced, and why it converges on a shipped pattern
 
-Five independent framings were generated (regulatory, logistics, inversion, on-call, adversarial) and
-converged hard. Every single frame independently proposed the same primitive under different names —
-quarantine registry, purge manifest, revocation certificate, deletion denylist, committed-deletions
-ledger, hash blacklist: **a list of purged record IDs that the sync layer consults to refuse
-resurrection.** The adversarial frame added the security requirement (the list must be *signed* and
-applied in *causal order*, or a peer forges a pre-purge causality to sneak a record back). The on-call
-frame added the operability requirement (per-peer erasure state must be *visible*, and rejection
-*loud*, not the silent drop `syncNode.js` does today). A second cluster (epoch/generation counters)
-and a third (causal-barrier enforcement) are variants of the same admission-gate idea at different
-granularities.
+Five independent framings (regulatory, logistics, inversion, on-call, adversarial) converged on one
+primitive: **a list of purged record IDs the sync layer consults to refuse resurrection.** The
+adversarial frame added: it must be *signed* (or any staff device could forge an irreversible
+erasure) and *monotonic* (or a replay defeats it). The on-call frame added: per-peer state must be
+*visible* and rejection *loud*.
 
-The convergence is not a coincidence. It points at the underlying fact:
+The deep reason this is the right primitive: **deletion is hard in a CRDT because *absence* does not
+propagate. A tombstone is *presence*, and a grow-only signed set is add-only, commutative,
+idempotent, never contested** — exactly the case CRDTs handle trivially.
 
-> **Deletion is hard in a CRDT because *absence* does not propagate. A tombstone is *presence*, and
-> presence propagates trivially.** A grow-only, signed set of purged IDs is a clean CRDT primitive
-> (add-only, commutative, idempotent, never contested), whereas "the record is gone" is the case CRDTs
-> are worst at. This is why the fix is to add a positive assertion, not to try to make an absence
-> replicate.
+**Crucially, this codebase already ships this exact pattern.** `users` credential fields
+(`role`, `pin_hash`, `pin_salt`) are protected by `CREDENTIAL_FIELDS` / `verifyAuthFields` and a
+monotonic `cred_version` in `electron/automerge/projector.js` (`upsertUsersEntity`): a change merges
+into the CRDT unconditionally, and is then **gated at projection time** on (a) an Ed25519 signature
+and (b) a monotonic version, refusing to *apply* an unsigned or stale change while still merging its
+history. The tombstone should be built as a sibling of that mechanism, not as new machinery. This is
+what resolves three separate review findings at once (see below).
 
 ## Options considered
 
-**Option A — Per-camp genesis rotation (the presumed path). Rejected.** Mint a new genesis so stale
-peers fail `sharesGenesis()` and are refused. It works, but it is a fleet-wide nuke: it refuses
-**every** device — honest ones, and the ones offline for the week — not just the record, so each must
-re-pair through the human `joinStart`/`approveDevice` flow; genesis regeneration is not a runtime
-operation today (`GENESIS_B64` is a pinned constant, regenerated only by a source edit + release); it
-compounds with T202's unresolved `host_signing_key` loss; and its transition window fails silently
-(`syncNode.js` drops non-matching docs with no surfaced error). It answers sub-problem 1 with a
-sledgehammer and does nothing targeted for sub-problem 2. Keep it only as a documented **break-glass**
-for a different problem — evicting a *compromised* peer entirely, not erasing one record.
+**Option A — Per-camp genesis rotation.** Mint a new genesis so stale peers fail `sharesGenesis()`.
+It *does* achieve full fleet byte-erasure — every device must re-pair, and a re-paired device syncs
+the regenerated, camper-free document. But it is a fleet-wide nuke: it refuses **every** device,
+honest and offline alike, each needing a human re-pair (`joinStart`/`approveDevice`); genesis
+regeneration is not a runtime operation today (`GENESIS_B64` is a pinned constant in
+`campDocument.js`); and its transition window drops non-matching docs silently. **Kept as
+break-glass** for the case where full physical byte-erasure across the fleet is required *now*, and
+for evicting a compromised peer wholesale — a different problem from ordinary erasure.
 
-**Option B — Signed purge-tombstone denylist + per-device local regeneration. RECOMMENDED.**
-A purge appends a signed tombstone (the purged entity ID + a monotonic erasure version + the director's
-signature over both, no name, no reason) to a grow-only set carried in the replicated document. Two
-enforcement points:
+**Option B — Signed purge-tombstone denylist. RECOMMENDED for sub-problem 1 + logical erasure.**
+A purge appends a Host-signed, monotonically-versioned tombstone (purged entity ID + version +
+signature — no name, no reason) to a grow-only set that is a **SQLite-backed modeled entity seeded
+into the document** (see "The regen trap", below — this is not optional). Enforcement mirrors the
+shipped `users`-credential pattern: the tombstone merges into the CRDT unconditionally, and at
+**projection time** the projector (a) verifies the signature and monotonic version and (b) refuses to
+project — and actively deletes — any record whose ID is tombstoned. A stale peer that reconnects
+receives the tombstone as ordinary replicated state and its copy of the record **never reaches the
+projection again**. Only that record is refused; the device stays paired and syncs everything else.
+This is immediate, targeted, and needs no rebuild and no re-pair.
 
-- **Admission (sub-problem 1):** `syncNode.js` / the merge boundary consults the denylist and **drops
-  incoming ops that target a tombstoned ID**, applied in causal order so a forged pre-purge mutation
-  cannot slip under it. A stale peer that reconnects receives the tombstone set first (it is ordinary
-  replicated state) and its stale copy is refused — the record cannot come back. Only that record is
-  refused; the device stays fully paired and syncs everything else.
-- **Byte erasure (sub-problem 2):** on *learning* a tombstone it has not yet applied, each device runs
-  T202's existing local regeneration for that ID — rewriting its own history without the purged rows.
-  Offline peers do this on reconnect. This turns T202's single-device purge into an eventually-
-  consistent fleet-wide one, **with no genesis change and no re-pair.**
+**Physical byte-erasure on peers (sub-problem 2) is explicitly NOT part of Option B's cheap path.**
+The tombstone makes the record permanently *invisible* on every device (never projected); the
+ciphertext-or-plaintext bytes remain in each peer's `.automerge` history until physically rewritten.
+Rewriting them is deferred to S3 as a **targeted history rewrite**, NOT the per-peer whole-device
+T202 rebuild the first draft implied (see "The blast-radius trap").
 
-**Option C — Epoch/generation counter.** A lighter "soft rotation": tag records with a generation,
-increment on purge, render only the current generation. Cleaner than full genesis rotation but it is a
-coarser denylist (per-epoch, not per-record) and still needs the same signing + visibility machinery
-Option B has. Folded into B as the versioning field rather than adopted separately.
+**Option C — Epoch/generation counter.** Folded into B as the monotonic version field.
 
-**Option D — Do nothing runtime; keep T202 + the manual physical re-pair procedure it already
-documents.** Honest and zero-build. Rejected as the primary answer because "physically re-pair every
-device" is exactly the operationally-impossible step for a real camp, but retained as the interim
-truth until Option B ships.
+**Option D — Do nothing runtime; keep T202 + the documented manual physical re-pair.** The honest
+interim truth until B ships; rejected as the endpoint because "physically re-pair every device" is
+the operationally-impossible step for a real camp.
 
-## Why B beats A, concretely
+## The two traps the first draft fell into (corrected)
+
+**The regen trap (Red Hat, HIGH).** T202's regeneration is `seedAllFromSqlite(oldDb,
+createEmptyDoc())` (`purgeSupportCommand.js:151`) — it rebuilds the document *from SQLite*, not by
+copying the old document forward. A tombstone that lived only in the Automerge document would be
+**discarded by the very rebuild meant to carry it**, and the purging device would produce a fresh
+document with no record of the purge it just performed — silent total failure on first use.
+Therefore the tombstone set MUST be a SQLite table that `seedAllFromSqlite` re-seeds into the fresh
+document, exactly as camp-scoped modeled entities already round-trip. "Sign before regen" is
+necessary but not sufficient; "persist in SQLite and seed it back" is the actual requirement.
+
+**The blast-radius trap (Red Hat, HIGH — falsified the first draft's headline).** The first draft
+had every peer run T202's *whole-device* rebuild on learning a tombstone. That rebuild wipes, on each
+device, camp-wide: `pending_writes` (unsynced local edits — **real data loss**), `conflicts`
+(un-triaged), `import_evidence`/`import_decisions`, `schedule_snapshots`, and more
+(`purgeSupportCommand.js:28-44`). Firing that on all N devices, silently, on background sync, per
+purge, is **worse** than genesis rotation in one dimension: re-pairing is a deliberate human action,
+whereas a tombstone-triggered rebuild fires with no confirmation. The first draft's comparison table
+claimed "only the purged record is refused" — true for network state, **false for local state**. So
+the trigger is redesigned: **learning a tombstone triggers only projection refusal + deletion of that
+record (cheap, no rebuild).** Physical history rewrite is a separate, opt-in, targeted operation
+(S3), never an automatic per-peer full rebuild.
+
+## Corrected: trust root and enforcement seam (Security, two MUST-FIX)
+
+**The trust root is NOT a document field (Security F1).** The first draft said the verifier key
+`camps.signing_public_key` is "document-replicated — reuse it." That is **wrong**, and building on it
+would reopen a closed hole. `PROJECTIONS.camps.fields` is `['name']` (`electron/ops/projections.js`);
+`signing_public_key` is deliberately **kept off the document** and distributed only via the
+authenticated join/login reply (`electron/sync/automerge/joinSession.js`), written straight to SQLite.
+Both the read path (`upsertCampsEntity` reads only allowlisted fields) and the write path
+(`applyWrite`'s `fields.includes(field)` no-op) exclude it, in both directions. If an implementer
+"made it document-replicated to match the ADR," a compromised paired peer could inject its own key
+and mint tombstones everyone trusts. **Correction:** the tombstone verifier reads the Host public key
+from the same local SQLite column the shipped credential-verification code already uses; the key stays
+off the document. If it ever must move into the document, it requires the same signature+monotonicity
+guard `CREDENTIAL_FIELDS` already implements.
+
+**"Applied in causal order" is not a real mechanism here (Security F2).** `syncNode.js` merges whole
+documents/changesets (`A.merge` / `A.receiveSyncMessage`); there is no per-op, mid-merge rejection by
+target ID, and Automerge's own causal metadata is attacker-influenced under the accepted
+partial-trust model, so it cannot be the backdating defense. **Correction:** S2 is projection-time
+gating, exactly like `upsertUsersEntity` — merge everything, then refuse to apply a record that is
+tombstoned, and refuse to apply a tombstone that fails signature/monotonic-version. The anti-backdating
+property comes from the signed monotonic version, not from Automerge op ordering.
+
+## Who may purge, and key custody (Red Hat R3 + Security F4)
+
+**Purge/tombstone-minting is inherently Host-only** — only the Host holds `host_signing_key`
+(`localAuth.js:277`), so only the Host can sign a tombstone. But `purgeCamperRecord` today has no Host
+check, and a director will run it from whatever device is in front of them. **Design requirement:**
+either refuse a purge on a non-Host device with a clear message, or provide a delegated flow where a
+non-Host admin's purge request is co-signed by the Host. This must be decided in S1, not left implicit
+— a purge that "succeeds" locally without minting a tombstone reproduces the exact gap this ADR closes.
+
+**Key preservation across the purge (S1)** captures `host_signing_key` / `device_identity_key` /
+`camps.signing_secret` before the rebuild and restores them after, purge-path only (the
+disaster-recovery rebuild keeps wiping keys, correctly). Because the Host otherwise re-mints a fresh
+key and overwrites the verifier, no prior signature would verify. **Security F4:** this captured key
+material must never touch disk unencrypted during the rebuild window — held in memory only, for the
+duration of the scoped transaction, and pinned by a test the way T202 pins its host-only-wipe
+behaviour.
+
+**The signature is load-bearing, not theater (Security F3, confirmed).** Without it, any paired staff
+device could mint an irreversible fleet-wide erasure of any record. With it, that authority is limited
+to the Host — the same boundary `issueCampToken` already enforces. Must-keep.
+
+## Why B still beats A — honestly, per sub-problem
 
 | | Genesis rotation (A) | Tombstone denylist (B) |
 |---|---|---|
-| Who is cut off | **Every device**, must re-pair | **Only the purged record** is refused; devices stay paired |
-| New mechanism | Runtime genesis regeneration (net-new, `GENESIS_B64` is pinned) | Grow-only signed set + one merge-boundary check + reuse of T202's regen |
-| Byte erasure across fleet | Not addressed (rotation ≠ history rewrite) | Yes — each device runs T202 regen on learning the tombstone |
-| Granularity | Whole camp | Per record (what the envelope-encryption idea wanted, without its custody problem) |
-| CRDT fit | Fights it (absence) | Fits it (presence — add-only set) |
-| Operator visibility | Silent transition | Per-peer erasure state, loud rejection (designed in) |
+| Reintroduction (sub-problem 1) | Solved by a fleet nuke | **Solved cheaply**; only the record is refused, devices stay paired |
+| Immediate logical erasure (never projects) fleet-wide | Only after every device re-pairs | **Immediate** on tombstone propagation, no re-pair |
+| Physical byte-erasure on peers (sub-problem 2) | Achieved, via forced fleet re-pair | **Deferred to a targeted S3 rewrite**; not the cheap path |
+| Who is disrupted | Every device re-pairs (human step) | Only devices holding the record re-project it; **no rebuild on the cheap path** |
+| New mechanism | Runtime genesis regeneration (net-new) | Reuses the shipped signed-credential pattern |
+| CRDT fit | Fights it (absence) | Fits it (presence, add-only set) |
 
-Crucially, B delivers the *targeted, per-record* erasure that made envelope encryption tempting —
-**without** envelope encryption's fatal key-custody problem, because a tombstone is a positive
-assertion that replicates and merges trivially, whereas a per-record key was a secret that had to be
-deleted everywhere.
+The honest summary: **B wins decisively on reintroduction and immediate logical erasure — the common,
+important case — using a pattern already proven in this codebase. Full physical byte-erasure across
+the fleet is a hard problem both approaches pay for (A via re-pair; B via a future targeted rewrite),
+and A is retained as break-glass for when that is required immediately.** The recommendation is
+therefore B for the erasure workflow, with A available, not B as a wholesale replacement for A.
 
-## Key custody / signing — the analysis
+## Residual risks (stated, not papered over)
 
-The tombstone's authority comes from a signature, and the only signing key in the system is the
-Host's `host_signing_key` (Ed25519, `electron/auth/localAuth.js:277`). Its **public** half is mirrored
-into `camps.signing_public_key` (`localAuth.js:304`), a document-replicated field every other device
-already uses to verify Host signatures. That existing distribution is the tombstone verifier's trust
-root — reuse it, do not mint a second one.
-
-**The sequencing constraint with T202, decided (2026-09-19).** T202's purge wipes `host_signing_key`
-(a host-only row destroyed by the whole-device rebuild), and on next boot `ensureHostSigningKey`
-(`localAuth.js:277`) mints a *fresh* keypair and **overwrites** `camps.signing_public_key`. So signing
-a tombstone with the old key just before regeneration does not survive: the replicated verifier moves
-to the new key and the old signature no longer verifies. Sign-before-regen alone is therefore
-insufficient. The correct fix is to **preserve the signing key across the purge**:
-
-- **Preserve, do not re-mint.** The purge wrapper captures the host-only key material —
-  `host_signing_key`, T162's `device_identity_key`, and `camps.signing_secret` (all in the
-  never-replicate exclusion class, `campDocument.js:80`) — *before* the rebuild and restores it
-  *after*, so `camps.signing_public_key` stays stable, existing camp/device tokens keep verifying, and
-  tombstones signed with that key remain valid on every peer. This is a bounded, **purge-path-only**
-  carve-out with exactly the shape of T202's existing purge-only backup-shred (`purgeSupportCommand.js`).
-- **The shared disaster-recovery rebuild is left unchanged.** `rebuildSupportCommand.js`'s rebuild
-  must keep wiping keys — recovering from a possibly-corrupt or possibly-compromised state should not
-  carry old key material forward. Only the *purge* wrapper preserves; the two callers keep their
-  different, correct behaviours, the same way the backup-shred is purge-only.
-- This also resolves, rather than defers, T202's open "a Host that purges loses its credential-minting
-  key and must re-establish identity" gap — it was a latent operational problem independent of
-  tombstones, and this fix closes it. That is why it belongs in this ticket (S1) and not a separate
-  prerequisite one.
-- A tombstone is **never revoked** (erasure is irreversible by design), so the set is grow-only and
-  needs no deletion semantics — which is the whole reason it is CRDT-clean.
-
-## Performance
-
-Negligible and not a deciding factor. The denylist is a set of UUIDs (tens to low hundreds over a
-camp's life); the admission check is a set-membership test per incoming op; the per-device regeneration
-is exactly T202's existing cost, paid once per device per purge. No new hot path.
-
-## What it still cannot reach (stated plainly, not papered over)
-
+- **Tombstone lost before first propagation (Red Hat).** If the purging device is lost/wiped before
+  its tombstone syncs to any peer, erasure silently fails while the director saw local "success."
+  `purgeCamperRecord` must NOT report erasure as fleet-complete until the tombstone has replicated to
+  ≥1 live peer (or a durable medium); until then it is "erased locally, fleet-propagation pending",
+  surfaced to the director. This is the same class of silent-transition failure the ADR faults genesis
+  rotation for — so it must be made loud here, not inherited.
+- **Concurrency (Red Hat).** A local purge and a tombstone-triggered projection refusal (or two
+  tombstones) can race the same SQLite file / `.automerge`. A single per-device purge/regen
+  serialization lock is required, with a test for two triggers inside one sync window.
 - **Off-device copies** — a backup, an export, a `schedule_snapshots` row on a device that never
-  reconnects — are untouched. Every erasure approach shares this limit; a copy taken before the
-  tombstone existed is beyond the fleet's reach.
-- **A malicious peer running modified code** can ignore the denylist and re-serve the record. This is
-  the already-accepted partial-trust staff-device limit (SECURITY.md, "Accepted cost"): the tombstone
-  defends against the honest-but-stale peer, which is the actual T202 gap, not a determined insider.
-- **The purged ID persists forever** in the tombstone set. This is acceptable *only* because Shoresh
-  entity IDs are random opaque UUIDs carrying no PII — the tombstone must carry the ID and version and
-  signature and **nothing else** (no name, no reason), mirroring T194's guard that already refuses
-  free-text for these entities in the audit log.
+  reconnects — are unreachable by any approach.
+- **A malicious peer running modified code** can ignore the denylist and re-serve the record — the
+  accepted partial-trust staff-device limit. The tombstone defends against the honest-but-stale peer,
+  which is the actual T202 gap.
+- **The opaque PII-free purged UUID persists forever** in the tombstone set — accepted (see decisions).
 
-## Slices
+## Slices (revised)
 
-1. **S1 — Tombstone data model + signing.** The grow-only signed set in the document, the sign-before-
-   regen ordering in `purgeCamperRecord`, and the key-preservation fix T202 deferred. Test: a purge
-   produces a verifiable tombstone; a tampered tombstone fails verification.
-2. **S2 — Admission enforcement.** The merge-boundary denylist check in `syncNode.js`, applied in
-   causal order; make the rejection loud (an observable event, not a silent drop). Test: the
-   `purgeSupportCommand.test.js` "known gap" scenario now *refuses* the reintroduction instead of
-   demonstrating it.
-3. **S3 — Propagated byte erasure + visibility.** On learning a new tombstone, a device runs local
-   regeneration; expose per-peer erasure state (UNKNOWN → ERASED → CONFIRMED) so a director can see
-   fleet convergence. Test: two-device scenario — purge on A, tombstone propagates to B, B refuses the
-   record AND regenerates its own history; state is observable on both.
+1. **S1 — Tombstone model + signing + Host-only purge + key-preservation.** The SQLite-backed,
+   seeded-into-the-document, Host-signed, monotonically-versioned tombstone entity, modeled on
+   `CREDENTIAL_FIELDS`. Host-only purge enforcement (or delegated co-sign). Key preservation across the
+   purge (in-memory only). Tests: valid tombstone verifies and survives the seed/regen round-trip; a
+   tampered or stale tombstone is refused; a purge on a non-Host device is refused (or co-signed); a
+   purge preserves `host_signing_key`/`camps.signing_public_key`.
+2. **S2 — Projection-time admission gate.** In the projector (not mid-merge), refuse to project any
+   tombstoned record and delete it if present; refuse to apply an unsigned/stale tombstone. Test: the
+   `purgeSupportCommand.test.js` "known gap" scenario now *refuses* reintroduction. No whole-device
+   rebuild on this path.
+3. **S3 — Physical byte-erasure on peers + visibility. NEEDS ITS OWN ARCHITECT PASS.** A *targeted*
+   history rewrite that removes only the tombstoned record's ops while preserving each device's
+   host-only local state (`pending_writes`, `conflicts`, etc.) — i.e. the targeted op-prune T202
+   deferred, NOT a per-peer whole-device rebuild. Plus per-peer erasure state
+   (UNKNOWN → LOGICALLY_ERASED → BYTES_ERASED) surfaced to the director, and the "propagation pending"
+   signal from the residual-risks section. This slice is where the remaining hard design work lives;
+   until it exists, the shipped guarantee is logical erasure (B) with physical fleet byte-erasure via
+   the break-glass (A).
 
-## Human decisions — both resolved (2026-09-19)
+## Human decisions
 
-1. **Legal/product — RESOLVED (product owner: yes).** Retaining the opaque, PII-free purged UUID in a
-   permanent tombstone set is accepted as satisfying erasure for this data class, on the basis that a
-   random opaque identifier carries nothing about the child. Recorded as the owner's product decision;
-   the tombstone therefore must carry the ID + version + signature and **nothing else** (no name, no
-   reason), mirroring T194's free-text guard. If a future jurisdiction/legal review disagrees, the
-   fallback is genesis rotation (the break-glass below), which retains no per-record identifier.
-2. **Scope/sequencing — RESOLVED (in-scope, S1).** The `host_signing_key` preservation-across-purge
-   fix is in-scope for this ticket, scoped to the purge path only (see "Key custody / signing"). It is
-   a genuine prerequisite for verifiable tombstones *and* closes a latent T202 gap, so it is one design,
-   not a separable prerequisite.
+1. **Legal/product — RESOLVED (owner: yes).** Retaining the opaque, PII-free purged UUID in a
+   permanent tombstone satisfies erasure for this data class. Tombstone carries ID + version +
+   signature only.
+2. **Scope — RESOLVED (in-scope, S1).** `host_signing_key` preservation-across-purge is part of this
+   ticket, purge-path only.
+3. **NEW — the sub-problem-2 mechanism (S3) needs a decision.** Is "immediate logical erasure
+   everywhere + physical byte-erasure via break-glass re-pair" an acceptable *shipped* guarantee, with
+   the targeted-history-rewrite as a later enhancement? Or must automatic physical byte-erasure across
+   the fleet be in the first release (which requires building the targeted rewrite now, and its own
+   Architect + Red Hat pass)? This is the open product/engineering decision this review surfaced.
 
-Genesis rotation is not discarded — it is repositioned as a documented break-glass for evicting a
-compromised peer wholesale, which is a different problem from erasing a record. This ADR's decision is:
-**for record erasure across the fleet, build the signed tombstone denylist (Option B), not rotation.**
+This ADR settles the mechanism for *reintroduction* and *logical* erasure (signed tombstone denylist,
+built on the shipped credential pattern). It scopes but does not finish *physical* fleet byte-erasure,
+which is S3's Architect pass. Genesis rotation is retained as break-glass, not discarded.
