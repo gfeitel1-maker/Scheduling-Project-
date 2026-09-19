@@ -85,12 +85,12 @@ changesets). Payload: **ID + monotonic version + Host signature only** — no na
   rejection observable, not a silent drop. No whole-device rebuild on this path. Verifier: the inverted
   `purgeSupportCommand.test.js` "known gap" test; plus a concurrency test (two tombstones / a tombstone
   arriving mid-purge) against a single per-device purge/regen serialization lock.
-- **S3 — Physical byte-erasure on peers + visibility. NEEDS ITS OWN ARCHITECT PASS BEFORE BUILD.** A
-  *targeted* history rewrite removing only the tombstoned record's ops while preserving each device's
-  host-only local state — the targeted op-prune T202 deferred, NOT a per-peer whole-device rebuild.
-  Plus per-peer erasure state (UNKNOWN → LOGICALLY_ERASED → BYTES_ERASED) and the propagation-pending
-  signal. Until S3 ships, the guarantee is logical erasure (S1/S2) + physical fleet byte-erasure via
-  the break-glass (genesis rotation).
+- **S3 — Visibility only.** Per-peer erasure state (UNKNOWN → LOGICALLY_ERASED) surfaced to the
+  director + the propagation-pending signal (a purge is not reported fleet-complete until its tombstone
+  reaches ≥1 live peer). **Physical byte-erasure is out of scope** (owner decision: erasure = logical /
+  invisible-forever); the rare physical-scrub case is served by the break-glass (genesis rotation),
+  which is where that problem — a coordinated fleet cutover, not a cheap targeted rewrite — actually
+  lives.
 
 ## Seams that need test-first attention (per constitution rule 5)
 
@@ -107,11 +107,9 @@ changesets). Payload: **ID + monotonic version + Host signature only** — no na
    carries ID + version + signature only.
 2. **Scope: RESOLVED — in-scope, S1.** `host_signing_key`-across-purge preservation is part of this
    ticket, purge-path only.
-3. **OPEN — the S3 guarantee.** Is "immediate logical erasure everywhere + physical byte-erasure via
-   break-glass" acceptable as the *shipped* guarantee, with the targeted history rewrite as a later
-   enhancement? Or must automatic physical byte-erasure across the fleet be in the first release
-   (requires building the targeted rewrite now + its own Architect/Red Hat pass)? Surfaced by the
-   Security/Red Hat review; needs a product+engineering decision before S3.
+3. **Erasure guarantee — RESOLVED (owner: logical).** "Invisible forever" is the requirement. Physical
+   byte-erasure across the fleet is out of scope (there is no stable form of it cheaper than a fleet
+   cutover ≈ genesis rotation, which is retained as break-glass). S1+S2 fully meet the requirement.
 
 ## Review status
 

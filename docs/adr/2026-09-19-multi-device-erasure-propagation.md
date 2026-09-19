@@ -223,28 +223,44 @@ therefore B for the erasure workflow, with A available, not B as a wholesale rep
    tombstoned record and delete it if present; refuse to apply an unsigned/stale tombstone. Test: the
    `purgeSupportCommand.test.js` "known gap" scenario now *refuses* reintroduction. No whole-device
    rebuild on this path.
-3. **S3 — Physical byte-erasure on peers + visibility. NEEDS ITS OWN ARCHITECT PASS.** A *targeted*
-   history rewrite that removes only the tombstoned record's ops while preserving each device's
-   host-only local state (`pending_writes`, `conflicts`, etc.) — i.e. the targeted op-prune T202
-   deferred, NOT a per-peer whole-device rebuild. Plus per-peer erasure state
-   (UNKNOWN → LOGICALLY_ERASED → BYTES_ERASED) surfaced to the director, and the "propagation pending"
-   signal from the residual-risks section. This slice is where the remaining hard design work lives;
-   until it exists, the shipped guarantee is logical erasure (B) with physical fleet byte-erasure via
-   the break-glass (A).
+3. **S3 — Visibility only (not physical byte-erasure).** Per-peer erasure state
+   (UNKNOWN → LOGICALLY_ERASED) surfaced to the director, plus the "propagation pending" signal from the
+   residual-risks section so a purge is not reported fleet-complete until its tombstone has reached ≥1
+   live peer. **Physical byte-erasure across the fleet is out of scope** (owner: logical erasure is the
+   requirement — see "The erasure guarantee" below); the rare physical-scrub need is served by the
+   retained break-glass (genesis rotation), which is where that hard problem actually lives.
 
-## Human decisions
+## The erasure guarantee — DECIDED (2026-09-19, product owner: logical)
 
-1. **Legal/product — RESOLVED (owner: yes).** Retaining the opaque, PII-free purged UUID in a
-   permanent tombstone satisfies erasure for this data class. Tombstone carries ID + version +
-   signature only.
-2. **Scope — RESOLVED (in-scope, S1).** `host_signing_key` preservation-across-purge is part of this
-   ticket, purge-path only.
-3. **NEW — the sub-problem-2 mechanism (S3) needs a decision.** Is "immediate logical erasure
-   everywhere + physical byte-erasure via break-glass re-pair" an acceptable *shipped* guarantee, with
-   the targeted-history-rewrite as a later enhancement? Or must automatic physical byte-erasure across
-   the fleet be in the first release (which requires building the targeted rewrite now, and its own
-   Architect + Red Hat pass)? This is the open product/engineering decision this review surfaced.
+The review forced the question the first draft blurred: does "erased" mean **invisible forever**
+(logical) or **bytes physically gone from every device** (physical)? The owner decided **logical**:
+a purged record can never be seen or re-created on any device again; residual bytes may remain in each
+device's Automerge history (at-rest-encrypted when that flag is on), unreadable through the app. This
+is exactly what S1+S2 deliver — permanently and stably, because the tombstone gates *projection*, so
+no sequence of merges can ever surface the record again.
 
-This ADR settles the mechanism for *reintroduction* and *logical* erasure (signed tombstone denylist,
-built on the shipped credential pattern). It scopes but does not finish *physical* fleet byte-erasure,
-which is S3's Architect pass. Genesis rotation is retained as break-glass, not discarded.
+**Consequence: physical byte-erasure across the fleet (the old S3) is NOT a requirement.** It is
+explicitly out of scope for this ticket. This is the honest technical reason it was never a cheap
+"remaining slice": Automerge exposes no op-level deletion, and a per-device document regeneration does
+not *stick* — the next merge with any lagging peer re-imports the purged record's ops into history
+(merge exchanges whole histories, and F2 established there is no mid-merge op-filter seam). Making
+physical erasure stable therefore requires a coordinated fleet cutover that invalidates old histories —
+which **is** genesis rotation. So the rare "must physically scrub the bytes now" case is served by the
+retained **break-glass (Option A / genesis rotation)**, not by new machinery. There is no separate
+cheaper mechanism to build, which is why building it "now" would have been building genesis rotation
+under another name.
+
+## Human decisions — all resolved (2026-09-19)
+
+1. **Legal/product (UUID retention) — RESOLVED (owner: yes).** Retaining the opaque, PII-free purged
+   UUID in a permanent tombstone satisfies erasure for this data class. Tombstone carries ID + version
+   + signature only.
+2. **Scope (key preservation) — RESOLVED (in-scope, S1).** `host_signing_key`
+   preservation-across-purge is part of this ticket, purge-path only.
+3. **Erasure guarantee — RESOLVED (owner: logical).** "Invisible forever" is the requirement (see the
+   section above). Physical fleet byte-erasure is out of scope; the break-glass covers the rare case.
+
+This ADR settles the erasure mechanism end to end: signed tombstone denylist (built on the shipped
+credential pattern) for reintroduction refusal + immediate logical erasure, which the owner has
+confirmed is the required guarantee. Genesis rotation is retained as documented break-glass for the
+rare physical-scrub / compromised-peer-eviction case, not discarded and not on this ticket's path.
