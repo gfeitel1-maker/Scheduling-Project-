@@ -807,9 +807,18 @@ someone" is genuinely unknown, not just unstated.
 
 ## Reversal (2026-09-18) — Decision B: throw → auto-reorder
 
-**Status: PROPOSED — requires product-owner sign-off.** This section reverses only the narrow
+**Status: ACCEPTED — product-owner sign-off 2026-09-19.** This section reverses only the narrow
 throw-on-misorder half of Decision B (T9(a), above); D1–D5 and T7–T12 remain accepted and implemented
 unchanged, and the top-level frontmatter `status`/`implementation_state` are unchanged for that reason.
+The reversal was reviewed through the Governor loop (Architect + Security 5/5 + Red Hat 4/5 + Code
+Reviewer), verified green on every substantive gate (full suite 6639 passed / 0 failed, integration
+22/22, security, lint, build, governance — against the declared libp2p 3.3.11), and approved by the
+product-owner (the ADR's `deciders`) on 2026-09-19. The two residual risks were surfaced and accepted:
+(1) the Host-side gap — a client bypassing `createRecord` and writing a non-unique field first over the
+wire — is unchanged, neither closed nor widened by this reversal (closing it needs the atomic
+multi-field-create primitive the original ADR declined to build); (2) `elective_sets`/`events` are
+registered but have no reachable `createRecord` call site today, so their auto-reorder / absent-throw
+behavior is unit-tested only, not exercised end-to-end.
 
 **What changed.** T205 (`docs/work/tickets/` — days_of_operation gained `UNIQUE(camp_id, day_of_week)`,
 schema v70, commit `41d2e7f`) registered a second `UNIQUE_FIRST_FIELD` entry
