@@ -30,11 +30,14 @@
 //      targeted prune; T202 is whole-device-history purge, not per-record op-log pruning — see the
 //      ticket's exit condition). BLAST RADIUS, STATED EXPLICITLY (round 2, FIX2): this is a
 //      WHOLE-DEVICE rebuild. It reprojects ONLY the modeled, document-replicated entities — every
-//      non-modeled, host-only table on this device (schedule_snapshots, conflicts, import_evidence,
-//      import_decisions, open_reconciliation_decisions, pending_writes, pending_restores,
-//      device_health_events, projection_failures, source_aliases, compound_cell_decisions,
-//      location_word_decisions, declined_two_row_splits, plus camps.signing_secret) is wiped along
-//      with it, camp-wide, not just for the purged camper. That collateral is an accepted tradeoff.
+//      non-modeled, host-only table on this device (PURGE_WIPED_TABLES in purgeCollateral.js:
+//      conflicts, import_evidence, import_decisions, open_reconciliation_decisions, pending_writes,
+//      pending_restores, device_health_events, projection_failures, source_aliases,
+//      compound_cell_decisions, location_word_decisions, declined_two_row_splits, plus the
+//      camps.signing_secret column) is wiped along with it, camp-wide, not just for the purged
+//      camper. That collateral is an accepted tradeoff. (schedule_snapshots is MODELED — it is
+//      document-replicated and round-trips back via the fresh document, so it is NOT collateral;
+//      purgeCollateral.js and its test are the source of truth this list must match.)
 //   5b. PRESERVE THIS DEVICE'S SIGNING/IDENTITY KEYS across the rebuild (T202 follow-up). The three
 //      load-bearing device-identity artifacts — host_signing_key, device_identity_key, and
 //      camps.signing_public_key — are read out of the pre-rebuild db (step 3's oldDb) and written
