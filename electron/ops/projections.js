@@ -1,4 +1,5 @@
 import { getStmt } from './stmtCache.js'
+import { parseDayOfWeek } from './dayId.js'
 
 // Shared ensureExists for the week_*_exclusions join tables. Each is
 // (id, week_id, <second>) where BOTH week_id AND the second column are NOT NULL
@@ -172,13 +173,21 @@ export const PROJECTIONS = {
     table: 'days_of_operation',
     key: 'id',
     fields: ['camp_id', 'label', 'day_of_week', 'sort_order'],
+    // T205 part A: when `id` is a deterministic day id (electron/ops/dayId.js),
+    // stamp day_of_week in this SAME insert — closing the NULL-at-creation
+    // window that made UNIQUE(camp_id, day_of_week) inert (a collision used to
+    // land on the LATER day_of_week field write instead of here, throwing and
+    // leaving a torn, permanently-NULL-day row nothing could ever match again).
+    // A non-deterministic id (a pre-T205 crypto.randomUUID() row) falls back to
+    // today's NULL behavior — never throw on an unexpected id shape.
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
-      getStmt(db, "INSERT OR IGNORE INTO days_of_operation (id, camp_id, label) VALUES (?, ?, '')").run(
-        id,
-        camp?.id ?? null
-      )
+      const dayOfWeek = parseDayOfWeek(id)
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO days_of_operation (id, camp_id, label, day_of_week) VALUES (?, ?, '', ?)"
+      ).run(id, camp?.id ?? null, dayOfWeek)
     },
   },
   time_blocks: {

@@ -165,12 +165,22 @@ function fieldsForUnchecked(entity, name, campId, index, cohortId) {
       return { camp_id: campId, name, sort_order: index, cohort_id: cohortId }
     case 'groups':
       return { camp_id: campId, name, availability: 'all' }
+    // day_of_week FIRST — days_of_operation is UNIQUE_FIRST_FIELD-registered
+    // (T205), same ordering reasoning as activities/locations above.
+    //
+    // T205: an unrecognized label (not in DAY_INDEX — e.g. a relabeled
+    // "Tues") used to fall back to the raw import-array `index`, which can
+    // collide with a REAL weekday's day_of_week (1-5) already on the camp —
+    // exactly the UNIQUE(camp_id, day_of_week) collision this ticket added.
+    // `-1 - index` keeps the fallback distinct per-row (still useful for
+    // sort_order) while staying outside the 1-5 weekday range, so it can
+    // never collide with a genuine weekday.
     case 'days_of_operation': {
       const dow = DAY_INDEX[String(name).trim().toLowerCase()]
       return {
+        day_of_week: dow ?? -1 - index,
         camp_id: campId,
         label: name,
-        day_of_week: dow ?? index,
         sort_order: dow ?? index,
       }
     }

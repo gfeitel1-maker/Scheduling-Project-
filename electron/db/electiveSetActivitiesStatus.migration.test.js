@@ -71,7 +71,7 @@ describe('migration v68: fresh vs migrated equivalence', () => {
   it('declares schema version 68 on a fresh db and adds status', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(69)
+    expect(CURRENT_SCHEMA_VERSION).toBe(70)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 68').get().c).toBe(1)
     expect(db.pragma('table_info(elective_set_activities)').map((c) => c.name)).toContain('status')
     db.close()

@@ -42,6 +42,8 @@
  * table shape. Each entry names what it does so the classification can be
  * checked rather than trusted.
  */
+import { appendOp, DELETE_FIELD, DOCUMENT_OUTCOME } from '../ops/operations.js'
+
 export const DOMAIN_STATE_MIGRATIONS = new Map([
   [11, 'cohort de-duplication re-points time_blocks.cohort_id and anchor_activities.cohort_id'],
   [12, 'group de-duplication re-points template_slots.group_id'],
@@ -54,6 +56,7 @@ export const DOMAIN_STATE_MIGRATIONS = new Map([
   [26, 'retires orphan template_slots rows'],
   [27, 'backfills schedule_templates.week_id from the camp default week'],
   [32, 'backfillLocations — mints locations rows and sets activities.location_id'],
+  [70, 'days_of_operation de-duplication re-points template_slots/anchor_activities/elective_sets/elective_occurrences.day_id (T205)'],
 ])
 
 // DELIBERATELY NOT IN THE SET ABOVE, though they do run UPDATE against a table
@@ -142,6 +145,10 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // exclusion class as device_identity_key/host_signing_key). Schema-only: it touches no table
   // the document models, and no existing row's meaning changes.
   69,
+  // v70 is DELIBERATELY NOT here — see DOMAIN_STATE_MIGRATIONS above. It is
+  // the FIRST domain-state migration above v52 to actually be reachable
+  // (T205), and durably records that fact via domain_state_migration_pending
+  // so a plain restart cannot silently re-enable sync past it.
 ])
 
 /** True if applying `version` can change what the camp means. */
@@ -160,4 +167,103 @@ export function domainStateMigrationsIn(from, to) {
     if (version > from && version <= to) out.push(version)
   }
   return out.sort((a, b) => a - b)
+}
+
+// T205 part D: the per-process migrationSpans WeakMap only reports a span for
+// the launch that actually RAN a migration — on the NEXT launch (any process,
+// any restart), `from === to` and domainStateMigrationsIn returns [], even
+// though the risk this guard exists for has not gone away. This reads a
+// DURABLE record instead: a domain-state migration that actually changed rows
+// (see localDb.js's v70 block, the first to populate this table) inserts a
+// row into domain_state_migration_pending, and it stays there — deliberately,
+// per this file's "WHY NOT AUTO-REPAIR" — until something resolves it by
+// republishing the reconciled state through the document.
+export function unresolvedDomainStateMigrations(db) {
+  return db
+    .prepare('SELECT version, detail, created_at FROM domain_state_migration_pending WHERE resolved_at IS NULL')
+    .all()
+}
+
+// The single decision main.js's sync-start guard makes, pulled out so it can
+// be unit-tested without booting Electron or a real document. Refuse to start
+// sync when EITHER signal says a domain-state migration has run against a
+// camp that already has a document: the per-launch span (migrationSpanFor,
+// for the launch that ran it) OR the durable marker (unresolvedDomainStateMigrations,
+// for every launch after — the fix for the one-launch-only defect).
+export function shouldRefuseSyncForDomainMigration({ docExists, riskyThisLaunch = [], unresolvedMarkers = [] }) {
+  if (!docExists) return false
+  return riskyThisLaunch.length > 0 || unresolvedMarkers.length > 0
+}
+
+// T205 round 2, FIX 2: closes the "durable marker never resolved" defect —
+// left as-is, a camp with a pre-T205 duplicate would refuse sync on every
+// launch FOREVER once v70 dedupes it. The correct repair (this file's own
+// "WHY NOT AUTO-REPAIR" above, and Amendment 2's original framing) is to
+// apply the SAME change through the document, not to re-seed it: the
+// migration already deleted these rows from SQLite and recorded exactly
+// which entity_ids in the marker's `detail` (see localDb.js's v70 block),
+// so this authors a document delete (tombstone) for each one via the
+// ordinary appendOp path — the same primitive an interactive delete uses —
+// then marks the marker resolved. Idempotent: appendOp's DELETE_FIELD on an
+// entity_id already absent from SQLite is a no-op at the projection layer
+// (applyProjection has nothing to delete), so calling this twice, or from
+// two devices independently, is harmless — which is exactly why FIX 3
+// (deterministic survivor selection) matters: two devices dedupe the SAME
+// duplicate pair down to the SAME survivor and record the SAME loser id, so
+// their independent resolves converge on the SAME document tombstone rather
+// than each other's now-orphaned pointer.
+export function resolvePendingDomainStateMigrations(db, { device_id = null } = {}) {
+  const pending = db.prepare('SELECT * FROM domain_state_migration_pending WHERE resolved_at IS NULL').all()
+  const resolvedVersions = []
+
+  for (const marker of pending) {
+    let payload
+    try {
+      payload = JSON.parse(marker.detail)
+    } catch {
+      // FOR FUTURE MIGRATION AUTHORS: a marker whose `detail` is not this
+      // resolver's {note, losers} JSON shape is left UNRESOLVED forever by
+      // this loop — never guessed at, never resolved by accident. A future
+      // domain-state migration that wants its own marker auto-resolved must
+      // write `detail` in this exact shape (or extend this function to
+      // recognize its own), or plan for a human/future-ticket resolution path
+      // instead.
+      continue // not a structured marker this resolver understands — leave it, never guess
+    }
+    const losers = Array.isArray(payload.losers) ? payload.losers : []
+
+    // FAIL CLOSED (T205 round 3, Red Hat HIGH): appendOp never THROWS on a
+    // document-write failure — it returns the op with op[DOCUMENT_OUTCOME] set
+    // to 'failed' instead of 'applied' (electron/ops/operations.js). The
+    // return was previously discarded and resolved_at was set unconditionally,
+    // so a transient document-write failure would still clear the marker, sync
+    // would resume, and a peer's projectAll delete-reconcile would RESURRECT
+    // the exact duplicate row v70 deleted — the CRDT-merge resurrection this
+    // ticket exists to prevent, with the safety net disarmed. days_of_operation
+    // IS modeled, so a healthy write's outcome is 'applied'; ANY other outcome
+    // ('failed', 'not-modeled', 'deferred', 'engine-off') means the tombstone
+    // did not land and must count as not-yet-resolved.
+    //
+    // A PARTIAL batch fails the WHOLE marker, not just the failed loser: this
+    // module's own design already relies on appendOp's DELETE_FIELD being an
+    // idempotent no-op for an entity_id already gone from SQLite or already
+    // absent from the document (see the module comment above), so re-running
+    // every loser on a later retry is safe and cheap — there is no reason to
+    // track partial progress inside one marker.
+    let allApplied = true
+    for (const { entity, entity_id } of losers) {
+      const op = appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id: null, device_id })
+      if (op[DOCUMENT_OUTCOME] !== 'applied') allApplied = false
+    }
+
+    if (!allApplied) continue // leave resolved_at NULL — retried on the next call/launch
+
+    db.prepare('UPDATE domain_state_migration_pending SET resolved_at = ? WHERE version = ?').run(
+      new Date().toISOString(),
+      marker.version
+    )
+    resolvedVersions.push(marker.version)
+  }
+
+  return resolvedVersions
 }

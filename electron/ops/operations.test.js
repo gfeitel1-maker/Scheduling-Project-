@@ -1428,3 +1428,51 @@ describe('a deferred write is resolved by the time the boundary returns', () => 
 afterAll(() => {
   cleanupTemplatedDbs()
 })
+
+// T205 part B: days_of_operation must be registered in UNIQUE_FIELD_ENTITIES
+// (day_of_week scoped by camp_id) so a genuinely-concurrent cross-device
+// collision on the same weekday with DIFFERENT ids becomes a typed,
+// director-resolvable rejection instead of a raw SQLITE_CONSTRAINT_UNIQUE.
+describe('detectUniqueFieldCollision (T205 — days_of_operation UNIQUE(camp_id, day_of_week))', () => {
+  it('detects a collision against a DIFFERENT entity_id already holding that weekday', () => {
+    appendOp(db, {
+      entity: 'days_of_operation',
+      entity_id: 'day-mon-a',
+      field: 'day_of_week',
+      value: 1,
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    // A second device concurrently seeding Monday mints a DIFFERENT
+    // entity_id for the same weekday (the Host-seed-races-invite race).
+    const result = detectUniqueFieldCollision(db, {
+      entity: 'days_of_operation',
+      entity_id: 'day-mon-b',
+      field: 'day_of_week',
+      value: 1,
+    })
+    expect(result).toBeTruthy()
+    expect(result.id).toBe('day-mon-a')
+  })
+
+  it('reports no collision for a different weekday', () => {
+    appendOp(db, {
+      entity: 'days_of_operation',
+      entity_id: 'day-mon-a',
+      field: 'day_of_week',
+      value: 1,
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    const result = detectUniqueFieldCollision(db, {
+      entity: 'days_of_operation',
+      entity_id: 'day-tue-a',
+      field: 'day_of_week',
+      value: 2,
+    })
+    expect(result).toBeNull()
+  })
+})

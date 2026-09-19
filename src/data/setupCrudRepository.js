@@ -28,6 +28,9 @@ export const UNIQUE_FIRST_FIELD = {
   elective_sets: 'name',
   events: 'name',
   activities: 'name',
+  // days_of_operation has UNIQUE(camp_id, day_of_week) as of T205 — see
+  // electron/ops/operations.js's UNIQUE_FIELD_ENTITIES entry.
+  days_of_operation: 'day_of_week',
 }
 
 // Fixed vs Recurring events (docs/adr/2026-08-28-fixed-vs-recurring-events.md

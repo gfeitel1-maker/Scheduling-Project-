@@ -26,6 +26,7 @@ import { resolveAnchorGroupIds } from '../../src/engine/anchorScope.js'
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from '../../src/ingest/fieldUpdate.js'
 import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
+import { deriveDayId } from './dayId.js'
 import { PROJECTIONS } from './projections.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
 import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
@@ -1360,9 +1361,28 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // resolveLocationCreateId rather than bare deriveLocationId, so a create
     // whose base id was recollided by a prior rename mints `${base}:n`
     // instead of silently landing on (and later overwriting) the renamed row.
-    const entityId = entity === 'locations' ? resolveLocationCreateId(db, camp_id, name) : randomUUID()
     const fields = {}
     for (const [field, delta] of Object.entries(item.fields)) fields[field] = delta.to
+
+    // T205 round 2 (FIX 1): the SAME deterministic-id treatment as locations
+    // above, for the SAME reason — days_of_operation is UNIQUE_FIELD_ENTITIES/
+    // UNIQUE_FIRST_FIELD-registered and needs day_of_week stamped from the id
+    // itself (projections.js's ensureExists), not just from a later field
+    // write, or two devices importing the same weekday mint different ids and
+    // duplicate exactly what Part A's deterministic-id fix was meant to
+    // prevent. fields.day_of_week is buildPlan.js's TARGET value — already
+    // resolved from the label via DAY_INDEX before commitCreate ever runs, so
+    // no second label->weekday map is invented here. A real weekday is a
+    // positive 1-5; buildPlan's own sentinel for an unrecognized label is
+    // negative (`-1 - index`), which is deliberately NOT determinable and
+    // falls back to randomUUID exactly like a hand-authored create would.
+    const dayOfWeek = fields.day_of_week
+    const entityId =
+      entity === 'locations'
+        ? resolveLocationCreateId(db, camp_id, name)
+        : entity === 'days_of_operation' && Number.isInteger(dayOfWeek) && dayOfWeek > 0
+          ? deriveDayId(camp_id, dayOfWeek)
+          : randomUUID()
 
     // Trim to match how tierIdByName is BOTH seeded (seedNameMaps: `.trim()
     // .toLowerCase()`) and READ (the group→unit link and T183 PR-2's division

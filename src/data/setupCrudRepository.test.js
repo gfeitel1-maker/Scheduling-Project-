@@ -97,7 +97,7 @@ describe('createSetupCrudRepository — createRecord', () => {
   it('writes ordered fields, no cleanup on success', async () => {
     const client = makeFakeClient()
     const repo = createSetupCrudRepository({ localClient: client, getToken })
-    await repo.createRecord('days_of_operation', 'd1', { label: 'Monday', sort_order: 1 })
+    await repo.createRecord('time_blocks', 'tb1', { label: 'Monday', sort_order: 1 })
     expect(client.calls.write.map((c) => c[3])).toEqual(['label', 'sort_order'])
     expect(client.calls.deleteEntity).toHaveLength(0)
   })
@@ -110,9 +110,9 @@ describe('createSetupCrudRepository — createRecord', () => {
     })
     const repo = createSetupCrudRepository({ localClient: client, getToken })
     await expect(
-      repo.createRecord('days_of_operation', 'd1', { label: 'Monday', sort_order: 1 })
+      repo.createRecord('time_blocks', 'tb1', { label: 'Monday', sort_order: 1 })
     ).rejects.toThrow(/write failed for field "sort_order"/)
-    expect(client.calls.deleteEntity).toEqual([['tok', 'days_of_operation', 'd1']])
+    expect(client.calls.deleteEntity).toEqual([['tok', 'time_blocks', 'tb1']])
   })
 
   it('swallows a cleanup failure — does not mask the original error or throw a second exception', async () => {
@@ -120,7 +120,7 @@ describe('createSetupCrudRepository — createRecord', () => {
     client.write.mockResolvedValue({ status: 'rejected' })
     client.deleteEntity.mockRejectedValue(new Error('cleanup boom'))
     const repo = createSetupCrudRepository({ localClient: client, getToken })
-    await expect(repo.createRecord('days_of_operation', 'd1', { label: 'Monday' })).rejects.toThrow(
+    await expect(repo.createRecord('time_blocks', 'tb1', { label: 'Monday' })).rejects.toThrow(
       /write failed for field "label"/
     )
   })
@@ -147,6 +147,13 @@ describe('createSetupCrudRepository — createRecord', () => {
 
   // T9 (docs/adr/2026-08-15-locations-concurrent-create-collision.md
   // addendum, Decision B): a programmer-error guard, not a user-facing path.
+  // T205 round 2 FIX 4 (Code Reviewer nit): a direct assertion for this specific
+  // mapping, not just coverage-by-inclusion in the parity test
+  // (electron/uniqueFirstFieldRegistryParity.test.js).
+  it('registers days_of_operation on day_of_week (T205)', () => {
+    expect(UNIQUE_FIRST_FIELD.days_of_operation).toBe('day_of_week')
+  })
+
   it('UNIQUE_FIRST_FIELD guard: throws synchronously, before any write, when the registered unique field is not first', async () => {
     expect(UNIQUE_FIRST_FIELD.locations).toBe('name')
     const client = makeFakeClient()
@@ -163,7 +170,7 @@ describe('createSetupCrudRepository — createRecord', () => {
   it('UNIQUE_FIRST_FIELD guard: does not fire for an entity absent from the registry', async () => {
     const client = makeFakeClient()
     const repo = createSetupCrudRepository({ localClient: client, getToken })
-    await repo.createRecord('days_of_operation', 'd1', { sort_order: 1, label: 'Monday' })
+    await repo.createRecord('time_blocks', 'tb1', { sort_order: 1, label: 'Monday' })
     expect(client.calls.write.map((c) => c[3])).toEqual(['sort_order', 'label'])
   })
 })

@@ -132,3 +132,23 @@ describe('seedDays', () => {
     expect(localClient.write).not.toHaveBeenCalled()
   })
 })
+
+// T205 part A: creating a weekday row must mint deterministic ids
+// (electron/ops/dayId.js's deriveDayId), not crypto.randomUUID() — so two
+// devices racing seedDays on the same brand-new camp converge on the SAME
+// entity id instead of forking into two rows for the same weekday.
+import { deriveDayId } from '../../electron/ops/dayId.js'
+
+describe('seedDays deterministic ids (T205 part A)', () => {
+  it('mints deriveDayId(campId, day_of_week) for a newly created row, not crypto.randomUUID()', async () => {
+    localClient.list.mockResolvedValue([])
+    await seedDays('camp-1')
+
+    const ids = new Set(localClient.write.mock.calls.map(([, , id]) => id))
+    for (let dow = 1; dow <= 5; dow++) {
+      expect(ids.has(deriveDayId('camp-1', dow))).toBe(true)
+    }
+    // crypto.randomUUID must not have been used for any row this call created
+    expect(uuidCounter).toBe(0)
+  })
+})
