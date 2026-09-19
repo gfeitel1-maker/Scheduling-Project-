@@ -19,6 +19,7 @@ import { saveDoc, loadDoc } from '../sync/automerge/docStore.js'
 import { sharesGenesis, recordKey } from './campDocument.js'
 import { rebuildProjectionFromDocumentAtPath, RebuildRefusalError } from './rebuildSupportCommand.js'
 import { purgeCamperRecord } from './purgeSupportCommand.js'
+import * as hostKeyPreservation from './hostKeyPreservation.js'
 
 let files = []
 let dirs = []
@@ -227,7 +228,7 @@ describe('purgeCamperRecord', () => {
     verifyDb2.close()
   })
 
-  it('round 2 FIX2: purging a camper also erases camp-wide host-only state and this device signing key (pinned, not silent)', () => {
+  it('round 2 FIX2: purging a camper still erases camp-wide host-only state that is NOT identity (pinned, not silent)', () => {
     const { db, dbPath } = newDb('collateral')
     const campId = randomUUID()
     const deviceId = 'device-1'
@@ -238,16 +239,15 @@ describe('purgeCamperRecord', () => {
     })
     // conflicts is a genuinely HOST-ONLY table (never in MODELED_ENTITIES/DIRECT_CAMP_ENTITIES —
     // electron/ops/campScopedEntities.js), unlike schedule_snapshots (which IS document-replicated
-    // and correctly survives a rebuild via seedAllFromSqlite). This is the real collateral case.
+    // and correctly survives a rebuild via seedAllFromSqlite). It is NOT device-identity, so unlike
+    // the signing/identity keys (see the 5b preservation tests below) it is still lost on purge —
+    // that accepted collateral is pinned here so it can't silently change.
     const conflictId = randomUUID()
     db.prepare(
       'INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(conflictId, 'campers', camperId, 'display_name', '{}', '{}', 'op1', new Date().toISOString())
-    db.prepare('INSERT INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)')
-      .run('a'.repeat(64), 'b'.repeat(64), new Date().toISOString())
 
     expect(db.prepare('SELECT * FROM conflicts WHERE id = ?').get(conflictId)).toBeTruthy()
-    expect(db.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()).toBeTruthy()
 
     const doc = seedAllFromSqlite(db)
     const userDataDir = newUserDataDir('collateral')
@@ -261,8 +261,154 @@ describe('purgeCamperRecord', () => {
 
     const verifyDb = openLocalDb(dbPath)
     expect(verifyDb.prepare('SELECT * FROM conflicts WHERE id = ?').get(conflictId)).toBeUndefined()
-    expect(verifyDb.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()).toBeUndefined()
     verifyDb.close()
+  })
+
+  // ---- 5b: the signing/identity keys are PRESERVED across a purge (T202 follow-up) ----
+
+  it('5b: preserves host_signing_key, device_identity_key, and camps.signing_public_key byte-identical', () => {
+    const { db, dbPath } = newDb('preserve')
+    const campId = randomUUID()
+    const deviceId = 'device-1'
+    const camperId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId, camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    const hostPub = 'a'.repeat(64)
+    const hostPriv = 'b'.repeat(64)
+    const hostCreated = new Date().toISOString()
+    db.prepare('INSERT INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)')
+      .run(hostPub, hostPriv, hostCreated)
+    // camps.signing_public_key mirrors the host public key (localAuth.js ensureHostSigningKey) and
+    // is excluded from the document (projector.js), so it must be preserved out-of-band or it comes
+    // back genuinely empty after a rebuild.
+    db.prepare('UPDATE camps SET signing_public_key = ?').run(hostPub)
+    const peerId = '12D3KooWFakePeerIdForTest'
+    const devPriv = 'c'.repeat(72)
+    const devCreated = new Date().toISOString()
+    db.prepare('INSERT INTO device_identity_key (id, peer_id, private_key, created_at) VALUES (1, ?, ?, ?)')
+      .run(peerId, devPriv, devCreated)
+
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('preserve')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+
+    // The result reports exactly which artifacts were restored — never the key bytes themselves.
+    expect(result.keysRestored).toEqual({
+      hostSigningKey: true,
+      deviceIdentityKey: true,
+      campsSigningPublicKey: true,
+    })
+
+    const verifyDb = openLocalDb(dbPath)
+    const host = verifyDb.prepare('SELECT public_key, private_key, created_at FROM host_signing_key WHERE id = 1').get()
+    expect(host).toEqual({ public_key: hostPub, private_key: hostPriv, created_at: hostCreated })
+    const dev = verifyDb.prepare('SELECT peer_id, private_key, created_at FROM device_identity_key WHERE id = 1').get()
+    expect(dev).toEqual({ peer_id: peerId, private_key: devPriv, created_at: devCreated })
+    // camps.signing_public_key survives AND stays matched to the preserved host public key, so this
+    // device can verify its own tokens immediately — no dependence on a later lazy backfill.
+    expect(verifyDb.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key).toBe(hostPub)
+    verifyDb.close()
+  })
+
+  it('5b: does NOT preserve camps.signing_secret (retired legacy HMAC field — deliberately inert loss)', () => {
+    const { db, dbPath } = newDb('secret')
+    const campId = randomUUID()
+    const camperId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId: 'device-1', camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    // buildCampWithCamper already sets signing_secret to 'a'.repeat(64).
+    expect(db.prepare('SELECT signing_secret FROM camps LIMIT 1').get().signing_secret).toBe('a'.repeat(64))
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('secret')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+
+    const verifyDb = openLocalDb(dbPath)
+    // signing_secret is never in the document and is deliberately not preserved, so it comes back
+    // empty. This pins the deliberate exclusion so it can't quietly start being preserved.
+    expect(verifyDb.prepare('SELECT signing_secret FROM camps LIMIT 1').get().signing_secret).toBeNull()
+    verifyDb.close()
+  })
+
+  it('5b: a Client (no host_signing_key row) skips that artifact without error', () => {
+    const { db, dbPath } = newDb('client')
+    const campId = randomUUID()
+    const camperId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId: 'device-1', camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    // A Client holds no host_signing_key, but does hold a device_identity_key and receives
+    // camps.signing_public_key via its login/join reply.
+    const clientPub = 'd'.repeat(64)
+    db.prepare('UPDATE camps SET signing_public_key = ?').run(clientPub)
+    db.prepare('INSERT INTO device_identity_key (id, peer_id, private_key, created_at) VALUES (1, ?, ?, ?)')
+      .run('12D3KooWClientPeer', 'e'.repeat(72), new Date().toISOString())
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('client')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+    expect(result.keysRestored).toEqual({
+      hostSigningKey: false,
+      deviceIdentityKey: true,
+      campsSigningPublicKey: true,
+    })
+
+    const verifyDb = openLocalDb(dbPath)
+    expect(verifyDb.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()).toBeUndefined()
+    expect(verifyDb.prepare('SELECT signing_public_key FROM camps LIMIT 1').get().signing_public_key).toBe(clientPub)
+    verifyDb.close()
+  })
+
+  it('FIX3: a crash between rebuild and key-restore leaves the pre-migration backup holding the original key', () => {
+    const { db, dbPath } = newDb('crashwindow')
+    const campId = randomUUID()
+    const camperId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId: 'device-1', camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    const hostPub = 'a'.repeat(64)
+    const hostPriv = 'b'.repeat(64)
+    db.prepare('INSERT INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)')
+      .run(hostPub, hostPriv, new Date().toISOString())
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('crashwindow')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    // Force a crash AFTER the rebuild has completed but BEFORE restore finishes. Shredding the
+    // backups must NOT have run yet, so the backup — which still holds the original host_signing_key
+    // (it was copied from the pre-rebuild db) — survives as a manual recovery source.
+    const spy = vi.spyOn(hostKeyPreservation, 'restorePreservableKeys').mockImplementationOnce(() => {
+      throw new Error('forced crash between rebuild and key-restore')
+    })
+    try {
+      expect(() => purgeCamperRecord({ dbPath, userDataDir, entityId: camperId }))
+        .toThrow(/forced crash between rebuild and key-restore/)
+    } finally {
+      spy.mockRestore()
+    }
+
+    const backups = preMigrationBackups(dbPath)
+    expect(backups.length).toBeGreaterThan(0)
+    const backupPath = path.join(path.dirname(dbPath), backups[0])
+    const backupDb = openLocalDb(backupPath)
+    const recovered = backupDb.prepare('SELECT public_key, private_key FROM host_signing_key WHERE id = 1').get()
+    backupDb.close()
+    files.push(backupPath)
+    expect(recovered).toEqual({ public_key: hostPub, private_key: hostPriv })
   })
 
   it('round 2 FIX4: refuses a whole-device purge when the id has no camper row and no operations history', () => {
