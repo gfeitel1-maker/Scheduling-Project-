@@ -247,4 +247,53 @@ describe('runIngestCli', () => {
     expect(result.ok).toBe(true)
     expect(result.exitCode).toBe(0)
   })
+
+  // T223 — the gate above is whole-FILE (isScheduleShaped is `pages.some`),
+  // so a workbook with ONE schedule-shaped tab used to launder every sibling
+  // tab through extraction. A camper-selection tab living alongside a real
+  // schedule tab in the SAME file committed the selection tab's headers as
+  // groups/tiers while still reporting exit 0. Fixed by extracting only from
+  // pages that individually pass the gate (partitionSchedulePages), and
+  // surfacing the declined tab rather than dropping it silently.
+  function writeMixedWorkbook(dir) {
+    const selectionHeader = ['Camper Name', 'Division', 'Swim Alternative (Y/N)', '#1', '#2']
+    const selectionRows = [
+      selectionHeader,
+      ['Ari Green', 'Arad', 'N', 'Archery', 'Gaga'],
+      ['Noa Katz', 'Bogrim', 'Y', 'Ceramics', 'Tennis'],
+    ]
+    const scheduleHeader = ['Time', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    const scheduleRows = [
+      scheduleHeader,
+      ['9:00-9:20', 'Swim', 'Art', 'Swim', 'Art', 'Swim'],
+      ['9:20-9:40', 'Art', 'Swim', 'Art', 'Swim', 'Art'],
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(selectionRows), 'Camper Selections')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(scheduleRows), 'Elective Menu')
+    const file = path.join(dir, 'mixed.xlsx')
+    fs.writeFileSync(file, XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+    return file
+  }
+
+  it('commits a mixed workbook, reporting the declined tab and never creating its headers as groups/tiers', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = bootstrapDb(dir)
+    const file = writeMixedWorkbook(dir)
+
+    const result = runIngestCli({ file, dbPath, action: 'commit' })
+
+    expect(result.ok).toBe(true)
+    expect(result.exitCode).toBe(0)
+    expect(result.declinedPages).toEqual(['Camper Selections'])
+
+    const after = openLocalDb(dbPath)
+    const groupNames = after.prepare('SELECT name FROM groups').all().map((r) => r.name)
+    const tierNames = after.prepare('SELECT name FROM tiers').all().map((r) => r.name)
+    expect(groupNames).not.toContain('Division')
+    expect(tierNames).not.toContain('#1')
+    expect(tierNames).not.toContain('Swim Alternative (Y/N)')
+    after.close()
+  })
 })

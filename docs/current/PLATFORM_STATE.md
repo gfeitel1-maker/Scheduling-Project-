@@ -533,10 +533,18 @@ so its contract is about honesty rather than perfection.
   `ingest_preview`/`ingest_commit` run. Before T224 only the GUI enforced it, so
   the CLI and MCP would extract entities from any workbook at all: a campus-map
   template proposed 23 groups, 23 tiers and 21 "activities" (its legend keys —
-  "building", "tent", "court") and reported success. The gate is **whole-file**
-  (`pages.some`) while extraction is per-page, so a file mixing a schedule page
-  with a non-schedule page still passes and the non-schedule page is still
-  extracted — see `docs/work/tickets/T223-shape-gate-page-granularity.md`. The
+  "building", "tent", "court") and reported success. **The shape gate is now
+  PER-PAGE, not whole-file (T223).** `isSchedulePage`/`partitionSchedulePages`
+  extract only the pages that individually pass the same positive-evidence
+  test — a file mixing a real schedule tab with a non-schedule tab (a camper
+  elective-selection sheet) now imports the schedule and DECLINES the other
+  tab instead of extracting its column headers as groups/tiers. Declined tabs
+  are surfaced, never dropped silently: the CLI/MCP result carries a
+  `declinedPages` field (printed by `scripts/ingest.js`), and the UI's
+  existing "Not recognised" box lists them by title. `isScheduleShaped` keeps
+  its original whole-file contract (true if any page qualifies), so a file is
+  never refused today that would have been accepted before this change — see
+  `docs/adr/2026-09-18-schedule-shape-gate-per-page-granularity.md`. The
   per-entity template importers (Locations, Electives, Special Events) are
   non-schedule workbooks by design and deliberately never reach this check.
 
