@@ -366,6 +366,33 @@ genesis rotation (the app-wide genesis is unchanged; a purged device's fresh doc
 genesis with every other device's, which is why an untouched peer must re-pair, not resync — see
 `purgeSupportCommand.test.js`'s "known gap" case, which demonstrates rather than fixes this).
 
+*Round 2 hardening (2026-09-18), after Security/Red Hat/Code Reviewer findings on the first cut.*
+Three real gaps were closed rather than argued past:
+
+1. **Non-atomic purge.** The three deletes previously auto-committed individually, before the fresh
+   document was built and genesis-checked — a failure in that window left SQLite purged while the
+   still-current `.automerge` held the camper, a split state worse than doing nothing. Fixed by
+   wrapping the deletes, `seedAllFromSqlite`, and the genesis check in one `oldDb.transaction()`;
+   the document save and the whole-file rebuild both happen only after that transaction commits.
+   Recovery from a crash in the remaining (much narrower) window is an ordinary re-run — every step
+   past the transaction is idempotent.
+2. **Undisclosed whole-device blast radius.** The reused rebuild wipes every host-only table on this
+   device — confirmed against the schema: `conflicts`, `import_evidence`, `import_decisions`,
+   `open_reconciliation_decisions`, `pending_writes`, `pending_restores`, `device_health_events`,
+   `projection_failures`, `source_aliases`, `compound_cell_decisions`, `location_word_decisions`,
+   `declined_two_row_splits`, plus `host_signing_key`/`device_identity_key` and
+   `camps.signing_secret` — camp-wide, not scoped to the purged camper, and now stated as such in
+   SECURITY.md and pinned by a test. (One correction to round 1's own review: `schedule_snapshots`
+   is document-replicated, in `MODELED_ENTITIES`/`GENESIS_ENTITIES`, and correctly survives a purge —
+   it is not part of this collateral.) `purgeCamperRecord` now refuses outright, before doing
+   anything destructive, when the given id names no camper row and has no `operations` history —
+   this whole-device cost must not be paid for an id that purges nothing.
+3. **Re-pair was described as required but nothing enforces it.** SECURITY.md now says explicitly
+   that `sharesGenesis()` is the only sync-side gate and cannot distinguish a purged record from an
+   ordinary one — an already-paired peer WILL reintroduce the purged camper on ordinary sync, not
+   merely "if someone forgets to re-pair." No enforcement exists yet; only a per-camp genesis
+   rotation (a separate, deferred ticket) would close it.
+
 ### D11 — Min-cost max-flow is retained
 
 Red Hat asked whether greedy-by-rank would do. Assessed honestly: for a camp of ~200 campers across

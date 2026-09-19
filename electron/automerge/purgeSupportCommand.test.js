@@ -5,7 +5,7 @@
 // 2026-09-17-individual-elective-scheduling.md D10. Fixtures are built against the real
 // electron/db/schema.sql columns (campers, elective_preferences, elective_assignments,
 // operations), not hand-rolled shapes.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as A from '@automerge/automerge'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -13,10 +13,11 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { appendOp } from '../ops/operations.js'
+import * as seedModule from './seed.js'
 import { seedAllFromSqlite } from './seed.js'
 import { saveDoc, loadDoc } from '../sync/automerge/docStore.js'
 import { sharesGenesis, recordKey } from './campDocument.js'
-import { rebuildProjectionFromDocumentAtPath } from './rebuildSupportCommand.js'
+import { rebuildProjectionFromDocumentAtPath, RebuildRefusalError } from './rebuildSupportCommand.js'
 import { purgeCamperRecord } from './purgeSupportCommand.js'
 
 let files = []
@@ -180,5 +181,113 @@ describe('purgeCamperRecord', () => {
     const camperKeyPrefix = recordKey(camperId, '')
     const reintroduced = Object.keys(merged.campers || {}).some((k) => k.startsWith(camperKeyPrefix))
     expect(reintroduced).toBe(true)
+  })
+
+  it('round 2 FIX1: rolls back the deletes when something fails after them, inside one transaction (no split state)', () => {
+    const { db, dbPath } = newDb('atomic')
+    const campId = randomUUID()
+    const deviceId = 'device-1'
+    const camperId = randomUUID()
+    const prefId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId, camperId, groupId: randomUUID(),
+      prefId, runId: randomUUID(), choiceId: randomUUID(),
+    })
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('atomic')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    // Force a failure AFTER the deletes would already have auto-committed under the old
+    // (non-transactional) code, but which the transaction must still be able to roll back.
+    const spy = vi.spyOn(seedModule, 'seedAllFromSqlite').mockImplementationOnce(() => {
+      throw new Error('forced failure inside the purge transaction')
+    })
+
+    try {
+      expect(() => purgeCamperRecord({ dbPath, userDataDir, entityId: camperId }))
+        .toThrow(/forced failure inside the purge transaction/)
+    } finally {
+      spy.mockRestore()
+    }
+
+    // No split state: the camper and its dependent row are STILL present, exactly as before the
+    // failed attempt. A non-transactional implementation would have committed the deletes before
+    // the forced throw and left this assertion failing.
+    const verifyDb = openLocalDb(dbPath)
+    expect(verifyDb.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeTruthy()
+    expect(verifyDb.prepare('SELECT * FROM elective_preferences WHERE camper_id = ?').all(camperId).length).toBeGreaterThan(0)
+    verifyDb.close()
+
+    // Idempotent re-run: retrying with the real implementation now succeeds and actually purges.
+    const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+    expect(result.campId).toBe(campId)
+    const verifyDb2 = openLocalDb(dbPath)
+    expect(verifyDb2.prepare('SELECT * FROM campers WHERE id = ?').get(camperId)).toBeUndefined()
+    verifyDb2.close()
+  })
+
+  it('round 2 FIX2: purging a camper also erases camp-wide host-only state and this device signing key (pinned, not silent)', () => {
+    const { db, dbPath } = newDb('collateral')
+    const campId = randomUUID()
+    const deviceId = 'device-1'
+    const camperId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId, camperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    // conflicts is a genuinely HOST-ONLY table (never in MODELED_ENTITIES/DIRECT_CAMP_ENTITIES —
+    // electron/ops/campScopedEntities.js), unlike schedule_snapshots (which IS document-replicated
+    // and correctly survives a rebuild via seedAllFromSqlite). This is the real collateral case.
+    const conflictId = randomUUID()
+    db.prepare(
+      'INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(conflictId, 'campers', camperId, 'display_name', '{}', '{}', 'op1', new Date().toISOString())
+    db.prepare('INSERT INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)')
+      .run('a'.repeat(64), 'b'.repeat(64), new Date().toISOString())
+
+    expect(db.prepare('SELECT * FROM conflicts WHERE id = ?').get(conflictId)).toBeTruthy()
+    expect(db.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()).toBeTruthy()
+
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('collateral')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+
+    // The collateral is real and must be surfaced on the result, not silently dropped.
+    expect(result.notRecoverable).toMatch(/operations table/)
+
+    const verifyDb = openLocalDb(dbPath)
+    expect(verifyDb.prepare('SELECT * FROM conflicts WHERE id = ?').get(conflictId)).toBeUndefined()
+    expect(verifyDb.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()).toBeUndefined()
+    verifyDb.close()
+  })
+
+  it('round 2 FIX4: refuses a whole-device purge when the id has no camper row and no operations history', () => {
+    const { db, dbPath } = newDb('norow')
+    const campId = randomUUID()
+    const deviceId = 'device-1'
+    const realCamperId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId, camperId: realCamperId, groupId: randomUUID(),
+      prefId: randomUUID(), runId: randomUUID(), choiceId: randomUUID(),
+    })
+    const doc = seedAllFromSqlite(db)
+    const userDataDir = newUserDataDir('norow')
+    saveDoc(userDataDir, campId, doc)
+    db.close()
+
+    const bogusId = randomUUID()
+    expect(() => purgeCamperRecord({ dbPath, userDataDir, entityId: bogusId })).toThrow(RebuildRefusalError)
+    expect(() => purgeCamperRecord({ dbPath, userDataDir, entityId: bogusId })).toThrow(/no camper record or operations history/)
+
+    // No whole-device rebuild ran: no pre-migration backup was created, and the real camper is
+    // untouched.
+    expect(preMigrationBackups(dbPath).length).toBe(0)
+    const verifyDb = openLocalDb(dbPath)
+    expect(verifyDb.prepare('SELECT * FROM campers WHERE id = ?').get(realCamperId)).toBeTruthy()
+    verifyDb.close()
   })
 })

@@ -344,24 +344,63 @@ Access is admin-only (D9): no non-admin role has any in-app read path to any of 
 receive the exported artifact instead. See `electron/auth/participantEntitiesAdminOnly.test.js`,
 which asserts the negative.
 
-#### Camper-record purge — what it does and does not reach (T202)
+#### Camper-record purge — what it does and does not reach (T202, round 2 hardening)
 
 A camper record can be purged via a support-level command (`purgeCamperRecord`,
 `electron/automerge/purgeSupportCommand.js`), not a director-facing button. Purge deletes the
-projection row and its dependent rows, empties this device's `operations` history for that record,
-discards every `*.pre-migration-*.bak` for this device's database (these are otherwise **never**
-automatically pruned — the retention pruner `rotatePreResolveBackups` covers only
-`*.pre-resolve-*.sqlite` conflict/bulk-replace snapshots), and regenerates this device's
-`.automerge` from the post-purge state.
+target camper and its dependent `elective_preferences`/`elective_assignments` rows and the fresh
+document that replaces this device's `.automerge` is derived AFTER those deletes, so its history
+never mentions the purged rows. The three deletes, the document regeneration, and a genesis
+sanity-check all run inside **one SQLite transaction**: a failure anywhere in that block rolls the
+deletes back rather than leaving SQLite purged while the on-disk `.automerge` (the source of truth)
+still holds the camper — a split state that would otherwise look recoverable and not be. A crash in
+the narrow window after that transaction commits but before the save/rebuild/backup-shred below
+finish is recovered by simply **re-running `purgeCamperRecord` with the same id** — every step past
+the transaction is idempotent.
 
-What it does not reach: every other device that has synced this camp still holds the camper's full
-history in its own `.automerge` and `operations` until it re-pairs against the purged device rather
-than resuming merge sync — ordinary CRDT merge would reintroduce the removed history, so
-re-pairing (not resync) is required and is a manual coordinated step. Any copy of the `.automerge`
-or database made before purge is untouched. There is no per-record erasure within Automerge's
-history; a purge is always a whole-device document regeneration. There is no runtime per-camp
-genesis rotation; the app-wide genesis root is unchanged by a purge and is changed only by a
-coordinated source-edit-plus-release.
+**This purge is a WHOLE-DEVICE rebuild, not a scoped delete, and the collateral is real, not
+theoretical.** It reuses `rebuildProjectionFromDocumentAtPath`, which deletes and recreates this
+device's entire SQLite file and reprojects only the entities the Automerge document replicates.
+Every table this device keeps that is **not** document-replicated is wiped **camp-wide** in the
+same stroke — confirmed against the schema, this is `conflicts`, `import_evidence`,
+`import_decisions`, `open_reconciliation_decisions`, `pending_writes`, `pending_restores`,
+`device_health_events`, `projection_failures`, `source_aliases`, `compound_cell_decisions`,
+`location_word_decisions`, and `declined_two_row_splits` — **plus this device's own
+`host_signing_key` and `device_identity_key` rows and `camps.signing_secret`**. (`schedule_snapshots`
+and every other camp-scoped entity in `MODELED_ENTITIES`/`GENESIS_ENTITIES`, by contrast, ARE
+document-replicated and correctly survive — they round-trip back in via the fresh document, exactly
+as an ordinary sync would carry them.) A Host that purges one camper loses its credential-minting
+key in the same stroke and must re-establish device identity afterward; this is the SAME collateral
+`rebuildProjectionFromDocumentAtPath`'s own `NOT_RECOVERABLE_NOTICE` already documents for
+disaster-recovery, reused here for a new purpose. `purgeCamperRecord`'s return value relays that
+notice (`notRecoverable`/`before`/`after`) rather than dropping it, and this is pinned by a test that
+seeds a `conflicts` row and a `host_signing_key` row before purging and asserts both are gone
+afterward. **Preserving or re-establishing keys across a purge is explicitly out of scope here** —
+tracked as a separate follow-up ticket, not attempted in this slice. Because that collateral is real
+even when nothing needed purging, `purgeCamperRecord` **refuses outright** — before doing anything
+destructive — when the given id names no camper row and has no `operations` history on this device.
+
+`purgeCamperRecord` also empties this device's `operations` history for the whole ledger (the
+whole-file rebuild's side effect, not a targeted per-record prune) and discards every
+`*.pre-migration-*.bak` for this device's database — these are otherwise **never** automatically
+pruned by anything else (the retention pruner `rotatePreResolveBackups` covers only
+`*.pre-resolve-*.sqlite` conflict/bulk-replace snapshots).
+
+**What it does not reach, stated without implying enforcement that does not exist.** Nothing in
+code changes the app-wide Automerge genesis, so a purged device's fresh document **still shares
+genesis** with every other device that has synced this camp — including a stale, already-admitted
+peer. `sharesGenesis()` is the ONLY gate `syncNode.js` applies, and it cannot distinguish "a peer
+worth merging" from "a peer whose stale copy of this exact record must never come back." **Nothing
+in this codebase prevents an already-paired peer from reintroducing the purged record via perfectly
+ordinary sync** the next time the two devices reconnect — this is not a manual step someone might
+forget, it is a hole nothing closes today. Reliable multi-device purge needs a per-camp genesis
+rotation, which is deferred to a separate ticket; until that exists, avoiding reintroduction requires
+physically re-pairing every other device (not merely resyncing it) as a manual, unenforced,
+coordinated step. `purgeSupportCommand.test.js`'s "known gap" test demonstrates the reintroduction
+directly (merges an untouched peer's pre-purge document back in and shows the camper returns) rather
+than asserting the limit unverified. Any copy of the `.automerge` or database made before purge is
+also untouched, and there is no per-record erasure within Automerge's history — a purge is always a
+whole-device document regeneration.
 
 ### A camp token is a bearer credential (T155)
 
