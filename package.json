@@ -20,6 +20,8 @@
     "electron:dev:fresh": "pkill -x Electron; sleep 1 && npm run electron:dev",
     "electron:build": "node scripts/write-build-info.js && vite build && electron-builder",
     "unlock-key": "electron electron/unlockDbKey.js",
+    "presmoke:purge-abi": "node scripts/ensure-abi.js electron",
+    "smoke:purge-abi": "electron electron/automerge/purgeAbiSmoke.js",
     "install:mac": "bash scripts/install-macos.sh",
     "deploy:local": "bash scripts/deploy-local.sh",
     "premcp": "node scripts/ensure-abi.js node",
