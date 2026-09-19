@@ -38,8 +38,9 @@ affects:
 as-is (its current SECURITY.md disclosure and known-gap test stand as the accepted state), with this
 ADR filed as the answer to "why not more." No follow-up ticket is opened now; if the work is ever
 revived, this ADR's recommended shape (a `campId`-scoped epoch, **not** a per-camp Automerge genesis
-root) is the starting point, and the unverified `authGate.js`/discovery-tag reconnect semantics
-(blast radius point 4) must be established first. The owner also decided that a support/CLI-level
+root) is the starting point. The discovery/reconnect-tag semantics this originally left unverified
+were **verified on 2026-09-19** (see the discovery bullet under blast radius), raising confidence in
+that shape to ~80%. The owner also decided that a support/CLI-level
 notice — in the spirit of `mcp__shoresh__check_projection_health` — is sufficient for the
 "some devices have not caught up to a purge" case; **director-facing partial-rotation UX is not a
 product requirement.**
@@ -215,14 +216,24 @@ Instead:
   alongside its existing transaction (deletes + `seedAllFromSqlite` + genesis check), following the
   same "all inside one transaction, save only after commit" discipline already documented there
   (round-2 hardening, FIX1).
-- `electron/sync/automerge/joinSession.js`, `docStore.js`, and the rendezvous/discovery-tag path:
-  need the actual read to confirm whether `campId` (or its discovery tag) is exchanged/re-verified
-  on every reconnect or cached client-side after first pairing — **this ADR did not verify that
-  end-to-end and flags it as the load-bearing unknown for whoever scopes the eventual work.** If a
-  device caches a discovery tag indefinitely without re-deriving it from `campId` on each attempt,
-  the "absence of rendezvous" mechanism in point 1 above does not hold as described and the design
-  needs the merge-layer epoch check (point 2) to carry the whole burden instead of acting as
-  defense-in-depth.
+- `electron/sync/automerge/discovery.js`, `joinSession.js`, `docStore.js`, and the rendezvous path:
+  **verified 2026-09-19 (was flagged unverified in the proposed draft).** `campDiscoveryTag(campId)`
+  (`discovery.js:49`) is a *pure* function of `campId`, and the steady-state sync node scopes mDNS to
+  it via `createMdnsDiscovery({ campId })` (`discovery.js:81`), re-derived each session — there is no
+  persisted discovery tag and no persisted-peer direct redial in the steady-state node that bypasses
+  discovery (`transport.js`/`main.js` show none). The only direct-dial-to-cached-address path is the
+  join flow's optional `knownHostAddr` (`joinSession.js:148,220`), which is scoped to a single
+  add-a-device attempt, not steady-state reconnect. **Consequence for the design:** folding an epoch
+  into the discovery tag WOULD strand a stale peer at rediscovery on the shipped (LAN/mDNS) transport
+  — mechanism (1) holds there. Two caveats, both now understood rather than open: (a) the WAN
+  rendezvous transport (T209/T210) is not yet wired into `transport.js` — `internetRendezvousScan.js`
+  is today only an egress *guard*, not a client — and its own design (ADR
+  2026-09-18-rendezvous-record-encoding-and-namespace-rotation) already anticipates namespace
+  rotation, so an epoch is compatible with it, not blocked by it; (b) discovery rotation is a
+  *liveness* property, not an *authorization* one — a peer holding any cached multiaddr could still
+  dial directly, so the merge-layer epoch check (point 2) is **required as defense-in-depth, layered
+  with** (not chosen instead of) discovery rotation. The earlier framing of these as an either/or
+  "which mechanism carries the property" question is resolved: both, layered.
 - `SECURITY.md`: the "Camper-record purge" subsection (already added by T202) would need updating
   to state the epoch mechanism closes the re-pair gap, once built — until then, its current honest
   disclosure stands and needs no change from this ADR.
@@ -274,21 +285,26 @@ proving rather than hiding the gap); the owner's confirmed pre-production status
 (2026-09-17) is the same condition every prior genesis regeneration relied on; no second incident
 class currently exists to justify the investment.
 
-**Confidence: medium (~60%) on "campId-scoped epoch over genesis-per-camp, if/when built."**
-Evidence: `campId` is independently confirmed (by direct file read, not memory) to already be the
-per-camp identity primitive used for storage (`docStore.js`) and discovery
-(`joinSession.js`'s own comment naming `campDiscoveryTag(campId)`); the attacker-frame divergence
-concretely named exploits specific to a *new*, wire-transmitted trust anchor that a `campId`-riding
-epoch avoids by construction. The confidence is capped at medium, not higher, because this ADR did
-**not** verify end-to-end how `authGate.js`/the rendezvous layer treat `campId`/discovery-tag
-freshness on reconnect — that unknown is flagged explicitly above rather than assumed away, and it
-is the one fact that could most change the eventual design (see blast radius, point 4).
+**Confidence: high (~80%) on "campId-scoped epoch over genesis-per-camp, if/when built"
+(raised from ~60% after the 2026-09-19 verification below).** Evidence: `campId` is independently
+confirmed (by direct file read, not memory) to already be the per-camp identity primitive used for
+storage (`docStore.js`) and discovery (`discovery.js:49,81`, `createMdnsDiscovery({ campId })`); the
+attacker-frame divergence concretely named exploits specific to a *new*, wire-transmitted trust
+anchor that a `campId`-riding epoch avoids by construction. The one fact previously flagged as the
+capping unknown — how the discovery/reconnect layer treats tag freshness — was **verified on
+2026-09-19** (see blast radius, discovery bullet): the tag is a pure function of `campId`, re-derived
+each session with no persisted-tag or steady-state cached-peer-redial bypass, so discovery-namespace
+rotation is a sound mechanism on the shipped transport, and the merge-layer epoch check layers under
+it as defense-in-depth. Confidence is held at ~80% rather than higher only because the WAN rendezvous
+transport is not yet wired in, so its interaction with an epoch is designed-for but not yet
+exercisable.
 
 ## Open questions for Governor — resolved 2026-09-19
 
 **Resolved by the owner (see Status above):** (1) T202 closed as-is, this ADR is the "why not more"
-answer; no follow-up ticket opened now. (2) Moot while deferred — but if revived, verify
-`authGate.js`/discovery-tag reconnect semantics first. (3) Support/CLI-level notice is sufficient;
+answer; no follow-up ticket opened now. (2) The reconnect/discovery-tag verification this originally
+deferred was **done on 2026-09-19** (see the discovery bullet under blast radius and the raised
+confidence) rather than left for a future scoping task. (3) Support/CLI-level notice is sufficient;
 director-facing partial-rotation UX is not a product requirement. The original questions are kept
 below for the record.
 
