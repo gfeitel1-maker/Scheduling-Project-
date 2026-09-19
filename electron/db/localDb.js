@@ -24,9 +24,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
 // v67 (T162, device_identity_key), v68 (T195, elective_set_activities.status), v69 (T210,
-// rendezvous_sequence), v70 (T205, days_of_operation dedupe), and v71 (T181, recurrence_level
-// removal) all land in this file; 71 is the current version.
-export const CURRENT_SCHEMA_VERSION = 71
+// rendezvous_sequence), v70 (T205, days_of_operation dedupe), v71 (T181, recurrence_level
+// removal), and v72 (T233, tombstones — multi-device erasure propagation) all land in this
+// file; 72 is the current version.
+export const CURRENT_SCHEMA_VERSION = 72
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3044,6 +3045,18 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (71, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v72 (T233) — the `tombstones` table: a Host-signed, monotonically-versioned purge-tombstone
+  // denylist (docs/adr/2026-09-19-multi-device-erasure-propagation.md). Already created by
+  // schema.sql's `CREATE TABLE IF NOT EXISTS` on every fresh install; this block only backfills
+  // the version marker for a database that migrated forward from an earlier version (schema.sql
+  // runs unconditionally at the top of initSchema, so the table always exists by the time this
+  // guard is reached — see the same pattern for every other IF-NOT-EXISTS table in this file).
+  if (getSchemaVersion(db) >= 71 && getSchemaVersion(db) < 72) {
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (72, ?)').run(
       new Date().toISOString()
     )
   }

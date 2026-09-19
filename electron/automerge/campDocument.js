@@ -80,7 +80,13 @@ export const DEFERRED_ENTITIES = new Set()
 // fields that must NEVER follow (`camps.signing_secret`, `host_signing_key`, and every other
 // genuinely host-only/device-local table) and this file's applyWrite/projector.js for why
 // `camps` gets bespoke merge-safety treatment `users` does not need.
-const EXTRA_MODELED_ENTITIES = ['camps', 'users']
+// `tombstones` (T233, docs/adr/2026-09-19-multi-device-erasure-propagation.md): added the same
+// way `camps`/`users` were — it is not a camp_id-scoped "domain" entity (a tombstone names a
+// purged RECORD's id, not a camp), and it needs its own bespoke projector handling
+// (upsertTombstonesEntity: signature verification + monotonicity + the denylist deletion pass),
+// exactly the security-sensitive reasoning `users`' credential fields already require. See
+// projector.js's upsertTombstonesEntity and this file's GENESIS_ENTITIES/GENESIS_B64 below.
+const EXTRA_MODELED_ENTITIES = ['camps', 'users', 'tombstones']
 
 export const MODELED_ENTITIES = new Set(
   [...DIRECT_CAMP_ENTITIES, ...Object.keys(PARENT_SCOPED_ENTITIES), ...EXTRA_MODELED_ENTITIES].filter(
@@ -220,6 +226,12 @@ function assertModeled(entity) {
 // pinned head 931e7c0f93affaf864b270328491a3da4412b508547ea6174724026f6aabde8d, and is identical
 // across repeated runs. New pinned head: 821dd7ccb5709c51ecfa5f1e8526fd472ce513b3546987570feb24e85b1679a8
 //
+// SEVENTH REGENERATION (T233, docs/adr/2026-09-19-multi-device-erasure-propagation.md): `tombstones`
+// added to EXTRA_MODELED_ENTITIES/MODELED_ENTITIES above, so it needed adding to GENESIS_ENTITIES
+// and GENESIS_B64 regenerated again, same reasoning and same acceptance (pre-production, existing
+// `.automerge` files may be discarded) as every prior regeneration. New pinned head:
+// 885392d2d6af8251adea2f4f7735e478d12d6810d8e066116b580a10a261b698
+//
 // GENESIS_ENTITIES is a frozen snapshot of every collection GENESIS_B64 encodes, sorted for
 // determinism: MODELED_ENTITIES (flat entities) plus BULK_REPLACE_MODELED_ENTITIES's scope
 // collection name(s). It exists so the assertion below can catch, at import time, in every
@@ -278,6 +290,7 @@ const GENESIS_ENTITIES = [
   'template_slots_scopes',
   'tiers',
   'time_blocks',
+  'tombstones',
   'users',
   'week_activity_exclusions',
   'week_group_exclusions',
@@ -289,7 +302,7 @@ const GENESIS_ENTITIES = [
 // pass, that is a wire/document-compatibility break being HIDDEN, not fixed; see that test's own
 // comment.
 const GENESIS_B64 =
-  'hW9Kg1FlTYgAggMBECWl3YlnQBZYZHRLlRX3P0UBgh3XzLVwnFHs+l8ehSb9RyzlE7NUaYdXD+sk6FsWeagGAQIDAhMCIwZAAlYCBx2VAiECIwI0AUICVgKAAQJ/AH8BfyZ/1P6C1QZ/AH8HbZDNbsIwEIRPgCg/IlUR9NV6sVxnQiwcr7XjpOXtqySCmqon735jj3f248W67AefPVjZ6FpR80vWznbJdDZxNVZQLsaTKyetaOautjcjA1R9DVa1vdFIYyRBbfYSzwgYzWAs6S+xQ8xG+8i3fwS+P6BrxTsYaRqojxce/ijFe3GuV0V8gknRYIanByRyEW1Xcm4xjKNdVPrEzdwwSGY119l3MJ9B3JXLiXDbeITa2D63ooe5SSoDoo0Oy9lpHcRNi+ArXYu6DzCMNrGVXKCMLgWbwf0DfQFXVkxw3gYzrnka51SSYqhtwbm/+81vjs+toZMELrKHclN4LHpCeR5/vu/pZvDtQs8xwXESplwFna/fYxbCDyYAJgEmJgAmACYAAA=='
+  'hW9Kg7Ti0rwAiAMBECWl3YlnQBZYZHRLlRX3P0UBiFOS0tavglGt6i9PdzXkeNEtaBDY4GYRa1gKEKJhtpgGAQIDAhMCIwZAAlYCBx2bAiECIwI0AUICVgKAAQJ/AH8Bfyd/1P6C1QZ/AH8HbZDNbsIwEIRPgPgVVEXQR+vJMs6EWDhea8dJy9tXSQQ1VU/e/ca7mtnPlXXZ9z578GCja0TNL1k62ybT2sTFUEE5G14unDSimdvK3o30UPUVeKjsnUZqIwlqs5d4RsCwDMaS/hpbxGy0i3z/R+DHE7pGvIORuob6eOX+j1LMi3OdKuILTIoaEzw9IZGLaNuSc4N+sHZV6RLXU8MgmYepzr6FuQRxN85Hwk3tESpju9yI7qcmqfSINjrMp03LIG48BN/oGlRdgGG0iY3kAmW0KdgM7p7oC7jxwATnbTDDmUc7p5IUpjYF5+6xb5o5vraGThI4yx7KdbFjlaW9MEsEZx2hPA8mHie7G3y70HEIcxyFMWJBp++PxIXwAycAJwEnJwAnACcAAA=='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))

@@ -68,34 +68,44 @@ export function readPreservableKeys(db) {
 // the host public key AND camps.signing_public_key are written explicitly rather than relying on
 // ensureHostSigningKey's lazy backfill, so a Host can verify its own tokens immediately after.
 // Returns which artifacts were actually restored — never the key bytes themselves.
-export function restorePreservableKeys({ dbPath, key = null, preservedKeys, openLocalDb }) {
+// Writes the three preservable artifacts into an ALREADY-OPEN db, inside one transaction.
+// Extracted so both restorePreservableKeys (post-rebuild, opens its own db) and T233's crash-safe
+// entry recovery in purgeSupportCommand.js (which restores into the already-open oldDb) share ONE
+// write path — same 3-artifact scope, same INSERT OR REPLACE/UPDATE shape, no camps.signing_secret
+// (deliberately not preserved; see the module header). Returns which artifacts were written — never
+// the key bytes.
+export function writePreservableKeysInto(db, preservedKeys) {
   const restored = { hostSigningKey: false, deviceIdentityKey: false, campsSigningPublicKey: false }
+  db.transaction(() => {
+    if (preservedKeys.hostSigningKey) {
+      const k = preservedKeys.hostSigningKey
+      db.prepare(
+        'INSERT OR REPLACE INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)'
+      ).run(k.public_key, k.private_key, k.created_at)
+      restored.hostSigningKey = true
+    }
+    if (preservedKeys.deviceIdentityKey) {
+      const k = preservedKeys.deviceIdentityKey
+      db.prepare(
+        'INSERT OR REPLACE INTO device_identity_key (id, peer_id, private_key, created_at) VALUES (1, ?, ?, ?)'
+      ).run(k.peer_id, k.private_key, k.created_at)
+      restored.deviceIdentityKey = true
+    }
+    if (preservedKeys.campsSigningPublicKey != null) {
+      db.prepare('UPDATE camps SET signing_public_key = ?').run(preservedKeys.campsSigningPublicKey)
+      restored.campsSigningPublicKey = true
+    }
+  })()
+  return restored
+}
+
+export function restorePreservableKeys({ dbPath, key = null, preservedKeys, openLocalDb }) {
   const db = openLocalDb(dbPath, { key })
   try {
-    db.transaction(() => {
-      if (preservedKeys.hostSigningKey) {
-        const k = preservedKeys.hostSigningKey
-        db.prepare(
-          'INSERT OR REPLACE INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)'
-        ).run(k.public_key, k.private_key, k.created_at)
-        restored.hostSigningKey = true
-      }
-      if (preservedKeys.deviceIdentityKey) {
-        const k = preservedKeys.deviceIdentityKey
-        db.prepare(
-          'INSERT OR REPLACE INTO device_identity_key (id, peer_id, private_key, created_at) VALUES (1, ?, ?, ?)'
-        ).run(k.peer_id, k.private_key, k.created_at)
-        restored.deviceIdentityKey = true
-      }
-      if (preservedKeys.campsSigningPublicKey != null) {
-        db.prepare('UPDATE camps SET signing_public_key = ?').run(preservedKeys.campsSigningPublicKey)
-        restored.campsSigningPublicKey = true
-      }
-    })()
+    return writePreservableKeysInto(db, preservedKeys)
   } finally {
     db.close()
   }
-  return restored
 }
 
 // The purge-specific "what did not come back" notice. Distinct from rebuildSupportCommand.js's

@@ -34,7 +34,17 @@ affects:
 
 ## Status
 
-**Accepted, 2026-09-19.** The product owner accepted the recommendation to **defer**: T202 is closed
+> **SUPERSEDED (2026-09-19) by [docs/adr/2026-09-19-multi-device-erasure-propagation.md](2026-09-19-multi-device-erasure-propagation.md) (T233), on the top-line decision only.** This ADR's
+> "defer / T202 closed as-is" recommendation was overtaken the same day: the product owner chose to
+> **close** T202's reintroduction gap now, via a signed purge-tombstone denylist (logical erasure —
+> "invisible forever"), knowing residual bytes remain in history. That is a different mechanism from
+> the per-camp genesis root this ADR rejected, and it agrees with this ADR that per-camp genesis
+> rotation is the wrong tool (rotation is retained only as break-glass). **What still stands from this
+> ADR:** its load-bearing clarification that genesis carries no camp identity (`campId` does), and its
+> analysis of why a wire-transmitted per-camp trust anchor is the wrong shape. Only the "do nothing
+> now" conclusion is reversed. Read the T233 ADR for the accepted erasure design.
+
+**Accepted, 2026-09-19 (top-line since SUPERSEDED — see banner above).** The product owner accepted the recommendation to **defer**: T202 is closed
 as-is (its current SECURITY.md disclosure and known-gap test stand as the accepted state), with this
 ADR filed as the answer to "why not more." No follow-up ticket is opened now; if the work is ever
 revived, this ADR's recommended shape (a `campId`-scoped epoch, **not** a per-camp Automerge genesis

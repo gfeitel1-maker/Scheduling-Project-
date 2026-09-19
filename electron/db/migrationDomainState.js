@@ -157,6 +157,13 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // established that as evidence), so dropping it changes no camp's meaning
   // — there is no value being discarded, only an always-default column.
   71,
+  // v72 (T233) creates the `tombstones` table (empty) — a Host-signed purge-tombstone denylist,
+  // docs/adr/2026-09-19-multi-device-erasure-propagation.md. Schema-only: the table is created
+  // EMPTY (a new entity — no camp has a row to change), and the migration writes no domain row
+  // value. Tombstones ARE document-modeled and replicate, but that is a new-entity addition, not a
+  // change to any existing modeled entity's row meaning — the same reading as v66's seven empty
+  // participant tables above.
+  72,
 ])
 
 /** True if applying `version` can change what the camp means. */

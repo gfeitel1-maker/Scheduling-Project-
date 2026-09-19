@@ -420,21 +420,33 @@ whole-file rebuild's side effect, not a targeted per-record prune) and discards 
 pruned by anything else (the retention pruner `rotatePreResolveBackups` covers only
 `*.pre-resolve-*.sqlite` conflict/bulk-replace snapshots).
 
-**What it does not reach, stated without implying enforcement that does not exist.** Nothing in
-code changes the app-wide Automerge genesis, so a purged device's fresh document **still shares
-genesis** with every other device that has synced this camp — including a stale, already-admitted
-peer. `sharesGenesis()` is the ONLY gate `syncNode.js` applies, and it cannot distinguish "a peer
-worth merging" from "a peer whose stale copy of this exact record must never come back." **Nothing
-in this codebase prevents an already-paired peer from reintroducing the purged record via perfectly
-ordinary sync** the next time the two devices reconnect — this is not a manual step someone might
-forget, it is a hole nothing closes today. Reliable multi-device purge needs a per-camp genesis
-rotation, which is deferred to a separate ticket; until that exists, avoiding reintroduction requires
-physically re-pairing every other device (not merely resyncing it) as a manual, unenforced,
-coordinated step. `purgeSupportCommand.test.js`'s "known gap" test demonstrates the reintroduction
-directly (merges an untouched peer's pre-purge document back in and shows the camper returns) rather
-than asserting the limit unverified. Any copy of the `.automerge` or database made before purge is
-also untouched, and there is no per-record erasure within Automerge's history — a purge is always a
-whole-device document regeneration.
+**Fleet-wide reintroduction is now prevented — logical erasure (T233).** _Prior: a purged device's
+fresh document still shared genesis with every already-admitted peer, `sharesGenesis()` was the only
+admission gate, and nothing stopped a stale peer from reintroducing the purged record via ordinary
+sync — a hole closed only by physically re-pairing every device._ T233
+(`docs/adr/2026-09-19-multi-device-erasure-propagation.md`) closes it: `purgeCamperRecord` mints a
+**Host-signed, monotonically-versioned purge tombstone** (`electron/automerge/tombstoneSignature.js`)
+— the purged id + entity + signature, no name, no reason — carried as a SQLite-backed, document-
+replicated entity. `electron/automerge/projector.js`'s `upsertTombstonesEntity` verifies the Host
+signature (trust root read from the local `camps.signing_public_key` column, never the document) and
+version at **projection time**, then a denylist pass **refuses to project, and deletes, any tombstoned
+camper and its `elective_*` dependents on every device that receives the tombstone**. A stale peer that
+reconnects gets the tombstone as ordinary replicated state and its copy of the record never reaches the
+projection again — no re-pairing, no genesis change. `purgeSupportCommand.test.js`'s formerly-"known
+gap" test is inverted: it now merges an untouched peer's pre-purge document and asserts the camper is
+**refused**, not reintroduced.
+
+**What this is, precisely: logical erasure ("invisible forever"), not physical byte-erasure.** The
+tombstone gates *projection*, so the record can never be seen or re-created on any device again — that
+is the guarantee the product owner set (2026-09-19). But the purged field values still physically
+remain in each device's `.automerge` history (at-rest-encrypted when `SHORESH_AT_REST_ENCRYPTION` is on,
+plaintext otherwise), unreadable through the app. Removing those bytes from the whole fleet has no
+stable form cheaper than a coordinated genesis rotation (a re-pair of every device), which is retained
+as a documented **break-glass**, not this path. Still genuinely out of reach by any path: any copy of
+the `.automerge` or database made before the purge (a backup, an export, a device that never
+reconnects), and a paired peer running modified code that ignores the denylist (the accepted
+partial-trust limit). Minting the tombstone requires the Host's signing key, so a purge run on a
+non-Host device is refused rather than silently erasing only itself.
 
 ### A camp token is a bearer credential (T155)
 

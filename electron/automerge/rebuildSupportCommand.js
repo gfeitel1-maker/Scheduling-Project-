@@ -22,6 +22,7 @@ import { writePreMigrationBackup } from '../db/projectManager.js'
 import { docPath as automergeDocPath, loadDoc as loadAutomergeDoc } from '../sync/automerge/docStore.js'
 import { sharesGenesis, listRecordIds } from './campDocument.js'
 import { projectAll, MODELED_ORDER } from './projector.js'
+import { acquireSupportCommandLock } from './supportCommandLock.js'
 
 export class RebuildRefusalError extends Error {}
 
@@ -123,7 +124,23 @@ export function rebuildIntoFreshDb(freshDb, doc, campId, campName) {
 // the resolved userData path explicitly, the same injected-path discipline
 // userDataPath.js and docStore.js already use; do not infer it from dbPath,
 // which may live elsewhere (a custom project path, a smoke-test override).
-export function rebuildProjectionFromDocumentAtPath({ dbPath, userDataDir, cipher = null, key = null }) {
+// T233 round 2, finding 2: the LOCKED entry point — acquires the machine-wide, dbPath-keyed
+// support-command lock (supportCommandLock.js) for its whole duration, then delegates to the core
+// implementation below. This is what every caller OUTSIDE this module (the MCP tool) must use.
+export function rebuildProjectionFromDocumentAtPath(args) {
+  const release = acquireSupportCommandLock(args.dbPath)
+  try {
+    return rebuildProjectionFromDocumentAtPathCore(args)
+  } finally {
+    release()
+  }
+}
+
+// The UNLOCKED core. Exported ONLY for purgeCamperRecord (purgeSupportCommand.js), which acquires
+// the SAME lock itself around its own whole (multi-step) operation and must call straight into
+// this core to avoid a self-deadlock on a non-reentrant lock. Do not call this directly from
+// anywhere else — use rebuildProjectionFromDocumentAtPath above, which is lock-safe.
+export function rebuildProjectionFromDocumentAtPathCore({ dbPath, userDataDir, cipher = null, key = null }) {
   const oldDb = openLocalDb(dbPath, { key })
   let campId, campName, doc
   try {

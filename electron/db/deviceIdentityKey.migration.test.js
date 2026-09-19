@@ -69,7 +69,7 @@ describe('migration v67: device_identity_key', () => {
     // not testing this migration at all.
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 67').get().c).toBe(1)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(71)
+    expect(CURRENT_SCHEMA_VERSION).toBe(72)
     expect(db.prepare('SELECT COUNT(*) c FROM device_identity_key').get().c).toBe(0)
     db.close()
   })

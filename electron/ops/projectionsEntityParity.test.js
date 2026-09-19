@@ -26,6 +26,11 @@ const NON_CAMP_SCOPED_PROJECTIONS = {
   camps: 'The camp row itself — not scoped BY a camp, it IS the camp.',
   users: 'Scoped by camp_id at the auth layer, not via DIRECT_CAMP_ENTITIES/PARENT_SCOPED_ENTITIES or the generic list() IPC path.',
   conflicts: 'Read via a dedicated listPendingConflicts IPC seam, not the generic camp-scoped list() path.',
+  // T233 (docs/adr/2026-09-19-multi-device-erasure-propagation.md): a tombstone names no camp — it
+  // names a purged RECORD's id — and has no generic list()/authorize() surface at all; it is
+  // written only by purgeCamperRecord (Host-only) and read only by the projector's own
+  // verification query. Same reasoning as `users` above.
+  tombstones: 'Names a purged record, not a camp; written only by purgeCamperRecord and read only by the projector, never via the generic list() IPC path.',
 }
 
 const registryUnion = new Set([...DIRECT_CAMP_ENTITIES, ...Object.keys(PARENT_SCOPED_ENTITIES)])

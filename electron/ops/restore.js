@@ -27,6 +27,13 @@ export const RESTORE_DECISIONS = Object.freeze({
   locations: 'restorable',
 
   users: 'refused: a restore would re-emit pin_hash and pin_salt as replicating ops',
+  // T233 (docs/adr/2026-09-19-multi-device-erasure-propagation.md): a tombstone is a permanent,
+  // signed, monotonically-versioned denylist entry — the entire point is that it can never be
+  // undone by an ordinary trash/restore action (that would be an unsigned, unauthorized reversal
+  // of a Host-only decision, exactly the forgery the signature exists to prevent). There is also
+  // no delete-UI entry point for a tombstone in the first place; it is minted only by
+  // purgeCamperRecord.
+  tombstones: 'refused: a purge tombstone is a permanent signed denylist entry — restoring it would be an unsigned, unauthorized reversal of a Host-only erasure decision',
   camps: 'refused: singleton identity row, created only by bootstrapCamp',
   camp_maps: 'refused: singleton camp-scoped row, no independent delete UI — clearing the image is an ordinary field write of image_data to NULL, not a row delete',
   devices: 'refused: device trust is granted by pairing, never rebuilt from a log',
