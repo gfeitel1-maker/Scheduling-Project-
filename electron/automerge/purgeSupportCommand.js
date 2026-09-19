@@ -200,7 +200,22 @@ export function purgeCamperRecord({ dbPath, userDataDir, cipher = null, key = nu
   // crash window the IDEMPOTENCY note below cannot auto-recover: once the rebuild has completed the
   // camper row and its operations history are gone, so a re-run hits the FIX4 refusal — an accepted,
   // bounded regression, recoverable by hand from the still-present backup rather than silently.
-  const keysRestored = restorePreservableKeys({ dbPath, key, preservedKeys, openLocalDb })
+  let keysRestored
+  try {
+    keysRestored = restorePreservableKeys({ dbPath, key, preservedKeys, openLocalDb })
+  } catch (cause) {
+    // Restore threw AFTER the rebuild but BEFORE the step-6 shred, so FIX3's ordering holds: the
+    // shred below never runs and the pre-migration backup still holds this device's ORIGINAL keys.
+    // The default error would surface with no purge context, so name what happened and where the
+    // keys still live. No key bytes are logged. SECURITY.md §347 documents the recovery path.
+    throw new Error(
+      'purgeCamperRecord: keys were NOT restored after the purge rebuild. This device\'s original ' +
+        `signing/identity keys are still in the pre-migration backup at ${dbPath}.pre-migration-*.bak ` +
+        '(NOT shredded — the shred is skipped on this failure). Restore them by hand before shredding; ' +
+        'see SECURITY.md §347.',
+      { cause }
+    )
+  }
 
   const backupsRemoved = shredPreMigrationBackups(dbPath)
 
