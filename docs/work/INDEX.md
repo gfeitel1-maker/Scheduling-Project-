@@ -53,7 +53,6 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Finish the consolidation move, and make gate.sh trustworthy about its own result](../../docs/work/tickets/T171-finish-the-consolidation-move-and-harden-gate-sh.md) | open | — |
 | [Phase E — measure whether WAN failure is discovery or direct dial](../../docs/work/tickets/T212-wan-connectivity-measurement.md) | open | [2026-09-18-connectivity-observability-event-vocabulary](../../docs/adr/2026-09-18-connectivity-observability-event-vocabulary.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 
 ### unclassified

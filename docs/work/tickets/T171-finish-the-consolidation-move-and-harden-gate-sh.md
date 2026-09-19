@@ -1,7 +1,7 @@
 ---
 title: "Finish the consolidation move, and make gate.sh trustworthy about its own result"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-15
 task_class: test-infrastructure
 governing_docs: [docs/governance/standards/WORKING_COPY_STANDARD.md, docs/governance/GOVERNANCE_INDEX.md]
@@ -9,6 +9,57 @@ archive_when: launchd runs the in-repo consolidation scripts, the out-of-repo co
 ---
 
 # T171 — Finish the consolidation move; harden `gate.sh`
+
+## Closure, 2026-09-18 — COMPLETED
+
+Re-verified every `archive_when` clause against `origin/main` (`a2d9721`) rather
+than trusting the prior status note. All four hold; nothing new needed to be
+built — the buildable items shipped in earlier PRs (#410 and the memoryProject
+extraction) and are present and passing on `main`.
+
+1. **launchd runs the in-repo consolidation scripts — MET.**
+   `~/Library/LaunchAgents/com.shoresh.memory-consolidation.plist` execs
+   `/Users/gregfeitel/dev/shoresh/scripts/consolidation/run.sh` (the in-repo
+   copy). The owner-observable half — "one 03:00 run has actually succeeded
+   through the new path" — is now observed: the live `run.log` records
+   `=== run 2026-09-17 @ Fri Sep 18 03:00:02 EDT 2026 ===` followed by the
+   in-repo run.sh's own output (agent-config sync, per-worktree memory linking).
+   A scheduled 03:00 run has fired and completed through the repointed path.
+
+2. **The out-of-repo copies are gone — MET.**
+   `~/.claude/projects/<slug>/_consolidation/` holds only `MOVED-TO-REPO.md`,
+   `INTEGRATION_MOVED.md`, and `*.RETIRED-*` markers plus the live `run.log`
+   DATA store (deliberately never in the repo). No executable `.sh` copy remains.
+
+3. **`gate.sh` has automated coverage of its own exit code — MET.**
+   `scripts/gateResultCode.sh` is the extracted predicate; `gate.sh` ends with
+   `"$SCRIPT_DIR/gateResultCode.sh" "$R"` / `exit $?`. `test/gateResultCode.test.js`
+   (9 cases) pins the three-valued contract. Verified non-vacuous empirically on
+   2026-09-18: a passing results file exits 0, a failing one exits 1, a
+   missing/empty one exits 2 — the exit code genuinely differs by branch, so the
+   historical `&& exit 0 || exit 0` false-green cannot recur silently.
+
+4. **The per-user slug is not hardcoded in three scripts — MET.**
+   Centralised in `scripts/memoryProject.sh` (sourced by the shell scripts) and
+   `scripts/memoryProject.js` (imported by `observeRun.js`), both overridable via
+   `SHORESH_MEMORY_PROJECT`. `grep` for the literal across `scripts/` returns only
+   those canonical definitions. `test/memoryProject.test.js` walks `scripts/` and
+   fails on any reintroduction. The slug is a deliberate CONSTANT (it names a live
+   memory store that must not move), written down once rather than derived.
+
+Deterministic evidence, 2026-09-18: `test/gateResultCode.test.js`,
+`test/memoryProject.test.js`, `test/gateStepSummary.test.js` — 24/24 pass.
+
+Two follow-on observations left for the owner (not blocking, outside this ticket):
+
+- The plist's `StandardOutPath`/`StandardErrorPath` still carry the slug literal;
+  those live in `~/Library/LaunchAgents` and are the owner's config, deliberately
+  out of scope (recorded under item 4 already).
+- `launchd.out.log` shows a few `FAILED` lines from the per-date *mining* step
+  within otherwise-successful runs (`run.log` shows `mine ok (attempt 2)` — a
+  retry succeeded). These are transient mining hiccups, not path failures, but
+  worth a glance if they persist.
+
 
 ## Status, 2026-09-15
 
