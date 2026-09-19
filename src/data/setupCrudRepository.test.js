@@ -147,6 +147,13 @@ describe('createSetupCrudRepository — createRecord', () => {
 
   // T9 (docs/adr/2026-08-15-locations-concurrent-create-collision.md
   // addendum, Decision B): a programmer-error guard, not a user-facing path.
+  // T205 round 2 FIX 4 (Code Reviewer nit): a direct assertion for this specific
+  // mapping, not just coverage-by-inclusion in the parity test
+  // (electron/uniqueFirstFieldRegistryParity.test.js).
+  it('registers days_of_operation on day_of_week (T205)', () => {
+    expect(UNIQUE_FIRST_FIELD.days_of_operation).toBe('day_of_week')
+  })
+
   it('UNIQUE_FIRST_FIELD guard: throws synchronously, before any write, when the registered unique field is not first', async () => {
     expect(UNIQUE_FIRST_FIELD.locations).toBe('name')
     const client = makeFakeClient()

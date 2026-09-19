@@ -13,6 +13,7 @@ import { isPlaintextSqliteFile, rawKeyPragma, migratePlaintextToEncrypted } from
 const _lazyRequire = createRequire(import.meta.url)
 import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
 import { deriveLocationId } from '../ops/locationId.js'
+import { deriveDayId } from '../ops/dayId.js'
 import { applyProjection } from '../ops/projections.js'
 import { isBulkReplaceOp, applyBulkReplaceProjection } from '../ops/operations.js'
 import { signAuthFields } from '../auth/authSignature.js'
@@ -2942,50 +2943,54 @@ const DEVICE_HEALTH_EVENTS_DDL = `
       }
 
       const LABEL_TO_DOW = { Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5 }
-      let deletedCount = 0
+      const losers = [] // { entity: 'days_of_operation', entity_id } — FIX 2: fed to the
+      // durable marker's `detail` so a later startup resolve pass can author
+      // the SAME deletes through the document.
 
-      // Heal-or-lose every NULL-day orphan BEFORE the standard dedupe below,
-      // so a healed row participates in it like any other complete row.
+      // Phase 1 (round 2): pure normalization, no survivor decision here. Heal
+      // every NULL-day row we can determine a weekday for (from `label`, which
+      // the torn write DID succeed in setting). A row that stays NULL never
+      // collides (SQLite treats NULL as distinct in the unique index below).
       const nullDayRows = db
-        .prepare('SELECT id, camp_id, label FROM days_of_operation WHERE day_of_week IS NULL')
+        .prepare('SELECT id, label FROM days_of_operation WHERE day_of_week IS NULL')
         .all()
       for (const row of nullDayRows) {
         const derivedDow = LABEL_TO_DOW[row.label]
         if (derivedDow == null) continue // not determinable — leave the NULL as-is, never fabricate
-
-        const survivor = db
-          .prepare('SELECT id FROM days_of_operation WHERE camp_id = ? AND day_of_week = ? AND id != ?')
-          .get(row.camp_id, derivedDow, row.id)
-
-        if (survivor) {
-          repointDayReferencers(row.id, survivor.id)
-          db.prepare('DELETE FROM days_of_operation WHERE id = ?').run(row.id)
-          deletedCount++
-        } else {
-          db.prepare('UPDATE days_of_operation SET day_of_week = ? WHERE id = ?').run(derivedDow, row.id)
-        }
+        db.prepare('UPDATE days_of_operation SET day_of_week = ? WHERE id = ?').run(derivedDow, row.id)
       }
 
-      // Standard MIN(rowid)-survivor dedupe (idx_cohorts_camp_name / idx_groups_camp_name
-      // precedent), now that every determinable row has a non-NULL day_of_week.
-      const survivors = db
+      // Phase 2 (round 2, FIX 3): dedupe (camp_id, day_of_week) groups with a
+      // survivor chosen IDENTICALLY on every device — required for FIX 2's
+      // document-routed resolve, where two devices tombstoning DIFFERENT
+      // "losers" for the same weekday would never converge. Preference: the
+      // row whose id equals deriveDayId(camp_id, day_of_week) — the canonical
+      // id any device minting this weekday today would choose — if one exists
+      // in the group; otherwise the lexicographically-smallest id, which every
+      // device computes identically from the same id strings without needing
+      // rowid (per-database, uncorrelated across devices) or any other
+      // device-local signal.
+      const groups = db
         .prepare(
-          `SELECT camp_id, day_of_week, MIN(rowid) as keep_rowid
-           FROM days_of_operation WHERE day_of_week IS NOT NULL
-           GROUP BY camp_id, day_of_week HAVING COUNT(*) > 1`
+          `SELECT camp_id, day_of_week FROM days_of_operation
+           WHERE day_of_week IS NOT NULL GROUP BY camp_id, day_of_week HAVING COUNT(*) > 1`
         )
         .all()
 
-      for (const { camp_id, day_of_week, keep_rowid } of survivors) {
-        const keepRow = db.prepare('SELECT id FROM days_of_operation WHERE rowid = ?').get(keep_rowid)
-        const dupes = db
-          .prepare('SELECT id FROM days_of_operation WHERE camp_id = ? AND day_of_week = ? AND rowid != ?')
-          .all(camp_id, day_of_week, keep_rowid)
+      for (const { camp_id, day_of_week } of groups) {
+        const rows = db
+          .prepare('SELECT id FROM days_of_operation WHERE camp_id = ? AND day_of_week = ?')
+          .all(camp_id, day_of_week)
+        const canonicalId = deriveDayId(camp_id, day_of_week)
+        const survivorId = rows.some((r) => r.id === canonicalId)
+          ? canonicalId
+          : rows.map((r) => r.id).sort()[0]
 
-        for (const { id: dupeId } of dupes) {
-          repointDayReferencers(dupeId, keepRow.id)
-          db.prepare('DELETE FROM days_of_operation WHERE id = ?').run(dupeId)
-          deletedCount++
+        for (const { id } of rows) {
+          if (id === survivorId) continue
+          repointDayReferencers(id, survivorId)
+          db.prepare('DELETE FROM days_of_operation WHERE id = ?').run(id)
+          losers.push({ entity: 'days_of_operation', entity_id: id })
         }
       }
 
@@ -2993,12 +2998,15 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_days_of_operation_camp_day ON days_of_operation(camp_id, day_of_week)'
       )
 
-      if (deletedCount > 0) {
+      if (losers.length > 0) {
         db.prepare(
           `INSERT OR IGNORE INTO domain_state_migration_pending (version, detail, created_at)
            VALUES (70, ?, ?)`
         ).run(
-          `days_of_operation dedupe deleted ${deletedCount} duplicate row(s) and repointed their referencers`,
+          JSON.stringify({
+            note: `days_of_operation dedupe deleted ${losers.length} duplicate row(s) and repointed their referencers`,
+            losers,
+          }),
           new Date().toISOString()
         )
       }

@@ -182,3 +182,62 @@ describe('T205 part D: durable domain-state refusal', () => {
     ).toBe(false)
   })
 })
+
+describe('T205 round 2 FIX 2: resolvePendingDomainStateMigrations', () => {
+  it('authors a document-routed delete for every recorded loser, then marks the marker resolved', async () => {
+    const { openLocalDb } = await import('./localDb.js')
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const { resolvePendingDomainStateMigrations } = await import('./migrationDomainState.js')
+
+    const file = path.join(os.tmpdir(), `shoresh-resolve-${Date.now()}-${Math.random()}.sqlite`)
+    const db = openLocalDb(file)
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Device')
+    db.prepare(
+      "INSERT INTO days_of_operation (id, camp_id, label, day_of_week) VALUES ('mon-survivor', 'camp1', 'Monday', 1)"
+    ).run()
+    // 'mon-loser' does NOT exist in SQLite (already deleted by the migration) —
+    // the resolve pass must still author its document tombstone.
+    db.prepare(
+      `INSERT INTO domain_state_migration_pending (version, detail, created_at)
+       VALUES (70, ?, ?)`
+    ).run(
+      JSON.stringify({ note: 'test', losers: [{ entity: 'days_of_operation', entity_id: 'mon-loser' }] }),
+      new Date().toISOString()
+    )
+
+    const resolvedVersions = resolvePendingDomainStateMigrations(db, { device_id: 'device-1' })
+
+    expect(resolvedVersions).toEqual([70])
+    const marker = db.prepare('SELECT resolved_at FROM domain_state_migration_pending WHERE version = 70').get()
+    expect(marker.resolved_at).not.toBeNull()
+    // The tombstone reached the op-log (electron/ops/operations.js's appendOp),
+    // which is what actually authors the document delete.
+    const deleteOp = db
+      .prepare("SELECT * FROM operations WHERE entity = 'days_of_operation' AND entity_id = 'mon-loser' AND field = '__deleted__'")
+      .get()
+    expect(deleteOp).toBeTruthy()
+
+    db.close()
+    fs.unlinkSync(file)
+  })
+
+  it('is a no-op when there is nothing unresolved', async () => {
+    const { openLocalDb } = await import('./localDb.js')
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const { resolvePendingDomainStateMigrations } = await import('./migrationDomainState.js')
+
+    const file = path.join(os.tmpdir(), `shoresh-resolve-noop-${Date.now()}-${Math.random()}.sqlite`)
+    const db = openLocalDb(file)
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
+
+    expect(resolvePendingDomainStateMigrations(db, { device_id: 'device-1' })).toEqual([])
+
+    db.close()
+    fs.unlinkSync(file)
+  })
+})

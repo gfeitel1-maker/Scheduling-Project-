@@ -239,6 +239,21 @@ describe('T205 schema v70: days_of_operation UNIQUE(camp_id, day_of_week)', () =
     db.close()
   })
 
+  it('records the deleted loser entity_ids in the marker detail, for FIX 2\'s document-routed resolve', () => {
+    const db = freshDb()
+    seedCamp(db)
+    dropToPreV70Shape(db)
+    writeDay(db, 'a', 'camp1', 'Monday', 1)
+    writeDay(db, 'b', 'camp1', 'Monday (dup)', 1)
+
+    initSchema(db)
+
+    const pending = db.prepare('SELECT * FROM domain_state_migration_pending WHERE version = 70').get()
+    const detail = JSON.parse(pending.detail)
+    expect(detail.losers).toEqual([{ entity: 'days_of_operation', entity_id: 'b' }])
+    db.close()
+  })
+
   it('records NO durable marker when the migration finds nothing to dedupe', () => {
     const db = freshDb()
     seedCamp(db)
@@ -249,6 +264,51 @@ describe('T205 schema v70: days_of_operation UNIQUE(camp_id, day_of_week)', () =
 
     const pending = db.prepare('SELECT * FROM domain_state_migration_pending WHERE version = 70').get()
     expect(pending).toBeUndefined()
+    db.close()
+  })
+})
+
+describe('T205 round 2 FIX 3: deterministic survivor selection across devices', () => {
+  // Two devices deduping the SAME pre-existing duplicate pair must pick the
+  // SAME survivor, or their post-migration states never reconcile. Preference:
+  // the row whose id equals deriveDayId(camp_id, weekday) — the canonical id
+  // any device minting this weekday today would choose — if one exists in the
+  // group.
+  it('prefers the row whose id IS deriveDayId(camp_id, weekday) as survivor, even when it is not the lowest id', () => {
+    const db = freshDb()
+    seedCamp(db)
+    dropToPreV70Shape(db)
+
+    const canonicalId = deriveDayId('camp1', 1)
+    // A lexicographically-smaller, non-canonical legacy id — would win under a
+    // naive "smallest id" rule, but must NOT win here.
+    writeDay(db, 'aaaa-legacy', 'camp1', 'Monday', 1)
+    writeDay(db, canonicalId, 'camp1', 'Monday (dup)', 1)
+
+    initSchema(db)
+
+    const rows = db.prepare('SELECT id FROM days_of_operation WHERE camp_id = ? AND day_of_week = 1').all('camp1')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe(canonicalId)
+    db.close()
+  })
+
+  // No canonical id present in the group (both are legacy random ids): falls
+  // back to the lexicographically-smallest id — deterministic, dependency-free,
+  // and identical on every device comparing the SAME id strings.
+  it('falls back to the lexicographically-smallest id when no row has the canonical id', () => {
+    const db = freshDb()
+    seedCamp(db)
+    dropToPreV70Shape(db)
+
+    writeDay(db, 'zzzz-legacy', 'camp1', 'Monday', 1)
+    writeDay(db, 'aaaa-legacy', 'camp1', 'Monday (dup)', 1)
+
+    initSchema(db)
+
+    const rows = db.prepare('SELECT id FROM days_of_operation WHERE camp_id = ? AND day_of_week = 1').all('camp1')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe('aaaa-legacy')
     db.close()
   })
 })

@@ -44,7 +44,7 @@ import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
-import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn, unresolvedDomainStateMigrations, shouldRefuseSyncForDomainMigration } from './db/migrationDomainState.js'
+import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn, unresolvedDomainStateMigrations, shouldRefuseSyncForDomainMigration, resolvePendingDomainStateMigrations } from './db/migrationDomainState.js'
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
@@ -2841,8 +2841,26 @@ if (isElectronEntryPoint()) {
       // auto-repair — see migrationDomainState.js's header).
       const migrationSpan = migrationSpanFor(db)
       const riskyThisLaunch = migrationSpan ? domainStateMigrationsIn(migrationSpan.from, migrationSpan.to) : []
-      const unresolvedMarkers = unresolvedDomainStateMigrations(db)
+      // Checked BEFORE ensureAutomergeDocSeeded below (which creates the file
+      // when missing) — this must stay "did a document already exist before
+      // this launch touched anything", not "does one exist now".
       const docExists = fs.existsSync(automergeDocPath(userDataPath, campId))
+
+      // T205 round 2, FIX 2: resolve BEFORE deciding to refuse, not after —
+      // ensureAutomergeDocSeeded guarantees a document is available (seeded
+      // fresh from current, already-migrated SQLite when none existed yet, or
+      // loaded from disk otherwise), which is what resolvePendingDomainStateMigrations
+      // needs to author a document-routed tombstone for each recorded loser id
+      // (electron/db/migrationDomainState.js). Idempotent and safe to call on
+      // every launch: a no-op when nothing is pending, and a retry (not a
+      // permanent no-op) when a prior launch's resolve attempt didn't complete.
+      // This is what turns "refuses forever" into "refuses until it can
+      // reconcile, then resumes" — the SAME launch that resolves it, or a
+      // later one.
+      ensureAutomergeDocSeeded(db)
+      resolvePendingDomainStateMigrations(db, { device_id: deviceId })
+      const unresolvedMarkers = unresolvedDomainStateMigrations(db)
+
       if (shouldRefuseSyncForDomainMigration({ docExists, riskyThisLaunch, unresolvedMarkers })) {
         const versions = [...new Set([...riskyThisLaunch, ...unresolvedMarkers.map((m) => m.version)])].sort(
           (a, b) => a - b
@@ -2868,7 +2886,6 @@ if (isElectronEntryPoint()) {
         return
       }
 
-      ensureAutomergeDocSeeded(db)
       const doc = resolveStartupDoc({
         liveDoc: getDocIfLoaded(db),
         // Same cipher liveDoc was given above — this direct read is the second of the three

@@ -42,6 +42,8 @@
  * table shape. Each entry names what it does so the classification can be
  * checked rather than trusted.
  */
+import { appendOp, DELETE_FIELD } from '../ops/operations.js'
+
 export const DOMAIN_STATE_MIGRATIONS = new Map([
   [11, 'cohort de-duplication re-points time_blocks.cohort_id and anchor_activities.cohort_id'],
   [12, 'group de-duplication re-points template_slots.group_id'],
@@ -191,4 +193,48 @@ export function unresolvedDomainStateMigrations(db) {
 export function shouldRefuseSyncForDomainMigration({ docExists, riskyThisLaunch = [], unresolvedMarkers = [] }) {
   if (!docExists) return false
   return riskyThisLaunch.length > 0 || unresolvedMarkers.length > 0
+}
+
+// T205 round 2, FIX 2: closes the "durable marker never resolved" defect —
+// left as-is, a camp with a pre-T205 duplicate would refuse sync on every
+// launch FOREVER once v70 dedupes it. The correct repair (this file's own
+// "WHY NOT AUTO-REPAIR" above, and Amendment 2's original framing) is to
+// apply the SAME change through the document, not to re-seed it: the
+// migration already deleted these rows from SQLite and recorded exactly
+// which entity_ids in the marker's `detail` (see localDb.js's v70 block),
+// so this authors a document delete (tombstone) for each one via the
+// ordinary appendOp path — the same primitive an interactive delete uses —
+// then marks the marker resolved. Idempotent: appendOp's DELETE_FIELD on an
+// entity_id already absent from SQLite is a no-op at the projection layer
+// (applyProjection has nothing to delete), so calling this twice, or from
+// two devices independently, is harmless — which is exactly why FIX 3
+// (deterministic survivor selection) matters: two devices dedupe the SAME
+// duplicate pair down to the SAME survivor and record the SAME loser id, so
+// their independent resolves converge on the SAME document tombstone rather
+// than each other's now-orphaned pointer.
+export function resolvePendingDomainStateMigrations(db, { device_id = null } = {}) {
+  const pending = db.prepare('SELECT * FROM domain_state_migration_pending WHERE resolved_at IS NULL').all()
+  const resolvedVersions = []
+
+  for (const marker of pending) {
+    let payload
+    try {
+      payload = JSON.parse(marker.detail)
+    } catch {
+      continue // not a structured marker this resolver understands — leave it, never guess
+    }
+    const losers = Array.isArray(payload.losers) ? payload.losers : []
+
+    for (const { entity, entity_id } of losers) {
+      appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id: null, device_id })
+    }
+
+    db.prepare('UPDATE domain_state_migration_pending SET resolved_at = ? WHERE version = ?').run(
+      new Date().toISOString(),
+      marker.version
+    )
+    resolvedVersions.push(marker.version)
+  }
+
+  return resolvedVersions
 }
