@@ -1,7 +1,7 @@
 ---
 title: "A token that expires mid-session leaves the director retrying an unactionable error forever"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-18
 task_class: architecture
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -84,3 +84,25 @@ question and is explicitly NOT in this ticket's scope.
 - Any fix without a test that plants a mid-session expiry and asserts the director reaches the
   login screen — the four T87 tests that passed against a device shape the app could no longer
   produce are the standing reason this repo does not accept an untested auth-path claim.
+
+## Resolution
+
+The **whole seam** was chosen (Architect, high confidence): `requireAuthorized`
+(`electron/main.js`) — the single chokepoint every mutating handler already passes through — now
+also pushes the existing `shoresh:auth-rejected` IPC channel for the `authorize()` denial reasons
+that mean the session/device can no longer act (`invalid_token`, `user_not_found`, `device_not_found`,
+`device_not_authorized`, `device_revoked`). `useDeviceMode`'s existing `onAuthRejected` listener then
+runs `clearSessionState`, dropping the director to the login screen with an honest reason. The
+`throw new Error('invalid session')` is unchanged, so the write still rejects and the per-screen
+`describeWriteFailure` path still runs (non-swallow). `db_error`, `invalid_action` and
+`device_token_not_valid_for_authorization` deliberately do **not** route — they are transient or
+caller-bug conditions, not session-ended ones. `describeWriteFailure` also learns `invalid session`
+for the residual cases the push cannot cover. No new IPC channel and no renderer state-machine change
+were needed; no ADR (extends the T87/T162 reason-code pattern already documented).
+
+Tests: a real mid-session expiry (real login + fake timers past `TOKEN_TTL_MS`) asserts both the
+preserved throw and that the routing push fires; a source-derived drift guard asserts every
+`authorize()`/`deviceTrust` denial reason is explicitly classified; `describeWriteFailure`'s new
+branch is covered with a negative assertion against the fallback. Reviewed by Security (no
+vulnerabilities), Red Hat, and Code Reviewer; their round-1 findings (a self-referential drift guard,
+and the undocumented `user_not_found`→4401 fallback) were fixed in-loop before merge.

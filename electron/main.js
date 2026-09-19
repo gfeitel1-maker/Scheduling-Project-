@@ -108,6 +108,40 @@ function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0
 }
 
+// T228 — requireAuthorized is the single chokepoint every mutating handler
+// goes through, so it is also the one place that can discover a session
+// that expired mid-session (the device stayed open past TOKEN_TTL_MS, the
+// normal overnight case) without adding a second listener elsewhere. Set
+// once by makeHandlers so this module-level function still doesn't need its
+// own getMainWindow parameter threaded through ~35 call sites.
+let currentMainWindowGetter = () => null
+
+// The exact authorize() denial reasons that mean this session/device can no
+// longer act at all — identity or trust is gone, not just this one call.
+// Deliberately EXCLUDES db_error, invalid_action, and
+// device_token_not_valid_for_authorization: those are a transient
+// operational failure or a caller bug, not a session-ended condition, and
+// bouncing the director to login for them would hide the real problem
+// behind reassuring copy. Those three still throw 'invalid session'
+// unchanged, they just don't fire the push.
+//
+// codeForAuthRejectedReason maps each of these to the close-code useDeviceMode
+// already understands. Four are keys in authRejectedSender.js's REASON_TO_CODE;
+// 'user_not_found' intentionally is NOT — it takes that function's `?? 4401`
+// fallback, which lands on the benign "Your session ended. Please sign in
+// again." copy. That is the correct message for a deleted user (re-login is
+// exactly the honest next step), so the fallback is deliberate, not an omission.
+// It is left out of REASON_TO_CODE on purpose: that table is the network-
+// handshake vocabulary (connectionAuth.js), which never emits 'user_not_found',
+// and its own drift guard is scoped to that source.
+export const SESSION_INVALID_REASONS = new Set([
+  'invalid_token',
+  'user_not_found',
+  'device_not_found',
+  'device_not_authorized',
+  'device_revoked',
+])
+
 // Thin wrapper around authorize() (electron/auth/authorize.js) that converts
 // its { allowed: false, reason } result into the same thrown-Error convention
 // every handler in this file already uses. `reason: 'forbidden'` is mapped to
@@ -120,11 +154,23 @@ function isNonEmptyString(v) {
 // verifySessionToken-failure message. Callers must check
 // isNonEmptyString(token) themselves first if they need the more specific
 // 'token is required' message for a missing token.
+//
+// A SESSION_INVALID_REASONS denial additionally pushes the existing
+// 'shoresh:auth-rejected' channel (T228) so useDeviceMode's onAuthRejected
+// listener routes the director to the login screen instead of leaving them
+// stuck retrying a write that can never succeed. Additive only — the throw
+// below is unchanged and still rejects the write.
 function requireAuthorized(db, { token, action, resourceId }) {
   const result = authorize({ db, token, action, resourceId })
   if (!result.allowed) {
     if (result.reason === 'forbidden') {
       throw new Error('admin role required')
+    }
+    if (SESSION_INVALID_REASONS.has(result.reason)) {
+      const mainWindow = currentMainWindowGetter()
+      if (mainWindow) {
+        mainWindow.webContents.send('shoresh:auth-rejected', { code: codeForAuthRejectedReason(result.reason) })
+      }
     }
     throw new Error('invalid session')
   }
@@ -192,6 +238,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
   const getAutomergeNode = getAutomergeSyncNode || (() => null)
+  // T228 — requireAuthorized is module-level (not a closure over this call's
+  // getMainWindow), so the last makeHandlers call to run wins here. That
+  // matches every other caller of getMainWindow in this file, which is
+  // always the single real mainWindow reference threaded through main.js's
+  // one long-lived call, plus test-only extra calls that don't rely on the
+  // push firing.
+  currentMainWindowGetter = getMainWindow || (() => null)
   // Alias to avoid shadowing the import; callers pass userDataPath as an option
   // so backups from within makeHandlers (bulkReplace) land in the same
   // {userData}/backups/ directory as user-initiated backups.

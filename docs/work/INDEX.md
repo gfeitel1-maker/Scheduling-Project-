@@ -20,7 +20,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Phase A — Cloudflare Worker and KV rendezvous bulletin board (source and tests only)](../../docs/work/tickets/T209-rendezvous-worker-phase-a.md) | in-progress | [2026-09-18-rendezvous-record-encoding-and-namespace-rotation](../../docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
-| [A token that expires mid-session leaves the director retrying an unactionable error forever](../../docs/work/tickets/T228-expired-token-mid-session-unactionable.md) | open | — |
 
 ### concurrency
 

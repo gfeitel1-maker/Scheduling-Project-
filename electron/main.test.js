@@ -52,7 +52,7 @@ import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { createUser, ensureHostSigningKey } from './auth/localAuth.js'
 import { appendOp, latestOp } from './ops/operations.js'
-import { makeHandlers, sanitizeConflictForIpc, sanitizeOpRejectedForIpc } from './main.js'
+import { makeHandlers, sanitizeConflictForIpc, sanitizeOpRejectedForIpc, SESSION_INVALID_REASONS } from './main.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 
 let tmpFile
@@ -571,6 +571,82 @@ describe('write handler', () => {
     expect(lastCreatedSyncClient.write).toHaveBeenCalledWith(
       expect.objectContaining({ entity: 'activities', author_user_id: user.id })
     )
+  })
+
+  // T228 — a token that expires mid-session (the device stays open past
+  // TOKEN_TTL_MS, the normal overnight case) must not leave the director
+  // stuck retrying an unactionable error. requireAuthorized must both keep
+  // throwing 'invalid session' (unchanged contract) AND push
+  // 'shoresh:auth-rejected' at the renderer so useDeviceMode's existing
+  // onAuthRejected listener routes it to the login screen. Plants a REAL
+  // expiry via a real login + fake-timers past TOKEN_TTL_MS — not a
+  // hand-built expired token object — so verifySessionToken's own
+  // Date.now()>exp check is what fails, matching how this actually happens.
+  it('an expired token at a write handler routes to login (T228)', async () => {
+    await seedCampAndUser({ name: 'Dana', pin: '1357' })
+    const sendSpy = vi.fn()
+    const handlers = makeHandlers(db, deviceId, {
+      getMainWindow: () => ({ webContents: { send: sendSpy } }),
+    })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+    const { token } = await handlers.login({ name: 'Dana', pin: '1357' })
+
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(Date.now() + 25 * 60 * 60 * 1000) // past the 24h TOKEN_TTL_MS
+
+      expect(() =>
+        handlers.write({ token, entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim' })
+      ).toThrow('invalid session')
+
+      expect(sendSpy).toHaveBeenCalledWith('shoresh:auth-rejected', { code: 4401 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // T228 drift guard — DERIVED FROM SOURCE, not a hardcoded copy of the set.
+  // Every denial reason authorize() can produce (its literal deny(...) reasons
+  // plus deviceTrustReason()'s possible outputs) must be classified as EITHER
+  // session-invalid (in SESSION_INVALID_REASONS → routes to login) OR in the
+  // known non-session set below (forbidden / transient / caller-bug → no
+  // route). If a future edit to authorize.js or deviceTrust.js adds a NEW
+  // denial reason and nobody classifies it, this fails loudly — instead of
+  // that reason silently taking the unactionable fallback path this ticket
+  // exists to close. Mirrors authRejectedSender.test.js's source-parsing drift
+  // guard rather than re-stating a literal list (this repo's standing lesson:
+  // a guard's expected set must derive from external truth, not from the thing
+  // it guards).
+  it('every authorize()/deviceTrust denial reason is explicitly classified (T228 drift guard, source-derived)', () => {
+    const authorizeSrc = fs.readFileSync(new URL('./auth/authorize.js', import.meta.url), 'utf8')
+    const deviceTrustSrc = fs.readFileSync(new URL('./auth/deviceTrust.js', import.meta.url), 'utf8')
+    // deny(db, action, <role>, '<reason>', ...) — the 4th arg when it is a literal.
+    const denyLiteralReasons = [...authorizeSrc.matchAll(/deny\(\s*db,\s*action,\s*[^,]+,\s*'([a-z_]+)'/g)].map((m) => m[1])
+    // authorize.js's one dynamic reason is deviceTrustReason(trust); its outputs:
+    const trustReasons = [...deviceTrustSrc.matchAll(/return '([a-z_]+)'/g)].map((m) => m[1])
+    const allReasons = new Set([...denyLiteralReasons, ...trustReasons])
+
+    // Non-vacuity: prove the regexes actually matched the reasons we know exist.
+    expect(allReasons.size).toBeGreaterThanOrEqual(6)
+    for (const r of ['invalid_token', 'user_not_found', 'db_error', 'forbidden', 'device_revoked']) {
+      expect(allReasons.has(r), `drift-guard regex failed to find known reason '${r}' — the parse broke`).toBe(true)
+    }
+
+    // Reasons that deliberately do NOT route to login (see SESSION_INVALID_REASONS
+    // comment in main.js): a permission denial, a transient failure, or a caller bug.
+    const KNOWN_NON_SESSION_REASONS = new Set([
+      'forbidden',
+      'db_error',
+      'invalid_action',
+      'device_token_not_valid_for_authorization',
+    ])
+    for (const reason of allReasons) {
+      if (KNOWN_NON_SESSION_REASONS.has(reason)) continue
+      expect(
+        SESSION_INVALID_REASONS.has(reason),
+        `denial reason '${reason}' is produced by authorize.js/deviceTrust.js but is neither in SESSION_INVALID_REASONS nor KNOWN_NON_SESSION_REASONS — classify it (T228)`
+      ).toBe(true)
+    }
   })
 
   describe('DELETE_FIELD authorization (Round 2 Security MEDIUM #1: admin-gated delete)', () => {
