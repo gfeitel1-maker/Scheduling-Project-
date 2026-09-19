@@ -914,3 +914,30 @@ describe('applyProjection for week_location_exclusions (M5)', () => {
 afterAll(() => {
   cleanupTemplatedDbs()
 })
+
+// T205 part A: days_of_operation.ensureExists must stamp day_of_week in the
+// SAME insert as camp_id/label when the id is a deterministic day id
+// (electron/ops/dayId.js) — closing the NULL-at-creation window that made
+// the UNIQUE(camp_id, day_of_week) constraint inert (defect 1). Driven
+// through applyProjection (the real write path), not a hand-built INSERT.
+import { deriveDayId } from './dayId.js'
+
+describe('applyProjection for days_of_operation (T205 part A)', () => {
+  it('stamps day_of_week at row creation when the id is a deterministic day id', () => {
+    const id = deriveDayId('camp-1', 2)
+    applyProjection(db, { entity: 'days_of_operation', entity_id: id, field: 'camp_id', value: 'camp-1' })
+    const row = db.prepare('SELECT * FROM days_of_operation WHERE id = ?').get(id)
+    expect(row).toBeTruthy()
+    expect(row.day_of_week).toBe(2)
+  })
+
+  it('falls back to NULL day_of_week (today\'s behavior) for a non-deterministic id, without throwing', () => {
+    const id = crypto.randomUUID()
+    expect(() =>
+      applyProjection(db, { entity: 'days_of_operation', entity_id: id, field: 'camp_id', value: 'camp-1' })
+    ).not.toThrow()
+    const row = db.prepare('SELECT * FROM days_of_operation WHERE id = ?').get(id)
+    expect(row).toBeTruthy()
+    expect(row.day_of_week).toBeNull()
+  })
+})

@@ -1,4 +1,5 @@
 import { localClient } from '../localClient'
+import { deriveDayId } from '../../electron/ops/dayId.js'
 
 // Called once when a campId first becomes available.
 // Seeds Monday-Friday rows into days_of_operation if any are missing or
@@ -50,7 +51,7 @@ export async function seedDays(campId) {
     const existing = days.find((d) => d.day_of_week === day.day_of_week)
     if (existing && isComplete(existing)) continue
 
-    const id = existing ? existing.id : crypto.randomUUID()
+    const id = existing ? existing.id : deriveDayId(campId, day.day_of_week)
     const fields = existing
       ? Object.fromEntries(
           REQUIRED_FIELDS.filter((f) => existing[f] == null || existing[f] === '').map((f) => [f, day[f]])

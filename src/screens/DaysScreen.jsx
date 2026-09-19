@@ -91,9 +91,11 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       repository,
       scopeFilter,
       buildCreateFields: ({ label, dayOfWeek, sortOrder }) => ({
+        // day_of_week first: createRecord's UNIQUE_FIRST_FIELD guard requires
+        // the collision-guarded field first (T205 / ADR 2026-08-15).
+        day_of_week: dayOfWeek,
         label,
         camp_id: campId,
-        day_of_week: dayOfWeek,
         sort_order: sortOrder,
       }),
       addFailedText: 'That day could not be added.',
@@ -205,12 +207,12 @@ export default function DaysScreen({ campId, role, onNavigate }) {
         const sortVal = row.sort_order !== null ? row.sort_order : row.day_of_week
         try {
           const id = crypto.randomUUID()
-          // `label` first — createRecord does the write-then-cleanup-on-failure
-          // dance and requires the collision-guarded field first.
+          // day_of_week first — createRecord's write-then-cleanup-on-failure
+          // dance requires the collision-guarded field first (T205 / ADR 2026-08-15).
           await repository.createRecord('days_of_operation', id, {
+            day_of_week: row.day_of_week,
             label: row.label,
             camp_id: campId,
-            day_of_week: row.day_of_week,
             sort_order: sortVal,
           })
           added++

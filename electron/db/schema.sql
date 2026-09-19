@@ -665,7 +665,31 @@ CREATE TABLE IF NOT EXISTS days_of_operation (
   camp_id TEXT NOT NULL REFERENCES camps(id),
   label TEXT NOT NULL,
   day_of_week INTEGER,
-  sort_order INTEGER
+  sort_order INTEGER,
+  UNIQUE(camp_id, day_of_week)
+);
+-- T205: the UNIQUE above only applies to brand-new installs, since this whole
+-- file runs as CREATE TABLE IF NOT EXISTS — same caveat as cohorts/groups
+-- above. A db that already ran an earlier schema version keeps its
+-- pre-existing days_of_operation table verbatim; the actual enforcement for
+-- those dbs comes from the idx_days_of_operation_camp_day index added in
+-- localDb.js's version-70 migration.
+
+-- T205: a durable, cross-restart marker that a domain-state migration ran
+-- against this db (electron/db/migrationDomainState.js). The per-process
+-- migrationSpans WeakMap (localDb.js) only reports the span for the launch
+-- that actually ran the migration; on the NEXT launch from===to and it
+-- reports nothing, which would silently re-enable sync against a document
+-- that still holds rows the migration deleted. A row here keeps main.js's
+-- sync-start guard refusing until resolved_at is set — which nothing in this
+-- codebase does yet (no auto-repair; see migrationDomainState.js). Resolution
+-- is a future ticket's job: republish the post-migration state through the
+-- document, then mark this resolved.
+CREATE TABLE IF NOT EXISTS domain_state_migration_pending (
+  version INTEGER PRIMARY KEY,
+  detail TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS time_blocks (
