@@ -613,6 +613,9 @@ if (!rowExistsLocally) {
 — no per-entity special-casing required, so this stays correct if `UNIQUE_FIELD_ENTITIES` ever grows a
 second entry on a different table.
 
+<!-- doc-refs:historical -->
+_Prior decision (Decision B's throw-on-misorder guard, superseded 2026-09-18 — see "Reversal (2026-09-18)" after Open questions below): the text below described `createRecord` throwing when the registered unique field was not first. It now auto-reorders that field to the front instead, throwing only when the field is absent entirely._
+
 **Decision B — close the ordering hazard with a cheap client-side guard at the one identified reuse
 choke point, and explicitly accept the remaining Host-side gap as documented residual risk (do not build
 atomic multi-field creates now).**
@@ -679,6 +682,7 @@ problem space with zero known instances is the premature generality `karpathy-gu
 query) into a *standing* check re-run before releases, as continued cheap insurance against this specific
 residual gap, exactly mirroring the risk posture the original ADR already chose for the analogous
 already-diverged-rows question.
+<!-- /doc-refs:historical -->
 
 **Confidence: High** on C (the materialized-row-existence check is a direct reuse of an already-proven
 pattern, and it strictly narrows today's over-broad purge — it cannot make D4 miss a case it currently
@@ -800,3 +804,74 @@ someone" is genuinely unknown, not just unstated.
    explicitly out of this addendum's scope per the task brief — noted here only so it isn't lost: T9's
    fix changes *which* writes survive a rejection, but does not change *whether* the director is told
    about a queued rejection at all. That remains open.
+
+## Reversal (2026-09-18) — Decision B: throw → auto-reorder
+
+**Status: ACCEPTED — product-owner sign-off 2026-09-19.** This section reverses only the narrow
+throw-on-misorder half of Decision B (T9(a), above); D1–D5 and T7–T12 remain accepted and implemented
+unchanged, and the top-level frontmatter `status`/`implementation_state` are unchanged for that reason.
+The reversal was reviewed through the Governor loop (Architect + Security 5/5 + Red Hat 4/5 + Code
+Reviewer), verified green on every substantive gate (full suite 6639 passed / 0 failed, integration
+22/22, security, lint, build, governance — against the declared libp2p 3.3.11), and approved by the
+product-owner (the ADR's `deciders`) on 2026-09-19. The two residual risks were surfaced and accepted:
+(1) the Host-side gap — a client bypassing `createRecord` and writing a non-unique field first over the
+wire — is unchanged, neither closed nor widened by this reversal (closing it needs the atomic
+multi-field-create primitive the original ADR declined to build); (2) `elective_sets`/`events` are
+registered but have no reachable `createRecord` call site today, so their auto-reorder / absent-throw
+behavior is unit-tested only, not exercised end-to-end.
+
+**What changed.** T205 (`docs/work/tickets/` — days_of_operation gained `UNIQUE(camp_id, day_of_week)`,
+schema v70, commit `41d2e7f`) registered a second `UNIQUE_FIRST_FIELD` entry
+(`days_of_operation: 'day_of_week'`) alongside `locations: 'name'`. Decision B's guard, as shipped,
+throws a synchronous programmer-error exception any time a caller's create object doesn't happen to put
+the registered field first — which means every present and future call site (including the DaysScreen
+inline-add and any importer) had to be hand-written in the exact right field order or crash. That is
+exactly the kind of per-call-site discipline Decision B's own T9 rationale rejected for option (iii)
+("a comment does not stop a CSV importer's field order from being whatever the parser happens to emit")
+— the throwing guard has the identical shape of fragility, just enforced at test/dev time instead of
+silently in production.
+
+**New decision.** `createRecord` (via a new `orderFieldsForCreate` helper, mirroring the existing
+`orderFieldsForWrite`/`REQUIRED_FIRST_ON_WRITE` mechanism already used for `anchor_activities.kind`)
+now **auto-reorders** the registered `UNIQUE_FIRST_FIELD` entry to the front of the write sequence,
+regardless of what order the caller built the object in. It throws **only** when the registered field
+is **absent** from the create object entirely — that case is not a fixable ordering problem, it is a
+create that will never emit the field at all, and no reordering can protect a write that never happens.
+
+**Safety-equivalence, both collision models.**
+
+- **`locations` / `elective_sets` / `events` / `activities`** (op-log UNIQUE_FIELD_ENTITIES path, D1-D5
+  above): the actual safety property Decision B protects is "the unique field's write reaches
+  `detectUniqueFieldCollision` before any other field materializes the row via `ensureExists`'s
+  `INSERT OR IGNORE`." Auto-reordering guarantees this exactly as well as requiring the caller to have
+  gotten it right — better, in fact, since it can no longer be gotten wrong. A same-value collision on
+  any of these entities still rejects at the Host before the row exists; a losing write's later fields
+  (now correctly still ordered after the reorder) never reach the doomed row.
+- **`days_of_operation`** (SQLite-native `UNIQUE(camp_id, day_of_week)`, T205, no op-log
+  `UNIQUE_FIELD_ENTITIES` entry — the constraint is enforced only at `ensureExists`'s own `INSERT OR
+  IGNORE` / subsequent `UPDATE`, ordering-sensitive in the same way D1's Context section describes for
+  `locations` pre-D2). This is the one case where the field-order protection is **load-bearing today,
+  not defense-in-depth**: DaysScreen's real create path (`src/screens/DaysScreen.jsx`) mints the new
+  row's id via `crypto.randomUUID()`, not a name/day-derived id, so a same-weekday collision has no
+  other backstop — `ensureExists` INSERT-OR-IGNOREs a blank/default row keyed by that random id before
+  `day_of_week`'s own UPDATE would otherwise land, unless `day_of_week` is written first. Auto-reorder
+  keeps this guarantee exactly as strong as the throwing guard did (day_of_week is still always written
+  first), while removing the crash-on-misorder failure mode for any future days_of_operation writer.
+
+**Why the accepted residual Host-side gap (T9's "Explicitly accepted, not built" paragraph) is
+unchanged by this reversal.** That gap is about a client that bypasses `createRecord` entirely and
+submits fields directly over the wire in arbitrary order — such a client was never subject to Decision
+B's throw in the first place (the throw lives inside `createRecord`, not on the wire), so it is
+unaffected by whether `createRecord` now throws or reorders. Nothing about this reversal narrows or
+widens that already-accepted gap.
+
+**Evidence trail.** `src/data/setupCrudRepository.js` (`orderFieldsForCreate`, `createRecord`);
+`src/data/setupCrudRepository.test.js` (auto-reorder + absent-field-throws tests, TDD: written first,
+confirmed failing against the old throwing implementation before the change, passing after);
+`src/screens/DaysScreen.test.jsx`, `src/screens/GroupsScreen.test.jsx` (existing real-call-site
+assertions unchanged — both already emit the unique field first, so this reversal changes *why* that's
+guaranteed, not *whether* it's true); `electron/uniqueFirstFieldRegistryParity.test.js` (unchanged,
+still green — the registry itself is untouched by this reversal); `electron/ops/dayId.js` (T205's
+day-collision context, referenced above for the `days_of_operation` id-derivation discussion — the
+random-uuid create path is `DaysScreen.jsx`'s, not `dayId.js`'s own backfill/restore derivation, which
+this reversal does not touch).
