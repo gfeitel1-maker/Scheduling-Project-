@@ -360,6 +360,11 @@ function coerceIntegerAffinity(entity, field, value) {
 export const MOCK_WRITE_ALLOWLIST = {
   camps: ['name'],
   users: ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role', 'auth_sig', 'cred_version'],
+  // tombstones (T233): kept in parity with PROJECTIONS.tombstones so the dev mock does not wrongly
+  // reject a tombstone field. In the real app a tombstone is minted ONLY by purgeCamperRecord (a
+  // support command), never via the ordinary client write path — this allowlist entry is for dev-mock
+  // parity, not an invitation to write tombstones from the UI.
+  tombstones: ['entity', 'version', 'sig', 'created_at'],
   cohorts: [
     'camp_id',
     'name',

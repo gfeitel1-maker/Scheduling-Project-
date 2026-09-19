@@ -65,7 +65,7 @@ describe('migration v63: import_decisions', () => {
     const db = freshDb()
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 63').get().c).toBe(1)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(71)
+    expect(CURRENT_SCHEMA_VERSION).toBe(72)
     expect(db.prepare('SELECT COUNT(*) c FROM import_decisions').get().c).toBe(0)
     db.close()
   })

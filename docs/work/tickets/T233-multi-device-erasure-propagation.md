@@ -5,14 +5,9 @@ status: open
 created: 2026-09-19
 archive_when: a stale peer's reintroduction of a purged record is refused fleet-wide (the inverted purgeSupportCommand.js "known gap" test passes) and per-peer erasure state is observable
 task_class: database-sync
-governing_docs:
-  - docs/governance/constitution/CONSTITUTION.md
-  - docs/adr/2026-09-19-multi-device-erasure-propagation.md
-related_adrs:
-  - docs/adr/2026-09-19-multi-device-erasure-propagation.md
-  - docs/adr/2026-09-19-per-record-envelope-encryption-for-erasure.md
-related_tickets:
-  - docs/work/tickets/T202-camper-record-purge-path.md
+governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/adr/2026-09-19-multi-device-erasure-propagation.md]
+related_adrs: [docs/adr/2026-09-19-multi-device-erasure-propagation.md, docs/adr/2026-09-19-per-record-envelope-encryption-for-erasure.md]
+related_tickets: [docs/work/tickets/T202-camper-record-purge-path.md]
 ---
 
 # T-NNN — Multi-device erasure propagation via signed purge tombstones
