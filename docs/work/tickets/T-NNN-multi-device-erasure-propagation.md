@@ -56,10 +56,16 @@ Tombstone payload is **ID + monotonic erasure version + Host signature only** �
 
 ## Slices
 
-- **S1 — Tombstone model + signing + key-preservation.** Grow-only signed set; sign-tombstone BEFORE
-  regeneration in `purgeCamperRecord` (the current order destroys `host_signing_key` first); resolve
-  the signing-key-preservation-across-purge follow-up T202 deferred. Verifier: valid tombstone
-  produced; tampered tombstone rejected.
+- **S1 — Tombstone model + signing + key-preservation.** Grow-only signed set (ID + monotonic version
+  + Host signature, nothing else). **Preserve host-only key material across the purge** —
+  `host_signing_key`, `device_identity_key`, `camps.signing_secret` captured before the rebuild and
+  restored after, purge-path only (leave `rebuildSupportCommand.js`'s disaster-recovery rebuild wiping
+  keys, as it should). Without this the Host re-mints a fresh key and overwrites
+  `camps.signing_public_key`, so no prior signature — tombstone or camp/device token — still verifies.
+  Verifier: a purge preserves `host_signing_key` and `camps.signing_public_key` (pinned by a test that
+  seeds both and asserts they survive, the mirror of T202's test that asserts host-only tables are
+  wiped by the *disaster-recovery* rebuild); a valid tombstone is produced and verifies; a tampered
+  tombstone is rejected.
 - **S2 — Admission enforcement.** Denylist check at the merge boundary, causal-order applied, loud
   (observable) rejection rather than the current silent drop. Verifier: the inverted "known gap" test.
 - **S3 — Propagated byte erasure + visibility.** Local regeneration on learning a tombstone; per-peer
@@ -74,11 +80,14 @@ Tombstone payload is **ID + monotonic erasure version + Host signature only** �
 - Signature verification trust root — reuse device-identity distribution (ADR 2026-09-14), do not mint
   a second one.
 
-## Human decisions blocking start
+## Human decisions — both resolved (2026-09-19), start is unblocked
 
-1. Legal/product sign-off that retaining an opaque, PII-free purged UUID in a permanent tombstone set
-   satisfies erasure obligations.
-2. Confirm the `host_signing_key`-across-purge fix is in-scope here vs. a prerequisite ticket.
+1. **Legal/product: RESOLVED — yes** (product owner). Retaining the opaque, PII-free purged UUID in a
+   permanent tombstone satisfies erasure for this data class. Consequence: the tombstone carries ID +
+   version + signature only, no name/reason.
+2. **Scope: RESOLVED — in-scope, S1.** The `host_signing_key`-across-purge preservation is part of this
+   ticket (purge-path only), being both a prerequisite for verifiable tombstones and the fix for T202's
+   deferred key-loss gap.
 
 ## Review
 

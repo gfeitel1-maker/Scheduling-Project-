@@ -129,16 +129,32 @@ deleted everywhere.
 ## Key custody / signing — the analysis
 
 The tombstone's authority comes from a signature, and the only signing key in the system is the
-Host's `host_signing_key` (Ed25519). This creates a hard sequencing constraint with T202:
+Host's `host_signing_key` (Ed25519, `electron/auth/localAuth.js:277`). Its **public** half is mirrored
+into `camps.signing_public_key` (`localAuth.js:304`), a document-replicated field every other device
+already uses to verify Host signatures. That existing distribution is the tombstone verifier's trust
+root — reuse it, do not mint a second one.
 
-- **T202's purge currently DESTROYS `host_signing_key`** (it is a host-only table wiped by the
-  whole-device rebuild). A tombstone must therefore be **signed and appended BEFORE** the regeneration
-  step runs, or the key needed to sign it is already gone. The ticket must order the operation:
-  sign-tombstone → append to doc → save → regenerate. This also finally forces the "preserve/re-
-  establish signing key across purge" follow-up T202 deferred; it can no longer be deferred.
-- Verification key distribution: peers must hold the Host's public key to verify tombstones. Device
-  identity/token binding (ADR 2026-09-14) already distributes Host identity; the tombstone verifier
-  should reuse that trust root, not introduce a second one.
+**The sequencing constraint with T202, decided (2026-09-19).** T202's purge wipes `host_signing_key`
+(a host-only row destroyed by the whole-device rebuild), and on next boot `ensureHostSigningKey`
+(`localAuth.js:277`) mints a *fresh* keypair and **overwrites** `camps.signing_public_key`. So signing
+a tombstone with the old key just before regeneration does not survive: the replicated verifier moves
+to the new key and the old signature no longer verifies. Sign-before-regen alone is therefore
+insufficient. The correct fix is to **preserve the signing key across the purge**:
+
+- **Preserve, do not re-mint.** The purge wrapper captures the host-only key material —
+  `host_signing_key`, T162's `device_identity_key`, and `camps.signing_secret` (all in the
+  never-replicate exclusion class, `campDocument.js:80`) — *before* the rebuild and restores it
+  *after*, so `camps.signing_public_key` stays stable, existing camp/device tokens keep verifying, and
+  tombstones signed with that key remain valid on every peer. This is a bounded, **purge-path-only**
+  carve-out with exactly the shape of T202's existing purge-only backup-shred (`purgeSupportCommand.js`).
+- **The shared disaster-recovery rebuild is left unchanged.** `rebuildSupportCommand.js`'s rebuild
+  must keep wiping keys — recovering from a possibly-corrupt or possibly-compromised state should not
+  carry old key material forward. Only the *purge* wrapper preserves; the two callers keep their
+  different, correct behaviours, the same way the backup-shred is purge-only.
+- This also resolves, rather than defers, T202's open "a Host that purges loses its credential-minting
+  key and must re-establish identity" gap — it was a latent operational problem independent of
+  tombstones, and this fix closes it. That is why it belongs in this ticket (S1) and not a separate
+  prerequisite one.
 - A tombstone is **never revoked** (erasure is irreversible by design), so the set is grow-only and
   needs no deletion semantics — which is the whole reason it is CRDT-clean.
 
@@ -175,14 +191,18 @@ is exactly T202's existing cost, paid once per device per purge. No new hot path
    fleet convergence. Test: two-device scenario — purge on A, tombstone propagates to B, B refuses the
    record AND regenerates its own history; state is observable on both.
 
-## What a human must decide
+## Human decisions — both resolved (2026-09-19)
 
-1. **Legal/product:** does retaining the opaque purged UUID (with no PII) in a permanent tombstone set
-   satisfy "erasure"/right-to-be-forgotten for this jurisdiction and this data class? The technical
-   design assumes yes because the ID carries nothing about the child; a lawyer, not this ADR, confirms
-   it.
-2. **Scope/sequencing:** S1 forces the `host_signing_key` preservation-across-purge fix that T202
-   deferred. Confirm that is in-scope for this ticket rather than a prerequisite ticket of its own.
+1. **Legal/product — RESOLVED (product owner: yes).** Retaining the opaque, PII-free purged UUID in a
+   permanent tombstone set is accepted as satisfying erasure for this data class, on the basis that a
+   random opaque identifier carries nothing about the child. Recorded as the owner's product decision;
+   the tombstone therefore must carry the ID + version + signature and **nothing else** (no name, no
+   reason), mirroring T194's free-text guard. If a future jurisdiction/legal review disagrees, the
+   fallback is genesis rotation (the break-glass below), which retains no per-record identifier.
+2. **Scope/sequencing — RESOLVED (in-scope, S1).** The `host_signing_key` preservation-across-purge
+   fix is in-scope for this ticket, scoped to the purge path only (see "Key custody / signing"). It is
+   a genuine prerequisite for verifiable tombstones *and* closes a latent T202 gap, so it is one design,
+   not a separable prerequisite.
 
 Genesis rotation is not discarded — it is repositioned as a documented break-glass for evicting a
 compromised peer wholesale, which is a different problem from erasing a record. This ADR's decision is:
