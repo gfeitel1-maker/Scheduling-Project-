@@ -46,6 +46,8 @@
 // is the intended survivor — but a peer that paired against the interim key in that window is the
 // precondition's problem to prevent, not restore's.
 
+import { PURGE_WIPED_TABLES } from './purgeCollateral.js'
+
 // Reads the three preservable artifacts out of an OPEN db. Read-only — safe to call inside the same
 // transaction as (or before) the purge deletes, which never touch these tables. Any absent row
 // comes back null (a Client holds no host_signing_key) and is simply skipped on restore.
@@ -100,6 +102,10 @@ export function restorePreservableKeys({ dbPath, key = null, preservedKeys, open
 // NOT_RECOVERABLE_NOTICE, which is now ACTIVELY WRONG for a purge: that notice says the signing keys
 // "come back empty and must be re-established", which is exactly the behavior this module reverses.
 // Relaying it unchanged would send a support operator into an unnecessary re-pairing/re-bootstrap.
+//
+// The wiped-table enumeration is DERIVED from purgeCollateral.js (the single source of truth pinned
+// to the schema by purgeCollateral.test.js), so a newly-added host-only table cannot silently drop
+// out of this notice while staying in the schema.
 export const PURGE_NOT_RECOVERABLE_NOTICE =
   "This purge emptied this device's operations table — its own history ledger — for the whole " +
   'ledger, not just the purged camper: Trash contents, Restore\'s prior values, and ingest-undo ' +
@@ -111,5 +117,5 @@ export const PURGE_NOT_RECOVERABLE_NOTICE =
   'its loss is inert. This is a camper-erasure tool, NOT a credential-rotation or ' +
   'compromised-device-remediation tool — to rotate a Host\'s keys or remediate a suspected-' +
   'compromised device, use device revocation and re-pairing, not this command. Other host-only ' +
-  'tables (conflicts, import_evidence, source_aliases, and the rest) are still rebuilt from the ' +
-  'document and lose their device-local state, as an ordinary rebuild does.'
+  'tables (' + PURGE_WIPED_TABLES.join(', ') + ') lose their device-local state camp-wide, as an ' +
+  'ordinary rebuild does.'
