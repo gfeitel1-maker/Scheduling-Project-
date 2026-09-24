@@ -196,4 +196,49 @@ describe('commitTrayState', () => {
   it('is not thrown by missing undoState', () => {
     expect(() => commitTrayState({ notices: [], undoCapable: false })).not.toThrow()
   })
+
+  it('says records were kept because they are still referenced when nothing was deleted and nothing changed', () => {
+    const tray = commitTrayState({
+      notices: [],
+      undoCapable: true,
+      undoState: {
+        status: 'used',
+        isLive: false,
+        isPending: false,
+        total: 40,
+        deleted: [],
+        skipped: [],
+        kept: [{ name: 'Swim', reason: 'still_referenced', referencedByCount: 3 }],
+      },
+    })
+    expect(tray.receipt.summary).toBe('Nothing removed — kept 1 still in use.')
+    expect(tray.receipt.detail).toEqual(['Kept — still in use: Swim (used by 3 other records)'])
+  })
+
+  it('says there was nothing to undo when deleted, skipped, and kept are all empty', () => {
+    const tray = commitTrayState({
+      notices: [],
+      undoCapable: true,
+      undoState: { status: 'used', isLive: false, isPending: false, total: 40, deleted: [], skipped: [], kept: [] },
+    })
+    expect(tray.receipt.summary).toBe('Nothing to undo.')
+    expect(tray.receipt.detail).toEqual([])
+  })
+
+  it('combines both kept reasons when nothing was deleted but some changed and some are still referenced', () => {
+    const tray = commitTrayState({
+      notices: [],
+      undoCapable: true,
+      undoState: {
+        status: 'used',
+        isLive: false,
+        isPending: false,
+        total: 40,
+        deleted: [],
+        skipped: [{ entity: 'a', entity_id: '1', field: 'name' }],
+        kept: [{ name: 'Swim', reason: 'still_referenced', referencedByCount: 3 }],
+      },
+    })
+    expect(tray.receipt.summary).toBe('Nothing removed — kept 1 changed since import, and 1 still in use.')
+  })
 })

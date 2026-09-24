@@ -56,6 +56,12 @@ export function useGraceWindowUndo() {
   // cleanly. Safe for every consumer: it only prevents setState on a dead
   // instance, never changes behavior while mounted.
   const isMountedRef = useRef(true)
+  // The absolute expiry instant of the current window, set by start(). A
+  // failed undo needs this to reschedule the countdown for whatever time
+  // actually remains — recomputing "remaining" from scratch rather than
+  // re-running the fixed GRACE_WINDOW_MS - COUNTDOWN_WINDOW_MS delay start()
+  // uses, which would ignore time already elapsed.
+  const expiresAtRef = useRef(null)
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -87,6 +93,35 @@ export function useGraceWindowUndo() {
     }
   }, [])
 
+  // Schedules the countdown against however much time actually remains —
+  // used both by start() (remainingMs === GRACE_WINDOW_MS) and by a failed
+  // undo's reschedule (remainingMs === whatever is left of expiresAtRef).
+  // Already inside the last COUNTDOWN_WINDOW_MS: start the interval
+  // immediately rather than scheduling a start-timer for a negative delay.
+  const scheduleCountdown = (remainingMs) => {
+    const startInterval = (initialSeconds) => {
+      setSecondsLeft(initialSeconds)
+      countdownIntervalRef.current = setInterval(() => {
+        setSecondsLeft((s) => {
+          if (s === null || s <= 0) return s
+          const next = s - 1
+          if (next <= 0 && countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current)
+            countdownIntervalRef.current = null
+          }
+          return next
+        })
+      }, 1000)
+    }
+    if (remainingMs <= COUNTDOWN_WINDOW_MS) {
+      startInterval(Math.max(0, Math.round(remainingMs / 1000)))
+      return
+    }
+    countdownStartTimerRef.current = setTimeout(() => {
+      startInterval(COUNTDOWN_WINDOW_MS / 1000)
+    }, remainingMs - COUNTDOWN_WINDOW_MS)
+  }
+
   // Starting a NEW import while a grace window is live immediately clears
   // the prior window's state (Invariant 5b) — there is exactly one live
   // undo affordance at a time, enforced by this same state being
@@ -102,21 +137,9 @@ export function useGraceWindowUndo() {
     setKept([])
     setUndoError(null)
     setSecondsLeft(null)
+    expiresAtRef.current = Date.now() + GRACE_WINDOW_MS
     timerRef.current = setTimeout(() => setStatus((s) => (s === LIVE ? EXPIRED : s)), GRACE_WINDOW_MS)
-    countdownStartTimerRef.current = setTimeout(() => {
-      setSecondsLeft(COUNTDOWN_WINDOW_MS / 1000)
-      countdownIntervalRef.current = setInterval(() => {
-        setSecondsLeft((s) => {
-          if (s === null || s <= 0) return s
-          const next = s - 1
-          if (next <= 0 && countdownIntervalRef.current) {
-            clearInterval(countdownIntervalRef.current)
-            countdownIntervalRef.current = null
-          }
-          return next
-        })
-      }, 1000)
-    }, GRACE_WINDOW_MS - COUNTDOWN_WINDOW_MS)
+    scheduleCountdown(GRACE_WINDOW_MS)
   }, [])
 
   const clear = useCallback(() => {
@@ -130,6 +153,7 @@ export function useGraceWindowUndo() {
     setKept([])
     setUndoError(null)
     setSecondsLeft(null)
+    expiresAtRef.current = null
   }, [])
 
   // After a successful undo, the SAME held invertibleOps/createdEntityIds is
@@ -154,6 +178,7 @@ export function useGraceWindowUndo() {
       // skip the setStates rather than warn on a dead instance.
       if (!isMountedRef.current) return
       clearTimer()
+      expiresAtRef.current = null
       setStatus(USED)
       setSkipped(Array.isArray(result?.skipped) ? result.skipped : [])
       setDeleted(Array.isArray(result?.deleted) ? result.deleted : [])
@@ -169,6 +194,15 @@ export function useGraceWindowUndo() {
       // and a director reading that on an UNDO may conclude it worked.
       if (isMountedRef.current) {
         setUndoError(describeWriteFailure(err, 'This import could not be undone.'))
+        // HIGH 3 fix: clearCountdown() above unconditionally stopped the
+        // countdown before the attempt — right for the success path (status
+        // goes terminal), wrong here, where status stays LIVE and the
+        // window keeps expiring with no further warning otherwise.
+        // Reschedule against however much of the window is actually left.
+        if (expiresAtRef.current !== null) {
+          const remainingMs = expiresAtRef.current - Date.now()
+          if (remainingMs > 0) scheduleCountdown(remainingMs)
+        }
       }
     } finally {
       if (isMountedRef.current) {

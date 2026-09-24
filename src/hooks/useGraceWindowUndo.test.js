@@ -237,5 +237,53 @@ describe('useGraceWindowUndo', () => {
       // Should not throw / warn when timers that would have fired post-unmount run.
       expect(() => act(() => vi.advanceTimersByTime(5000))).not.toThrow()
     })
+
+    // HIGH 3 — undo() unconditionally clears the countdown before the try,
+    // which is correct on success (status goes terminal) but was never
+    // rescheduled on failure, silently killing the ONLY warning the design
+    // gives before the window expires (Invariant 5c).
+    it('a FAILED undo outside the last 60s reschedules the countdown for the remaining time', async () => {
+      localClient.ingestUndo.mockRejectedValue(new Error('IPC lost'))
+      const { result } = renderHook(() => useGraceWindowUndo())
+      act(() => result.current.start(outcome()))
+      // 90s remaining when the undo is attempted (well before the last 60s).
+      act(() => vi.advanceTimersByTime(GRACE_WINDOW_MS - 90_000))
+
+      await act(async () => { await result.current.undo() })
+      expect(result.current.status).toBe('live')
+      expect(result.current.secondsLeft).toBeNull() // still 30s before the last-60s boundary
+
+      act(() => vi.advanceTimersByTime(30_000))
+      expect(result.current.secondsLeft).toBe(60)
+
+      act(() => vi.advanceTimersByTime(1000))
+      expect(result.current.secondsLeft).toBe(59)
+    })
+
+    it('a FAILED undo INSIDE the last 60s resumes the countdown immediately at the remaining seconds', async () => {
+      localClient.ingestUndo.mockRejectedValue(new Error('IPC lost'))
+      const { result } = renderHook(() => useGraceWindowUndo())
+      act(() => result.current.start(outcome()))
+      // 30s remaining — already inside the last-60s window.
+      act(() => vi.advanceTimersByTime(GRACE_WINDOW_MS - 30_000))
+
+      await act(async () => { await result.current.undo() })
+      expect(result.current.status).toBe('live')
+      expect(result.current.secondsLeft).toBe(30)
+
+      act(() => vi.advanceTimersByTime(1000))
+      expect(result.current.secondsLeft).toBe(29)
+    })
+
+    it('a FAILED undo does not leak a timer — unmounting right after settles cleanly', async () => {
+      localClient.ingestUndo.mockRejectedValue(new Error('IPC lost'))
+      const { result, unmount } = renderHook(() => useGraceWindowUndo())
+      act(() => result.current.start(outcome()))
+      act(() => vi.advanceTimersByTime(GRACE_WINDOW_MS - 90_000))
+
+      await act(async () => { await result.current.undo() })
+      unmount()
+      expect(() => act(() => vi.advanceTimersByTime(120_000))).not.toThrow()
+    })
   })
 })

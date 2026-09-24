@@ -94,3 +94,67 @@ the entire reason this capability went dark for weeks. Two layers, both red-gree
 - `src/screens/RootsHomeScreen.jsx` — untouched; another stream owns it.
 - No persistence of the grace window across crash/close/reload — Invariant 5 is unchanged: the
   window is gone and the import stands.
+
+## Round 2 — three HIGH defects confirmed by review, fixed
+
+Round 1 was plan-aligned (Security 5/5, Code Reviewer confirmed ADR alignment) but reviewers found
+three HIGH-severity bugs by reading the code, plus one LOW. All four fixed test-first.
+
+1. **`receiptFor` told a false story when `D === 0` (HIGH)** — `src/screens/reconciliationTray.js`
+   unconditionally read the `D === 0` branch as "everything had changed since import," but
+   `ingestUndo` (`electron/ops/ingest.js`) can also reach `D === 0` with `kept` populated and
+   `skipped` empty — rows deliberately retained because deleting them would orphan a live reference
+   (`reason: 'still_referenced'`), nothing to do with a concurrent edit. `receiptFor` now composes
+   the `D === 0` summary from `K`/`R` the same way the `D > 0` branch already did: `K>0,R=0` →
+   "everything had changed since import" (unchanged, now correctly scoped); `R>0` → "kept ... still
+   in use" (with the changed-since-import clause folded in when `K>0` too); `K=0,R=0` → "Nothing to
+   undo." Test: `src/screens/reconciliationTray.test.js`, three new cases (`D=0/K=0/R>0`,
+   `D=0/K=0/R=0`, `D=0/K>0/R>0`), red before the fix (old code returned the "changed since import"
+   sentence for all three), green after.
+2. **A second commit could steal the first commit's undo window (HIGH)** — `ReconciliationScreen`'s
+   `apply()` called `onCommitted?.(outcome)` without awaiting it, then its `finally` immediately ran
+   `setApplying(false)`, re-enabling the Apply button while `ImportScreen.handleReconciliationCommitted`
+   was still awaiting the real `applyStagedSplits` IPC round-trip and had not yet flipped
+   `ledger.phase` to `'committed'`. A director clicking Apply again in that window issued a second
+   `ingestCommit`, whose `graceWindow.start(outcome)` silently overwrote the first window's state
+   (Invariant 5b, by design for a genuinely new import — but this was the SAME import). Fixed with
+   two changes in `apply()`: `await onCommitted?.(outcome)` (so `applying` cannot go false before the
+   phase transition completes), and a synchronous `applyPendingRef` guard set *before* the first
+   await, the same idiom `useGraceWindowUndo.undo()` already uses for the identical reason (state
+   lags a render; a ref does not). Test: `src/screens/ReconciliationScreen.test.jsx`, "double-submit
+   guard on apply() (HIGH 2)" — two synchronous `apply()` invocations (dispatched inside one `act()`,
+   before React flushes `applying`) issue exactly one `ingestCommit`; a second test asserts the
+   button still reads "Applying…" after `ingestCommit` resolves but before a slow `onCommitted`
+   resolves. Both red before the fix (2 calls / button re-enabled early), green after.
+3. **A failed undo permanently killed the countdown (HIGH)** — `useGraceWindowUndo.undo()` called
+   `clearCountdown()` unconditionally before the try, correct on success (status goes terminal) but
+   never rescheduled on failure — the hook deliberately keeps `status` at `LIVE` on a failed undo so
+   the director can retry, but nothing restarted the countdown, so a transient IPC error inside the
+   last 90 seconds could silently erase the only warning the design gives before the window expires
+   (Invariant 5c). Fixed by extracting the interval-scheduling logic from `start()` into a shared
+   `scheduleCountdown(remainingMs)`, and a new `expiresAtRef` tracking the window's absolute expiry;
+   on a failed undo, `scheduleCountdown(expiresAtRef.current - Date.now())` reschedules against
+   whatever time is actually left — starting the interval immediately if already inside the last 60s,
+   or a `setTimeout` for the remainder otherwise. `expiresAtRef` is cleared on `clear()` and on a
+   successful undo. Tests: `src/hooks/useGraceWindowUndo.test.js`, three new cases — a failed undo at
+   90s remaining resumes the countdown at the 60s boundary; a failed undo at 30s remaining (already
+   inside the countdown window) resumes immediately at 30 and keeps ticking; a failed-undo-then-
+   unmount settles without a leaked timer firing. All three red before the fix (`secondsLeft` stayed
+   `null`, or stopped ticking), green after.
+4. **Debounced dry-run inert only by accident once the screen stays mounted through commit (LOW)** —
+   `startDryRunDebounce`/`useLatestTimeout` had no guard against firing once `phase === 'committed'`;
+   it was safe only because `CommittedTray`'s early return happens to precede the JSX reading
+   `report`/`error`. Made structural: a `phaseRef` (always current, unlike the debounced callback's
+   own stale `phase` closure) short-circuits `runDryRun` when `phaseRef.current === 'committed'`, and
+   a `useEffect` on `phase` calls `cancelDryRunDebounce()` at the commit transition so a pending
+   250ms-debounced dry-run scheduled just before commit never fires at all. Test:
+   `src/screens/ReconciliationScreen.test.jsx`, "debounced dry-run is cancelled at the commit
+   transition (LOW 4)" — stages a decision (scheduling the debounce), rerenders with
+   `phase="committed"` before the 250ms elapses, waits past the window, asserts `ingestReconcile` was
+   never called a second time. Red before the fix (2 calls), green after.
+
+No existing test was weakened or deleted to make any of the above pass.
+
+Focused gate: `npx vitest run --no-file-parallelism src/screens/reconciliationTray.test.js
+src/hooks/useGraceWindowUndo.test.js src/screens/ReconciliationScreen.test.jsx
+src/screens/ImportScreen.test.jsx` — 113 passed, 0 failed.

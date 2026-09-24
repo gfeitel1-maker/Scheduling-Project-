@@ -89,7 +89,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   // treats an empty index as "no ordering signal" and falls back to walk order.
   const [blastRadius, setBlastRadius] = useState(new Map())
   const [answers, setAnswers] = useState({})
-  const { start: startDryRunDebounce } = useLatestTimeout()
+  const { start: startDryRunDebounce, cancel: cancelDryRunDebounce } = useLatestTimeout()
   // Selection union: 'none' (the default needs-attention queue), a tile
   // (one or more states, across domains), or a root node (a specific domain
   // or child, any state).
@@ -112,6 +112,22 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
 
   const requestGenRef = useRef(0)
   const lastGoodReportRef = useRef(null)
+  // HIGH 2 double-submit guard: `applying` state only re-renders the button
+  // disabled AFTER React flushes — two clicks dispatched before that flush
+  // both pass an `applying`-only check and would issue two ingestCommit
+  // calls. Same idiom as useGraceWindowUndo's pendingRef: a synchronous ref
+  // set BEFORE the first await, checked before any state read.
+  const applyPendingRef = useRef(false)
+  // LOW 4 — a debounced dry-run scheduled just before the commit transition
+  // must not fire once phase is 'committed'. The scheduled callback closes
+  // over the `phase` value from the render that scheduled it (still
+  // 'triage'), so a prop change alone doesn't reach it — this ref is always
+  // current at the moment the callback actually runs.
+  const phaseRef = useRef(phase)
+  useEffect(() => {
+    phaseRef.current = phase
+    if (phase === 'committed') cancelDryRunDebounce()
+  }, [phase, cancelDryRunDebounce])
 
   // Roots reconstruction moment (docs/adr/2026-08-18-roots-reconstruction-
   // moment-gating.md) — the show/skip decision is made ONCE, before the
@@ -124,6 +140,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   }))
   const [momentSettled, setMomentSettled] = useState(false)
   async function runDryRun(answersForRun) {
+    if (phaseRef.current === 'committed') return
     const myGen = ++requestGenRef.current
     setLoading(true)
     setError(null)
@@ -183,7 +200,6 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   }
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial mount fetch, same pattern as ActivitiesScreen's load()
     runDryRun({})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -204,6 +220,8 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   }
 
   async function apply(mode) {
+    if (applyPendingRef.current) return
+    applyPendingRef.current = true
     setApplying(true)
     setError(null)
     try {
@@ -262,10 +280,18 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       if (Array.isArray(outcome?.invertibleOps)) {
         graceWindow.start(outcome)
       }
-      onCommitted?.(outcome)
+      // HIGH 2 — must be awaited. ImportScreen's onCommitted
+      // (handleReconciliationCommitted) does real IPC work (applyStagedSplits)
+      // before flipping ledger.phase to 'committed'; if apply() didn't wait
+      // for that, `applying` would go false and re-enable this button while
+      // the screen still looked like triage, letting a second click issue a
+      // second ingestCommit that silently overwrites the first commit's
+      // grace window (Invariant 5b).
+      await onCommitted?.(outcome)
     } catch (err) {
       setError(mapCommitError(err))
     } finally {
+      applyPendingRef.current = false
       setApplying(false)
     }
   }

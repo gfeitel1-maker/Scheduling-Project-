@@ -90,16 +90,23 @@ function receiptFor({ deleted = [], skipped = [], kept = [] } = {}) {
   const K = skipped.length
   const R = kept.length
 
+  const keptParts = []
+  if (K > 0) keptParts.push(`${K} changed since import`)
+  if (R > 0) keptParts.push(`${R} still in use`)
+  const keptClause = keptParts.length === 2 ? `${keptParts[0]}, and ${keptParts[1]}` : keptParts[0]
+
   let summary
   if (D === 0) {
-    summary = 'Nothing removed — everything had changed since import.'
+    if (K === 0 && R === 0) {
+      summary = 'Nothing to undo.'
+    } else if (R === 0) {
+      summary = 'Nothing removed — everything had changed since import.'
+    } else {
+      summary = `Nothing removed — kept ${keptClause}.`
+    }
   } else if (K === 0 && R === 0) {
     summary = `Removed ${D} ${recordWord(D)}.`
   } else {
-    const parts = []
-    if (K > 0) parts.push(`${K} changed since import`)
-    if (R > 0) parts.push(`${R} still in use`)
-    const keptClause = parts.length === 2 ? `${parts[0]}, and ${parts[1]}` : parts[0]
     summary = `Removed ${D} ${recordWord(D)}. Kept ${keptClause}.`
   }
 
