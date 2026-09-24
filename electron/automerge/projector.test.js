@@ -15,7 +15,8 @@ import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD } from '../ops/operations.js
 import { STAGE1_ENTITY, createEmptyDoc, applyWrite, readRecord } from './campDocument.js'
 import { projectEntity, rebuildFromDoc, projectAll } from './projector.js'
 import { reconcile } from './reconcile.js'
-import { recordConflicts } from './conflictStore.js'
+import { recordConflicts, recordUniqueConflicts, clearResolvedUniqueConflicts } from './conflictStore.js'
+import { deriveUniqueConflicts } from './uniqueConflicts.js'
 
 let files = []
 function freshDb(tag) {
@@ -393,5 +394,74 @@ describe('projector — recording a projection failure touches no operations or 
     expect(failure.store).toBe('document-replay')
     expect(failure.op_id).toBe("replay:elective_assignment_runs:run-bad:status")
     expect(failure.resolved_at).toBeNull()
+  })
+})
+
+// docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md, Decision 1: a HARD-SET
+// UNIQUE collision (two whole `days_of_operation` records for the same weekday) is invisible to
+// `reconcile()` — two different entityIds, never the same document key, so `getConflicts` never
+// fires. This is the defect `assertConflictsRecorded`'s scalar-only guard could NOT have caught:
+// before `uniqueConflicts.js` existed, `projectAll` below would have projected this document
+// straight through, silently dropping the second row via `upsertRow`'s SAVEPOINT into
+// `projection_failures`, with no `conflicts` row and no director signal at all.
+describe('projector — hard-set UNIQUE collisions (two whole records, not one field)', () => {
+  it('refuses to project a document with an unrecorded hard-set collision', () => {
+    // Two devices, each minting a brand-new days_of_operation row for the same weekday — the
+    // exact scenario the free-text-name relaxed set does not cover, because this constraint
+    // stays HARD.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'day_of_week', value: 2 })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'day_of_week', value: 2 })
+
+    // The scalar path finds nothing to object to.
+    expect(reconcile(doc).conflicts).toEqual([])
+
+    // Proves the non-vacuity of the guard: deriveUniqueConflicts DOES see it even though
+    // reconcile() does not.
+    expect(deriveUniqueConflicts(doc)).toHaveLength(1)
+
+    // Nothing has been recorded yet — projectAll must refuse rather than silently drop it.
+    expect(() => projectAll(db, doc)).toThrow(/silently discarded/)
+  })
+
+  it('projects and records a unique: conflicts row once the collision is recorded (real write path, both devices agree)', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'day_of_week', value: 2 })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'day_of_week', value: 2 })
+
+    const uniqueConflicts = deriveUniqueConflicts(doc)
+    recordUniqueConflicts(db, uniqueConflicts)
+
+    expect(() => projectAll(db, doc)).not.toThrow()
+
+    const row = db.prepare("SELECT * FROM conflicts WHERE id LIKE 'unique:%' AND resolved_at IS NULL").get()
+    expect(row).toBeTruthy()
+    expect(row.kind).toBe('unique')
+    expect(row.entity).toBe('days_of_operation')
+    expect(JSON.parse(row.entity_ids)).toEqual(['day-a', 'day-b'])
+    expect(row.field).toBe('day_of_week')
+
+    // Both records' whole values are carried, not just one field.
+    expect(JSON.parse(row.existing_op)).toEqual({ camp_id: 'camp-1', day_of_week: 2 })
+    expect(JSON.parse(row.incoming_op)).toEqual({ camp_id: 'camp-1', day_of_week: 2 })
+  })
+
+  it('clears once a director renames one of the colliding records', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'day_of_week', value: 2 })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'day_of_week', value: 2 })
+    recordUniqueConflicts(db, deriveUniqueConflicts(doc))
+    projectAll(db, doc)
+    expect(db.prepare("SELECT COUNT(*) AS n FROM conflicts WHERE id LIKE 'unique:%' AND resolved_at IS NULL").get().n).toBe(1)
+
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'day_of_week', value: 3 })
+    clearResolvedUniqueConflicts(db, deriveUniqueConflicts(doc))
+    expect(db.prepare("SELECT COUNT(*) AS n FROM conflicts WHERE id LIKE 'unique:%' AND resolved_at IS NULL").get().n).toBe(0)
   })
 })

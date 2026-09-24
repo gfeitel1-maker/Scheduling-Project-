@@ -26,6 +26,7 @@ import { applyProjection } from '../ops/projections.js'
 import { DELETE_FIELD, applyBulkReplaceProjection } from '../ops/operations.js'
 import { DOMAIN_SNAPSHOT_ORDER, BULK_REPLACE_ENTITIES } from '../ops/campScopedEntities.js'
 import { assertNoUnrecordedConflicts } from './reconcile.js'
+import { assertNoUnrecordedUniqueConflicts } from './uniqueConflicts.js'
 import { listRecordIds, readRecord, hasAnyRecord } from './campDocument.js'
 import { verifyAuthFields } from '../auth/authSignature.js'
 import { verifyTombstone } from './tombstoneSignature.js'
@@ -592,6 +593,16 @@ function assertConflictsRecorded(db, doc) {
     .all()
     .map((r) => ({ entity: r.entity, entityId: r.entity_id, field: r.field }))
   assertNoUnrecordedConflicts(doc, recorded)
+
+  // Second, independent guard at the same choke point (docs/adr/2026-09-23-merge-unique-collision-
+  // schema-and-conflict-shape.md, Decision 1) — a hard-set UNIQUE collision between two whole
+  // records, which the scalar reconciler above can never see (different entityIds, never the same
+  // document key).
+  const recordedUnique = db
+    .prepare("SELECT entity, entity_ids, field FROM conflicts WHERE resolved_at IS NULL AND id LIKE 'unique:%'")
+    .all()
+    .map((r) => ({ entity: r.entity, entityIds: JSON.parse(r.entity_ids ?? '[]'), field: r.field }))
+  assertNoUnrecordedUniqueConflicts(doc, recordedUnique)
 }
 
 export function projectEntity(db, doc, entity = STAGE1_ENTITY) {
