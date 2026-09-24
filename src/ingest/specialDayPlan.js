@@ -114,7 +114,12 @@ export function buildSpecialDayPlan(proposal, live) {
   if (unmatchedColumns.length > 0) blockedBy.push('unmatched_columns')
   if (ambiguousColumns.length > 0) blockedBy.push('ambiguous_columns')
   if (ambiguousActivityNamesList.length > 0) blockedBy.push('ambiguous_activities')
-  // special_days has UNIQUE(camp_id, name); the write would fail at the DB.
+  // Blocked because two special days sharing a name is a mess for the director,
+  // NOT because the database would stop it. _Prior: this comment read
+  // "special_days has UNIQUE(camp_id, name); the write would fail at the DB."
+  // Schema v73 relaxed that index (T241), so the write now succeeds and this
+  // pre-check is the only thing standing between the director and a second
+  // same-named day. It has to keep standing on its own.
   if (nameTaken) blockedBy.push('name_taken')
   if (!String(proposal.name ?? '').trim()) blockedBy.push('no_name')
 
