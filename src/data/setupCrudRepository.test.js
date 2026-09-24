@@ -43,6 +43,48 @@ describe('createSetupCrudRepository — writeFields', () => {
     expect(client.calls.write).toHaveLength(1)
   })
 
+  // T238 regression guard. Six screens turn a duplicate-name rejection into the
+  // specific "a <thing> with this name already exists" message by testing the
+  // thrown message against /UNIQUE/i. Before v73 those entities were
+  // unregistered, so a duplicate threw a raw SQLITE_CONSTRAINT_UNIQUE and that
+  // matched for free; T238 registered six more, converting the same collision
+  // into a STRUCTURED {status:'rejected', reason:'unique_field'} that RESOLVES.
+  // A bare "write failed" therefore downgraded every one of those messages to
+  // the generic fallback — the create was still blocked, but the director was
+  // told less. The word UNIQUE below is load-bearing, not decoration.
+  it('a unique_field rejection throws an error the screens\' /UNIQUE/i check still matches', async () => {
+    const client = makeFakeClient({
+      writeResult: { status: 'rejected', reason: 'unique_field', existing: { id: 'g-other', name: 'Bunk 1' } },
+    })
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
+
+    const err = await repo.writeFields('groups', 'g1', { name: 'Bunk 1' }).catch((e) => e)
+
+    expect(err).toBeInstanceOf(Error)
+    // The assertion the screens actually depend on.
+    expect(err.message).toMatch(/UNIQUE/i)
+    expect(err.message).toMatch(/name/)
+    // Structured alternative, so a future caller can branch on the value
+    // rather than on the wording.
+    expect(err.reason).toBe('unique_field')
+    expect(err.existing).toEqual({ id: 'g-other', name: 'Bunk 1' })
+  })
+
+  // Non-vacuity: the guard above must not match a rejection it was NOT written
+  // for. A blanket "put UNIQUE in every failure message" would pass the test
+  // above while making every unrelated failure read as a duplicate-name
+  // collision to all six screens — strictly worse than the bug being fixed.
+  it('a NON-unique rejection does NOT mention UNIQUE (so other failures keep the generic message)', async () => {
+    const client = makeFakeClient({ writeResult: { status: 'rejected', reason: 'role_required' } })
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
+
+    const err = await repo.writeFields('groups', 'g1', { name: 'Bunk 1' }).catch((e) => e)
+
+    expect(err.message).toMatch(/write failed for field "name"/)
+    expect(err.message).not.toMatch(/UNIQUE/i)
+    expect(err.reason).toBe('role_required')
+  })
+
   it('defaults getToken to reading shoresh-token from localStorage', async () => {
     vi.stubGlobal('localStorage', { getItem: vi.fn(() => 'ls-token') })
     const client = makeFakeClient()

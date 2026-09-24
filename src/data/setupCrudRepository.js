@@ -158,7 +158,32 @@ export function createSetupCrudRepository({
     for (const [field, value] of orderedEntries) {
       const result = await localClient.write(token, entity, id, field, value)
       if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error(`write failed for field "${field}"`)
+        // T238: a duplicate-name rejection must stay DISTINGUISHABLE from any
+        // other write failure, because six screens turn it into the specific
+        // "a group with this name already exists — choose a different name"
+        // message rather than a generic "could not be added".
+        //
+        // Before v73 those screens got that specificity for free: the entity
+        // was unregistered, so a duplicate threw a raw SQLITE_CONSTRAINT_UNIQUE
+        // and their `/UNIQUE/i` test matched it. T238 registered six more
+        // entities, which converts the same collision into a STRUCTURED
+        // `{status:'rejected', reason:'unique_field'}` that resolves rather than
+        // throws — so a bare "write failed" here silently downgraded every one
+        // of those messages to the generic fallback. The create was still
+        // correctly blocked; only what the director was told got worse.
+        //
+        // The word UNIQUE is load-bearing in this message, not decoration: it is
+        // what keeps those existing `/UNIQUE/i` call sites working unchanged.
+        // `reason` is attached so a future caller can branch on the value
+        // instead of the wording.
+        const err = new Error(
+          result?.reason === 'unique_field'
+            ? `write failed for field "${field}": UNIQUE constraint — a record with this value already exists`
+            : `write failed for field "${field}"`
+        )
+        if (result?.reason) err.reason = result.reason
+        if (result?.existing) err.existing = result.existing
+        throw err
       }
     }
   }
