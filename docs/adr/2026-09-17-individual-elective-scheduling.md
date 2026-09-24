@@ -3,7 +3,7 @@ title: "Individual elective scheduling — campers as a participant layer inside
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not-started
+implementation_state: in-progress
 date: 2026-09-17
 approved: 2026-09-17 (owner, after the premise audit, red-hat and security review, and rulings on all seven open questions)
 task_class: database-sync
