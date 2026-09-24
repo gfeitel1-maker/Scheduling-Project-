@@ -81,7 +81,7 @@ describe('migration v43: fresh vs migrated equivalence', () => {
     // A fresh (head) db therefore carries the five survivors only.
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(73)
+    expect(CURRENT_SCHEMA_VERSION).toBe(74)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 43').get().c).toBe(1)
     const cols = db.pragma('table_info(elective_sets)').map((c) => c.name)
     expect(cols).toContain('day_id')

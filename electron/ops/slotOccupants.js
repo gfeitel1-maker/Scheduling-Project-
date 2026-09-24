@@ -26,6 +26,11 @@ import { appendOp } from './operations.js'
 // template_slots reference column is missing from this table, and fails if a
 // 'clear' entry names a module that does not actually call clearSlotOccupant
 // for that field.
+// T243 (v74) — elective_run_outer_snapshots is deliberately absent from this
+// registry: it is a finalized run's frozen per-camper export row, not a
+// template_slots column, so it does not occupy a grid cell in the sense this
+// file's three policies describe. Excluded implicitly (this registry is
+// keyed by template_slots column name), noted here deliberately.
 export const SLOT_OCCUPANT_CASCADES = Object.freeze({
   activity_id: Object.freeze({
     policy: 'clear',

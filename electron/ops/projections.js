@@ -855,6 +855,11 @@ export const PROJECTIONS = {
       // D5's marker. T194 STORES it; T196 enforces inertness. Nothing in the
       // projection layer may filter on it — that would put solver policy here.
       'solver_generation',
+      // v74 (T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-
+      // slices.md) — when/who finalized this run. Both nullable, both ordinary
+      // per-field writes.
+      'finalized_at',
+      'finalized_by',
     ],
     ensureExists: (db, id) => {
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
@@ -954,6 +959,36 @@ export const PROJECTIONS = {
         id,
         value
       )
+    },
+  },
+
+  // T243 (v74, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-
+  // slices.md). A finalized run's per-camper, per-cell export snapshot.
+  // Parent-scoped by run_id, same treatment as elective_assignments above.
+  // No write path exists yet (T244+ builds it) — registered here for
+  // sync/projection completeness only.
+  elective_run_outer_snapshots: {
+    table: 'elective_run_outer_snapshots',
+    key: 'id',
+    fields: [
+      'run_id',
+      'camper_id',
+      'day_id',
+      'time_block_id',
+      'activity_id',
+      'activity_name',
+      'location_id',
+      'location_name',
+      'span_blocks',
+      'solver_generation',
+    ],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'run_id') return
+      ensureRunStub(db, value)
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO elective_run_outer_snapshots (id, run_id) VALUES (?, ?)'
+      ).run(id, value)
     },
   },
 

@@ -139,6 +139,15 @@ export const PARENT_SCOPED_ENTITIES = {
     parentTable: 'elective_assignment_runs',
     parentKey: 'run_id',
   },
+  // T243 (docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md,
+  // v74). A finalized run's per-camper, per-cell export snapshot — no camp_id
+  // column, so it scopes by JOIN through the run, exactly like the other five
+  // T194 elective tables above.
+  elective_run_outer_snapshots: {
+    table: 'elective_run_outer_snapshots',
+    parentTable: 'elective_assignment_runs',
+    parentKey: 'run_id',
+  },
 }
 
 // T88 (C2, sync/auth audit): the camp-scoped entity set + FK-safe apply
@@ -203,6 +212,7 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'elective_choice_offerings', // references elective_choices.id NOT NULL
   'elective_preferences', // references elective_assignment_runs.id NOT NULL; camper_id/choice_id are soft
   'elective_assignments', // references elective_assignment_runs.id NOT NULL; the rest are soft
+  'elective_run_outer_snapshots', // T243 (v74); run_id is NOT NULL but no DB-level FK (schema.sql), same soft-reference posture as its five siblings above — positioned after elective_assignment_runs
 ]
 
 // The subset of DOMAIN_SNAPSHOT_ORDER that is parent-scoped (joined through

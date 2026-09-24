@@ -116,6 +116,16 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'event_slots', fromColumn: 'event_group_id', toEntity: 'event_groups', kind: 'scalar', enforced: false },
   { fromTable: 'event_slots', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
   { fromTable: 'event_slots', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
+  // T243 (v74, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) —
+  // elective_run_outer_snapshots' four U2-deletable-target columns. All soft: no DB-level
+  // REFERENCES on any of them (schema.sql), same posture as elective_occurrences.day_id/
+  // time_block_id and elective_assignments.activity_id above. run_id/camper_id are NOT here —
+  // they point at elective_assignment_runs/campers, neither U2-deletable (see
+  // undoReferences.schemaParity.test.js's ACCEPTED_NON_REFERENCES).
+  { fromTable: 'elective_run_outer_snapshots', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
+  { fromTable: 'elective_run_outer_snapshots', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
+  { fromTable: 'elective_run_outer_snapshots', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
+  { fromTable: 'elective_run_outer_snapshots', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
 ])
 
 // entities U2's deletion slice is allowed to act on — deliberately mirrors

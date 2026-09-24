@@ -1325,7 +1325,13 @@ CREATE TABLE IF NOT EXISTS elective_assignment_runs (
   source_filename TEXT,
   source_sha256 TEXT,
   solver_version TEXT,
-  solver_generation TEXT
+  solver_generation TEXT,
+  -- v74 (T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-
+  -- slices.md). When/who finalized this run (status='final'). Both nullable:
+  -- a draft run has neither; a legacy pre-v74 'final' run migrates forward
+  -- with both NULL rather than a backfilled guess.
+  finalized_at TEXT,
+  finalized_by TEXT
 );
 
 -- elective_occurrences (v66). A concrete (set, day, block, tier) cell the run
@@ -1413,4 +1419,31 @@ CREATE TABLE IF NOT EXISTS tombstones (
   version INTEGER NOT NULL,
   sig TEXT NOT NULL,
   created_at TEXT
+);
+
+-- elective_run_outer_snapshots (v74, T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-
+-- slices.md). A finalized run's per-camper, per-cell export snapshot — the "outer" grid position
+-- (day/time-block) a camper's assignment resolves to, frozen at finalization time so the export
+-- survives the underlying activity or location being renamed or deleted later (D6). activity_name/
+-- location_name are DELIBERATELY denormalized for exactly that reason. `solver_generation` records
+-- the marker this snapshot was taken against (see elective_assignment_runs.solver_generation).
+-- Derived id: deriveElectiveRunOuterSnapshotId(run_id, camper_id, day_id, time_block_id) —
+-- electron/ops/deriveElectiveRunOuterSnapshotId.js. No UNIQUE constraint beyond the derived PRIMARY
+-- KEY — the id itself IS the uniqueness invariant, same posture as elective_assignments.
+-- day_id/time_block_id are NOT NULL: the derive function's `opaque()` guard already rejects a null
+-- or empty value for either, since the ADR's id definition keys on all four fields — a row without
+-- a day or block has no derivable identity and should not be representable. This schema constraint
+-- makes that agreement enforceable at the table, not just at the one call site that derives the id.
+CREATE TABLE IF NOT EXISTS elective_run_outer_snapshots (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  camper_id TEXT NOT NULL,
+  day_id TEXT NOT NULL,
+  time_block_id TEXT NOT NULL,
+  activity_id TEXT,
+  activity_name TEXT,
+  location_id TEXT,
+  location_name TEXT,
+  span_blocks INTEGER,
+  solver_generation TEXT
 );

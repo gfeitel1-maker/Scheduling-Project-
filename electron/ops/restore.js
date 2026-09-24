@@ -103,6 +103,8 @@ export const RESTORE_DECISIONS = Object.freeze({
     'refused: re-derived from live template_slots on every generation (ADR D6), never restored',
   elective_choices: 'refused: rebuilt with its run, not on its own',
   elective_choice_offerings: 'refused: rebuilt with its choice, not on its own',
+  elective_run_outer_snapshots:
+    'refused: PII — a named child\'s frozen schedule export, same posture as elective_assignments. SECURITY BOUNDARY. No setup UI to restore into either way (T243).',
 })
 
 export const RESTORABLE_ENTITIES = Object.freeze(

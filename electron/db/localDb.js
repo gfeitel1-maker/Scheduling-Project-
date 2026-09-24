@@ -25,10 +25,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
 // v67 (T162, device_identity_key), v68 (T195, elective_set_activities.status), v69 (T210,
 // rendezvous_sequence), v70 (T205, days_of_operation dedupe), v71 (T181, recurrence_level
-// removal), v72 (T233, tombstones — multi-device erasure propagation), and v73 (T241, relax
-// ten name-UNIQUE constraints so a merged document's colliding records both project) all land
-// in this file; 73 is the current version.
-export const CURRENT_SCHEMA_VERSION = 73
+// removal), v72 (T233, tombstones — multi-device erasure propagation), v73 (T241, relax
+// ten name-UNIQUE constraints so a merged document's colliding records both project), and v74
+// (T243, elective run lifecycle: finalized_at/finalized_by + elective_run_outer_snapshots) all
+// land in this file; 74 is the current version.
+export const CURRENT_SCHEMA_VERSION = 74
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3275,6 +3276,34 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     }
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (73, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v74 (T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) — stacks
+  // directly on v73 (T241, the name-UNIQUE-relaxation table-rebuild migration, which landed
+  // first). Two additive, nullable columns on elective_assignment_runs (finalized_at,
+  // finalized_by — when/who finalized the run) plus the new elective_run_outer_snapshots table (already created
+  // by schema.sql's CREATE TABLE IF NOT EXISTS on every fresh install; this block only backfills
+  // the version marker and ALTERs the existing table for a database migrating forward from an
+  // earlier version).
+  //
+  // UNLIKE v66's rollback (which destroyed campers/elective_preferences/elective_assignments PII),
+  // this migration — and its rollback (v74_down.js) — is NON-DESTRUCTIVE and ADDITIVE-ONLY: nothing
+  // writes finalized_at/finalized_by or elective_run_outer_snapshots yet (T244+ builds the write
+  // path), so there is no existing data a rollback could lose.
+  if (getSchemaVersion(db) >= 73 && getSchemaVersion(db) < 74) {
+    db.transaction(() => {
+      const runCols = db.pragma('table_info(elective_assignment_runs)').map((c) => c.name)
+      if (!runCols.includes('finalized_at')) {
+        db.exec('ALTER TABLE elective_assignment_runs ADD COLUMN finalized_at TEXT')
+      }
+      if (!runCols.includes('finalized_by')) {
+        db.exec('ALTER TABLE elective_assignment_runs ADD COLUMN finalized_by TEXT')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (74, ?)').run(
       new Date().toISOString()
     )
   }

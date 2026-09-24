@@ -44,6 +44,15 @@ const ACTIVITY_REFERRERS = Object.freeze([
   // which is exactly what that guard exists for.
   { entity: 'elective_choice_offerings', field: 'activity_id' },  // no FK
   { entity: 'elective_assignments', field: 'activity_id' },       // no FK
+  // T243 (v74). Re-pointing activity_id keeps it a resolvable reference to a
+  // live activity rather than a dangling id the merge just deleted from
+  // underneath it. This does NOT touch activity_name — that field is
+  // deliberately denormalized (docs/adr/2026-09-23-elective-run-lifecycle-and-
+  // remaining-slices.md, decision (a)) so a finalized run's export stays
+  // byte-stable even after the underlying activity is later renamed or
+  // deleted. The merge changes what the id points to; it must never change
+  // what the frozen snapshot says was actually scheduled.
+  { entity: 'elective_run_outer_snapshots', field: 'activity_id' },  // no FK
 ])
 
 /** Rows pointing at this activity, per referrer table. */

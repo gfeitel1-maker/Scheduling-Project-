@@ -134,6 +134,25 @@ describe('every referrer is re-pointed — including the ones with no foreign ke
     merge()
     expect(db.prepare('SELECT weather_alternative_id FROM activities WHERE id = ?').get(winner).weather_alternative_id).toBeNull()
   })
+
+  it('elective_run_outer_snapshots (NO foreign key) — re-points activity_id but leaves the denormalized activity_name untouched', () => {
+    // T243/ADR 2026-09-23: activity_name is deliberately denormalized so a
+    // finalized export stays byte-stable even after the template activity is
+    // renamed or deleted. Re-pointing activity_id keeps it a resolvable
+    // reference to a live activity (rather than a dangling id the merge just
+    // deleted) without touching the frozen name text the export actually
+    // displays — the merge changes what the id points to, never what the
+    // snapshot says happened.
+    const id = randomUUID()
+    db.prepare(
+      `INSERT INTO elective_run_outer_snapshots (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, 'run-1', 'camper-1', 'day-1', 'tb-1', loser, 'Musik')
+    merge()
+    const row = db.prepare('SELECT activity_id, activity_name FROM elective_run_outer_snapshots WHERE id = ?').get(id)
+    expect(row.activity_id).toBe(winner)
+    expect(row.activity_name).toBe('Musik')
+  })
 })
 
 describe('elective_set_activities — where a blind re-point breaks a UNIQUE constraint', () => {
@@ -232,6 +251,10 @@ describe('the referrer list cannot silently fall behind the schema', () => {
       'elective_choice_offerings.activity_id',
       'elective_assignments.activity_id',
       'activities.weather_alternative_id',
+      // T243 (v74): a finalized run's export snapshot. Re-pointed like any other
+      // referrer; activity_name stays denormalized and untouched (see the
+      // dedicated test above).
+      'elective_run_outer_snapshots.activity_id',
     ])
     const unhandled = found.filter((f) => !handled.has(f))
     expect(unhandled, `unhandled activity referrer(s): ${unhandled.join(', ')} — add them to mergeActivity.js and give each its own test`).toEqual([])

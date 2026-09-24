@@ -94,6 +94,12 @@ const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = {
     reason:
       'ADR D9: admin-only, and PII-adjacent for the same reason as elective_preferences.',
   },
+  elective_run_outer_snapshots: {
+    reason:
+      'T243 (docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md): admin-only, and ' +
+      "PII-adjacent for the same reason as elective_assignments — it denormalizes a named child's " +
+      'whole schedule.',
+  },
 }
 
 // Round 2, M2. The dict above is per-entity PROSE, so it is written by hand on

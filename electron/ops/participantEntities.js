@@ -24,6 +24,12 @@ export const PARTICIPANT_ENTITIES = Object.freeze(
     'elective_choice_offerings',
     'elective_preferences',
     'elective_assignments',
+    // T243 (v74, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-
+    // slices.md) — the eighth participant entity this module's header
+    // comment anticipated. A finalized run's per-camper, per-cell export
+    // snapshot: PII-adjacent for the same reason elective_assignments is —
+    // it denormalizes a named child's whole schedule.
+    'elective_run_outer_snapshots',
   ])
 )
 
