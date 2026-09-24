@@ -25,6 +25,30 @@ import { hasContradictoryRanks } from '../../src/ingest/preferenceSheet.js'
 const SOLVER_VERSION = 'buildElectiveAssignments@1'
 
 /**
+ * Why this commit would be refused, or null.
+ *
+ * Exported so a PREVIEW can say "this would be refused, and why" without
+ * opening a transaction or a db at all (T226, scripts/preferenceSheetCli.js).
+ * Preview and commit must never disagree about that, which is why this is one
+ * function called from both rather than a second copy of the wording.
+ */
+export function describeElectiveRunRefusal(parsed) {
+  const sameName = parsed?.sameNameCampers ?? []
+  if (sameName.length > 0) {
+    const who = sameName.map((c) => `${c.display_name} (rows ${c.rowNumbers.join(', ')})`).join('; ')
+    const noun = sameName.length === 1 ? 'camper name appears' : 'camper names appear'
+    return (
+      `${sameName.length} ${noun} on more than one row with no camper id to tell them apart: ${who}. ` +
+      'Resolve these before importing — two children sharing a name would be merged into one record.'
+    )
+  }
+  if (hasContradictoryRanks(parsed)) {
+    return 'a camper holds the same preference rank twice — the sheet cannot be read unambiguously.'
+  }
+  return null
+}
+
+/**
  * @returns {{ok: true, runId, counts} | {ok: false, error}}
  */
 export function commitElectiveRun(db, {
@@ -49,23 +73,8 @@ export function commitElectiveRun(db, {
   // whichever it saw first — a silent decision about a real child's week. The
   // parser reporting the collision is not enough on its own; refusing to WRITE
   // it is what makes the report load-bearing.
-  const sameName = parsed?.sameNameCampers ?? []
-  if (sameName.length > 0) {
-    const who = sameName.map((c) => `${c.display_name} (rows ${c.rowNumbers.join(', ')})`).join('; ')
-    const noun = sameName.length === 1 ? 'camper name appears' : 'camper names appear'
-    return {
-      ok: false,
-      error:
-        `${sameName.length} ${noun} on more than one row with no camper id to tell them apart: ${who}. ` +
-        'Resolve these before importing — two children sharing a name would be merged into one record.',
-    }
-  }
-  if (hasContradictoryRanks(parsed)) {
-    return {
-      ok: false,
-      error: 'a camper holds the same preference rank twice — the sheet cannot be read unambiguously.',
-    }
-  }
+  const refusal = describeElectiveRunRefusal(parsed)
+  if (refusal) return { ok: false, error: refusal }
 
   // H1 — the renderer mints a runId per solve and derives elective_occurrences
   // ids against it BEFORE this handler ever runs (deriveOccurrences.js is

@@ -13,6 +13,7 @@
 import { openLocalDb } from '../../electron/db/localDb.js'
 import { makeDocCipher } from '../../electron/db/docCipher.js'
 import { runIngestCli } from '../ingestCli.js'
+import { runPreferenceSheetCli } from '../preferenceSheetCli.js'
 import { listEntities } from '../../electron/ops/read.js'
 import { assembleScheduleEngineInputs } from '../../electron/ops/scheduleEngineInputs.js'
 import { normalizeSlots } from '../../src/utils/normalizeSlots.js'
@@ -56,6 +57,36 @@ export function ingestCommitTool(args, { dbPath, allowWrite, authorUserId, dbKey
     dbPath,
     mode: args.mode ?? 'add',
     action: 'commit',
+    authorUserId: authorUserId ?? null,
+    dbKey,
+  })
+}
+
+// T226 — a camper ranked-preference sheet is a DIFFERENT document from a
+// schedule grid, with a different commit path, so it gets its own pair of
+// tools. Overloading ingest_preview would mean relaxing the T224 schedule-shape
+// gate, which exists precisely to refuse this kind of sheet.
+//
+// Same handler contract as the pair above: (args, { dbPath, allowWrite,
+// authorUserId, dbKey }) in, a plain pre-envelope result object out.
+export function preferenceSheetPreviewTool(args, { dbPath, dbKey }) {
+  return runPreferenceSheetCli({ file: args.file_path, dbPath, action: 'preview', dbKey })
+}
+
+export function preferenceSheetCommitTool(args, { dbPath, allowWrite, authorUserId, dbKey }) {
+  if (!allowWrite) {
+    return {
+      ok: false,
+      error:
+        'commit is disabled — relaunch the server with --allow-write to enable preference_sheet_commit',
+      exitCode: 1,
+    }
+  }
+  return runPreferenceSheetCli({
+    file: args.file_path,
+    dbPath,
+    action: 'commit',
+    runName: args.run_name ?? null,
     authorUserId: authorUserId ?? null,
     dbKey,
   })

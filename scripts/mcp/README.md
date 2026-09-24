@@ -7,8 +7,8 @@ database directly — no Electron, no renderer, no network port. Design: ADR
 (W10). Plan: [`docs/work/plans/2026-09-01-machine-access.md`](../../docs/work/plans/2026-09-01-machine-access.md).
 
 It talks to **one SQLite db file** (`--db`) — the same single-camp-per-file model the app
-uses. It is **read-only by default**; the one write verb (`ingest_commit`) refuses unless
-the server was launched with `--allow-write`.
+uses. It is **read-only by default**; every write verb refuses unless the server was
+launched with `--allow-write`.
 
 ## Launch
 
@@ -19,7 +19,8 @@ npm run mcp -- --db /absolute/path/to/camp.sqlite
 Options:
 
 - `--db <path>` — **required**. Absolute path to the camp's SQLite file.
-- `--allow-write` — enable `ingest_commit`. Omit for a strictly read-only session.
+- `--allow-write` — enable the write verbs (`ingest_commit`, `preference_sheet_commit`,
+  the projection-repair tools). Omit for a strictly read-only session.
 - `--author-user-id <uuid>` — provenance stamp for committed ops (write sessions only).
 
 `npm run mcp` runs a `premcp` step (`ensure-abi.js node`) first, so the native
@@ -51,6 +52,8 @@ whatever `.shoresh` path was chosen. Point `--db` at the exact file you want to 
 |---|---|---|
 | `ingest_preview` | no | Dry-run an Excel/text-grid import — what it *would* create/change. |
 | `ingest_commit` | **yes** (`--allow-write`) | Commit an import into the camp's setup. |
+| `preference_sheet_preview` | no | Dry-run a camper elective **preference sheet** (Excel/CSV) — the campers on it, the distinct elective choices they named, their ranked preferences, plus which columns were read as what, and why a commit would be refused. |
+| `preference_sheet_commit` | **yes** (`--allow-write`) | Commit a preference sheet as one draft run. Refuses the whole sheet when two rows name the same camper with no camper id, or a camper holds a rank twice. |
 | `list_entities` | no | Rows of one setup entity (Age Divisions, Programs, Groups, Locations, Activities, Days, Time Blocks, Weeks). |
 | `setup_summary` | no | Row counts across every setup entity — a quick health check. |
 | `schedule_state` | no | Read **and validate** one candidate schedule (Manual/Generated) for one week: template, placed slots, and **engine-computed findings/conflicts** (re-runs the pure engine over the stored placement, moving nothing). |
