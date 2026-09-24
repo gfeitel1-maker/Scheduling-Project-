@@ -3,7 +3,8 @@ import { localClient } from '../localClient'
 import { journalEntriesFor } from '../ingest/decisionJournal.js'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
-import { applyTrayState } from './reconciliationTray'
+import { applyTrayState, commitTrayState } from './reconciliationTray'
+import { useGraceWindowUndo } from '../hooks/useGraceWindowUndo'
 import { buildBlastRadiusIndex } from '../ingest/blastRadius.js'
 import { reportToLanes } from '../ingest/reportToLanes.js'
 import { getReadiness } from '../engine/readiness.js'
@@ -67,7 +68,13 @@ export default function ReconciliationScreen({ entry = 'import', ...rest }) {
   return <ImportReconciliation {...rest} />
 }
 
-function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, allCampOverrides = [] }) {
+function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, allCampOverrides = [], phase = 'triage', outcome = null, notices = [] }) {
+  // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, T253 Amendment)
+  // — owned by THIS screen's own hook instance, never module-level, never
+  // persisted (Invariant 5). ImportScreen keeps this screen mounted through
+  // a successful commit specifically so this instance survives to offer the
+  // grace-window undo.
+  const graceWindow = useGraceWindowUndo()
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -247,6 +254,14 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       } catch {
         /* diagnostics only — never surfaced, never blocking */
       }
+      // Undo eligibility is structural, not a recomputed conditional
+      // (Invariant 3: commitPlan throws on captureInverse && mode ===
+      // 'replace', so this is the only place invertibleOps is ever
+      // populated). Never re-derive eligibility from `inputs.mode` here too
+      // — a second, independent derivation is how the two could disagree.
+      if (Array.isArray(outcome?.invertibleOps)) {
+        graceWindow.start(outcome)
+      }
       onCommitted?.(outcome)
     } catch (err) {
       setError(mapCommitError(err))
@@ -270,6 +285,21 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       }
     }
     if (notes.length > 0) setRememberNotes(notes)
+  }
+
+  // Post-commit phase (T253 Amendment) — the import already succeeded; the
+  // triage report is stale and no longer the point. Renders the exit tray
+  // in place of the triage flow, same as the other early-return branches
+  // below (EndState, loading, error).
+  if (phase === 'committed') {
+    return (
+      <CommittedTray
+        notices={notices}
+        outcome={outcome}
+        graceWindow={graceWindow}
+        onNavigate={onNavigate}
+      />
+    )
   }
 
   if (showMoment && !momentSettled && !error) {
@@ -570,6 +600,103 @@ function OpenDecisionsDoor({ onNavigate }) {
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+// T253 (Amendment) — the post-commit exit tray. Reuses styles.tray, the same
+// DOM slot the triage tray renders in, and the understoodRow "Show details"
+// idiom for the receipt's two-tier disclosure — no second disclosure
+// pattern. commitTrayState decides all copy; this component only wires
+// clicks and animates.
+function CommittedTray({ notices, outcome, graceWindow, onNavigate }) {
+  const contentEnter = useEnterTransition('slideFade')
+  const reduced = prefersReducedMotion()
+  const [showDetail, setShowDetail] = useState(false)
+  const undoCapable = Array.isArray(outcome?.invertibleOps)
+  const tray = commitTrayState({
+    notices,
+    undoCapable,
+    undoState: { ...graceWindow, total: outcome?.total ?? 0 },
+  })
+
+  // The secondary action and the receipt each animate in/out via a
+  // max-height + opacity collapse (220ms var(--ease-out)) rather than
+  // vanishing — useEnterTransition's reduced-motion branch doesn't cover
+  // this (it is not a mount transition), so reduced motion is checked here
+  // directly and the height snaps while the opacity crossfade stays.
+  const secondaryVisible = Boolean(tray.secondary)
+  const secondaryContent = tray.secondary
+
+  const collapseStyle = (visible, maxHeight) => ({
+    overflow: 'hidden',
+    opacity: visible ? 1 : 0,
+    maxHeight: visible ? maxHeight : 0,
+    transition: reduced
+      ? 'opacity 220ms var(--ease-out)'
+      : 'max-height 220ms var(--ease-out), opacity 220ms var(--ease-out)',
+  })
+
+  return (
+    <div style={{ maxWidth: 920, margin: '0 auto' }}>
+      <div style={contentEnter}>
+        {notices.length > 0 && (
+          <div style={styles.understoodRow}>{notices.join(' ')}</div>
+        )}
+
+        {graceWindow.undoError && (
+          <div style={{ ...S.errorBanner, marginTop: 8 }}>{graceWindow.undoError}</div>
+        )}
+
+        {tray.receipt && (
+          <div style={{ ...collapseStyle(true, 200), marginTop: 8 }}>
+            <div style={styles.understoodRow}>
+              <span>{tray.receipt.summary}</span>{' '}
+              {tray.receipt.detail.length > 0 && (
+                <button className="press-97" onClick={() => setShowDetail((v) => !v)} style={styles.linkButton}>
+                  {showDetail ? 'Hide details' : 'Show details'}
+                </button>
+              )}
+            </div>
+            {showDetail && tray.receipt.detail.length > 0 && (
+              <div style={{ ...styles.understoodRow, paddingTop: 0 }}>
+                {tray.receipt.detail.map((line) => <div key={line}>{line}</div>)}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={styles.tray}>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tray.hint}</div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={collapseStyle(secondaryVisible, 40)}>
+              {secondaryContent && (
+                <button
+                  className="press-97"
+                  disabled={secondaryContent.disabled}
+                  onClick={() => graceWindow.undo()}
+                  style={secondaryContent.disabled ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+                >
+                  {secondaryContent.label}
+                </button>
+              )}
+              {secondaryContent?.note && (
+                <span style={{ marginLeft: 8, color: 'var(--text-secondary)', fontSize: 12 }}>
+                  {secondaryContent.note}
+                </span>
+              )}
+            </div>
+            <button
+              className="press-97"
+              onClick={() => onNavigate('roots')}
+              disabled={graceWindow.isPending}
+              style={graceWindow.isPending ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
+            >
+              {tray.primary.label}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

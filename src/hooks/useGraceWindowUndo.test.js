@@ -10,6 +10,7 @@ vi.mock('../localClient', () => ({
 
 import { useGraceWindowUndo, GRACE_WINDOW_MS } from './useGraceWindowUndo'
 import { localClient } from '../localClient'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -110,9 +111,9 @@ describe('useGraceWindowUndo', () => {
   // these tests assert the honest observable property the guard preserves:
   // undo() settles cleanly after unmount, never surfacing an unhandled
   // rejection. The guard is the defensive belt; the *surfacing* fix that is
-  // observably red-green is PostImportBanner disabling "Go to Schedule" while
-  // isPending (see ReconciliationScreen.test.jsx), which stops the director
-  // from leaving mid-undo in the first place.
+  // observably red-green is the post-commit tray's "Continue" button
+  // disabling while isPending (see ReconciliationScreen.jsx's CommittedTray),
+  // which stops the director from leaving mid-undo in the first place.
   it('an undo that resolves AFTER unmount settles cleanly (no throw)', async () => {
     let resolveIngest
     localClient.ingestUndo.mockReturnValue(new Promise((resolve) => { resolveIngest = resolve }))
@@ -151,5 +152,90 @@ describe('useGraceWindowUndo', () => {
     act(() => result.current.clear())
     expect(result.current.status).toBe('idle')
     expect(result.current.createdEntityIds).toEqual([])
+  })
+
+  // T253 — a raw IPC message ('FOREIGN KEY constraint failed', 'ECONNREFUSED')
+  // must never reach the director from an undo failure; route through the
+  // same describeWriteFailure convention every other mutation in the app
+  // uses. The hook's existing choice to stay LIVE on error (so the director
+  // can retry) is unchanged — only the message it shows is corrected.
+  it('routes a failed undo through describeWriteFailure instead of the raw error message', async () => {
+    localClient.ingestUndo.mockRejectedValue(new Error('FOREIGN KEY constraint failed'))
+    const { result } = renderHook(() => useGraceWindowUndo())
+    act(() => result.current.start(outcome()))
+
+    await act(async () => { await result.current.undo() })
+
+    expect(result.current.status).toBe('live') // stays live so the director can retry
+    expect(result.current.undoError).toBe(
+      describeWriteFailure(new Error('FOREIGN KEY constraint failed'), 'This import could not be undone.')
+    )
+    expect(result.current.undoError).not.toMatch(/FOREIGN KEY/)
+  })
+
+  // T253 — the last 60 seconds of the 5-minute grace window show a live
+  // countdown (design spec). The countdown is timer-driven, never a
+  // Date.now() poll in a render loop.
+  describe('countdown (last 60s)', () => {
+    it('secondsLeft is null before the window enters its last 60 seconds', () => {
+      const { result } = renderHook(() => useGraceWindowUndo())
+      act(() => result.current.start(outcome()))
+      expect(result.current.secondsLeft).toBeNull()
+
+      act(() => vi.advanceTimersByTime(GRACE_WINDOW_MS - 60_000 - 1))
+      expect(result.current.secondsLeft).toBeNull()
+    })
+
+    it('starts a live countdown at 60s left and ticks once per second', () => {
+      const { result } = renderHook(() => useGraceWindowUndo())
+      act(() => result.current.start(outcome()))
+
+      act(() => vi.advanceTimersByTime(GRACE_WINDOW_MS - 60_000))
+      expect(result.current.secondsLeft).toBe(60)
+
+      act(() => vi.advanceTimersByTime(1000))
+      expect(result.current.secondsLeft).toBe(59)
+
+      act(() => vi.advanceTimersByTime(5000))
+      expect(result.current.secondsLeft).toBe(54)
+    })
+
+    it('the countdown is cleared (stops ticking) once undo succeeds', async () => {
+      localClient.ingestUndo.mockResolvedValue({ ok: true, reverted: [], skipped: [] })
+      const { result } = renderHook(() => useGraceWindowUndo())
+      act(() => result.current.start(outcome()))
+      act(() => vi.advanceTimersByTime(GRACE_WINDOW_MS - 60_000 + 2000))
+      expect(result.current.secondsLeft).toBe(58)
+
+      await act(async () => { await result.current.undo() })
+      expect(result.current.status).toBe('used')
+
+      act(() => vi.advanceTimersByTime(5000))
+      // no throw, no further state change from a stray interval
+      expect(result.current.status).toBe('used')
+    })
+
+    it('the countdown is cleared and reset by clear()', () => {
+      const { result } = renderHook(() => useGraceWindowUndo())
+      act(() => result.current.start(outcome()))
+      act(() => vi.advanceTimersByTime(GRACE_WINDOW_MS - 60_000 + 2000))
+      expect(result.current.secondsLeft).toBe(58)
+
+      act(() => result.current.clear())
+      expect(result.current.secondsLeft).toBeNull()
+
+      // starting again does not resurrect the old interval's ticks early
+      act(() => result.current.start(outcome()))
+      expect(result.current.secondsLeft).toBeNull()
+    })
+
+    it('a countdown timer does not fire after unmount', () => {
+      const { result, unmount } = renderHook(() => useGraceWindowUndo())
+      act(() => result.current.start(outcome()))
+      act(() => vi.advanceTimersByTime(GRACE_WINDOW_MS - 60_000 - 500))
+      unmount()
+      // Should not throw / warn when timers that would have fired post-unmount run.
+      expect(() => act(() => vi.advanceTimersByTime(5000))).not.toThrow()
+    })
   })
 })
