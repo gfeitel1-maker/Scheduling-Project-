@@ -184,7 +184,7 @@ export default function AssignmentPanel({
       // day/block seats the SAME campers in both. attendance is null (skip
       // matching) when occurrences span at most one tier -- the common case,
       // where there is nothing to disambiguate.
-      const { attendance, unmatched } = buildAttendance({ campers: parsed.campers, occurrences: occs, tiers })
+      const { attendance, unmatched, ambiguous } = buildAttendance({ campers: parsed.campers, occurrences: occs, tiers })
       const { assignments, findings } = buildElectiveAssignments({
         campers: parsed.campers, occurrences: occs, offerings, preferences: parsed.preferences, attendance,
       })
@@ -207,7 +207,17 @@ export default function AssignmentPanel({
           ? `${u.camperCount} camper(s) list the division \u201C${u.division}\u201D, which is not a division on this schedule \u2014 did you mean \u201C${u.suggestion}\u201D? They were considered for every occurrence.`
           : `${u.camperCount} camper(s) list the division \u201C${u.division}\u201D, which is not a division on this schedule. They were considered for every occurrence.`,
       }))
-      setResult({ assignments, findings: [...findings, ...mismatchFindings, ...attendanceFindings] })
+      // T255 Slice B — a division name that matches MORE THAN ONE tier on this
+      // schedule (two divisions sharing a name, permitted since schema v73).
+      // Unlike an unmatched name, this is not a spelling to fix on the sheet —
+      // it is two same-named divisions in the camp's own setup — so there is
+      // no suggestion, only the same never-unplaced fallback already applied.
+      const ambiguousFindings = (ambiguous ?? []).map((a) => ({
+        kind: 'AMBIGUOUS_DIVISION',
+        division: a.division,
+        message: `${a.camperCount} camper(s) list the division “${a.division}”, which matches more than one division on this schedule — rename one of them to tell them apart. They were considered for every occurrence.`,
+      }))
+      setResult({ assignments, findings: [...findings, ...mismatchFindings, ...attendanceFindings, ...ambiguousFindings] })
       setPhase('preview')
       setAnnouncement(
         assignments.length === 0

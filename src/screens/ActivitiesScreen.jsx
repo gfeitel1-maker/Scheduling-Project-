@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import { whitespaceInsensitiveName } from '../ingest/preview'
+import { mapWithCollisions } from '../ingest/mapWithCollisions.js'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
@@ -859,15 +860,31 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       // any cell is read, so an oversize/zip-bomb file imports nothing.
       const wb = readWorkbookSafely(ev.target.result, { type: 'array', byteLength: file.size })
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
-      const tierMap = Object.fromEntries(tiers.map(t => [t.name.toLowerCase(), t.id]))
-      const actMap = Object.fromEntries(activities.map(a => [a.name.toLowerCase(), a.id]))
+      // T255 Slice B — schema v73 lets two age divisions/activities/locations
+      // share a name within one camp (they can arrive from a cross-device
+      // merge). A plain last-write-wins Object.fromEntries/Map silently bound
+      // an imported row to whichever same-named row happened to come last —
+      // mapWithCollisions REFUSES the colliding key instead (structural: the
+      // key is absent from the map, so a caller cannot read a wrong-row value
+      // out of it). Note the fold here (bare .toLowerCase(), no trim) differs
+      // from ingest's tierIdByName (.trim().toLowerCase()) — unchanged in this
+      // slice; changing what counts as the same name is its own decision.
+      const { map: tierMap, ambiguous: ambiguousTierNames } = mapWithCollisions(tiers, t => t.name.toLowerCase(), t => t.id)
+      const { map: actMap, ambiguous: ambiguousActNames } = mapWithCollisions(activities, a => a.name.toLowerCase(), a => a.id)
       const dowMap = Object.fromEntries(DOW.map((d, i) => [d.toLowerCase(), i]))
       // Existing places keyed the SAME (exact, case-SENSITIVE, trim-only) way
       // confirmImport resolves them (T81, matching deriveLocationId's own
       // normalization contract) — so the preview agrees with the actual
       // create: "pool" against an existing "Pool" now shows "new place", not
       // a silent/annotated fold, because it genuinely mints a second row.
-      const locNameByExact = new Map(locations.map(l => [String(l.name ?? '').trim(), String(l.name ?? '').trim()]))
+      // T255 Slice B: also refuses a same-camp collision on that exact key —
+      // two locations byte-identically named (v73 permits it) must not
+      // silently pick one; the row is warned instead (see below).
+      const { map: locNameByExact, ambiguous: ambiguousLocationNames } = mapWithCollisions(
+        locations,
+        l => String(l.name ?? '').trim(),
+        l => String(l.name ?? '').trim()
+      )
 
       const parsed = rows.map(r => {
         const name = String(r.name || '').trim()
@@ -878,15 +895,25 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         const eligTierNames = eligTierRaw === 'all' || eligTierRaw === ''
           ? []
           : eligTierRaw.split(',').map(s => s.trim()).filter(Boolean)
-        const eligible_tier_ids = eligTierNames.map(n => tierMap[n]).filter(Boolean)
+        const eligible_tier_ids = eligTierNames.map(n => tierMap.get(n)).filter(Boolean)
         if (eligTierNames.length && eligible_tier_ids.length < eligTierNames.length) {
-          const missing = eligTierNames.filter(n => !tierMap[n])
-          warning = warning || `Age Division(s) not found: ${missing.join(', ')}`
+          const ambiguousNames = eligTierNames.filter(n => ambiguousTierNames.has(n))
+          const missing = eligTierNames.filter(n => !tierMap.has(n) && !ambiguousTierNames.has(n))
+          if (ambiguousNames.length) {
+            warning = warning || `Age Division(s) ambiguous — more than one age division is named: ${ambiguousNames.join(', ')}. Rename one before importing.`
+          } else {
+            warning = warning || `Age Division(s) not found: ${missing.join(', ')}`
+          }
         }
 
         const weatherName = String(r.weather_alternative || '').trim()
-        const weather_alternative_id = weatherName ? actMap[weatherName.toLowerCase()] || null : null
-        if (weatherName && !weather_alternative_id) warning = warning || `Weather alt "${weatherName}" not found`
+        const weatherKey = weatherName.toLowerCase()
+        const weather_alternative_id = weatherName && !ambiguousActNames.has(weatherKey) ? (actMap.get(weatherKey) || null) : null
+        if (weatherName && ambiguousActNames.has(weatherKey)) {
+          warning = warning || `Weather alt "${weatherName}" ambiguous — more than one activity has this name. Rename one before importing.`
+        } else if (weatherName && !weather_alternative_id) {
+          warning = warning || `Weather alt "${weatherName}" not found`
+        }
 
         const preferDayStr = String(r.prefer_before_day || '').trim()
         const prefer_before_day = preferDayStr ? (dowMap[preferDayStr.toLowerCase()] ?? null) : null
@@ -897,8 +924,12 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         // longer fold, T81); 'new' → confirmImport will mint it via
         // deriveLocationId. Camp places only — a name new to the camp but
         // repeated within this same import still reads 'new'.
-        const matchedLocationName = locationName ? (locNameByExact.get(locationName) ?? null) : null
-        const locationResolution = locationName ? (matchedLocationName ? 'reuse' : 'new') : null
+        const locationAmbiguous = locationName ? ambiguousLocationNames.has(locationName) : false
+        const matchedLocationName = locationName && !locationAmbiguous ? (locNameByExact.get(locationName) ?? null) : null
+        const locationResolution = locationName ? (locationAmbiguous ? null : (matchedLocationName ? 'reuse' : 'new')) : null
+        if (locationAmbiguous) {
+          warning = warning || `Location "${locationName}" ambiguous — more than one location has this name. Rename one before importing.`
+        }
 
         return {
           name,
@@ -966,7 +997,12 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       // post-create rename) applies equally to M4's own ingest create path,
       // already shipped and accepted; T81 extends the same, already-accepted
       // tradeoff to this second call site rather than introducing a new one.
-      const locationIdByName = new Map(locations.map(l => [String(l.name ?? '').trim(), l.id]))
+      // T255 Slice B: same refusal as the preview map above — a row whose
+      // location is ambiguous already carries row.warning and is skipped
+      // below before this map is ever consulted for it, but the map itself
+      // stays structurally safe (mapWithCollisions) rather than relying only
+      // on that ordering.
+      const { map: locationIdByName } = mapWithCollisions(locations, l => String(l.name ?? '').trim(), l => l.id)
       let added = 0, skipped = 0
       for (const row of importRows) {
         if (!row.name || row.warning) { skipped++; continue }
@@ -989,7 +1025,10 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
               const newLocId = resolveLocationCandidateId(campId, trimmedLoc, locations).id
               await repository.createRecord('locations', newLocId, { name: trimmedLoc, camp_id: campId, capacity: 1, notes: null })
               locationId = newLocId
-              locationIdByName.set(trimmedLoc, newLocId)
+              // T252's guard, applied here too: a row created THIS run must
+              // never evict an entry already established (by the live db, or
+              // by an earlier row in this same import) for that name.
+              if (!locationIdByName.has(trimmedLoc)) locationIdByName.set(trimmedLoc, newLocId)
             } catch {
               locationId = null // best-effort: the activity still imports, just without a place
             }

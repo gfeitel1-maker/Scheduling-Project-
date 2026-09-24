@@ -454,6 +454,38 @@ describe('GroupsScreen — import', () => {
 
     await waitFor(() => expect(screen.queryByText('Age Division "Nonexistent Age Division" not found')).not.toBeNull())
   })
+
+  // T255 Slice B, finding 5 — schema v73 lets two age divisions share a name
+  // (they can arrive from a cross-device merge). Before this fix `tierMap` was
+  // a plain last-write-wins `Object.fromEntries`, so an imported row bound to
+  // whichever same-named division happened to come last in the array — a
+  // silent wrong bind with no warning, not a name genuinely absent.
+  it('refuses to bind an imported row to an arbitrary division when two divisions share a name', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(
+        entity === 'groups'
+          ? []
+          : entity === 'tiers'
+            ? [tier({ id: 'tier-a', name: 'Yeladim' }), tier({ id: 'tier-b', name: 'Yeladim' })]
+            : []
+      )
+    )
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('No groups yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'groups.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'New Group', tier_name: 'Yeladim', availability: 'all' },
+    ])
+
+    await userEvent.upload(fileInput, file)
+
+    await waitFor(() => expect(screen.queryByText(/ambiguous/i)).not.toBeNull())
+    const tierIdsWritten = localClient.write.mock.calls.filter(c => c[3] === 'tier_id').map(c => c[4])
+    expect(tierIdsWritten).toEqual([])
+  })
 })
 
 describe('GroupsScreen — row-click to edit', () => {

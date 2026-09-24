@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
+import { mapWithCollisions } from '../ingest/mapWithCollisions.js'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
@@ -536,13 +537,18 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
         .filter(d => d.camp_id === campId)
         .filter((d, i, arr) => arr.findIndex(x => x.day_of_week === d.day_of_week) === i)
       const dayMap = Object.fromEntries(uniqueFreshDays.map(d => [d.label.toLowerCase(), d.id]))
-      const blockMap = Object.fromEntries(
-        (freshBlocks || [])
-          .filter(b => b.camp_id === campId && b.cohort_id === activeCohort?.id)
-          .map(b => [b.name.toLowerCase(), b.id])
+      // T255 Slice B — schema v73 lets two time blocks or two age divisions
+      // share a name WITHIN one camp+cohort (this filter narrows the window,
+      // it does not close it). A plain last-write-wins Object.fromEntries
+      // would silently bind an imported anchor to whichever same-named row
+      // came last. mapWithCollisions refuses the colliding key instead.
+      const { map: blockMap, ambiguous: ambiguousBlockNames } = mapWithCollisions(
+        (freshBlocks || []).filter(b => b.camp_id === campId && b.cohort_id === activeCohort?.id),
+        b => b.name.toLowerCase(),
+        b => b.id
       )
       const scopedTiers = (freshTiers || []).filter(t => t.camp_id === campId && t.cohort_id === activeCohort?.id)
-      const tierMap = Object.fromEntries(scopedTiers.map(t => [t.name.toLowerCase(), t.id]))
+      const { map: tierMap, ambiguous: ambiguousTierNames } = mapWithCollisions(scopedTiers, t => t.name.toLowerCase(), t => t.id)
 
       // F4 — shared boundary: size cap (on file.size) before parse, sheet/row
       // caps after, replacing this screen's former ad-hoc 5MB check so every
@@ -565,13 +571,23 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
         let baseWarning = null
         if (!name) baseWarning = 'Missing name'
 
-        const time_block_id = blockName ? (blockMap[blockName.toLowerCase()] || null) : null
-        if (!time_block_id) baseWarning = baseWarning || `Time block "${blockName}" not found`
+        const blockKey = blockName.toLowerCase()
+        const time_block_id = blockName && !ambiguousBlockNames.has(blockKey) ? (blockMap.get(blockKey) || null) : null
+        if (blockName && ambiguousBlockNames.has(blockKey)) {
+          baseWarning = baseWarning || `Time block "${blockName}" ambiguous — more than one time block has this name. Rename one before importing.`
+        } else if (!time_block_id) {
+          baseWarning = baseWarning || `Time block "${blockName}" not found`
+        }
 
-        const resolvedTierIds = tierNames.map(n => tierMap[n.toLowerCase()]).filter(Boolean)
+        const resolvedTierIds = tierNames.filter(n => !ambiguousTierNames.has(n.toLowerCase())).map(n => tierMap.get(n.toLowerCase())).filter(Boolean)
         if (!isAllTiers && tierNames.length && resolvedTierIds.length < tierNames.length) {
-          const missing = tierNames.filter(n => !tierMap[n.toLowerCase()])
-          baseWarning = baseWarning || `Age Division(s) not found: ${missing.join(', ')}`
+          const ambiguousNames = tierNames.filter(n => ambiguousTierNames.has(n.toLowerCase()))
+          const missing = tierNames.filter(n => !tierMap.has(n.toLowerCase()) && !ambiguousTierNames.has(n.toLowerCase()))
+          if (ambiguousNames.length) {
+            baseWarning = baseWarning || `Age Division(s) ambiguous — more than one age division is named: ${ambiguousNames.join(', ')}. Rename one before importing.`
+          } else {
+            baseWarning = baseWarning || `Age Division(s) not found: ${missing.join(', ')}`
+          }
         }
 
         // T180: the import resolves Age Division names to divisions and stores

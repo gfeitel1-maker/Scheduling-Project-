@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
+import { mapWithCollisions } from '../ingest/mapWithCollisions.js'
 import { localClient } from '../localClient'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
@@ -403,15 +404,24 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       try {
       const wb = readWorkbookSafely(ev.target.result, { type: 'array', byteLength: file.size })
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
-      const tierMap = Object.fromEntries(tiers.map(t => [t.name.toLowerCase(), t.id]))
+      // T255 Slice B — schema v73 lets two age divisions share a name; a plain
+      // last-write-wins Object.fromEntries would silently bind an imported
+      // group to whichever same-named division came last. mapWithCollisions
+      // refuses the colliding key instead (src/ingest/mapWithCollisions.js).
+      const { map: tierMap, ambiguous: ambiguousTierNames } = mapWithCollisions(tiers, t => t.name.toLowerCase(), t => t.id)
       const parsed = rows.map(r => {
         const name = String(r.name || '').trim()
         const tierName = String(r.tier_name || '').trim()
         const avail = String(r.availability || 'all').trim().toLowerCase()
         let warning = null
         if (!name) warning = 'Missing name'
-        const tierId = tierName ? tierMap[tierName.toLowerCase()] : null
-        if (tierName && !tierId) warning = `Age Division "${tierName}" not found`
+        const tierKey = tierName.toLowerCase()
+        const tierId = tierName && !ambiguousTierNames.has(tierKey) ? tierMap.get(tierKey) : null
+        if (tierName && ambiguousTierNames.has(tierKey)) {
+          warning = `Age Division "${tierName}" ambiguous — more than one age division has this name. Rename one before importing.`
+        } else if (tierName && !tierId) {
+          warning = `Age Division "${tierName}" not found`
+        }
         const availability = ['all','morning','afternoon'].includes(avail) ? avail : 'all'
         return { name, tierName, tierId: tierId || null, availability, warning }
       })

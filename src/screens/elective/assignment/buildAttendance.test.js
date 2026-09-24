@@ -123,3 +123,45 @@ describe('unmatched divisions are named, with a proposal', () => {
   })
 })
 
+
+// T255 Slice B, finding 6 — schema v73 lets two tiers (age divisions) share a
+// name. `tierIdByNameKey` was a plain last-write-wins Map, so a camper whose
+// division matched an ambiguous name bound to whichever tier happened to be
+// seeded last — silently seating them in only ONE of the two same-named
+// divisions' occurrences, which is exactly the wrong-bind failure this module
+// exists to prevent (a Juniors set seating Seniors kids, or here, half of an
+// ambiguous division's campers losing their occurrences). The correct
+// treatment is the existing never-unplaced fallback (owner ruling R1): every
+// occurrence, not an arbitrary one.
+describe('ambiguous divisions fall back to every occurrence, never an arbitrary tier', () => {
+  it('does not bind a camper to only one of two same-named tiers', () => {
+    const tiers = [{ id: 't1', name: 'Bogrim' }, { id: 't2', name: 'Bogrim' }]
+    const occurrences = [{ id: 'o1', tier_id: 't1' }, { id: 'o2', tier_id: 't2' }]
+    const campers = [{ id: 'c1', division: 'Bogrim' }]
+    const { attendance, ambiguous } = buildAttendance({ campers, occurrences, tiers })
+    expect(attendance.c1.sort()).toEqual(['o1', 'o2'])
+    expect(ambiguous).toEqual([{ division: 'Bogrim', camperCount: 1 }])
+  })
+
+  // Non-vacuity: a guard written against a two-way collision can still be
+  // fooled by a three-way one (e.g. an implementation that only special-cases
+  // "exactly one duplicate"). This plants a different shape of the same
+  // defect class, not the same one the test above already covers.
+  it('still falls back to every occurrence when three tiers share the ambiguous name, not just two', () => {
+    const tiers = [{ id: 't1', name: 'Bogrim' }, { id: 't2', name: 'Bogrim' }, { id: 't3', name: 'Bogrim' }]
+    const occurrences = [{ id: 'o1', tier_id: 't1' }, { id: 'o2', tier_id: 't2' }, { id: 'o3', tier_id: 't3' }]
+    const campers = [{ id: 'c1', division: 'Bogrim' }]
+    const { attendance, ambiguous } = buildAttendance({ campers, occurrences, tiers })
+    expect(attendance.c1.sort()).toEqual(['o1', 'o2', 'o3'])
+    expect(ambiguous).toEqual([{ division: 'Bogrim', camperCount: 1 }])
+  })
+
+  it('does not count an ambiguous division as unmatched', () => {
+    const tiers = [{ id: 't1', name: 'Bogrim' }, { id: 't2', name: 'Bogrim' }]
+    const occurrences = [{ id: 'o1', tier_id: 't1' }, { id: 'o2', tier_id: 't2' }]
+    const campers = [{ id: 'c1', division: 'Bogrim' }]
+    const { unmatched, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
+    expect(unmatched).toEqual([])
+    expect(unmatchedCount).toBe(0)
+  })
+})
