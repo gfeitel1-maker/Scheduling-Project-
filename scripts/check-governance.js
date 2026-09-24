@@ -621,6 +621,9 @@ export const DELIBERATELY_ABSENT = new Map([
   ['ReconciliationLedger.jsx', 'same R2\'b rebuild — named to record what it replaced'],
   ['SpecialDaysScreen.jsx',
     'merged into SpecialEventsScreen.jsx (ADR 2026-08-29); named to record the merge'],
+  ['rootsBanner.jsx',
+    'deleted at T240 — an orphaned pre-RootsHomeScreen dashboard-verdict banner with zero non-test ' +
+    'importers; PLATFORM_STATE.md names it to record that it is gone'],
   ['CalmEmptyState.jsx',
     'the never-imported empty-state component, named in the imagery section precisely to record that it was removed unused'],
   ['src/data/deriveOccupancy.js',

@@ -6,7 +6,7 @@ created: 2026-09-24
 archive_when: rootsBanner.jsx is absent from the tree AND both screens' worksheet download resolves through a single shared module AND the orphan guard from D is green
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md]
 related_adrs: [docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md, docs/adr/2026-08-27-roots-hub-tiles-are-interface.md]
-related_tickets: [T234, T236, T237]
+related_tickets: [docs/work/tickets/T234-ingest-recurring-event-catalog-exclusivity.md, docs/work/tickets/T236-roots-attention-list-below-the-fold.md, docs/work/tickets/T237-attention-rows-open-the-reconciliation-flow.md]
 ---
 
 # T240 — Collapse the duplicate ingest layer: retire the orphaned Roots-as-dashboard banner
