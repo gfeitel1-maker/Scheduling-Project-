@@ -38,6 +38,13 @@ export function finalizeElectiveRun(db, { runId, authorUserId = null, deviceId }
   if (run.status === 'final') return { ok: false, error: 'ALREADY_FINAL' }
 
   const recordedOccurrences = db.prepare('SELECT * FROM elective_occurrences WHERE run_id = ?').all(runId)
+  // Deliberately a plain string, not a machine-checkable code like the other
+  // refusals above/below it: this is an input-shape refusal ("this run was
+  // never committed with any occurrences"), not a director-facing decision
+  // point the UI branches on — there is nothing for a caller to DO with this
+  // beyond surfacing the message, unlike STALE_OUTER_SCHEDULE/
+  // OUTER_RESOURCE_CONFLICT/ALREADY_FINAL, which each drive a specific UI
+  // action. Matches commitElectiveRun.js's own refusal-string precedent.
   if (recordedOccurrences.length === 0) return { ok: false, error: 'run has no assignments' }
 
   // 1. Re-derive occurrences live from template_slots and diff against what
@@ -105,6 +112,15 @@ export function finalizeElectiveRun(db, { runId, authorUserId = null, deviceId }
   const activityById = new Map(db.prepare('SELECT * FROM activities').all().map((a) => [a.id, a]))
   const locationById = new Map(db.prepare('SELECT * FROM locations').all().map((l) => [l.id, l]))
 
+  // `skipped` is deliberately not returned to the caller: the ADR's response
+  // shape for a success is exactly {ok, finalizedAt, snapshotRows}, and this
+  // branch should be unreachable in practice (the STALE_OUTER_SCHEDULE check
+  // above already proves live occurrences match what this run recorded, and
+  // deriveOccurrences.js already refuses to mint an occurrence missing either
+  // field). It exists purely so a row this defensive check never expects to
+  // see is dropped rather than crashing the whole finalize; if this array is
+  // ever non-empty in practice, that is itself a bug worth a real finding,
+  // not a value worth threading through the response contract.
   const snapshots = []
   const skipped = []
   for (const row of assignmentRows) {

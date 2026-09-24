@@ -150,6 +150,33 @@ function buildRun(db, campId, fx, { runId = randomUUID(), extraCampers = [] } = 
   return { runId: out.runId, occurrenceId }
 }
 
+// Same fixture shape as buildRun, but goes through the real
+// commitElectiveRunHandler (handlers.commitElectiveRun) rather than calling
+// the ops module directly — used where a test needs to prove behaviour is
+// reachable through the actual production write path, not just the
+// underlying function.
+async function buildRunViaHandler(handlers, token, campId, fx, { runId = randomUUID(), extraCampers = [] } = {}) {
+  const occurrenceId = deriveElectiveOccurrenceId(runId, fx.setId, fx.dayId, fx.timeBlockId, fx.tierId)
+  const occurrences = [{ id: occurrenceId, elective_set_id: fx.setId, day_id: fx.dayId, time_block_id: fx.timeBlockId, tier_id: fx.tierId }]
+  const campers = [{ id: fx.camperId, name: 'Ari Green' }, ...extraCampers]
+  const parsed = {
+    campers: campers.map((c) => ({ id: c.id, display_name: c.name, external_id: null })),
+    choices: [{ label: 'Archery', labelKey: 'archery' }],
+    preferences: campers.map((c) => ({ camper_id: c.id, label: 'Archery', labelKey: 'archery', rank: 1 })),
+    sameNameCampers: [],
+    skippedRows: [],
+  }
+  const assignments = campers.map((c) => ({
+    camper_id: c.id, occurrence_id: occurrenceId, labelKey: 'archery', activity_id: fx.activityId, preference_rank: 1, flags: [],
+  }))
+  const out = await handlers.commitElectiveRun({
+    token, name: 'Week 1 electives', parsed, assignments, occurrences,
+    scheduleTemplateId: fx.templateId, runId,
+  })
+  expect(out.ok).toBe(true)
+  return { runId: out.runId, occurrenceId }
+}
+
 describe('finalizeElectiveRunHandler', () => {
   it('case 1: finalizes a clean draft — snapshot row count matches assigned-camper x occupied-cell count, every row carries solver_generation', async () => {
     const { campId, handlers, token } = await seedAdmin()
@@ -167,8 +194,9 @@ describe('finalizeElectiveRunHandler', () => {
     expect(rows[0].day_id).toBe(fx.dayId)
     expect(rows[0].time_block_id).toBe(fx.timeBlockId)
     expect(rows[0].activity_name).toBe('Archery')
-    // solver_generation is NULL on this run (nothing sets it yet), and every
-    // snapshot row must carry the SAME value the run currently has.
+    // commitElectiveRun (round 2) stamps a fresh solver_generation on the run
+    // and every assignment row it writes — every snapshot row must carry the
+    // SAME value the run currently has.
     const run = db.prepare('SELECT solver_generation FROM elective_assignment_runs WHERE id = ?').get(runId)
     expect(rows[0].solver_generation).toBe(run.solver_generation)
 
@@ -289,6 +317,37 @@ describe('finalizeElectiveRunHandler', () => {
     expect(after.finalizedAgainstStaleGeneration).toBe(true)
   })
 
+  // Red Hat (round 2): a single finalize call always stamps every snapshot
+  // row with the SAME generation (electron/ops/finalizeElectiveRun.js), so
+  // a run's own snapshot rows never naturally end up with two DIFFERENT
+  // generation values through production writes — a genuinely final run
+  // cannot be finalized twice (ALREADY_FINAL). Without this case, the
+  // `.some(...)` branch in getElectiveRunHandler (electron/main.js) is only
+  // ever exercised with a single-element array (case 6, one camper), which
+  // would not catch a bug like accidentally checking only
+  // snapshotGenerations[0] instead of genuinely scanning every value. This
+  // hand-forges two snapshot rows with DIFFERENT generations on purpose —
+  // it is testing the read-handler's comparison logic in isolation, not the
+  // write path (case 8 already proves the write path end to end).
+  it('finalizedAgainstStaleGeneration: true when snapshot rows carry MIXED generations, only some of which differ from current', async () => {
+    const { campId, handlers, token } = await seedAdmin()
+    const fx = seedFixture(db, { campId })
+    const { runId } = buildRun(db, campId, fx)
+
+    const fin = await handlers.finalizeElectiveRun({ token, runId })
+    expect(fin.ok).toBe(true)
+
+    // A second, hand-forged snapshot row for this same run at a DIFFERENT
+    // generation — the run's snapshot set is now MIXED: one row matches the
+    // current generation, one does not.
+    db.prepare(
+      'INSERT INTO elective_run_outer_snapshots (id, run_id, camper_id, day_id, time_block_id, solver_generation) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(randomUUID(), runId, randomUUID(), fx.dayId, fx.timeBlockId, 'a-different-generation')
+
+    const result = await handlers.getElectiveRun({ token, runId })
+    expect(result.finalizedAgainstStaleGeneration).toBe(true)
+  })
+
   it('case 7: overCapacityOccurrences — two visible rows for two campers against the same occurrence+activity exceeding stored capacity', async () => {
     const { campId, handlers, token } = await seedAdmin()
     const fx = seedFixture(db, { campId, capacity: { mode: 'limited', limit: 1 } })
@@ -298,5 +357,90 @@ describe('finalizeElectiveRunHandler', () => {
     const result = await handlers.getElectiveRun({ token, runId })
     expect(result.overCapacityOccurrences.length).toBe(1)
     expect(result.overCapacityOccurrences[0]).toMatchObject({ activityId: fx.activityId, capacity: 1, filled: 2 })
+  })
+
+  // T244 round 2 (Red Hat HIGH) — the test that discharges the owner's
+  // binding condition for real, not on paper: commit -> finalize -> regenerate
+  // -> read, entirely through the production IPC handlers
+  // (commitElectiveRunHandler/finalizeElectiveRunHandler/getElectiveRunHandler).
+  // NO appendOp writes solver_generation anywhere in this test — the only
+  // hand-forged write is the manual/locked row's OTHER fields (source,
+  // camper_id, etc; T245's move/lock IPC doesn't exist yet), and even that
+  // row's solver_generation is left untouched (NULL), matching what a real
+  // manual placement looks like today — manual rows are exempt from the
+  // generation predicate by source alone, never by a stamped marker.
+  it('case 8 (end-to-end, no hand-forged solver_generation): commit -> finalize -> regenerate -> detection fires through production writes', async () => {
+    const { campId, handlers, token } = await seedAdmin()
+    const fx = seedFixture(db, { campId })
+    const runId = randomUUID()
+
+    const { occurrenceId } = await buildRunViaHandler(handlers, token, campId, fx, { runId })
+
+    // A manually-locked camper, placed the way T245 will eventually place
+    // one — hand-forged only because T245's IPC doesn't exist yet, and
+    // deliberately NOT given a solver_generation value.
+    const manualCamperId = randomUUID()
+    db.prepare('INSERT INTO campers (id, camp_id, display_name, is_active) VALUES (?, ?, ?, 1)').run(manualCamperId, campId, 'Manual Camper')
+    const manualAssignmentId = deriveElectiveAssignmentId(runId, manualCamperId, occurrenceId)
+    appendOp(db, { entity: 'elective_assignments', entity_id: manualAssignmentId, field: 'run_id', value: runId, device_id: deviceId })
+    appendOp(db, { entity: 'elective_assignments', entity_id: manualAssignmentId, field: 'occurrence_id', value: occurrenceId, device_id: deviceId })
+    appendOp(db, { entity: 'elective_assignments', entity_id: manualAssignmentId, field: 'camper_id', value: manualCamperId, device_id: deviceId })
+    appendOp(db, { entity: 'elective_assignments', entity_id: manualAssignmentId, field: 'activity_id', value: fx.activityId, device_id: deviceId })
+    appendOp(db, { entity: 'elective_assignments', entity_id: manualAssignmentId, field: 'source', value: 'manual', device_id: deviceId })
+
+    const genBeforeFinalize = db.prepare('SELECT solver_generation FROM elective_assignment_runs WHERE id = ?').get(runId).solver_generation
+    expect(genBeforeFinalize).toEqual(expect.any(String))
+
+    const fin = await handlers.finalizeElectiveRun({ token, runId })
+    expect(fin.ok).toBe(true)
+
+    const beforeRegen = await handlers.getElectiveRun({ token, runId })
+    expect(beforeRegen.finalizedAgainstStaleGeneration).toBe(false)
+
+    // Regenerate: commitElectiveRunHandler called again with the SAME runId,
+    // through the real production handler — round 2's status-preservation
+    // fix (commitElectiveRun.js) is what keeps this run 'final' through it,
+    // rather than silently reverting to 'draft'. Deliberately a DIFFERENT
+    // camper this time (not fx.camperId): deriveElectiveAssignmentId keys on
+    // (run_id, camper_id, occurrence_id), so re-placing the SAME camper at
+    // the SAME occurrence would hit the SAME row and simply overwrite it to
+    // the new generation — proving nothing about a row being LEFT BEHIND
+    // stale. A genuinely different camper's row is new at gen2, while
+    // fx.camperId's original row is never revisited by this second commit
+    // and keeps its gen1 stamp — exactly D5's "stale rows are inert" case.
+    const regenCamperId = randomUUID()
+    const occurrenceId2 = deriveElectiveOccurrenceId(runId, fx.setId, fx.dayId, fx.timeBlockId, fx.tierId)
+    const regenOut = await handlers.commitElectiveRun({
+      token, name: 'Week 1 electives (regenerated)',
+      parsed: {
+        campers: [{ id: regenCamperId, display_name: 'Regen Camper', external_id: null }],
+        choices: [{ label: 'Archery', labelKey: 'archery' }],
+        preferences: [{ camper_id: regenCamperId, label: 'Archery', labelKey: 'archery', rank: 1 }],
+        sameNameCampers: [],
+        skippedRows: [],
+      },
+      assignments: [{ camper_id: regenCamperId, occurrence_id: occurrenceId2, labelKey: 'archery', activity_id: fx.activityId, preference_rank: 1, flags: [] }],
+      occurrences: [{ id: occurrenceId2, elective_set_id: fx.setId, day_id: fx.dayId, time_block_id: fx.timeBlockId, tier_id: fx.tierId }],
+      scheduleTemplateId: fx.templateId,
+      runId,
+    })
+    expect(regenOut.ok).toBe(true)
+
+    const after = await handlers.getElectiveRun({ token, runId })
+    // (a)
+    expect(after.finalizedAgainstStaleGeneration).toBe(true)
+    // (b) the previous generation's solver row is excluded from rows and
+    // counted in staleCount.
+    const genAfterRegen = db.prepare('SELECT solver_generation FROM elective_assignment_runs WHERE id = ?').get(runId).solver_generation
+    expect(genAfterRegen).not.toBe(genBeforeFinalize)
+    const oldGenSolverRows = db
+      .prepare("SELECT id FROM elective_assignments WHERE run_id = ? AND source = 'solver' AND solver_generation = ?")
+      .all(runId, genBeforeFinalize)
+    expect(oldGenSolverRows.length).toBeGreaterThan(0)
+    const visibleIds = after.rows.map((r) => r.id)
+    for (const stale of oldGenSolverRows) expect(visibleIds).not.toContain(stale.id)
+    expect(after.staleCount).toBeGreaterThanOrEqual(oldGenSolverRows.length)
+    // (c) the manual row survives the regeneration and stays visible.
+    expect(after.rows.map((r) => r.camper_id)).toContain(manualCamperId)
   })
 })

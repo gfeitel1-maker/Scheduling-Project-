@@ -104,13 +104,75 @@ the same `occurrence_id` such that their combined count exceeds that occurrence'
 adds `activityId` to the declared shape.** `elective_occurrences` has no capacity column at all;
 capacity is stored per `(elective_set_id, activity_id)` on `elective_set_activities`
 (`capacity_mode`/`capacity_limit`, `capacity_mode` is the authority — `'unlimited'` is never
-checked, `'limited'` with a NULL `capacity_limit` is `INVALID_CAPACITY`, a generation-time finding
-owned by `buildElectiveAssignments`, and is skipped here rather than fabricated). A bare
+checked, `'limited'` with a NULL `capacity_limit` is skipped rather than fabricated). A bare
 `{occurrenceId, capacity, filled}` tuple as literally written above is not attributable to
 anything a director can act on without also knowing which activity is over capacity at that
 occurrence. The shipped shape is `{occurrenceId, activityId, capacity, filled}` — a superset of
 the ticket's declared fields, not a narrower one. Grouping is by `(a.occurrence_id, a.activity_id)`
 over the same generation-visible rows the ticket specifies.
+**Round 2 correction (Red Hat, verified against the code rather than
+assumed):** despite the schema comment's `INVALID_CAPACITY` name, no finding
+of that kind is emitted ANYWHERE in this codebase today —
+`buildElectiveAssignments.js` only ever emits `NO_OFFERINGS`/`NO_CAMPERS`/
+`NO_CAPACITY`. A `('limited', NULL)` offering is currently surfaced nowhere,
+not here and not at generation time. The original note above (now struck)
+claimed generation-time coverage that does not exist; `electron/main.js`'s
+comment was corrected in the same round.
+
+## Round 2 (Red Hat HIGH, confirmed and accepted)
+
+**The gap: `FINALIZED_AGAINST_STALE_GENERATION`/`staleCount` were correct but INERT against real
+data.** Nothing in shipped code ever wrote a non-null `solver_generation` — `commitElectiveRun.js`
+never set it on the run or on the assignment rows it writes, so the round-1 detection could only
+ever be exercised by a test that hand-forged the precondition with a direct `appendOp`, bypassing
+every real handler. The owner's binding condition was therefore satisfied only on paper.
+
+**Fix, in `electron/ops/commitElectiveRun.js` (the load-bearing change, not merely a stamping
+detail):**
+- One `randomUUID()` generation marker is minted per `commitElectiveRun` call and written to BOTH
+  `elective_assignment_runs.solver_generation` (the run row) and `solver_generation` on every
+  `elective_assignments` row that call writes, in the same transaction. Both halves together is
+  load-bearing: the shared predicate is `source='manual' OR solver_generation IS <run's current>`,
+  so stamping the run alone while leaving its own just-written rows at their old value would
+  instantly hide them.
+- Regeneration is `commitElectiveRun` called again with the same `providedRunId` (T199's flow).
+  Each call mints its own fresh marker; rows the new call does not re-write keep their old marker
+  and become stale under the predicate with **no separate re-stamp step** — this is exactly D5's
+  design, and the ADR's decision (b)/Red Hat H3 correction deliberately deleted the re-stamp
+  mechanism the original draft had. **T245/T246 must not re-add one.**
+- Backward compatibility: a run written before this fix has NULL on both the run row and its
+  assignment rows. `IS` (not `=`) makes NULL match NULL, so those pre-existing rows stay fully
+  visible — pinned by a dedicated test
+  (`electron/ops/commitElectiveRun.test.js`, "back-compat: a pre-existing run with NULL
+  solver_generation on both halves still matches under IS").
+- **A second, necessary fix surfaced by making the first one real:** `commitElectiveRun` used to
+  write `status: 'draft'` unconditionally on every call, including a regeneration against an
+  existing run. That is the H2 hazard in miniature — Device A finalizes locally (`status='final'`);
+  Device B, whose local copy never saw A's write, legitimately regenerates its own still-draft
+  copy; once merged, B's `status='draft'` op is an ordinary per-field LWW write, and if it carries a
+  later timestamp than A's finalize it silently reverts `status` to `'draft'` campwide, with no
+  error and no trace. Fixed: `status` is now asserted only on a run's first commit (no existing
+  row); a regeneration of an existing run never touches it, so an already-`'final'` run stays
+  `'final'` through a late-arriving regeneration, and `FINALIZED_AGAINST_STALE_GENERATION` — not a
+  silently reverted status — is what surfaces the race to a director. Pinned by
+  `commitElectiveRun.test.js`'s "does not touch status on a regeneration of an existing run" and
+  "a genuinely NEW run ... still gets status=draft on its first commit".
+
+**The end-to-end proof (discharges the owner's condition for real):**
+`electron/electiveRunFinalize.integration.test.js`'s "case 8 (end-to-end, no hand-forged
+solver_generation)" commits a run through `commitElectiveRunHandler`, finalizes it through
+`finalizeElectiveRunHandler`, regenerates by calling `commitElectiveRunHandler` again with the same
+`runId`, and reads through `getElectiveRunHandler` — asserting `finalizedAgainstStaleGeneration`
+flips to `true`, the superseded generation's solver row is excluded from `rows` and counted in
+`staleCount`, and a `source='manual'` row survives the regeneration. No step in this test writes
+`solver_generation` via a hand-forged `appendOp`; the manual row's own `solver_generation` is left
+untouched (NULL) rather than stamped, matching what a real manual placement looks like today (T245
+does not exist yet).
+
+Also added: a case where one run's `elective_run_outer_snapshots` rows carry MIXED generation
+values (hand-forged deliberately — a single finalize call always stamps every snapshot row with
+the same value, so this shape cannot occur through production writes; it exists purely to exercise
+`getElectiveRunHandler`'s `.some(...)` comparison against more than a one-element array).
 
 **`getElectiveRunHandler` returns an object, not a bare array — this was already implied by the
 scope text (`rows` alongside `staleCount`/`finalizedAgainstStaleGeneration`/

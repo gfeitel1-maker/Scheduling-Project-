@@ -1843,9 +1843,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   //     director can act on. This is a superset of the ticket's declared
   //     shape (adds activityId), not a narrower one. capacity_mode is the
   //     authority (schema.sql): 'unlimited' offerings are never checked, and
-  //     'limited' with a NULL capacity_limit (INVALID_CAPACITY — a
-  //     generation-time finding owned by buildElectiveAssignments, not this
-  //     read path) is skipped rather than treated as a fabricated capacity.
+  //     'limited' with a NULL capacity_limit is skipped rather than treated
+  //     as a fabricated capacity. Verified (round 2, Red Hat): despite the
+  //     schema comment's INVALID_CAPACITY name, no finding of that kind is
+  //     actually emitted anywhere in this codebase — buildElectiveAssignments
+  //     has NO_OFFERINGS/NO_CAMPERS/NO_CAPACITY only. A ('limited', NULL) row
+  //     is today surfaced NOWHERE, not here and not at generation time; this
+  //     skip is silent, not "someone else's job."
   function getElectiveRunHandler(args) {
     const { token, runId } = args ?? {}
     if (!isNonEmptyString(token)) throw new Error('token is required')
@@ -1903,7 +1907,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         .get(row.elective_set_id, row.activity_id)
       if (!setActivity) continue
       if (setActivity.capacity_mode !== 'limited') continue
-      if (setActivity.capacity_limit == null) continue // INVALID_CAPACITY — a generation-time finding, not this read path's job
+      if (setActivity.capacity_limit == null) continue // 'limited' + NULL capacity_limit: no finding surfaces this anywhere today; skipped rather than fabricated
       if (row.filled > setActivity.capacity_limit) {
         overCapacityOccurrences.push({
           occurrenceId: row.occurrence_id,

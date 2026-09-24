@@ -244,4 +244,116 @@ describe('commitElectiveRun', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM campers').get().c).toBe(0)
     db.close()
   })
+
+  // T244 round 2 (Red Hat HIGH, docs/adr/2026-09-23-elective-run-lifecycle-
+  // and-remaining-slices.md D5): the marker must be non-null and must match
+  // on BOTH the run row and every solver-produced assignment row from the
+  // same commit — a mismatch between the two halves is exactly the trap that
+  // would instantly hide every solver row under the shared generation-
+  // visibility predicate.
+  it('stamps a non-null solver_generation on the run row and on every assignment row, matching', () => {
+    const { db, campId } = freshDb()
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1 electives',
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(out.ok).toBe(true)
+
+    const run = db.prepare('SELECT solver_generation FROM elective_assignment_runs WHERE id = ?').get(out.runId)
+    expect(run.solver_generation).toEqual(expect.any(String))
+    expect(run.solver_generation.length).toBeGreaterThan(0)
+
+    const assignments = db.prepare('SELECT solver_generation FROM elective_assignments WHERE run_id = ?').all(out.runId)
+    expect(assignments.length).toBeGreaterThan(0)
+    for (const a of assignments) expect(a.solver_generation).toBe(run.solver_generation)
+  })
+
+  // Regeneration = commitElectiveRun called again with the same runId (T199's
+  // flow). Each call mints its OWN fresh marker — this is what leaves a
+  // superseded generation's rows behind, unchanged, at their old marker,
+  // which the shared predicate then treats as stale. No separate re-stamp
+  // step exists or should be added (ADR decision (b)/Red Hat H3 deleted that
+  // mechanism deliberately).
+  it('regeneration (same runId, called again) mints a NEW generation, different from the first', () => {
+    const { db, campId } = freshDb()
+    const runId = randomUUID()
+    const first = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(first.ok).toBe(true)
+    const gen1 = db.prepare('SELECT solver_generation FROM elective_assignment_runs WHERE id = ?').get(runId).solver_generation
+
+    const second = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(second.ok).toBe(true)
+    const gen2 = db.prepare('SELECT solver_generation FROM elective_assignment_runs WHERE id = ?').get(runId).solver_generation
+
+    expect(gen2).not.toBe(gen1)
+    const assignments = db.prepare('SELECT solver_generation FROM elective_assignments WHERE run_id = ?').all(runId)
+    for (const a of assignments) expect(a.solver_generation).toBe(gen2)
+  })
+
+  // T244 round 2 (Red Hat HIGH, the H2 hazard in miniature): a regeneration
+  // against an EXISTING run must never re-assert status='draft' — that would
+  // silently clobber an already-'final' status the moment a late-arriving
+  // regeneration op (from another device that never saw the finalize) merges
+  // in, via ordinary per-field LWW. status is only ever asserted on first
+  // creation.
+  it('does not touch status on a regeneration of an existing run — a final run stays final through it', () => {
+    const { db, campId } = freshDb()
+    const runId = randomUUID()
+    const first = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(first.ok).toBe(true)
+    db.prepare("UPDATE elective_assignment_runs SET status = 'final' WHERE id = ?").run(runId)
+
+    const second = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(second.ok).toBe(true)
+
+    const run = db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId)
+    expect(run.status).toBe('final')
+  })
+
+  it('a genuinely NEW run (no existing row) still gets status=draft on its first commit', () => {
+    const { db, campId } = freshDb()
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1',
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(out.ok).toBe(true)
+    const run = db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(out.runId)
+    expect(run.status).toBe('draft')
+  })
+
+  // Backward compatibility: a run that existed before this fix has NULL on
+  // the run row AND NULL on its assignment rows. Under `IS` (not `=`), NULL
+  // matches NULL, so those pre-existing rows must stay fully visible under
+  // the shared predicate rather than being hidden by the fix meant to
+  // detect staleness.
+  it('back-compat: a pre-existing run with NULL solver_generation on both halves still matches under IS', () => {
+    const { db, campId } = freshDb()
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Legacy run',
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(out.ok).toBe(true)
+    // Simulate a pre-fix row: force both halves back to NULL, as a run
+    // committed before this change would have on disk today.
+    db.prepare('UPDATE elective_assignment_runs SET solver_generation = NULL WHERE id = ?').run(out.runId)
+    db.prepare('UPDATE elective_assignments SET solver_generation = NULL WHERE run_id = ?').run(out.runId)
+
+    const rows = db
+      .prepare("SELECT id FROM elective_assignments a WHERE a.run_id = :runId AND (a.source = 'manual' OR a.solver_generation IS :gen)")
+      .all({ runId: out.runId, gen: null })
+    expect(rows.length).toBe(ASSIGNMENTS.length)
+    db.close()
+  })
 })
