@@ -215,3 +215,71 @@ describe('resolveAuthorLabel: all three label branches', () => {
     expect(unknown).toBe('Unknown')
   })
 })
+
+describe('usePendingConflicts: kind unique rows (T243)', () => {
+  function uniqueMsg(overrides = {}) {
+    return {
+      type: 'unique_conflict',
+      id: 'unique:users:camp-1:name',
+      entity: 'users',
+      field: 'name',
+      entityIds: ['user-a', 'user-b'],
+      existingRecord: { id: 'user-a', camp_id: 'camp-1', name: 'Alice', role: 'staff' },
+      incomingRecord: { id: 'user-b', camp_id: 'camp-1', name: 'Alice', role: 'admin' },
+      ...overrides,
+    }
+  }
+
+  it('surfaces a unique_conflict from the mount-time fetch as a kind: unique conflict carrying entity/field/value/entityIds', async () => {
+    localClient.listPendingConflicts.mockResolvedValue([uniqueMsg()])
+    const { result } = renderHook(() => usePendingConflicts())
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+
+    expect(result.current.conflicts).toHaveLength(1)
+    const c = result.current.conflicts[0]
+    expect(c.kind).toBe('unique')
+    expect(c.entity).toBe('users')
+    expect(c.field).toBe('name')
+    expect(c.value).toBe('Alice')
+    expect(c.entityIds.sort()).toEqual(['user-a', 'user-b'])
+  })
+
+  it('never carries PIN material into the normalized conflict even if it arrived on the wire (defense in depth, not the only boundary)', async () => {
+    localClient.listPendingConflicts.mockResolvedValue([
+      uniqueMsg({
+        existingRecord: { id: 'user-a', camp_id: 'camp-1', name: 'Alice', pin_hash: 'leaked-hash', pin_salt: 'leaked-salt' },
+        incomingRecord: { id: 'user-b', camp_id: 'camp-1', name: 'Alice', pin_hash: 'leaked-hash-2', pin_salt: 'leaked-salt-2' },
+      }),
+    ])
+    const { result } = renderHook(() => usePendingConflicts())
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+
+    expect(JSON.stringify(result.current.conflicts)).not.toContain('leaked-hash')
+    expect(JSON.stringify(result.current.conflicts)).not.toContain('leaked-salt')
+  })
+
+  it('disappears once no longer reported pending, via the same op_applied reconciliation as scalar conflicts', async () => {
+    localClient.listPendingConflicts.mockResolvedValue([uniqueMsg()])
+    const { result } = renderHook(() => usePendingConflicts())
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+    expect(result.current.conflicts).toHaveLength(1)
+
+    localClient.listPendingConflicts.mockResolvedValue([])
+    await act(async () => {
+      localClient.__listeners.opApplied[0]({ id: 'resolving-op', device_id: 'dOther' })
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(result.current.conflicts).toHaveLength(0)
+  })
+
+  it('a conflict with no kind (the scalar backfill default) still normalizes as a scalar conflict', async () => {
+    localClient.listPendingConflicts.mockResolvedValue([conflictMsg()])
+    const { result } = renderHook(() => usePendingConflicts())
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve() })
+    expect(result.current.conflicts).toHaveLength(1)
+    expect(result.current.conflicts[0].kind).toBeUndefined()
+    expect(result.current.conflicts[0].sideA).toBeTruthy()
+  })
+})

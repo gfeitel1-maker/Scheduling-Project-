@@ -210,8 +210,28 @@ export function runScopedQuery(db, entity, scopeId) {
 // the renderer (as a pure defense-in-depth measure) is too late, since the
 // raw scrypt digest + salt would already have landed in the renderer's heap
 // as the IPC event argument by the time renderer code runs.
+// A `unique_conflict` message (T243) carries WHOLE records, not a single
+// op's value — `users` is one of the four hard-set entities, so both
+// records here can carry `pin_hash`/`pin_salt`. sanitizeOpForIpc doesn't
+// apply (it strips one op's `.value` keyed on `.entity`/`.field`, and these
+// aren't ops), so this is a separate, explicit strip for the same PIN
+// fields IPC_PIN_FIELDS already names.
+function sanitizeRecordForIpc(entity, record) {
+  if (!record || entity !== 'users') return record
+  const rest = { ...record }
+  for (const field of IPC_PIN_FIELDS) delete rest[field]
+  return rest
+}
+
 export function sanitizeConflictForIpc(msg) {
   if (!msg) return msg
+  if (msg.type === 'unique_conflict') {
+    return {
+      ...msg,
+      existingRecord: sanitizeRecordForIpc(msg.entity, msg.existingRecord),
+      incomingRecord: sanitizeRecordForIpc(msg.entity, msg.incomingRecord),
+    }
+  }
   return {
     ...msg,
     incomingOp: sanitizeOpForIpc(msg.incomingOp),

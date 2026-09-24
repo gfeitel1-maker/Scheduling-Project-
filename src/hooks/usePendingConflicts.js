@@ -51,6 +51,37 @@ function normalizeConflict(msg) {
   }
 }
 
+// Normalizes a `{ type: 'unique_conflict', ... }` message (T243) — a hard-set
+// UNIQUE collision derived from the document, not a scalar op disagreement.
+// `UniqueConflictCard` (src/screens/ConflictsScreen.jsx) is the sole reader
+// of this shape and defines it: `kind: 'unique'`, `entity`, `field`, `value`
+// (the shared colliding value, identical across every colliding record by
+// definition), plus `entityIds` for identity/testing. Whole records
+// (existingRecord/incomingRecord) never leave this function — main.js's
+// sanitizeConflictForIpc already stripped PIN fields before this runs, but
+// nothing here re-exposes the raw records to a caller either, so a future
+// bug upstream of this call can't leak them into a React prop by accident.
+function normalizeUniqueConflict(msg) {
+  const record = msg.existingRecord ?? msg.incomingRecord
+  if (!record) return null
+  return {
+    id: msg.id,
+    kind: 'unique',
+    entity: msg.entity,
+    field: msg.field,
+    value: record[msg.field],
+    entityIds: msg.entityIds ?? [],
+  }
+}
+
+// Dispatches a raw conflict message to the right normalizer by `type` —
+// single seam both the mount-time fetch and the op_applied reconciliation
+// fetch call, so a `unique_conflict` row is never one accidental branch away
+// from an unhandled shape.
+function normalizeConflictMessage(msg) {
+  return msg && msg.type === 'unique_conflict' ? normalizeUniqueConflict(msg) : normalizeConflict(msg)
+}
+
 // Single source of truth for pending conflicts: feeds both the Sidebar badge
 // count and the ConflictsScreen list. Fed exclusively by the main process's
 // `shoresh:op-conflict` broadcast (wired from syncClient.onOpConflict in
@@ -107,7 +138,7 @@ export function usePendingConflicts() {
       .listPendingConflicts()
       .then((msgs) => {
         if (!mountedRef.current || !Array.isArray(msgs)) return
-        const normalized = msgs.map(normalizeConflict).filter(Boolean)
+        const normalized = msgs.map(normalizeConflictMessage).filter(Boolean)
         if (normalized.length === 0) return
         setConflicts((prev) => {
           const seen = new Set(prev.map((c) => c.id))
@@ -150,7 +181,7 @@ export function usePendingConflicts() {
           .listPendingConflicts()
           .then((msgs) => {
             if (!mountedRef.current || !Array.isArray(msgs)) return
-            const stillPending = new Set(msgs.map(normalizeConflict).filter(Boolean).map((c) => c.id))
+            const stillPending = new Set(msgs.map(normalizeConflictMessage).filter(Boolean).map((c) => c.id))
             setConflicts((prev) =>
               prev.filter((c) => stillPending.has(c.id) || resolvedMetaRef.current[c.id])
             )

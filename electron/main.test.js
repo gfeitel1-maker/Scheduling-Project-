@@ -2652,3 +2652,45 @@ describe('getSyncStatus: otherDeviceCount counts surviving copies, not rows', ()
     expect(h.getSyncStatus()).toMatchObject({ state: 'standalone', otherDeviceCount: 1 })
   })
 })
+
+describe('sanitizeConflictForIpc: kind unique — whole-record PIN boundary (T243)', () => {
+  it('strips pin_hash/pin_salt from BOTH whole user records on a unique conflict', () => {
+    const msg = {
+      type: 'unique_conflict',
+      id: 'unique:users:camp-1:name',
+      entity: 'users',
+      field: 'name',
+      entityIds: ['user-a', 'user-b'],
+      existingRecord: { id: 'user-a', camp_id: 'camp-1', name: 'Alice', role: 'staff', pin_hash: 'scrypt$deadbeef...', pin_salt: 'saltvalueA' },
+      incomingRecord: { id: 'user-b', camp_id: 'camp-1', name: 'Alice', role: 'admin', pin_hash: 'scrypt$c0ffee...', pin_salt: 'saltvalueB' },
+    }
+    const sanitized = sanitizeConflictForIpc(msg)
+    expect(sanitized.existingRecord).not.toHaveProperty('pin_hash')
+    expect(sanitized.existingRecord).not.toHaveProperty('pin_salt')
+    expect(sanitized.incomingRecord).not.toHaveProperty('pin_hash')
+    expect(sanitized.incomingRecord).not.toHaveProperty('pin_salt')
+    // The whole-record payload is the actual attack surface here (unlike the
+    // scalar op path, which never carries pin material for non-pin fields at
+    // all) — assert the raw digests are nowhere in the serialized message.
+    expect(JSON.stringify(sanitized)).not.toContain('deadbeef')
+    expect(JSON.stringify(sanitized)).not.toContain('c0ffee')
+    expect(JSON.stringify(sanitized)).not.toContain('saltvalueA')
+    expect(JSON.stringify(sanitized)).not.toContain('saltvalueB')
+    // Non-PIN fields the UI needs survive.
+    expect(sanitized.existingRecord.name).toBe('Alice')
+    expect(sanitized.entityIds).toEqual(['user-a', 'user-b'])
+  })
+
+  it('leaves a non-users unique conflict record untouched', () => {
+    const msg = {
+      type: 'unique_conflict',
+      entity: 'days_of_operation',
+      field: 'day_of_week',
+      entityIds: ['d1', 'd2'],
+      existingRecord: { id: 'd1', camp_id: 'camp-1', day_of_week: 2 },
+      incomingRecord: { id: 'd2', camp_id: 'camp-1', day_of_week: 2 },
+    }
+    const sanitized = sanitizeConflictForIpc(msg)
+    expect(sanitized.existingRecord.day_of_week).toBe(2)
+  })
+})

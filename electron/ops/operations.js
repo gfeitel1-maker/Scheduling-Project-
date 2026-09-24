@@ -740,6 +740,24 @@ export function listPendingConflicts(db) {
   const pending = []
   const now = new Date().toISOString()
   for (const row of rows) {
+    // T243 — a hard-set UNIQUE collision (conflictStore.js's
+    // recordUniqueConflicts) has no op-log resolution: there is no
+    // resolving op with a parent_op_id, because nothing here is "chosen" —
+    // it clears when clearResolvedUniqueConflicts next runs and the
+    // collision is no longer in the document. So this row never enters the
+    // resolvingOp check below, which is scalar-conflict-only.
+    if (row.kind === 'unique') {
+      pending.push({
+        type: 'unique_conflict',
+        id: row.id,
+        entity: row.entity,
+        field: row.field,
+        entityIds: JSON.parse(row.entity_ids),
+        existingRecord: JSON.parse(row.existing_op),
+        incomingRecord: JSON.parse(row.incoming_op),
+      })
+      continue
+    }
     const resolvingOp = db
       .prepare(
         'SELECT id FROM operations WHERE entity = ? AND entity_id = ? AND field = ? AND parent_op_id = ? LIMIT 1'

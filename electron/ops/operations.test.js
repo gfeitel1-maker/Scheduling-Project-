@@ -1613,3 +1613,69 @@ describe('detectUniqueFieldCollision (T238 — tiers/time_blocks composite scope
     expect(result).toBeNull()
   })
 })
+
+describe('listPendingConflicts + kind: unique rows (T243 — connecting deriveUniqueConflicts to the renderer)', () => {
+  it('returns a hard-set UNIQUE collision alongside scalar conflicts, in a distinct shape', async () => {
+    const { recordUniqueConflicts } = await import('../automerge/conflictStore.js')
+    const { deriveUniqueConflicts } = await import('../automerge/uniqueConflicts.js')
+    const { recordKey } = await import('../automerge/campDocument.js')
+
+    // Two whole `users` records sharing camp_id+name — exactly what
+    // deriveUniqueConflicts produces from a merged document. Built via the
+    // real production key encoding (`recordKey`) `listRecordIds`/`readRecord`
+    // expect, not a hand-rolled shape.
+    function flattenRecord(record) {
+      const out = {}
+      for (const [field, value] of Object.entries(record)) out[recordKey(record.id, field)] = value
+      return out
+    }
+    const fakeDoc = {
+      users: {
+        ...flattenRecord({ id: 'user-a', camp_id: 'camp-1', name: 'Alice', role: 'staff', pin_hash: 'hashA', pin_salt: 'saltA' }),
+        ...flattenRecord({ id: 'user-b', camp_id: 'camp-1', name: 'Alice', role: 'admin', pin_hash: 'hashB', pin_salt: 'saltB' }),
+      },
+    }
+    const conflicts = deriveUniqueConflicts(fakeDoc)
+    expect(conflicts).toHaveLength(1)
+    recordUniqueConflicts(db, conflicts)
+
+    const pending = listPendingConflicts(db)
+    const unique = pending.find((p) => p.type === 'unique_conflict')
+    expect(unique).toBeTruthy()
+    expect(unique.entity).toBe('users')
+    expect(unique.field).toBe('name')
+    expect(unique.entityIds.sort()).toEqual(['user-a', 'user-b'])
+    // Whole records travel through at this layer (main.js's sanitizeConflictForIpc
+    // is the PIN boundary, tested separately) — but listPendingConflicts itself
+    // must not have dropped or renamed the records deriveUniqueConflicts produced.
+    expect(unique.existingRecord).toBeTruthy()
+    expect(unique.incomingRecord).toBeTruthy()
+  })
+
+  it('an existing scalar conflict is unaffected by a unique row also being pending', () => {
+    const existingOp = appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-20',
+      field: 'activity_id',
+      value: 'v1',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    const incomingOp = {
+      id: 'incoming-op-id-20',
+      entity: 'template_slots',
+      entity_id: 'slot-20',
+      field: 'activity_id',
+      value: 'v2',
+      device_id: 'device-2',
+      timestamp: new Date().toISOString(),
+      parent_op_id: null,
+    }
+    recordConflict(db, { incomingOp, existingOp })
+
+    const pending = listPendingConflicts(db)
+    expect(pending).toHaveLength(1)
+    expect(pending[0].type).toBe('op_conflict')
+  })
+})
