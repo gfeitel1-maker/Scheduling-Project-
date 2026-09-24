@@ -125,6 +125,27 @@ describe('migration v74: fresh vs migrated equivalence', () => {
     db.close()
   })
 
+  it('rejects a NULL day_id or time_block_id at the schema level, not only in the derive function', () => {
+    const db = freshDb()
+    db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
+    db.prepare(
+      "INSERT INTO elective_assignment_runs (id, camp_id, name) VALUES ('run1', 'camp1', 'Run')"
+    ).run()
+    expect(() =>
+      db.prepare(
+        "INSERT INTO elective_run_outer_snapshots (id, run_id, camper_id, day_id, time_block_id) " +
+        "VALUES ('snap-null-day', 'run1', 'camper1', NULL, 'block1')"
+      ).run()
+    ).toThrow(/NOT NULL constraint failed/)
+    expect(() =>
+      db.prepare(
+        "INSERT INTO elective_run_outer_snapshots (id, run_id, camper_id, day_id, time_block_id) " +
+        "VALUES ('snap-null-block', 'run1', 'camper1', 'day1', NULL)"
+      ).run()
+    ).toThrow(/NOT NULL constraint failed/)
+    db.close()
+  })
+
   it('is idempotent — re-running v74 does not duplicate columns or the table', () => {
     const db = preV74Db()
     initSchema(db) // runs v74
@@ -159,7 +180,8 @@ describe('rollbackV74', () => {
       "INSERT INTO elective_assignment_runs (id, camp_id, name, finalized_at, finalized_by) VALUES ('run1', 'camp1', 'Run', '2026-09-23T00:00:00Z', 'user1')"
     ).run()
     db.prepare(
-      "INSERT INTO elective_run_outer_snapshots (id, run_id, camper_id) VALUES ('snap1', 'run1', 'camper1')"
+      "INSERT INTO elective_run_outer_snapshots (id, run_id, camper_id, day_id, time_block_id) " +
+      "VALUES ('snap1', 'run1', 'camper1', 'day1', 'block1')"
     ).run()
 
     const result = rollbackV74(db)

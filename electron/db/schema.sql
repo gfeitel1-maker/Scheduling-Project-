@@ -1430,12 +1430,16 @@ CREATE TABLE IF NOT EXISTS tombstones (
 -- Derived id: deriveElectiveRunOuterSnapshotId(run_id, camper_id, day_id, time_block_id) —
 -- electron/ops/deriveElectiveRunOuterSnapshotId.js. No UNIQUE constraint beyond the derived PRIMARY
 -- KEY — the id itself IS the uniqueness invariant, same posture as elective_assignments.
+-- day_id/time_block_id are NOT NULL: the derive function's `opaque()` guard already rejects a null
+-- or empty value for either, since the ADR's id definition keys on all four fields — a row without
+-- a day or block has no derivable identity and should not be representable. This schema constraint
+-- makes that agreement enforceable at the table, not just at the one call site that derives the id.
 CREATE TABLE IF NOT EXISTS elective_run_outer_snapshots (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
   camper_id TEXT NOT NULL,
-  day_id TEXT,
-  time_block_id TEXT,
+  day_id TEXT NOT NULL,
+  time_block_id TEXT NOT NULL,
   activity_id TEXT,
   activity_name TEXT,
   location_id TEXT,
