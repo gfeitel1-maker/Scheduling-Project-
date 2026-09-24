@@ -1624,6 +1624,13 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
               column means. Rename one of them under Groups first.
             </p>
           )}
+          {specialDayPlan.ambiguousActivityNames?.length > 0 && (
+            <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+              You have more than one activity whose name matches{' '}
+              {specialDayPlan.ambiguousActivityNames.join(', ')}, so this day cannot tell which one the
+              file means. Rename one of them under Activities first.
+            </p>
+          )}
           {specialDayPlan.unmatchedColumns.length > 0 && (
             <p style={{ margin: '0 0 8px', fontSize: 13 }}>
               {specialDayPlan.unmatchedColumns.join(', ')}{' '}
