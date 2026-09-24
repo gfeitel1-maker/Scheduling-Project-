@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
@@ -12,10 +12,12 @@ import InlineAddRow from '../components/setup/InlineAddRow'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import { describeDivisionEvidence } from '../utils/divisionProvenance.js'
 import ProvenanceDot from '../components/setup/ProvenanceDot'
+import DuplicateNameDot from '../components/setup/DuplicateNameDot'
 import { provenanceDotStyles } from '../components/setup/provenanceDotStyles.js'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
+import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 
 const repo = createScheduleRepository({ localClient })
 // Repository-only migration (not the full useCrudScreen hook): load() fetches
@@ -74,7 +76,7 @@ function DivisionProvenanceDot({ group, evidence }) {
   )
 }
 
-function GroupRow({ group, tiers, role, draft, onOpen, onChange, onSave, onCancel, onDelete, saving, weekToggle, divisionEvidence }) {
+function GroupRow({ group, tiers, role, draft, onOpen, onChange, onSave, onCancel, onDelete, saving, weekToggle, divisionEvidence, duplicateSiblings }) {
   const tierName = tiers.find(t => t.id === group.tier_id)?.name || '—'
 
   if (draft) {
@@ -121,6 +123,7 @@ function GroupRow({ group, tiers, role, draft, onOpen, onChange, onSave, onCance
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(group) } }}
           style={{ cursor: 'pointer' }}
         >{group.name}</span>
+        {duplicateSiblings?.length > 0 && <DuplicateNameDot row={group} siblings={duplicateSiblings} entityLabel="group" />}
       </td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>
         {tierName}
@@ -158,6 +161,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
   const [excludedGroupIds, setExcludedGroupIds] = useState(new Set())
+  const duplicateGroupSiblings = useMemo(() => duplicateSiblingsByIdFor(groups), [groups])
   // T114 follow-up — group id -> the support object explaining its inferred age
   // division. Empty for a hand-assigned division, which is what keeps the dot
   // quiet by default.
@@ -528,7 +532,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                           </td>
                         </tr>
                         {tierGroups.map(g => (
-                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} divisionEvidence={divisionEvidenceByGroup[g.id]} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
+                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} divisionEvidence={divisionEvidenceByGroup[g.id]} duplicateSiblings={duplicateGroupSiblings.get(g.id)} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
                         ))}
                       </React.Fragment>
                     )
@@ -541,7 +545,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                         </td>
                       </tr>
                       {noTier.map(g => (
-                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} divisionEvidence={divisionEvidenceByGroup[g.id]} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
+                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} divisionEvidence={divisionEvidenceByGroup[g.id]} duplicateSiblings={duplicateGroupSiblings.get(g.id)} draft={drafts[g.id]} onOpen={openDraft} onChange={changeDraft} onSave={commitDraft} onCancel={closeDraft} saving={savingId === g.id} onDelete={deleteGroup} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
                       ))}
                     </>
                   )}

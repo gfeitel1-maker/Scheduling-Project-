@@ -3,6 +3,7 @@ import { S, useEnterTransition } from '../styles/shared'
 import { CircleCheckIcon, LockIcon } from '../components/icons'
 import { usePendingConflicts } from '../hooks/usePendingConflicts'
 import { noticeForStatus } from './conflictsNotice'
+import { DOW } from './setup/setupHelpers'
 
 // App.jsx passes a single shared `pendingConflicts` instance so the Sidebar
 // badge and this screen's list can never disagree. When the prop is absent
@@ -33,6 +34,37 @@ function describeConflict(entity, field) {
   const key = `${entity}.${field}`
   if (FIELD_LABELS[key] === '__PIN__' || FIELD_LABELS[key] === '__IMAGE__') return null
   return FIELD_LABELS[key] || 'A change to this record'
+}
+
+// Plain-language copy for `kind: 'unique'` (T242) — a parallel vocabulary to
+// FIELD_LABELS, keyed by entity rather than by entity.field, because a
+// hard-set collision names the whole record pair, not one changed value.
+//
+// Only `days_of_operation` gets a second "where to fix it" line. The other
+// three hard-set entities (`users`, `schedule_templates`, `camp_maps`) have
+// no director-facing screen to point at: there is no Staff/users screen and
+// no `users` CRUD anywhere in src/screens/, the camp-map spatial layer was
+// removed (see LocationsScreen), and schedule_templates routes are fixed
+// navigation, not a director-managed record list. Inventing a screen name
+// here would be worse than the honest gap — see T242's ticket text.
+const SCHEDULE_TEMPLATE_KIND_LABEL = { manual: 'Manual', generated: 'Generated' }
+
+function describeUniqueConflict(entity, field, value) {
+  if (entity === 'users') {
+    return { sentence: `Two staff members are both named "${value}".`, whereToFix: null }
+  }
+  if (entity === 'days_of_operation') {
+    const dayName = DOW[value] ?? `day ${value}`
+    return { sentence: `Two schedules exist for ${dayName}.`, whereToFix: 'Rename or delete one on the Days screen.' }
+  }
+  if (entity === 'schedule_templates') {
+    const kindLabel = SCHEDULE_TEMPLATE_KIND_LABEL[value] ?? value
+    return { sentence: `Two ${kindLabel} schedules exist for this camp.`, whereToFix: null }
+  }
+  if (entity === 'camp_maps') {
+    return { sentence: 'Two camp maps were created for this camp.', whereToFix: null }
+  }
+  return { sentence: 'Two records collide on a value that must be unique.', whereToFix: null }
 }
 
 function relativeTime(timestamp) {
@@ -106,6 +138,26 @@ function ChoiceBox({ side, label, isPin, isImage, disabled, onKeep }) {
 //     away and back within the hold window), it renders the confirmed
 //     checkmark state immediately instead of a pristine "unresolved" one
 //     that would later vanish with no explanation.
+// The single informational card for a `kind: 'unique'` hard-set collision
+// (T242). No ChoiceBox, no buttons, no dismiss control — there is nothing to
+// "keep" here, resolution is rename-or-delete on the screen that owns the
+// entity. It self-clears the moment the collision stops being derived: the
+// parent (usePendingConflicts) simply stops including it in `conflicts`, so
+// this card has no unmount/timer machinery of its own.
+function UniqueConflictCard({ conflict }) {
+  const { sentence, whereToFix } = describeUniqueConflict(conflict.entity, conflict.field, conflict.value)
+  return (
+    <div style={S.mergeCard}>
+      <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 15, color: 'var(--text)', marginBottom: whereToFix ? 6 : 0 }}>
+        {sentence}
+      </div>
+      {whereToFix && (
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{whereToFix}</div>
+      )}
+    </div>
+  )
+}
+
 function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
   const [resolving, setResolving] = useState(false)
   const [collapsing, setCollapsing] = useState(false)
@@ -259,13 +311,17 @@ export default function ConflictsScreen({ pendingConflicts }) {
           </div>
 
           {conflicts.map((c) => (
-            <ConflictCard
-              key={c.id}
-              conflict={c}
-              resolved={resolvedMeta ? resolvedMeta[c.id] : null}
-              resolveAuthorLabel={resolveAuthorLabel}
-              onResolve={resolveConflict}
-            />
+            c.kind === 'unique' ? (
+              <UniqueConflictCard key={c.id} conflict={c} />
+            ) : (
+              <ConflictCard
+                key={c.id}
+                conflict={c}
+                resolved={resolvedMeta ? resolvedMeta[c.id] : null}
+                resolveAuthorLabel={resolveAuthorLabel}
+                onResolve={resolveConflict}
+              />
+            )
           ))}
         </>
       )}

@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
+import DuplicateNameDot from '../components/setup/DuplicateNameDot'
+import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
@@ -27,7 +29,7 @@ const repository = createSetupCrudRepository({ localClient })
 // never wrap/stack — at the screen's normal width.
 const rowActionsFlex = { display: 'flex', flexWrap: 'nowrap', gap: 6, justifyContent: 'flex-end' }
 
-function TierRow({ tier, groupCount, role, onSave, onDelete }) {
+function TierRow({ tier, groupCount, role, onSave, onDelete, duplicateSiblings }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(tier.name)
   const [saving, setSaving] = useState(false)
@@ -88,6 +90,7 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
           style={{ cursor: 'pointer' }}
         >{tier.name}</span>
+        {duplicateSiblings?.length > 0 && <DuplicateNameDot row={tier} siblings={duplicateSiblings} entityLabel="tier" />}
       </td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{groupCount}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
@@ -104,6 +107,7 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
 export default function TiersScreen({ campId, role, onNavigate }) {
   const emptyEnter = useEnterTransition('liftFade')
   const [tiers, setTiers] = useState([])
+  const duplicateTierSiblings = useMemo(() => duplicateSiblingsByIdFor(tiers), [tiers])
   const [groupCounts, setGroupCounts] = useState({})
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
@@ -415,6 +419,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
                   role={role}
                   onSave={saveTier}
                   onDelete={deleteTier}
+                  duplicateSiblings={duplicateTierSiblings.get(tier.id)}
                 />
               ))}
               {/* The always-present blank "type here to add" row — lives as

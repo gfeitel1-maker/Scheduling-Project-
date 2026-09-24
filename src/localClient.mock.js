@@ -224,12 +224,31 @@ function randomId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
-// Mirrors the real SQLite UNIQUE(...) indexes (electron/db/schema.sql +
-// migrations) so the mock reproduces the same collision behavior the app's
-// write logic is built around (ensureCohort / addTier / etc. deliberately
-// write `name` first and match on /UNIQUE/i errors). Without emulating these,
-// StrictMode's double-invoked mount effect would create duplicate "Main"
-// cohorts/days in a `npm run dev` browser that could never happen in Electron.
+// Schema v73 (T241) relaxed nine of these ten tables' UNIQUE(...) index to a
+// plain index, so this map no longer mirrors a DB-level constraint for any of
+// them — it mirrors the APP-LEVEL pre-check instead: electron/ops/
+// operations.js's UNIQUE_FIELD_ENTITIES, which localWriteClient.write()
+// consults (detectUniqueFieldCollision) and rejects on BEFORE appendOp ever
+// runs, on the real local-write path. That pre-check is unconditional and
+// blocking — it stays on the local write path deliberately (docs/superpowers/
+// specs/2026-09-23-merge-unique-collision-design.md §C, "Unchanged,
+// deliberately"): a duplicate created THIS way is still refused in real
+// Electron, exactly as this map still refuses it here. The "two same-named
+// rows coexist" outcome v73 exists for is a DIFFERENT path entirely — two
+// devices independently creating the same name (different entity_ids),
+// reconciled by an Automerge MERGE, never reachable through this mock's
+// single-process write() — so it cannot be demonstrated in `npm run dev` by
+// typing a duplicate; that needs pre-seeded colliding rows instead.
+// `days_of_operation` is the one exception that is STILL a real SQLite
+// UNIQUE(camp_id, day_of_week) constraint (schema.sql) — one of the four
+// hard-set tables v73 deliberately left alone.
+// ALSO load-bearing for camp_id auto-stamping below (`uniqueKey?.includes(
+// 'camp_id')`) — do not remove an entry casually; it stamps camp_id on a
+// brand-new row, not just collision detection.
+// NOTE: elective_sets/events are structured-rejected ({status:'rejected',
+// reason:'unique_field'}) by the REAL registry but this mock still throws raw
+// for them (pre-existing, documented drift below at UNIQUE_FIELD_ENTITIES —
+// their dev-mode create callers were built against the raw-throw shape).
 const UNIQUE_KEYS = {
   cohorts:     ['camp_id', 'name'],
   groups:      ['camp_id', 'name'],

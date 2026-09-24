@@ -317,3 +317,80 @@ describe('ConflictCard (Fix 1): renders from resolved-state props, not a self-ow
     expect(screen.queryByRole('button', { name: /keep this version/i })).toBeNull()
   })
 })
+
+function makeUniqueConflict(overrides = {}) {
+  return {
+    id: 'unique:users:camp1:name',
+    kind: 'unique',
+    entity: 'users',
+    field: 'name',
+    value: 'Alice',
+    entityIds: ['u1', 'u2'],
+    ...overrides,
+  }
+}
+
+function renderPending(conflicts) {
+  const pendingConflicts = {
+    conflicts,
+    loading: false,
+    resolveConflict: vi.fn(),
+    dismissResolvedConflict: vi.fn(),
+    resolveAuthorLabel: () => 'Someone',
+    resolvedMeta: {},
+  }
+  render(<ConflictsScreen pendingConflicts={pendingConflicts} />)
+}
+
+describe('ConflictCard kind: "unique" (T242) — informational, no ChoiceBox', () => {
+  it('renders no ChoiceBox / no "Keep this version" buttons for a unique conflict', () => {
+    renderPending([makeUniqueConflict()])
+    expect(screen.queryByRole('button', { name: /keep this version/i })).toBeNull()
+  })
+
+  it('users: names the colliding staff member, no owning-screen line', () => {
+    renderPending([makeUniqueConflict({ entity: 'users', field: 'name', value: 'Alice' })])
+    expect(screen.queryByText('Two staff members are both named "Alice".')).not.toBeNull()
+    expect(screen.queryByText(/Staff screen/i)).toBeNull()
+  })
+
+  it('days_of_operation: names the day and points at the Days screen', () => {
+    renderPending([makeUniqueConflict({
+      id: 'unique:days_of_operation:camp1:day_of_week',
+      entity: 'days_of_operation',
+      field: 'day_of_week',
+      value: 2, // Tuesday
+    })])
+    expect(screen.queryByText('Two schedules exist for Tuesday.')).not.toBeNull()
+    expect(screen.queryByText('Rename or delete one on the Days screen.')).not.toBeNull()
+  })
+
+  it('schedule_templates: names the route, never calls one "active"/"current"/"real"', () => {
+    renderPending([makeUniqueConflict({
+      id: 'unique:schedule_templates:week1:kind',
+      entity: 'schedule_templates',
+      field: 'kind',
+      value: 'manual',
+    })])
+    const text = document.body.textContent
+    expect(text).toContain('Two Manual schedules exist for this camp.')
+    expect(text.toLowerCase()).not.toMatch(/\bactive\b|\bcurrent\b|\breal\b/)
+  })
+
+  it('camp_maps: names the collision with no second line', () => {
+    renderPending([makeUniqueConflict({
+      id: 'unique:camp_maps:camp1:kind',
+      entity: 'camp_maps',
+      field: 'kind',
+      value: 'facility',
+    })])
+    expect(screen.queryByText('Two camp maps were created for this camp.')).not.toBeNull()
+  })
+
+  it('a conflict with no `kind` field is treated as scalar, unchanged', () => {
+    const conflict = makeConflict()
+    expect(conflict.kind).toBeUndefined()
+    renderPending([conflict])
+    expect(screen.queryAllByRole('button', { name: /keep this version/i }).length).toBeGreaterThan(0)
+  })
+})

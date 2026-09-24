@@ -653,4 +653,37 @@ describe('GroupsScreen — age division provenance', () => {
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
     expect(screen.queryByRole('button', { name: /Age division provenance/i })).toBeNull()
   })
+
+  describe('duplicate-name marker (T239)', () => {
+    beforeEach(() => {
+      localClient.listDivisionEvidence.mockResolvedValue({ evidence: [], fieldSources: {} })
+    })
+
+    it('flags two groups whose names normalize the same', async () => {
+      localClient.list.mockImplementation((entity) =>
+        Promise.resolve(entity === 'groups'
+          ? [group({ id: 'g1', name: 'Bunk A' }), group({ id: 'g2', name: 'bunk a' })]
+          : [tier()])
+      )
+      render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+      await waitFor(() => expect(screen.queryByText('Bunk A')).not.toBeNull())
+      expect(screen.getAllByRole('button', { name: /Possible duplicate/i })).toHaveLength(2)
+    })
+
+    // Non-vacuity: EXACT matching only, never the `near` heuristic (that is
+    // Activities-specific and tuned against real workbooks — T239 says not
+    // to spread it). A single-character typo is near's known catch and
+    // exact's known miss: if this screen ever passed { near: true } by
+    // mistake, this is the case that would silently start matching.
+    it('does NOT flag a one-character typo — exact matching only, not near', async () => {
+      localClient.list.mockImplementation((entity) =>
+        Promise.resolve(entity === 'groups'
+          ? [group({ id: 'g1', name: 'Music' }), group({ id: 'g2', name: 'Musik' })]
+          : [tier()])
+      )
+      render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+      await waitFor(() => expect(screen.queryByText('Music')).not.toBeNull())
+      expect(screen.queryByRole('button', { name: /Possible duplicate/i })).toBeNull()
+    })
+  })
 })
