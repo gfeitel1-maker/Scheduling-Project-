@@ -83,7 +83,7 @@ describe('commitTrayState', () => {
     })
     expect(tray.secondary).not.toBeNull()
     expect(tray.secondary.label).toBe('Undo this import')
-    expect(tray.hint).toBe('Imported 40 records.')
+    expect(tray.hint).toBe('Imported 40 records from the file.')
   })
 
   it('the not-undoable state never mentions undo, per Invariant 5c', () => {
@@ -99,7 +99,7 @@ describe('commitTrayState', () => {
       undoState: { status: 'live', isLive: true, isPending: false, total: 1, secondsLeft: null },
     })
     expect(tray.secondary.note).toBe('for the next few minutes')
-    expect(tray.hint).toBe('Imported 1 record.')
+    expect(tray.hint).toBe('Imported 1 record from the file.')
   })
 
   it('shows a live countdown in the last 60 seconds', () => {
@@ -138,7 +138,7 @@ describe('commitTrayState', () => {
       undoCapable: true,
       undoState: { status: 'live', isLive: true, isPending: false, total: 40, secondsLeft: null, undoError: 'This import could not be undone. Please try again.' },
     })
-    expect(tray.hint).toBe('Imported 40 records.')
+    expect(tray.hint).toBe('Imported 40 records from the file.')
     expect(tray.secondary.label).toBe('Undo this import')
     expect(tray.secondary.disabled).toBe(false)
   })
@@ -149,7 +149,7 @@ describe('commitTrayState', () => {
       undoCapable: true,
       undoState: { status: 'expired', isLive: false, isPending: false, total: 40 },
     })
-    expect(tray.hint).toBe('Imported 40 records.')
+    expect(tray.hint).toBe('Imported 40 records from the file.')
     expect(tray.secondary).toBeNull()
   })
 
@@ -167,7 +167,7 @@ describe('commitTrayState', () => {
         kept: [{ name: 'Swim', reason: 'referenced', referencedByCount: 3 }],
       },
     })
-    expect(tray.receipt.summary).toBe('Removed 2 records. Kept 1 changed since import, and 1 still in use.')
+    expect(tray.receipt.summary).toBe('Removed 2 records the import created. Kept 1 changed since import, and 1 still in use.')
     expect(tray.receipt.detail).toEqual([
       'Kept — changed since import: name',
       'Kept — still in use: Swim (used by 3 other records)',
@@ -180,7 +180,7 @@ describe('commitTrayState', () => {
       undoCapable: true,
       undoState: { status: 'used', isLive: false, isPending: false, total: 40, deleted: [{ entity: 'a', entity_id: '1' }], skipped: [], kept: [] },
     })
-    expect(tray.receipt.summary).toBe('Removed 1 record.')
+    expect(tray.receipt.summary).toBe('Removed 1 record the import created.')
     expect(tray.receipt.detail).toEqual([])
   })
 
@@ -240,5 +240,47 @@ describe('commitTrayState', () => {
       },
     })
     expect(tray.receipt.summary).toBe('Nothing removed — kept 1 changed since import, and 1 still in use.')
+  })
+
+  // T253 round 3, Finding A. A real import committed 28 records ("Imported
+  // 28 records.") and Undo then reported 42 removed ("Removed 42 records.")
+  // — both numbers correct (28 = outcome.total, the import plan; 42 =
+  // deleted.length, which includes derived rows like locations and groups
+  // the import created), but presented with the same bare word "records"
+  // they read as a contradiction: as if undo destroyed 14 more things than
+  // were imported. Same class of bug as the progress-counter fix in
+  // ReconciliationScreen.jsx ("Naming the unit costs a word and removes
+  // it.") — the fix is to name what each number counts, not to change
+  // either number. This pins that the two hints, side by side with a
+  // higher removed-count than imported-count, read as consistent rather
+  // than contradictory.
+  it('names the unit so the imported count and the removed count cannot read as a contradiction', () => {
+    const importedTray = commitTrayState({
+      notices: [],
+      undoCapable: true,
+      undoState: { status: 'live', isLive: true, isPending: false, total: 28, secondsLeft: null },
+    })
+    expect(importedTray.hint).toBe('Imported 28 records from the file.')
+
+    const undoneTray = commitTrayState({
+      notices: [],
+      undoCapable: true,
+      undoState: {
+        status: 'used',
+        isLive: false,
+        isPending: false,
+        total: 28,
+        deleted: Array.from({ length: 42 }, (_, i) => ({ entity: 'activities', entity_id: `a${i}` })),
+        skipped: [],
+        kept: [],
+      },
+    })
+    expect(undoneTray.receipt.summary).toBe('Removed 42 records the import created.')
+
+    // Different unit phrases attached to each number is the fix: "from the
+    // file" (what was imported) versus "the import created" (everything
+    // undo can remove, including derived rows) — never the same bare noun.
+    expect(importedTray.hint).toMatch(/from the file/)
+    expect(undoneTray.receipt.summary).toMatch(/the import created/)
   })
 })

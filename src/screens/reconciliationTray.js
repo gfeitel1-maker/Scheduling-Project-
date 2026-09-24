@@ -83,6 +83,16 @@ export function applyTrayState({ totalCount = 0, doneCount = 0, confirmedCount =
 // minutes" or a live countdown, never "always available" — and the
 // not-undoable state must read as complete, never as missing something; it
 // never mentions undo at all.
+//
+// T253 round 3, Finding A: `total` (records in the import plan) and
+// `deleted.length` (rows undo actually removed, including derived rows
+// like locations and groups the import created) are different counts of
+// different things and `deleted.length` can legitimately be larger. On a
+// real import they read side by side as "Imported 28 records." / "Removed
+// 42 records." — an apparent contradiction. Same class of bug as the
+// progress-counter fix below ("Naming the unit costs a word and removes
+// it."): name what each number counts ("from the file" vs "the import
+// created") rather than changing either number.
 const recordWord = (n) => (n === 1 ? 'record' : 'records')
 
 function receiptFor({ deleted = [], skipped = [], kept = [] } = {}) {
@@ -105,9 +115,9 @@ function receiptFor({ deleted = [], skipped = [], kept = [] } = {}) {
       summary = `Nothing removed — kept ${keptClause}.`
     }
   } else if (K === 0 && R === 0) {
-    summary = `Removed ${D} ${recordWord(D)}.`
+    summary = `Removed ${D} ${recordWord(D)} the import created.`
   } else {
-    summary = `Removed ${D} ${recordWord(D)}. Kept ${keptClause}.`
+    summary = `Removed ${D} ${recordWord(D)} the import created. Kept ${keptClause}.`
   }
 
   const detail = []
@@ -144,7 +154,7 @@ export function commitTrayState({ notices = [], undoCapable = false, undoState =
   } = undoState
 
   const primary = { label: 'Continue' }
-  const importedHint = `Imported ${total} ${recordWord(total)}.`
+  const importedHint = `Imported ${total} ${recordWord(total)} from the file.`
 
   if (!undoCapable) {
     return { hint: 'Setup replaced and ready.', primary, secondary: null, receipt: null }

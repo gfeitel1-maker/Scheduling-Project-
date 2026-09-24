@@ -674,26 +674,29 @@ function CommittedTray({ notices, outcome, graceWindow, onNavigate }) {
           <div style={{ ...S.errorBanner, marginTop: 8 }}>{graceWindow.undoError}</div>
         )}
 
-        {tray.receipt && (
-          <div style={{ ...collapseStyle(true, 200), marginTop: 8 }}>
-            <div style={styles.understoodRow}>
-              <span>{tray.receipt.summary}</span>{' '}
-              {tray.receipt.detail.length > 0 && (
-                <button className="press-97" onClick={() => setShowDetail((v) => !v)} style={styles.linkButton}>
-                  {showDetail ? 'Hide details' : 'Show details'}
-                </button>
-              )}
-            </div>
-            {showDetail && tray.receipt.detail.length > 0 && (
-              <div style={{ ...styles.understoodRow, paddingTop: 0 }}>
-                {tray.receipt.detail.map((line) => <div key={line}>{line}</div>)}
+        <div style={styles.tray}>
+          <div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tray.hint}</div>
+
+            {tray.receipt && (
+              <div style={{ ...collapseStyle(true, 200), marginTop: 8 }}>
+                <div style={styles.understoodRow}>
+                  <span>{tray.receipt.summary}</span>{' '}
+                  {tray.receipt.detail.length > 0 && (
+                    <button className="press-97" onClick={() => setShowDetail((v) => !v)} style={styles.linkButton}>
+                      {showDetail ? 'Hide details' : 'Show details'}
+                    </button>
+                  )}
+                </div>
+                {showDetail && tray.receipt.detail.length > 0 && (
+                  <div style={{ ...styles.understoodRow, paddingTop: 0 }}>
+                    {tray.receipt.detail.map((line) => <div key={line}>{line}</div>)}
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
 
-        <div style={styles.tray}>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tray.hint}</div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <div style={collapseStyle(secondaryVisible, 40)}>
               {secondaryContent && (

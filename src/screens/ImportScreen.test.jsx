@@ -571,7 +571,7 @@ describe('ImportScreen — routes a finished import to Roots', () => {
     await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
     await goToCommit()
 
-    await waitFor(() => expect(screen.getByText('Imported 3 records.')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Imported 3 records from the file.')).toBeTruthy())
     expect(onNavigate).not.toHaveBeenCalledWith('roots')
 
     await userEvent.click(screen.getByText('Continue'))

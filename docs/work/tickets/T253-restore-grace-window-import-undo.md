@@ -158,3 +158,43 @@ No existing test was weakened or deleted to make any of the above pass.
 Focused gate: `npx vitest run --no-file-parallelism src/screens/reconciliationTray.test.js
 src/hooks/useGraceWindowUndo.test.js src/screens/ReconciliationScreen.test.jsx
 src/screens/ImportScreen.test.jsx` — 113 passed, 0 failed.
+
+## Round 3 (two findings, both from driving the real app at :5200)
+
+A. **The imported count and the undo receipt count contradicted each other (HIGH)** —
+   `commitTrayState`'s `importedHint` reports `outcome.total` (records in the import plan) while
+   `receiptFor`'s summary reports `deleted.length` (rows undo actually removed, including derived
+   rows the import created — locations, time blocks, groups). Both numbers are correct, but on a
+   real import they read as "Imported 28 records." followed later by "Removed 42 records." — an
+   apparent contradiction (undo looks like it destroyed 14 more things than were imported) with no
+   way for a director to tell it's a unit mismatch rather than a bug. Same class of defect as the
+   progress-counter fix in `ReconciliationScreen.jsx` ("Naming the unit costs a word and removes
+   it.") — neither number changed; the fix names what each counts: `importedHint` now reads
+   "Imported N records **from the file**." and the receipt summary reads "Removed N records **the
+   import created**." Changed: `src/screens/reconciliationTray.js` (`importedHint`, both `D > 0`
+   branches of `receiptFor`'s summary). Tests: `src/screens/reconciliationTray.test.js` — updated
+   the 6 existing assertions pinning the old bare-noun copy, and added
+   `'names the unit so the imported count and the removed count cannot read as a contradiction'`,
+   which builds a 28-imported / 42-removed scenario and pins both phrases. All 7 red before the fix
+   (old bare "records." copy), green after.
+
+B. **The undo receipt rendered outside the tray card (HIGH)** — `CommittedTray` rendered
+   `tray.receipt` as a sibling positioned above `styles.tray` instead of inside it, so in the running
+   app "Removed N records." floated detached above the white tray card while "Undo complete." and
+   the buttons sat inside it (see `docs/work/evidence/t253-03-undo-receipt.png`, captured against
+   this branch's HEAD before the fix). Spec order is hint, then receipt, then the button row, all
+   inside one tray card. Fixed by moving the receipt block inside `styles.tray`, nested with the hint
+   in a shared wrapper div so the tray's existing 2-slot flex row (info on the left, buttons on the
+   right) is preserved — only the receipt moved; the `collapseStyle`/`prefersReducedMotion` handling
+   and the `understoodRow`/`S.linkButton` "Show details" idiom are untouched. Test: new file
+   `src/screens/ReconciliationScreen.committedTray.test.jsx` — mocks `useGraceWindowUndo` to a fixed
+   `'used'` status with one deleted row, renders `<ReconciliationScreen phase="committed" .../>`
+   directly, and asserts the tray container (queried by its `surface-elevated` background) contains
+   both the receipt text and the Continue button. Red before the fix (receipt was a sibling, not a
+   descendant, of the tray div), green after.
+
+No existing test was weakened or deleted to make either of the above pass.
+
+Focused gate: `npx vitest run --no-file-parallelism src/screens/reconciliationTray.test.js
+src/screens/ReconciliationScreen.committedTray.test.jsx src/screens/ReconciliationScreen.test.jsx` —
+54 passed, 0 failed.
