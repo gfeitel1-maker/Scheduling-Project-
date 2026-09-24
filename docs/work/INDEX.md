@@ -279,6 +279,7 @@ either the document is stranded or an edge was never declared.
 - [docs/work/handoffs/slices-2-3-handoff.md](../../docs/work/handoffs/slices-2-3-handoff.md)
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
 - [docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md](../../docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md)
+- [docs/work/tickets/T236-roots-attention-list-below-the-fold.md](../../docs/work/tickets/T236-roots-attention-list-below-the-fold.md)
 
 ## Dangling references
 
