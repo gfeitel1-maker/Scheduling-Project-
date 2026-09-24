@@ -1,7 +1,7 @@
 ---
 title: T229-elective-assignment-in-set-detail
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-18
 archive_when: a director can import camper selections, generate assignments and export them from ElectiveSetDetail
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]

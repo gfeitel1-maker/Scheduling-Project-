@@ -1,7 +1,7 @@
 ---
 title: T202-camper-record-purge-path
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
 archive_when: the purge procedure is implemented and its limits are documented in SECURITY.md
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, SECURITY.md]
