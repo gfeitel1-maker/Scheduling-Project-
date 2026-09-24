@@ -26,7 +26,6 @@ import { findMovedPlacements } from '../ingest/movedPlacements'
 import { detectCompoundCellPatterns } from '../ingest/compoundCellPatterns'
 import { inferActivityRules } from '../ingest/activityRules'
 import { normalizeName } from '../ingest/preview'
-import { autoAccepts } from '../ingest/confidence'
 import { emitTwoRowSplit, pinActivityAsserted, DEFAULT_SPLIT_SUFFIX } from '../ingest/twoRowSplit'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
@@ -186,11 +185,12 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   const [fixedEvents, setFixedEvents] = useState([])
   const [operatingDayCount, setOperatingDayCount] = useState(0)
   // ADR 2026-08-09 Decision 1 / A3 (Red Hat, 2026-08-17-onescreen-
-  // reconciliation-merge.md) — pinOnlyActivityNames is every auto-accepted
-  // (high-confidence) fixed-event name that ISN'T also a free activity
-  // choice (dual-use). It travels to buildPlan (buildCommitInputs, below) as
-  // the guard that forces tier:'low' on that name, so it can never silently
-  // mint into the catalog.
+  // reconciliation-merge.md) — pinOnlyActivityNames is EVERY inferred
+  // fixed/recurring-event name (high OR low confidence — T234: confidence
+  // is about whether the event exists, not about catalog exclusivity) that
+  // ISN'T also a free activity choice (dual-use). It travels to buildPlan
+  // (buildCommitInputs, below) as the guard that forces tier:'low' on that
+  // name, so it can never silently mint into the catalog.
   const [pinOnlyActivityNames, setPinOnlyActivityNames] = useState(new Set())
   // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md addendum)
   // — merged multi-block cells Slice A now reads (row.blockSpans), surfaced
@@ -752,17 +752,19 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         Object.entries(proposal.seenCounts?.activities ?? {}).map(([name, count]) => ({ name, count }))
       ))
 
-      // ADR 2026-08-09 Decision 1 / A3 (Red Hat) — an auto-accepted
-      // (high-confidence) fixed-event name that is NOT dual-use is never a
-      // free activity-catalog choice. This set travels to buildPlan as
+      // ADR 2026-08-09 Decision 1 / A3 (Red Hat) — an inferred fixed/
+      // recurring-event name that is NOT dual-use is never a free activity-
+      // catalog choice, REGARDLESS of confidence (T234: confidence is about
+      // whether the event exists, not about catalog exclusivity — a LOW-
+      // confidence recurring event is still an event, and its name must
+      // still be excluded). This set travels to buildPlan as
       // `pinOnlyActivityNames` (buildCommitInputs, below), which forces
-      // tier:'low' on that name so it can never silently mint.
+      // tier:'low' on that name so it can never silently mint. Also reused
+      // below as `assertedNonDualUseNames`, the same confidence-independent
+      // set, so it is computed once.
       const dualUseSet = new Set(dualUseNamesRaw)
-      const initialTickedFixedEventNames = new Set(
-        inferred.filter((fe) => autoAccepts(fe.confidence)).map((fe) => fe.name)
-      )
-      const pinOnlySet = new Set([...initialTickedFixedEventNames].filter((n) => !dualUseSet.has(n)))
-      setPinOnlyActivityNames(pinOnlySet)
+      const eventNonDualUseNames = new Set(inferred.map((fe) => fe.name).filter((n) => !dualUseSet.has(n)))
+      setPinOnlyActivityNames(eventNonDualUseNames)
 
       // Slice 2b — filter dualUseSet through decline-memory before it ever
       // reaches render, so a declined name never shows the link, let alone
@@ -776,17 +778,17 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // Rule inference (T35) — same "propose, director confirms" shape as the
       // entities and recurring events above.
       //
-      // The Asserted-classification exclusion set is NOT pinOnlySet — pinOnlySet
-      // is high-confidence-only (it feeds a separate mechanism, the tier:'low'
-      // pin above) and would wrongly let a low-confidence fixed event also get
-      // an Obligation rule. ADR §4.1 defines the Asserted denylist as every
-      // inferFixedEvents name regardless of confidence (high OR low — a
-      // low-confidence Asserted guess is still an Asserted-shaped hypothesis,
-      // not a demotion to Obligation), minus dual-use names — a dual-use
-      // activity legitimately keeps BOTH classifications (ADR OQ1: two rows
-      // sharing a name). (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md
-      // §4.1/§6 step 3.)
-      const assertedNonDualUseNames = new Set(inferred.map((fe) => fe.name).filter((n) => !dualUseSet.has(n)))
+      // The Asserted-classification exclusion set is the SAME
+      // eventNonDualUseNames computed above (T234 — pinOnlySet is now also
+      // confidence-independent, so the two sets are no longer distinct).
+      // ADR §4.1 defines the Asserted denylist as every inferFixedEvents name
+      // regardless of confidence (high OR low — a low-confidence Asserted
+      // guess is still an Asserted-shaped hypothesis, not a demotion to
+      // Obligation), minus dual-use names — a dual-use activity legitimately
+      // keeps BOTH classifications (ADR OQ1: two rows sharing a name).
+      // (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md §4.1/§6
+      // step 3.)
+      const assertedNonDualUseNames = eventNonDualUseNames
       const rules = inferActivityRules(
         proposal.entities.activities,
         proposal.activityPages,

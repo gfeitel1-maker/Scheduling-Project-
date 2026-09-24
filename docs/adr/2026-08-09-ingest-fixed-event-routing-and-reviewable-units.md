@@ -596,3 +596,23 @@ likely to be quietly wrong, per the brief) and should land last, with its own de
    not sized it, only located it.
 4. **UI copy/placement for the dual-use note and the new unit `<select>`** — Designer's call, not an
    architecture question; noted here only so it isn't dropped between this ADR and the Maker brief.
+
+---
+
+## 2026-09-23 — implementation-drift note (T234)
+
+_Prior: this ADR's Decision 1 describes the pin-only guard as seeded from every "auto-accepted
+(high-confidence)" fixed-event name. That is what `ImportScreen.jsx` actually did from the
+2026-08-17 one-screen-reconciliation cutover until T234, and it was a drift from this ADR's own
+Decision 1, not an intentional narrowing: a group-scoped recurring event (arm 2 of T141's
+group-coverage rule) can be inferred at LOW confidence while still being a genuine, confirmed
+event — `confidence` there answers "does this event exist", not "is it exclusive of the activity
+catalog". A LOW-confidence recurring event never reached the guard and could mint straight into the
+activity catalog at `tier:'new'` whenever its raw name-frequency looked high — the owner-reported
+bug ("things that are recurring events are also being pulled as activities when they should not")._
+
+T234 (`docs/work/tickets/T234-ingest-recurring-event-catalog-exclusivity.md`) makes the guard
+confidence-independent, matching what Decision 1 and `buildPlan.js`'s own `pinOnlyActivityNames`
+comment always said: every inferred fixed/recurring-event name, high or low confidence, minus
+dual-use names. No change to `fixedEvents.js` or `buildPlan.js` — the fix is the seeding set built
+in `ImportScreen.jsx`.
