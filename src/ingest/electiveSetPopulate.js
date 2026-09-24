@@ -10,6 +10,7 @@
 import { createActivity } from '../screens/schedule/createActivityHelper.js'
 import { markElectivePermissionTier } from './electivePermissionTier.js'
 import { normalizeName } from './preview.js'
+import { mapWithCollisions } from './mapWithCollisions.js'
 
 // Content-keyed on the RESOLVED activity (not source position, unlike
 // deriveEventImportId) — a flat set has no meaningful cell position, and
@@ -126,20 +127,32 @@ export async function populateElectiveGrid(parsed, {
     return { ok: false, reason: NOT_CONFIDENT_MESSAGE }
   }
 
-  const daysByName = new Map((existingDays ?? []).map((d) => [normalizeName(d.name), d]))
-  const timeBlocksByName = new Map((existingTimeBlocks ?? []).map((t) => [normalizeName(t.name), t]))
+  // T255 Slice A: schema v73 relaxed name-UNIQUE on `days_of_operation` and
+  // `time_blocks`, so two rows can legitimately share a name. A plain
+  // last-write-wins map would silently bind an imported column/period to
+  // whichever same-named row happened to be built last — refuse instead.
+  const { map: daysByName, ambiguous: ambiguousDayNames } = mapWithCollisions(existingDays ?? [], (d) => normalizeName(d.name), (d) => d)
+  const { map: timeBlocksByName, ambiguous: ambiguousTimeBlockNames } = mapWithCollisions(existingTimeBlocks ?? [], (t) => normalizeName(t.name), (t) => t)
   const unmapped = [...(parsed.unmapped ?? [])]
 
   // Resolve every distinct groupIndex -> day_id and timeIndex -> time_block_id
   // up front, once, rather than per cell.
   const dayIdByGroupIndex = new Map()
   for (const g of parsed.groupAxis ?? []) {
+    if (ambiguousDayNames.has(normalizeName(g.name))) {
+      unmapped.push({ sourceExcerpt: g.name, reason: 'ambiguous: more than one day has this name' })
+      continue
+    }
     const match = daysByName.get(normalizeName(g.name))
     if (match) dayIdByGroupIndex.set(g.sourceIndex, match.id)
     else unmapped.push({ sourceExcerpt: g.name, reason: 'no matching day for this column' })
   }
   const timeBlockIdByTimeIndex = new Map()
   for (const t of parsed.timeAxis ?? []) {
+    if (ambiguousTimeBlockNames.has(normalizeName(t.name))) {
+      unmapped.push({ sourceExcerpt: t.name, reason: 'ambiguous: more than one time block has this name' })
+      continue
+    }
     const match = timeBlocksByName.get(normalizeName(t.name))
     if (match) timeBlockIdByTimeIndex.set(t.sourceIndex, match.id)
     else unmapped.push({ sourceExcerpt: t.name, reason: 'no matching time block for this period' })

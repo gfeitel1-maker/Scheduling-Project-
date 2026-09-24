@@ -8,6 +8,7 @@
 
 import { recognitionKey, normalizeName } from './preview.js'
 import { createActivity } from '../screens/schedule/createActivityHelper.js'
+import { mapWithCollisions } from './mapWithCollisions.js'
 
 // Mirrors EventGridEditor.jsx's deriveEventSeedId string-template shape
 // (itself modeled on electron/ops/locationId.js's deriveLocationId, INV-1) —
@@ -63,7 +64,11 @@ export async function populateEventGrid(parsed, { eventId, campId, existingLocat
     await repo.writeField('event_groups', id, 'sort_order', g.sourceIndex)
   }
 
-  const locationsByKey = new Map((existingLocations ?? []).map((l) => [recognitionKey('locations', l.name), l]))
+  // T255 Slice A: `locations` relaxed name-UNIQUE at v73, so two rows can
+  // legitimately share a name — a plain last-write-wins map would silently
+  // bind an imported event slot to an arbitrary same-named location, and the
+  // engine's capacity checks would then run against the wrong capacity.
+  const { map: locationsByKey, ambiguous: ambiguousLocationKeys } = mapWithCollisions(existingLocations ?? [], (l) => recognitionKey('locations', l.name), (l) => l)
   const unmapped = [...parsed.unmapped]
 
   // Pass 1: resolve/create every DISTINCT cell activity first, before any
@@ -89,9 +94,14 @@ export async function populateEventGrid(parsed, { eventId, campId, existingLocat
 
     let locationId = null
     if (cell.locationName) {
-      const match = locationsByKey.get(recognitionKey('locations', cell.locationName))
-      if (match) locationId = match.id
-      else unmapped.push({ sourceExcerpt: cell.locationName, reason: 'no matching location for this cell' })
+      const locKey = recognitionKey('locations', cell.locationName)
+      if (ambiguousLocationKeys.has(locKey)) {
+        unmapped.push({ sourceExcerpt: cell.locationName, reason: 'ambiguous: more than one location has this name' })
+      } else {
+        const match = locationsByKey.get(locKey)
+        if (match) locationId = match.id
+        else unmapped.push({ sourceExcerpt: cell.locationName, reason: 'no matching location for this cell' })
+      }
     }
 
     const id = deriveEventImportId(eventId, 'slot', `${cell.timeIndex}:${cell.groupIndex}`)

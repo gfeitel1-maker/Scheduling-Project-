@@ -191,6 +191,46 @@ describe('populateElectiveGrid', () => {
     expect(repo.calls.some((c) => c.entity === 'elective_set_activities' && c.id === swimRowId)).toBe(false)
   })
 
+  it('an ambiguous day name (two existing days share it) refuses to bind rather than guessing', async () => {
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
+    const dupDays = [
+      { id: 'day-mon', name: 'Monday' },
+      { id: 'day-mon-2', name: 'monday' },   // collides under normalizeName
+      { id: 'day-tue', name: 'Tuesday' },
+    ]
+
+    const result = await populateElectiveGrid(parsed, {
+      campId: CAMP_ID, scheduleWeekId: WEEK_ID, repo,
+      existingDays: dupDays, existingTimeBlocks: TIME_BLOCKS, existingElectiveSets: [], existingActivities: [], existingOfferings: [],
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.unmapped.some((u) => u.sourceExcerpt === 'Monday' && u.reason.match(/ambiguous/i))).toBe(true)
+    // Neither same-named day's elective set gets minted — the whole Monday
+    // column is left unbuilt, exactly like an unmatched day.
+    expect(repo.calls.some((c) => c.entity === 'elective_sets' && c.fields?.day_id === 'day-mon')).toBe(false)
+    expect(repo.calls.some((c) => c.entity === 'elective_sets' && c.fields?.day_id === 'day-mon-2')).toBe(false)
+  })
+
+  it('an ambiguous time block name (two existing blocks share it) refuses to bind rather than guessing', async () => {
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
+    const dupBlocks = [
+      { id: 'tb-1', name: '9:00-9:45' },
+      { id: 'tb-1b', name: '9:00-9:45' },   // exact duplicate name
+      { id: 'tb-2', name: '9:50-10:35' },
+    ]
+
+    const result = await populateElectiveGrid(parsed, {
+      campId: CAMP_ID, scheduleWeekId: WEEK_ID, repo,
+      existingDays: DAYS, existingTimeBlocks: dupBlocks, existingElectiveSets: [], existingActivities: [], existingOfferings: [],
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.unmapped.some((u) => u.sourceExcerpt === '9:00-9:45' && u.reason.match(/ambiguous/i))).toBe(true)
+    expect(repo.calls.some((c) => c.entity === 'elective_sets' && c.fields?.time_block_id === 'tb-1')).toBe(false)
+    expect(repo.calls.some((c) => c.entity === 'elective_sets' && c.fields?.time_block_id === 'tb-1b')).toBe(false)
+  })
+
   it('ignores locationName on menu cells — an offering set is a flat list, not a 2D grid', async () => {
     const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: 'Pool' }])
 

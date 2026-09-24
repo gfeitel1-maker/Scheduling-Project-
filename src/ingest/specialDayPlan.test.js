@@ -168,6 +168,28 @@ describe('buildSpecialDayPlan — two live groups with the same name', () => {
   })
 })
 
+// Red Hat sweep (T255 Slice A) — the sibling groupByName block just above
+// collects colliding names and refuses to guess; activityByName had no such
+// treatment and was plain last-write-wins.
+describe('buildSpecialDayPlan — two live activities with the same name', () => {
+  const dupActivities = [
+    { id: 'a1', name: 'Lunch' },
+    { id: 'a2', name: 'Opening' },
+    { id: 'a3', name: 'opening ' },   // the duplicate, differs only in case/space
+  ]
+  const p = buildSpecialDayPlan(maccabiah, { groups, activities: dupActivities, specialDays: [] })
+
+  it('refuses to guess which activity the file means', () => {
+    expect(p.activities.find(a => a.name === 'Opening').activityId).toBeNull()
+  })
+
+  it('reports it as ambiguous rather than treating it as new or reused', () => {
+    expect(p.ambiguousActivityNames).toEqual(['Opening'])
+    expect(p.newActivityNames).not.toContain('Opening')
+    expect(p.reusedActivityNames).not.toContain('Opening')
+  })
+})
+
 describe('buildSpecialDayPlan — existing activities it will reuse', () => {
   it('names them, because matching ignores spacing and capitals', () => {
     // A one-off "Ga Ga pit" can silently attach to the camp's real,

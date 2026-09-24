@@ -159,6 +159,28 @@ describe('populateEventGrid', () => {
     expect(result.unmapped).toEqual(expect.arrayContaining([{ sourceExcerpt: 'Field', reason: 'no matching location for this cell' }]))
   })
 
+  it('location ambiguous: two existing locations share the exact name, refuses to bind rather than guessing', async () => {
+    // T255 Slice A: locations relaxed name-UNIQUE at v73, so two rows can
+    // legitimately share a name. recognitionKey('locations', ...) is
+    // trim-only case-sensitive, so an EXACT-name duplicate collides here.
+    const withLocation = confidentParse({
+      timeAxis: TWO_BY_TWO.timeAxis,
+      groupAxis: TWO_BY_TWO.groupAxis,
+      cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: 'Pool' }],
+    })
+    const dupLocations = [{ id: 'loc-pool-a', name: 'Pool' }, { id: 'loc-pool-b', name: 'Pool' }]
+    const result = await populateEventGrid(withLocation, {
+      eventId: EVENT_ID, campId: CAMP_ID,
+      existingLocations: dupLocations, existingActivities: [{ id: 'act-swim', name: 'Swim' }], existingEventSlots: [],
+    }, repo)
+
+    expect(result.ok).toBe(true)
+    const slotId = deriveEventImportId(EVENT_ID, 'slot', '0:0')
+    const locWrite = repo.calls.find((c) => c.entity === 'event_slots' && c.id === slotId && c.field === 'location_id')
+    expect(locWrite).toBeUndefined()
+    expect(result.unmapped.some((u) => u.sourceExcerpt === 'Pool' && u.reason.match(/ambiguous/i))).toBe(true)
+  })
+
   it('re-import idempotency: identical input + identical eventId produce identical ids on a second run', async () => {
     const existingActivities = [{ id: 'act-swim', name: 'Swim' }, { id: 'act-zumba', name: 'Zumba' }]
     const repo1 = mockRepo()
