@@ -275,6 +275,8 @@ export const localClient = {
   listElectiveRuns: () => shoresh.listElectiveRuns(currentToken()),
   getElectiveRun: ({ runId }) => shoresh.getElectiveRun({ token: currentToken(), runId }),
   finalizeElectiveRun: ({ runId }) => shoresh.finalizeElectiveRun({ token: currentToken(), runId }),
+  // T249 — no token by design (public config read; see electron/main.js).
+  getSecurityStatus: () => shoresh.getSecurityStatus(),
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),
   // docs/adr/2026-08-16-client-reauth-on-restart.md (T87 Part 3)
   onAuthRejected: (cb) => shoresh.onAuthRejected && shoresh.onAuthRejected(cb),

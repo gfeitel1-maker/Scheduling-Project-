@@ -53,6 +53,7 @@ import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { createUser, ensureHostSigningKey } from './auth/localAuth.js'
 import { appendOp, latestOp } from './ops/operations.js'
 import { makeHandlers, sanitizeConflictForIpc, sanitizeOpRejectedForIpc, SESSION_INVALID_REASONS } from './main.js'
+import { isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 
 let tmpFile
@@ -2692,5 +2693,40 @@ describe('sanitizeConflictForIpc: kind unique — whole-record PIN boundary (T24
     }
     const sanitized = sanitizeConflictForIpc(msg)
     expect(sanitized.existingRecord.day_of_week).toBe(2)
+  })
+})
+
+// T249 -- the D8 encryption gate's main-process half (ADR 2026-09-23 decision
+// (e)). The point of the gate is that what the UI says about the bytes on disk
+// is the SAME claim the ciphers act on, so the pin here is IDENTITY with
+// isAtRestEncryptionEnabled(), not a hardcoded `false`: a hardcoded expectation
+// would keep passing after someone re-parsed process.env independently here and
+// the two quietly drifted, which is the one thing the ADR forbids by name.
+describe('makeHandlers: getSecurityStatus (T249)', () => {
+  it('reports exactly what the cipher layer resolves, and needs no token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(handlers.getSecurityStatus()).toEqual({ atRestEncryptionEnabled: isAtRestEncryptionEnabled() })
+  })
+
+  it('answers a literal boolean, so the renderer\u2019s `=== true` gate cannot be cleared by a truthy non-boolean', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(typeof handlers.getSecurityStatus().atRestEncryptionEnabled).toBe('boolean')
+  })
+
+  // The identity assertion above is the right SHAPE but cannot fail today:
+  // SHORESH_AT_REST_ENCRYPTION is unset in the test env, so
+  // isAtRestEncryptionEnabled() is deterministically false and a handler that
+  // hardcoded `false` would pass it too (Code Reviewer, MEDIUM). Re-importing
+  // main.js under a flipped env is not worth its cost here, so the drift the
+  // ADR actually forbids by name -- re-parsing the env var in this handler
+  // instead of calling the shared resolver -- is pinned statically instead,
+  // which IS falsifiable right now.
+  it('does not re-parse SHORESH_AT_REST_ENCRYPTION itself (ADR: one resolution, not two)', () => {
+    const src = fs.readFileSync(new URL('./main.js', import.meta.url), 'utf8')
+    const body = src.slice(src.indexOf('function getSecurityStatusHandler'))
+    const handler = body.slice(0, body.indexOf('\n  }') + 4)
+    expect(handler).toContain('isAtRestEncryptionEnabled()')
+    expect(handler).not.toContain('process.env')
+    expect(handler).not.toContain('SHORESH_AT_REST_ENCRYPTION')
   })
 })
