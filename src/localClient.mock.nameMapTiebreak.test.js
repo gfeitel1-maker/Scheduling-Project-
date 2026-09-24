@@ -10,7 +10,7 @@
 // against — every one of its own name->id maps must resolve a duplicate the
 // same way: sort by id ASC, first-write-wins, so the lowest id always wins
 // regardless of array order.
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const STORE_KEY = 'shoresh-mock-state'
 
@@ -143,15 +143,32 @@ describe('T252 round 2 — mock commitCreate must not evict an already-seeded na
     state.groups = [groupHigh, groupLow]
     setState(state)
 
-    const outcome = await mockShoresh.ingestCommit({
-      approved: { groups: ['BUNK 1'] },
-      cohort_id: null,
-      resolutions: [{ entity: 'groups', name: 'BUNK 1', reason: 'ambiguous_identity', choice: 'create' }],
-      fixedEvents: [{
-        name: 'Mifkad', time_block: '09:00', days: ['Monday'],
-        scope: { is_all_groups: false, groups: ['Bunk 1'] },
-      }],
-    })
+    // randomId() is `Math.random().toString(36).slice(2) + Date.now().toString(36)`.
+    // Stubbing both makes the newly-created group's id DETERMINISTIC and, on
+    // purpose, sorts BELOW "aaa-group-low" (it starts with "000...", and "0"
+    // < "a" in string comparison). This is the strictly stronger test: if the
+    // established row only won because the real random id happened to sort
+    // above "aaa-group-low", this new id — chosen to sort below it — proves
+    // that instead. A test whose pass/fail depends on where a random id lands
+    // relative to a fixture id is not actually testing the guard.
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.00001)
+    const dateSpy = vi.spyOn(Date, 'now').mockReturnValue(0)
+
+    let outcome
+    try {
+      outcome = await mockShoresh.ingestCommit({
+        approved: { groups: ['BUNK 1'] },
+        cohort_id: null,
+        resolutions: [{ entity: 'groups', name: 'BUNK 1', reason: 'ambiguous_identity', choice: 'create' }],
+        fixedEvents: [{
+          name: 'Mifkad', time_block: '09:00', days: ['Monday'],
+          scope: { is_all_groups: false, groups: ['Bunk 1'] },
+        }],
+      })
+    } finally {
+      randomSpy.mockRestore()
+      dateSpy.mockRestore()
+    }
 
     expect(outcome.held).toBeFalsy()
     const s = getState()
@@ -159,6 +176,9 @@ describe('T252 round 2 — mock commitCreate must not evict an already-seeded na
     expect(newGroup).toBeTruthy()
     expect(newGroup.id).not.toBe('aaa-group-low')
     expect(newGroup.id).not.toBe('zzz-group-high')
+    // Confirms the stub actually produced a lower-sorting id — otherwise this
+    // test would pass vacuously, the same way the original flaky version did.
+    expect(newGroup.id < 'aaa-group-low').toBe(true)
 
     const anchor = s.anchor_activities[0]
     const anchorGroups = String(anchor.group_ids ?? anchor.scope_groups ?? '')

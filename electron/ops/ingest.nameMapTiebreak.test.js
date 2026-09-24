@@ -12,13 +12,25 @@
 //
 // Fixtures go through the real write path (appendOp -> applyProjection /
 // commitIngest), never a hand-built Map, per the ticket's evidence rule.
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { openTemplatedDb, cleanupTemplatedDbs } from '../db/testDbTemplate.js'
 import { appendOp } from './operations.js'
 import { commitIngest } from './ingest.js'
 import { nameMap } from './materializeImportedVersion.js'
+
+// node:crypto's module namespace is not configurable in ESM (vi.spyOn throws
+// "Cannot redefine property"), so randomUUID can only be swapped via vi.mock.
+// randomUUIDOverride is a vi.hoisted() indirection cell: the mock factory
+// below reads it on every call, and a single test can point it at a
+// deterministic implementation without affecting every other test in this
+// file (which get the real randomUUID via importOriginal).
+const { randomUUIDOverride } = vi.hoisted(() => ({ randomUUIDOverride: { impl: null } }))
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, randomUUID: (...args) => (randomUUIDOverride.impl ?? actual.randomUUID)(...args) }
+})
 
 const deviceId = 'device-1'
 
@@ -190,6 +202,21 @@ describe('T252 round 2 — commitCreate must not evict an already-seeded name-ma
     const { db, file, campId } = makeCampDb()
     openDbs.push({ db, file })
 
+    // commitIngest mints the new group's id (and every op's client_write_id)
+    // via randomUUID() internally — the test has no way to pass an id in.
+    // An unstubbed randomUUID is a real UUIDv4: its first hex character is
+    // uniform over 0-9a-f, so roughly 10/16 of runs produce an id that sorts
+    // BELOW "aaaaaaaa..." and would (if the guard were broken) evict idLow —
+    // and about 6/16 sort above it and would pass even with a broken guard.
+    // That is exactly the flakiness class CI hit in the sibling mock test:
+    // the assertion's outcome depended on where an unstubbed random id
+    // happened to land. Stub randomUUID to values that deterministically
+    // sort BELOW idLow (leading "00000000-" < leading "aaaaaaaa-"), and make
+    // each call unique so findOpByClientWriteId's client_write_id dedup does
+    // not treat the second op in a call as an already-applied retry.
+    let uuidCounter = 0
+    randomUUIDOverride.impl = () => `00000000-0000-4000-8000-${String(uuidCounter++).padStart(12, '0')}`
+
     // Two live rows already share the exact raw name "Bunk 1" (a legal
     // post-merge state under v73's relaxed UNIQUE). seedNameMaps() has
     // already established idLow as the map's winner by the time commitPlan
@@ -226,5 +253,10 @@ describe('T252 round 2 — commitCreate must not evict an already-seeded name-ma
     // created this same run must never have claimed it.
     expect(anchorGroups).toContain(idLow)
     expect(anchorGroups).not.toContain(newGroup.id)
+    // Confirms the stub actually produced a lower-sorting id — otherwise this
+    // test would pass vacuously regardless of whether the guard works.
+    expect(newGroup.id < idLow).toBe(true)
+
+    randomUUIDOverride.impl = null
   })
 })

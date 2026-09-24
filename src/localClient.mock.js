@@ -1209,7 +1209,9 @@ export const mockShoresh = {
     // loop so the whole import flow, recurring events included, works at :5200.
     const norm = (s) => normalizeName(s)
     const targetCohort = cohortId ?? 'main'
-    // T252: sort by id ASC, first-write-wins — see byIdAsc above.
+    // T252: sort by id ASC, first-write-wins — see byIdAsc above. time_blocks
+    // and days_of_operation are never created by this run (not in
+    // INGESTIBLE_ENTITIES), so rebuilding fresh here is safe for them.
     const blockIdByName = new Map()
     for (const b of byIdAsc(state.time_blocks ?? [])) {
       if (b.name && (b.cohort_id ?? null) === cohortId) {
@@ -1224,13 +1226,15 @@ export const mockShoresh = {
         if (!dayIdByName.has(key)) dayIdByName.set(key, d.id)
       }
     }
-    const groupIdByName = new Map()
-    for (const g of byIdAsc(state.groups ?? [])) {
-      if (g.name) {
-        const key = norm(g.name)
-        if (!groupIdByName.has(key)) groupIdByName.set(key, g.id)
-      }
-    }
+    // Groups CAN be created by this same run (commitCreate above, entity ===
+    // 'groups'), so rebuilding from `state.groups` here — post-commitCreate —
+    // would re-sort a set that now includes the newly-created row, and a
+    // freshly minted id that happens to sort below an already-established
+    // winner would evict it. groupIdByNameRun (built before commitCreate ran,
+    // seeded first-write-wins from pre-existing rows, then only ever extended
+    // behind an `if (!map.has(key))` guard in commitCreate) already carries
+    // the correct, eviction-proof resolution — reuse it instead of rebuilding.
+    const groupIdByName = groupIdByNameRun
 
     if (!Array.isArray(state.anchor_activities)) state.anchor_activities = []
     const fixedCreatedIds = []
