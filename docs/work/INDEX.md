@@ -31,7 +31,6 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [days_of_operation needs the uniqueness its own comments already claim — and the round-1 design for it was wrong in four ways](../../docs/work/tickets/T205-days-of-operation-uniqueness-and-dedup-migration.md) | open | — |
 | [Multi-device erasure propagation via signed purge tombstones](../../docs/work/tickets/T233-multi-device-erasure-propagation.md) | open | [2026-09-19-multi-device-erasure-propagation](../../docs/adr/2026-09-19-multi-device-erasure-propagation.md) |
 
 ### documentation-governance

@@ -20,11 +20,19 @@ import { deriveDayId } from '../../electron/ops/dayId.js'
 // only what's missing — idempotent and safe on every mount, like
 // ensureCohort.
 //
-// TODO: electron/db/schema.sql (~line 240) and electron/db/localDb.js
-// (~line 436) both have stale comments claiming days_of_operation has a
-// UNIQUE(camp_id, name)-style constraint. It does not (verified against the
-// full migration history) — pre-existing, out of scope here, flagged for a
-// future cleanup ticket.
+// T205 (schema v70) resolved the stale-comment TODO that stood here: the
+// comments in electron/db/schema.sql and electron/db/localDb.js claiming
+// days_of_operation carries a camp-scoped UNIQUE constraint are no longer
+// wrong. It now has UNIQUE(camp_id, day_of_week) — declared inline in
+// schema.sql for brand-new installs, and enforced on already-existing dbs by
+// the idx_days_of_operation_camp_day index created in localDb.js's v70
+// migration (the CREATE TABLE IF NOT EXISTS caveat, same as cohorts/groups).
+//
+// Two consequences for the code below. The `deriveDayId` mint is what keeps
+// two devices seeding the same brand-new camp from forking one weekday into
+// two document records (see electron/ops/dayId.js). And the per-field write
+// loop can now legitimately be REJECTED by the constraint rather than only by
+// a transport failure, which the isComplete()/repair pass above still heals.
 const MON_FRI = [
   { label: 'Monday',    day_of_week: 1, sort_order: 1 },
   { label: 'Tuesday',   day_of_week: 2, sort_order: 2 },
