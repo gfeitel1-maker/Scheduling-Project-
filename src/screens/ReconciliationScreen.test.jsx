@@ -7,7 +7,7 @@
 // guard protects the debounced dry-run re-issue (ADR Risk #3).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({
@@ -127,6 +127,90 @@ describe('resolving a decision', () => {
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalledTimes(1))
   })
 
+})
+
+// HIGH 2 — a second commit must not be reachable while the first commit's
+// onCommitted callback (ImportScreen's real, awaited applyStagedSplits IPC
+// round-trip) is still in flight, or the second ingestCommit silently steals
+// the grace-window undo out from under the first (Invariant 5b overwrite).
+describe('double-submit guard on apply() (HIGH 2)', () => {
+  it('two synchronous apply() invocations before any re-render issue exactly ONE ingestCommit', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    let resolveCommit
+    localClient.ingestCommit.mockReturnValue(new Promise((resolve) => { resolveCommit = resolve }))
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+
+    const exit = screen.getByRole('button', { name: /Use what Shoresh understood/ })
+    // Both clicks dispatched inside one act(), before React flushes the
+    // `applying` state update from the first — exercises the synchronous
+    // guard, not the disabled-button re-render (which would mask the bug).
+    act(() => {
+      fireEvent.click(exit)
+      fireEvent.click(exit)
+    })
+
+    await act(async () => {
+      resolveCommit({ held: false, total: 1 })
+      await Promise.resolve()
+    })
+    expect(localClient.ingestCommit).toHaveBeenCalledTimes(1)
+  })
+
+  it('apply() stays "applying" until onCommitted resolves, not merely until ingestCommit resolves', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    localClient.ingestCommit.mockResolvedValue({ held: false, total: 1 })
+    let resolveCommitted
+    const onCommitted = vi.fn(() => new Promise((resolve) => { resolveCommitted = resolve }))
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={onCommitted} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 question/)
+
+    const exit = screen.getByRole('button', { name: /Use what Shoresh understood/ })
+    await act(async () => {
+      fireEvent.click(exit)
+    })
+    // ingestCommit has resolved (it's a simple mockResolvedValue), but the
+    // caller's own onCommitted — standing in for ImportScreen's awaited,
+    // real applyStagedSplits round-trip — has not. The button must still
+    // read as applying.
+    await waitFor(() => expect(onCommitted).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: /Applying…/ })).toBeTruthy()
+
+    await act(async () => {
+      resolveCommitted()
+    })
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Applying…/ })).toBeNull())
+  })
+})
+
+// LOW 4 — the debounced dry-run must not survive the commit transition. It
+// was only inert by accident (CommittedTray's early return happened to
+// precede the JSX reading report/error) — this pins the boundary
+// structurally so a future edit reading those in the committed phase can't
+// resurrect a stale dry-run landing on top of a committed import.
+describe('debounced dry-run is cancelled at the commit transition (LOW 4)', () => {
+  it('a dry-run scheduled just before phase flips to "committed" never fires', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    const { rerender } = render(
+      <ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} phase="triage" />
+    )
+    await screen.findByText(/0 of 1 question/)
+    expect(localClient.ingestReconcile).toHaveBeenCalledTimes(1) // the initial mount dry-run
+
+    // Stages a decision, which schedules a 250ms-debounced re-run.
+    await userEvent.click(screen.getByText('Use this value'))
+
+    // The commit transition happens before the debounce fires (real-world:
+    // apply() -> onCommitted -> ImportScreen flips ledger.phase='committed'
+    // -> this prop changes on the very next render).
+    rerender(
+      <ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} phase="committed" outcome={{ total: 1 }} notices={[]} />
+    )
+
+    // Real-time wait past the 250ms debounce window.
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(localClient.ingestReconcile).toHaveBeenCalledTimes(1) // still just the initial call
+  })
 })
 
 describe('evidence disclosure (FIX 2, design spec §4)', () => {

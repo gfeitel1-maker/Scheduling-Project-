@@ -1465,13 +1465,18 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // failure is surfaced, never swallowed) — see describeWriteFailure.
   async function handleReconciliationCommitted(outcome) {
     const splitFailures = await applyStagedSplits()
-    setLedger(null)
-    setFileNames([])
-    setFixedEvents([])
-    setActivityRules({})
-    setGroupUnitOverrides({})
-    setSplitDecisions({})
     if (splitFailures.length > 0) {
+      // Split-failure path is unchanged (Amendment, T253): still clears the
+      // ledger and returns without navigating — the grace window is not
+      // offered here. Deliberate scope cut, not an oversight: the import did
+      // commit (invertibleOps was captured server-side), but this fallback
+      // antechamber does not thread that data through.
+      setLedger(null)
+      setFileNames([])
+      setFixedEvents([])
+      setActivityRules({})
+      setGroupUnitOverrides({})
+      setSplitDecisions({})
       setError(
         `Your import finished, but ${splitFailures.length === 1 ? 'a split' : `${splitFailures.length} splits`} couldn't be saved: ${splitFailures.map((f) => f.message).join(' ')}`
       )
@@ -1503,8 +1508,14 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         `${failedDecisions.length} cell interpretation${failedDecisions.length === 1 ? '' : 's'} couldn't be saved and may be asked about again next time.`
       )
     }
-    if (notices.length > 0) setError(notices.join(' '))
-    onNavigate('roots')
+    // T253 (Amendment) — a successful commit no longer navigates away here.
+    // ReconciliationScreen stays mounted (its useGraceWindowUndo instance is
+    // never torn down) and transitions to a `committed` phase carrying the
+    // outcome, so the director sees the post-commit tray — including the
+    // grace-window undo offer, when the commit was undo-capable — before
+    // ever leaving this screen. Only that tray's own "Continue" button
+    // navigates to Roots from here on.
+    setLedger((prev) => ({ ...prev, phase: 'committed', outcome, notices }))
   }
 
   // Nothing was written for a staged split (HIGH #1) — discarding the import
@@ -1533,6 +1544,9 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         onNavigate={onNavigate}
         factCount={ledger.factCount}
         isFirstImport={ledger.isFirstImport}
+        phase={ledger.phase ?? 'triage'}
+        outcome={ledger.outcome ?? null}
+        notices={ledger.notices ?? []}
         // T114 — detected client-side at parse time (the placements only exist
         // here), asked in reconciliation like every other thing the import is
         // unsure about.

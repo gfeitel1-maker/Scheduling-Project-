@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { localClient } from '../localClient'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 
 // U1 — grace-window undo (docs/adr/2026-08-17-onescreen-reconciliation-undo.md,
 // Invariant 5). This state lives ONLY in a hook a mounted component owns —
@@ -13,6 +14,11 @@ import { localClient } from '../localClient'
 // (ADR open question #2, Designer's call) — this is a reasonable default,
 // not a tuned value.
 export const GRACE_WINDOW_MS = 5 * 60 * 1000
+// The countdown (secondsLeft) only exists for the last minute of the fixed,
+// absolute grace window — it is the honesty signal Invariant 5c requires
+// ("for the next few minutes" / a live countdown, never "always
+// available"), not a separate durability mechanism.
+const COUNTDOWN_WINDOW_MS = 60 * 1000
 
 const IDLE = 'idle'
 const LIVE = 'live'
@@ -28,7 +34,10 @@ export function useGraceWindowUndo() {
   const [kept, setKept] = useState([])
   const [undoError, setUndoError] = useState(null)
   const [isPending, setIsPending] = useState(false)
+  const [secondsLeft, setSecondsLeft] = useState(null)
   const timerRef = useRef(null)
+  const countdownStartTimerRef = useRef(null)
+  const countdownIntervalRef = useRef(null)
   // Synchronous double-submit guard: `status` only flips to `used` after the
   // ingestUndo await resolves, so two fast clicks would both pass a
   // status-only check and fire two ingestUndo calls, writing redundant
@@ -47,6 +56,12 @@ export function useGraceWindowUndo() {
   // cleanly. Safe for every consumer: it only prevents setState on a dead
   // instance, never changes behavior while mounted.
   const isMountedRef = useRef(true)
+  // The absolute expiry instant of the current window, set by start(). A
+  // failed undo needs this to reschedule the countdown for whatever time
+  // actually remains — recomputing "remaining" from scratch rather than
+  // re-running the fixed GRACE_WINDOW_MS - COUNTDOWN_WINDOW_MS delay start()
+  // uses, which would ignore time already elapsed.
+  const expiresAtRef = useRef(null)
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -55,13 +70,57 @@ export function useGraceWindowUndo() {
     }
   }
 
+  // Timer-driven, never a Date.now() poll in a render loop: a setTimeout
+  // scheduled for the moment the window crosses under 60s left, which then
+  // starts a 1/sec setInterval ticking secondsLeft down to 0.
+  const clearCountdown = () => {
+    if (countdownStartTimerRef.current) {
+      clearTimeout(countdownStartTimerRef.current)
+      countdownStartTimerRef.current = null
+    }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current)
+      countdownIntervalRef.current = null
+    }
+  }
+
   useEffect(() => {
     isMountedRef.current = true
     return () => {
       isMountedRef.current = false
       clearTimer()
+      clearCountdown()
     }
   }, [])
+
+  // Schedules the countdown against however much time actually remains —
+  // used both by start() (remainingMs === GRACE_WINDOW_MS) and by a failed
+  // undo's reschedule (remainingMs === whatever is left of expiresAtRef).
+  // Already inside the last COUNTDOWN_WINDOW_MS: start the interval
+  // immediately rather than scheduling a start-timer for a negative delay.
+  const scheduleCountdown = (remainingMs) => {
+    const startInterval = (initialSeconds) => {
+      setSecondsLeft(initialSeconds)
+      countdownIntervalRef.current = setInterval(() => {
+        setSecondsLeft((s) => {
+          if (s === null || s <= 0) return s
+          const next = s - 1
+          if (next <= 0 && countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current)
+            countdownIntervalRef.current = null
+          }
+          return next
+        })
+      }, 1000)
+    }
+    if (remainingMs <= COUNTDOWN_WINDOW_MS) {
+      startInterval(Math.max(0, Math.round(remainingMs / 1000)))
+      return
+    }
+    countdownStartTimerRef.current = setTimeout(() => {
+      startInterval(COUNTDOWN_WINDOW_MS / 1000)
+    }, remainingMs - COUNTDOWN_WINDOW_MS)
+  }
 
   // Starting a NEW import while a grace window is live immediately clears
   // the prior window's state (Invariant 5b) — there is exactly one live
@@ -69,6 +128,7 @@ export function useGraceWindowUndo() {
   // overwritten, not by a separate lock.
   const start = useCallback((outcome) => {
     clearTimer()
+    clearCountdown()
     setStatus(LIVE)
     setInvertibleOps(Array.isArray(outcome?.invertibleOps) ? outcome.invertibleOps : [])
     setCreatedEntityIds(Array.isArray(outcome?.createdEntityIds) ? outcome.createdEntityIds : [])
@@ -76,11 +136,15 @@ export function useGraceWindowUndo() {
     setDeleted([])
     setKept([])
     setUndoError(null)
+    setSecondsLeft(null)
+    expiresAtRef.current = Date.now() + GRACE_WINDOW_MS
     timerRef.current = setTimeout(() => setStatus((s) => (s === LIVE ? EXPIRED : s)), GRACE_WINDOW_MS)
+    scheduleCountdown(GRACE_WINDOW_MS)
   }, [])
 
   const clear = useCallback(() => {
     clearTimer()
+    clearCountdown()
     setStatus(IDLE)
     setInvertibleOps([])
     setCreatedEntityIds([])
@@ -88,6 +152,8 @@ export function useGraceWindowUndo() {
     setDeleted([])
     setKept([])
     setUndoError(null)
+    setSecondsLeft(null)
+    expiresAtRef.current = null
   }, [])
 
   // After a successful undo, the SAME held invertibleOps/createdEntityIds is
@@ -100,6 +166,7 @@ export function useGraceWindowUndo() {
     pendingRef.current = true
     setIsPending(true)
     setUndoError(null)
+    clearCountdown()
     try {
       const result = await localClient.ingestUndo({
         invertibleOps,
@@ -111,6 +178,7 @@ export function useGraceWindowUndo() {
       // skip the setStates rather than warn on a dead instance.
       if (!isMountedRef.current) return
       clearTimer()
+      expiresAtRef.current = null
       setStatus(USED)
       setSkipped(Array.isArray(result?.skipped) ? result.skipped : [])
       setDeleted(Array.isArray(result?.deleted) ? result.deleted : [])
@@ -120,8 +188,21 @@ export function useGraceWindowUndo() {
       // retry the same grace window rather than losing the affordance to a
       // transient IPC failure. Only surface the error if the component is
       // still mounted — a post-unmount rejection has no UI to show it in.
+      // Routed through describeWriteFailure (repo convention, every other
+      // mutation's failure path) rather than the raw IPC message — an
+      // unhandled ingestUndo rejection can surface a raw SQLite/IPC string,
+      // and a director reading that on an UNDO may conclude it worked.
       if (isMountedRef.current) {
-        setUndoError(err?.message ?? 'Could not undo this import.')
+        setUndoError(describeWriteFailure(err, 'This import could not be undone.'))
+        // HIGH 3 fix: clearCountdown() above unconditionally stopped the
+        // countdown before the attempt — right for the success path (status
+        // goes terminal), wrong here, where status stays LIVE and the
+        // window keeps expiring with no further warning otherwise.
+        // Reschedule against however much of the window is actually left.
+        if (expiresAtRef.current !== null) {
+          const remainingMs = expiresAtRef.current - Date.now()
+          if (remainingMs > 0) scheduleCountdown(remainingMs)
+        }
       }
     } finally {
       if (isMountedRef.current) {
@@ -135,6 +216,7 @@ export function useGraceWindowUndo() {
     status,
     isLive: status === LIVE,
     isPending,
+    secondsLeft,
     createdEntityIds,
     skipped,
     deleted,

@@ -553,7 +553,11 @@ describe('ImportScreen — Replace warning names Recurring Events and separates 
 // has no post-import banner of its own (that mechanism was retired along
 // with the `onImported` carrier). A finished import just navigates to Roots.
 describe('ImportScreen — routes a finished import to Roots', () => {
-  it('navigates to roots, with no local receipt as the resting surface', async () => {
+  // T253 (Amendment) — a successful commit no longer auto-navigates. The
+  // director lands on the post-commit exit tray first (so they can see an
+  // undo offer, when the commit was undo-capable, before ever leaving this
+  // screen) and only the tray's own "Continue" button navigates to Roots.
+  it('stays on the post-commit tray, then navigates to Roots when the director clicks Continue', async () => {
     const onNavigate = vi.fn()
     localClient.ingestCommit.mockResolvedValue({
       total: 3,
@@ -567,9 +571,57 @@ describe('ImportScreen — routes a finished import to Roots', () => {
     await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
     await goToCommit()
 
+    await waitFor(() => expect(screen.getByText('Imported 3 records from the file.')).toBeTruthy())
+    expect(onNavigate).not.toHaveBeenCalledWith('roots')
+
+    await userEvent.click(screen.getByText('Continue'))
     await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('roots'))
-    // The old local receipt must NOT be the resting surface anymore.
-    expect(screen.queryByText(/Imported 3 record/)).toBeNull()
+  })
+})
+
+// T253 — the mandatory regression guard. The silent drop of
+// invertibleOps/createdEntityIds at ImportScreen's post-commit handoff is
+// the entire reason a fully-built, fully-tested capability went dark for
+// weeks while the app kept paying to capture the data on every import. This
+// test fails if that handoff drops those fields again: it commits with a
+// fixture outcome carrying populated invertibleOps/createdEntityIds and
+// asserts the "Undo this import" action becomes reachable — an observable
+// UI assertion, since the original failure was "the button silently never
+// appears," not a thrown error.
+describe('ImportScreen — the grace-window undo offer reaches the post-commit tray (T253 regression guard)', () => {
+  it('shows "Undo this import" when the commit outcome carries invertibleOps/createdEntityIds', async () => {
+    const onNavigate = vi.fn()
+    localClient.ingestCommit.mockResolvedValue({
+      total: 3,
+      fixedEvents: { created: 0, skipped: [], partial: [] },
+      invertibleOps: [{ entity: 'activities', entity_id: 'a1', field: 'name', opId: 'op1', seq: 1, priorValue: 'Swim', prior_source: 'import' }],
+      createdEntityIds: [{ entity: 'activities', entity_id: 'a2' }],
+    })
+    render(<ImportScreen campId="camp-1" onNavigate={onNavigate} />)
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'schedule.txt', { type: 'text/plain' })
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
+    await goToCommit()
+
+    expect(await screen.findByText('Undo this import')).toBeTruthy()
+  })
+
+  it('does NOT show "Undo this import" when the commit was a replace (no invertibleOps)', async () => {
+    const onNavigate = vi.fn()
+    localClient.ingestCommit.mockResolvedValue({
+      total: 3,
+      fixedEvents: { created: 0, skipped: [], partial: [] },
+    })
+    render(<ImportScreen campId="camp-1" onNavigate={onNavigate} />)
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'schedule.txt', { type: 'text/plain' })
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
+    await goToCommit()
+
+    await waitFor(() => expect(screen.getByText('Setup replaced and ready.')).toBeTruthy())
+    expect(screen.queryByText('Undo this import')).toBeNull()
   })
 })
 

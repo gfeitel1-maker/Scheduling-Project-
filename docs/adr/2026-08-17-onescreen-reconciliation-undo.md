@@ -749,3 +749,170 @@ or re-argue the six closed findings from first principles:
    a roadmap/priority call, not a technical one. This ADR fully specifies both so the decision to
    pick either up later doesn't require a third design pass, only implementation + its own
    Red Hat review.
+
+## Amendment (2026-09-24, T253): restoring U1 as a tray action, not a banner
+
+**Status: ACCEPTED for build (Architect design, pending Governor/Maker).**
+
+### Context
+
+U1 shipped with a carrier component, `src/components/reconciliation/postImportBanner.jsx`,
+mounted by `ReconciliationScreen`'s `onCommitted` after `ImportScreen` had already cleared
+`ledger` and navigated to Roots. A later cleanup pass (commit 66354590) removed that banner
+(product rule: no banners) and took the only consumer of `useGraceWindowUndo` with it. The hook
+itself, the capture plumbing (`captureInverse` through `ingestCommit`/`commitPlan`), and
+`ingestUndo` were never touched — they are fully built, fully tested, and paid for on every
+`mode !== 'replace'` import — but nothing has called `start()` since. Owner ruling: restore the
+*capability*, not the banner. This amendment specifies where U1 now lives and refines how
+Invariant 5's "navigation away" boundary is detected, without changing Invariant 5's substance:
+capture state still lives only in a mounted screen's own hook, is still never persisted, and
+still forfeits silently on anything other than an explicit undo or an explicit departure.
+
+### Decision
+
+**U1's offer moves into `ReconciliationScreen`'s own exit tray** (`styles.tray`, currently
+rendered by `applyTrayState`) as a second, post-commit tray state — not onto Roots, and not into
+the findings vocabulary. Rationale, per the brief: Roots is a different screen (hosting a
+mount-scoped hook there needs its own Invariant-5 justification this amendment doesn't do), and
+the findings vocabulary is schedule-week-scoped by construction (every row needs a `groupId`
+locator; the only surface is `FindingsRail`; the only actions are Accept/Locate) — an
+import-level, camp-scoped undo does not fit that shape without inventing a new row kind, which is
+a larger change than this ticket.
+
+**The seam: `ReconciliationScreen` gains a `committed` phase instead of unmounting at commit.**
+
+Today: `ImportScreen.handleReconciliationCommitted` does the real post-commit work
+(`applyStagedSplits`, version/compound-cell notices), then unconditionally clears `ledger` and,
+on success, calls `onNavigate('roots')` in the same pass — which unmounts `ReconciliationScreen`
+before a director could ever see an undo offer.
+
+Changed: on a **successful** commit (no split failures), `handleReconciliationCommitted` stops
+calling `onNavigate` itself. It keeps doing exactly the same real work in exactly the same order
+— `applyStagedSplits` is still awaited first, version/compound-cell notices are still computed
+the same way — but instead of `setLedger(null)`, it transitions the ledger to a `committed` phase
+carrying the commit `outcome`:
+
+```
+setLedger((prev) => ({ ...prev, phase: 'committed', outcome, notices }))
+```
+
+`ImportScreen` still renders `ReconciliationScreen` whenever `ledger` is truthy, so the screen
+stays mounted — its `useGraceWindowUndo` instance is never torn down by this transition.
+`ReconciliationScreen` reads `phase`/`outcome` as new props and renders its **post-commit tray**
+in place of the triage tray, using a new function, `commitTrayState` (see below), instead of
+`applyTrayState`. The **split-failure path is unchanged**: it still clears `ledger` and returns
+without navigating, which still unmounts `ReconciliationScreen` the same way it does today. This
+is a deliberate non-change, not an oversight: a split failure is rare, the underlying import did
+still commit (so `invertibleOps` did get captured server-side), but this amendment does not thread
+that already-captured data through the antechamber `ImportScreen` falls back to — the grace
+window is simply not offered on that path this session, exactly as Invariant 5 already treats an
+unmount ("a renderer reload or app close during the window forfeits it silently"). Widening the
+split-failure path to also offer undo is explicitly out of scope; flagged as a possible future
+slice, not a gap in this design.
+
+**"Leaving" is the director's own explicit action, not incidental unmount.** The post-commit
+tray's primary button (`commitTrayState`'s `primary`) is the ONLY thing that calls
+`onNavigate('roots')` from the committed phase — clicking it is the deliberate-departure signal
+Invariant 5 already requires. No router-level "beforeNavigate" interception is introduced: a
+director who instead clicks a different sidebar item unmounts `ImportScreen`'s whole subtree the
+same way any other screen switch does today, which tears down `ReconciliationScreen` and, with
+it, `useGraceWindowUndo`'s effect cleanup (already implemented — `isMountedRef`/`clearTimer` in
+the existing hook). That is exactly "navigation away" per Invariant 5; it needs no new code.
+Introducing a dedicated departure-interception layer was considered (it surfaced independently
+under three of four divergent frames run for this design) and rejected as unnecessary complexity
+for what the existing unmount-cleanup already guarantees correctly.
+
+**Undo eligibility is structural, not a recomputed conditional.** Invariant 3 already makes
+`captureInverse && mode === 'replace'` throw inside `commitPlan`, so `outcome.invertibleOps` is
+only ever populated when the commit was undo-capable. `ReconciliationScreen` must gate the
+post-commit tray's secondary action — and the `useGraceWindowUndo.start()` call — on
+`Array.isArray(outcome.invertibleOps)` **alone**. It must not re-derive eligibility from
+`inputs.mode` a second time in the renderer: that would be exactly the "forgotten conditional"
+failure mode the brief warns about, and a second, independent derivation is also how the two
+could silently disagree. One structural fact (does the outcome the backend actually returned
+carry inverse ops), read once, is the whole gate.
+
+**`commitTrayState` is a new function, not a branch inside `applyTrayState`.** The pre-commit
+tray describes triage progress (`{label, mode, disabled, hint}`, one primary button); the
+post-commit tray describes a finished commit's result plus an optional undo (`{primary: {label,
+onClick}, secondary: {label, onClick, disabled, pending} | null, hint}`). These are different
+questions about different states — folding them into one function's `if` ladder would make that
+function shallow (large interface, two unrelated behaviors) for no reuse benefit, since nothing
+calls both branches from the same call site. `commitTrayState` lives beside `applyTrayState` in
+`src/screens/reconciliationTray.js`.
+
+```
+commitTrayState({ notices, undoCapable, undoState /* from useGraceWindowUndo */ }) → {
+  hint: string,                                  // notices joined, or a quiet confirmation
+  primary: { label: 'Continue', onClick: 'onNavigate("roots")' },
+  secondary: undoCapable && undoState.isLive
+    ? { label: 'Undo this import', onClick: 'undo()', disabled: undoState.isPending, pending: undoState.isPending }
+    : null,
+}
+```
+
+**Undo failures must not leak raw error text.** The existing hook sets
+`undoError` from `err?.message` directly. This amendment changes that one line to route through
+`describeWriteFailure` (`src/utils/writeErrorMessage.js`), same as every other mutation in the
+app: `setUndoError(describeWriteFailure(err, 'This import could not be undone.'))`. An unhandled
+`ingestUndo` rejection can surface a raw SQLite/IPC message (`FOREIGN KEY constraint failed`,
+`ECONNREFUSED`) to the director; that is precisely the failure mode `describeWriteFailure`'s own
+file header exists to prevent, and an undo is a worse place than most for it to leak, because the
+director may read a swallowed or misdirected error as "it worked." The hook's existing choice to
+stay `LIVE` on error (so the director can retry inside the same window) is correct and unchanged
+— only the message it shows is corrected. `useGraceWindowUndo.test.js` will need its
+error-message assertions updated to match.
+
+**Crash / power-loss / renderer reload.** Unchanged from Invariant 5, restated because this
+amendment was designed against three alternatives that would have changed it (persisting
+`invertibleOps` to SQLite with an expiry column, a main-process timer with the renderer polling
+it, and a document-scoped record any screen could read) — all rejected. Each would let the grace
+window outlive the component that captured it, which is exactly what Invariant 5 forbids and
+would require reopening Invariant 5 itself, not just this seam, for a capability this ticket does
+not need: the in-memory, unmount-scoped design already gives an honest, provable "gone if the app
+closes" guarantee, and a 5-minute window has no real user-facing need to survive a crash. The
+window is simply gone and the import stands — the director sees no error, nothing to undo, and
+the import remains committed. UI copy (Designer's responsibility, not this amendment's) must
+continue to say "for the next few minutes" or equivalent, never "always available" (Invariant
+5c).
+
+### Consequences
+
+- `ReconciliationScreen` now has two rendered phases (triage, committed) instead of unmounting at
+  commit; `ImportScreen`'s `handleReconciliationCommitted` no longer navigates on the success
+  path — only the post-commit tray's primary button does.
+- `commitTrayState` becomes a second, small, deep function in `reconciliationTray.js` alongside
+  `applyTrayState`; no new module.
+- `useGraceWindowUndo.js` gains one changed line (error message routed through
+  `describeWriteFailure`) and its existing test file needs updating to match.
+- `postImportBanner.jsx` and `postImportBanner.test.jsx` are deleted, and the
+  `KNOWN_ORPHANS` entry in `src/orphanReactComponents.test.js` is removed — exactly as that
+  test's own comment already anticipates.
+- A regression guard is required (not optional) asserting that `outcome.invertibleOps` and
+  `outcome.createdEntityIds` — the two fields whose silent drop caused U1 to go dark for weeks —
+  reach the post-commit tray's undo-eligibility decision. Two layers: (1) an `ImportScreen`-level
+  test that commits with a fixture outcome carrying non-empty `invertibleOps`/`createdEntityIds`
+  and asserts the rendered post-commit tray shows the "Undo this import" action (an observable
+  UI assertion, since the original failure was "the button silently never appears," not a thrown
+  error); (2) a `commitTrayState` unit test asserting `secondary` is non-null when
+  `invertibleOps` is a populated array and `null` when it is `undefined`/absent (the replace-mode
+  shape). Both belong beside their respective modules' existing test files, not in a new file.
+
+### Alternatives considered (from divergent ideation, rejected)
+
+- **Persist `invertibleOps` to a SQLite/op-log row with an expiry column.** Crash-safe, but
+  reopens Invariant 5 (capture state must live only in the mounted screen/hook) for a durability
+  guarantee nothing has asked for; also raises a new question this design doesn't need to answer
+  — does a persisted, cross-restart undo need its own "touched since" revalidation story beyond
+  what `ingestUndo` already does against live op-seq.
+- **Main-process timer + renderer polling, or a document/app-shell-level provider that outlives
+  any screen.** Same rejection: moves the capability out of "owned by the mounted screen's own
+  hook," which is Invariant 5's actual point, not an incidental implementation detail.
+- **Host the offer on Roots' findings vocabulary or as a persisted per-record flag.** Rejected
+  per the brief's own reasoning — findings are schedule-week-scoped and have no import-level or
+  camp-level row today; forcing one in would be a larger, separately-reviewable change to that
+  vocabulary, not this ticket.
+- **Explicit router-level "beforeNavigate" guard to detect departure.** Unnecessary: ordinary
+  React unmount (screen switch in `AppShell`) already tears down the hook correctly via its
+  existing cleanup effect; adding an interception layer duplicates a guarantee that already
+  holds.

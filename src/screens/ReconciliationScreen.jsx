@@ -3,7 +3,8 @@ import { localClient } from '../localClient'
 import { journalEntriesFor } from '../ingest/decisionJournal.js'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
-import { applyTrayState } from './reconciliationTray'
+import { applyTrayState, commitTrayState } from './reconciliationTray'
+import { useGraceWindowUndo } from '../hooks/useGraceWindowUndo'
 import { buildBlastRadiusIndex } from '../ingest/blastRadius.js'
 import { reportToLanes } from '../ingest/reportToLanes.js'
 import { getReadiness } from '../engine/readiness.js'
@@ -67,7 +68,13 @@ export default function ReconciliationScreen({ entry = 'import', ...rest }) {
   return <ImportReconciliation {...rest} />
 }
 
-function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, allCampOverrides = [] }) {
+function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, allCampOverrides = [], phase = 'triage', outcome = null, notices = [] }) {
+  // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, T253 Amendment)
+  // — owned by THIS screen's own hook instance, never module-level, never
+  // persisted (Invariant 5). ImportScreen keeps this screen mounted through
+  // a successful commit specifically so this instance survives to offer the
+  // grace-window undo.
+  const graceWindow = useGraceWindowUndo()
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -82,7 +89,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   // treats an empty index as "no ordering signal" and falls back to walk order.
   const [blastRadius, setBlastRadius] = useState(new Map())
   const [answers, setAnswers] = useState({})
-  const { start: startDryRunDebounce } = useLatestTimeout()
+  const { start: startDryRunDebounce, cancel: cancelDryRunDebounce } = useLatestTimeout()
   // Selection union: 'none' (the default needs-attention queue), a tile
   // (one or more states, across domains), or a root node (a specific domain
   // or child, any state).
@@ -105,6 +112,22 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
 
   const requestGenRef = useRef(0)
   const lastGoodReportRef = useRef(null)
+  // HIGH 2 double-submit guard: `applying` state only re-renders the button
+  // disabled AFTER React flushes — two clicks dispatched before that flush
+  // both pass an `applying`-only check and would issue two ingestCommit
+  // calls. Same idiom as useGraceWindowUndo's pendingRef: a synchronous ref
+  // set BEFORE the first await, checked before any state read.
+  const applyPendingRef = useRef(false)
+  // LOW 4 — a debounced dry-run scheduled just before the commit transition
+  // must not fire once phase is 'committed'. The scheduled callback closes
+  // over the `phase` value from the render that scheduled it (still
+  // 'triage'), so a prop change alone doesn't reach it — this ref is always
+  // current at the moment the callback actually runs.
+  const phaseRef = useRef(phase)
+  useEffect(() => {
+    phaseRef.current = phase
+    if (phase === 'committed') cancelDryRunDebounce()
+  }, [phase, cancelDryRunDebounce])
 
   // Roots reconstruction moment (docs/adr/2026-08-18-roots-reconstruction-
   // moment-gating.md) — the show/skip decision is made ONCE, before the
@@ -117,6 +140,7 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   }))
   const [momentSettled, setMomentSettled] = useState(false)
   async function runDryRun(answersForRun) {
+    if (phaseRef.current === 'committed') return
     const myGen = ++requestGenRef.current
     setLoading(true)
     setError(null)
@@ -176,7 +200,6 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   }
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial mount fetch, same pattern as ActivitiesScreen's load()
     runDryRun({})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -197,6 +220,8 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
   }
 
   async function apply(mode) {
+    if (applyPendingRef.current) return
+    applyPendingRef.current = true
     setApplying(true)
     setError(null)
     try {
@@ -247,10 +272,26 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       } catch {
         /* diagnostics only — never surfaced, never blocking */
       }
-      onCommitted?.(outcome)
+      // Undo eligibility is structural, not a recomputed conditional
+      // (Invariant 3: commitPlan throws on captureInverse && mode ===
+      // 'replace', so this is the only place invertibleOps is ever
+      // populated). Never re-derive eligibility from `inputs.mode` here too
+      // — a second, independent derivation is how the two could disagree.
+      if (Array.isArray(outcome?.invertibleOps)) {
+        graceWindow.start(outcome)
+      }
+      // HIGH 2 — must be awaited. ImportScreen's onCommitted
+      // (handleReconciliationCommitted) does real IPC work (applyStagedSplits)
+      // before flipping ledger.phase to 'committed'; if apply() didn't wait
+      // for that, `applying` would go false and re-enable this button while
+      // the screen still looked like triage, letting a second click issue a
+      // second ingestCommit that silently overwrites the first commit's
+      // grace window (Invariant 5b).
+      await onCommitted?.(outcome)
     } catch (err) {
       setError(mapCommitError(err))
     } finally {
+      applyPendingRef.current = false
       setApplying(false)
     }
   }
@@ -270,6 +311,21 @@ function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard,
       }
     }
     if (notes.length > 0) setRememberNotes(notes)
+  }
+
+  // Post-commit phase (T253 Amendment) — the import already succeeded; the
+  // triage report is stale and no longer the point. Renders the exit tray
+  // in place of the triage flow, same as the other early-return branches
+  // below (EndState, loading, error).
+  if (phase === 'committed') {
+    return (
+      <CommittedTray
+        notices={notices}
+        outcome={outcome}
+        graceWindow={graceWindow}
+        onNavigate={onNavigate}
+      />
+    )
   }
 
   if (showMoment && !momentSettled && !error) {
@@ -570,6 +626,106 @@ function OpenDecisionsDoor({ onNavigate }) {
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+// T253 (Amendment) — the post-commit exit tray. Reuses styles.tray, the same
+// DOM slot the triage tray renders in, and the understoodRow "Show details"
+// idiom for the receipt's two-tier disclosure — no second disclosure
+// pattern. commitTrayState decides all copy; this component only wires
+// clicks and animates.
+function CommittedTray({ notices, outcome, graceWindow, onNavigate }) {
+  const contentEnter = useEnterTransition('slideFade')
+  const reduced = prefersReducedMotion()
+  const [showDetail, setShowDetail] = useState(false)
+  const undoCapable = Array.isArray(outcome?.invertibleOps)
+  const tray = commitTrayState({
+    notices,
+    undoCapable,
+    undoState: { ...graceWindow, total: outcome?.total ?? 0 },
+  })
+
+  // The secondary action and the receipt each animate in/out via a
+  // max-height + opacity collapse (220ms var(--ease-out)) rather than
+  // vanishing — useEnterTransition's reduced-motion branch doesn't cover
+  // this (it is not a mount transition), so reduced motion is checked here
+  // directly and the height snaps while the opacity crossfade stays.
+  const secondaryVisible = Boolean(tray.secondary)
+  const secondaryContent = tray.secondary
+
+  const collapseStyle = (visible, maxHeight) => ({
+    overflow: 'hidden',
+    opacity: visible ? 1 : 0,
+    maxHeight: visible ? maxHeight : 0,
+    transition: reduced
+      ? 'opacity 220ms var(--ease-out)'
+      : 'max-height 220ms var(--ease-out), opacity 220ms var(--ease-out)',
+  })
+
+  return (
+    <div style={{ maxWidth: 920, margin: '0 auto' }}>
+      <div style={contentEnter}>
+        {notices.length > 0 && (
+          <div style={styles.understoodRow}>{notices.join(' ')}</div>
+        )}
+
+        {graceWindow.undoError && (
+          <div style={{ ...S.errorBanner, marginTop: 8 }}>{graceWindow.undoError}</div>
+        )}
+
+        <div style={styles.tray}>
+          <div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{tray.hint}</div>
+
+            {tray.receipt && (
+              <div style={{ ...collapseStyle(true, 200), marginTop: 8 }}>
+                <div style={styles.understoodRow}>
+                  <span>{tray.receipt.summary}</span>{' '}
+                  {tray.receipt.detail.length > 0 && (
+                    <button className="press-97" onClick={() => setShowDetail((v) => !v)} style={styles.linkButton}>
+                      {showDetail ? 'Hide details' : 'Show details'}
+                    </button>
+                  )}
+                </div>
+                {showDetail && tray.receipt.detail.length > 0 && (
+                  <div style={{ ...styles.understoodRow, paddingTop: 0 }}>
+                    {tray.receipt.detail.map((line) => <div key={line}>{line}</div>)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div style={collapseStyle(secondaryVisible, 40)}>
+              {secondaryContent && (
+                <button
+                  className="press-97"
+                  disabled={secondaryContent.disabled}
+                  onClick={() => graceWindow.undo()}
+                  style={secondaryContent.disabled ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+                >
+                  {secondaryContent.label}
+                </button>
+              )}
+              {secondaryContent?.note && (
+                <span style={{ marginLeft: 8, color: 'var(--text-secondary)', fontSize: 12 }}>
+                  {secondaryContent.note}
+                </span>
+              )}
+            </div>
+            <button
+              className="press-97"
+              onClick={() => onNavigate('roots')}
+              disabled={graceWindow.isPending}
+              style={graceWindow.isPending ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
+            >
+              {tray.primary.label}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

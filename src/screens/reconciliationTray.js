@@ -67,3 +67,123 @@ export function applyTrayState({ totalCount = 0, doneCount = 0, confirmedCount =
     hint: `${pending} ${pending === 1 ? 'question stays' : 'questions stay'} here for later.`,
   }
 }
+
+// T253 (Amendment, docs/adr/2026-08-17-onescreen-reconciliation-undo.md) —
+// the post-commit exit tray, a SIBLING to applyTrayState, not a branch
+// inside it: this describes a finished commit's result plus an optional
+// undo, a different question from triage progress, and nothing calls both
+// from the same call site.
+//
+// `undoCapable` must be the caller's OWN read of
+// Array.isArray(outcome.invertibleOps) — never re-derived here from
+// `mode`. That is Invariant 3's structural guarantee (commitPlan throws on
+// captureInverse && mode==='replace'), read once.
+//
+// Honesty constraint (Invariant 5c): copy here must say "for the next few
+// minutes" or a live countdown, never "always available" — and the
+// not-undoable state must read as complete, never as missing something; it
+// never mentions undo at all.
+//
+// T253 round 3, Finding A: `total` (records in the import plan) and
+// `deleted.length` (rows undo actually removed, including derived rows
+// like locations and groups the import created) are different counts of
+// different things and `deleted.length` can legitimately be larger. On a
+// real import they read side by side as "Imported 28 records." / "Removed
+// 42 records." — an apparent contradiction. Same class of bug as the
+// progress-counter fix below ("Naming the unit costs a word and removes
+// it."): name what each number counts ("from the file" vs "the import
+// created") rather than changing either number.
+const recordWord = (n) => (n === 1 ? 'record' : 'records')
+
+function receiptFor({ deleted = [], skipped = [], kept = [] } = {}) {
+  const D = deleted.length
+  const K = skipped.length
+  const R = kept.length
+
+  const keptParts = []
+  if (K > 0) keptParts.push(`${K} changed since import`)
+  if (R > 0) keptParts.push(`${R} still in use`)
+  const keptClause = keptParts.length === 2 ? `${keptParts[0]}, and ${keptParts[1]}` : keptParts[0]
+
+  let summary
+  if (D === 0) {
+    if (K === 0 && R === 0) {
+      summary = 'Nothing to undo.'
+    } else if (R === 0) {
+      summary = 'Nothing removed — everything had changed since import.'
+    } else {
+      summary = `Nothing removed — kept ${keptClause}.`
+    }
+  } else if (K === 0 && R === 0) {
+    summary = `Removed ${D} ${recordWord(D)} the import created.`
+  } else {
+    summary = `Removed ${D} ${recordWord(D)} the import created. Kept ${keptClause}.`
+  }
+
+  const detail = []
+  if (K > 0) {
+    const fields = [...new Set(skipped.map((s) => s.field).filter(Boolean))]
+    detail.push(`Kept — changed since import: ${fields.join(', ')}`)
+  }
+  if (R > 0) {
+    const items = kept.map((k) => {
+      const n = k.referencedByCount ?? 0
+      return `${k.name ?? 'record'} (used by ${n} other ${recordWord(n)})`
+    })
+    detail.push(`Kept — still in use: ${items.join('; ')}`)
+  }
+
+  return { summary, detail }
+}
+
+/**
+ * @param notices      version/compound-cell notices ImportScreen already computed
+ * @param undoCapable  the caller's own Array.isArray(outcome.invertibleOps) read
+ * @param undoState    useGraceWindowUndo's fields, plus `total` (outcome.total)
+ * @returns { hint, primary, secondary, receipt }
+ */
+export function commitTrayState({ notices = [], undoCapable = false, undoState = {} } = {}) {
+  const {
+    status = 'idle',
+    isPending = false,
+    secondsLeft = null,
+    total = 0,
+    deleted,
+    skipped,
+    kept,
+  } = undoState
+
+  const primary = { label: 'Continue' }
+  const importedHint = `Imported ${total} ${recordWord(total)} from the file.`
+
+  if (!undoCapable) {
+    return { hint: 'Setup replaced and ready.', primary, secondary: null, receipt: null }
+  }
+
+  if (status === 'used') {
+    return { hint: 'Undo complete.', primary, secondary: null, receipt: receiptFor({ deleted, skipped, kept }) }
+  }
+
+  if (status === 'live') {
+    if (isPending) {
+      return {
+        hint: importedHint,
+        primary,
+        secondary: { label: 'Undoing…', disabled: true, pending: true },
+        receipt: null,
+      }
+    }
+    const note = secondsLeft != null ? `${secondsLeft}s left` : 'for the next few minutes'
+    return {
+      hint: importedHint,
+      primary,
+      secondary: { label: 'Undo this import', disabled: false, pending: false, note },
+      receipt: null,
+    }
+  }
+
+  // expired, or a status this caller hasn't reached start() for yet — no
+  // undo to offer, but the import itself is unaffected.
+  void notices
+  return { hint: importedHint, primary, secondary: null, receipt: null }
+}

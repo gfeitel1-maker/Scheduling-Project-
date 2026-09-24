@@ -19,19 +19,14 @@ const SRC_DIR = path.join(__dirname)
 // real capability behind it and a recorded owner decision
 // (docs/work/tickets/T240-collapse-duplicate-ingest-layer.md).
 //
-// postImportBanner.jsx: the owner has ruled to RESTORE the grace-window undo
-// this file carries, in a separate stream. The binding constraint there is
-// *capability, not banner* — this file is itself a banner, banners are banned,
-// and that ban is what orphaned the undo (commit 66354590 retired the
-// "grace-window undo carrier" along with the banner rendering). So this entry
-// is expected to be removed by DELETING this file once the undo is rehomed in
-// the flag vocabulary or the reconciliation flow — NOT by re-mounting it.
+// T253 — postImportBanner.jsx (and its KNOWN_ORPHANS entry) is gone: the
+// grace-window undo it carried is rehomed in ReconciliationScreen's own
+// post-commit exit tray (commitTrayState / CommittedTray), never re-mounted
+// as a banner.
 //
 // Do not add to this list to silence a genuinely new orphan; only a doc'd,
 // owner-acknowledged one belongs here.
-const KNOWN_ORPHANS = new Set([
-  'src/components/reconciliation/postImportBanner.jsx',
-])
+const KNOWN_ORPHANS = new Set([])
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {

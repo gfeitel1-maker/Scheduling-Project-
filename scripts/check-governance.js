@@ -632,6 +632,11 @@ export const DELIBERATELY_ABSENT = new Map([
     'the integration runner before Stage 6, now run.automerge.js; the Test Coverage section names the old name to explain the rename'],
   ['electron/sync/scheduleE2E.sync.test.js',
     'the WS-transport end-to-end test, retired at Stage 6; named in a historical FIXED note about applyRemoteOp'],
+  ['postImportBanner.jsx',
+    'deleted at T253 — the grace-window undo it carried moved into ReconciliationScreen\'s own post-commit ' +
+    'exit tray (commitTrayState/CommittedTray); PLATFORM_STATE.md names it to record what replaced it'],
+  ['src/components/reconciliation/postImportBanner.jsx',
+    'same T253 deletion, named by full path in the Screens/imagery sections'],
 ])
 
 // --- reference extraction ---------------------------------------------------
