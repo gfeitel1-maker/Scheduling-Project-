@@ -11,6 +11,7 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './localDb.js'
 import { rollbackV74 } from './rollback/v74_down.js'
+import { rollbackV73 } from './rollback/v73_down.js'
 
 const files = []
 
@@ -203,4 +204,131 @@ describe('rollbackV74', () => {
     expect(db.pragma('table_info(elective_assignment_runs)').some((c) => c.name === 'finalized_at')).toBe(true)
     db.close()
   })
+})
+
+// WHY THIS BLOCK EXISTS. Every case above builds its "migrated" fixture with preV74Db, which
+// starts from a database ALREADY at the current (v73) shape and strips v74's own additions back
+// off — it never makes the v73 table-rebuild itself run over real rows in the SAME pass as v74.
+// The composition of two migrations is a worse hiding place for a defect than either alone: v73's
+// rebuild copies activities/elective_sets/etc. by EXPLICIT COLUMN NAME (not `SELECT *`), so a
+// column reordered by an earlier ALTER would land in the wrong slot in a fresh-vs-migrated
+// comparison without either side's schema-version check ever catching it, and a fresh-install-only
+// test can't see it either (both "sides" would be built by the same code). This block instead
+// walks a genuinely v72-shaped database (rollbackV73 restores that shape structurally, exercising
+// its own by-name rebuild) — seeded with representative rows in the tables v73 rebuilds AND in
+// elective_assignment_runs — forward through the REAL v73 rebuild body in localDb.js and then v74,
+// in one initSchema() call, and compares the result against a from-zero fresh install.
+describe('migration v72->v74 composition: fresh vs a genuinely-migrated database', () => {
+  function v72SeededDb(tag) {
+    const db = new Database(tmpFile(tag))
+    db.pragma('foreign_keys = ON')
+    initSchema(db) // fully migrate to current (v74), so schema.sql's tables/indexes all exist
+    rollbackV74(db) // -> v73 shape
+    rollbackV73(db) // -> v72 shape (real structural rebuild back down; no rows yet, so it cannot refuse)
+    expect(getSchemaVersion(db)).toBe(72)
+
+    db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp-1', 'Camp One', 'sec')").run()
+
+    // Every activities column gets a distinct, recognizable value so a positional-copy defect
+    // (a value landing in its NEIGHBOUR's column) is visible on readback, not just a changed count.
+    db.prepare(`
+      INSERT INTO activities (
+        id, camp_id, name, priority, is_locked, span_blocks, location, is_outdoor,
+        max_groups_per_slot, min_per_week, max_per_week, same_tier_only, notes
+      ) VALUES (
+        'activity-1', 'camp-1', 'Swim', 7, 1, 2, 'Lake', 0,
+        3, 4, 5, 1, 'positional-copy canary'
+      )
+    `).run()
+
+    db.prepare(`
+      INSERT INTO elective_sets (id, camp_id, name, sort_order, is_reusable, is_all_groups, group_ids)
+      VALUES ('elset-1', 'camp-1', 'Choice A', 9, 0, 1, 'group-9,group-10')
+    `).run()
+
+    db.prepare(`
+      INSERT INTO elective_assignment_runs (id, camp_id, name, status, source_filename, solver_version)
+      VALUES ('run-1', 'camp-1', 'Run One', 'final', 'input.xlsx', 'solver-v1')
+    `).run()
+
+    return db
+  }
+
+  const REBUILT_TABLES = ['activities', 'elective_sets']
+  const T243_TABLES = ['elective_assignment_runs', 'elective_run_outer_snapshots']
+
+  it('lands the genuinely-migrated database at schema version 74, same as fresh', () => {
+    const fresh = freshDb()
+    const migrated = v72SeededDb('v72-to-74-version')
+    initSchema(migrated) // runs the REAL v73 rebuild, then v74, in one pass
+
+    expect(getSchemaVersion(fresh)).toBe(74)
+    expect(getSchemaVersion(migrated)).toBe(74)
+
+    fresh.close()
+    migrated.close()
+  }, 30000)
+
+  it('gives fresh and migrated identical table_info — name, type, notnull, dflt_value, pk, AND column order', () => {
+    const fresh = freshDb()
+    const migrated = v72SeededDb('v72-to-74-shape')
+    initSchema(migrated)
+
+    for (const table of [...REBUILT_TABLES, ...T243_TABLES]) {
+      expect(tableInfo(migrated, table), `table_info mismatch for ${table}`).toEqual(tableInfo(fresh, table))
+    }
+
+    fresh.close()
+    migrated.close()
+  }, 30000)
+
+  it('leaves the migrated database with a clean PRAGMA foreign_key_check after the composed rebuild', () => {
+    const migrated = v72SeededDb('v72-to-74-fk')
+    initSchema(migrated)
+    expect(migrated.pragma('foreign_key_check')).toEqual([])
+    migrated.close()
+  }, 30000)
+
+  // THE assertion a column-shape comparison alone would NOT catch: this reads back the actual
+  // values, column by column, and checks each one still holds what it was seeded with — not a
+  // neighbour's value. A positional `SELECT *`-style copy misaligned by a reordered column would
+  // pass every test above (same column set, same row count, same FK graph) and only fail here.
+  it('keeps every activities/elective_sets/elective_assignment_runs column value in its own column across the composed rebuild', () => {
+    const migrated = v72SeededDb('v72-to-74-values')
+    initSchema(migrated)
+
+    const activity = migrated.prepare('SELECT * FROM activities WHERE id = ?').get('activity-1')
+    expect(activity.camp_id).toBe('camp-1')
+    expect(activity.name).toBe('Swim')
+    expect(activity.priority).toBe(7)
+    expect(activity.is_locked).toBe(1)
+    expect(activity.span_blocks).toBe(2)
+    expect(activity.location).toBe('Lake')
+    expect(activity.is_outdoor).toBe(0)
+    expect(activity.max_groups_per_slot).toBe(3)
+    expect(activity.min_per_week).toBe(4)
+    expect(activity.max_per_week).toBe(5)
+    expect(activity.same_tier_only).toBe(1)
+    expect(activity.notes).toBe('positional-copy canary')
+
+    const elset = migrated.prepare('SELECT * FROM elective_sets WHERE id = ?').get('elset-1')
+    expect(elset.camp_id).toBe('camp-1')
+    expect(elset.name).toBe('Choice A')
+    expect(elset.sort_order).toBe(9)
+    expect(elset.is_reusable).toBe(0)
+    expect(elset.is_all_groups).toBe(1)
+    expect(elset.group_ids).toBe('group-9,group-10')
+
+    const run = migrated.prepare('SELECT * FROM elective_assignment_runs WHERE id = ?').get('run-1')
+    expect(run.camp_id).toBe('camp-1')
+    expect(run.name).toBe('Run One')
+    expect(run.status).toBe('final')
+    expect(run.source_filename).toBe('input.xlsx')
+    expect(run.solver_version).toBe('solver-v1')
+    // v74's own additive columns: a legacy run migrates forward with both NULL, per the ADR.
+    expect(run.finalized_at).toBeNull()
+    expect(run.finalized_by).toBeNull()
+
+    migrated.close()
+  }, 30000)
 })

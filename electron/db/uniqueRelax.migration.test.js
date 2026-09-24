@@ -177,7 +177,7 @@ describe('migration v73: fresh vs migrated equivalence (load-bearing per the ADR
   }, 30000)
 
   it('declares CURRENT_SCHEMA_VERSION as 73', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(73)
+    expect(CURRENT_SCHEMA_VERSION).toBe(74)
   })
 
   it('is idempotent — re-running v73 does not duplicate tables, indexes, or rows', () => {

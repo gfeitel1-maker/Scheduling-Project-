@@ -38,7 +38,11 @@ describe('rollbackV74', () => {
     expect(columns(db, 'elective_assignment_runs')).not.toContain('finalized_at')
     expect(columns(db, 'elective_assignment_runs')).not.toContain('finalized_by')
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 74').get().c).toBe(0)
-    expect(getSchemaVersion(db)).toBe(72)
+    // v73 (T241) landed as a real intervening migration after this test was first written against
+    // v74 sitting directly atop v72; rollbackV74 deletes `schema_migrations WHERE version >= 74`
+    // (see its own comment on that `>=` convention), which correctly lands on the highest
+    // migration actually below it — 73, not a stale 72.
+    expect(getSchemaVersion(db)).toBe(73)
     db.close()
   })
 
