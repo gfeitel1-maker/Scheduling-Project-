@@ -132,6 +132,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   commitElectiveRun: (args) => ipcRenderer.invoke('shoresh:commit-elective-run', args),
   listElectiveRuns: (token) => ipcRenderer.invoke('shoresh:list-elective-runs', { token }),
   getElectiveRun: (args) => ipcRenderer.invoke('shoresh:get-elective-run', args),
+  finalizeElectiveRun: (args) => ipcRenderer.invoke('shoresh:finalize-elective-run', args),
   // Slice D — read-only, mirrors listDurableElectiveSets's shape.
   listImportEvidence: (token) => ipcRenderer.invoke('shoresh:list-import-evidence', { token }),
   // T114 follow-up — read-only, mirrors listImportEvidence's shape for the

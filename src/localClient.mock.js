@@ -1731,12 +1731,48 @@ export const mockShoresh = {
   async listElectiveRuns() {
     return loadState().elective_assignment_runs || []
   },
+  // T244 — the shape changed from a bare array to an object
+  // ({rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences},
+  // electron/main.js's getElectiveRunHandler). The mock has no
+  // solver_generation/capacity machinery to mirror faithfully (no op-log,
+  // no elective_set_activities capacity lookup wired here) — same additive-
+  // degradation discipline as the stubs around this one: rows are still
+  // real, the three new fields degrade to their "nothing to report" values
+  // rather than being silently omitted, so a caller destructuring the real
+  // shape doesn't crash in browser-dev.
   async getElectiveRun({ runId } = {}) {
     const state = loadState()
     const byId = new Map((state.campers || []).map((c) => [c.id, c.display_name]))
-    return (state.elective_assignments || [])
+    const rows = (state.elective_assignments || [])
       .filter((a) => a.run_id === runId)
       .map((a) => ({ ...a, camper_name: byId.get(a.camper_id) ?? null }))
+    return { rows, staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [] }
+  },
+  // T244 — mirrors finalizeElectiveRunHandler's success/ALREADY_FINAL shape.
+  // The mock has no template_slots-derived occurrence diff and no
+  // routeConflicts pass to run, so STALE_OUTER_SCHEDULE/OUTER_RESOURCE_CONFLICT
+  // never fire here (same additive-degradation posture as commitElectiveRun's
+  // op-log write above) — the refusal a director actually needs to see while
+  // building the screen is ALREADY_FINAL, which this does mirror faithfully.
+  async finalizeElectiveRun({ runId } = {}) {
+    const state = loadState()
+    const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
+    if (!run) return { ok: false, error: 'run not found' }
+    if (run.status === 'final') return { ok: false, error: 'ALREADY_FINAL' }
+    const finalizedAt = new Date().toISOString()
+    const assignmentsForRun = (state.elective_assignments || []).filter((a) => a.run_id === runId)
+    state.elective_assignment_runs = (state.elective_assignment_runs || []).map((r) =>
+      r.id === runId ? { ...r, status: 'final', finalized_at: finalizedAt } : r
+    )
+    state.elective_run_outer_snapshots = [
+      ...(state.elective_run_outer_snapshots || []).filter((s) => s.run_id !== runId),
+      ...assignmentsForRun.map((a, i) => ({
+        id: `${runId}-snap-${i}`, run_id: runId, camper_id: a.camper_id,
+        solver_generation: run.solver_generation ?? null,
+      })),
+    ]
+    saveState(state)
+    return { ok: true, finalizedAt, snapshotRows: assignmentsForRun.length }
   },
   // Slice D — mirrors listImportEvidenceHandler's shape (electron/main.js),
   // but the mock has no import_evidence table and no op-log source per field

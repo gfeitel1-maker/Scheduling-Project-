@@ -91,6 +91,38 @@ export function commitElectiveRun(db, {
   } catch (e) {
     return { ok: false, error: e.message }
   }
+
+  // T244 round 2 — a finalized run is immutable (ADR decision (a): "no
+  // reopen IPC exists"). This function used to write status:'draft'
+  // UNCONDITIONALLY on every call, including a regeneration against an
+  // existing runId. That is the exact H2 hazard in miniature: Device A
+  // finalizes locally (status='final'); Device B, whose local copy never saw
+  // A's write, legitimately regenerates its own still-draft copy — an
+  // ordinary, unrelated action. Once merged, B's status='draft' op is an
+  // ordinary per-field LWW write like any other, and if it happens to carry
+  // a later timestamp than A's finalize, it silently overwrites 'final' back
+  // to 'draft' campwide, with no error and no trace — worse than merely
+  // stale, actively wrong. `status` is therefore only ever asserted here on
+  // a run's FIRST commit (no existing row); a regeneration of an existing
+  // run never touches it, so an already-'final' run stays 'final' through a
+  // late-arriving regeneration op, and FINALIZED_AGAINST_STALE_GENERATION
+  // (not a silently reverted status) is what surfaces the race to a
+  // director.
+  // The guard's correctness rests on an invariant held ABOVE this layer, so
+  // name it rather than leave it implicit (Red Hat round 2, LOW): "a row
+  // exists locally" stands in for "this is a regeneration, not a creation".
+  // That holds because a device can only reach the regenerate action through
+  // a run its own projection already materialized — the renderer mints
+  // providedRunId once at first-solve time. If a future flow ever lets a
+  // device commit against a providedRunId it has NOT locally synced (a
+  // resume-from-shared-code path, a restore-then-continue), existingRun would
+  // be null, status would be re-asserted as 'draft', and the reverted-status
+  // hazard above comes straight back. A test pins that this is the deliberate
+  // behaviour today, so the assumption breaks loudly rather than silently.
+  const existingRun = providedRunId != null
+    ? db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId)
+    : null
+
   const camperIds = new Set((parsed?.campers ?? []).map((c) => c.id))
   const occurrenceIds = new Set(occurrences.map((o) => o.id))
   const choiceIdByKey = new Map()
@@ -99,6 +131,37 @@ export function commitElectiveRun(db, {
   // occurrences span more than one tier (or there are none) — T229.
   const distinctTierIds = new Set(occurrences.map((o) => o.tier_id).filter((t) => t != null))
   const tierId = distinctTierIds.size === 1 ? [...distinctTierIds][0] : null
+
+  // T244 round 2 (Red Hat HIGH, docs/adr/2026-09-23-elective-run-lifecycle-
+  // and-remaining-slices.md D5/decision (b)): D5's marker existed only in
+  // schema (T194/v66) until this fix — nothing ever wrote a non-null
+  // solver_generation, so the shared generation-visibility predicate
+  // (electiveGenerationPredicate.js) and the FINALIZED_AGAINST_STALE_
+  // GENERATION detection it feeds (T244 decision (a)) could never fire
+  // against a real commit, only against a hand-forged test row. This is the
+  // generating device's stamp: ADR D5 names the generating device as the
+  // stamper, and this is the one function that writes solver-produced rows.
+  //
+  // ONE marker per commit call, written to BOTH the run row and every
+  // elective_assignments row this call writes, in the SAME transaction.
+  // Both halves or neither is load-bearing, not incidental: the predicate is
+  // `source='manual' OR solver_generation IS <run's current>` — stamping the
+  // run alone while leaving assignment rows at their old value would
+  // instantly hide every solver row this very commit just wrote, since they
+  // would no longer match the run's new marker.
+  //
+  // Regeneration IS commitElectiveRun called again with the same
+  // providedRunId (T199's flow). This naturally mints a NEW marker on the
+  // run and on the newly-written rows every time, leaving the previous
+  // generation's now-superseded solver rows behind, unchanged, at their old
+  // marker — exactly D5's "stale rows are inert" behaviour, with no separate
+  // re-stamp step required. T245/T246 must NOT re-add a re-stamp-on-
+  // regeneration step: the ADR's decision (b)/Red Hat H3 correction deleted
+  // that mechanism deliberately (see routeConflicts.js-adjacent history in
+  // the ADR) — a locked/manual row survives regeneration by being EXEMPT
+  // from the generation predicate (source='manual'), never by having its
+  // marker carried forward.
+  const solverGeneration = randomUUID()
 
   try {
     runAtomic(db, () => {
@@ -118,10 +181,13 @@ export function commitElectiveRun(db, {
         schedule_template_id: scheduleTemplateId,
         tier_id: tierId,
         name,
-        status: 'draft',
+        // Only asserted on first creation — see the comment above
+        // existingRun's declaration. `write` already skips undefined values.
+        status: existingRun ? undefined : 'draft',
         source_filename: sourceFilename,
         source_sha256: sourceSha256,
         solver_version: SOLVER_VERSION,
+        solver_generation: solverGeneration,
       })
 
       for (const occ of occurrences) {
@@ -179,6 +245,7 @@ export function commitElectiveRun(db, {
           choice_id: choiceIdByKey.get(a.labelKey) ?? null,
           preference_rank: a.preference_rank ?? null,
           source: 'solver',
+          solver_generation: solverGeneration,
         })
       }
     })

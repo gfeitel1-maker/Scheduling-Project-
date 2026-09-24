@@ -8,6 +8,10 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { commitElectiveRun } from './commitElectiveRun.js'
+import {
+  electiveGenerationVisibleFragment,
+  electiveGenerationStaleSolverFragment,
+} from './electiveGenerationPredicate.js'
 
 const dirs = []
 function freshDb() {
@@ -243,5 +247,190 @@ describe('commitElectiveRun', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM elective_occurrences').get().c).toBe(0)
     expect(db.prepare('SELECT COUNT(*) c FROM campers').get().c).toBe(0)
     db.close()
+  })
+
+  // T244 round 2 (Red Hat HIGH, docs/adr/2026-09-23-elective-run-lifecycle-
+  // and-remaining-slices.md D5): the marker must be non-null and must match
+  // on BOTH the run row and every solver-produced assignment row from the
+  // same commit — a mismatch between the two halves is exactly the trap that
+  // would instantly hide every solver row under the shared generation-
+  // visibility predicate.
+  it('stamps a non-null solver_generation on the run row and on every assignment row, matching', () => {
+    const { db, campId } = freshDb()
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1 electives',
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(out.ok).toBe(true)
+
+    const run = db.prepare('SELECT solver_generation FROM elective_assignment_runs WHERE id = ?').get(out.runId)
+    expect(run.solver_generation).toEqual(expect.any(String))
+    expect(run.solver_generation.length).toBeGreaterThan(0)
+
+    const assignments = db.prepare('SELECT solver_generation FROM elective_assignments WHERE run_id = ?').all(out.runId)
+    expect(assignments.length).toBeGreaterThan(0)
+    for (const a of assignments) expect(a.solver_generation).toBe(run.solver_generation)
+  })
+
+  // Regeneration = commitElectiveRun called again with the same runId (T199's
+  // flow). Each call mints its OWN fresh marker — this is what leaves a
+  // superseded generation's rows behind, unchanged, at their old marker,
+  // which the shared predicate then treats as stale. No separate re-stamp
+  // step exists or should be added (ADR decision (b)/Red Hat H3 deleted that
+  // mechanism deliberately).
+  it('regeneration (same runId, called again) mints a NEW generation, different from the first', () => {
+    const { db, campId } = freshDb()
+    const runId = randomUUID()
+    const first = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(first.ok).toBe(true)
+    const gen1 = db.prepare('SELECT solver_generation FROM elective_assignment_runs WHERE id = ?').get(runId).solver_generation
+
+    const second = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(second.ok).toBe(true)
+    const gen2 = db.prepare('SELECT solver_generation FROM elective_assignment_runs WHERE id = ?').get(runId).solver_generation
+
+    expect(gen2).not.toBe(gen1)
+    const assignments = db.prepare('SELECT solver_generation FROM elective_assignments WHERE run_id = ?').all(runId)
+    for (const a of assignments) expect(a.solver_generation).toBe(gen2)
+  })
+
+  // T244 round 2 (Red Hat HIGH, the H2 hazard in miniature): a regeneration
+  // against an EXISTING run must never re-assert status='draft' — that would
+  // silently clobber an already-'final' status the moment a late-arriving
+  // regeneration op (from another device that never saw the finalize) merges
+  // in, via ordinary per-field LWW. status is only ever asserted on first
+  // creation.
+  it('does not touch status on a regeneration of an existing run — a final run stays final through it', () => {
+    const { db, campId } = freshDb()
+    const runId = randomUUID()
+    const first = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(first.ok).toBe(true)
+    db.prepare("UPDATE elective_assignment_runs SET status = 'final' WHERE id = ?").run(runId)
+
+    const second = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(second.ok).toBe(true)
+
+    const run = db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId)
+    expect(run.status).toBe('final')
+  })
+
+  it('a genuinely NEW run (no existing row) still gets status=draft on its first commit', () => {
+    const { db, campId } = freshDb()
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1',
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(out.ok).toBe(true)
+    const run = db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(out.runId)
+    expect(run.status).toBe('draft')
+  })
+
+  // Backward compatibility: a run that existed before this fix has NULL on
+  // the run row AND NULL on its assignment rows. Under `IS` (not `=`), NULL
+  // matches NULL, so those pre-existing rows must stay fully visible under
+  // the shared predicate rather than being hidden by the fix meant to
+  // detect staleness.
+  it('back-compat: a pre-existing run with NULL solver_generation on both halves still matches under IS', () => {
+    const { db, campId } = freshDb()
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Legacy run',
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(out.ok).toBe(true)
+    // Simulate a pre-fix row: force both halves back to NULL, as a run
+    // committed before this change would have on disk today.
+    db.prepare('UPDATE elective_assignment_runs SET solver_generation = NULL WHERE id = ?').run(out.runId)
+    db.prepare('UPDATE elective_assignments SET solver_generation = NULL WHERE run_id = ?').run(out.runId)
+
+    const rows = db
+      .prepare(`SELECT id FROM elective_assignments a WHERE a.run_id = :runId AND ${electiveGenerationVisibleFragment('a')}`)
+      .all({ runId: out.runId, gen: null })
+    expect(rows.length).toBe(ASSIGNMENTS.length)
+    db.close()
+  })
+
+  // The MIXED legacy transition (Red Hat round 2, LOW — reasoned correct but
+  // untested, which is the same gap category the round-1 HIGH came from). A
+  // run committed BEFORE the stamping fix has NULL on both halves; the first
+  // regeneration after the upgrade moves the RUN to a fresh uuid while any
+  // old solver row the new solve does not re-write keeps its NULL. The
+  // question this pins is whether such a row goes correctly STALE or is
+  // silently lost: `NULL IS '<uuid>'` is false, so it is excluded from the
+  // visible set and counted by the stale-solver fragment — stale, not lost.
+  // A regression here is what a well-meaning `IS` -> `=` "cleanup" would
+  // cause, and nothing else in the suite would catch it.
+  it('legacy transition: regenerating a NULL-generation run leaves its untouched old rows stale, not lost', () => {
+    const { db, campId } = freshDb()
+    const runId = randomUUID()
+    const first = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Legacy run', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(first.ok).toBe(true)
+    // Force the pre-fix on-disk state: no marker anywhere.
+    db.prepare('UPDATE elective_assignment_runs SET solver_generation = NULL WHERE id = ?').run(runId)
+    db.prepare('UPDATE elective_assignments SET solver_generation = NULL WHERE run_id = ?').run(runId)
+
+    // Regenerate with only ONE of the two campers, so cam-2's legacy row is
+    // genuinely left untouched rather than overwritten by the same derived id.
+    const second = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Legacy run', runId,
+      parsed: PARSED, assignments: [ASSIGNMENTS[0]], occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(second.ok).toBe(true)
+
+    const gen = db.prepare('SELECT solver_generation FROM elective_assignment_runs WHERE id = ?').get(runId).solver_generation
+    expect(gen).toEqual(expect.any(String))
+
+    // The untouched legacy row still exists — it was not deleted.
+    const legacy = db
+      .prepare('SELECT solver_generation FROM elective_assignments WHERE run_id = ? AND camper_id = ?')
+      .get(runId, 'cam-2')
+    expect(legacy).toBeDefined()
+    expect(legacy.solver_generation).toBeNull()
+
+    // ...and it is excluded from the visible set, while the re-written row is in it.
+    const visible = db
+      .prepare(`SELECT camper_id FROM elective_assignments a WHERE a.run_id = :runId AND ${electiveGenerationVisibleFragment('a')}`)
+      .all({ runId, gen })
+      .map((r) => r.camper_id)
+    expect(visible).toEqual(['cam-1'])
+
+    // ...and it is counted as stale, not silently dropped from every tally.
+    const stale = db
+      .prepare(`SELECT COUNT(*) AS n FROM elective_assignments a WHERE a.run_id = :runId AND ${electiveGenerationStaleSolverFragment('a')}`)
+      .get({ runId, gen })
+    expect(stale.n).toBe(1)
+    db.close()
+  })
+
+  // Documents the invariant the status guard rests on (Red Hat round 2, LOW).
+  // The guard reads "a row exists LOCALLY" as "this is a regeneration". If a
+  // future flow ever commits against a providedRunId this device has not
+  // synced, that read is wrong and status is re-asserted as 'draft'. This
+  // test states that behaviour deliberately, so such a flow breaks a named
+  // expectation instead of silently reintroducing the reverted-status hazard.
+  it('a providedRunId with no local row is treated as a CREATION (status=draft) — the guard is local-existence, not identity', () => {
+    const { db, campId } = freshDb()
+    const runId = randomUUID()
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Never synced here', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(out.ok).toBe(true)
+    const run = db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId)
+    expect(run.status).toBe('draft')
   })
 })
