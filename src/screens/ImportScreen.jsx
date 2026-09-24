@@ -30,7 +30,8 @@ import { emitTwoRowSplit, pinActivityAsserted, DEFAULT_SPLIT_SUFFIX } from '../i
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../utils/exportSanitize.js'
-import { downloadWorkbook, META_SHEET } from '../utils/exportWorkbook.js'
+import { META_SHEET } from '../utils/exportWorkbook.js'
+import { runWorksheetDownload } from '../utils/downloadWorksheet.js'
 import { workbookToSource } from '../ingest/workbookToSource.js'
 import ReconciliationScreen from './ReconciliationScreen.jsx'
 import { fetchFirstImportCollections, isFirstImport as computeIsFirstImport } from '../ingest/firstImportSignal.js'
@@ -854,20 +855,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
     setExporting(true)
     setError(null)
     try {
-      const camp = await localClient.getCamp().catch(() => null)
-      const entities = {}
-      for (const entity of INGESTIBLE_ENTITIES) {
-        entities[entity] = await localClient.list(entity).catch(() => [])
-      }
-      // S4b §4 — stamp the REAL op-log generation so a re-import can detect a
-      // workbook filled against a stale export (import-over-import staleness).
-      const base_generation = await localClient.latestOpSeq().catch(() => 0)
-      downloadWorkbook({
-        ...entities,
-        camp_id: camp?.id ?? null,
-        cohort_id: activeCohort?.id ?? null,
-        base_generation,
-      })
+      await runWorksheetDownload(activeCohort?.id)
     } catch (err) {
       setError(describeWriteFailure(err, 'The worksheet could not be created.'))
     } finally {

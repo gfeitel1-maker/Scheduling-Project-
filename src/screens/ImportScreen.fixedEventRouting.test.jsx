@@ -68,6 +68,11 @@ vi.mock('../ingest/fixedEvents', () => ({
       { name: 'Ceramics', time_block: '10:00-10:30', days: ['Monday', 'Tuesday'], scope: { is_all_groups: true, groups: null }, confidence: 'high' },
       { name: 'Free Swim', time_block: '15:00-15:30', days: ['Monday', 'Tuesday'], scope: { is_all_groups: true, groups: null }, confidence: 'low' },
       { name: 'Yoga', time_block: '16:00-16:30', days: ['Monday', 'Tuesday'], scope: { is_all_groups: true, groups: null }, confidence: 'low' },
+      // T240 (Governor brief §E) — a GROUP-scoped recurring event is
+      // structurally always low-confidence (inferFixedEvents has less to go
+      // on than an all-groups event), which is exactly why the pre-#522
+      // confidence-gated guard could never catch it. Not dual-use.
+      { name: 'Bunk Cleanup', time_block: '17:00-17:30', days: ['Monday'], scope: { is_all_groups: false, groups: ['Yeladim'] }, confidence: 'low' },
     ],
     dualUseNames: ['Ceramics', 'Yoga'],
   }),
@@ -139,7 +144,7 @@ describe('ImportScreen — fixed-event routing (ADR 2026-08-09 Decision 1)', () 
   it('every inferred fixed event ships unconditionally in the commit inputs', async () => {
     await uploadFile()
     const inputs = await commit()
-    expect(inputs.fixedEvents.map((fe) => fe.name).sort()).toEqual(['Ceramics', 'Free Swim', 'Lunch', 'Yoga'])
+    expect(inputs.fixedEvents.map((fe) => fe.name).sort()).toEqual(['Bunk Cleanup', 'Ceramics', 'Free Swim', 'Lunch', 'Yoga'])
   })
 
   // Classifier-sequencing fix (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md
@@ -178,6 +183,17 @@ describe('ImportScreen — fixed-event routing (ADR 2026-08-09 Decision 1)', () 
     await uploadFile()
     const inputs = await commit()
     expect(inputs.pinOnlyActivityNames).toContain('Free Swim')
+  })
+
+  // T240 (Governor brief §E) — the confidence-independence assertion above
+  // uses an all-groups fixed event. A GROUP-scoped recurring event is
+  // structurally always low-confidence, so it is exactly the shape the
+  // pre-#522 confidence-gated bug would have missed even after a fix that
+  // only handled the all-groups case. Same guard, group-scoped input.
+  it('a LOW-confidence, group-scoped recurring event is still marked pin-only', async () => {
+    await uploadFile()
+    const inputs = await commit()
+    expect(inputs.pinOnlyActivityNames).toContain('Bunk Cleanup')
   })
 
   // Non-vacuity (T234): the fixed guard must not become a blanket "any

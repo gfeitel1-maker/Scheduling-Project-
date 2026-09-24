@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react'
-import { localClient } from '../localClient'
 import { S, useEnterTransition, prefersReducedMotion, useNarrowViewport } from '../styles/shared'
 import { CircleCheckIcon } from '../components/icons'
 import { useCohorts } from '../hooks/useCohorts'
 import { useCurrentStructureCounts } from '../hooks/useCurrentStructureCounts.js'
 import { useOpenReconciliationDecisions } from '../hooks/useOpenReconciliationDecisions.js'
 import { buildAttentionList, buildStructureIssues } from '../ingest/attentionList.js'
-import { INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { dedupeChipItems } from './rootsChips'
-import { downloadWorkbook } from '../utils/exportWorkbook.js'
+import { runWorksheetDownload } from '../utils/downloadWorksheet.js'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { ACTIVITY_COLORS } from '../components/schedule/slotCellConstants.js'
 import { ScheduleDoor } from '../components/ScheduleDoor'
 import { SIDEBAR_WIDTH_PX } from '../components/layout/Sidebar.jsx'
@@ -148,6 +147,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   // attention/changed rows.
   const { model: openModel, decisionsById: openDecisionsById } = useOpenReconciliationDecisions()
   const [preparingWorksheet, setPreparingWorksheet] = useState(false)
+  const [worksheetError, setWorksheetError] = useState(null)
   const enterStyle = useEnterTransition('liftFade')
   const emptyStateEnterStyle = useEnterTransition('liftFade')
   const bentoStyleFor = useStaggerEnter(!loading, 40)
@@ -165,14 +165,11 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   async function downloadWorksheet() {
     if (preparingWorksheet) return
     setPreparingWorksheet(true)
+    setWorksheetError(null)
     try {
-      const camp = await localClient.getCamp().catch(() => null)
-      const entities = {}
-      for (const entity of INGESTIBLE_ENTITIES) {
-        entities[entity] = await localClient.list(entity).catch(() => [])
-      }
-      const base_generation = await localClient.latestOpSeq().catch(() => 0)
-      downloadWorkbook({ ...entities, camp_id: camp?.id ?? null, cohort_id: activeCohort?.id ?? null, base_generation })
+      await runWorksheetDownload(activeCohort?.id)
+    } catch (err) {
+      setWorksheetError(describeWriteFailure(err, 'The worksheet could not be created.'))
     } finally {
       setPreparingWorksheet(false)
     }
@@ -217,6 +214,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
             )}
           </section>
 
+          {worksheetError && <div style={{ ...S.errorBanner, marginTop: 'var(--space-4)' }}>{worksheetError}</div>}
           <div style={styles.bottomActions}>
             <button className="press-97" onClick={() => onNavigate('import')} style={S.btnSecondary}>Import last year</button>
             <button className="press-97" disabled={preparingWorksheet} onClick={downloadWorksheet} style={S.btnSecondary}>
