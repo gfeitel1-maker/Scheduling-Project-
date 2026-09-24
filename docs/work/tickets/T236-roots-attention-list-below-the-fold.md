@@ -6,10 +6,7 @@ created: 2026-09-23
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
 related_adrs: [docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md]
 resolved_by: [src/screens/RootsHomeScreen.jsx, src/styles/shared.js]
-archive_when: >
-  RootsHomeScreen renders "Needs your attention" in a right-hand rail above the
-  fold at 1280x720, RootsHomeScreen.test.jsx asserts the rail landmark and the
-  narrow-viewport stacked order, and the change has merged to main.
+archive_when: RootsHomeScreen renders "Needs your attention" in a right-hand rail with no page scroll at 1280x720, RootsHomeScreen.test.jsx asserts the rail landmark and the narrow-viewport stacked order, and the change has merged to main.
 ---
 
 # T236 — The Roots attention list sits below the fold and reads as a footnote
