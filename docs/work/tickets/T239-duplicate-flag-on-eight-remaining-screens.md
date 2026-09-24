@@ -57,3 +57,22 @@ marker off it.
 ## Non-goals
 
 Touching Locations or Activities. A merge verb. Spreading `near` matching. New chrome.
+
+## Owner decision, 2026-09-24 — `schedule_weeks` is deliberately unmarked
+
+`schedule_weeks` is one of the ten relaxed entities but has **no** duplicate marker, and that is a
+decision rather than an omission. Weeks are authored inside `src/screens/ScheduleScreen.jsx`, which
+is under the standing owner rule to protect the grid's restraint, so adding a marker there is a design
+question about that screen rather than a mechanical extension of the pattern used on the other nine.
+
+Two further reasons it is the safest of the ten to leave unmarked: a week is chosen from a list rather
+than resolved by name anywhere in the engine, and `schedule_weeks` was the single plain-named-index
+case in the v73 relax (never an inline `UNIQUE`), so nothing about its rebuild is load-bearing here.
+
+Decide where the marker belongs **as part of this ticket**, alongside the eighth screen, with a proper
+look at `ScheduleScreen` — not as a tail-end addition to a migration review. The candidate the owner
+named as the plausible home is the week *picker* control (where a director chooses a week, so the
+duplicate surfaces exactly when it could confuse someone) rather than the canvas itself.
+
+Until then the gap is known and accepted. `archive_when` above already covers it: this ticket cannot
+archive while any of the ten lacks a marker, so the decision cannot quietly become permanent.
