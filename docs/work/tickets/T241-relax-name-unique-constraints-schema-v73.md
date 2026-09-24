@@ -1,7 +1,7 @@
 ---
 title: "Relax ten name-UNIQUE constraints so the projection mirrors the document (schema v73)"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: a fresh install and a v0-through-v73 migrated database produce identical PRAGMA table_info and index_list for all ten relaxed tables, and two document records sharing a name both project with zero projection_failures rows
 task_class: database-sync

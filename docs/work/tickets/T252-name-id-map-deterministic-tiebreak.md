@@ -1,7 +1,7 @@
 ---
 title: "Name-to-id maps get a deterministic lowest-id tie-break"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: all five ingest.js seedNameMaps sites and materializeImportedVersion.js's nameMap resolve a duplicated name to the lowest id regardless of row return order, proven by a test that reverses insertion order
 task_class: database-sync

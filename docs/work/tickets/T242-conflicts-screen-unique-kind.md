@@ -1,7 +1,7 @@
 ---
 title: "ConflictsScreen renders the unique conflict kind as an informational card"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: a unique:-kind conflict renders as a buttonless informational card naming the colliding value, both records, and the screen that owns the fix, with the scalar card behaviourally unchanged
 task_class: ui-ux-design

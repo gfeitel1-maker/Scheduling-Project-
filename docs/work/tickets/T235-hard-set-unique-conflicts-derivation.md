@@ -1,7 +1,7 @@
 ---
 title: "Hard-set UNIQUE collisions become a document-derived typed conflict"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: two devices concurrently creating a colliding days_of_operation row both derive an identical unique:-namespaced conflicts row, and the projection choke point refuses to project a document holding an unrecorded structural collision
 task_class: database-sync

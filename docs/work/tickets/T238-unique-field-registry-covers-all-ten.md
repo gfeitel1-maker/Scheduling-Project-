@@ -1,7 +1,7 @@
 ---
 title: "UNIQUE_FIELD_ENTITIES covers all ten relaxed tables, with composite scope support"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: all ten relaxed entities are registered for the local-write advisory pre-check, tiers and time_blocks scope their check by cohort_id as well as camp_id, and both registry-parity tests are green
 task_class: database-sync
