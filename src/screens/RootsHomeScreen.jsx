@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { S, useEnterTransition, prefersReducedMotion, useNarrowViewport } from '../styles/shared'
+import { useState, useEffect, useRef } from 'react'
+import { S, useEnterTransition, prefersReducedMotion, useNarrowViewport, useMeasuredRowCap } from '../styles/shared'
 import { CircleCheckIcon } from '../components/icons'
 import { useCohorts } from '../hooks/useCohorts'
 import { useCurrentStructureCounts } from '../hooks/useCurrentStructureCounts.js'
@@ -11,6 +11,7 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { ACTIVITY_COLORS } from '../components/schedule/slotCellConstants.js'
 import { ScheduleDoor } from '../components/ScheduleDoor'
 import { SIDEBAR_WIDTH_PX } from '../components/layout/Sidebar.jsx'
+import { screenForAttentionRow } from './attentionRowDestination.js'
 
 // ADR docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md — the Roots
 // home is a distinct screen from now on: no census/diff vocabulary, no
@@ -50,6 +51,11 @@ const CARD_GRID = {
 }
 
 const CHIP_CAP = { large: 4, wide: 6 }
+
+// T237 — reserved height for the overflow chip when measuring how many
+// attention rows fit (useMeasuredRowCap's reservePx). Matches the chip's
+// own compact padding/font — see attentionOverflowChipStyle below.
+const OVERFLOW_ROW_RESERVE_PX = 40
 
 // T236 — window width below which the two-column rail layout collapses to a
 // single stacked column. matchMedia measures the WINDOW, but Shell.jsx's
@@ -136,6 +142,43 @@ function attentionRowHover(e, on) {
   e.currentTarget.style.background = on ? 'color-mix(in srgb, var(--accent) 4%, var(--surface))' : 'var(--surface)'
 }
 
+function overflowChipHover(e, on) {
+  if (prefersReducedMotion()) return
+  e.currentTarget.style.borderColor = on ? 'color-mix(in srgb, var(--accent) 45%, var(--border))' : 'var(--border)'
+}
+
+// T237 — a row resolves to its destination (reconciliation rows to the
+// fileless reconciliation door, structure rows via rootMapNav). rootMapNav
+// can legitimately return null for a domain/child with no edit screen; that
+// row renders inert (a plain div, same visuals) rather than a button that
+// navigates to nothing.
+function AttentionRow({ row, onNavigate, animStyle }) {
+  const targetScreen = screenForAttentionRow(row)
+  const content = (
+    <>
+      <div style={styles.attentionName}>{row.name}</div>
+      <span style={styles.domainChip}>{row.domainTag}</span>
+      <div style={{ ...styles.attentionWhy, flexBasis: '100%' }}>{row.why}</div>
+    </>
+  )
+  if (!targetScreen) {
+    return <div style={{ ...styles.attentionRow, ...animStyle }}>{content}</div>
+  }
+  return (
+    <button
+      type="button"
+      className="attention-row press-97"
+      aria-label={`${row.name} — ${row.why}`}
+      onClick={() => onNavigate?.(targetScreen)}
+      onMouseEnter={(e) => attentionRowHover(e, true)}
+      onMouseLeave={(e) => attentionRowHover(e, false)}
+      style={{ ...attentionRowInteractiveStyle, ...animStyle }}
+    >
+      {content}
+    </button>
+  )
+}
+
 export default function RootsHomeScreen({ campId, onNavigate }) {
   const { activeCohort } = useCohorts(campId)
   const { collections, loading } = useCurrentStructureCounts(campId)
@@ -161,6 +204,26 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
         structureIssues: buildStructureIssues(collections),
       })
     : []
+
+  // T237 — alphabetical by name. Stable, obvious to a director, and NOT a
+  // priority claim: buildAttentionList's own order (reconciliation rows,
+  // then structure rows) was never designed as a ranking, and now that only
+  // some rows fit the rail it must not read as one. Do not "improve" this
+  // into a severity order without the owner's sign-off (owner decision,
+  // 2026-09-23: "it truly doesn't matter. you can do it by alphabet if you
+  // want.").
+  const sortedAttentionRows = [...attentionRows].sort((a, b) => a.name.localeCompare(b.name))
+
+  const railListRef = useRef(null)
+  // T237 — the rail shows as many rows as fit the viewport without
+  // introducing page scroll; see useMeasuredRowCap (src/styles/shared.js).
+  const rowCap = useMeasuredRowCap({
+    containerRef: railListRef,
+    itemCount: sortedAttentionRows.length,
+    reservePx: OVERFLOW_ROW_RESERVE_PX,
+  })
+  const visibleAttentionRows = sortedAttentionRows.slice(0, rowCap)
+  const overflowCount = sortedAttentionRows.length - visibleAttentionRows.length
 
   async function downloadWorksheet() {
     if (preparingWorksheet) return
@@ -235,25 +298,40 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
           }}
         >
           <div style={{ ...styles.sectionLabel, marginTop: 'var(--space-5)' }}>Needs your attention</div>
-          {attentionRows.length === 0 ? (
+          {sortedAttentionRows.length === 0 ? (
             <div style={{ ...styles.emptyState, ...emptyStateEnterStyle }}>
               <CircleCheckIcon data-testid="attention-empty-check" style={styles.emptyStateIcon} />
               <div>Nothing needs you right now.</div>
             </div>
           ) : (
-            <div>
-              {attentionRows.map((row, index) => (
-                <div
+            <div ref={railListRef} data-testid="attention-rail-list">
+              {visibleAttentionRows.map((row, index) => (
+                <AttentionRow
                   key={row.id}
-                  onMouseEnter={(e) => attentionRowHover(e, true)}
-                  onMouseLeave={(e) => attentionRowHover(e, false)}
-                  style={{ ...styles.attentionRow, ...attentionStyleFor(index) }}
-                >
-                  <div style={styles.attentionName}>{row.name}</div>
-                  <span style={styles.domainChip}>{row.domainTag}</span>
-                  <div style={{ ...styles.attentionWhy, flexBasis: '100%' }}>{row.why}</div>
-                </div>
+                  row={row}
+                  onNavigate={onNavigate}
+                  animStyle={attentionStyleFor(index)}
+                />
               ))}
+              {overflowCount > 0 && (
+                // Unlike ChipRow's "+N more" (rejected as a clickable target — the card's own
+                // heading already answers how many rows there are, so a click target would
+                // answer a question nobody asked), THIS overflow chip is clickable and
+                // navigates. An attention-list overflow has a real destination: the
+                // reconciliation flow it invites the director into. The count here is an
+                // invitation, not a restatement.
+                <button
+                  type="button"
+                  className="press-97"
+                  data-testid="attention-overflow"
+                  onClick={() => onNavigate('reconciliation')}
+                  onMouseEnter={(e) => overflowChipHover(e, true)}
+                  onMouseLeave={(e) => overflowChipHover(e, false)}
+                  style={{ ...attentionOverflowChipStyle, ...attentionStyleFor(visibleAttentionRows.length) }}
+                >
+                  {`+${overflowCount} more →`}
+                </button>
+              )}
             </div>
           )}
         </aside>
@@ -434,4 +512,34 @@ const styles = {
     paddingTop: 'var(--space-4)',
     borderTop: '1px solid var(--border)',
   },
+}
+
+// T237 — the row is now a real <button>, which resets background, border,
+// font, text-align, width and cursor away from attentionRow's div-era
+// values; restored explicitly here so it reads exactly the same.
+const attentionRowInteractiveStyle = {
+  ...styles.attentionRow,
+  font: 'inherit',
+  textAlign: 'left',
+  width: '100%',
+  cursor: 'pointer',
+}
+
+const attentionOverflowChipStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: '6px var(--space-2)',
+  borderRadius: 'var(--radius-pill)',
+  background: 'transparent',
+  border: '1px dashed var(--border)',
+  fontSize: 11.5,
+  fontWeight: 500,
+  color: 'var(--text-secondary)',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  marginBottom: 'var(--space-2)',
+  transition: 'border-color var(--motion-fast) var(--ease-standard)',
 }

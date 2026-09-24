@@ -1,5 +1,5 @@
 // Shared inline style constants — import as: import { S } from '../styles/shared'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useLayoutEffect } from 'react'
 
 // Reduced-motion fallbacks for inline-styled elements are read via
 // matchMedia at render time; global motion primitives live in src/index.css.
@@ -71,6 +71,82 @@ export function useNarrowViewport(breakpointPx) {
     return () => mql.removeEventListener('change', onChange)
   }, [mql])
   return narrow
+}
+
+// T237 — the number of rows a capped list can show before it introduces
+// page scroll, derived from MEASURED available height rather than a
+// constant. Row heights vary (e.g. a wrapping description line), so a fixed
+// per-row estimate would be wrong for some rows and right for others; this
+// reads the REAL rendered height of each row directly off `containerRef`'s
+// children. `reservePx` is set aside for a trailing affordance (e.g. an
+// overflow chip) whenever not every item fits.
+//
+// No hidden "measure everything" probe: `containerRef`'s children ARE the
+// measurement source, so nothing is ever duplicated in the DOM. That means
+// a row a prior trim removed can't be re-measured on its own — when
+// `itemCount` grows (e.g. data finishes loading, or the underlying list
+// changes), the full set is re-rendered FIRST (the "adjusting state during
+// render" pattern also used by RootMapPanel.jsx's showResolved reset —
+// React re-renders synchronously without an intermediate paint, so this
+// never flashes), and only THEN does useLayoutEffect measure + trim it —
+// before the browser's first paint of that set, so an actual overflow is
+// never visible either. A resize can't be caught by that prop-comparison
+// trick (itemCount hasn't changed), so it gets the same re-expose-then-trim
+// treatment explicitly. Native 'resize' fires repeatedly while a window is
+// being dragged, so that re-expose is coalesced to at most once per animation
+// frame (a pending-rAF guard, not a per-event uncap) — still a possible
+// one-frame flash on resize, but one per settled frame rather than one per
+// resize event during the whole drag.
+export function useMeasuredRowCap({ containerRef, itemCount, reservePx = 0 }) {
+  const [cap, setCap] = useState(itemCount)
+  const [measuredFor, setMeasuredFor] = useState(itemCount)
+  if (itemCount !== measuredFor) {
+    setMeasuredFor(itemCount)
+    setCap(itemCount)
+  }
+
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    if (!container) return undefined
+
+    function computeCap() {
+      const rows = Array.from(container.children)
+      if (rows.length === 0) return 0
+      const top = container.getBoundingClientRect().top
+      const budget = Math.max(0, window.innerHeight - top)
+      let used = 0
+      let shown = 0
+      for (let i = 0; i < rows.length; i++) {
+        const rowHeight = rows[i].getBoundingClientRect().height
+        const isLast = i === rows.length - 1
+        const reserve = isLast ? 0 : reservePx
+        if (used + rowHeight + reserve > budget) break
+        used += rowHeight
+        shown = i + 1
+      }
+      // A single row taller than the budget must still show — an empty rail
+      // with only an overflow chip reads as broken for one item.
+      return rows.length > 0 ? Math.max(shown, 1) : 0
+    }
+
+    setCap(computeCap())
+
+    let pendingResizeFrame = null
+    function onResize() {
+      if (pendingResizeFrame !== null) return
+      pendingResizeFrame = requestAnimationFrame(() => {
+        pendingResizeFrame = null
+        setCap(itemCount)
+        requestAnimationFrame(() => setCap(computeCap()))
+      })
+    }
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      if (pendingResizeFrame !== null) cancelAnimationFrame(pendingResizeFrame)
+    }
+  }, [containerRef, itemCount, reservePx])
+  return cap
 }
 
 export const S = {

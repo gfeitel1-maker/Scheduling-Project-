@@ -10,7 +10,7 @@
 // App.jsx's SCREENS object — screenDestinationsExist.test.js checks every
 // readiness/rootMap `screen` value against it.
 export const SCREEN_KEYS = new Set([
-  'camp', 'import', 'seed', 'roots', 'conflicts', 'trash',
+  'camp', 'import', 'seed', 'roots', 'reconciliation', 'conflicts', 'trash',
   'cohorts', 'tiers', 'groups', 'days', 'timeblocks', 'activities',
   'locations', 'anchors', 'fixedevents', 'electives', 'specialevents',
   'schedule', 'schedule:manual', 'schedule:generated', 'schedule:special', 'schedule:electives',

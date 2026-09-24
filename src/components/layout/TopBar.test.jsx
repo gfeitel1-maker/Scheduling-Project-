@@ -37,6 +37,16 @@ describe('TopBar — Roots return affordance', () => {
 
     expect(screen.queryByRole('button', { name: /roots/i })).toBeNull()
   })
+
+  it('shows the control on the "reconciliation" (Open items) screen — a Roots destination reached with no sidebar entry of its own', () => {
+    const onNavigate = vi.fn()
+    render(<TopBar screen="reconciliation" onNavigate={onNavigate} />)
+
+    const control = screen.getByRole('button', { name: /roots/i })
+    fireEvent.click(control)
+
+    expect(onNavigate).toHaveBeenCalledWith('roots')
+  })
 })
 
 // Every routable screen must resolve to its own header title. A screen key

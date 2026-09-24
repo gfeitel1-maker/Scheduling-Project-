@@ -175,3 +175,13 @@ a { text-decoration: none; color: inherit; }
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* T237 — the Roots attention row is a real <button> now (see
+   RootsHomeScreen.jsx), which the generic rule above already covers;
+   this class-scoped rule is required by the ticket regardless, so a
+   future change to the generic button rule can't silently take focus
+   styling away from this specific row. */
+.attention-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

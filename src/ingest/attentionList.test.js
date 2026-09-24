@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildAttentionList, buildStructureIssues } from './attentionList.js'
+import { DOMAINS } from '../components/reconciliation/domainRollup.js'
+import { screenForNode } from '../components/reconciliation/rootMapNav.js'
 
 // buildRootMapModel-shaped fixture — the exact shape rootMapModel.js returns
 // ({ domains: [{ key, label, children: [{ key, roster }] }] }), narrowed to
@@ -114,5 +116,38 @@ describe('buildStructureIssues', () => {
     }
     const issues = buildStructureIssues(collections)
     expect(issues.find((i) => i.id?.startsWith('group-no-activities'))).toBeUndefined()
+  })
+
+  // T237 — RootsHomeScreen resolves an attention row's click destination via
+  // rootMapNav.screenForNode(row.domainTag) (structure rows carry NO
+  // childKey, so this always falls through to the DOMAIN_SCREEN fallback).
+  // A row must never carry a domainTag rootMapNav has no target for, or
+  // clicking it silently does nothing. Exercises the REAL emitted values
+  // (buildStructureIssues' every REQUIRED_EMPTY_AREAS/group-eligibility
+  // domainTag, plus buildAttentionList's reconciliation half, which reads
+  // domain.label straight off the model — DOMAINS, in real usage, per
+  // rootMapModel.js/domainRollup.js) rather than a hand-copied list that
+  // could itself drift from what attentionList.js actually emits.
+  it('every domainTag a structure issue can emit resolves to a real screen (T237)', () => {
+    const collections = {
+      tiers: [], groups: [{ id: 'g1', name: 'Bunk 1', tier_id: null }],
+      days_of_operation: [], time_blocks: [], activities: [{ id: 'a1', name: 'Kayak', eligible_tier_ids: ['nope'], eligible_group_ids: [] }],
+      locations: [],
+    }
+    const issues = buildStructureIssues(collections)
+    expect(issues.length).toBeGreaterThan(0)
+    for (const issue of issues) {
+      expect(screenForNode(issue.domainTag), issue.domainTag).not.toBeNull()
+    }
+  })
+
+  it('every reconciliation-half domainTag (DOMAINS, the real model.domains[].label vocabulary) resolves to a real screen (T237)', () => {
+    for (const domain of DOMAINS) {
+      const model = modelWith([{ key: 'X', roster: [{ entityId: 'e1', name: 'Thing', state: 'attention', decisionId: 'd1' }] }])
+      model.domains[0].label = domain
+      const rows = buildAttentionList({ model, structureIssues: [] })
+      expect(rows).toHaveLength(1)
+      expect(screenForNode(rows[0].domainTag), domain).not.toBeNull()
+    }
   })
 })

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { S, useNarrowViewport } from './shared'
+import { S, useNarrowViewport, useMeasuredRowCap } from './shared'
 
 describe('S.cautionBanner', () => {
   it('uses the bronze --accent caution role via color-mix, not a hardcoded amber hex', () => {
@@ -109,5 +109,108 @@ describe('useNarrowViewport', () => {
     delete window.matchMedia
     const { result } = renderHook(() => useNarrowViewport(1150))
     expect(result.current).toBe(false)
+  })
+})
+
+describe('useMeasuredRowCap resize handling', () => {
+  const ROW_HEIGHT = 100
+
+  // container.children are only the CURRENTLY CAPPED rows (the caller slices
+  // its list by the returned cap), so growing the cap on resize genuinely
+  // requires re-exposing itemCount rows to re-measure them — this mock
+  // reflects that by measuring whatever children are actually present.
+  function mockRowLayout(container, top) {
+    const orig = Element.prototype.getBoundingClientRect
+    Element.prototype.getBoundingClientRect = function () {
+      if (this === container) {
+        return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON() {} }
+      }
+      if (this.parentElement === container) {
+        return { top: 0, bottom: ROW_HEIGHT, left: 0, right: 0, width: 0, height: ROW_HEIGHT, x: 0, y: 0, toJSON() {} }
+      }
+      return orig.call(this)
+    }
+    return () => {
+      Element.prototype.getBoundingClientRect = orig
+    }
+  }
+
+  function mockRaf() {
+    const queue = []
+    const orig = window.requestAnimationFrame
+    window.requestAnimationFrame = vi.fn((cb) => {
+      queue.push(cb)
+      return queue.length
+    })
+    return {
+      flushOne() {
+        const cb = queue.shift()
+        act(() => cb())
+      },
+      pendingCount: () => queue.length,
+      restore() {
+        window.requestAnimationFrame = orig
+      },
+    }
+  }
+
+  let container
+  let restoreLayout
+
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    for (let i = 0; i < 10; i++) container.appendChild(document.createElement('div'))
+    restoreLayout = mockRowLayout(container, 0)
+    window.innerHeight = 320 // fits 3 rows of 100px
+  })
+
+  afterEach(() => {
+    restoreLayout()
+    document.body.removeChild(container)
+  })
+
+  it('coalesces repeated resize events into a single recompute instead of thrashing per event', () => {
+    const raf = mockRaf()
+    try {
+      const containerRef = { current: container }
+      const { result } = renderHook(() => useMeasuredRowCap({ containerRef, itemCount: 10 }))
+      expect(result.current).toBe(3)
+
+      // A drag fires 'resize' many times in the same frame.
+      act(() => {
+        window.dispatchEvent(new Event('resize'))
+        window.dispatchEvent(new Event('resize'))
+        window.dispatchEvent(new Event('resize'))
+      })
+
+      // Only one recompute should be scheduled for the whole burst, not one per event.
+      expect(raf.pendingCount()).toBe(1)
+
+      raf.flushOne() // runs the coalesced uncap, schedules the recompute
+      raf.flushOne() // runs the recompute
+
+      // After the recompute settles, the cap must reflect the real budget again —
+      // no page-scroll-causing state survives the burst.
+      expect(result.current).toBeLessThanOrEqual(3)
+    } finally {
+      raf.restore()
+    }
+  })
+
+  it('shows at least one row when a single row is taller than the whole budget', () => {
+    const oneRowContainer = document.createElement('div')
+    document.body.appendChild(oneRowContainer)
+    oneRowContainer.appendChild(document.createElement('div'))
+    const restoreOne = mockRowLayout(oneRowContainer, 0)
+    try {
+      window.innerHeight = 10 // far smaller than ROW_HEIGHT (100)
+      const containerRef = { current: oneRowContainer }
+      const { result } = renderHook(() => useMeasuredRowCap({ containerRef, itemCount: 1 }))
+      expect(result.current).toBe(1)
+    } finally {
+      restoreOne()
+      document.body.removeChild(oneRowContainer)
+    }
   })
 })
