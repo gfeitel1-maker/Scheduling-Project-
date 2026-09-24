@@ -83,6 +83,7 @@ import { createEmptyDoc, sharesGenesis } from './campDocument.js'
 import { seedAllFromSqlite } from './seed.js'
 import { signTombstone } from './tombstoneSignature.js'
 import { projectAll } from './projector.js'
+import { reconcileAndRecordConflicts } from './reconcileForProjection.js'
 import {
   validateRebuildSource,
   rebuildProjectionFromDocumentAtPathCore,
@@ -265,7 +266,13 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
     // projectAll made a typo'd-id no-op refusal (a) commit a projection pass and (b) risk an
     // unrelated assertConflictsRecorded throw instead of the clean "nothing to purge" message.
     // In the recovery case a projectAll is legitimate mid-purge work, not a refusal path.
-    if (didRecoverKeys && doc) projectAll(oldDb, doc)
+    //
+    // T235/T242 finding 2: `doc` was loaded fresh from disk above, not reconciled in-process the
+    // way syncNode's merge path is — it can carry a live conflict (scalar or hard-set unique)
+    // nobody has recorded yet. Derive and record first, exactly as rebuildIntoFreshDb now does,
+    // so assertConflictsRecorded doesn't turn an unrelated, already-surfaced conflict into a
+    // refusal of this crash-recovery retry.
+    if (didRecoverKeys && doc) projectAll(oldDb, reconcileAndRecordConflicts(oldDb, doc))
 
     // FIX4: refuse a whole-device purge (see the blast-radius comment above) for an id that names
     // nothing at all — a typo, or a camper already purged. Checked against the live projection,
@@ -381,7 +388,10 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
   if (keysRestored?.campsSigningPublicKey && freshDoc) {
     const reprojectDb = openLocalDb(dbPath, { key })
     try {
-      projectAll(reprojectDb, freshDoc)
+      // T235/T242 finding 2: same guard as the crash-recovery reproject above — derive/record
+      // before projecting, rather than assuming a document this purge itself regenerated cannot
+      // carry an unrecorded conflict.
+      projectAll(reprojectDb, reconcileAndRecordConflicts(reprojectDb, freshDoc))
     } finally {
       reprojectDb.close()
     }

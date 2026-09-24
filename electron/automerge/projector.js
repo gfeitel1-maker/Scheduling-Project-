@@ -598,10 +598,19 @@ function assertConflictsRecorded(db, doc) {
   // schema-and-conflict-shape.md, Decision 1) — a hard-set UNIQUE collision between two whole
   // records, which the scalar reconciler above can never see (different entityIds, never the same
   // document key).
-  const recordedUnique = db
-    .prepare("SELECT entity, entity_ids, field FROM conflicts WHERE resolved_at IS NULL AND id LIKE 'unique:%'")
-    .all()
-    .map((r) => ({ entity: r.entity, entityIds: JSON.parse(r.entity_ids ?? '[]'), field: r.field }))
+  //
+  // `entity_ids` was added in schema v73. A pre-v73 `conflicts` table cannot physically have
+  // recorded a `unique:` conflict (that id namespace and column did not exist yet), so there is
+  // nothing to assert — skip rather than let a stale-schema db hit a raw SqliteError here.
+  const hasUniqueConflictColumns = db
+    .pragma('table_info(conflicts)')
+    .some((col) => col.name === 'entity_ids')
+  const recordedUnique = hasUniqueConflictColumns
+    ? db
+        .prepare("SELECT entity, entity_ids, field FROM conflicts WHERE resolved_at IS NULL AND id LIKE 'unique:%'")
+        .all()
+        .map((r) => ({ entity: r.entity, entityIds: JSON.parse(r.entity_ids ?? '[]'), field: r.field }))
+    : []
   assertNoUnrecordedUniqueConflicts(doc, recordedUnique)
 }
 

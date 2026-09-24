@@ -12,14 +12,7 @@
 import * as A from '@automerge/automerge'
 import { startTransport } from './transport.js'
 import { projectAll } from '../../automerge/projector.js'
-import { reconcile } from '../../automerge/reconcile.js'
-import { deriveUniqueConflicts } from '../../automerge/uniqueConflicts.js'
-import {
-  recordConflicts,
-  clearResolvedConflicts,
-  recordUniqueConflicts,
-  clearResolvedUniqueConflicts,
-} from '../../automerge/conflictStore.js'
+import { reconcileAndRecordConflicts } from '../../automerge/reconcileForProjection.js'
 import { synthesizeOpEvents } from './docDiffEvents.js'
 import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../../auth/connectionAuth.js'
 import { appendReceivedOps } from '../../automerge/historyLedger.js'
@@ -110,20 +103,11 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // for a human to settle. `projectAll` then refuses any document carrying a
   // conflict this did not record — which is what makes "the system cannot be in
   // a state where a conflict went unhandled" a property of the code rather than
-  // of whoever remembers to call this.
+  // of whoever remembers to call this. Shared with the other projectAll callers
+  // (rebuildSupportCommand.js, purgeSupportCommand.js) via reconcileForProjection.js —
+  // see that module's header for why it had to stop being private to this file.
   function reconcileForProjection(merged) {
-    const { doc: reconciled, conflicts } = reconcile(merged)
-    recordConflicts(db, conflicts)
-    clearResolvedConflicts(db, conflicts)
-
-    // Second, independent derivation (docs/adr/2026-09-23-merge-unique-collision-schema-and-
-    // conflict-shape.md) — the four hard-set structural UNIQUE constraints, which are two whole
-    // records colliding rather than one field with two values, so `reconcile()` above never sees
-    // them.
-    const uniqueConflicts = deriveUniqueConflicts(reconciled)
-    recordUniqueConflicts(db, uniqueConflicts)
-    clearResolvedUniqueConflicts(db, uniqueConflicts)
-    return reconciled
+    return reconcileAndRecordConflicts(db, merged)
   }
 
   function projectAndNotify(merged, before, fromPeerId) {

@@ -22,6 +22,7 @@ import { writePreMigrationBackup } from '../db/projectManager.js'
 import { docPath as automergeDocPath, loadDoc as loadAutomergeDoc } from '../sync/automerge/docStore.js'
 import { sharesGenesis, listRecordIds } from './campDocument.js'
 import { projectAll, MODELED_ORDER } from './projector.js'
+import { reconcileAndRecordConflicts } from './reconcileForProjection.js'
 import { acquireSupportCommandLock } from './supportCommandLock.js'
 
 export class RebuildRefusalError extends Error {}
@@ -112,7 +113,13 @@ export function validateRebuildSource(db, doc) {
 export function rebuildIntoFreshDb(freshDb, doc, campId, campName) {
   freshDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, campName)
   const before = tableRowCounts(freshDb)
-  projectAll(freshDb, doc)
+  // T235/T242 finding 2: this document was loaded from disk, not just merged in-process by
+  // syncNode, so it can carry a live conflict (scalar or hard-set unique) nobody has recorded
+  // yet. Derive and record BEFORE projecting — same guarantee syncNode's reconcileForProjection
+  // gives its own projectAll call — so assertConflictsRecorded finds what it expects instead of
+  // refusing to rebuild a camp that already has an outstanding, already-surfaced conflict.
+  const reconciled = reconcileAndRecordConflicts(freshDb, doc)
+  projectAll(freshDb, reconciled)
   const after = tableRowCounts(freshDb)
   return { ok: true, campId, before, after, notRecoverable: NOT_RECOVERABLE_NOTICE }
 }
