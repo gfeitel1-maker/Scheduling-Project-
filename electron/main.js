@@ -1937,6 +1937,28 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return finalizeElectiveRun(db, { runId, authorUserId: session?.userId ?? null, deviceId })
   }
 
+  // T249 (docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md
+  // decision (e); ADR D8's release gate). The renderer has no way to know
+  // whether at-rest encryption is actually active — SHORESH_AT_REST_ENCRYPTION
+  // is read only in electron/ — so the elective feature could not state, in the
+  // UI, that camper data is still unencrypted on disk. This is that one read.
+  //
+  // Deliberately NO requireAuthorized: this is public configuration state about
+  // THIS device's build posture, not camp or camper data, the same class of
+  // read as getCamp. Gating it behind a session token would make the disclosure
+  // unrenderable exactly where it is least useful (before a session resolves),
+  // and it discloses nothing an attacker on this machine could not read off the
+  // process environment anyway.
+  //
+  // It calls isAtRestEncryptionEnabled() — the SAME resolution the document and
+  // SQLite ciphers use (electron/db/atRestEncryption.js, imported above and
+  // used at the acquireDocCipher/acquireDbKey call site) — rather than
+  // re-parsing process.env here, so the statement in the UI cannot disagree
+  // with what the app actually did to the bytes on disk.
+  function getSecurityStatusHandler() {
+    return { atRestEncryptionEnabled: isAtRestEncryptionEnabled() }
+  }
+
   // Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7): batched
   // read-only provenance for the Activities screen's row-level provenance
   // dot. Returns the whole camp's activity import_evidence rows plus, per
@@ -2161,6 +2183,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     listElectiveRuns: listElectiveRunsHandler,
     getElectiveRun: getElectiveRunHandler,
     finalizeElectiveRun: finalizeElectiveRunHandler,
+    // T249 — append-only per the ADR's merge-order note; do not reorder.
+    getSecurityStatus: getSecurityStatusHandler,
     listImportEvidence: listImportEvidenceHandler,
     listDivisionEvidence: listDivisionEvidenceHandler,
     locationCapacityProvenance: locationCapacityProvenanceHandler,
@@ -2464,6 +2488,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:list-elective-runs', (_event, args) => handlers.listElectiveRuns(args && args.token))
     ipcMain.handle('shoresh:get-elective-run', (_event, args) => handlers.getElectiveRun(args))
     ipcMain.handle('shoresh:finalize-elective-run', (_event, args) => handlers.finalizeElectiveRun(args))
+    ipcMain.handle('shoresh:get-security-status', () => handlers.getSecurityStatus())
     ipcMain.handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
     ipcMain.handle('shoresh:list-division-evidence', (_event, args) => handlers.listDivisionEvidence(args && args.token))
     ipcMain.handle('shoresh:location-capacity-provenance', (_event, args) => handlers.locationCapacityProvenance(args && args.token))

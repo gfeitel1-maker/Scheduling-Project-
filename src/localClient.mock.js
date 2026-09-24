@@ -1774,6 +1774,14 @@ export const mockShoresh = {
     saveState(state)
     return { ok: true, finalizedAt, snapshotRows: assignmentsForRun.length }
   },
+  // T249 — mirrors getSecurityStatusHandler (electron/main.js). Browser-dev
+  // has no Electron, no OS keychain and no encrypted store, so nothing is
+  // encrypted at rest here under any circumstances: reporting `false` is the
+  // accurate answer for this environment, not a stub. That also keeps the D8
+  // disclosure visible in `npm run dev`, which is where it gets looked at.
+  async getSecurityStatus() {
+    return { atRestEncryptionEnabled: false }
+  },
   // Slice D — mirrors listImportEvidenceHandler's shape (electron/main.js),
   // but the mock has no import_evidence table and no op-log source per field
   // (same additive-degradation discipline as ingestReconcile's fieldProvenance

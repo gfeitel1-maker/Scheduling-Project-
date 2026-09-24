@@ -6,7 +6,7 @@
 // Parse/map/solve are pure and stay in the renderer (main.js's own comment
 // says so); the only IPC is localClient.commitElectiveRun. Never
 // window.shoresh directly.
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { localClient } from '../../../localClient'
 import { S, prefersReducedMotion, useEnterTransition } from '../../../styles/shared'
@@ -28,6 +28,111 @@ const emptyStyles = {
   wrap: { padding: '32px 16px', textAlign: 'center' },
   title: { fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 },
   body: { fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 },
+}
+
+// T249 / ADR 2026-09-23 decision (e) -- the D8 at-rest-encryption release gate,
+// stated in the product rather than promised in a document.
+//
+// THE RULING THIS IMPLEMENTS (owner, 2026-09-23, Q4): the elective slices are
+// built now against FABRICATED fixtures, and real camper data stays refused at
+// a visible, tested gate until at-rest encryption ships and defaults on. So
+// this row is not decoration and not a banner (the standing "no banners" rule
+// is about dismissible chrome): it is a permanent disclosure row, rendered in
+// every phase of this panel, with no dismiss control, using the codebase's
+// existing caution primitive (S.cautionBanner, DESIGN_STANDARD §4).
+//
+// THREE PROPERTIES THE TEST PINS, because each one is a way this could rot back
+// into a promise:
+//   1. It renders whenever encryption is NOT active -- not once, not only on
+//      the first render, and in every phase the panel can reach.
+//   2. It cannot be dismissed. There is no control inside it, by construction.
+//   3. It FAILS CLOSED. A status read that throws, or that comes back without a
+//      literal `true`, is not evidence that anything is encrypted -- it is an
+//      unknown, and an unknown must read as "not encrypted", never as silence.
+//      That is the difference between a gate and a decoration: the only thing
+//      that removes this warning is an affirmative `atRestEncryptionEnabled ===
+//      true` from the same resolution the ciphers themselves use
+//      (electron/db/atRestEncryption.js).
+const ENCRYPTION_DISCLOSURE =
+  'Camper data in this feature is not yet encrypted at rest. Do not use real camper names until this is enabled.'
+
+// The `true` branch. The ADR allows either nothing or "a neutral confirmation"
+// here, and nothing would be an over-claim: `atRestEncryptionEnabled` is one
+// device's flag, and it is NOT the same statement as "this camper's name is
+// encrypted on disk everywhere". Two gaps survive the flip, both real today:
+// bytes written before the flag was turned on (the migration is T175/T179's
+// job, still open), and a PEER syncing this camp with the flag off, whose copy
+// of the same document is plaintext on ITS disk. So the row stays, in a neutral
+// treatment, and says what the flag actually licenses.
+const ENCRYPTION_CONFIRMATION =
+  'At-rest encryption is on for this device. It does not cover data written before it was enabled, or a peer device syncing this camp with it off.'
+
+function useAtRestEncryptionStatus() {
+  // 'checking' is a real, rendered state (DESIGN_STANDARD §5b): the read is an
+  // async IPC call, and a disclosure that is silently absent while it resolves
+  // is absent exactly when a director first looks at the screen.
+  const [state, setState] = useState({ status: 'checking', detail: null })
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const out = await localClient.getSecurityStatus()
+        if (cancelled) return
+        setState({ status: out?.atRestEncryptionEnabled === true ? 'encrypted' : 'unencrypted', detail: null })
+      } catch (err) {
+        if (cancelled) return
+        // Fail closed, and say why -- a swallowed read failure is the exact
+        // shape this repo forbids (describeWriteFailure, standing rule).
+        setState({
+          status: 'unencrypted',
+          detail: describeWriteFailure(err, 'This device’s encryption status could not be read.'),
+        })
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+  return state
+}
+
+const disclosureStyles = {
+  // Shared by the 'checking' and 'encrypted' states: both are informational,
+  // neither is a caution, so neither takes the bronze caution fill.
+  neutral: {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
+    padding: '10px 14px',
+    marginBottom: 16,
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+    transition: 'opacity var(--motion-fast) var(--ease-out)',
+  },
+  detail: { marginTop: 4, fontSize: 12, opacity: 0.85 },
+}
+
+function EncryptionDisclosure() {
+  const { status, detail } = useAtRestEncryptionStatus()
+  if (status === 'encrypted') {
+    return (
+      <div data-testid="encryption-disclosure" data-encryption-state="encrypted" role="note" style={disclosureStyles.neutral}>
+        {ENCRYPTION_CONFIRMATION}
+      </div>
+    )
+  }
+  if (status === 'checking') {
+    return (
+      <div data-testid="encryption-disclosure" data-encryption-state="checking" role="status" style={disclosureStyles.neutral}>
+        Checking whether camper data is encrypted at rest on this device…
+      </div>
+    )
+  }
+  // No dismiss affordance, deliberately. Nothing in here is a control.
+  return (
+    <div data-testid="encryption-disclosure" data-encryption-state="unencrypted" role="note" style={S.cautionBanner}>
+      {ENCRYPTION_DISCLOSURE}
+      {detail ? <div style={disclosureStyles.detail}>{detail}</div> : null}
+    </div>
+  )
 }
 
 function Busy({ label }) {
@@ -276,6 +381,7 @@ export default function AssignmentPanel({
     return (
       <div style={{ marginTop: 24, ...enter }}>
         {liveRegion}
+        <EncryptionDisclosure />
         <div style={S.emptyStateBody}>This set&apos;s placement on the schedule could not be read for assignment.</div>
       </div>
     )
@@ -288,6 +394,7 @@ export default function AssignmentPanel({
     return (
       <div style={{ marginTop: 24, ...enter }}>
         {liveRegion}
+        <EncryptionDisclosure />
         <div style={emptyStyles.body}>This set isn&apos;t on a schedule yet.</div>
         <button className="press-97" onClick={() => onNavigate?.('schedule')} style={S.btnSecondary}>
           Go to Schedule
@@ -299,6 +406,10 @@ export default function AssignmentPanel({
   return (
     <div style={{ marginTop: 24 }}>
       {liveRegion}
+      {/* Outside every phase branch on purpose: this must not be reachable only
+          from one state, and must not unmount as the director moves through
+          import -> mapping -> preview -> committed. */}
+      <EncryptionDisclosure />
       <input
         ref={fileInputRef}
         type="file"

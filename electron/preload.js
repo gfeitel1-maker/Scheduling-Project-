@@ -133,6 +133,10 @@ contextBridge.exposeInMainWorld('shoresh', {
   listElectiveRuns: (token) => ipcRenderer.invoke('shoresh:list-elective-runs', { token }),
   getElectiveRun: (args) => ipcRenderer.invoke('shoresh:get-elective-run', args),
   finalizeElectiveRun: (args) => ipcRenderer.invoke('shoresh:finalize-elective-run', args),
+  // T249 — read-only device build posture (at-rest encryption on/off). No
+  // token: public configuration, not camp data (see getSecurityStatusHandler in
+  // electron/main.js). Appended per the ADR's merge-order note; do not reorder.
+  getSecurityStatus: () => ipcRenderer.invoke('shoresh:get-security-status'),
   // Slice D — read-only, mirrors listDurableElectiveSets's shape.
   listImportEvidence: (token) => ipcRenderer.invoke('shoresh:list-import-evidence', { token }),
   // T114 follow-up — read-only, mirrors listImportEvidence's shape for the
