@@ -1,6 +1,17 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+
+// jsdom has no matchMedia by default; stub it so useNarrowViewport doesn't
+// throw. `matches` reflects the WIDE (>breakpoint) case unless overridden.
+function stubMatchMedia(matches) {
+  window.matchMedia = vi.fn((query) => ({
+    matches,
+    media: query,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }))
+}
 
 vi.mock('../localClient', () => ({
   localClient: {
@@ -47,6 +58,11 @@ beforeEach(() => {
   localClient.getCamp.mockReset().mockResolvedValue({ id: CAMP_ID })
   localClient.latestOpSeq.mockReset().mockResolvedValue(5)
   downloadWorkbook.mockReset()
+  stubMatchMedia(false) // wide viewport by default
+})
+
+afterEach(() => {
+  delete window.matchMedia
 })
 
 describe('RootsHomeScreen', () => {
@@ -241,7 +257,7 @@ describe('RootsHomeScreen', () => {
     expect(screen.getByTestId('attention-empty-check')).not.toBeNull()
   })
 
-  it('spaces the dense grid apart from the attention section using --space-6, keeps --space-5 above the grid', async () => {
+  it('aligns the rail section label with the bento section label, both at --space-5', async () => {
     const collections = collectionsFor()
     localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
 
@@ -249,9 +265,9 @@ describe('RootsHomeScreen', () => {
     await waitFor(() => expect(screen.queryByText('Activities')).not.toBeNull())
 
     const gridSection = screen.getByText('What has taken root').closest('section')
-    const attentionSection = screen.getByText('Needs your attention').closest('section')
+    const attentionLabel = screen.getByText('Needs your attention')
     expect(gridSection.style.marginTop).toBe('var(--space-5)')
-    expect(attentionSection.style.marginTop).toBe('var(--space-6)')
+    expect(attentionLabel.style.marginTop).toBe('var(--space-5)')
   })
 
   it('places every bento card at a deterministic, explicit grid position (no auto-placement gap)', async () => {
@@ -274,5 +290,67 @@ describe('RootsHomeScreen', () => {
       expect(card.style.gridColumn).toBe(coords.gridColumn)
       expect(card.style.gridRow).toBe(coords.gridRow)
     }
+  })
+
+  it('renders "Needs your attention" inside a landmark named after the section (T236)', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Activities')).not.toBeNull())
+
+    expect(screen.getByRole('complementary', { name: 'Needs your attention' })).not.toBeNull()
+  })
+
+  it('at wide viewport, renders the attention rail after the bento in DOM order and makes it sticky (T236)', async () => {
+    stubMatchMedia(false) // wide: not narrow
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Activities')).not.toBeNull())
+
+    const bentoSection = screen.getByText('What has taken root').closest('section')
+    const rail = screen.getByRole('complementary', { name: 'Needs your attention' })
+
+    expect(bentoSection.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(rail.style.position).toBe('sticky')
+  })
+
+  it('at narrow viewport, orders the attention rail before the bento in what actually renders (T236)', async () => {
+    stubMatchMedia(true) // narrow
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Activities')).not.toBeNull())
+
+    const bentoSection = screen.getByText('What has taken root').closest('section')
+    const rail = screen.getByRole('complementary', { name: 'Needs your attention' })
+
+    // The two columns are flex children of one row; visual order is governed
+    // by the `order` CSS property, not DOM order (DOM order stays constant
+    // across breakpoints). Assert on `order`, the thing that actually
+    // determines what the director sees, not a DOM-order proxy that would
+    // lie once flex `order` is in play.
+    const railOrder = Number(rail.style.order || 0)
+    const bentoOrder = Number(bentoSection.parentElement.style.order || 0)
+    expect(railOrder).toBeLessThan(bentoOrder)
+
+    // Sticky is turned off when stacked.
+    expect(rail.style.position).toBe('static')
+    expect(rail.style.top).toBe('auto')
+  })
+
+  it('renders the empty state inside the rail when there are no attention rows (T236)', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Nothing needs you right now.')).not.toBeNull())
+
+    const rail = screen.getByRole('complementary', { name: 'Needs your attention' })
+    expect(rail.contains(screen.getByTestId('attention-empty-check'))).toBe(true)
+    expect(rail.contains(screen.getByText('Nothing needs you right now.'))).toBe(true)
   })
 })

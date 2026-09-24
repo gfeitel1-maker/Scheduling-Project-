@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest'
-import { S } from './shared'
+// @vitest-environment jsdom
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { renderHook, act } from '@testing-library/react'
+import { S, useNarrowViewport } from './shared'
 
 describe('S.cautionBanner', () => {
   it('uses the bronze --accent caution role via color-mix, not a hardcoded amber hex', () => {
@@ -54,5 +56,58 @@ describe('S.sectionLabel', () => {
       textTransform: 'uppercase',
       letterSpacing: '0.05em',
     })
+  })
+})
+
+describe('useNarrowViewport', () => {
+  function stubMatchMedia(initialMatches) {
+    const listeners = new Set()
+    let matches = initialMatches
+    const mql = {
+      get matches() { return matches },
+      addEventListener: vi.fn((event, cb) => listeners.add(cb)),
+      removeEventListener: vi.fn((event, cb) => listeners.delete(cb)),
+    }
+    window.matchMedia = vi.fn(() => mql)
+    return {
+      fire(next) {
+        matches = next
+        for (const cb of listeners) cb({ matches: next })
+      },
+      listenerCount: () => listeners.size,
+    }
+  }
+
+  afterEach(() => {
+    delete window.matchMedia
+  })
+
+  it('reflects the initial matchMedia state', () => {
+    stubMatchMedia(true)
+    const { result } = renderHook(() => useNarrowViewport(1150))
+    expect(result.current).toBe(true)
+  })
+
+  it('updates when the media query change event fires', () => {
+    const stub = stubMatchMedia(false)
+    const { result } = renderHook(() => useNarrowViewport(1150))
+    expect(result.current).toBe(false)
+
+    act(() => stub.fire(true))
+    expect(result.current).toBe(true)
+  })
+
+  it('removes its listener on unmount', () => {
+    const stub = stubMatchMedia(false)
+    const { unmount } = renderHook(() => useNarrowViewport(1150))
+    expect(stub.listenerCount()).toBe(1)
+    unmount()
+    expect(stub.listenerCount()).toBe(0)
+  })
+
+  it('is SSR/jsdom-safe when matchMedia is unavailable', () => {
+    delete window.matchMedia
+    const { result } = renderHook(() => useNarrowViewport(1150))
+    expect(result.current).toBe(false)
   })
 })
