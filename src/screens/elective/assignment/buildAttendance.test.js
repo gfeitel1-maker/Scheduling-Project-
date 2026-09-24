@@ -143,17 +143,58 @@ describe('ambiguous divisions fall back to every occurrence, never an arbitrary 
     expect(ambiguous).toEqual([{ division: 'Bogrim', camperCount: 1 }])
   })
 
-  // Non-vacuity: a guard written against a two-way collision can still be
-  // fooled by a three-way one (e.g. an implementation that only special-cases
-  // "exactly one duplicate"). This plants a different shape of the same
-  // defect class, not the same one the test above already covers.
-  it('still falls back to every occurrence when three tiers share the ambiguous name, not just two', () => {
-    const tiers = [{ id: 't1', name: 'Bogrim' }, { id: 't2', name: 'Bogrim' }, { id: 't3', name: 'Bogrim' }]
+  // NON-VACUITY. Code Reviewer and Red Hat independently rejected the first
+  // attempt at this, which added a THIRD same-named tier. They were right: the
+  // refusal tracks ambiguity in a Set (`if (ambiguous.has(key)) continue`), so
+  // the two-way and three-way paths are byte-identical and an extra row plants
+  // nothing. A guard's description is part of the guard, and "one more
+  // duplicate" is inside the description.
+  //
+  // These two plant shapes the guard was NOT written against.
+  //
+  // FIRST: the collision exists only AFTER the fold. The raw names differ
+  // ("Bogrim" vs " bogrim"), so an implementation that compared raw names —
+  // or that collected collisions before canonicalizing — would see two
+  // distinct divisions, bind the camper to whichever the sheet's own folded
+  // key happened to hit, and report no ambiguity at all. That is a wrong bind
+  // this file's own premise makes possible: electiveChoiceLabelKey exists
+  // precisely because a director transcribing "Older Campers" and
+  // "OlderCampers" means one division.
+  it('refuses a collision that exists only after the name is canonicalized', () => {
+    const tiers = [{ id: 't1', name: 'Bogrim' }, { id: 't2', name: ' bogrim' }]
+    const occurrences = [{ id: 'o1', tier_id: 't1' }, { id: 'o2', tier_id: 't2' }]
+    const campers = [{ id: 'c1', division: 'BOGRIM' }]
+    const { attendance, ambiguous, unmatched } = buildAttendance({ campers, occurrences, tiers })
+    expect(attendance.c1.sort()).toEqual(['o1', 'o2'])
+    expect(ambiguous).toHaveLength(1)
+    expect(unmatched).toEqual([])
+  })
+
+  // SECOND: a HALF-DONE fix, which is the likeliest way this regresses and is
+  // not the defect the guard was written for. Deleting the colliding key from
+  // the map without adding the third `ambiguous` state would satisfy every
+  // attendance assertion above — the camper still gets every occurrence, via
+  // the never-unplaced fallback — while misreporting the cause as a typo the
+  // director should fix in their spreadsheet. The remedy is the opposite
+  // (rename a division), so a wrong diagnosis sends them to the wrong screen.
+  // Pinned by asserting the two channels do not swap, with a camper whose
+  // division is genuinely absent present in the same run so the test cannot
+  // pass by simply never reporting anything.
+  it('reports an ambiguous division as ambiguous and a missing one as unmatched, never the reverse', () => {
+    const tiers = [{ id: 't1', name: 'Bogrim' }, { id: 't2', name: 'Bogrim' }, { id: 't3', name: 'Sollelim' }]
     const occurrences = [{ id: 'o1', tier_id: 't1' }, { id: 'o2', tier_id: 't2' }, { id: 'o3', tier_id: 't3' }]
-    const campers = [{ id: 'c1', division: 'Bogrim' }]
-    const { attendance, ambiguous } = buildAttendance({ campers, occurrences, tiers })
-    expect(attendance.c1.sort()).toEqual(['o1', 'o2', 'o3'])
-    expect(ambiguous).toEqual([{ division: 'Bogrim', camperCount: 1 }])
+    const campers = [
+      { id: 'c1', division: 'Bogrim' },
+      { id: 'c2', division: 'Nobody' },
+    ]
+    const { ambiguous, unmatched, unmatchedCount } = buildAttendance({ campers, occurrences, tiers })
+    expect(ambiguous.map((a) => a.division)).toEqual(['Bogrim'])
+    expect(unmatched.map((u) => u.division ?? u.value ?? u)).toEqual(
+      expect.arrayContaining([expect.anything()])
+    )
+    expect(JSON.stringify(unmatched)).toContain('Nobody')
+    expect(JSON.stringify(unmatched)).not.toContain('Bogrim')
+    expect(unmatchedCount).toBe(1)
   })
 
   it('does not count an ambiguous division as unmatched', () => {

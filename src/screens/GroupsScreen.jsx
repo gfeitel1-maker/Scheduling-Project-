@@ -408,6 +408,13 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       // last-write-wins Object.fromEntries would silently bind an imported
       // group to whichever same-named division came last. mapWithCollisions
       // refuses the colliding key instead (src/ingest/mapWithCollisions.js).
+      // The fold is bare .toLowerCase() with NO trim, so it folds DIFFERENTLY than
+      // ingest's tierIdByName (normalizeName, which also collapses whitespace):
+      // "Bogrim" and "bogrim " are one division there and two here. Left as-is
+      // deliberately — changing what counts as the same name is its own change with
+      // its own reasoning, and widening it here would make this screen refuse binds
+      // the preview it shares code with still resolves. Noted so the next reader
+      // knows it is a known divergence, not an oversight.
       const { map: tierMap, ambiguous: ambiguousTierNames } = mapWithCollisions(tiers, t => t.name.toLowerCase(), t => t.id)
       const parsed = rows.map(r => {
         const name = String(r.name || '').trim()

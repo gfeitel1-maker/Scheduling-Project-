@@ -542,6 +542,13 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
       // it does not close it). A plain last-write-wins Object.fromEntries
       // would silently bind an imported anchor to whichever same-named row
       // came last. mapWithCollisions refuses the colliding key instead.
+      // The fold is bare .toLowerCase() with NO trim, so it folds DIFFERENTLY than
+      // ingest's tierIdByName (normalizeName, which also collapses whitespace):
+      // "Bogrim" and "bogrim " are one division there and two here. Left as-is
+      // deliberately — changing what counts as the same name is its own change with
+      // its own reasoning, and widening it here would make this screen refuse binds
+      // the preview it shares code with still resolves. Noted so the next reader
+      // knows it is a known divergence, not an oversight.
       const { map: blockMap, ambiguous: ambiguousBlockNames } = mapWithCollisions(
         (freshBlocks || []).filter(b => b.camp_id === campId && b.cohort_id === activeCohort?.id),
         b => b.name.toLowerCase(),
