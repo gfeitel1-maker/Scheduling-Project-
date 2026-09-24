@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { extractEntities } from './extractEntities'
 import { inferFixedEvents } from './fixedEvents'
 import { buildPlan } from './buildPlan'
+import { buildReconciliationReport } from './reconciliationReport'
+import { applyResolutions } from '../screens/reconciliationResolutions'
 
 // T141 — docs/work/tickets/T141-fixed-event-eligibility-ignores-group-coverage.md
 //
@@ -226,5 +228,61 @@ describe('T234 — dual-use test unions FIXED and RECURRING footprints for the s
 
   it('is NOT dual-use: every raw occurrence is covered by the union of both footprints', () => {
     expect(dualUseNames).not.toContain('Combo')
+  })
+})
+
+// T234 round 2 (Red Hat) — the prior "tier:'low' means never a silent mint"
+// claim was established by TRACING buildPlan's tier assignment, not by
+// EXECUTING the rest of the chain a low-confidence create actually travels
+// through end to end: buildPlan -> reconciliationReport.classifyItem (which
+// turns tier:'low' into a needsAttention/confirm_value decision) ->
+// reconciliationResolutions.applyResolutions (which holds back any
+// confirm_value the director never resolved). Nothing upstream of this test
+// executes applyResolutions, so the load-bearing claim — that an
+// unconfirmed low-confidence recurring-event name never reaches the
+// `approved` list applyResolutions hands to commitIngest's create path —
+// was never actually run. This runs the real functions, no mocks, on the
+// owner's own Ruach fixture.
+describe('T234 round 2 — the tier:"low" hold executed end to end (buildPlan -> reconciliationReport -> applyResolutions)', () => {
+  const parsed = orientationA()
+  const proposal = extractEntities(parsed)
+  const { fixedEvents: inferred, dualUseNames: dualUseNamesRaw } = inferFixedEvents(parsed, proposal)
+  const dualUseSet = new Set(dualUseNamesRaw)
+  const pinOnlyActivityNames = [...new Set(inferred.map((fe) => fe.name).filter((n) => !dualUseSet.has(n)))]
+
+  function runChain(answers) {
+    const source = {
+      approved: { activities: ['Ruach'] },
+      camp_id: 'camp-1',
+      seenCounts: proposal.seenCounts,
+      pinOnlyActivityNames,
+    }
+    const plan = buildPlan(source, null)
+    const report = buildReconciliationReport({ planItems: plan.items })
+    const { approved } = applyResolutions({
+      approved: source.approved,
+      decisions: report.decisions,
+      answers,
+      fixedEvents: plan.fixedEvents,
+    })
+    return { plan, report, approved }
+  }
+
+  it('holds the name back: with no director resolution, Ruach is ABSENT from the approved list applyResolutions hands to commitIngest', () => {
+    const { plan, report, approved } = runChain({})
+    expect(plan.items[0].evidence.tier).toBe('low')
+    const decision = report.decisions.find((d) => d.entity === 'activities' && d.entityName === 'Ruach')
+    expect(decision).toBeTruthy()
+    expect(decision.kind).toBe('confirm_value')
+    expect(approved.activities).not.toContain('Ruach')
+  })
+
+  it('non-vacuity (positive control): with the director explicitly confirming the decision, Ruach DOES survive into approved — proving absence above is the hold-back, not an unrelated reason the name was never there', () => {
+    const { report, approved } = runChain(undefined)
+    const decision = report.decisions.find((d) => d.entity === 'activities' && d.entityName === 'Ruach')
+    const resolved = runChain({ [decision.id]: { action: 'looks_right' } }).approved
+    expect(resolved.activities).toContain('Ruach')
+    // and the unresolved run really did differ from the resolved one
+    expect(approved.activities).not.toContain('Ruach')
   })
 })
