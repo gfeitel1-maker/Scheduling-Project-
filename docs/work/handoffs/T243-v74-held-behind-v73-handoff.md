@@ -10,11 +10,11 @@ governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/govern
 related_adrs: [docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md]
 ---
 
-# T243 is COMPLETE and DELIBERATELY HELD behind schema v73
+# T243 at schema v74 — the hold is RELEASED; this records what the ordering bought
 
-T243's implementation is finished and reviewed. It is **not blocked by a defect in its own work** —
-it is held by an ordering decision. Do not treat the two known-red tests below as bugs to fix in
-this branch; they resolve on rebase and only on rebase.
+**RESOLVED 2026-09-24.** v73 merged (`c7750c86`, #527); T243 is rebased onto it at v74 and the two
+known-red tests below are green. Kept as the record of WHY the ordering existed and what the
+post-rebase re-verification actually found, because "we rebased and it was fine" is not evidence.
 
 ## Why it is held
 
@@ -27,7 +27,7 @@ The ordering is not cosmetic. This repo has a hard invariant (`electron/db/migra
 "covers 1..CURRENT_SCHEMA_VERSION with no gaps") that **every schema version from 1 to CURRENT must
 be classified**. Gapped schema versions are not supported. So v74 cannot be green until v73 exists.
 
-## The two expected reds (both resolve on rebase, neither is a defect)
+## The two expected reds — both now GREEN after the rebase, exactly as predicted
 
 1. `electron/db/migrationDomainState.test.js` > "covers 1..CURRENT_SCHEMA_VERSION with no gaps" —
    fails `expected [ 73 ] to deeply equal []`. Version 74 **is** classified here (added to
@@ -44,7 +44,7 @@ be classified**. Gapped schema versions are not supported. So v74 cannot be gree
 **Do not fabricate a v73 block to make these green.** That re-litigates a settled boundary and
 would collide with the real v73 on merge.
 
-## Post-rebase checklist — MANDATORY, do not skip because the gate was green before
+## Post-rebase checklist — DONE, with what it found
 
 The v73 session found two migration defects that would each have shipped a **corrupting** migration
 behind a green gate. Both were found by *writing a fresh-vs-migrated equivalence test* rather than
@@ -60,10 +60,18 @@ Both are invisible to a schema-version check and to a fresh-install-only test.
 
 After rebasing onto merged v73:
 
-1. **Re-run the whole gate.** `npm run verify`, capture the real exit code to a file, and confirm
-   the final ✅/❌ verdict line is present. A gate result without the verdict line is INVALID
-   whatever the exit code says.
-2. **Prove fresh == migrated once BOTH v73 and v74 have applied.** The composition of two migrations
+1. **Re-ran the whole gate** after the rebase — the pre-rebase green was NOT carried forward,
+   because fifteen tables were rebuilt underneath this branch.
+2. **Proved fresh == migrated once BOTH v73 and v74 have applied.** Done, and it is the part worth
+   reading: `electron/db/electiveRunLifecycle.migration.test.js` gained a `v72->v74 composition`
+   block that rolls a database genuinely back to v72, seeds real rows in the tables v73 rebuilds
+   (`activities`, `elective_sets`, `elective_assignment_runs`), then runs the REAL v73 rebuild and
+   v74 in one forward pass. Crucially it asserts **column-by-column value fidelity**, not only
+   shape. That distinction was proven non-vacuous by deliberately swapping `min_per_week`/
+   `max_per_week` in v73's rebuild SELECT list: **only the value assertion failed; the shape
+   comparison still passed.** A shape-only equivalence test would have shipped that defect.
+   (Perturbation reverted and verified reverted by diffing `localDb.js` against `origin/main`.)
+   Original requirement, for the record: The composition of two migrations
    is a better place for divergence to hide than either one alone. This is the exact test shape that
    caught the two defects above.
 3. **Confirm `elective_assignment_runs` survived the v73 rebuild intact** before v74's `ALTER`s run
