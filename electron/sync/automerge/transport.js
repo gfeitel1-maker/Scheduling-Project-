@@ -256,8 +256,8 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
 
   // Accepts a raw Multiaddr object (e.g. from another node's getMultiaddrs())
   // for direct-dial tests, or a stringified peer id once already connected.
-  async function dial(multiaddrOrPeerId) {
-    return node.dial(toDialTarget(multiaddrOrPeerId), { runOnLimitedConnection: true })
+  async function dial(multiaddrOrPeerId, options = {}) {
+    return node.dial(toDialTarget(multiaddrOrPeerId), { runOnLimitedConnection: true, ...options })
   }
 
   // Dials the target peer's auth protocol and sends `msg` (e.g.
@@ -266,8 +266,8 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // NOT itself admit anything on THIS node — admission is one-directional,
   // decided by whichever side ran onAuthenticate and populated its own
   // authenticatedPeers set.
-  async function authenticateWith(peerId, msg) {
-    const stream = await node.dialProtocol(toDialTarget(peerId), AUTH_PROTO, { runOnLimitedConnection: true })
+  async function authenticateWith(peerId, msg, options = {}) {
+    const stream = await node.dialProtocol(toDialTarget(peerId), AUTH_PROTO, { runOnLimitedConnection: true, ...options })
     try {
       return await new Promise((resolve, reject) => {
         let settled = false

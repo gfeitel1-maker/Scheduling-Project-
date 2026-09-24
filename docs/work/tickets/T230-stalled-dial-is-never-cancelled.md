@@ -1,7 +1,7 @@
 ---
 title: "A stalled dial/authenticate attempt is never cancelled, so a later re-announce races its own late settlement"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-18
 task_class: concurrency
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, SECURITY.md]

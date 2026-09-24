@@ -99,10 +99,12 @@ non-secret-bearing classifier in `connectivityEvents.js`, never the raw message.
 **Round 2 additions (Red Hat / Security / Code Reviewer findings, same date).** Every event that
 belongs to a specific dial/authenticate attempt (`DIAL_FAILED`, `ATTEMPT_STALLED`, `AUTH_REJECTED`,
 `AUTH_ERROR`, `AUTH_OK`, `NO_TOKEN`) now also carries `attemptId`, a counter minted per attempt
-per peer inside `mutualAuth.js`. This exists because the watchdog behind `ATTEMPT_STALLED` does not
-cancel the underlying dial/authenticate promise (a real defect, tracked separately at
-`docs/work/tickets/T230-stalled-dial-is-never-cancelled.md`) — a later re-announce can start a
-second, independent attempt while the first is still running in the background. `attemptId` lets an
+per peer inside `mutualAuth.js`. This exists because the watchdog behind `ATTEMPT_STALLED` aborts
+the underlying dial/authenticate stream via `AbortSignal` and revokes the attempt's ownership token
+(T230, `docs/work/tickets/T230-stalled-dial-is-never-cancelled.md`) rather than hard-cancelling the
+libp2p connection — abort is best-effort at the stream layer, so a late settlement can still reach
+this function's own code even though a later re-announce is now free to start a second, independent
+attempt. `attemptId` lets an
 analyst tell which events belong to which attempt instead of one attempt's late settlement being
 misread as an outcome of a different (later) attempt, and an attempt that already emitted
 `ATTEMPT_STALLED` never also emits a terminal event when it eventually settles, so failure-rate

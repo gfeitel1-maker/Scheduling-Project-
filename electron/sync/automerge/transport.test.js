@@ -57,6 +57,40 @@ describe('transport — libp2p node lifecycle', () => {
     expect(a.peerId).not.toBe(b.peerId)
   })
 
+  // T230 (docs/work/tickets/T230-stalled-dial-is-never-cancelled.md): mutualAuth.js's stall
+  // watchdog aborts a stalled attempt via an AbortController, and that only works if `dial`/
+  // `authenticateWith` actually forward the caller's `signal` down to libp2p's own
+  // `node.dial`/`node.dialProtocol` alongside `runOnLimitedConnection: true`. This is the
+  // plumbing seam — assert it against a real libp2p node (a mocked `node.dial` would not prove
+  // libp2p itself honors the signal), not reason about it from reading the source.
+  it('forwards an already-aborted signal to node.dial, so dial rejects instead of proceeding', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({ deviceId: 'device-b', onAuthenticate: alwaysAdmit })
+    handles.push(a, b)
+
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(a.dial(b.getMultiaddrs()[0], { signal: controller.signal })).rejects.toBeTruthy()
+    expect(a.getPeers().length).toBe(0)
+  })
+
+  it('forwards an already-aborted signal to node.dialProtocol, so authenticateWith rejects instead of proceeding', async () => {
+    const a = await startTransport({ deviceId: 'device-a', onAuthenticate: alwaysAdmit })
+    const b = await startTransport({ deviceId: 'device-b', onAuthenticate: alwaysAdmit })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      a.authenticateWith(b.peerId, { type: 'authenticate' }, { signal: controller.signal })
+    ).rejects.toBeTruthy()
+  })
+
   it('broadcastDoc delivers byte-identical bytes to onDocReceived', async () => {
     const received = []
     const a = await startTransport({ deviceId: 'device-a', onAuthenticate: alwaysAdmit })
