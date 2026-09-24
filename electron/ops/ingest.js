@@ -896,23 +896,42 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // mode the rows these maps would name are about to be destroyed, and seeding
   // first would file a new bunk under a unit that no longer exists. In add mode
   // nothing has changed — the same queries, the same results.
+  // T252: a duplicated name can now exist post-merge (schema v73 relaxed the
+  // UNIQUE constraint). SQLite gives no ordering guarantee over an unordered
+  // SELECT, so two devices could seed these maps from the same rows in
+  // different physical order and resolve a name to different ids. Every site
+  // below sorts by id ASC and uses first-write-wins, so the lowest id always
+  // claims the map slot regardless of row return order.
   function seedNameMaps() {
-    for (const row of db.prepare('SELECT id, name, cohort_id FROM tiers WHERE camp_id = ?').all(camp_id)) {
+    for (const row of db.prepare('SELECT id, name, cohort_id FROM tiers WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
       if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) {
-        tierIdByName.set(String(row.name).trim().toLowerCase(), row.id)
+        const key = String(row.name).trim().toLowerCase()
+        if (!tierIdByName.has(key)) tierIdByName.set(key, row.id)
       }
     }
-    for (const row of db.prepare('SELECT id, name, cohort_id FROM time_blocks WHERE camp_id = ?').all(camp_id)) {
-      if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) blockIdByName.set(normalizeName(row.name), row.id)
+    for (const row of db.prepare('SELECT id, name, cohort_id FROM time_blocks WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
+      if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) {
+        const key = normalizeName(row.name)
+        if (!blockIdByName.has(key)) blockIdByName.set(key, row.id)
+      }
     }
-    for (const row of db.prepare('SELECT id, label FROM days_of_operation WHERE camp_id = ?').all(camp_id)) {
-      if (row.label) dayIdByName.set(normalizeName(row.label), row.id)
+    for (const row of db.prepare('SELECT id, label FROM days_of_operation WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
+      if (row.label) {
+        const key = normalizeName(row.label)
+        if (!dayIdByName.has(key)) dayIdByName.set(key, row.id)
+      }
     }
-    for (const row of db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(camp_id)) {
-      if (row.name) groupIdByName.set(normalizeName(row.name), row.id)
+    for (const row of db.prepare('SELECT id, name FROM groups WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
+      if (row.name) {
+        const key = normalizeName(row.name)
+        if (!groupIdByName.has(key)) groupIdByName.set(key, row.id)
+      }
     }
-    for (const row of db.prepare('SELECT id, name FROM locations WHERE camp_id = ?').all(camp_id)) {
-      if (row.name) locationIdByName.set(String(row.name).trim(), row.id)
+    for (const row of db.prepare('SELECT id, name FROM locations WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
+      if (row.name) {
+        const key = String(row.name).trim()
+        if (!locationIdByName.has(key)) locationIdByName.set(key, row.id)
+      }
     }
   }
 
