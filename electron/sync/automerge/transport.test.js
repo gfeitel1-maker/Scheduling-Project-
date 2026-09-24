@@ -24,7 +24,7 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify } from '@libp2p/identify'
 import { startTransport } from './transport.js'
-import { AUTH_PROTO } from './wireProtocol.js'
+import { AUTH_PROTO, receiveFramed } from './wireProtocol.js'
 
 let handles = []
 afterEach(async () => {
@@ -109,11 +109,32 @@ describe('transport — libp2p node lifecycle', () => {
       streamMuxers: [yamux()],
       services: { identify: identify() },
     })
-    // Accepts the AUTH_PROTO stream (protocol negotiation completes, so the initiator's
-    // dialProtocol resolves) and then does nothing — never sends a reply frame, never closes.
-    // This is the "accepts and then never replies" peer transport.js's own AUTH_PROTO handler
+    // Accepts the AUTH_PROTO stream and reads the initiator's frame, but never replies and never
+    // closes — the "accepts and then never replies" peer transport.js's own AUTH_PROTO handler
     // comment and mutualAuth.js's stall watchdog both describe.
-    await responder.handle(AUTH_PROTO, () => {})
+    //
+    // T230 round 3 (Code Reviewer: flaky in 1/4 full-file runs under load). Round 2's version of
+    // this test waited only for the RESPONDER's side of negotiation (the stream appearing in its
+    // connection) plus a fixed 200ms margin, guessing that would also be enough time for the
+    // INITIATOR's own `dialProtocol` promise to resolve — it resolves strictly later, after the
+    // mss ack travels back across the wire, so it is a genuinely different, unobserved instant.
+    // Under heavy machine load 200ms was not always enough (confirmed empirically: repeated runs
+    // showed real negotiation-to-resolution gaps up to ~136ms even before contention, so a busy
+    // scheduler can push past 200ms), landing the abort inside mss.select's PRE-negotiation path
+    // instead of the POST-negotiation path this test exists to prove — the two tests above already
+    // cover that path, so this one would have silently degenerated into a duplicate of them.
+    //
+    // Fixed by using a signal that is causally, not just probabilistically, ordered after the
+    // initiator's abort-listener attachment: authenticateWith's Promise executor attaches the
+    // `abort` listener and then calls `receiveFramed`/`sendFramed` synchronously, with no `await`
+    // between them (transport.js's `authenticateWith`) — so the initiator's authenticate frame
+    // cannot leave the wire before the listener is attached. Waiting for the RESPONDER to actually
+    // receive that frame is therefore proof the listener is already attached, with no timing
+    // assumption at all.
+    let receivedAuthFrame = false
+    await responder.handle(AUTH_PROTO, (stream) => {
+      receiveFramed(stream, () => { receivedAuthFrame = true }).catch(() => {})
+    })
 
     const a = await startTransport({ deviceId: 'device-a' })
     handles.push(a, responder)
@@ -124,20 +145,12 @@ describe('transport — libp2p node lifecycle', () => {
     const controller = new AbortController()
     const pending = a.authenticateWith(responder.peerId, { type: 'authenticate' }, { signal: controller.signal })
 
-    // Give dialProtocol time to actually negotiate the stream before aborting — the point of
-    // this test is aborting a stream that already exists, not racing the dial itself.
-    await waitFor(() => (responder.getConnections(a.peerId)[0]?.streams ?? []).some((s) => s.protocol === AUTH_PROTO))
-    // Extra margin past negotiation completing on the responder's side, so the initiator's own
-    // dialProtocol promise (which resolves slightly later — after the ack travels back) has
-    // definitely also resolved before we abort. Otherwise this test could still land inside
-    // mss.select's pre-negotiation abort path, which the two tests above already cover.
-    await new Promise((r) => setTimeout(r, 200))
+    await waitFor(() => receivedAuthFrame)
 
     controller.abort()
 
     // (a) authenticateWith rejects.
     await expect(pending).rejects.toBeTruthy()
-
 
     // (b) the stream is actually torn down, not merely locally abandoned: the responder — which
     // never wrote anything and never closed anything itself — observes the stream disappear from
