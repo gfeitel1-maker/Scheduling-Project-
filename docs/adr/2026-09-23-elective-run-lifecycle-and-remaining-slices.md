@@ -1,10 +1,11 @@
 ---
 title: "Individual elective scheduling — run lifecycle, draft editing, linked-choice network shape, and child-schedule export"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
 implementation_state: not-started
 date: 2026-09-23
+approved: 2026-09-23 (owner, rulings on all six open questions recorded under "Owner rulings")
 task_class: database-sync
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
@@ -35,12 +36,17 @@ related_tickets:
 
 # Elective run lifecycle, draft editing, linked-choice network shape, and child-schedule export
 
-**Status: proposed. This is the owner gate, and it is not yet satisfied.** No slice ticket
-(T243-T251) is authorized to start until the owner accepts this ADR. Acceptance has two parts,
-deliberately separated: the technical decisions (a)-(e) below need a yes/no, and the five product
-questions under "Open questions — owner judgement required" need rulings. The technical decisions
-are written to be implementable the moment the first part lands; only T250's director-facing copy
-and T251's release closure additionally depend on the second.
+**Status: accepted (owner, 2026-09-23). This was the owner gate and it is satisfied.** The
+technical decisions (a)-(e) are accepted, and all six product questions are ruled on — see
+**"Owner rulings"** immediately below "Open questions", which is where the rulings live; the
+question text is kept unedited beneath it so a later reader can see what was actually asked.
+**Slices T243-T251 are authorized.**
+
+**One ruling is conditional and the condition is binding, not advisory.** Q1/Q2 (immutable runs, no
+reopen) was accepted *as a package* with the `FINALIZED_AGAINST_STALE_GENERATION` detection and its
+rendering. If that detection does not ship inside T244 alongside finalize, and T250 does not render
+it as a finding, **the immutability ruling does not hold and this returns to the owner.** It is not
+a follow-up, and it may not be deferred out of those two tickets to unblock a release.
 
 
 **This is a follow-on to `docs/adr/2026-09-17-individual-elective-scheduling.md`, not a
@@ -664,7 +670,61 @@ channels), introduces a new persistent table and two new columns other code will
 obviously reversible in the direction it's made (immutable-final-run as the default lifecycle
 shape) — all three of the constitution's ADR triggers apply.
 
+## Owner rulings — 2026-09-23
+
+All six questions below were ruled on by the owner on 2026-09-23. The rulings are recorded here;
+the question text is preserved unedited beneath, so a later reader can see what was asked, what was
+recommended, and what was actually decided — not a document that always said the right thing.
+
+**Q1 / Q2 — Option A. Immutable, no reopen. A revision is a new run.** Accepted **as a package**
+with the `FINALIZED_AGAINST_STALE_GENERATION` detection (decision (a)) and its rendering as a
+finding, never a banner (T250). **This conditionality is binding.** If the detection does not ship
+inside T244 alongside finalize, or T250 does not render it, the immutability ruling does not hold
+and the question returns to the owner. Neither piece may be deferred out of those tickets.
+
+**Q3 — Option A. No discount; repeats are scored independently per occurrence.** The accepted
+consequence, in the owner's own terms so that nobody later reads it as an oversight: **one camper
+can take every occurrence of a popular activity while another camper who ranked that activity gets
+none of them, and the scheduler will not treat that as wrong.** That is the ruling, not a defect to
+be quietly patched by a future implementer who finds it surprising.
+
+The owner may revisit after seeing real output. For that escape hatch to be real, the output has to
+exist: **T247 must make the solver's per-camper repeat distribution an actual reported figure** on
+the 100-camper fixture (how many campers received the same activity 2x, 3x, ... across the week, and
+the distribution of how many ranked-but-unplaced campers that coincided with), not merely a number
+someone could compute by hand from the assignment dump. A revisit trigger nobody can observe is not
+a revisit trigger.
+
+**Q4 — Option A. Build now against fabricated fixtures.** Real camper data stays refused at the
+visible, tested UI gate until at-rest encryption ships and defaults on. T249 keeps that gate in
+scope; it is a release precondition per T199, not a nice-to-have.
+
+**Q5 — Deferred, as recommended.** Director-facing terminology is decided once, against a real
+screen, in T250's copy pass with Designer.
+
+**Q6 — Option A. The loss of D11's joint-optimality guarantee is accepted for this slice.** The
+owner weighed this specifically against his own "no camper systematically shortchanged" reasoning in
+D11 and accepted it.
+
+> **This is a KNOWN, ACCEPTED divergence from D11, and it is revisitable — recorded here so that it
+> cannot become permanent by omission.** An accepted tradeoff that nobody wrote down as revisitable
+> is indistinguishable from a bug six months later.
+>
+> - **What is given up:** the two-tier solve compares linked choices and unlinked preferences in two
+>   sequential passes, never jointly. D11's provably-optimal guarantee therefore does not hold
+>   across that boundary.
+> - **Who is affected, precisely:** a camper who ranks **both** a linked choice **and** a scarce
+>   unlinked activity. Tier 1 can commit that camper to the linked choice before tier 2 ever weighs
+>   the unlinked preference. No other camper shape is affected.
+> - **Revisit trigger:** real catalog data from T218 (third-party export format) and T219 (multi-day
+>   catalog linkage). If that data shows linked choices are common and overlap with scarce unlinked
+>   demand is real, the tier-1 rewrite to a general graph solver is the fix, and this ruling is
+>   reopened on those grounds.
+
 ## Open questions — owner judgement required
+
+*Ruled on 2026-09-23 — see "Owner rulings" above. Kept unedited below as the record of what was
+asked and recommended.*
 
 These are product-facing decisions this design deliberately does not make. Each names the options,
 what each costs operationally, and a recommendation with confidence — not a bare choice.

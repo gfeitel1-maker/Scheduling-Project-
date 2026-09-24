@@ -14,6 +14,14 @@ Implements ADR 2026-09-23 decision (a) in full: the `shoresh:finalize-elective-r
 `electron/preload.js` exposure, and the `getElectiveRunHandler` query change that actually excludes
 stale-generation rows (D5 — currently prose-only).
 
+
+> **Owner ruling, 2026-09-23 — binding condition.** Q1/Q2 (a finalized run is immutable; a revision
+> is a new run, there is no reopen) was accepted **as a package** with the
+> `FINALIZED_AGAINST_STALE_GENERATION` detection and its rendering as a finding. If the detection
+> does not ship inside T244 alongside finalize, and T250 does not render it, **the immutability
+> ruling does not hold and the question returns to the owner.** Neither piece may be deferred out of
+> these two tickets to unblock a release.
+
 ## Scope
 
 - `electron/main.js`: `finalizeElectiveRunHandler({token, runId})` per the ADR's exact response

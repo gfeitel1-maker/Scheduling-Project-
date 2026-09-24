@@ -3,7 +3,7 @@ title: T247-linked-choice-flow-network
 document_type: ticket
 status: open
 created: 2026-09-23
-archive_when: buildElectiveAssignments places linked-choice campers via the tier-1 choice-level bipartite pass (reusing minCostAssign unmodified) with tier-2 running against the reduced capacity, single-member choices are unaffected, UNSUPPORTED_LINKED_CHOICE fires on the two D12 malformed cases plus the new same-run occurrence-overlap case, and the 2-camper worked example from the ADR passes as a test
+archive_when: buildElectiveAssignments places linked-choice campers via the tier-1 choice-level bipartite pass (reusing minCostAssign unmodified) with tier-2 running against the reduced capacity, single-member choices are unaffected, UNSUPPORTED_LINKED_CHOICE fires on the two D12 malformed cases plus the new same-run occurrence-overlap case, the 2-camper worked example from the ADR passes as a test, and the 100-camper fixture REPORTS a per-camper repeat distribution (the Q3 revisit trigger)
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_adrs: [docs/adr/2026-09-17-individual-elective-scheduling.md, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md]
 ---
@@ -21,6 +21,17 @@ seats sitting open). The corrected construction is two bipartite passes, both us
 decision (c) for the full derivation and the worked example this ticket's test must reproduce.
 
 ## Scope
+
+- **Per-camper repeat distribution must be a REPORTED figure (owner ruling Q3, 2026-09-23).** The
+  owner ruled that repeats are scored independently per occurrence, accepting that one camper can
+  take every occurrence of a popular activity while another who ranked it gets none — and reserved
+  the right to revisit *after seeing real output*. That escape hatch is only real if the output
+  exists. So the 100-camper fixture must **print**, as part of its normal run: how many campers
+  received the same activity 2x, 3x, ... across the week, and how many ranked-but-unplaced campers
+  that coincided with. A number a reader could in principle compute by hand from the assignment dump
+  does not satisfy this — the figure is reported, or the revisit trigger is unobservable and the
+  ruling silently becomes permanent. This is not instrumentation for its own sake; it is the
+  condition the owner attached to the ruling.
 
 - `src/engine/buildElectiveAssignments.js`: read `preferences` as pointing at `choice_id` (already
   the schema's shape per D4's correction).

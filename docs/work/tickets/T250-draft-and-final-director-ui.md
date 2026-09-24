@@ -19,6 +19,14 @@ immutability) and Q5 (director-facing terminology) before this ticket's copy is 
 underlying IPC/data work (T244-T248) is not blocked and should proceed; only this ticket's
 user-facing text and the "start a revision" control's behavior are gated.
 
+
+> **Owner ruling, 2026-09-23 — binding condition.** Q1/Q2 (a finalized run is immutable; a revision
+> is a new run, there is no reopen) was accepted **as a package** with the
+> `FINALIZED_AGAINST_STALE_GENERATION` detection and its rendering as a finding. If the detection
+> does not ship inside T244 alongside finalize, and T250 does not render it, **the immutability
+> ruling does not hold and the question returns to the owner.** Neither piece may be deferred out of
+> these two tickets to unblock a release.
+
 ## Scope
 
 - **Draft state**: wire `shoresh:set-elective-assignment` (T245) to a move/lock interaction on
