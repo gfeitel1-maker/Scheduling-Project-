@@ -108,6 +108,17 @@ export function commitElectiveRun(db, {
   // late-arriving regeneration op, and FINALIZED_AGAINST_STALE_GENERATION
   // (not a silently reverted status) is what surfaces the race to a
   // director.
+  // The guard's correctness rests on an invariant held ABOVE this layer, so
+  // name it rather than leave it implicit (Red Hat round 2, LOW): "a row
+  // exists locally" stands in for "this is a regeneration, not a creation".
+  // That holds because a device can only reach the regenerate action through
+  // a run its own projection already materialized — the renderer mints
+  // providedRunId once at first-solve time. If a future flow ever lets a
+  // device commit against a providedRunId it has NOT locally synced (a
+  // resume-from-shared-code path, a restore-then-continue), existingRun would
+  // be null, status would be re-asserted as 'draft', and the reverted-status
+  // hazard above comes straight back. A test pins that this is the deliberate
+  // behaviour today, so the assumption breaks loudly rather than silently.
   const existingRun = providedRunId != null
     ? db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId)
     : null

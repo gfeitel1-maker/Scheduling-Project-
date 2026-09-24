@@ -9,13 +9,25 @@
 // device regenerated the run first. Only a `source='solver'` row is ever
 // judged stale.
 //
-// Uses SQLite `IS`, not `=`, for the generation comparison. commitElectiveRun
-// never writes solver_generation, so it is NULL today on both the run row and
-// every assignment row it has ever produced — `= NULL` is never true in SQL
-// and would hide every one of those rows. `solver_generation IS :gen` gives
-// NULL-matches-NULL correctly, which is what makes today's real-world state
-// (nothing has ever set a generation marker) keep every row visible instead
-// of silently hiding all of them.
+// Uses SQLite `IS`, not `=`, for the generation comparison, and that choice is
+// still load-bearing even though commitElectiveRun now stamps a marker.
+//
+// As of T244 round 2, `commitElectiveRun` mints one `randomUUID()` marker per
+// commit and writes it to BOTH the run row and every `elective_assignments`
+// row in the same transaction — so any run committed from that change onward
+// carries a non-NULL generation on both sides, and this predicate's equality
+// branch does real work. (Before it, nothing anywhere wrote the marker, every
+// row was NULL, and the detections built on this predicate could never fire.
+// Do not restore that state: stamping the run without stamping its rows, or
+// the reverse, makes this fragment hide every solver row in the run.)
+//
+// `IS` remains required for the rows that predate that change: a legacy run
+// has NULL on the run AND NULL on its assignment rows, and `NULL = NULL` is
+// never true in SQL, so `=` would silently hide every row of every run
+// committed before T244. `solver_generation IS :gen` matches NULL to NULL and
+// keeps those runs fully visible. A legacy run that is later regenerated
+// moves to a UUID while its untouched old rows stay NULL — `NULL IS '<uuid>'`
+// is false, so those rows go correctly stale rather than being lost.
 //
 // Bind the run's current generation as the named parameter `gen` (better-
 // sqlite3 named-parameter binding: `.all({ gen })` / `.get({ gen })`).

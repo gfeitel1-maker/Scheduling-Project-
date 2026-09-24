@@ -1311,7 +1311,11 @@ CREATE TABLE IF NOT EXISTS campers (
 -- `status` is the run lifecycle. `solver_generation` is ADR D5's marker: this
 -- slice STORES it, T196 ENFORCES it — "stores the marker" and "honours the
 -- marker" are easy to conflate, and a v66 that quietly implemented the filter
--- would put solver policy in the projection layer. source_sha256 is the hash of
+-- would put solver policy in the projection layer. As of T244 that enforcement
+-- exists: electron/ops/commitElectiveRun.js WRITES the marker (run row and
+-- every elective_assignments row, one per commit) and
+-- electron/ops/electiveGenerationPredicate.js is the single WHERE fragment
+-- every reader honours it through. source_sha256 is the hash of
 -- the imported preference FILE, never of any camper value.
 CREATE TABLE IF NOT EXISTS elective_assignment_runs (
   id TEXT PRIMARY KEY,
