@@ -66,6 +66,9 @@ export function ingestCommitTool(args, { dbPath, allowWrite, authorUserId, dbKey
 // schedule grid, with a different commit path, so it gets its own pair of
 // tools. Overloading ingest_preview would mean relaxing the T224 schedule-shape
 // gate, which exists precisely to refuse this kind of sheet.
+//
+// Same handler contract as the pair above: (args, { dbPath, allowWrite,
+// authorUserId, dbKey }) in, a plain pre-envelope result object out.
 export function preferenceSheetPreviewTool(args, { dbPath, dbKey }) {
   return runPreferenceSheetCli({ file: args.file_path, dbPath, action: 'preview', dbKey })
 }

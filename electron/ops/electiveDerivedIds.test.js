@@ -7,6 +7,8 @@ import {
   deriveElectiveChoiceOfferingId,
   deriveElectivePreferenceId,
   deriveElectiveAssignmentId,
+  deriveImportedElectiveRunId,
+  opaque,
 } from './electiveDerivedIds.js'
 
 // T194 §8.2. The invariant everything else in the slice rests on: two devices
@@ -359,5 +361,44 @@ describe('deriveCamperId', () => {
   it('refuses a camper with neither key rather than minting an unstable id', () => {
     expect(() => deriveCamperId('camp-1', {})).toThrow(/external_id or display_name/i)
     expect(() => deriveCamperId('camp-1', { displayName: '   ' })).toThrow(/external_id or display_name/i)
+  })
+})
+
+// T226 round 2 — the IMPORT path's run id. The renderer's solve path still
+// mints a random run id; only a sheet import derives one, because only there
+// is there a document whose bytes identify the run.
+describe('deriveImportedElectiveRunId', () => {
+  const SHA_A = 'a'.repeat(64)
+  const SHA_B = 'b'.repeat(64)
+
+  it('pins its output', () => {
+    expect(deriveImportedElectiveRunId('camp-1', 'abc123')).toBe('erun1:6.camp-16.abc123')
+  })
+
+  // The property the finding is about: the SAME bytes re-imported land on the
+  // same run, so a retry after an ambiguous MCP timeout converges.
+  it('is stable for the same camp and the same bytes', () => {
+    expect(deriveImportedElectiveRunId('camp-1', SHA_A)).toBe(deriveImportedElectiveRunId('camp-1', SHA_A))
+  })
+
+  it('separates different bytes — a corrected sheet is a different document', () => {
+    expect(deriveImportedElectiveRunId('camp-1', SHA_A)).not.toBe(deriveImportedElectiveRunId('camp-1', SHA_B))
+  })
+
+  it('separates camps', () => {
+    expect(deriveImportedElectiveRunId('camp-1', SHA_A)).not.toBe(deriveImportedElectiveRunId('camp-2', SHA_A))
+  })
+
+  // A hex digest satisfies the opaque alphabet; a missing or free-text one
+  // must refuse rather than mint an unstable key.
+  it('refuses a non-opaque source hash', () => {
+    expect(() => deriveImportedElectiveRunId('camp-1', 'not a hash')).toThrow(/opaque/i)
+    expect(() => deriveImportedElectiveRunId('camp-1', '')).toThrow(/non-empty/i)
+  })
+
+  // commitElectiveRun validates a provided run id with opaque(); this module's
+  // own output must pass that gate, or the import path cannot use it.
+  it('produces an id commitElectiveRun will accept as a provided run id', () => {
+    expect(opaque('run_id', deriveImportedElectiveRunId('camp-1', SHA_A))).toBeTruthy()
   })
 })

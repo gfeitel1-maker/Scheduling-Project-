@@ -29,6 +29,7 @@ import * as XLSX from 'xlsx'
 
 import { openLocalDb } from '../electron/db/localDb.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from '../electron/ops/commitElectiveRun.js'
+import { deriveImportedElectiveRunId } from '../electron/ops/electiveDerivedIds.js'
 import { inferPreferenceMapping, parsePreferenceSheet } from '../src/ingest/preferenceSheet.js'
 import { readWorkbookSafely, unescapeRow } from '../src/utils/exportSanitize.js'
 
@@ -66,6 +67,30 @@ function readRows(buf) {
   return XLSX.utils
     .sheet_to_json(workbook.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false })
     .map(unescapeRow)
+}
+
+// Spreadsheet column letters, because that is what the director sees in the
+// header row — not the zero-based index the mapping carries.
+function columnLabel(index) {
+  let n = index
+  let out = ''
+  do {
+    out = String.fromCharCode(65 + (n % 26)) + out
+    n = Math.floor(n / 26) - 1
+  } while (n >= 0)
+  return out
+}
+
+function findDuplicateRankColumns(rankColumns = []) {
+  const byRank = new Map()
+  for (const { rank, index } of rankColumns) {
+    if (!byRank.has(rank)) byRank.set(rank, [])
+    byRank.get(rank).push(index)
+  }
+  for (const [rank, indexes] of byRank) {
+    if (indexes.length > 1) return { rank, columns: indexes.map(columnLabel) }
+  }
+  return null
 }
 
 /**
@@ -116,6 +141,20 @@ export function runPreferenceSheetCli({
     )
   }
 
+  // A HEADER defect, refused before parsing so it is never reported as a data
+  // one. Two columns headed '#1' otherwise reach the parser as one camper
+  // holding rank 1 twice, and the contradictory-ranks refusal then sends a
+  // director hunting through rows for a problem that is in row 1.
+  const duplicateRank = findDuplicateRankColumns(mapping.rankColumns)
+  if (duplicateRank) {
+    return errorResult(
+      base,
+      `that file's header lists rank #${duplicateRank.rank} more than once — columns ` +
+        `${duplicateRank.columns.join(' and ')}. Give each ranked choice its own rank number ` +
+        '(#1, #2, …) and import again.'
+    )
+  }
+
   if (!fs.existsSync(dbPath)) return errorResult(base, `db not found: ${dbPath}`)
 
   let db
@@ -151,8 +190,26 @@ export function runPreferenceSheetCli({
       return { ...report, ok: true, blocked: describeElectiveRunRefusal(parsed), exitCode: 0 }
     }
 
+    // One device per db on this path for the same structural reason as the
+    // camp lookup above: the CLI operates on a single device's database file,
+    // so "the device" is unambiguous and needs no selector.
     const device = db.prepare('SELECT id FROM devices LIMIT 1').get()
     if (!device) return { ...report, ok: false, error: 'db has no device registered yet', exitCode: 1 }
+
+    // Checked here rather than left to the FOREIGN KEY, which rolls back
+    // correctly but reports 'FOREIGN KEY constraint failed' — true, and
+    // useless to whoever passed the id.
+    if (authorUserId != null) {
+      const author = db.prepare('SELECT id FROM users WHERE id = ?').get(authorUserId)
+      if (!author) {
+        return {
+          ...report,
+          ok: false,
+          error: `author_user_id ${authorUserId} is not a user in this camp's database`,
+          exitCode: 1,
+        }
+      }
+    }
 
     // Identifies the exact bytes this run came from, so a director looking at a
     // run later can tell whether a resent sheet is the same document.
@@ -164,6 +221,12 @@ export function runPreferenceSheetCli({
         campId: camp.id,
         deviceId: device.id,
         authorUserId,
+        // Derived, NOT minted — see deriveImportedElectiveRunId. Re-sending the
+        // same bytes converges onto one run (an idempotent retry); a corrected
+        // sheet is different bytes and so a new run. Only this caller can make
+        // that choice: the renderer's solve path has no document to key on and
+        // must keep minting its own.
+        runId: deriveImportedElectiveRunId(camp.id, sourceSha256),
         name: runName ?? path.basename(file),
         sourceFilename: path.basename(file),
         sourceSha256,

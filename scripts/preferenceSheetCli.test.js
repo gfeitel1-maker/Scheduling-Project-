@@ -166,6 +166,96 @@ describe('runPreferenceSheetCli', () => {
     }
   })
 
+  // Red Hat F1. The run id is derived from (camp_id, source_sha256) on this
+  // path, so re-sending the same document converges instead of duplicating the
+  // whole run under a fresh random run id.
+  it('is idempotent on the same bytes — a resent sheet does not duplicate the run', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath, userId } = bootstrapDb(dir)
+    const expected = readFixtureExpectations(SHEET)
+
+    const first = runPreferenceSheetCli({ file: SHEET, dbPath, action: 'commit', authorUserId: userId })
+    expect(first.ok).toBe(true)
+    const afterFirst = counts(dbPath)
+    expect(afterFirst.runs).toBe(1)
+
+    const second = runPreferenceSheetCli({ file: SHEET, dbPath, action: 'commit', authorUserId: userId })
+    expect(second.ok).toBe(true)
+    expect(second.runId).toBe(first.runId)
+
+    const afterSecond = counts(dbPath)
+    expect(afterSecond.campers).toBe(expected.campers)
+    expect(afterSecond.choices).toBe(expected.choices)
+    expect(afterSecond.preferences).toBe(expected.preferences)
+    expect(afterSecond.runs).toBe(1)
+    // Row-for-row unchanged; only the op-log grows (last-write-wins churn).
+    expect(afterSecond.campers).toBe(afterFirst.campers)
+    expect(afterSecond.choices).toBe(afterFirst.choices)
+    expect(afterSecond.preferences).toBe(afterFirst.preferences)
+    expect(afterSecond.operations).toBeGreaterThan(afterFirst.operations)
+  })
+
+  // The other half of the semantics: a CORRECTED sheet is a different
+  // document, and must be its own run.
+  it('treats a corrected sheet (different bytes) as a second run', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = bootstrapDb(dir)
+
+    const corrected = path.join(dir, 'corrected.csv')
+    const lines = fs.readFileSync(SHEET, 'utf8').trim().split('\n')
+    // One camper's name spelled differently — a real correction, still valid.
+    lines[1] = lines[1].replace(/^([^,]*,)([^,]*)/, '$1Corrected Name')
+    fs.writeFileSync(corrected, `${lines.join('\n')}\n`)
+    expect(fs.readFileSync(corrected)).not.toEqual(fs.readFileSync(SHEET))
+
+    const a = runPreferenceSheetCli({ file: SHEET, dbPath, action: 'commit' })
+    const b = runPreferenceSheetCli({ file: corrected, dbPath, action: 'commit' })
+    expect(a.ok).toBe(true)
+    expect(b.ok).toBe(true)
+    expect(b.runId).not.toBe(a.runId)
+    expect(counts(dbPath).runs).toBe(2)
+  })
+
+  // Red Hat F2. A raw 'FOREIGN KEY constraint failed' sends a director nowhere.
+  it('refuses an author_user_id with no users row, naming the field and the value', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = bootstrapDb(dir)
+    const before = counts(dbPath)
+    const ghost = randomUUID()
+
+    const result = runPreferenceSheetCli({ file: SHEET, dbPath, action: 'commit', authorUserId: ghost })
+
+    expect(result.ok).toBe(false)
+    expect(result.exitCode).toBe(1)
+    expect(result.error).toContain(ghost)
+    expect(result.error).toContain('author_user_id')
+    expect(result.error).not.toMatch(/FOREIGN KEY/)
+    expect(counts(dbPath)).toEqual(before)
+  })
+
+  // Red Hat F3. Two columns headed '#1' is a HEADER defect; blaming the camper
+  // sends a director hunting through rows for a data problem that is not there.
+  it('refuses duplicate rank columns by naming the header, not the campers', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = bootstrapDb(dir)
+    const before = counts(dbPath)
+
+    const file = path.join(dir, 'dup-rank-header.csv')
+    fs.writeFileSync(file, 'Camper Name,Division,#1,#1\nAri Green,Aleph,Swim,Archery\n')
+
+    const result = runPreferenceSheetCli({ file, dbPath, action: 'preview' })
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/rank #1/)
+    expect(result.error).toMatch(/column/i)
+    expect(result.error).not.toMatch(/camper holds the same preference rank/)
+    expect(counts(dbPath)).toEqual(before)
+  })
+
   it('previews a same-name sheet as blocked, and commit refuses it, writing nothing', () => {
     const dir = makeTmpDir()
     dirs.push(dir)

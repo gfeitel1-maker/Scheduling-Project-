@@ -1,7 +1,7 @@
 ---
 title: T226-camper-preference-import
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-18
 archive_when: a fabricated 100-camper ranked-preference sheet imports to campers + elective_choices + elective_preferences, driven end to end through the MCP path
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -58,3 +58,36 @@ the director as an explicit decision rather than merging or minting behind their
 convergence (both devices derive the same id from the same sheet) while refusing to guess about two
 real children. Needs confirmation before the derived id is minted, because a derived id is expensive
 to change once rows exist.
+
+## Resolution (2026-09-23)
+
+`archive_when` is met. The fabricated 100-camper sheet
+(`docs/work/specs/samples/fabricated-camper-preferences-100.csv`) imports to `campers`,
+`elective_choices` and `elective_preferences` through the MCP surface:
+`preference_sheet_preview` / `preference_sheet_commit`, handled in `scripts/mcp/tools.js` over
+`scripts/preferenceSheetCli.js`, which reuses `commitElectiveRun` rather than forking a second write
+path. `scripts/mcp/preferenceSheetE2E.test.js` spawns the real stdio MCP server, calls both tools,
+then opens the SQLite file and asserts the rows — 100 campers, 18 choices, 1000 preferences — with
+every expectation re-derived from the fixture rather than read back out of the module under test.
+
+Two decisions were taken while closing it:
+
+- **Separate tools, not an extension of `ingest_preview`.** The schedule importer is gated by
+  `partitionSchedulePages` (T224) specifically to REFUSE a camper preference sheet, after one
+  committed its `#1`/`#2`/`Division` headers as groups and tiers. Routing the preference sheet
+  through that tool would have reopened the gate it exists to hold.
+- **The import path derives its run id from `(camp_id, sha256(file))`**
+  (`deriveImportedElectiveRunId`, `electron/ops/electiveDerivedIds.js`). Without it, only `campers`
+  converged: a resent sheet minted a second run and a second full set of choices and preferences
+  (measured: 2 runs / 36 choices / 2000 preferences). Committing the same bytes twice is now an
+  idempotent no-op on every projection table; a corrected sheet is a different document and is
+  correctly a new run. The renderer's solve path still mints its own `runId` — `commitElectiveRun`'s
+  default is unchanged.
+
+The **camper-identity** question above is resolved as proposed and implemented: `deriveCamperId`
+keys on `external_id` when the sheet supplies one and on the normalized name otherwise, and a
+same-name collision with no id to separate the children is REFUSED at commit
+(`describeElectiveRunRefusal`) rather than merged.
+
+NOT in this ticket, and still open: the solver (R3/R4 remain unmodelled by design), and the real
+third-party export format (T218), which is what the column-mapping step exists to absorb.

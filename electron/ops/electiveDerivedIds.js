@@ -229,6 +229,28 @@ export function deriveCamperId(campId, { externalId = null, displayName = null }
   return `camper${V}:${join([opaque('camp_id', campId), 'name', nameKey])}`
 }
 
+// Key: (camp_id, source_sha256). FOR THE SHEET-IMPORT PATH ONLY.
+//
+// WHY. Every id below is run-scoped, so a run id that is freshly minted per
+// commit re-mints every choice and every preference under it. A resent sheet
+// therefore duplicated the whole run — campers converged (their ids key on the
+// camp) while runs, choices and preferences did not, which is precisely the
+// two-device convergence ADR D4 requires of this substrate.
+//
+// The semantics this buys, exactly: committing the SAME BYTES twice converges
+// onto ONE run with the same choices and preferences — an idempotent
+// re-import, which is what a retry after an ambiguous MCP timeout wants.
+// Committing a CORRECTED sheet (different bytes) is a NEW run, which is right
+// because it is a different document, and the director wants both on record.
+//
+// NOT a change to commitElectiveRun's default. The renderer's solve path must
+// keep minting a random run id: a solve has no document identifying it, and two
+// solves of the same inputs are legitimately two runs. This is a caller-side
+// decision, and only the import caller can make it.
+export function deriveImportedElectiveRunId(campId, sourceSha256) {
+  return `erun${V}:${join([opaque('camp_id', campId), opaque('source_sha256', sourceSha256)])}`
+}
+
 // Key: (run_id, elective_set_id, day_id, time_block_id, tier_id).
 export function deriveElectiveOccurrenceId(runId, electiveSetId, dayId, timeBlockId, tierId) {
   return `eocc${V}:${join([
