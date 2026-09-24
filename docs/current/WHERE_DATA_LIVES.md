@@ -73,11 +73,11 @@ authorship do survive — those live in the document.
 ## The lookup table
 
 Counts below are computed from a fresh database, not remembered:
-**50 tables — 28 synced, 1 projected-but-never-synced, 21 SQLite-only.**
+**51 tables — 29 synced, 1 projected-but-never-synced, 21 SQLite-only.**
 
 | Data | Wins | Written by | If two devices disagree | Check |
 |---|---|---|---|---|
-| **The 27 camp entities** — groups, activities, days, time blocks, tiers, cohorts, locations, anchor_activities, schedule_templates, schedule_weeks, events, special_days, elective_sets, and the rest (`day_overrides` was the 28th and was removed entirely at schema v59, T145 — the Automerge genesis deliberately keeps an orphan empty collection for it, see PLATFORM_STATE) | **B** | `appendOp` → SQLite + `operations`, then the document. Inside a job, `runAtomic` holds the document write until the job commits. | Automerge merges; a genuine clash is recorded in `conflicts` and resolved by a human | `node -e` diff of `PROJECTIONS` vs `MODELED_ENTITIES` (see below) |
+| **The 28 camp entities** — groups, activities, days, time blocks, tiers, cohorts, locations, anchor_activities, schedule_templates, schedule_weeks, events, special_days, elective_sets, `elective_run_outer_snapshots` (T243, v74 — a finalized run's per-camper export snapshot), and the rest (`day_overrides` was removed entirely at schema v59, T145 — the Automerge genesis deliberately keeps an orphan empty collection for it, see PLATFORM_STATE) | **B** | `appendOp` → SQLite + `operations`, then the document. Inside a job, `runAtomic` holds the document write until the job commits. | Automerge merges; a genuine clash is recorded in `conflicts` and resolved by a human | `node -e` diff of `PROJECTIONS` vs `MODELED_ENTITIES` (see below) |
 | **`template_slots`** (schedule cells) | **B**, but by *scope* not by row | `appendBulkReplaceOp` for a whole schedule; `appendOp` for one edited cell | A whole-schedule regenerate owns row existence; a single-cell edit it doesn't know about is dropped | `electron/automerge/projector.js` `deleteReconcileBulkReplaceEntity` |
 | **`camps`** (the camp's own identity row) | **A**, deliberately | Created only by `bootstrapCamp` / `joinSession`. The projection **refuses** to create it. | Cannot — one camp per device | Protected by name in `deleteReconcileEntity`; `projections.js` `camps.ensureExists` throws |
 | **`conflicts`** | **A** only | `conflictStore.js` | Never syncs — each device tracks its own | The computed diff below reports exactly one such entity |

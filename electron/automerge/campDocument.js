@@ -270,6 +270,7 @@ const GENESIS_ENTITIES = [
   'elective_choices',
   'elective_occurrences',
   'elective_preferences',
+  'elective_run_outer_snapshots',
   'elective_set_activities',
   'elective_sets',
   'event_groups',
@@ -301,8 +302,13 @@ const GENESIS_ENTITIES = [
 // campDocument.test.js's genesis-pinning test — if that test's expectation ever needs to change to
 // pass, that is a wire/document-compatibility break being HIDDEN, not fixed; see that test's own
 // comment.
+// EIGHTH REGENERATION (T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md):
+// `elective_run_outer_snapshots` added to GENESIS_ENTITIES (it entered MODELED_ENTITIES
+// automatically, same forcing function as the sixth regeneration above). Same acceptance as every
+// prior regeneration: pre-production, no live camps on this sync engine, existing `.automerge`
+// files may be discarded. New pinned head: b3ff28193b8f59f9b8e7d71ddeb2ee32ecff999a14339758efebf8652b501803
 const GENESIS_B64 =
-  'hW9Kg7Ti0rwAiAMBECWl3YlnQBZYZHRLlRX3P0UBiFOS0tavglGt6i9PdzXkeNEtaBDY4GYRa1gKEKJhtpgGAQIDAhMCIwZAAlYCBx2bAiECIwI0AUICVgKAAQJ/AH8Bfyd/1P6C1QZ/AH8HbZDNbsIwEIRPgPgVVEXQR+vJMs6EWDhea8dJy9tXSQQ1VU/e/ca7mtnPlXXZ9z578GCja0TNL1k62ybT2sTFUEE5G14unDSimdvK3o30UPUVeKjsnUZqIwlqs5d4RsCwDMaS/hpbxGy0i3z/R+DHE7pGvIORuob6eOX+j1LMi3OdKuILTIoaEzw9IZGLaNuSc4N+sHZV6RLXU8MgmYepzr6FuQRxN85Hwk3tESpju9yI7qcmqfSINjrMp03LIG48BN/oGlRdgGG0iY3kAmW0KdgM7p7oC7jxwATnbTDDmUc7p5IUpjYF5+6xb5o5vraGThI4yx7KdbFjlaW9MEsEZx2hPA8mHie7G3y70HEIcxyFMWJBp++PxIXwAycAJwEnJwAnACcAAA=='
+  'hW9Kg54mIe4AlQMBECWl3YlnQBZYZHRLlRX3P0UBs/8oGTuPWfm459cd3rLuMuz/mZoUM5dY7+v4ZStQGAMGAQIDAhMCIwZAAlYCBx2oAiECIwI0AUICVgKAAQJ/AH8Bfyh/1P6C1QZ/AH8HbZHBTsMwEERPLYK2qEFUFIkP42YZZ9JYOF5rxw7071EStTWIk3ff2KPZ9fuDddmPPnuwsdH1ouZG7p0dkhls4t1UQbmaTt456UUzd609Gxmh6luwae2ZRjojCWqzl3hEwGQGY0l/igNiNloin/8R+HqFrhfvYKTroD6euP+jVO/FuaKK+AsmRYcFvl2hlmikZKhhtIm9ZL5cRSJXc+9qzi3GKfdJpSRuloZBMpulzn6A+QjiPrmeCbedR2iNLbkX3S9NUhkRbXRYL073Qdy8JT7R9WhLwC3ZDWUMKdgMPl7RF/DJhgnO22CmP5jjvNSkCrWtOB8vfsubw+/W0EkCV9lDuak8HrIMH8wSwVUhlMcpxGVlZ4NvFwqnYQ6zMI9Y0eX6ZeJK+AEoACgBKCgAKAAoAAA=='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))

@@ -153,6 +153,12 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'elective_assignments', column: 'occurrence_id', reason: 'points at elective_occurrences, not a U2-deletable entity' },
   { table: 'elective_assignments', column: 'camper_id', reason: 'points at campers, not a U2-deletable entity' },
   { table: 'elective_assignments', column: 'choice_id', reason: 'points at elective_choices, not a U2-deletable entity' },
+  // T243 (v74, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md). run_id/camper_id
+  // point at non-U2-deletable entities; day_id/time_block_id/activity_id/location_id ARE
+  // U2-deletable and are registered in UNDO_REFERENCE_CHECKS below (enforced:false — no DB-level
+  // REFERENCES on any of them, schema.sql).
+  { table: 'elective_run_outer_snapshots', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
+  { table: 'elective_run_outer_snapshots', column: 'camper_id', reason: 'points at campers, not a U2-deletable entity' },
   // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
   // internal-subschedule.md §3).
   { table: 'event_time_blocks', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },

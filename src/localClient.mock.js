@@ -499,6 +499,8 @@ export const MOCK_WRITE_ALLOWLIST = {
   elective_assignment_runs: [
     'camp_id', 'schedule_week_id', 'schedule_template_id', 'tier_id', 'name', 'status',
     'source_filename', 'source_sha256', 'solver_version', 'solver_generation',
+    // v74 (T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md)
+    'finalized_at', 'finalized_by',
   ],
   elective_occurrences: ['run_id', 'elective_set_id', 'day_id', 'time_block_id', 'tier_id'],
   elective_choices: ['run_id', 'label', 'is_linked'],
@@ -507,6 +509,13 @@ export const MOCK_WRITE_ALLOWLIST = {
   elective_assignments: [
     'run_id', 'occurrence_id', 'camper_id', 'activity_id', 'choice_id', 'preference_rank',
     'source', 'is_locked', 'solver_generation',
+  ],
+  // T243 (v74). Mirrors PROJECTIONS.elective_run_outer_snapshots.fields — no
+  // write path exists yet (T244+), but ipcSurfaceParity.test.js requires this
+  // parity mirror to exist regardless of whether any UI writes to it today.
+  elective_run_outer_snapshots: [
+    'run_id', 'camper_id', 'day_id', 'time_block_id', 'activity_id',
+    'activity_name', 'location_id', 'location_name', 'span_blocks', 'solver_generation',
   ],
   conflicts: [],
 }

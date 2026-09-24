@@ -304,6 +304,11 @@ function purgeCamperRecordLocked({ dbPath, userDataDir, cipher = null, key = nul
       removed = {
         elective_assignments: oldDb.prepare('DELETE FROM elective_assignments WHERE camper_id = ?').run(entityId).changes,
         elective_preferences: oldDb.prepare('DELETE FROM elective_preferences WHERE camper_id = ?').run(entityId).changes,
+        // T243 (v74) — the finalized-run export snapshot. Same treatment as
+        // elective_assignments/elective_preferences above: without this, a
+        // purged camper's denormalized schedule (activity_name/location_name)
+        // survives the purge as an orphan row.
+        elective_run_outer_snapshots: oldDb.prepare('DELETE FROM elective_run_outer_snapshots WHERE camper_id = ?').run(entityId).changes,
         campers: oldDb.prepare('DELETE FROM campers WHERE id = ?').run(entityId).changes,
       }
 

@@ -191,7 +191,7 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        '885392d2d6af8251adea2f4f7735e478d12d6810d8e066116b580a10a261b698',
+        'b3ff28193b8f59f9b8e7d71ddeb2ee32ecff999a14339758efebf8652b501803',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole
