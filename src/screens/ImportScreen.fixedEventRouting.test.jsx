@@ -43,16 +43,19 @@ vi.mock('../ingest/extractEntities', async () => {
         // dual-use (also a free-choice elective elsewhere); 'Free Swim' is
         // pin-only LOW-confidence (fixed only, but a thinner Asserted
         // hypothesis — ADR §4.1: still Asserted, not a demotion to Obligation).
-        activities: ['Lunch', 'Ceramics', 'Free Swim'],
+        // 'Yoga' (T234 non-vacuity) is dual-use AND low-confidence — the
+        // guard must exclude it from pinOnly by footprint (dual-use), not
+        // demote it just because it is also low-confidence.
+        activities: ['Lunch', 'Ceramics', 'Free Swim', 'Yoga'],
         tiers: [],
         cohorts: [],
       },
       groupUnits: {},
       groupNameByTitle: {},
-      activityPages: { lunch: ['Yeladim'], ceramics: ['Yeladim'], 'free swim': ['Yeladim'] },
+      activityPages: { lunch: ['Yeladim'], ceramics: ['Yeladim'], 'free swim': ['Yeladim'], yoga: ['Yeladim'] },
       seenCounts: {
-        activities: { Lunch: 4, Ceramics: 4, 'Free Swim': 4 },
-        activityUnitShare: { lunch: 0.9, ceramics: 0.9, 'free swim': 0.9 },
+        activities: { Lunch: 4, Ceramics: 4, 'Free Swim': 4, Yoga: 4 },
+        activityUnitShare: { lunch: 0.9, ceramics: 0.9, 'free swim': 0.9, yoga: 0.9 },
       },
       counts: { groups: 1, days_of_operation: 2, activities: 3 },
     }),
@@ -64,8 +67,9 @@ vi.mock('../ingest/fixedEvents', () => ({
       { name: 'Lunch', time_block: '12:00-12:30', days: ['Monday', 'Tuesday'], scope: { is_all_groups: true, groups: null }, confidence: 'high' },
       { name: 'Ceramics', time_block: '10:00-10:30', days: ['Monday', 'Tuesday'], scope: { is_all_groups: true, groups: null }, confidence: 'high' },
       { name: 'Free Swim', time_block: '15:00-15:30', days: ['Monday', 'Tuesday'], scope: { is_all_groups: true, groups: null }, confidence: 'low' },
+      { name: 'Yoga', time_block: '16:00-16:30', days: ['Monday', 'Tuesday'], scope: { is_all_groups: true, groups: null }, confidence: 'low' },
     ],
-    dualUseNames: ['Ceramics'],
+    dualUseNames: ['Ceramics', 'Yoga'],
   }),
 }))
 vi.mock('../hooks/useCohorts', () => ({ useCohorts: () => ({ activeCohort: { id: 'cohort-1' } }) }))
@@ -135,7 +139,7 @@ describe('ImportScreen — fixed-event routing (ADR 2026-08-09 Decision 1)', () 
   it('every inferred fixed event ships unconditionally in the commit inputs', async () => {
     await uploadFile()
     const inputs = await commit()
-    expect(inputs.fixedEvents.map((fe) => fe.name).sort()).toEqual(['Ceramics', 'Free Swim', 'Lunch'])
+    expect(inputs.fixedEvents.map((fe) => fe.name).sort()).toEqual(['Ceramics', 'Free Swim', 'Lunch', 'Yoga'])
   })
 
   // Classifier-sequencing fix (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md
@@ -162,5 +166,29 @@ describe('ImportScreen — fixed-event routing (ADR 2026-08-09 Decision 1)', () 
     expect(inputs.activityRules['Free Swim']).toBeUndefined()
     // still ships unconditionally per ADR 2026-08-09 Decision 1 (unchanged)
     expect(inputs.fixedEvents.map((fe) => fe.name)).toContain('Free Swim')
+  })
+
+  // T234 — the owner's live bug ("recurring events are also being pulled as
+  // activities"): pinOnlyActivityNames used to be seeded from
+  // autoAccepts(fe.confidence) (HIGH only), so a LOW-confidence fixed/
+  // recurring event never reached the tier:'low' guard and could mint
+  // straight into the activity catalog. The guard must be confidence-
+  // independent — every non-dual-use inferred name, high or low.
+  it('a LOW-confidence pin-only fixed event is still marked pin-only (confidence-independent guard)', async () => {
+    await uploadFile()
+    const inputs = await commit()
+    expect(inputs.pinOnlyActivityNames).toContain('Free Swim')
+  })
+
+  // Non-vacuity (T234): the fixed guard must not become a blanket "any
+  // low-confidence event is pin-only" rule — it must still exclude by
+  // footprint (dual-use), composing correctly with ADR 2026-08-09 Decision
+  // 1 / OQ1. A guard that planted only the expected defect (missing the
+  // confidence check) would pass even if it also broke this case.
+  it('a LOW-confidence dual-use name is NOT marked pin-only, and still ships as a normal activity', async () => {
+    await uploadFile()
+    const inputs = await commit()
+    expect(inputs.pinOnlyActivityNames).not.toContain('Yoga')
+    expect(inputs.approved.activities).toContain('Yoga')
   })
 })
