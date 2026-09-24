@@ -1,5 +1,3 @@
-import { deriveLocationId } from '../../electron/ops/locationId.js'
-
 // M3c — pure helpers for the first-run migration review region.
 // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md D3/D4/D5,
 // docs/work/specs/2026-08-15-m3-locations-design.md Part 3.
@@ -8,6 +6,11 @@ import { deriveLocationId } from '../../electron/ops/locationId.js'
 
 // The journal holds two near_duplicate rows per pair (one per spelling) —
 // group them back into one merge decision by their (sorted) variants array.
+// T255 finding 10: each row also carries the STORED location_id the v32
+// migration wrote for its own `name` (deriveLocationId(camp_id, name) at
+// migration time) — carry it through per-name here so resolveVariant can use
+// the authoritative id instead of re-deriving it from a name that may have
+// since changed underneath it.
 export function groupNearDuplicateReviews(reviews) {
   const groups = new Map()
   for (const r of reviews) {
@@ -18,14 +21,17 @@ export function groupNearDuplicateReviews(reviews) {
     // "A B C"), which would make React's key={group.key} on NearDuplicateGate
     // treat two different merge decisions as one component instance.
     const key = JSON.stringify(variants)
-    if (!groups.has(key)) groups.set(key, { key, variants, reviewIds: [] })
-    groups.get(key).reviewIds.push(r.id)
+    if (!groups.has(key)) groups.set(key, { key, variants, reviewIds: [], locationIdByName: {} })
+    const group = groups.get(key)
+    group.reviewIds.push(r.id)
+    if (r.name != null && r.location_id != null) group.locationIdByName[r.name] = r.location_id
   }
   return [...groups.values()]
 }
 
-function resolveVariant(name, campId, locations, activities) {
-  const locationId = deriveLocationId(campId, name)
+function resolveVariant(name, locationIdByName, locations, activities) {
+  const locationId = locationIdByName[name]
+  if (!locationId) return null
   const loc = locations.find((l) => l.id === locationId)
   if (!loc) return null
   const activityCount = activities.filter((a) => a.location_id === locationId).length
@@ -35,11 +41,11 @@ function resolveVariant(name, campId, locations, activities) {
 // D4 self-heal: a group whose variant locations no longer both exist was
 // already resolved (merged) somewhere — on this device or a peer whose
 // merge replicated in — so it is dropped here rather than re-presented.
-export function activeNearDuplicateGroups(reviews, campId, locations, activities) {
+export function activeNearDuplicateGroups(reviews, locations, activities) {
   return groupNearDuplicateReviews(reviews)
     .map((group) => ({
       ...group,
-      variantRows: group.variants.map((name) => resolveVariant(name, campId, locations, activities)).filter(Boolean),
+      variantRows: group.variants.map((name) => resolveVariant(name, group.locationIdByName, locations, activities)).filter(Boolean),
     }))
     .filter((group) => group.variantRows.length >= 2)
 }

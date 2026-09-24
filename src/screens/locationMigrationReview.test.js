@@ -55,8 +55,8 @@ describe('activeNearDuplicateGroups (D4 self-heal)', () => {
   const poolId = deriveLocationId(CAMP_ID, 'Pool')
   const poolLowerId = deriveLocationId(CAMP_ID, 'pool')
   const reviews = [
-    { id: 'r1', kind: 'near_duplicate', detail: { variants: ['Pool', 'pool'] } },
-    { id: 'r2', kind: 'near_duplicate', detail: { variants: ['Pool', 'pool'] } },
+    { id: 'r1', kind: 'near_duplicate', name: 'Pool', location_id: poolId, detail: { variants: ['Pool', 'pool'] } },
+    { id: 'r2', kind: 'near_duplicate', name: 'pool', location_id: poolLowerId, detail: { variants: ['Pool', 'pool'] } },
   ]
 
   it('resolves both variants to live locations and counts bound activities', () => {
@@ -66,7 +66,7 @@ describe('activeNearDuplicateGroups (D4 self-heal)', () => {
       { id: 'a2', location_id: poolId },
       { id: 'a3', location_id: poolLowerId },
     ]
-    const groups = activeNearDuplicateGroups(reviews, CAMP_ID, locations, activities)
+    const groups = activeNearDuplicateGroups(reviews, locations, activities)
     expect(groups).toHaveLength(1)
     const byName = Object.fromEntries(groups[0].variantRows.map((v) => [v.name, v]))
     expect(byName.Pool.activityCount).toBe(2)
@@ -75,13 +75,36 @@ describe('activeNearDuplicateGroups (D4 self-heal)', () => {
 
   it('hides the group when one variant location no longer exists (already merged elsewhere)', () => {
     const locations = [{ id: poolId, name: 'Pool', capacity: 3 }]
-    const groups = activeNearDuplicateGroups(reviews, CAMP_ID, locations, [])
+    const groups = activeNearDuplicateGroups(reviews, locations, [])
     expect(groups).toEqual([])
   })
 
   it('hides the group when neither variant location exists', () => {
-    const groups = activeNearDuplicateGroups(reviews, CAMP_ID, [], [])
+    const groups = activeNearDuplicateGroups(reviews, [], [])
     expect(groups).toEqual([])
+  })
+
+  // Finding 10: resolveVariant must use the STORED location_id from the
+  // journal row, not re-derive one from the name. A location renamed after
+  // the v32 migration wrote its review keeps its original (derived-at-
+  // migration-time) id forever — deriveLocationId(campId, currentName) would
+  // recompute a DIFFERENT id than what's stored and silently fail to find
+  // the row, hiding a group the director still needs to resolve.
+  it('resolves a variant by its stored location_id even when the current name no longer derives to it', () => {
+    const renamedId = 'renamed-location-id'
+    const renamedReviews = [
+      { id: 'r1', kind: 'near_duplicate', name: 'Pool', location_id: renamedId, detail: { variants: ['Pool', 'pool'] } },
+      { id: 'r2', kind: 'near_duplicate', name: 'pool', location_id: poolLowerId, detail: { variants: ['Pool', 'pool'] } },
+    ]
+    // This location's live id (renamedId) does NOT equal deriveLocationId(CAMP_ID, 'Pool') —
+    // simulating a location renamed since the migration ran.
+    const locations = [{ id: renamedId, name: 'Pool', capacity: 3 }, { id: poolLowerId, name: 'pool', capacity: 1 }]
+    const activities = [{ id: 'a1', location_id: renamedId }]
+    const groups = activeNearDuplicateGroups(renamedReviews, locations, activities)
+    expect(groups).toHaveLength(1)
+    const byName = Object.fromEntries(groups[0].variantRows.map((v) => [v.name, v]))
+    expect(byName.Pool.locationId).toBe(renamedId)
+    expect(byName.Pool.activityCount).toBe(1)
   })
 })
 

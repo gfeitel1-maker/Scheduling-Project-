@@ -263,17 +263,31 @@ function listAliasMap(db, camp_id, cohort_id) {
   const map = {}
   for (const entity of INGESTIBLE_ENTITIES) map[entity] = new Map()
 
+  // T255 carried item: ORDER BY id ASC + first-write-wins below, matching the
+  // T252 precedent (seedNameMaps, materializeImportedVersion's nameMap) — two
+  // active rows can only collide on normalizeName(source_label) across a
+  // cohort boundary (confirmAlias supersedes same-scope duplicates at write
+  // time), but a fixed read order plus first-write-wins is the same
+  // discipline every other name lookup in this codebase applies post-v73.
   const rows = db
-    .prepare(`SELECT entity_type, cohort_id, source_label, entity_id FROM source_aliases WHERE camp_id = ? AND status = 'active'`)
+    .prepare(`SELECT id, entity_type, cohort_id, source_label, entity_id FROM source_aliases WHERE camp_id = ? AND status = 'active' ORDER BY id ASC`)
     .all(camp_id)
 
   for (const row of rows) {
     const table = ALIAS_ENTITY_TABLE[row.entity_type]
     if (!table) continue
-    if (COHORT_SCOPED.has(row.entity_type) && cohort_id && row.cohort_id !== cohort_id) continue
+    // T255 carried item: previously `cohort_id &&` short-circuited this
+    // whole check when the caller had no active Program, so EVERY cohort's
+    // aliases for a COHORT_SCOPED type passed through and got merged into one
+    // namespace. Compare against `cohort_id ?? null` unconditionally instead
+    // — with no active Program, only a NOT-cohort-scoped alias row
+    // (cohort_id IS NULL) can apply; a cohort-scoped alias never fires
+    // without knowing which cohort the import is for.
+    if (COHORT_SCOPED.has(row.entity_type) && row.cohort_id !== (cohort_id ?? null)) continue
     const live = db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND camp_id = ?`).get(row.entity_id, camp_id)
     if (!live) continue
-    map[row.entity_type].set(normalizeName(row.source_label), row.entity_id)
+    const key = normalizeName(row.source_label)
+    if (!map[row.entity_type].has(key)) map[row.entity_type].set(key, row.entity_id)
   }
   return map
 }

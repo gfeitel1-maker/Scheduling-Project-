@@ -567,7 +567,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     })()
   }, [campId])
 
-  const nearDuplicateGroups = activeNearDuplicateGroups(reviews, campId, locations, activities)
+  const nearDuplicateGroups = activeNearDuplicateGroups(reviews, locations, activities)
   const advisoryItems = reviews.filter((r) => r.kind !== 'near_duplicate')
 
   async function handleMerge({ group, winner, capacity }) {
