@@ -93,4 +93,21 @@ describe('ensureCohort concurrent race', () => {
   it('neither concurrent call throws to its caller', async () => {
     await expect(Promise.all([ensureCohort('camp-1'), ensureCohort('camp-1')])).resolves.toBeDefined()
   })
+
+  it('reuses an existing pre-derived-id Main cohort (random uuid, from before this fix) instead of minting a second one', async () => {
+    // Simulates every camp that already exists today: its Main cohort row was
+    // minted by crypto.randomUUID() before deterministic ids existed, and
+    // nothing may re-key or duplicate it now.
+    db.prepare(
+      `INSERT INTO cohorts (id, camp_id, name, session_week_start, session_week_end, capacity_source, anchor_model)
+       VALUES (?, ?, 'Main', 1, 1, 'groups_per_slot', 'fixed')`
+    ).run('legacy-random-uuid-id', 'camp-1')
+
+    await Promise.all([ensureCohort('camp-1'), ensureCohort('camp-1')])
+
+    const rows = db.prepare('SELECT * FROM cohorts WHERE camp_id = ?').all('camp-1')
+    expect(rows.length).toBe(1)
+    expect(rows[0].id).toBe('legacy-random-uuid-id')
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
 })

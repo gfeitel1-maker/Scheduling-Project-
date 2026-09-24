@@ -1,9 +1,10 @@
 import { localClient } from '../localClient'
+import { deriveMainCohortId } from './mainCohortId'
 
 // Fields a fully-created "Main" cohort must have. A row missing any of
-// these (e.g. left behind by a losing concurrent ensureCohort call, see the
-// "name" ordering note below, or any other partial-write cause) is treated
-// as incomplete and repaired in place rather than triggering a duplicate.
+// these (e.g. left behind by an app crash mid-loop, or any other
+// partial-write cause) is treated as incomplete and repaired in place
+// rather than triggering a duplicate.
 const REQUIRED_FIELDS = ['name', 'session_week_start', 'session_week_end', 'capacity_source', 'anchor_model']
 
 const DEFAULTS = {
@@ -22,31 +23,37 @@ function isComplete(cohort) {
 // Creates a "Main" cohort if the camp has none — covers newly created camps.
 // Existing camps are handled by migration 20260527050000.
 //
-// Round 2 Red Hat fix (Sub-plan B Task 2):
-// - HIGH finding 1 (duplicate cohorts under concurrent mounts): `name` is
-//   written FIRST, not last. Each field write is its own atomic SQLite
-//   transaction (see appendOp/applyProjection in electron/ops/*.js) that
-//   both creates the row (via ensureExists's placeholder INSERT OR IGNORE)
-//   and applies the field UPDATE together. Writing `name` first means the
-//   very first thing a new-cohort attempt does is collide with the
-//   electron/db/schema.sql `UNIQUE(camp_id, name)` constraint (see the
-//   version-11 migration in electron/db/localDb.js for pre-existing dbs) —
-//   and because that collision happens inside the SAME transaction as the
-//   row's own creation, a losing concurrent call's row creation rolls back
-//   with it. So the loser never gets a row at all, instead of a duplicate.
-// - HIGH finding 2 (torn/partial-write state): because the loser's very
-//   first write (name) is what fails, no later field write ever runs for
-//   it — there's nothing left half-populated. As a defensive backstop for
-//   any other partial-write cause (e.g. an app crash mid-loop), the check
-//   below treats an existing-but-incomplete cohort as needing completion
-//   (reusing its id, writing only the missing fields) rather than
-//   "a cohort row exists, skip".
-// - Round 2 Security MEDIUM fix: the catch block below distinguishes a
-//   genuine UNIQUE-constraint collision (the expected race outcome) from
-//   any other error by matching the error message, not by re-listing and
-//   assuming "a row exists now" means success — a re-listed row could be
-//   this call's OWN incomplete work, which would wrongly mask a real
-//   failure (IPC death, disk error) as success.
+// T241 (docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md)
+// relaxed `cohorts`' `UNIQUE(camp_id, name)` to a plain non-unique index (one
+// of the ten free-text-name tables it relaxed, so a peer's same-named record
+// projects instead of being silently discarded). That constraint is what the
+// previous version of this function's concurrency-safety relied on: writing
+// `name` first so a losing concurrent call's row-creation collided with it
+// and rolled back inside the same transaction, leaving the loser with no row
+// at all. With the constraint gone, two concurrent calls that each mint their
+// own `crypto.randomUUID()` id now genuinely create two separate "Main" rows
+// — see docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md
+// for why cohorts specifically cannot get the constraint back.
+//
+// The fix here is to make the race structurally impossible instead of
+// constraint-mediated: `deriveMainCohortId` (src/utils/mainCohortId.js) always
+// derives the SAME id for a given campId, so two concurrent callers minting a
+// brand-new Main cohort target the same row from the start (via the `cohorts`
+// projection's `ensureExists` placeholder INSERT OR IGNORE) and their field
+// writes converge onto it rather than each creating its own. This is the same
+// pattern electron/ops/dayId.js, electron/ops/locationId.js and
+// electron/ops/scheduleTemplateId.js use for the same class of problem.
+//
+// An existing cohort (found by `list`, whatever id it carries — a pre-fix
+// camp's row is a random crypto.randomUUID(), not the derived id) always wins
+// over minting a derived one: the lookup below finds it by camp_id, not by
+// re-deriving the id and checking for a row there, so a pre-existing row is
+// reused and completed in place rather than orphaned alongside a second,
+// derived-id row.
+//
+// The completion path for a partial-write row (e.g. an app crash mid-loop)
+// is unchanged: an existing-but-incomplete cohort has only its missing
+// fields written, reusing its existing id.
 export async function ensureCohort(campId) {
   const cohorts = await localClient.list('cohorts')
   const mismatched = cohorts.some((c) => c.camp_id !== campId)
@@ -58,45 +65,26 @@ export async function ensureCohort(campId) {
   if (existing && isComplete(existing)) return
 
   const token = localStorage.getItem('shoresh-token')
-  const id = existing ? existing.id : crypto.randomUUID()
+  const id = existing ? existing.id : deriveMainCohortId(campId)
   const fields = existing
     ? Object.fromEntries(
         REQUIRED_FIELDS.filter((f) => existing[f] == null || existing[f] === '').map((f) => [f, DEFAULTS[f]])
       )
     : { ...DEFAULTS, camp_id: campId }
 
-  try {
-    // Each write is checked and the first failure stops the loop — the same
-    // check-and-throw shape as the sibling per-field loops in
-    // src/data/scheduleRepository.js, src/data/setupCrudRepository.js and
-    // src/utils/seedDays.js. It is NOT covered by the catch below: a refused
-    // write RESOLVES with { status: 'rejected' }, it does not throw, so without
-    // this check it flows past as success and the camp is left with no complete
-    // Main cohort and nothing said about it.
-    //
-    // The message must not match /UNIQUE/i — this throw is raised inside the
-    // try, and the catch swallows UNIQUE as the expected race outcome. Wording
-    // it as the siblings do (`write failed for field "<field>"`) keeps the two
-    // failure modes distinguishable. See the test that pins this.
-    for (const [field, value] of Object.entries(fields)) {
-      const result = await localClient.write(token, 'cohorts', id, field, value)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error(`write failed for field "${field}"`)
-      }
+  // Each write is checked and the first failure stops the loop — the same
+  // check-and-throw shape as the sibling per-field loops in
+  // src/data/scheduleRepository.js, src/data/setupCrudRepository.js and
+  // src/utils/seedDays.js. A refused write RESOLVES with
+  // { status: 'rejected' }, it does not throw, so without this check it
+  // flows past as success and the camp is left with no complete Main
+  // cohort and nothing said about it. There is no longer a UNIQUE-collision
+  // case to distinguish from a real failure (see above) — every error here
+  // is real and propagates to the caller.
+  for (const [field, value] of Object.entries(fields)) {
+    const result = await localClient.write(token, 'cohorts', id, field, value)
+    if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+      throw new Error(`write failed for field "${field}"`)
     }
-  } catch (err) {
-    // Only a genuine UNIQUE(camp_id, name) constraint violation is the
-    // expected outcome of the race (a concurrent call's row-creation won
-    // before this one's) — any OTHER error (IPC channel death, disk error,
-    // etc.) is real and must propagate, regardless of what `list` happens
-    // to return afterward (round-2 Security MEDIUM finding: don't infer
-    // "someone else finished it" just because a row exists — that row could
-    // be THIS call's own incomplete work, or unrelated). Matching on the
-    // actual constraint-violation message, rather than on existence/
-    // completeness of a re-listed row, is what makes this distinction safe:
-    // since `name` is written first (see above), a UNIQUE violation can
-    // only ever come from a genuine concurrent winner, never from this
-    // call's own later fields.
-    if (!/UNIQUE/i.test(err.message ?? '')) throw err
   }
 }

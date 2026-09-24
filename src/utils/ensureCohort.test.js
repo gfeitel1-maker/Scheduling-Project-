@@ -39,7 +39,7 @@ describe('ensureCohort', () => {
     expect(localClient.write).not.toHaveBeenCalled()
   })
 
-  it('creates a Main cohort field-by-field, name first, when the camp has none', async () => {
+  it('creates a Main cohort field-by-field at the derived id when the camp has none', async () => {
     localClient.list.mockResolvedValue([])
     await ensureCohort('camp-1')
     expect(localClient.write).toHaveBeenCalledTimes(6)
@@ -47,12 +47,11 @@ describe('ensureCohort', () => {
     for (const call of calls) {
       expect(call[0]).toBe('token-abc')
       expect(call[1]).toBe('cohorts')
-      expect(call[2]).toBe('new-cohort-id')
+      // Derived, not crypto.randomUUID() — see mainCohortId.js: two
+      // concurrent callers must target the same row, so the id can't be
+      // random.
+      expect(call[2]).toBe('cohort:camp-1:main')
     }
-    // The very first write must be `name` — that's what lets the DB-level
-    // UNIQUE(camp_id, name) constraint (electron/db/schema.sql) catch a
-    // concurrent creator before any other field is ever written. See the
-    // HIGH finding 1/2 fix comment in ensureCohort.js.
     expect(calls[0][3]).toBe('name')
     expect(calls[0][4]).toBe('Main')
 
@@ -156,13 +155,13 @@ describe('ensureCohort', () => {
     expect(localClient.write).toHaveBeenCalledTimes(6)
   })
 
-  it('swallows a genuine UNIQUE-constraint error thrown by a losing concurrent write', async () => {
+  it('propagates a UNIQUE-constraint error instead of swallowing it (T241: cohorts.UNIQUE(camp_id, name) no longer exists, so this can only be a real, unexpected failure now)', async () => {
     localClient.list.mockResolvedValue([])
     localClient.write.mockRejectedValueOnce(new Error('UNIQUE constraint failed: cohorts.camp_id, cohorts.name'))
-    await expect(ensureCohort('camp-1')).resolves.toBeUndefined()
+    await expect(ensureCohort('camp-1')).rejects.toThrow('UNIQUE constraint failed')
   })
 
-  it('rethrows any error that is NOT a UNIQUE-constraint violation, even if a cohort now happens to exist for the camp (round-2 Security MEDIUM fix: do not infer success from existence alone)', async () => {
+  it('rethrows any error, even if a cohort now happens to exist for the camp (do not infer success from existence alone)', async () => {
     localClient.list.mockResolvedValue([])
     localClient.write.mockRejectedValueOnce(new Error('disk full'))
     await expect(ensureCohort('camp-1')).rejects.toThrow('disk full')
