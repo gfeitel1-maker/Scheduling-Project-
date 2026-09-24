@@ -166,3 +166,51 @@ Fixtures driven through the **real write path**, never hand-inserted rows.
   its UI, given its `ChoiceBox` is built around "keep this value" rather than "these two
   records collide".
 - Exact schema-version number if another in-flight branch claims v71 first.
+
+---
+
+## Amendments after the Architect pass (2026-09-23)
+
+The ADR `docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md`
+(commit `eb89977`) supersedes this spec wherever the two disagree. It corrected four
+things, and the owner settled two scope questions it raised. Recorded here so this spec
+is not read as current where it was wrong.
+
+**Corrections (ADR is authoritative):**
+
+1. **Schema version is v73, not v71.** `CURRENT_SCHEMA_VERSION` is already 72 (v71 = T181,
+   v72 = T233, both merged). The v71 in "Migration and rollback" above is stale — read v73.
+2. **The index change is a TABLE REBUILD, not a plain index swap.** Nine of the ten relaxed
+   tables declare `UNIQUE(...)` inline in `schema.sql`'s `CREATE TABLE`, which compiles to an
+   internal SQLite autoindex that `DROP INDEX` cannot touch; only `schedule_weeks` is a plain
+   named-index case. Had this shipped as written, a migrated db would relax while a FRESH
+   INSTALL kept the constraint baked in — the fresh-vs-migrated divergence the database-sync
+   task class exists to prevent, arriving as a green gate.
+3. **The hard-set derivation is a NEW MODULE** (`electron/automerge/uniqueConflicts.js`),
+   not an extension of `reconcile()`'s return shape — a cross-record collision has two whole
+   records and no single `entityId`. It wires into the SAME choke point
+   (`projector.js`'s `assertConflictsRecorded`), so the "no path around it" guarantee holds
+   for both conflict kinds without merging their shapes.
+4. **`ConflictsScreen` DOES need a new conflict kind** — `kind: 'unique'`, informational, no
+   buttons (there is no value to "keep"; resolution is rename-or-delete on the owning
+   screen). No new screen and no new IPC.
+
+Also: the name→id map sites are **five** in `electron/ops/ingest.js`, not the three cited in
+§D above (`tierIdByName` and `locationIdByName` were missed). Engine and export are clear —
+`anchorActivityLink.js` already resolves by-name lookups into arrays, `exportWorkbook.js`
+resolves by id, and `bulkReplace` is scoped by scope id rather than name.
+
+**Owner scope decisions:**
+
+5. **`special_days` JOINS the relaxed set** — ten tables, not nine. It matches the profile
+   exactly (document-projected, free-text `UNIQUE(camp_id, name)`, and its own schema comment
+   states it shares the groups/activities trust model). Its omission above was an oversight.
+6. **The `UNIQUE_FIELD_ENTITIES` pre-check gap is folded IN, not spun out.** The registry
+   covers only 5 of the 10 tables; `groups`, `cohorts`, `tiers`, `time_blocks`,
+   `schedule_weeks` and `special_days` are registered as part of this work. Reason: after v73
+   the advisory pre-check becomes the only thing stopping a director typing a duplicate on
+   purpose, so those six would get quietly worse at the local nudge exactly as they stop
+   erroring. Guarded by the two existing registry-parity tests
+   (`electron/uniqueFieldEntitiesMockParity.test.js`,
+   `electron/uniqueFirstFieldRegistryParity.test.js`), so the mock must move with the real
+   registry.
