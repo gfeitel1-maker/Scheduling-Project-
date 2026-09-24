@@ -23,7 +23,7 @@ So the kit is split in two:
 | `tree-full-wide-login.png` | `LoginScreen` hero | 420px wide |
 | `forest-circle.png` | `CampBootstrapScreen` (64px), `RootMap` empty state (140px) | 140px |
 | `root-pattern-bg.jpg` | `ModeSelectScreen` background | tiled |
-| `root-system-celebration.png` | `postImportBanner` | banner width |
+| `root-system-celebration.png` | _(currently unused)_ | — |
 | `icons/decorative-sprout.png` | `SeedScreen` mark | — |
 
 `forest-circle.png` was 1200x1098 and 2.2MB against a 140px maximum; it is 280x256 and
