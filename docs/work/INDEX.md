@@ -21,12 +21,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Phase A — Cloudflare Worker and KV rendezvous bulletin board (source and tests only)](../../docs/work/tickets/T209-rendezvous-worker-phase-a.md) | in-progress | [2026-09-18-rendezvous-record-encoding-and-namespace-rotation](../../docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 
-### concurrency
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [A stalled dial/authenticate attempt is never cancelled, so a later re-announce races its own late settlement](../../docs/work/tickets/T230-stalled-dial-is-never-cancelled.md) | open | [2026-09-18-connectivity-observability-event-vocabulary](../../docs/adr/2026-09-18-connectivity-observability-event-vocabulary.md) |
-
 ### database-sync
 
 | Ticket | Status | Referenced by |
