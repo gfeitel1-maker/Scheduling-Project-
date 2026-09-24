@@ -172,6 +172,10 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // do, not what any current row means. `conflicts` itself is not document-modeled (host-local
   // history), so its additive columns are outside domain-state's scope entirely.
   73,
+  // v74 (T243) adds elective_assignment_runs.finalized_at/finalized_by (nullable) and creates
+  // the empty elective_run_outer_snapshots table. Schema-only: nothing writes either yet (T244+
+  // builds the write path), so no existing camp's domain row value changes.
+  74,
 ])
 
 /** True if applying `version` can change what the camp means. */

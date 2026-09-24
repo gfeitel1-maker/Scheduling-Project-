@@ -3280,18 +3280,19 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     )
   }
 
-  // v74 (T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) — schema v73 is
-  // reserved for a concurrent stream (T234); this migration stacks directly on v72. Two additive,
-  // nullable columns on elective_assignment_runs (finalized_at, finalized_by — when/who finalized
-  // the run) plus the new elective_run_outer_snapshots table (already created by schema.sql's
-  // CREATE TABLE IF NOT EXISTS on every fresh install; this block only backfills the version marker
-  // and ALTERs the existing table for a database migrating forward from an earlier version).
+  // v74 (T243, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) — stacks
+  // directly on v73 (T241, the name-UNIQUE-relaxation table-rebuild migration, which landed
+  // first). Two additive, nullable columns on elective_assignment_runs (finalized_at,
+  // finalized_by — when/who finalized the run) plus the new elective_run_outer_snapshots table (already created
+  // by schema.sql's CREATE TABLE IF NOT EXISTS on every fresh install; this block only backfills
+  // the version marker and ALTERs the existing table for a database migrating forward from an
+  // earlier version).
   //
   // UNLIKE v66's rollback (which destroyed campers/elective_preferences/elective_assignments PII),
   // this migration — and its rollback (v74_down.js) — is NON-DESTRUCTIVE and ADDITIVE-ONLY: nothing
   // writes finalized_at/finalized_by or elective_run_outer_snapshots yet (T244+ builds the write
   // path), so there is no existing data a rollback could lose.
-  if (getSchemaVersion(db) >= 72 && getSchemaVersion(db) < 74) {
+  if (getSchemaVersion(db) >= 73 && getSchemaVersion(db) < 74) {
     db.transaction(() => {
       const runCols = db.pragma('table_info(elective_assignment_runs)').map((c) => c.name)
       if (!runCols.includes('finalized_at')) {

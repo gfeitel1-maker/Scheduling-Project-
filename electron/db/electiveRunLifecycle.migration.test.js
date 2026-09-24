@@ -45,6 +45,7 @@ function preV74Db(tag = 'v74-migrated') {
   if (cols.includes('finalized_at')) db.exec('ALTER TABLE elective_assignment_runs DROP COLUMN finalized_at')
   db.pragma('foreign_keys = ON')
   db.prepare('DELETE FROM schema_migrations WHERE version >= 74').run()
+  db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (73, ?)').run(new Date().toISOString())
   return db
 }
 
@@ -82,7 +83,7 @@ describe('migration v74: fresh vs migrated equivalence', () => {
 
   it('migrates a pre-v74 db forward to 74', () => {
     const db = preV74Db()
-    expect(getSchemaVersion(db)).toBe(72)
+    expect(getSchemaVersion(db)).toBe(73)
     initSchema(db)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     const runCols = db.pragma('table_info(elective_assignment_runs)').map((c) => c.name)
