@@ -332,6 +332,71 @@ describe('ActivitiesScreen — import', () => {
   })
 })
 
+// T255 Slice B, finding 4 — schema v73 lets two age divisions or two locations
+// share a name within one camp. Before this fix `tierMap`/`actMap` were plain
+// last-write-wins `Object.fromEntries`, and `locationIdByName` (the write-path
+// map used inside confirmImport) was a plain last-write-wins Map — so an
+// imported row silently bound to whichever same-named row happened to come
+// last in the array, with no warning. Note: the location exposure is narrower
+// than the tier one — T81 made location resolution exact/case-sensitive/
+// trim-only, so it needs two byte-identical trimmed names, which v73 permits.
+describe('ActivitiesScreen — import refuses an ambiguous same-named match', () => {
+  it('refuses to bind an imported row to an arbitrary age division when two divisions share a name', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([])
+      if (entity === 'tiers') return Promise.resolve([
+        { id: 'tier-a', camp_id: CAMP_ID, name: 'Yeladim' },
+        { id: 'tier-b', camp_id: CAMP_ID, name: 'Yeladim' },
+      ])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'activities.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Water Play', location: '', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: 'Yeladim', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' },
+    ])
+
+    await userEvent.upload(fileInput, file)
+
+    await waitFor(() => expect(screen.queryByText(/ambiguous/i)).not.toBeNull())
+    const tierIdsWritten = localClient.write.mock.calls.filter(c => c[3] === 'eligible_tier_ids').map(c => c[4])
+    expect(tierIdsWritten).toEqual([])
+  })
+
+  it('refuses to bind an imported row to an arbitrary location when two locations share a name', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([])
+      if (entity === 'locations') return Promise.resolve([
+        { id: 'loc-a', camp_id: CAMP_ID, name: 'Pool' },
+        { id: 'loc-b', camp_id: CAMP_ID, name: 'Pool' },
+      ])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'activities.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Water Play', location: 'Pool', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: '', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' },
+    ])
+
+    await userEvent.upload(fileInput, file)
+
+    await waitFor(() => expect(screen.queryByText(/ambiguous/i)).not.toBeNull())
+    // Must not fall through to the create branch and mint a THIRD "Pool".
+    const locationNamesWritten = localClient.write.mock.calls.filter(c => c[1] === 'locations' && c[3] === 'name').map(c => c[4])
+    expect(locationNamesWritten).toEqual([])
+    const activityLocationIdsWritten = localClient.write.mock.calls.filter(c => c[1] === 'activities' && c[3] === 'location_id').map(c => c[4])
+    expect(activityLocationIdsWritten).toEqual([])
+  })
+})
+
 // T81 (docs/work/tickets/T81-activities-template-importer-deterministic-location-ids.md):
 // aligned to the M4 Host ingest pattern
 // (docs/adr/2026-08-15-locations-import-export-roundtrip.md D1a) — resolve by

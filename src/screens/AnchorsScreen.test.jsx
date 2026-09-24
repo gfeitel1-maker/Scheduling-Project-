@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({
   localClient: {
@@ -8,6 +9,16 @@ vi.mock('../localClient', () => ({
     write: vi.fn(),
     deleteEntity: vi.fn(),
   },
+}))
+
+vi.mock('xlsx', () => ({
+  utils: {
+    book_new: vi.fn(() => ({})),
+    book_append_sheet: vi.fn(),
+    sheet_to_json: vi.fn(() => []),
+  },
+  writeFile: vi.fn(),
+  read: vi.fn(() => ({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })),
 }))
 
 vi.mock('../hooks/useCohorts', () => ({
@@ -24,6 +35,7 @@ vi.mock('../components/CohortPicker', () => ({
 
 import AnchorsScreen from './AnchorsScreen'
 import { localClient } from '../localClient'
+import * as XLSX from 'xlsx'
 
 const CAMP_ID = 'camp-1'
 const COHORT_ID = 'cohort-1'
@@ -667,5 +679,64 @@ describe('AnchorsScreen — recurring event division scope (T180)', () => {
     await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
     const cell = screen.getByText('Seniors')
     expect(cell.getAttribute('title')).toBeFalsy()
+  })
+})
+
+// T255 Slice B, finding 5 — schema v73 lets two time blocks or two age
+// divisions share a name within one camp+cohort. Before this fix `blockMap`
+// and `tierMap` were plain last-write-wins `Object.fromEntries`, so an
+// imported row silently bound to whichever same-named row happened to come
+// last in the array, with no warning — a wrong bind, not a genuinely
+// unmatched name.
+describe('AnchorsScreen — import refuses an ambiguous same-named match', () => {
+  it('refuses to bind an imported row to an arbitrary time block when two blocks share a name', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1', label: 'Monday', day_of_week: 1 })])
+      if (entity === 'time_blocks') return Promise.resolve([
+        block({ id: 'block-a', name: 'Morning', camp_id: CAMP_ID, cohort_id: COHORT_ID }),
+        block({ id: 'block-b', name: 'Morning', camp_id: CAMP_ID, cohort_id: COHORT_ID }),
+      ])
+      return Promise.resolve([])
+    })
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'anchors.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Mifkad', day_label: 'Monday', time_block_name: 'Morning', is_all_tiers: 'TRUE', tier_names: '', notes: '' },
+    ])
+
+    await userEvent.upload(fileInput, file)
+
+    await waitFor(() => expect(screen.queryByText(/ambiguous/i)).not.toBeNull())
+    const timeBlockIdsWritten = localClient.write.mock.calls.filter(c => c[3] === 'time_block_id').map(c => c[4])
+    expect(timeBlockIdsWritten).toEqual([])
+  })
+
+  it('refuses to bind an imported row to an arbitrary age division when two divisions share a name', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1', label: 'Monday', day_of_week: 1 })])
+      if (entity === 'time_blocks') return Promise.resolve([block({ id: 'block-1', camp_id: CAMP_ID, cohort_id: COHORT_ID })])
+      if (entity === 'tiers') return Promise.resolve([
+        { id: 'tier-a', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Yeladim' },
+        { id: 'tier-b', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Yeladim' },
+      ])
+      return Promise.resolve([])
+    })
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'anchors.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Swim', day_label: 'Monday', time_block_name: 'Morning', is_all_tiers: 'FALSE', tier_names: 'Yeladim', notes: '' },
+    ])
+
+    await userEvent.upload(fileInput, file)
+
+    await waitFor(() => expect(screen.queryByText(/ambiguous/i)).not.toBeNull())
+    const unitIdsWritten = localClient.write.mock.calls.filter(c => c[3] === 'unit_ids').map(c => c[4])
+    expect(unitIdsWritten).toEqual([])
   })
 })
