@@ -247,16 +247,18 @@ describe('restoreEntity refuses a colliding restore (T7 / Finding A)', () => {
     expect(db.prepare('SELECT * FROM locations WHERE id = ?').get('loc-1').name).toBe('Gym')
   })
 
-  it('does not apply the unique-field guard to a non-registered entity (groups has no UNIQUE_FIELD_ENTITIES entry)', () => {
+  it('does not apply the unique-field guard to a non-registered entity (anchor_activities has no UNIQUE_FIELD_ENTITIES entry)', () => {
     // A restore for an entity absent from UNIQUE_FIELD_ENTITIES must not even
     // consult detectUniqueFieldCollision — this is the registry-driven `if
-    // (uniqueConfig && ...)` guard's own opt-in, exercised directly rather
-    // than via groups' unrelated real DB-level UNIQUE(camp_id, name), which
-    // would throw for a different reason regardless of this guard's presence.
-    makeGroup('g1', { name: 'Aleph' })
-    del('groups', 'g1')
+    // (uniqueConfig && ...)` guard's own opt-in. Was `groups` until T238
+    // registered it; anchor_activities is restorable (RESTORE_DECISIONS) and
+    // still has no UNIQUE_FIELD_ENTITIES entry, so it exercises the same
+    // "absent from the registry" branch this test targets.
+    write('anchor_activities', 'a1', 'camp_id', 'camp1')
+    write('anchor_activities', 'a1', 'kind', 'fixed')
+    del('anchor_activities', 'a1')
 
-    const result = restoreEntity(db, { entity: 'groups', entity_id: 'g1', ...session })
+    const result = restoreEntity(db, { entity: 'anchor_activities', entity_id: 'a1', ...session })
 
     expect(result.ok).toBe(true)
   })

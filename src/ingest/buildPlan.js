@@ -15,7 +15,7 @@
 import { INGESTIBLE_ENTITIES } from './extractEntities.js'
 import { normalizeName, recognitionKey } from './preview.js'
 import { dbFieldFor } from './fieldUpdate.js'
-import { UNIQUE_FIRST_FIELD } from '../data/setupCrudRepository.js'
+import { UNIQUE_FIRST_FIELD, UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS } from '../data/setupCrudRepository.js'
 
 // ADR 2026-08-17-onescreen-reconciliation-merge.md §1 — moved here (not
 // duplicated) from preview.js, whose UI-only tick-state role is gone. This is
@@ -144,10 +144,17 @@ export function assertUniqueFieldFirst(entity, fields) {
   const uniqueField = UNIQUE_FIRST_FIELD[entity]
   if (!uniqueField) return fields
   const keys = Object.keys(fields)
-  if (keys[0] !== uniqueField) {
+  // T238: a composite-scope entity (tiers/time_blocks, UNIQUE(camp_id,
+  // cohort_id, name)) must write its extra scope column(s) BEFORE the unique
+  // field itself — see UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS's own comment — so
+  // the unique field is allowed to sit right after them, not only at index 0.
+  const extraScopeColumns = UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS[entity] || []
+  const expectedIndex = extraScopeColumns.filter((col) => keys.includes(col)).length
+  if (keys[expectedIndex] !== uniqueField || extraScopeColumns.some((col, i) => keys[i] !== col)) {
     throw new Error(
       `ingest: ${entity} is unique-field-registered on "${uniqueField}", so its create ` +
-        `must write "${uniqueField}" first (got "${keys[0]}"). See T115.`,
+        `must write ${extraScopeColumns.length ? `its scope column(s) [${extraScopeColumns.join(', ')}] then ` : ''}` +
+        `"${uniqueField}" first (got "${keys[0]}"). See T115.`,
     )
   }
   return fields
@@ -159,12 +166,17 @@ export function fieldsFor(entity, name, campId, index, cohortId) {
 
 function fieldsForUnchecked(entity, name, campId, index, cohortId) {
   switch (entity) {
+    // name FIRST — cohorts is UNIQUE_FIELD_ENTITIES-registered (T238).
     case 'cohorts':
-      return { camp_id: campId, name }
+      return { name, camp_id: campId }
+    // cohort_id, then name — tiers is UNIQUE(camp_id, cohort_id, name), a
+    // COMPOSITE scope (T238): detectUniqueFieldCollision reads cohort_id off
+    // the row when it checks the `name` write, so cohort_id must land first.
     case 'tiers':
-      return { camp_id: campId, name, sort_order: index, cohort_id: cohortId }
+      return { cohort_id: cohortId, name, camp_id: campId, sort_order: index }
+    // name FIRST — groups is UNIQUE_FIELD_ENTITIES-registered (T238).
     case 'groups':
-      return { camp_id: campId, name, availability: 'all' }
+      return { name, camp_id: campId, availability: 'all' }
     // day_of_week FIRST — days_of_operation is UNIQUE_FIRST_FIELD-registered
     // (T205), same ordering reasoning as activities/locations above.
     //
@@ -184,9 +196,10 @@ function fieldsForUnchecked(entity, name, campId, index, cohortId) {
         sort_order: dow ?? index,
       }
     }
+    // cohort_id, then name — same composite-scope reasoning as tiers above.
     case 'time_blocks': {
       const { start_time, end_time } = parseTimeRange(name)
-      return { camp_id: campId, name, start_time, end_time, sort_order: index, cohort_id: cohortId }
+      return { cohort_id: cohortId, name, camp_id: campId, start_time, end_time, sort_order: index }
     }
     // name FIRST — activities is UNIQUE_FIELD_ENTITIES-registered (T115).
     case 'activities':

@@ -111,6 +111,7 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'operations', column: 'parent_op_id', reason: 'points at operations, not a U2-deletable entity' },
   { table: 'operations', column: 'client_write_id', reason: 'idempotency token, not an entity pointer' },
   { table: 'conflicts', column: 'existing_op_id', reason: 'points at operations, not a U2-deletable entity' },
+  { table: 'conflicts', column: 'entity_ids', reason: 'v73 addition (Decision 1 of docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md): JSON array of ids, polymorphic (entity varies) like entity_id above, only populated for unique:-prefixed conflict rows' },
   { table: 'locks', column: 'holder_device_id', reason: 'points at devices, not a U2-deletable entity' },
   { table: 'template_slots', column: 'template_id', reason: 'points at schedule_templates, not a U2-deletable entity' },
   { table: 'locations', column: 'map_id', reason: 'points at camp_maps (a map image, restore-refused / not a U2-deletable entity); a dangling map_id resolves to the primary map (v50 pair, ADR 2026-08-26)' },

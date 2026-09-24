@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildPlan, looksLikeAMerge, createConfidenceTier, buildElectiveCandidates, fieldsFor, assertUniqueFieldFirst } from './buildPlan.js'
-import { UNIQUE_FIRST_FIELD } from '../data/setupCrudRepository.js'
+import { UNIQUE_FIRST_FIELD, UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS } from '../data/setupCrudRepository.js'
 
 // S1a — buildPlan RECOGNITION + AMBIGUITY (ADR 2026-08-08-s1a §1, §3).
 //
@@ -417,7 +417,11 @@ describe('fieldsFor unique-first ordering (T115)', () => {
       const keys = Object.keys(fields)
       const uniqueField = UNIQUE_FIRST_FIELD[entity]
       expect(keys).toContain(uniqueField)
-      expect(keys.indexOf(uniqueField)).toBe(0)
+      // T238: a composite-scope entity (tiers/time_blocks) must write its
+      // extra scope column(s) BEFORE the unique field itself, so the unique
+      // field sits right after them rather than strictly at index 0.
+      const extraScopeColumns = (UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS[entity] || []).filter((col) => keys.includes(col))
+      expect(keys.indexOf(uniqueField)).toBe(extraScopeColumns.length)
       if (keys.includes('camp_id')) {
         expect(keys.indexOf(uniqueField)).toBeLessThan(keys.indexOf('camp_id'))
       }

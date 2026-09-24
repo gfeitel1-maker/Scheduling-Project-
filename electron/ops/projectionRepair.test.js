@@ -127,12 +127,11 @@ describe('repairProjectionForEntity', () => {
   })
 
   it('does NOT resolve the entity when an earlier op fails on field A and a later op succeeds on field B', () => {
-    // groups has UNIQUE(camp_id, name) (schema.sql) — a real, deterministic
-    // way to make a plain field-level UPDATE genuinely throw on replay.
-    const otherGroupId = randomUUID()
-    applyOp({ entity: 'groups', entity_id: otherGroupId, field: 'camp_id', value: campId })
-    applyOp({ entity: 'groups', entity_id: otherGroupId, field: 'name', value: 'Taken' })
-
+    // groups.name is `TEXT NOT NULL` (schema.sql) — the UNIQUE(camp_id, name)
+    // constraint this test used to rely on was deliberately relaxed in v73
+    // (T241), so a plain field-level UPDATE now needs a different real,
+    // deterministic way to throw on replay: writing NULL into a NOT NULL
+    // column.
     const groupId = randomUUID()
     applyOp({ entity: 'groups', entity_id: groupId, field: 'camp_id', value: campId })
 
@@ -140,13 +139,13 @@ describe('repairProjectionForEntity', () => {
     // apply-and-roll-back the whole insert in one transaction on this exact
     // constraint violation) — this mirrors how applyRemoteOp persists an
     // op-log row independently of whether projection application succeeds.
-    // Its value collides with otherGroupId's name, so replaying it will
-    // genuinely throw a UNIQUE constraint violation.
+    // Its value is NULL, so replaying it into the NOT NULL `name` column
+    // will genuinely throw a NOT NULL constraint violation.
     const nameOpId = randomUUID()
     const t1 = new Date(Date.now() - 1000).toISOString()
     db.prepare(
       `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
-       VALUES (?, 'groups', ?, 'name', 'Taken', NULL, ?, ?, NULL)`
+       VALUES (?, 'groups', ?, 'name', NULL, NULL, ?, ?, NULL)`
     ).run(nameOpId, groupId, deviceId, t1)
 
     // A LATER op on a DIFFERENT field ("availability") succeeds.
@@ -190,20 +189,18 @@ describe('repairProjectionForEntity', () => {
   })
 
   it('records BOTH failed ops in projection_failures when two different ops fail on two different fields', () => {
-    const otherGroupId = randomUUID()
-    applyOp({ entity: 'groups', entity_id: otherGroupId, field: 'camp_id', value: campId })
-    applyOp({ entity: 'groups', entity_id: otherGroupId, field: 'name', value: 'Taken' })
-
     const groupId = randomUUID()
     applyOp({ entity: 'groups', entity_id: groupId, field: 'camp_id', value: campId })
 
-    // Field "name" fails (unique collision) — inserted directly, as above,
+    // Field "name" fails — inserted directly (bypassing appendOp, as above),
     // so the constraint violation is only hit on replay, not at setup time.
+    // groups.name is NOT NULL, and the UNIQUE(camp_id, name) constraint this
+    // used to rely on was deliberately relaxed in v73 (T241).
     const nameOpId = randomUUID()
     const t1 = new Date(Date.now() - 1000).toISOString()
     db.prepare(
       `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
-       VALUES (?, 'groups', ?, 'name', 'Taken', NULL, ?, ?, NULL)`
+       VALUES (?, 'groups', ?, 'name', NULL, NULL, ?, ?, NULL)`
     ).run(nameOpId, groupId, deviceId, t1)
 
     // Field "__deleted__" (a blocked delete) ALSO fails, on a different field.
