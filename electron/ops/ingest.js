@@ -1411,15 +1411,39 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // tier could not be found: its groups failed to link, and (T183 PR-2) a
     // re-imported division-scoped event false-flattened. One normalization, all
     // three sites.
-    if (entity === 'tiers') tierIdByName.set(name.trim().toLowerCase(), entityId)
-    if (entity === 'time_blocks') blockIdByName.set(normalizeName(name), entityId)
-    if (entity === 'days_of_operation') dayIdByName.set(normalizeName(name), entityId)
-    if (entity === 'groups') groupIdByName.set(normalizeName(name), entityId)
+    // T252 round 2: guarded with the SAME `if (!map.has(key))` first-write-wins
+    // rule seedNameMaps uses above. An unconditional `.set()` here would evict
+    // an already-established lowest-id winner the moment this run creates
+    // another row of that name (a director-pinned ambiguous-identity 'create',
+    // or a second create of the same name within one run) — every later
+    // lookup in this SAME run (the group->tier link below, resolveFieldWrite,
+    // fixed-event scoping) would then silently resolve to the brand-new row
+    // instead of the row every other device already agrees is canonical. A
+    // row created this run may only ever claim a name slot no live row holds.
+    if (entity === 'tiers') {
+      const key = name.trim().toLowerCase()
+      if (!tierIdByName.has(key)) tierIdByName.set(key, entityId)
+    }
+    if (entity === 'time_blocks') {
+      const key = normalizeName(name)
+      if (!blockIdByName.has(key)) blockIdByName.set(key, entityId)
+    }
+    if (entity === 'days_of_operation') {
+      const key = normalizeName(name)
+      if (!dayIdByName.has(key)) dayIdByName.set(key, entityId)
+    }
+    if (entity === 'groups') {
+      const key = normalizeName(name)
+      if (!groupIdByName.has(key)) groupIdByName.set(key, entityId)
+    }
     // M4 §D1a/§D2: registered BEFORE any activities create runs, in the same
     // toCreate loop — INGESTIBLE_ENTITIES order places locations before
     // activities, so this is always populated by the time an activity's
     // location resolves (§D1c below reads this map).
-    if (entity === 'locations') locationIdByName.set(String(name).trim(), entityId)
+    if (entity === 'locations') {
+      const key = String(name).trim()
+      if (!locationIdByName.has(key)) locationIdByName.set(key, entityId)
+    }
     if (entity === 'groups') {
       // The file said which unit this bunk is in; file it there rather than
       // leaving the director to assign 33 bunks by hand.

@@ -174,3 +174,57 @@ describe('T252 — ingest.js seedNameMaps sites resolve duplicates to the lowest
     expect(anchorForward.group_ids ?? anchorForward.scope_groups ?? '').toEqual(anchorReverse.group_ids ?? anchorReverse.scope_groups ?? '')
   })
 })
+
+// Regression: commitCreate's own name-map registration block (~1414-1422)
+// used to unconditionally .set() into the SAME maps seedNameMaps just
+// carefully seeded first-write-wins — so a row created WITHIN this same
+// ingest run silently evicted the already-established lowest-id winner for
+// every later lookup in that run (the group->tier link, resolveFieldWrite,
+// fixed-event scoping). Fixed by guarding every registration with the same
+// `if (!map.has(key))` seedNameMaps uses, so a row born this run only ever
+// claims a name slot no live row already holds.
+describe('T252 round 2 — commitCreate must not evict an already-seeded name-map winner', () => {
+  it('groupIdByName: a group created THIS run does not evict the established lowest-id "Bunk 1", and a fixed event scoped to it still resolves to the established row', () => {
+    const idLow = 'aaaaaaaa-0000-0000-0000-0000000000g1'
+    const idHigh = 'zzzzzzzz-0000-0000-0000-0000000000g2'
+    const { db, file, campId } = makeCampDb()
+    openDbs.push({ db, file })
+
+    // Two live rows already share the exact raw name "Bunk 1" (a legal
+    // post-merge state under v73's relaxed UNIQUE). seedNameMaps() has
+    // already established idLow as the map's winner by the time commitPlan
+    // reaches the toCreate loop.
+    createRow(db, 'groups', idHigh, { name: 'Bunk 1' }, campId)
+    createRow(db, 'groups', idLow, { name: 'Bunk 1' }, campId)
+
+    createRow(db, 'days_of_operation', randomUUID(), { label: 'Monday', day_of_week: 1 }, campId)
+    createRow(db, 'time_blocks', randomUUID(), { name: '09:00-09:30' }, campId)
+
+    // A raw-different name ("BUNK 1") that normalizes the same as the two
+    // live rows is genuinely ambiguous (normalize-collision) but is NOT a
+    // raw-exact duplicate of either candidate, so a director's pinned
+    // 'create' choice creates it cleanly rather than re-holding.
+    const result = commitIngest(db, {
+      approved: { groups: ['BUNK 1'] },
+      resolutions: [{ entity: 'groups', name: 'BUNK 1', reason: 'ambiguous_identity', choice: 'create' }],
+      fixedEvents: [{
+        name: 'Mifkad', time_block: '09:00-09:30', days: ['Monday'],
+        scope: { is_all_groups: false, groups: ['Bunk 1'] },
+      }],
+      camp_id: campId, device_id: deviceId, author_user_id: 'u1',
+    })
+
+    expect(result.held).toBe(false)
+    const newGroup = db.prepare('SELECT id FROM groups WHERE camp_id = ? AND name = ?').get(campId, 'BUNK 1')
+    expect(newGroup).toBeTruthy()
+    expect(newGroup.id).not.toBe(idLow)
+    expect(newGroup.id).not.toBe(idHigh)
+
+    const anchor = db.prepare('SELECT * FROM anchor_activities WHERE camp_id = ?').get(campId)
+    const anchorGroups = anchor.group_ids ?? anchor.scope_groups ?? ''
+    // Established lowest-id row still wins the "bunk 1" slot; the row
+    // created this same run must never have claimed it.
+    expect(anchorGroups).toContain(idLow)
+    expect(anchorGroups).not.toContain(newGroup.id)
+  })
+})
