@@ -1,0 +1,101 @@
+Camper ID,Camper Name,Division,#1,#2,#3,#4,#5,#6,#7,#8,#9,#10
+C1001,Ari Feldman,Alonim,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting
+C1002,Noa Feldman,Shorashim,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball
+C1003,Tali Feldman,Nitzanim,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography
+C1004,Yonah Feldman,Tzofim,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking
+C1005,Maayan Feldman,Bogrim,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening
+C1006,Shira Feldman,Alonim,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics
+C1007,Eitan Feldman,Shorashim,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer
+C1008,Rivka Feldman,Nitzanim,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance
+C1009,Dov Feldman,Tzofim,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics
+C1010,Liora Feldman,Bogrim,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery
+C1011,Asher Feldman,Alonim,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics
+C1012,Nava Feldman,Shorashim,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking
+C1013,Gil Feldman,Nitzanim,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee
+C1014,Tamar Feldman,Tzofim,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening
+C1015,Oren Feldman,Bogrim,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing
+C1016,Ayelet Feldman,Alonim,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike
+C1017,Zev Feldman,Shorashim,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing
+C1018,Hadas Feldman,Nitzanim,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater
+C1019,Ilan Feldman,Tzofim,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting
+C1020,Bracha Feldman,Bogrim,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball
+C1021,Ari Rosen,Alonim,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography
+C1022,Noa Rosen,Shorashim,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking
+C1023,Tali Rosen,Nitzanim,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening
+C1024,Yonah Rosen,Tzofim,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics
+C1025,Maayan Rosen,Bogrim,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer
+C1026,Shira Rosen,Alonim,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance
+C1027,Eitan Rosen,Shorashim,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics
+C1028,Rivka Rosen,Nitzanim,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery
+C1029,Dov Rosen,Tzofim,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics
+C1030,Liora Rosen,Bogrim,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking
+C1031,Asher Rosen,Alonim,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee
+C1032,Nava Rosen,Shorashim,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening
+C1033,Gil Rosen,Nitzanim,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing
+C1034,Tamar Rosen,Tzofim,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike
+C1035,Oren Rosen,Bogrim,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing
+C1036,Ayelet Rosen,Alonim,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater
+C1037,Zev Rosen,Shorashim,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting
+C1038,Hadas Rosen,Nitzanim,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball
+C1039,Ilan Rosen,Tzofim,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography
+C1040,Bracha Rosen,Bogrim,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking
+C1041,Ari Kaplan,Alonim,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening
+C1042,Noa Kaplan,Shorashim,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics
+C1043,Tali Kaplan,Nitzanim,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer
+C1044,Yonah Kaplan,Tzofim,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance
+C1045,Maayan Kaplan,Bogrim,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics
+C1046,Shira Kaplan,Alonim,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery
+C1047,Eitan Kaplan,Shorashim,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics
+C1048,Rivka Kaplan,Nitzanim,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking
+C1049,Dov Kaplan,Tzofim,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee
+C1050,Liora Kaplan,Bogrim,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening
+C1051,Asher Kaplan,Alonim,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing
+C1052,Nava Kaplan,Shorashim,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike
+C1053,Gil Kaplan,Nitzanim,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing
+C1054,Tamar Kaplan,Tzofim,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater
+C1055,Oren Kaplan,Bogrim,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting
+C1056,Ayelet Kaplan,Alonim,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball
+C1057,Zev Kaplan,Shorashim,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography
+C1058,Hadas Kaplan,Nitzanim,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking
+C1059,Ilan Kaplan,Tzofim,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening
+C1060,Bracha Kaplan,Bogrim,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics
+C1061,Ari Adler,Alonim,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer
+C1062,Noa Adler,Shorashim,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance
+C1063,Tali Adler,Nitzanim,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics
+C1064,Yonah Adler,Tzofim,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery
+C1065,Maayan Adler,Bogrim,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics
+C1066,Shira Adler,Alonim,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking
+C1067,Eitan Adler,Shorashim,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee
+C1068,Rivka Adler,Nitzanim,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening
+C1069,Dov Adler,Tzofim,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing
+C1070,Liora Adler,Bogrim,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike
+C1071,Asher Adler,Alonim,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing
+C1072,Nava Adler,Shorashim,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater
+C1073,Gil Adler,Nitzanim,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting
+C1074,Tamar Adler,Tzofim,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball
+C1075,Oren Adler,Bogrim,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography
+C1076,Ayelet Adler,Alonim,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking
+C1077,Zev Adler,Shorashim,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening
+C1078,Hadas Adler,Nitzanim,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics
+C1079,Ilan Adler,Tzofim,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer
+C1080,Bracha Adler,Bogrim,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance
+C1081,Ari Brill,Alonim,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics
+C1082,Noa Brill,Shorashim,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery
+C1083,Tali Brill,Nitzanim,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics
+C1084,Yonah Brill,Tzofim,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking
+C1085,Maayan Brill,Bogrim,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee
+C1086,Shira Brill,Alonim,Gardening,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening
+C1087,Eitan Brill,Shorashim,Robotics,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing
+C1088,Rivka Brill,Nitzanim,Soccer,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike
+C1089,Dov Brill,Tzofim,Dance,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing
+C1090,Liora Brill,Bogrim,Mosaics,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater
+C1091,Asher Brill,Alonim,Archery,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting
+C1092,Nava Brill,Shorashim,Ceramics,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball
+C1093,Gil Brill,Nitzanim,Woodworking,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography
+C1094,Tamar Brill,Tzofim,Ultimate Frisbee,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking
+C1095,Oren Brill,Bogrim,Silk Screening,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening
+C1096,Ayelet Brill,Alonim,Canoeing,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics
+C1097,Zev Brill,Shorashim,Nature Hike,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer
+C1098,Hadas Brill,Nitzanim,Rock Climbing,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance
+C1099,Ilan Brill,Tzofim,Improv Theater,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics
+C1100,Bracha Brill,Bogrim,Hebrew Songwriting,Basketball,Photography,Baking,Gardening,Robotics,Soccer,Dance,Mosaics,Archery

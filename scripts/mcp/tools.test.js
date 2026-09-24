@@ -34,6 +34,8 @@ import {
   checkProjectionHealthTool,
   repairProjectionEntityTool,
   rebuildProjectionFromDocumentTool,
+  preferenceSheetPreviewTool,
+  preferenceSheetCommitTool,
   ENTITY_MAP,
 } from './tools.js'
 import { seedAllFromSqlite } from '../../electron/automerge/seed.js'
@@ -716,5 +718,80 @@ describe('scripts/mcp/tools.js', () => {
       expect(row.name).toBe('Bears')
       fs.unlinkSync(result.backupPath)
     })
+  })
+})
+
+// T226 — the camper-preference-sheet handlers. The sheet is a DIFFERENT
+// document from a schedule grid, so these are separate tools rather than a
+// widening of ingest_preview/ingest_commit; see scripts/preferenceSheetCli.js.
+describe('scripts/mcp/tools.js — preference sheet', () => {
+  const PREF_SHEET = path.join(process.cwd(), 'docs/work/specs/samples/fabricated-camper-preferences-100.csv')
+  const SAME_NAME = path.join(process.cwd(), 'docs/work/specs/samples/fabricated-camper-preferences-same-name.csv')
+  const dirs = []
+  afterEach(() => {
+    for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true })
+    dirs.length = 0
+  })
+
+  const camperCount = (dbPath) => {
+    const db = openLocalDb(dbPath)
+    try {
+      return db.prepare('SELECT COUNT(*) c FROM campers').get().c
+    } finally {
+      db.close()
+    }
+  }
+
+  it('previews without writing, regardless of allowWrite', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = bootstrapDb(dir)
+
+    const result = preferenceSheetPreviewTool({ file_path: PREF_SHEET }, { dbPath, allowWrite: false })
+
+    expect(result.ok).toBe(true)
+    expect(result.counts.campers).toBe(100)
+    expect(camperCount(dbPath)).toBe(0)
+  })
+
+  it('refuses to commit without --allow-write, and writes nothing', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = bootstrapDb(dir)
+
+    const result = preferenceSheetCommitTool({ file_path: PREF_SHEET }, { dbPath, allowWrite: false })
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/--allow-write/)
+    expect(result.error).toMatch(/preference_sheet_commit/)
+    expect(camperCount(dbPath)).toBe(0)
+  })
+
+  it('commits campers when allowWrite is set', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath, userId } = bootstrapDb(dir)
+
+    const result = preferenceSheetCommitTool(
+      { file_path: PREF_SHEET, run_name: 'Session 1' },
+      { dbPath, allowWrite: true, authorUserId: userId }
+    )
+
+    expect(result.error).toBe(null)
+    expect(result.ok).toBe(true)
+    expect(camperCount(dbPath)).toBe(100)
+  })
+
+  it('refuses a same-name sheet at commit and leaves the tables empty', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = bootstrapDb(dir)
+
+    const preview = preferenceSheetPreviewTool({ file_path: SAME_NAME }, { dbPath, allowWrite: true })
+    expect(preview.blocked).toMatch(/more than one row/)
+
+    const result = preferenceSheetCommitTool({ file_path: SAME_NAME }, { dbPath, allowWrite: true })
+    expect(result.ok).toBe(false)
+    expect(camperCount(dbPath)).toBe(0)
   })
 })

@@ -18,6 +18,8 @@ import { resolveHeadlessDbKey } from '../../electron/db/headlessDbKey.js'
 import {
   ingestPreviewTool,
   ingestCommitTool,
+  preferenceSheetPreviewTool,
+  preferenceSheetCommitTool,
   listEntitiesTool,
   setupSummaryTool,
   scheduleStateTool,
@@ -81,6 +83,34 @@ const TOOLS = [
       required: ['file_path'],
     },
     handler: ingestCommitTool,
+  },
+  {
+    name: 'preference_sheet_preview',
+    description:
+      "Preview what importing a camper elective preference sheet (Excel or CSV) would create: the campers on it, the distinct elective choices they named, and their ranked preferences. Makes no changes. Reports which column it read as the camper name, camper id, division and each ranking, any campers whose name appears on more than one row with no camper id to tell them apart, any rows it skipped, and — in `blocked` — the reason a commit would be refused, if it would be. This is NOT the schedule importer: use ingest_preview for a schedule grid.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute path to the preference sheet to read.' },
+        run_name: { type: 'string', description: 'Optional name for the run this sheet would create.' },
+      },
+      required: ['file_path'],
+    },
+    handler: preferenceSheetPreviewTool,
+  },
+  {
+    name: 'preference_sheet_commit',
+    description:
+      "Commit a camper elective preference sheet: records each camper, each distinct elective choice named on the sheet, and every camper's ranked preferences as one draft run. Requires the server to have been launched with --allow-write; otherwise refuses. Refuses the whole sheet, writing nothing, when two rows name the same camper with no camper id to tell them apart, or when a camper holds the same rank twice.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string' },
+        run_name: { type: 'string', description: 'Optional. Defaults to the file name.' },
+      },
+      required: ['file_path'],
+    },
+    handler: preferenceSheetCommitTool,
   },
   {
     name: 'list_entities',

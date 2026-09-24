@@ -30,3 +30,22 @@ merges are only in the PDFs, and both carry meaning. Ask the product owner befor
 binaries; the original PDFs carry real camp names and group names and must not be committed
 as-is — they would need the same anonymization treatment as the text files, or to stay off the
 repo entirely.
+
+## Camper preference sheets (wholly fabricated, T226)
+
+Unlike the two files above, these two are **not** anonymized real data — they were **generated
+from scratch** and contain no real camper, camp, division or elective name. Every name is
+invented. They are the fixtures for the preference-sheet importer
+(`scripts/preferenceSheetCli.js`) and its end-to-end MCP test.
+
+- `fabricated-camper-preferences-100.csv` — 100 campers, one row each, with a `Camper ID`
+  column, a `Camper Name` column, a `Division` column, and ten ranked columns headed
+  `#1`..`#10` drawn from an 18-elective catalogue. **Why ten and not twenty-five:** the ranking
+  is global for the session (ADR 2026-09-17 D12), and a real form asks a camper to rank their
+  top handful out of a longer catalogue rather than to order the entire list — ten ranks over
+  eighteen electives exercises both "more choices than ranks" and a full rank column set, while
+  staying a file a reviewer can read. No two rows share a name and no camper holds a rank twice,
+  so this is the **happy path**: it commits.
+- `fabricated-camper-preferences-same-name.csv` — three rows, no camper-id column, and one name
+  appearing twice. The **refusal** fixture: two children sharing a name with nothing to tell them
+  apart would be merged into one record, so the importer refuses the whole sheet.
