@@ -137,7 +137,7 @@ describe('TimeBlocksScreen — cohort-scoped load', () => {
 })
 
 describe('TimeBlocksScreen — add', () => {
-  it('adds a time block by writing each field via localClient.write, name first', async () => {
+  it('adds a time block by writing each field via localClient.write, cohort_id then name', async () => {
     localClient.list.mockReset().mockImplementation(entity => {
       if (entity === 'cohorts') return Promise.resolve([cohort()])
       if (entity === 'time_blocks') return Promise.resolve([])
@@ -153,10 +153,18 @@ describe('TimeBlocksScreen — add', () => {
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
-    const [, , , firstField] = localClient.write.mock.calls[0]
-    expect(firstField).toBe('name')
     const fieldsWritten = localClient.write.mock.calls.map(c => c[3])
     expect(fieldsWritten).toEqual(expect.arrayContaining(['name', 'camp_id', 'cohort_id', 'start_time', 'end_time', 'part_of_day', 'sort_order']))
+    // T238: time_blocks is UNIQUE(camp_id, cohort_id, name), so detectUniqueFieldCollision
+    // scopes its check by cohort_id as well as camp_id — and it reads that scope value off
+    // the row that already exists. cohort_id must therefore be written BEFORE name, or the
+    // check has no cohort to scope by and skips rather than guessing. This test used to
+    // assert `name` was written first, which was correct while the check was camp-scoped
+    // only; the ordering below is the contract that replaced it.
+    expect(fieldsWritten.indexOf('cohort_id')).toBeLessThan(fieldsWritten.indexOf('name'))
+    // `name` still precedes camp_id — the unique field goes early so the collision check
+    // fires on a create rather than after unrelated fields have landed.
+    expect(fieldsWritten.indexOf('name')).toBeLessThan(fieldsWritten.indexOf('camp_id'))
   })
 
   it('has no Sort Order input or column anywhere in the DOM', async () => {
