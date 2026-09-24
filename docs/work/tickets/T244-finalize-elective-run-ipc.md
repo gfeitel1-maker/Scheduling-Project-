@@ -98,6 +98,36 @@ the same `occurrence_id` such that their combined count exceeds that occurrence'
 (standing in for two devices' independent unlocked placements merging), and assert
 `overCapacityOccurrences` includes that occurrence with the correct `capacity`/`filled` counts.
 
+## Implementation notes (added post-build — record of two shape deviations from the text above)
+
+**`overCapacityOccurrences` is keyed by `(occurrenceId, activityId)`, not `occurrenceId` alone —
+adds `activityId` to the declared shape.** `elective_occurrences` has no capacity column at all;
+capacity is stored per `(elective_set_id, activity_id)` on `elective_set_activities`
+(`capacity_mode`/`capacity_limit`, `capacity_mode` is the authority — `'unlimited'` is never
+checked, `'limited'` with a NULL `capacity_limit` is `INVALID_CAPACITY`, a generation-time finding
+owned by `buildElectiveAssignments`, and is skipped here rather than fabricated). A bare
+`{occurrenceId, capacity, filled}` tuple as literally written above is not attributable to
+anything a director can act on without also knowing which activity is over capacity at that
+occurrence. The shipped shape is `{occurrenceId, activityId, capacity, filled}` — a superset of
+the ticket's declared fields, not a narrower one. Grouping is by `(a.occurrence_id, a.activity_id)`
+over the same generation-visible rows the ticket specifies.
+
+**`getElectiveRunHandler` returns an object, not a bare array — this was already implied by the
+scope text (`rows` alongside `staleCount`/`finalizedAgainstStaleGeneration`/
+`overCapacityOccurrences`) but is called out explicitly here since it is a breaking shape change.**
+Verified callers at the time of this change: `src/localClient.js` (passthrough) and
+`src/localClient.mock.js` — no screen consumed the bare array yet, so this was safe, and both
+callers were updated in the same change so browser-dev does not build against a stale mock shape.
+T248/T250 must read `result.rows`, not treat the return value itself as the row array.
+
+**`electron/ops/projections.js`'s `elective_run_outer_snapshots.ensureExists` was fixed as part of
+this ticket, not left as T243 shipped it.** T243's version only checked `field === 'run_id'` and
+inserted `(id, run_id)`, but `camper_id`/`day_id`/`time_block_id` are NOT NULL with no default
+(schema.sql) — that insert would violate those constraints the instant the `run_id` op applied,
+before any of the other three fields arrived, so the write path this ticket exists to build could
+never have materialized a row. Fixed with the same `readField`/`knownRow` wait-for-every-NOT-NULL-
+column pattern `event_slots`/`schedule_snapshots` already use elsewhere in the same file.
+
 ## Dependencies
 
 T243 (schema). Independent of T245/T247 (parallel). **Shares two files with T245, T248, and T249**

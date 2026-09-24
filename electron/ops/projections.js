@@ -965,8 +965,15 @@ export const PROJECTIONS = {
   // T243 (v74, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-
   // slices.md). A finalized run's per-camper, per-cell export snapshot.
   // Parent-scoped by run_id, same treatment as elective_assignments above.
-  // No write path exists yet (T244+ builds it) — registered here for
-  // sync/projection completeness only.
+  //
+  // T244 wired the write path (electron/ops/finalizeElectiveRun.js). Unlike
+  // most ensureExists implementations, run_id/camper_id/day_id/time_block_id
+  // are all NOT NULL with no default (schema.sql) — an insert keyed on
+  // run_id alone (this entry's original T243 stub) would violate those
+  // constraints the moment the run_id op applied, before the other three
+  // fields ever arrived. Same fix as event_slots/schedule_snapshots above:
+  // wait for every NOT NULL column via readField (current op, knownRow, or
+  // the prior op for this id), and only INSERT once all four are known.
   elective_run_outer_snapshots: {
     table: 'elective_run_outer_snapshots',
     key: 'id',
@@ -982,13 +989,28 @@ export const PROJECTIONS = {
       'span_blocks',
       'solver_generation',
     ],
-    ensureExists: (db, id, field, value) => {
-      if (field !== 'run_id') return
-      ensureRunStub(db, value)
+    ensureExists: (db, id, field, value, knownRow) => {
+      const table = 'elective_run_outer_snapshots'
+      const readField = (wanted) => {
+        if (field === wanted) return value
+        if (knownRow && wanted in knownRow) return knownRow[wanted]
+        const prior = getStmt(
+          db,
+          'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
+        ).get(table, id, wanted)
+        return prior ? prior.value : null
+      }
+      const runId = readField('run_id')
+      const camperId = readField('camper_id')
+      const dayId = readField('day_id')
+      const timeBlockId = readField('time_block_id')
+      if (runId == null || camperId == null || dayId == null || timeBlockId == null) return
+
+      ensureRunStub(db, runId)
       getStmt(
         db,
-        'INSERT OR IGNORE INTO elective_run_outer_snapshots (id, run_id) VALUES (?, ?)'
-      ).run(id, value)
+        'INSERT OR IGNORE INTO elective_run_outer_snapshots (id, run_id, camper_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?)'
+      ).run(id, runId, camperId, dayId, timeBlockId)
     },
   },
 

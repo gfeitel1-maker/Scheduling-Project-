@@ -39,6 +39,11 @@ import { deleteSpecialDay } from './ops/deleteSpecialDay.js'
 import { deleteEvent } from './ops/deleteEvent.js'
 import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
 import { commitElectiveRun } from './ops/commitElectiveRun.js'
+import { finalizeElectiveRun } from './ops/finalizeElectiveRun.js'
+import {
+  electiveGenerationVisibleFragment,
+  electiveGenerationStaleSolverFragment,
+} from './ops/electiveGenerationPredicate.js'
 import { campHasSetupData } from './ops/campHasSetupData.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
@@ -1801,21 +1806,131 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
   // The review payload: one row per placement, with the camper's name and the
   // rank they got, which is what a director actually reads.
+  //
+  // T244 (docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md
+  // decision (a)/MEDIUM-4/H2/H3): this now returns an OBJECT, not a bare
+  // array. Verified callers at the time of this change: src/localClient.js
+  // (passthrough) and its mock — no UI consumed the bare array yet, so this
+  // is a safe shape change, but both were updated in the same commit as this
+  // handler so browser-dev does not build against a lie.
+  //
+  //   rows: today's placement rows, filtered by the shared generation-
+  //     visibility predicate (electiveGenerationPredicate.js) — the ONE
+  //     fragment every reader of elective_assignments must use, per
+  //     MEDIUM-4, so the UI and a later export handler (T248) can never
+  //     silently disagree about which rows are current.
+  //   staleCount: COUNT of solver-produced rows the predicate's inverse
+  //     excludes — "N stale placements exist, regenerate."
+  //   finalizedAgainstStaleGeneration: true iff this run is final AND its
+  //     CURRENT solver_generation no longer matches the generation recorded
+  //     on its own snapshot rows (the H2 fix — a later-merged regeneration
+  //     from another device can silently invalidate an already-exported,
+  //     supposedly-immutable final run). Defined explicitly for the
+  //     no-snapshot-rows case: nothing to be stale against, so false. A
+  //     draft run (not yet finalized) is also false — there is no snapshot
+  //     generation to compare against yet.
+  //   overCapacityOccurrences: a post-merge OVER_CAPACITY-class finding
+  //     (residual of Red Hat H3 — see the ADR's decision (b)). Two
+  //     independently-valid unlocked placements from two devices can jointly
+  //     overbook one (occurrence, activity) offering with no per-field
+  //     conflict to catch it, since deriveElectiveAssignmentId includes
+  //     camper_id and the two rows never collide. Grouped by
+  //     (occurrence_id, activity_id) rather than the ticket's literal
+  //     occurrence_id-only wording — DELIBERATE DEVIATION, Governor decision:
+  //     elective_occurrences carries no capacity column at all; capacity is
+  //     per (elective_set, activity) on elective_set_activities, so a bare
+  //     occurrenceId/capacity/filled tuple is not attributable to anything a
+  //     director can act on. This is a superset of the ticket's declared
+  //     shape (adds activityId), not a narrower one. capacity_mode is the
+  //     authority (schema.sql): 'unlimited' offerings are never checked, and
+  //     'limited' with a NULL capacity_limit (INVALID_CAPACITY — a
+  //     generation-time finding owned by buildElectiveAssignments, not this
+  //     read path) is skipped rather than treated as a fabricated capacity.
   function getElectiveRunHandler(args) {
     const { token, runId } = args ?? {}
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'elective_assignment_runs.read' })
     if (!isNonEmptyString(runId)) throw new Error('runId is required')
-    return db
+
+    const run = db.prepare('SELECT * FROM elective_assignment_runs WHERE id = ?').get(runId)
+    const gen = run?.solver_generation ?? null
+
+    const rows = db
       .prepare(
         `SELECT a.id, a.occurrence_id, a.camper_id, a.activity_id, a.preference_rank,
                 c.display_name AS camper_name
            FROM elective_assignments a
            LEFT JOIN campers c ON c.id = a.camper_id
-          WHERE a.run_id = ?
+          WHERE a.run_id = :runId AND ${electiveGenerationVisibleFragment('a')}
           ORDER BY a.occurrence_id, c.display_name`
       )
-      .all(runId)
+      .all({ runId, gen })
+
+    const staleCount = db
+      .prepare(
+        `SELECT COUNT(*) c FROM elective_assignments a
+          WHERE a.run_id = :runId AND ${electiveGenerationStaleSolverFragment('a')}`
+      )
+      .get({ runId, gen }).c
+
+    let finalizedAgainstStaleGeneration = false
+    if (run?.status === 'final') {
+      const snapshotGenerations = db
+        .prepare('SELECT DISTINCT solver_generation FROM elective_run_outer_snapshots WHERE run_id = ?')
+        .all(runId)
+      // No snapshot rows -> nothing to be stale against -> false. A `final`
+      // run written by finalizeElectiveRun always has at least one snapshot
+      // generation value (possibly NULL itself), so an empty result here
+      // means "no snapshot exists at all" (e.g. a legacy pre-v74 final row).
+      if (snapshotGenerations.length > 0) {
+        finalizedAgainstStaleGeneration = snapshotGenerations.some((r) => r.solver_generation !== gen)
+      }
+    }
+
+    const capacityRows = db
+      .prepare(
+        `SELECT a.occurrence_id, a.activity_id, o.elective_set_id, COUNT(*) AS filled
+           FROM elective_assignments a
+           JOIN elective_occurrences o ON o.id = a.occurrence_id
+          WHERE a.run_id = :runId AND ${electiveGenerationVisibleFragment('a')}
+          GROUP BY a.occurrence_id, a.activity_id`
+      )
+      .all({ runId, gen })
+    const overCapacityOccurrences = []
+    for (const row of capacityRows) {
+      const setActivity = db
+        .prepare('SELECT capacity_mode, capacity_limit FROM elective_set_activities WHERE elective_set_id = ? AND activity_id = ?')
+        .get(row.elective_set_id, row.activity_id)
+      if (!setActivity) continue
+      if (setActivity.capacity_mode !== 'limited') continue
+      if (setActivity.capacity_limit == null) continue // INVALID_CAPACITY — a generation-time finding, not this read path's job
+      if (row.filled > setActivity.capacity_limit) {
+        overCapacityOccurrences.push({
+          occurrenceId: row.occurrence_id,
+          activityId: row.activity_id,
+          capacity: setActivity.capacity_limit,
+          filled: row.filled,
+        })
+      }
+    }
+
+    return { rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences }
+  }
+
+  // Finalizing a draft run into an immutable, exportable final one (T244,
+  // docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md
+  // decision (a)). Same admin-only participant-entity posture as
+  // commitElectiveRunHandler above (the action name, not a hand-written role
+  // check, is what enforces it — participantEntitiesAdminOnly.test.js).
+  // The write itself lives in electron/ops/finalizeElectiveRun.js, following
+  // commitElectiveRun's split: this handler only authorizes, resolves the
+  // camp, and forwards.
+  function finalizeElectiveRunHandler(args) {
+    const { token, runId } = args ?? {}
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.write' })
+    if (!isNonEmptyString(runId)) throw new Error('runId is required')
+    return finalizeElectiveRun(db, { runId, authorUserId: session?.userId ?? null, deviceId })
   }
 
   // Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7): batched
@@ -2041,6 +2156,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     commitElectiveRun: commitElectiveRunHandler,
     listElectiveRuns: listElectiveRunsHandler,
     getElectiveRun: getElectiveRunHandler,
+    finalizeElectiveRun: finalizeElectiveRunHandler,
     listImportEvidence: listImportEvidenceHandler,
     listDivisionEvidence: listDivisionEvidenceHandler,
     locationCapacityProvenance: locationCapacityProvenanceHandler,
@@ -2343,6 +2459,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:commit-elective-run', (_event, args) => handlers.commitElectiveRun(args))
     ipcMain.handle('shoresh:list-elective-runs', (_event, args) => handlers.listElectiveRuns(args && args.token))
     ipcMain.handle('shoresh:get-elective-run', (_event, args) => handlers.getElectiveRun(args))
+    ipcMain.handle('shoresh:finalize-elective-run', (_event, args) => handlers.finalizeElectiveRun(args))
     ipcMain.handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
     ipcMain.handle('shoresh:list-division-evidence', (_event, args) => handlers.listDivisionEvidence(args && args.token))
     ipcMain.handle('shoresh:location-capacity-provenance', (_event, args) => handlers.locationCapacityProvenance(args && args.token))
