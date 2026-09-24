@@ -4,7 +4,7 @@ document_type: ticket
 status: open
 created: 2026-09-23
 archive_when: all five ingest.js seedNameMaps sites and materializeImportedVersion.js's nameMap resolve a duplicated name to the lowest id regardless of row return order, proven by a test that reverses insertion order
-task_class: data
+task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md]
 related_adrs: [docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md]
 related_tickets: [docs/work/tickets/T241-relax-name-unique-constraints-schema-v73.md]

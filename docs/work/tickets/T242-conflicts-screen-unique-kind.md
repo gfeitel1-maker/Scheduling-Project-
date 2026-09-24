@@ -4,7 +4,7 @@ document_type: ticket
 status: open
 created: 2026-09-23
 archive_when: a unique:-kind conflict renders as a buttonless informational card naming the colliding value, both records, and the screen that owns the fix, with the scalar card behaviourally unchanged
-task_class: ui
+task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md, docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md]
 related_adrs: [docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md]
 related_tickets: [docs/work/tickets/T235-hard-set-unique-conflicts-derivation.md]

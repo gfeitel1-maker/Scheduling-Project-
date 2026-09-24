@@ -4,7 +4,7 @@ document_type: ticket
 status: open
 created: 2026-09-23
 archive_when: all ten relaxed entities are registered for the local-write advisory pre-check, tiers and time_blocks scope their check by cohort_id as well as camp_id, and both registry-parity tests are green
-task_class: data
+task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md, docs/superpowers/specs/2026-09-23-merge-unique-collision-design.md]
 related_adrs: [docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md, docs/adr/2026-08-15-locations-concurrent-create-collision.md]
 related_tickets: [docs/work/tickets/T241-relax-name-unique-constraints-schema-v73.md]
