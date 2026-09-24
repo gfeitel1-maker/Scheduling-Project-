@@ -32,6 +32,9 @@ const TITLES = {
   conflicts:    'Conflicts',
   trash:        'Trash',
   devices:      'LAN & Devices',
+  // The 'reconciliation' screen key always resolves to entry="openDecisions"
+  // (App.jsx) — the fileless "Open items" door, matching its own <h1>.
+  reconciliation: 'Open items',
 }
 
 // The setup/editable screens Roots deep-links into (rootMapNav's
@@ -44,8 +47,14 @@ const SETUP_SCREENS = new Set(
     .filter((screen) => screen && !screen.startsWith('schedule'))
 )
 
+// Destinations reached FROM Roots that carry no sidebar entry of their own
+// (so a director landing there has no other way to tell where they came
+// from) but aren't a rootMapNav child/domain screen either — currently just
+// the "Open items" door (T237).
+const ROOTS_DESTINATIONS = new Set(['reconciliation'])
+
 export default function TopBar({ screen, onNavigate, onLogout }) {
-  const showRootsLink = screen !== 'roots' && SETUP_SCREENS.has(screen)
+  const showRootsLink = screen !== 'roots' && (SETUP_SCREENS.has(screen) || ROOTS_DESTINATIONS.has(screen))
 
   return (
     <header style={{

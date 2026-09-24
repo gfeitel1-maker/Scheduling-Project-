@@ -8,6 +8,7 @@ import CampBootstrapScreen from './screens/CampBootstrapScreen'
 import LoginScreen from './screens/LoginScreen'
 import CampScreen from './screens/CampScreen'
 import ImportScreen from './screens/ImportScreen'
+import ReconciliationScreen from './screens/ReconciliationScreen'
 import RootsHomeScreen from './screens/RootsHomeScreen'
 import TiersScreen from './screens/TiersScreen'
 import GroupsScreen from './screens/GroupsScreen'
@@ -46,15 +47,19 @@ const SCREENS = {
   // Never reachable once campHasSetupData() is true.
   seed:         SeedScreen,
   // Roots home is a distinct screen (docs/adr/2026-08-28-roots-home-is-a-
-  // distinct-screen.md §2) — route-level split, not a `mode` fork. Census
-  // tiles / RootMap / RootMapPanel stay scoped to ReconciliationScreen,
-  // which ImportScreen renders as its whole surface once an import is
-  // staged (reached via the bottom "Import last year" action below), never
-  // inlined here — ReconciliationScreen has no `mode` prop; its only `mode`
-  // is the local `apply(mode)` commit mode. Also the in-session landing
-  // screen (see the 'readiness' redirect below) — Setup Readiness
+  // distinct-screen.md §2) — route-level split, not an `entry` fork. Census
+  // tiles / RootMap / RootMapPanel stay scoped to ReconciliationScreen's
+  // `entry="import"` reconcile-a-file flow (reached via the bottom "Import
+  // last year" action below), never inlined here. Also the in-session
+  // landing screen (see the 'readiness' redirect below) — Setup Readiness
   // (ReadinessHub) is retired; there is no verdict banner on this screen.
   roots:        RootsHomeScreen,
+  // T237 — the second, fileless door into ReconciliationScreen: open
+  // decisions worked through without an import (entry="openDecisions"
+  // below skips the mount-time dry run and triage tray entirely; see
+  // ReconciliationScreen.jsx). Reached from a Roots attention row/overflow
+  // chip whose sourceKind is 'reconciliation'.
+  reconciliation: ReconciliationScreen,
   conflicts:    ConflictsScreen,
   trash:        TrashScreen,
   cohorts:      CohortsScreen,
@@ -406,6 +411,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         ...(resolvedScreen === 'specialevents' ? { initialFocus: specialEventsFocus } : {}),
         ...(resolvedScreen === 'schedule:special' ? { initialSelection: specialScheduleFocus } : {}),
         ...(ANCHOR_KIND_BY_SCREEN[resolvedScreen] ? { kind: ANCHOR_KIND_BY_SCREEN[resolvedScreen] } : {}),
+        ...(resolvedScreen === 'reconciliation' ? { entry: 'openDecisions' } : {}),
       }
 
   return (

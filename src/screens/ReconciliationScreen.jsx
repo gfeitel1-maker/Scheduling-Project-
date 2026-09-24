@@ -18,6 +18,10 @@ import RootMap from '../components/reconciliation/RootMap.jsx'
 import RootMapPanel from '../components/reconciliation/RootMapPanel.jsx'
 import { NO_SELECTION, toggleTile } from '../components/reconciliation/selectionModel.js'
 import { useLatestTimeout } from '../hooks/useLatestTimeout'
+import { useOpenReconciliationDecisions } from '../hooks/useOpenReconciliationDecisions.js'
+import { buildAttentionList } from '../ingest/attentionList.js'
+import { screenForNode, SCREEN_LABEL } from '../components/reconciliation/rootMapNav.js'
+import { CircleCheckIcon } from '../components/icons'
 
 // docs/work/specs/2026-08-17-reconciliation-onescreen-design.md — the one
 // continuous surface that replaces ImportScreen's six-gate reconciliation
@@ -44,7 +48,26 @@ async function fetchReadiness() {
   return getReadiness(collections, null)
 }
 
-export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, allCampOverrides = [] }) {
+// T237 — the second, fileless door into this screen. Kept as a top-level
+// dispatch with NO hooks of its own (rules-of-hooks forbids an early return
+// before conditionally-called hooks in the same function) — the real,
+// unchanged `entry="import"` flow lives in ImportReconciliation below, and
+// this component decides which one to render.
+//
+// No baseInputs exist without a parsed file, so entry="openDecisions" never
+// runs the mount-time dry run (localClient.ingestReconcile), never shows
+// the triage tray/apply controls, never touches commitPlan/ingestCommit —
+// see the ticket's HARD ARCHITECTURAL FINDING (docs/adr/2026-08-28-
+// persisted-reconciliation-decisions.md line 22: a deep-link back into
+// triage is explicitly deferred). This is a read/navigate surface only.
+export default function ReconciliationScreen({ entry = 'import', ...rest }) {
+  if (entry === 'openDecisions') {
+    return <OpenDecisionsDoor onNavigate={rest.onNavigate} />
+  }
+  return <ImportReconciliation {...rest} />
+}
+
+function ImportReconciliation({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, allCampOverrides = [] }) {
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -463,6 +486,172 @@ function EndState({ onNavigate }) {
       )}
     </div>
   )
+}
+
+// T237 — the fileless "open items" door (entry="openDecisions"). Sources
+// its model from the SAME hook RootsHomeScreen.jsx already uses with no
+// file, and flattens it through buildAttentionList — the same reconciliation-
+// half shape the Roots rail renders — so this door and that rail can never
+// disagree about what an open item is. Read/navigate only: no progress bar,
+// no census tiles, no ReconstructionMoment/EndState (all presuppose an
+// import), and no triage/commit control (see the file-top HARD
+// ARCHITECTURAL FINDING comment).
+function OpenDecisionsDoor({ onNavigate }) {
+  const { model, decisionsById, loading, dismiss } = useOpenReconciliationDecisions()
+  const [actionError, setActionError] = useState(null)
+  const enterStyle = useEnterTransition('liftFade')
+
+  // Same alphabetical-by-name rule as the Roots rail (T237 owner decision,
+  // 2026-09-23) — stable and obvious, not a priority claim.
+  const items = buildAttentionList({ model, decisionsById })
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  async function markHandled(id) {
+    setActionError(null)
+    try {
+      await dismiss(id)
+    } catch (err) {
+      const message = describeWriteFailure(err, 'Could not mark this item handled.')
+      // describeWriteFailure's fallback for an unrecognised reason ends
+      // "...the details are in the log" — a camp director has no log to
+      // open. Locally, not in the shared default, replace it with something
+      // they can actually act on: try again, nothing was lost either way.
+      setActionError(
+        message.endsWith('the details are in the log.')
+          ? 'Could not mark this item handled — try again; the item is still listed and nothing was lost.'
+          : message,
+      )
+    }
+  }
+
+  if (loading) {
+    return (
+      <div style={{ maxWidth: 920, margin: '0 auto' }}>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Checking open items…</p>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ maxWidth: 920, margin: '0 auto', ...enterStyle }}>
+      <h1 style={doorStyles.title}>Open items</h1>
+      <p style={doorStyles.subtitle}>Open each item in the screen where it's fixed, or mark it handled — that just removes it from this list, doesn't change anything in your camp, and can't be undone.</p>
+      {actionError && <div style={styles.errorBanner}>{actionError}</div>}
+      {items.length === 0 ? (
+        <div style={doorStyles.empty}>
+          <CircleCheckIcon style={doorStyles.emptyIcon} />
+          <div>Nothing needs you right now.</div>
+        </div>
+      ) : (
+        <div>
+          {items.map((item) => {
+            // A domainTag with no edit screen (screenForNode returns null)
+            // still shows "Mark handled" — never a dead "Open in" button.
+            const targetScreen = screenForNode(item.domainTag)
+            return (
+              <div key={item.id} style={doorStyles.row}>
+                <div style={doorStyles.rowText}>
+                  <div style={doorStyles.rowName}>{item.name}</div>
+                  <div style={doorStyles.rowWhy}>{item.why}</div>
+                </div>
+                <div style={doorStyles.rowActions}>
+                  {targetScreen && (
+                    <button className="press-97" onClick={() => onNavigate?.(targetScreen)} style={doorStyles.openBtn}>
+                      {`Open in ${SCREEN_LABEL[targetScreen] ?? targetScreen} →`}
+                    </button>
+                  )}
+                  <button className="press-97" onClick={() => markHandled(item.id)} style={doorStyles.handledBtn}>
+                    Mark handled
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const doorStyles = {
+  title: {
+    fontFamily: 'var(--font-condensed)',
+    fontSize: 22,
+    fontWeight: 700,
+    color: 'var(--text)',
+    margin: '0 0 4px',
+  },
+  subtitle: {
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+    margin: '0 0 var(--space-5)',
+  },
+  empty: {
+    padding: '40px 16px',
+    textAlign: 'center',
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+  },
+  emptyIcon: {
+    display: 'block',
+    margin: '0 auto var(--space-2)',
+  },
+  row: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 'var(--space-3)',
+    padding: 'var(--space-3)',
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
+    marginBottom: 'var(--space-2)',
+  },
+  rowText: {
+    minWidth: 0,
+    flex: '1 1 200px',
+  },
+  rowName: {
+    fontWeight: 600,
+    fontSize: 13,
+    color: 'var(--text)',
+  },
+  rowWhy: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+    marginTop: 2,
+  },
+  rowActions: {
+    display: 'flex',
+    gap: 'var(--space-2)',
+    flex: 'none',
+  },
+  openBtn: {
+    padding: '6px 12px',
+    background: 'color-mix(in srgb, var(--accent) 12%, var(--surface))',
+    border: '1px solid color-mix(in srgb, var(--accent) 45%, var(--border))',
+    borderRadius: 7,
+    fontWeight: 600,
+    fontSize: 12.5,
+    color: 'color-mix(in srgb, var(--accent) 65%, var(--text))',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+  },
+  handledBtn: {
+    padding: '6px 12px',
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 7,
+    fontWeight: 600,
+    fontSize: 12.5,
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+  },
 }
 
 const styles = {
