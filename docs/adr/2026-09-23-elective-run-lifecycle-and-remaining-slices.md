@@ -45,8 +45,58 @@ question text is kept unedited beneath it so a later reader can see what was act
 **One ruling is conditional and the condition is binding, not advisory.** Q1/Q2 (immutable runs, no
 reopen) was accepted *as a package* with the `FINALIZED_AGAINST_STALE_GENERATION` detection and its
 rendering. If that detection does not ship inside T244 alongside finalize, and T250 does not render
-it as a finding, **the immutability ruling does not hold and this returns to the owner.** It is not
+it, **the immutability ruling does not hold and this returns to the owner.** It is not
 a follow-up, and it may not be deferred out of those two tickets to unblock a release.
+**The *surface* on which T250 renders it was corrected on 2026-09-24 — see "Amendment (2026-09-24)"
+immediately below. The condition itself is unchanged: the director must still be told.**
+
+## Amendment (2026-09-24) — the render surface for `FINALIZED_AGAINST_STALE_GENERATION` is the run's own screen, not the findings vocabulary
+
+**Status stays `accepted`.** This amendment changes *where* one detection is shown. It does not
+weaken, waive, or reinterpret any owner ruling, and no decision (a)-(e) changes.
+
+**What the original text said.** Under "Where this reaches a human" (decision (a)) and in the Q1/Q2
+ruling, this ADR instructed T250 to render `finalizedAgainstStaleGeneration` "as a finding using
+this repo's existing per-slot findings vocabulary — never a banner". That prose is preserved below,
+unedited, so a later reader sees what was actually decided and what was corrected.
+
+**Why it cannot be followed as written** (verified against the tree on 2026-09-24, not assumed):
+
+- The findings vocabulary is **schedule-week-scoped by construction**. Its only rendering surface in
+  the entire app is a popover on `ScheduleScreen`'s stat badges: `src/components/schedule/FindingsRail.jsx`
+  is imported and mounted in exactly one place, `src/screens/ScheduleScreen.jsx:1142`. There is no
+  camp-level, run-level, or import-level finding anywhere.
+- A row's only affordances are **Accept** and **Locate**, and Locate is gated on `row.groupId != null`
+  (`FindingsRail.jsx:42-43`). There is no per-row custom action slot. An elective run is not a
+  schedule slot and has no `groupId`, so it can have neither a locator nor the "start a revision"
+  action the original text requires to appear *with* the finding.
+- Roots' "Needs your attention" rail is a **different** vocabulary (`why`/`domainTag`, plain divs,
+  no time dimension) that happens to reuse the same English words. It is not the findings vocabulary
+  and naming it here would not resolve the gap either.
+
+**Owner's decision (2026-09-24).** Run-level state renders **on the elective run's own screen, as
+part of the run's own displayed state** — not as a schedule finding, and not as a banner. His
+reasoning: a warning about a schedule slot belongs on the schedule; a warning about a *run* belongs
+on the run. T250 is already building the screen where a director looks at a run, and that screen
+already shows whether the run is Draft or Final, so "this run was finalized against a later change
+and is out of date" belongs in that same inline run-state area, adjacent to the "start a revision"
+action. This needs no new vocabulary and does not violate the standing no-banners rule, because it
+is **the thing's own state shown inline**, not chrome layered over the top.
+
+**The Q1/Q2 condition is satisfied by the new surface, not waived.** The binding requirement was
+always that the director is *told*; only the surface named in the original prose was unbuildable.
+T244 must still compute and return `finalizedAgainstStaleGeneration` alongside finalize, and T250
+must still render it to the director. If either does not ship, the immutability ruling still does
+not hold and the question still returns to the owner. Read this as a correction to an
+implementation instruction, **never** as a softening of the ruling.
+
+**Scope of this amendment.** T250's and T244's scope/`archive_when` are updated to name the run's
+own screen. `overCapacityOccurrences` and `DANGLING_MANUAL_ASSIGNMENT` — which are also run-level,
+not slot-level — follow the same principle for the same reason. This amendment does **not** design
+T250's screen; it only names the surface. A separate, unrelated gap found while verifying this (the
+copy guardrail `src/engine/findingsLanguage.test.js` scans a hardcoded four-file `SOURCES` list, so
+any new home for finding-like text escapes it silently) is recorded as **T254** and is deliberately
+not fixed here.
 
 
 **This is a follow-on to `docs/adr/2026-09-17-individual-elective-scheduling.md`, not a
@@ -255,7 +305,11 @@ special to this feature. It can be **detected**, which is the fix:
    state-machine questions Q1/Q2 already declined to take on.
 
 **Where this reaches a human (residual of Red Hat H2 — a detection nobody renders is functionally
-no detection).** `finalizedAgainstStaleGeneration` must not stop at being a computable boolean in an
+no detection).** _Amended 2026-09-24 — the surface named in this paragraph ("the existing per-slot
+findings vocabulary") cannot express a run-level state and is superseded by the run's own screen;
+see "Amendment (2026-09-24)" near the top. The requirement that it reach a human is unchanged. The
+original wording is kept below rather than rewritten._
+`finalizedAgainstStaleGeneration` must not stop at being a computable boolean in an
 IPC response. **T250's Final-state screen is in scope to render it**, as a finding using this repo's
 existing per-slot findings vocabulary — never a banner — with copy along the lines of "This run was
 finalized before a later change on another device synced in; it is out of date" plus the "start a
@@ -678,7 +732,9 @@ recommended, and what was actually decided — not a document that always said t
 
 **Q1 / Q2 — Option A. Immutable, no reopen. A revision is a new run.** Accepted **as a package**
 with the `FINALIZED_AGAINST_STALE_GENERATION` detection (decision (a)) and its rendering as a
-finding, never a banner (T250). **This conditionality is binding.** If the detection does not ship
+finding, never a banner (T250). _Amended 2026-09-24: "as a finding" is corrected to "in the run's
+own inline run-state area on T250's screen" — see "Amendment (2026-09-24)". Still never a banner;
+the condition that the director be told is unchanged._ **This conditionality is binding.** If the detection does not ship
 inside T244 alongside finalize, or T250 does not render it, the immutability ruling does not hold
 and the question returns to the owner. Neither piece may be deferred out of those tickets.
 

@@ -17,10 +17,18 @@ stale-generation rows (D5 — currently prose-only).
 
 > **Owner ruling, 2026-09-23 — binding condition.** Q1/Q2 (a finalized run is immutable; a revision
 > is a new run, there is no reopen) was accepted **as a package** with the
-> `FINALIZED_AGAINST_STALE_GENERATION` detection and its rendering as a finding. If the detection
+> `FINALIZED_AGAINST_STALE_GENERATION` detection and its rendering to the director. If the detection
 > does not ship inside T244 alongside finalize, and T250 does not render it, **the immutability
 > ruling does not hold and the question returns to the owner.** Neither piece may be deferred out of
 > these two tickets to unblock a release.
+>
+> **Surface corrected 2026-09-24 (owner) — condition unchanged, only the surface.** The ADR
+> originally named "the existing per-slot findings vocabulary" as the render target. That vocabulary
+> is schedule-week-scoped (single mount at `src/screens/ScheduleScreen.jsx:1142`, Locate gated on
+> `row.groupId != null`) and cannot express run-level state. T250 renders this **inline in the run's
+> own displayed run-state area on the elective run's screen**, not as a schedule finding and not as
+> a banner. Nothing changes for this ticket's own work: T244 still computes and returns
+> `finalizedAgainstStaleGeneration` alongside finalize. See the ADR's "Amendment (2026-09-24)".
 
 ## Scope
 
@@ -47,8 +55,10 @@ stale-generation rows (D5 — currently prose-only).
   when `run.status==='final'` and the run's current `solver_generation` no longer matches the
   generation recorded on its `elective_run_outer_snapshots` rows. This is the ADR's H2 fix and is
   in scope for **this** ticket, not deferred — finalize and its own correctness detector ship
-  together. **This finding is not fully discharged by this ticket alone — T250 is required to render
-  it on the Final-state screen** (see T250); this ticket's job is only to compute and return it.
+  together. **This detection is not fully discharged by this ticket alone — T250 is required to render
+  it on the Final-state screen, inline in the run's own run-state area rather than via the schedule
+  findings vocabulary (see the ruling note above)** (see T250); this ticket's job is only to compute
+  and return it.
 - **`overCapacityOccurrences` post-merge detection (residual of Red Hat H3 — the ADR's original
   "resolves as an ordinary capacity conflict" claim was wrong; see the ADR's corrected text under
   decision (b)).** `getElectiveRunHandler`'s query additionally groups generation-visible rows (per

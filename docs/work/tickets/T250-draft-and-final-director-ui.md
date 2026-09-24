@@ -3,7 +3,7 @@ title: T250-draft-and-final-director-ui
 document_type: ticket
 status: open
 created: 2026-09-23
-archive_when: the Draft state (move/lock, regenerate with staleness offer, run list, satisfaction summary, overCapacityOccurrences and DANGLING_MANUAL_ASSIGNMENT surfaced live) and Final state (read-only identity, export, start-a-revision, finalizedAgainstStaleGeneration and overCapacityOccurrences surfaced via the findings vocabulary) from T199's director-flow table are both built and reachable only by admin
+archive_when: the Draft state (move/lock, regenerate with staleness offer, run list, satisfaction summary, overCapacityOccurrences and DANGLING_MANUAL_ASSIGNMENT surfaced live) and Final state (read-only identity, export, start-a-revision, finalizedAgainstStaleGeneration and overCapacityOccurrences surfaced inline in the run's own displayed run-state area on this screen, not via the schedule findings vocabulary) from T199's director-flow table are both built and reachable only by admin
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_adrs: [docs/adr/2026-09-17-individual-elective-scheduling.md, docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md]
 ---
@@ -22,10 +22,20 @@ user-facing text and the "start a revision" control's behavior are gated.
 
 > **Owner ruling, 2026-09-23 — binding condition.** Q1/Q2 (a finalized run is immutable; a revision
 > is a new run, there is no reopen) was accepted **as a package** with the
-> `FINALIZED_AGAINST_STALE_GENERATION` detection and its rendering as a finding. If the detection
+> `FINALIZED_AGAINST_STALE_GENERATION` detection and its rendering to the director. If the detection
 > does not ship inside T244 alongside finalize, and T250 does not render it, **the immutability
 > ruling does not hold and the question returns to the owner.** Neither piece may be deferred out of
 > these two tickets to unblock a release.
+>
+> **Surface corrected 2026-09-24 (owner) — the condition is unchanged, only the surface.** The ADR
+> originally said "as a finding using this repo's existing per-slot findings vocabulary". That is
+> not buildable: the findings vocabulary is schedule-week-scoped, its only mount in the app is
+> `src/components/schedule/FindingsRail.jsx` at `src/screens/ScheduleScreen.jsx:1142`, its only
+> actions are Accept and Locate (Locate gated on `row.groupId != null`), and an elective run has no
+> `groupId`. Run-level state therefore renders **on this screen, inline, as part of the run's own
+> displayed state** (the same place the screen already says Draft vs Final) — not as a schedule
+> finding and not as a banner. The director must still be told; that requirement is not softened.
+> See the ADR's "Amendment (2026-09-24)".
 
 ## Scope
 
@@ -47,16 +57,22 @@ user-facing text and the "start a revision" control's behavior are gated.
   `finalized_by` from T244's columns), an export action calling T248's `exportChildSchedule`, and a
   "start a revision" action whose behavior is Q1's answer (default assumption per the ADR: creates
   a new run, does not reopen this one).
-  **Surface T244's `finalizedAgainstStaleGeneration` and `overCapacityOccurrences` findings on this
+  **Surface T244's `finalizedAgainstStaleGeneration` and `overCapacityOccurrences` on this
   screen (residual of Red Hat H2/H3 — a detection nobody renders is functionally no detection).**
-  When `finalizedAgainstStaleGeneration` is true, render it via the existing per-slot findings
-  vocabulary (no banner) with copy naming what happened ("finalized before a later change on another
-  device synced in") and pointing at the "start a revision" action already on this screen — that
-  action *is* the remediation this finding calls for, so the finding and the action must appear
-  together, not the finding alone. `overCapacityOccurrences`, when non-empty, renders per-occurrence
-  in the same vocabulary, naming the occurrence and the over-count.
+  When `finalizedAgainstStaleGeneration` is true, render it **inline in the run's own run-state
+  area** — the same part of this screen that already states Draft vs Final — not in the schedule
+  findings vocabulary and not as a banner (see the ruling note above and the ADR's
+  "Amendment (2026-09-24)"). Copy names what happened ("finalized before a later change on another
+  device synced in; it is out of date") and it must sit with the "start a revision" action already
+  on this screen — that action *is* the remediation, so the two appear together, not the state
+  alone. `overCapacityOccurrences`, when non-empty, renders per-occurrence in that same inline
+  run-state area, naming the occurrence and the over-count. This ticket names the surface; it does
+  not inherit any design beyond that.
 - Both states admin-only, verified not reachable from staff navigation (`src/components/layout/navSections.js`).
-- No banners; state surfaces through the existing findings vocabulary per repo convention.
+- No banners. Slot-level state (unassigned reasons and anything else genuinely scoped to a schedule
+  slot) uses the existing findings vocabulary; **run-level state uses the run's own inline displayed
+  state on this screen.** Do not route run-level state through the findings vocabulary — it cannot
+  express it (no `groupId`, no locator, no per-row action slot).
 
 ## Non-goals
 
