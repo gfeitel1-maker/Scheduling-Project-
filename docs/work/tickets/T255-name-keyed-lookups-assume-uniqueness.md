@@ -78,3 +78,95 @@ to find by grep; `src/ingest/buildPlan.js:399-401,693-733` keys on `normalizeNam
 
 Reference-aware merge. Making the advisory local-write pre-check blocking. Re-opening the v73
 relaxation itself.
+
+---
+
+## Verification pass, 2026-09-24 — every finding checked against the tree
+
+The sweep that produced the findings above ran pre-merge, so each one was re-checked against the
+current tree by symbol name rather than by line number. Result: **nine of ten confirmed still live,
+one reclassified, and the "Not verified" lead cleared as already safe.** Nothing was found already
+fixed, but two findings turned out to be a different problem than described.
+
+| # | Verdict | Correct answer, and why |
+|---|---|---|
+| 1 | Confirmed | **Refuse.** Import path, `unmapped` channel already exists. |
+| 2 | Confirmed | **Refuse.** Same. |
+| 3 | Confirmed | **Refuse.** The asymmetry is real: `groupByName` collects collisions, `activityByName` one line below does not. |
+| 4 | Confirmed | **Refuse** via the per-row `warning` string the preview already renders; an ambiguous row then skips at commit. Note the exposure is narrower than the others — T81 made `locationIdByName` deliberately exact/case-sensitive/trim-only so preview and commit agree, so it needs two byte-identical trimmed names. v73 permits exactly that. |
+| 5 | Confirmed | **Refuse** via the same per-row `warning`. The camp+cohort filter narrows the window but does not close it — v73 relaxed *within* a camp. |
+| 6 | Confirmed | **Refuse**, with a third state alongside `unmatched`: `unmatchedByValue` reports names resolving to NOTHING, never a name resolving to the WRONG tier, which is the whole bug the module exists to prevent. Fall back to the existing never-unplaced rule rather than an arbitrary tier. |
+| 7 | Confirmed, **reclassified** | Not a silent cross-device wrong bind — the commit side is *already* hardened (`seedNameMaps`, `electron/ops/ingest.js`, T252 lowest-id). It is a **capability gap**: the dropdown throws ids away before the `Set` dedups, so the higher-id division is unreachable and a director picking the visible option silently gets the lowest-id one. Fix by carrying the **id** as the option value — the dropdown is the one place a human can disambiguate. |
+| 8 | Confirmed, low severity | **Deterministic lowest-id tie-break**, not refusal. These are interactive create-flows, and refusing would block a director mid-task over a condition `docs/adr/2026-08-15-locations-concurrent-create-collision.md` option (d) already accepts. `SpecialEventsScreen`'s copy should fold into `createLocationRecord` — it is a near-verbatim duplicate that will drift. |
+| 9 | Confirmed — **owner decision required, see below** | |
+| 10 | Confirmed, **reclassified** | Not mis-binding. Post-migration creates use `crypto.randomUUID()`, not `deriveLocationId`, so a second same-named row has a random id and cannot collide with the derived one — `resolveVariant` keeps finding the right row. The real defect is **incompleteness** (a third same-named row is invisible to the gate) plus a redundancy: `listMigrationReviews` already SELECTs `location_id`, and `resolveVariant` re-derives it from the name anyway. Fix by using the stored id. No tie-break needed. |
+
+### The "Not verified" lead is clear
+
+`src/ingest/buildPlan.js` is **genuinely duplicate-safe**, not merely array-shaped. `already.get(key)`
+returns a list per normalized key by explicit design (its own comment: "the old single-valued Map let
+the last one silently overwrite the first, auto-picking an identity no human saw"). `matches.length > 1`
+never auto-picks — it emits an `op: 'conflict'` with `reason: 'ambiguous_identity'` carrying every
+candidate id for human resolution, and a director's prior pick is honoured only if `matches.find`
+still locates that exact id. The alias tier is equally careful. One soft spot remains and is
+host-supplied rather than in this file: the alias map itself
+(`have.aliases?.[entity]?.get(normalizeName(name))`) is single-valued per normalized name, so if two
+aliases normalize alike `listAliasMap` silently keeps one. Worth a look at `listAliasMap`; `buildPlan`
+itself needs no change.
+
+### Finding 9 — handed back as an owner decision, not decided here
+
+The Locations sheet's missing `shoresh_id` column **cannot be fixed on the export side alone**, which
+is what makes it an owner-facing change rather than a wiring one.
+
+- The column literal is `shoresh_id` (`ID_COLUMN`, `src/utils/exportWorkbook.js`) and is prepended to
+  every sheet in `SHEET_LAYOUT` — all six ingestible entities. Locations is excluded **deliberately**,
+  with a stated rationale: it sits outside `SHEET_LAYOUT`, is not part of the id-matched baseline-diff
+  re-import, and "matching that shape exactly means the round-trip needs no new parser".
+- The import side does **not** read it. `parseLocationsSheetRows` (`src/utils/importLocationsSheet.js`)
+  touches only `name`, `capacity` and `kind`, and `confirmImport` is name-keyed and name-deduped. So
+  the Locations round-trip is **create-or-skip, not diff-and-update**: today two same-named locations
+  re-import as one create plus one skip, and a capacity edit never updates the right row because
+  nothing updates at all.
+- Adding the column is therefore **not purely additive and already consumed**. It would be inert until
+  the import side is taught to read it AND switched from create-or-skip to id-matched update — a
+  change to how a file the director edits in Excel behaves, not just to what it contains.
+- Excel-format risk is low but real. `sheet_to_json` is header-keyed, so an extra column is ignored by
+  the current parser and older workbooks keep parsing. The risk runs the other way: this screen's own
+  `downloadTemplate` also emits a `Locations` sheet, `exportWorkbook.test.js` pins that header as
+  exactly `['name','capacity','kind']`, and a director copy-pasting rows between an old and a new
+  workbook would shift values under mismatched headers.
+
+**The decision the owner owns:** whether the Locations sheet becomes an id-matched, updatable sheet
+like the other six (one change on both sides, and directors' existing workbooks change shape), or
+stays a create-or-skip name-keyed sheet and the duplicate case is surfaced some other way. A
+name-keyed lowest-id tie-break here would be the *worst* of the three options — a director's capacity
+edit would land on the wrong location with no trace.
+
+If it goes ahead: put `shoresh_id` **first**, matching every other sheet, and treat a blank or unknown
+id as "create", never as an error.
+
+### Also in scope — `schedule_weeks`
+
+Unchanged and still open. See the recorded owner decision in
+[T239](T239-duplicate-flag-on-eight-remaining-screens.md): the marker's home is a design question
+about `ScheduleScreen`, with the week *picker* the named candidate. T239 now archives on its nine
+in-scope entities, so this item is carried here rather than there.
+
+### Slice status
+
+- **Slice A — MERGED/in review:** findings 1, 2, 3 plus the `daysByName` spillover the sweep found in
+  the same file. Shared `src/ingest/mapWithCollisions.js`; the refusal is structural (a colliding key
+  is deleted from the map, so a caller that ignores the `ambiguous` set still cannot bind to a wrong
+  row).
+- **Slice B — not started:** findings 4, 5, 6. All three are XLSX-import `reader.onload` handlers with
+  the same per-row `warning` + preview-then-confirm structure, so they share one treatment. Two
+  spillovers belong here: `ActivitiesScreen`'s unconditional `locationIdByName.set()` for a row created
+  in the loop is the same create-time eviction bug T252 fixed in `electron/ops/ingest.js` and
+  `src/localClient.mock.js`, left un-fixed here; and `tierMap`/`actMap` there use bare `.toLowerCase()`
+  with no trim, so they fold differently than ingest's `tierIdByName`.
+- **Slice C — not started:** findings 7, 8, 10. Needs an array-level lowest-id helper — `nameMap` in
+  `electron/ops/materializeImportedVersion.js` is db-bound and cannot be reused directly, and the
+  array-shaped equivalent is currently inlined in `src/localClient.mock.js` and
+  `electron/ops/ingest.js`'s `seedNameMaps`. Extract one and have `nameMap` delegate to it.
+- **Finding 9 — blocked on the owner decision above.**
