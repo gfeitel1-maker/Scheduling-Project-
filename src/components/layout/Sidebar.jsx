@@ -23,6 +23,11 @@ function countGaps(counts) {
   })
 }
 
+// Fixed width, not role- or collapse-dependent. Exported so other screens
+// (e.g. RootsHomeScreen's rail-layout breakpoint) can derive from the real
+// value instead of hardcoding a copy that can silently drift.
+export const SIDEBAR_WIDTH_PX = 216
+
 const MARK_COLOR = { '✓': 'var(--success)', '!': 'var(--danger)' }
 const TONE_COLOR = {
   danger: 'var(--danger)', success: 'var(--success)',
@@ -188,7 +193,7 @@ export default function Sidebar({
 
   return (
     <aside style={{
-      width: 216, minWidth: 216, background: 'var(--surface)',
+      width: SIDEBAR_WIDTH_PX, minWidth: SIDEBAR_WIDTH_PX, background: 'var(--surface)',
       borderRight: '1px solid var(--border)', display: 'flex',
       flexDirection: 'column', height: '100%',
     }}>

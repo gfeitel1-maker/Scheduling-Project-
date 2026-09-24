@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { localClient } from '../localClient'
-import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
+import { S, useEnterTransition, prefersReducedMotion, useNarrowViewport } from '../styles/shared'
 import { CircleCheckIcon } from '../components/icons'
 import { useCohorts } from '../hooks/useCohorts'
 import { useCurrentStructureCounts } from '../hooks/useCurrentStructureCounts.js'
@@ -11,6 +11,7 @@ import { dedupeChipItems } from './rootsChips'
 import { downloadWorkbook } from '../utils/exportWorkbook.js'
 import { ACTIVITY_COLORS } from '../components/schedule/slotCellConstants.js'
 import { ScheduleDoor } from '../components/ScheduleDoor'
+import { SIDEBAR_WIDTH_PX } from '../components/layout/Sidebar.jsx'
 
 // ADR docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md — the Roots
 // home is a distinct screen from now on: no census/diff vocabulary, no
@@ -50,6 +51,21 @@ const CARD_GRID = {
 }
 
 const CHIP_CAP = { large: 4, wide: 6 }
+
+// T236 — window width below which the two-column rail layout collapses to a
+// single stacked column. matchMedia measures the WINDOW, but Shell.jsx's
+// fixed sidebar (SIDEBAR_WIDTH_PX, imported below so this can't drift from
+// the real value) plus <main>'s 24px padding on each side (MAIN_PADDING_PX)
+// come out of that before the screen's own content box starts. What's left
+// has to fit the 300px rail (RAIL_PX), the --space-5 gap between rail and
+// bento (GAP_PX), and MIN_BENTO_PX — the minimum width the 3-column bento
+// reads comfortably at. Below the sum, the bento would get pinched before
+// it, so the layout collapses to a stack instead.
+const MAIN_PADDING_PX = 48
+const RAIL_PX = 300
+const GAP_PX = 24
+const MIN_BENTO_PX = 562
+export const NARROW_BREAKPOINT_PX = SIDEBAR_WIDTH_PX + MAIN_PADDING_PX + RAIL_PX + GAP_PX + MIN_BENTO_PX
 
 function countFor(collections, key) {
   if (!collections) return 0
@@ -135,7 +151,8 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   const enterStyle = useEnterTransition('liftFade')
   const emptyStateEnterStyle = useEnterTransition('liftFade')
   const bentoStyleFor = useStaggerEnter(!loading, 40)
-  const attentionStyleFor = useStaggerEnter(!loading, 30)
+  const attentionStyleFor = useStaggerEnter(!loading, 25)
+  const narrow = useNarrowViewport(NARROW_BREAKPOINT_PX)
 
   const attentionRows = collections
     ? buildAttentionList({
@@ -162,71 +179,86 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   }
 
   return (
-    <div data-testid="roots-screen" style={{ maxWidth: 920, margin: '0 auto', ...enterStyle }}>
+    // T236 — maxWidth grows from 920 to 1180 (documented exception) to hold
+    // the new two-column rail layout (rootsMain + rootsRail, see styles
+    // below) without pinching the bento.
+    <div data-testid="roots-screen" style={{ maxWidth: 1180, margin: '0 auto', ...enterStyle }}>
       <h1 style={styles.title}>Roots</h1>
 
       <ScheduleDoor label="Schedule" onClick={() => onNavigate('schedule')} />
 
-      <section style={{ marginTop: 'var(--space-5)' }}>
-        <div style={styles.sectionLabel}>What has taken root</div>
-        {loading ? (
-          <div style={styles.skeleton}>Reading your camp setup…</div>
-        ) : (
-          <div style={styles.bentoGrid}>
-            {BENTO_CARDS.map((card, index) => {
-              const count = countFor(collections, card.key)
-              const hasChips = Boolean(CHIP_CAP[card.size])
-              return (
-                <div
-                  key={card.key}
-                  onMouseEnter={(e) => cardHover(e, true)}
-                  onMouseLeave={(e) => cardHover(e, false)}
-                  style={{ ...styles.card, ...CARD_GRID[card.key], ...bentoStyleFor(index) }}
-                >
-                  <div style={cardHeaderStyle(card.size)}>
-                    <span>{card.label}</span>
-                    <span style={countStyle(count, hasChips)}>{count}</span>
-                  </div>
-                  <ChipRow card={card} collections={collections} />
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </section>
-
-      <section style={{ marginTop: 'var(--space-6)' }}>
-        <div style={styles.sectionLabel}>Needs your attention</div>
-        {attentionRows.length === 0 ? (
-          <div style={{ ...styles.emptyState, ...emptyStateEnterStyle }}>
-            <CircleCheckIcon data-testid="attention-empty-check" style={styles.emptyStateIcon} />
-            <div>Nothing needs you right now.</div>
-          </div>
-        ) : (
-          <div>
-            {attentionRows.map((row, index) => (
-              <div
-                key={row.id}
-                onMouseEnter={(e) => attentionRowHover(e, true)}
-                onMouseLeave={(e) => attentionRowHover(e, false)}
-                style={{ ...styles.attentionRow, ...attentionStyleFor(index) }}
-              >
-                <div>
-                  <div style={styles.attentionName}>{row.name}</div>
-                  <div style={styles.attentionWhy}>{row.why}</div>
-                </div>
-                <span style={styles.domainChip}>{row.domainTag}</span>
+      <div style={{ ...styles.rootsLayout, flexDirection: narrow ? 'column' : 'row' }}>
+        <div style={{ ...styles.rootsMain, order: narrow ? 1 : 0 }}>
+          <section style={{ marginTop: 'var(--space-5)' }}>
+            <div style={styles.sectionLabel}>What has taken root</div>
+            {loading ? (
+              <div style={styles.skeleton}>Reading your camp setup…</div>
+            ) : (
+              <div style={styles.bentoGrid}>
+                {BENTO_CARDS.map((card, index) => {
+                  const count = countFor(collections, card.key)
+                  const hasChips = Boolean(CHIP_CAP[card.size])
+                  return (
+                    <div
+                      key={card.key}
+                      onMouseEnter={(e) => cardHover(e, true)}
+                      onMouseLeave={(e) => cardHover(e, false)}
+                      style={{ ...styles.card, ...CARD_GRID[card.key], ...bentoStyleFor(index) }}
+                    >
+                      <div style={cardHeaderStyle(card.size)}>
+                        <span>{card.label}</span>
+                        <span style={countStyle(count, hasChips)}>{count}</span>
+                      </div>
+                      <ChipRow card={card} collections={collections} />
+                    </div>
+                  )
+                })}
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+            )}
+          </section>
 
-      <div style={styles.bottomActions}>
-        <button className="press-97" onClick={() => onNavigate('import')} style={S.btnSecondary}>Import last year</button>
-        <button className="press-97" disabled={preparingWorksheet} onClick={downloadWorksheet} style={S.btnSecondary}>
-          Download worksheet
-        </button>
+          <div style={styles.bottomActions}>
+            <button className="press-97" onClick={() => onNavigate('import')} style={S.btnSecondary}>Import last year</button>
+            <button className="press-97" disabled={preparingWorksheet} onClick={downloadWorksheet} style={S.btnSecondary}>
+              Download worksheet
+            </button>
+          </div>
+        </div>
+
+        <aside
+          aria-label="Needs your attention"
+          style={{
+            ...styles.rootsRail,
+            order: narrow ? 0 : 1,
+            position: narrow ? 'static' : 'sticky',
+            top: narrow ? 'auto' : 'var(--space-5)',
+            width: narrow ? '100%' : undefined,
+            flex: narrow ? 'none' : styles.rootsRail.flex,
+          }}
+        >
+          <div style={{ ...styles.sectionLabel, marginTop: 'var(--space-5)' }}>Needs your attention</div>
+          {attentionRows.length === 0 ? (
+            <div style={{ ...styles.emptyState, ...emptyStateEnterStyle }}>
+              <CircleCheckIcon data-testid="attention-empty-check" style={styles.emptyStateIcon} />
+              <div>Nothing needs you right now.</div>
+            </div>
+          ) : (
+            <div>
+              {attentionRows.map((row, index) => (
+                <div
+                  key={row.id}
+                  onMouseEnter={(e) => attentionRowHover(e, true)}
+                  onMouseLeave={(e) => attentionRowHover(e, false)}
+                  style={{ ...styles.attentionRow, ...attentionStyleFor(index) }}
+                >
+                  <div style={styles.attentionName}>{row.name}</div>
+                  <span style={styles.domainChip}>{row.domainTag}</span>
+                  <div style={{ ...styles.attentionWhy, flexBasis: '100%' }}>{row.why}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </aside>
       </div>
     </div>
   )
@@ -267,6 +299,23 @@ const styles = {
   skeleton: {
     fontSize: 13,
     color: 'var(--text-secondary)',
+  },
+  // T236 — alignItems 'flex-start' is LOAD-BEARING: flex's default 'stretch'
+  // would force rootsRail to the height of rootsMain, which breaks
+  // `position: sticky` (a stretched rail has no room to scroll within).
+  rootsLayout: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 'var(--space-5)',
+  },
+  rootsMain: {
+    flex: '1 1 auto',
+    minWidth: 0, // prevents the bento grid overflowing its flex basis
+  },
+  // Documented exception — fixed rail width so the attention rows read at a
+  // consistent measure regardless of how wide the bento's column gets.
+  rootsRail: {
+    flex: '0 0 300px',
   },
   bentoGrid: {
     display: 'grid',
@@ -332,9 +381,10 @@ const styles = {
     color: 'var(--text-secondary)',
   },
   emptyState: {
-    // WS4b refinement #3 — steps from 24px 4px to the token scale, per
-    // DESIGN_STANDARD §5a: no card, no border, but real presence.
-    padding: 'var(--space-6) var(--space-1)',
+    // T236 — reduced from 'var(--space-6) var(--space-1)' (documented
+    // exception): full vertical weight in a 300px rail reads as a hole, not
+    // restraint.
+    padding: 'var(--space-4) var(--space-2)',
     textAlign: 'center',
     fontSize: 13,
     color: 'var(--text-secondary)',
@@ -343,11 +393,15 @@ const styles = {
     display: 'block',
     margin: '0 auto var(--space-2)',
   },
+  // T236 — wrapping two-line row (name + tag share the top line, `why` forced
+  // onto its own full-width line via flexBasis) rather than a single
+  // space-between row, so the row reads at rail width (300px) without
+  // truncating a camp's own names.
   attentionRow: {
     display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 'var(--space-3)',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    gap: 'var(--space-1) var(--space-2)',
     padding: 'var(--space-3)',
     background: 'var(--surface)',
     border: '1px solid var(--border)',
@@ -360,10 +414,12 @@ const styles = {
     fontWeight: 600,
     fontSize: 13,
     color: 'var(--text)',
+    overflowWrap: 'break-word',
   },
   attentionWhy: {
     fontSize: 12,
     color: 'var(--text-secondary)',
+    overflowWrap: 'break-word',
   },
   domainChip: {
     padding: '3px var(--space-3)',

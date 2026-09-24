@@ -51,6 +51,28 @@ export function useEnterTransition(variant, { transformOrigin } = {}) {
   }
 }
 
+// Tracks whether the window is narrower than breakpointPx via matchMedia,
+// subscribing for live updates (e.g. window resize during a session) and
+// cleaning up on unmount. SSR/jsdom-safe like prefersReducedMotion() above —
+// jsdom has no matchMedia by default.
+export function useNarrowViewport(breakpointPx) {
+  const query = `(max-width: ${breakpointPx}px)`
+  // One matchMedia() call per query, not two — its MediaQueryList is created
+  // lazily alongside the initial state and reused by the effect below, so
+  // the "current" read and the "watch for changes" read agree by construction.
+  const [mql] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query) : null
+  )
+  const [narrow, setNarrow] = useState(() => Boolean(mql?.matches))
+  useEffect(() => {
+    if (!mql) return undefined
+    const onChange = (e) => setNarrow(e.matches)
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [mql])
+  return narrow
+}
+
 export const S = {
   btnPrimary: {
     padding: '7px 14px',
