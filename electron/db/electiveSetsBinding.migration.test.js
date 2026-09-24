@@ -81,7 +81,7 @@ describe('migration v43: fresh vs migrated equivalence', () => {
     // A fresh (head) db therefore carries the five survivors only.
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(72)
+    expect(CURRENT_SCHEMA_VERSION).toBe(73)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 43').get().c).toBe(1)
     const cols = db.pragma('table_info(elective_sets)').map((c) => c.name)
     expect(cols).toContain('day_id')
@@ -162,12 +162,12 @@ describe('migration v43: fresh vs migrated equivalence', () => {
     db.close()
   })
 
-  it('schema.sql and localDb.js ELECTIVE_SETS_DDL usage agree on final column order', () => {
+  it('schema.sql and localDb.js ELECTIVE_SETS_DDL usage agree on final column order (UNIQUE relaxed by schema v73/T241, so it is no longer the trailing clause)', () => {
     const schemaText = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
     const match = schemaText.match(/CREATE TABLE IF NOT EXISTS elective_sets \([\s\S]*?\n\);/)
     expect(match, 'expected an elective_sets CREATE TABLE block in schema.sql').toBeTruthy()
     expect(match[0]).toContain(
-      "is_reusable INTEGER NOT NULL DEFAULT 1,\n  day_id TEXT REFERENCES days_of_operation(id),\n  time_block_id TEXT,\n  is_all_groups INTEGER,\n  group_ids TEXT,\n  schedule_week_id TEXT REFERENCES schedule_weeks(id),\n  UNIQUE(camp_id, name)\n);"
+      "is_reusable INTEGER NOT NULL DEFAULT 1,\n  day_id TEXT REFERENCES days_of_operation(id),\n  time_block_id TEXT,\n  is_all_groups INTEGER,\n  group_ids TEXT,\n  schedule_week_id TEXT REFERENCES schedule_weeks(id)\n);"
     )
   })
 })

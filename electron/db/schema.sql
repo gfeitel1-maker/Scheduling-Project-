@@ -442,6 +442,15 @@ CREATE INDEX IF NOT EXISTS idx_projection_failures_unresolved
 -- with — a resolution write always sets its parent_op_id to this value, so
 -- "is this conflict resolved" is answered by checking whether any op with
 -- parent_op_id = existing_op_id now exists (see listPendingConflicts).
+-- entity_ids / kind (schema v73, T241,
+-- docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md Decision 1): the
+-- hard-set typed conflict shape, built by a separate ticket. entity_ids is a nullable JSON array
+-- of colliding ids, populated only for `unique:`-prefixed rows; entity_id keeps holding the
+-- single scalar-conflict id for `crdt:`-prefixed rows. kind ('scalar' | 'unique') discriminates
+-- the two without sniffing the id prefix — every existing row backfills to 'scalar' via the
+-- DEFAULT. Appended LAST: they are ALTER-added on a migrated db (localDb.js v73), which always
+-- appends, so declaring them last here keeps a fresh install's column order byte-identical to a
+-- migrated one (same column-order-trap precedent as activities.location_id).
 CREATE TABLE IF NOT EXISTS conflicts (
   id TEXT PRIMARY KEY,
   entity TEXT NOT NULL,
@@ -451,7 +460,9 @@ CREATE TABLE IF NOT EXISTS conflicts (
   existing_op TEXT NOT NULL,
   existing_op_id TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  resolved_at TEXT
+  resolved_at TEXT,
+  entity_ids TEXT,
+  kind TEXT NOT NULL DEFAULT 'scalar'
 );
 CREATE INDEX IF NOT EXISTS idx_conflicts_pending ON conflicts(entity, entity_id, field, resolved_at);
 
@@ -464,37 +475,34 @@ CREATE TABLE IF NOT EXISTS locks (
   PRIMARY KEY (entity, entity_id, field)
 );
 
+-- UNIQUE(camp_id, name) relaxed to a plain index in schema v73 (T241) — see the comment above
+-- `locations` for why. idx_groups_camp_name (originally added by localDb.js's version-12
+-- migration for a pre-existing db) is now plain, both here and there.
 CREATE TABLE IF NOT EXISTS groups (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   tier_id TEXT,
-  availability TEXT,
-  UNIQUE(camp_id, name)
+  availability TEXT
 );
--- Round 2 Red Hat fix (Sub-plan C Task 1): the UNIQUE above only applies to
--- brand-new installs, since this whole file runs as CREATE TABLE IF NOT
--- EXISTS. Any db that already ran an earlier schema version keeps its
--- pre-existing groups table verbatim; the actual enforcement for those dbs
--- comes from the idx_groups_camp_name index added in localDb.js's
--- version-12 migration — same pattern as idx_cohorts_camp_name (version 11).
+CREATE INDEX IF NOT EXISTS idx_groups_camp_name ON groups(camp_id, name);
 
+-- UNIQUE(camp_id, cohort_id, name) relaxed to a plain index in schema v73 (T241) — see the
+-- comment above `locations`. idx_tiers_camp_cohort_name (originally added by localDb.js's
+-- version-14 migration) is now plain, but stays declared ONLY in localDb.js's v73 block, not
+-- here: unlike camp_id/name, cohort_id is an ALTER-added column (version-10 migration) that a
+-- genuinely old pre-v10 db does not yet have when schema.sql's unconditional exec reaches this
+-- line (this CREATE TABLE's own IF NOT EXISTS guard is a no-op for that db — the table already
+-- exists without cohort_id). A CREATE INDEX referencing cohort_id here would throw "no such column" on that db,
+-- per this file's own INDEX PLACEMENT RULE at the top. A fresh install still gets it: v73's
+-- migration block runs in the same initSchema() pass regardless of whether the table pre-existed.
 CREATE TABLE IF NOT EXISTS tiers (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
-  cohort_id TEXT REFERENCES cohorts(id),
-  UNIQUE(camp_id, cohort_id, name)
+  cohort_id TEXT REFERENCES cohorts(id)
 );
--- Round 2 Red Hat fix (mirrors the time_blocks version-13 fix): the UNIQUE
--- above only applies to brand-new installs, since this whole file runs as
--- CREATE TABLE IF NOT EXISTS. Any db that already ran an earlier schema
--- version keeps its pre-existing tiers table (without cohort_id/sort_order,
--- added later via ALTER TABLE in localDb.js's version-10 migration)
--- verbatim; the actual enforcement for those dbs comes from the
--- idx_tiers_camp_cohort_name index added in localDb.js's version-14
--- migration — same pattern as idx_time_blocks_camp_cohort_name (version 13).
 
 CREATE TABLE IF NOT EXISTS activities (
   id TEXT PRIMARY KEY,
@@ -534,18 +542,13 @@ CREATE TABLE IF NOT EXISTS activities (
   -- location_id is above it: ALTER-added on a migrated db (localDb.js v44),
   -- which always appends, so declaring it last here keeps a fresh install's
   -- column order byte-identical to a migrated one (column-order trap).
-  recurrence_truth_status TEXT,
-  UNIQUE(camp_id, name)
+  recurrence_truth_status TEXT
 );
--- Round 2 Red Hat fix (ActivitiesScreen migration): the UNIQUE above only
--- applies to brand-new installs, since this whole file runs as CREATE TABLE
--- IF NOT EXISTS. Any db that already ran an earlier schema version keeps its
--- pre-existing activities table (without these columns, added later via
--- ALTER TABLE in localDb.js's version-15 migration) verbatim; the actual
--- enforcement for those dbs comes from the idx_activities_camp_name index
--- added in localDb.js's version-15 migration — same pattern as
--- idx_groups_camp_name (version 12). activities is camp-scoped only (no
--- cohort_id), matching groups, not tiers/time_blocks.
+-- UNIQUE(camp_id, name) relaxed to a plain index in schema v73 (T241) — see the comment above
+-- `locations`. idx_activities_camp_name (originally added by localDb.js's version-15 migration)
+-- is now plain, both here and there. activities is camp-scoped only (no cohort_id), matching
+-- groups, not tiers/time_blocks.
+CREATE INDEX IF NOT EXISTS idx_activities_camp_name ON activities(camp_id, name);
 
 -- DRIFTED TABLE: a migrated database has 12 columns, not the 6 below.
 -- Migration-added columns (see localDb.js):
@@ -643,6 +646,9 @@ CREATE TABLE IF NOT EXISTS pending_restores (
 -- screens that previously had no local-schema equivalent. See
 -- docs/superpowers/specs/2026-07-21-renderer-supabase-migration-design.md
 -- for the full column rationale.
+-- UNIQUE(camp_id, name) relaxed to a plain index in schema v73 (T241) — see the comment above
+-- `locations`. idx_cohorts_camp_name (originally added by localDb.js's version-11 migration) is
+-- now plain, both here and there.
 CREATE TABLE IF NOT EXISTS cohorts (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
@@ -651,14 +657,9 @@ CREATE TABLE IF NOT EXISTS cohorts (
   session_week_end TEXT,
   capacity_source TEXT,
   anchor_model TEXT,
-  sort_order INTEGER,
-  UNIQUE(camp_id, name)
+  sort_order INTEGER
 );
--- Round 2 Red Hat fix (Sub-plan B Task 2): the UNIQUE above only applies to
--- brand-new installs, since this whole file runs as CREATE TABLE IF NOT
--- EXISTS. Any db that already ran schema version 10 keeps its pre-existing
--- cohorts table verbatim; the actual enforcement for those dbs comes from
--- the idx_cohorts_camp_name index added in localDb.js's version-11 migration.
+CREATE INDEX IF NOT EXISTS idx_cohorts_camp_name ON cohorts(camp_id, name);
 
 CREATE TABLE IF NOT EXISTS days_of_operation (
   id TEXT PRIMARY KEY,
@@ -692,6 +693,14 @@ CREATE TABLE IF NOT EXISTS domain_state_migration_pending (
   resolved_at TEXT
 );
 
+-- UNIQUE(camp_id, cohort_id, name) relaxed to a plain index in schema v73 (T241) — see the
+-- comment above `locations`. Scoped by cohort_id, not just camp_id, because block names are
+-- cohort-local. idx_time_blocks_camp_cohort_name (originally added by localDb.js's version-13
+-- migration) is now plain, but stays declared ONLY in localDb.js's v73 block, not here — same
+-- reason as tiers above: cohort_id is an ALTER-added column a genuinely old pre-migration db does
+-- not yet have when schema.sql's unconditional exec reaches this line, and a CREATE INDEX
+-- referencing it here would throw "no such column" on that db (this file's own INDEX PLACEMENT
+-- RULE at the top). A fresh install still gets it via v73's migration block, same initSchema() pass.
 CREATE TABLE IF NOT EXISTS time_blocks (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
@@ -700,18 +709,8 @@ CREATE TABLE IF NOT EXISTS time_blocks (
   start_time TEXT,
   end_time TEXT,
   part_of_day TEXT,
-  sort_order INTEGER,
-  UNIQUE(camp_id, cohort_id, name)
+  sort_order INTEGER
 );
--- Round 2 Red Hat fix (Sub-plan D Task 1): scoped by cohort_id, not just
--- camp_id, because block names are cohort-local (mirrors groups/cohorts/
--- days_of_operation's camp-level UNIQUE, but time_blocks additionally
--- partitions by cohort). The UNIQUE above only applies to brand-new
--- installs, since this whole file runs as CREATE TABLE IF NOT EXISTS. Any
--- db that already ran an earlier schema version keeps its pre-existing
--- time_blocks table verbatim; the actual enforcement for those dbs comes
--- from the idx_time_blocks_camp_cohort_name index added in localDb.js's
--- version-13 migration — same pattern as idx_groups_camp_name (version 12).
 -- template_slots.time_block_id is a plain TEXT column (no REFERENCES), so
 -- there is no FK to repoint when deduping, unlike groups.id/template_slots.group_id.
 
@@ -787,7 +786,12 @@ CREATE TABLE IF NOT EXISTS schedule_weeks (
   sort_order INTEGER,
   is_archived INTEGER NOT NULL DEFAULT 0
 );
--- idx_schedule_weeks_camp_name is created by migration v27, not here.
+-- idx_schedule_weeks_camp_name was UNIQUE, created by migration v27, not here (a fresh install
+-- got the enforcement from a plain named index rather than an inline UNIQUE, unlike the other
+-- nine T241 tables). Schema v73 (T241) relaxed it to a plain index — the one relaxed-set table
+-- that only ever needed the simple DROP INDEX / CREATE INDEX swap, no table rebuild. Declared
+-- here now that it is plain (see the comment above `locations`), matching localDb.js's v73 block.
+CREATE INDEX IF NOT EXISTS idx_schedule_weeks_camp_name ON schedule_weeks(camp_id, name);
 
 -- `kind` names which of the two schedule-building routes a row belongs to
 -- ('generated' | 'manual'). It is load-bearing: the unique index below is what
@@ -866,6 +870,12 @@ CREATE TABLE IF NOT EXISTS week_group_exclusions (
 -- v32 block (LOCATIONS_DDL); the two copies are asserted byte-identical by
 -- locations.migration.test.js. map_geometry is reserved for the optional map
 -- (slice M6) and stays NULL until then.
+-- UNIQUE(camp_id, name) relaxed to a plain index in schema v73 (T241,
+-- docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md): a director-typed
+-- name is not an invariant a replicated document can hold, and the old constraint silently
+-- dropped a peer's colliding record on merge. Duplicates are now allowed and flagged for the
+-- director to rename/delete, never auto-merged. idx_locations_camp_name (below the kind/grid_x/
+-- grid_y columns added by v48/v49, and map_id added by v50 — see localDb.js) is now plain.
 CREATE TABLE IF NOT EXISTS locations (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
@@ -873,9 +883,9 @@ CREATE TABLE IF NOT EXISTS locations (
   capacity INTEGER NOT NULL DEFAULT 1,
   notes TEXT,
   sort_order INTEGER,
-  map_geometry TEXT,
-  UNIQUE(camp_id, name)
+  map_geometry TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_locations_camp_name ON locations(camp_id, name);
 
 -- Per-week location availability — "the lake is closed weeks 1 and 2". The
 -- third instance of the v28 week_*_exclusions pattern (parent-keyed by week_id,
@@ -949,25 +959,28 @@ CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_template_id ON schedule_snapsh
 -- SPECIAL_DAY_SLOTS_DDL); the three copies are asserted byte-identical by
 -- specialDays.migration.test.js.
 --
--- special_days: the camp-scoped parent. UNIQUE(camp_id, name) — a camp's
--- special days are distinguished by name, matching locations/groups. No date
--- column: the object is not calendar-dated (named/throwaway, not a dated
--- entry). id is a minted uuid (interactive create — no deriveLocationId-style
--- determinism, per T81/T101).
+-- special_days: the camp-scoped parent. Named, distinguished by name, matching
+-- locations/groups. No date column: the object is not calendar-dated
+-- (named/throwaway, not a dated entry). id is a minted uuid (interactive create
+-- — no deriveLocationId-style determinism, per T81/T101).
 -- notes (schema v37, T106, ADR 2026-08-20-special-days-authoring-and-day-
 -- override-repoint.md D2): free-text record/print surface for a special
 -- day's non-schedulable data (team rosters, staffing, points, trip times) —
 -- recorded and printed, never solved/parsed. MUST be the LAST column: it is
 -- ALTER-added on a migrated db (localDb.js v37), same column-order-trap
 -- precedent as elective_sets.is_reusable.
+-- UNIQUE(camp_id, name) relaxed to a plain index in schema v73 (T241) — see the comment above
+-- `locations`. special_days was added to the relaxed set by the ADR's Correction 2 (same trust
+-- model as groups/activities, missed by the original spec's grep). idx_special_days_camp_name is
+-- new (special_days never had a separately-named index — it relied on the inline clause alone).
 CREATE TABLE IF NOT EXISTS special_days (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
-  notes TEXT,
-  UNIQUE(camp_id, name)
+  notes TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_special_days_camp_name ON special_days(camp_id, name);
 
 -- special_day_time_blocks: parent-scoped by special_day_id, no camp_id column
 -- (same shape as elective_set_activities). Every special day OWNS its time
@@ -1017,9 +1030,12 @@ CREATE TABLE IF NOT EXISTS special_day_slots (
 -- comment above).
 --
 -- elective_sets: the camp-scoped parent, a reusable named set of activity
--- options ("Afternoon Chugim" = {Swim, Art, Archery}). UNIQUE(camp_id, name),
--- matching locations/groups/special_days. id is a minted uuid (interactive
+-- options ("Afternoon Chugim" = {Swim, Art, Archery}), matching
+-- locations/groups/special_days. id is a minted uuid (interactive
 -- create, no deriveLocationId-style determinism).
+-- UNIQUE(camp_id, name) relaxed to a plain index in schema v73 (T241) — see the comment above
+-- `locations`. idx_elective_sets_camp_name is new (elective_sets never had a separately-named
+-- index — it relied on the inline clause alone).
 -- is_reusable (schema v36, T110, docs/adr/2026-08-20-electives-authoring.md
 -- D2): the durability marker. A one-off elective placed in a cell is still a
 -- real, replicated row (the schema has no inline-string cell content), so it
@@ -1053,9 +1069,9 @@ CREATE TABLE IF NOT EXISTS elective_sets (
   time_block_id TEXT,
   is_all_groups INTEGER,
   group_ids TEXT,
-  schedule_week_id TEXT REFERENCES schedule_weeks(id),
-  UNIQUE(camp_id, name)
+  schedule_week_id TEXT REFERENCES schedule_weeks(id)
 );
+CREATE INDEX IF NOT EXISTS idx_elective_sets_camp_name ON elective_sets(camp_id, name);
 
 -- elective_set_activities: parent-scoped by elective_set_id, no camp_id
 -- column (mirrors special_day_time_blocks). One
@@ -1138,15 +1154,18 @@ CREATE TABLE IF NOT EXISTS elective_set_activities (
 -- to a migrated one (column-order trap). Also kept byte-identical to the
 -- EVENTS_DDL constant in localDb.js (used to create this table on migrated
 -- pre-v40 dbs) — see events.migration.test.js's byte-for-byte check.
+-- UNIQUE(camp_id, name) relaxed to a plain index in schema v73 (T241) — see the comment above
+-- `locations`. idx_events_camp_name is new (events never had a separately-named index — it
+-- relied on the inline clause alone).
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
   notes TEXT,
-  location_id TEXT,
-  UNIQUE(camp_id, name)
+  location_id TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_events_camp_name ON events(camp_id, name);
 
 -- Event internal sub-schedule (schema v41, Events internal sub-schedule
 -- Slice 2, docs/adr/2026-08-22-event-internal-subschedule.md). Structural

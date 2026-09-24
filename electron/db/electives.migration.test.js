@@ -222,13 +222,14 @@ describe('migration v35: fresh vs migrated equivalence', () => {
     db.close()
   })
 
-  it('enforces UNIQUE(camp_id, name) on elective_sets', () => {
+  it('allows two elective_sets with the same camp_id + name (UNIQUE relaxed by schema v73/T241 — a merged document\'s colliding records must both project)', () => {
     const db = freshDb()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare("INSERT INTO elective_sets (id, camp_id, name) VALUES ('es1', 'camp1', 'Chugim')").run()
     expect(() =>
       db.prepare("INSERT INTO elective_sets (id, camp_id, name) VALUES ('es2', 'camp1', 'Chugim')").run()
-    ).toThrow(/UNIQUE/)
+    ).not.toThrow()
+    expect(db.prepare("SELECT COUNT(*) c FROM elective_sets WHERE camp_id = 'camp1' AND name = 'Chugim'").get().c).toBe(2)
     db.close()
   })
 

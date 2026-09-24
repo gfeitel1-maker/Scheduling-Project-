@@ -152,13 +152,14 @@ describe('migration v34: fresh vs migrated equivalence', () => {
     db.close()
   })
 
-  it('enforces UNIQUE(camp_id, name) on special_days', () => {
+  it('allows two special_days with the same camp_id + name (UNIQUE relaxed by schema v73/T241 — a merged document\'s colliding records must both project)', () => {
     const db = freshDb()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare("INSERT INTO special_days (id, camp_id, name) VALUES ('sd1', 'camp1', 'Among Us')").run()
     expect(() =>
       db.prepare("INSERT INTO special_days (id, camp_id, name) VALUES ('sd2', 'camp1', 'Among Us')").run()
-    ).toThrow(/UNIQUE/)
+    ).not.toThrow()
+    expect(db.prepare("SELECT COUNT(*) c FROM special_days WHERE camp_id = 'camp1' AND name = 'Among Us'").get().c).toBe(2)
     db.close()
   })
 

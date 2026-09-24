@@ -558,13 +558,13 @@ describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
 })
 
 describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, name) on cohorts (schema version 11)', () => {
-  it('a fresh install rejects a second cohort with the same camp_id + name', () => {
+  it('a fresh install allows a second cohort with the same camp_id + name (UNIQUE relaxed by schema v73/T241)', () => {
     const db = freshDb()
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
     db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run('c1', 'camp1', 'Main')
     expect(() => {
       db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run('c2', 'camp1', 'Main')
-    }).toThrow(/UNIQUE/)
+    }).not.toThrow()
     db.close()
   })
 
@@ -597,9 +597,11 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, name) on cohorts 
 
     const rows = db.prepare('SELECT id FROM cohorts WHERE camp_id = ? AND name = ?').all('camp1', 'Main')
     expect(rows.length).toBe(1)
+    // UNIQUE relaxed by schema v73/T241 — the v11 dedup above still runs (a pre-existing race is
+    // still cleaned up once), but the constraint no longer blocks a THIRD, later insert.
     expect(() => {
       db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run('c3', 'camp1', 'Main')
-    }).toThrow(/UNIQUE/)
+    }).not.toThrow()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     db.close()
   })
@@ -649,13 +651,13 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, name) on cohorts 
 })
 
 describe('Round 2 Red Hat fix, HIGH finding 3: UNIQUE(camp_id, name) on groups (schema version 12)', () => {
-  it('a fresh install rejects a second group with the same camp_id + name', () => {
+  it('a fresh install allows a second group with the same camp_id + name (UNIQUE relaxed by schema v73/T241)', () => {
     const db = freshDb()
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
     db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run('g1', 'camp1', 'Yeladim 1')
     expect(() => {
       db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run('g2', 'camp1', 'Yeladim 1')
-    }).toThrow(/UNIQUE/)
+    }).not.toThrow()
     db.close()
   })
 
@@ -683,9 +685,11 @@ describe('Round 2 Red Hat fix, HIGH finding 3: UNIQUE(camp_id, name) on groups (
 
     const rows = db.prepare('SELECT id FROM groups WHERE camp_id = ? AND name = ?').all('camp1', 'Yeladim 1')
     expect(rows.length).toBe(1)
+    // UNIQUE relaxed by schema v73/T241 — the v12 dedup above still runs (a pre-existing race is
+    // still cleaned up once), but the constraint no longer blocks a THIRD, later insert.
     expect(() => {
       db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run('g3', 'camp1', 'Yeladim 1')
-    }).toThrow(/UNIQUE/)
+    }).not.toThrow()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     db.close()
   })
@@ -730,14 +734,14 @@ describe('Round 2 Red Hat fix, HIGH finding 3: UNIQUE(camp_id, name) on groups (
 })
 
 describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, cohort_id, name) on time_blocks (schema version 13)', () => {
-  it('a fresh install rejects a second time block with the same camp_id + cohort_id + name', () => {
+  it('a fresh install allows a second time block with the same camp_id + cohort_id + name (UNIQUE relaxed by schema v73/T241)', () => {
     const db = freshDb()
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
     db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run('co1', 'camp1', 'Session 1')
     db.prepare('INSERT INTO time_blocks (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)').run('tb1', 'camp1', 'co1', 'Block 1')
     expect(() => {
       db.prepare('INSERT INTO time_blocks (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)').run('tb2', 'camp1', 'co1', 'Block 1')
-    }).toThrow(/UNIQUE/)
+    }).not.toThrow()
     db.close()
   })
 
@@ -781,9 +785,11 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, cohort_id, name) 
 
     const rows = db.prepare('SELECT id FROM time_blocks WHERE camp_id = ? AND cohort_id = ? AND name = ?').all('camp1', 'co1', 'Block 1')
     expect(rows.length).toBe(1)
+    // UNIQUE relaxed by schema v73/T241 — the v13 dedup above still runs (a pre-existing race is
+    // still cleaned up once), but the constraint no longer blocks a THIRD, later insert.
     expect(() => {
       db.prepare('INSERT INTO time_blocks (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)').run('tb3', 'camp1', 'co1', 'Block 1')
-    }).toThrow(/UNIQUE/)
+    }).not.toThrow()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     db.close()
   })
@@ -791,14 +797,14 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, cohort_id, name) 
 })
 
 describe('Round 2 Red Hat fix, mirrors time_blocks HIGH finding 1: UNIQUE(camp_id, cohort_id, name) on tiers (schema version 14)', () => {
-  it('a fresh install rejects a second tier with the same camp_id + cohort_id + name', () => {
+  it('a fresh install allows a second tier with the same camp_id + cohort_id + name (UNIQUE relaxed by schema v73/T241)', () => {
     const db = freshDb()
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
     db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run('co1', 'camp1', 'Session 1')
     db.prepare('INSERT INTO tiers (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)').run('t1', 'camp1', 'co1', 'Yeladim')
     expect(() => {
       db.prepare('INSERT INTO tiers (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)').run('t2', 'camp1', 'co1', 'Yeladim')
-    }).toThrow(/UNIQUE/)
+    }).not.toThrow()
     db.close()
   })
 
@@ -840,9 +846,11 @@ describe('Round 2 Red Hat fix, mirrors time_blocks HIGH finding 1: UNIQUE(camp_i
 
     const rows = db.prepare('SELECT id FROM tiers WHERE camp_id = ? AND cohort_id = ? AND name = ?').all('camp1', 'co1', 'Yeladim')
     expect(rows.length).toBe(1)
+    // UNIQUE relaxed by schema v73/T241 — the v14 dedup above still runs (a pre-existing race is
+    // still cleaned up once), but the constraint no longer blocks a THIRD, later insert.
     expect(() => {
       db.prepare('INSERT INTO tiers (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)').run('t3', 'camp1', 'co1', 'Yeladim')
-    }).toThrow(/UNIQUE/)
+    }).not.toThrow()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     db.close()
   })
@@ -881,13 +889,13 @@ describe('Round 2 Red Hat fix, mirrors time_blocks HIGH finding 1: UNIQUE(camp_i
 })
 
 describe('ActivitiesScreen migration: UNIQUE(camp_id, name) + new columns on activities (schema version 15)', () => {
-  it('a fresh install rejects a second activity with the same camp_id + name', () => {
+  it('a fresh install allows a second activity with the same camp_id + name (UNIQUE relaxed by schema v73/T241)', () => {
     const db = freshDb()
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
     db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a1', 'camp1', 'Water Play')
     expect(() => {
       db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a2', 'camp1', 'Water Play')
-    }).toThrow(/UNIQUE/)
+    }).not.toThrow()
     db.close()
   })
 
@@ -950,9 +958,11 @@ describe('ActivitiesScreen migration: UNIQUE(camp_id, name) + new columns on act
 
     const rows = db.prepare('SELECT id FROM activities WHERE camp_id = ? AND name = ?').all('camp1', 'Water Play')
     expect(rows.length).toBe(1)
+    // UNIQUE relaxed by schema v73/T241 — the v15 dedup above still runs (a pre-existing race is
+    // still cleaned up once), but the constraint no longer blocks a THIRD, later insert.
     expect(() => {
       db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a3', 'camp1', 'Water Play')
-    }).toThrow(/UNIQUE/)
+    }).not.toThrow()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     db.close()
   })

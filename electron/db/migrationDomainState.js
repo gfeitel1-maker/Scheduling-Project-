@@ -164,6 +164,14 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // change to any existing modeled entity's row meaning — the same reading as v66's seven empty
   // participant tables above.
   72,
+  // v73 (T241) relaxes ten UNIQUE(camp_id[, cohort_id], name) constraints to plain indexes and
+  // adds two nullable/defaulted columns to the host-local `conflicts` table
+  // (docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md). Schema-only: no
+  // existing row's VALUE changes on any modeled entity — every table rebuild is a straight
+  // SELECT * copy, and the constraint relaxation only changes what future writes are ALLOWED to
+  // do, not what any current row means. `conflicts` itself is not document-modeled (host-local
+  // history), so its additive columns are outside domain-state's scope entirely.
+  73,
 ])
 
 /** True if applying `version` can change what the camp means. */

@@ -92,7 +92,7 @@ describe('migration v44: fresh vs migrated equivalence', () => {
   it('declares schema version 44 on a fresh db and gives activities the recurrence_truth_status column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(72)
+    expect(CURRENT_SCHEMA_VERSION).toBe(73)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 44').get().c).toBe(1)
     const cols = db.pragma('table_info(activities)').map((c) => c.name)
     expect(cols).toContain('recurrence_truth_status')
@@ -159,11 +159,11 @@ describe('migration v44: fresh vs migrated equivalence', () => {
     db.close()
   })
 
-  it('schema.sql declares recurrence_truth_status last in the activities CREATE block', () => {
+  it('schema.sql declares recurrence_truth_status last in the activities CREATE block (UNIQUE relaxed by schema v73/T241, so it is no longer the trailing clause)', () => {
     const schemaText = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
     const match = schemaText.match(/CREATE TABLE IF NOT EXISTS activities \([\s\S]*?\n\);/)
     expect(match, 'expected an activities CREATE TABLE block in schema.sql').toBeTruthy()
-    expect(match[0]).toContain('recurrence_truth_status TEXT,\n  UNIQUE(camp_id, name)\n);')
+    expect(match[0]).toContain('recurrence_truth_status TEXT\n);')
   })
 })
 
