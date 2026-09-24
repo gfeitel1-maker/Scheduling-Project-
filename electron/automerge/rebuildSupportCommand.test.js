@@ -14,6 +14,7 @@ import { appendOp } from '../ops/operations.js'
 import { commitIngest } from '../ops/ingest.js'
 import { seedAllFromSqlite } from './seed.js'
 import { saveDoc, docPath } from '../sync/automerge/docStore.js'
+import { applyWrite } from './campDocument.js'
 import {
   validateRebuildSource,
   rebuildIntoFreshDb,
@@ -142,6 +143,43 @@ describe('rebuildIntoFreshDb — the T151 property, from this module\'s own entr
     expect(result.notRecoverable).toMatch(/Trash/)
     expect(result.notRecoverable).toMatch(/signing_secret/)
     expect(result.notRecoverable).toMatch(/cannot VERIFY credential changes/) // T172: rebuilt device credential-verify guidance
+    fresh.close()
+  })
+
+  // Finding 2 (T235/T242 adversarial review round): rebuildIntoFreshDb calls projectAll directly
+  // against a document loaded from disk, which — unlike syncNode's merge path — never ran
+  // reconcile/deriveUniqueConflicts first. A document carrying a live hard-set UNIQUE collision
+  // (two devices each minting a new days_of_operation row for the same day, offline, then
+  // syncing) made this throw unconditionally, permanently bricking the rebuild-from-document
+  // recovery tool for any camp with an outstanding conflict the app had already surfaced.
+  it('succeeds and records the conflict when the document carries a live hard-set unique collision', () => {
+    const { db: source } = newDb('collision-source')
+    const campId = randomUUID()
+    buildCamp(source, campId, 'device-1')
+    let doc = seedAllFromSqlite(source)
+    source.close()
+
+    // Two devices, offline, each mint a brand-new days_of_operation row for the same day —
+    // different entityIds, so the scalar reconciler never sees this; only deriveUniqueConflicts
+    // (uniqueConflicts.js) catches it.
+    let a = A.clone(doc)
+    a = applyWrite(a, { entity: 'days_of_operation', entity_id: 'day-a', field: 'camp_id', value: campId })
+    a = applyWrite(a, { entity: 'days_of_operation', entity_id: 'day-a', field: 'day_of_week', value: 9 })
+    let b = A.clone(doc)
+    b = applyWrite(b, { entity: 'days_of_operation', entity_id: 'day-b', field: 'camp_id', value: campId })
+    b = applyWrite(b, { entity: 'days_of_operation', entity_id: 'day-b', field: 'day_of_week', value: 9 })
+    const merged = A.merge(A.clone(a), b)
+
+    const { db: fresh } = newDb('collision-fresh')
+    const result = rebuildIntoFreshDb(fresh, merged, campId, 'Camp Probe')
+
+    expect(result.ok).toBe(true)
+    const recorded = fresh
+      .prepare("SELECT entity, entity_ids, field FROM conflicts WHERE id LIKE 'unique:%' AND resolved_at IS NULL")
+      .all()
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0].entity).toBe('days_of_operation')
+    expect(JSON.parse(recorded[0].entity_ids).sort()).toEqual(['day-a', 'day-b'])
     fresh.close()
   })
 })

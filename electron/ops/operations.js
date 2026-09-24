@@ -565,18 +565,28 @@ export function detectConflict(db, incomingOp) {
 // at the edges (see D3's `{ id, name, capacity, notes }` picks and
 // electron/main.js's sanitizeOpRejectedForIpc), matching how
 // sanitizeOpForIpc/IPC_PIN_FIELDS already work.
+// T238 (docs/work/tickets/T238-unique-field-registry-covers-all-ten.md):
+// entries carry `scopeColumns` — an ORDERED LIST, camp scope always first —
+// rather than a single `scopeColumn`, so a composite UNIQUE (tiers/
+// time_blocks below) can be expressed without falsely rejecting a legal
+// record that only collides when the non-camp scope column is ignored (a
+// tier named "A" under cohort 1 must NOT collide with a tier named "A"
+// under cohort 2). Every entry below has exactly one element unless noted
+// otherwise; detectUniqueFieldCollision builds one predicate term per
+// element, so a single-column entry behaves exactly as the old singular
+// `scopeColumn` shape did.
 export const UNIQUE_FIELD_ENTITIES = {
-  locations: { table: 'locations', field: 'name', scopeColumn: 'camp_id' },
+  locations: { table: 'locations', field: 'name', scopeColumns: ['camp_id'] },
   // elective_sets has UNIQUE(camp_id, name). Two devices creating the same-named
   // set concurrently (a director on each, or both confirming the same ingest
   // nudge before sync) would otherwise throw ungracefully on replay. Registering
   // it here routes the collision through the same conflict-resolution path
   // locations uses — covers both the authored-create and the Slice 3a nudge path.
-  elective_sets: { table: 'elective_sets', field: 'name', scopeColumn: 'camp_id' },
+  elective_sets: { table: 'elective_sets', field: 'name', scopeColumns: ['camp_id'] },
   // events has UNIQUE(camp_id, name) — same cross-device same-named-create
   // collision class as elective_sets/locations (docs/adr/2026-08-15-
   // locations-concurrent-create-collision.md), covered the same way.
-  events: { table: 'events', field: 'name', scopeColumn: 'camp_id' },
+  events: { table: 'events', field: 'name', scopeColumns: ['camp_id'] },
   // activities has UNIQUE(camp_id, name) — same cross-device same-named-create
   // collision class as locations/elective_sets/events. Normal single-device
   // creates never hit this: createActivity (createActivityHelper.js) dedups
@@ -586,7 +596,7 @@ export const UNIQUE_FIELD_ENTITIES = {
   // for the two-rows split feature (docs/adr/2026-08-23-two-rows-
   // multipattern-split.md), which mints new activity rows (e.g. "Swim (rec)")
   // two devices could both create.
-  activities: { table: 'activities', field: 'name', scopeColumn: 'camp_id' },
+  activities: { table: 'activities', field: 'name', scopeColumns: ['camp_id'] },
   // days_of_operation has UNIQUE(camp_id, day_of_week) as of T205. Registered
   // so a genuinely-concurrent cross-device collision on the same weekday with
   // DIFFERENT ids (the Host-seed-races-invite onboarding race — deterministic
@@ -594,7 +604,53 @@ export const UNIQUE_FIELD_ENTITIES = {
   // case) becomes a typed, director-resolvable conflict instead of a raw
   // SQLITE_CONSTRAINT_UNIQUE thrown deep inside a shared projection
   // transaction. See docs/work/tickets/T205-days-of-operation-uniqueness-and-dedup-migration.md.
-  days_of_operation: { table: 'days_of_operation', field: 'day_of_week', scopeColumn: 'camp_id' },
+  days_of_operation: { table: 'days_of_operation', field: 'day_of_week', scopeColumns: ['camp_id'] },
+  // T238 owner decision 6: `groups`, `cohorts`, `tiers`, `time_blocks`,
+  // `schedule_weeks`, `special_days` were relaxed from a hard UNIQUE to a
+  // plain index in v73 (T241) so the projection can mirror a document
+  // collision losslessly instead of one device's create silently vanishing.
+  // Before v73 they at least threw a raw SQLITE_CONSTRAINT_UNIQUE; after v73
+  // this advisory pre-check is the ONLY local nudge a director typing a
+  // duplicate on purpose gets, so leaving them unregistered makes them
+  // quietly WORSE at exactly the moment they stop erroring.
+  //
+  // groups has UNIQUE(camp_id, name) pre-v73 (schema.sql's idx_groups_camp_name).
+  groups: { table: 'groups', field: 'name', scopeColumns: ['camp_id'] },
+  // cohorts has UNIQUE(camp_id, name) pre-v73.
+  cohorts: { table: 'cohorts', field: 'name', scopeColumns: ['camp_id'] },
+  // tiers has UNIQUE(camp_id, cohort_id, name) pre-v73 — COMPOSITE scope, not
+  // just camp-wide. `cohort_id` (scopeColumns[1]) is not read from the camps
+  // table like `camp_id` is: detectUniqueFieldCollision reads it off the
+  // CURRENT row for op.entity_id itself. On a create this is only known if
+  // cohort_id was already written when the unique field (`name`) write
+  // lands — orderFieldsForCreate (src/data/setupCrudRepository.js) enforces
+  // exactly that ordering for entities registered in
+  // UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS. If the row (or the column on it)
+  // doesn't exist yet, the check can't be performed and is skipped —
+  // advisory only, never blocking (Art. V) — rather than guessing.
+  tiers: { table: 'tiers', field: 'name', scopeColumns: ['camp_id', 'cohort_id'] },
+  // time_blocks has UNIQUE(camp_id, cohort_id, name) pre-v73 — same composite-
+  // scope reasoning as tiers above.
+  time_blocks: { table: 'time_blocks', field: 'name', scopeColumns: ['camp_id', 'cohort_id'] },
+  // schedule_weeks has UNIQUE(camp_id, name) pre-v73 (a plain named index,
+  // not an inline UNIQUE — see schema.sql's comment above its CREATE TABLE —
+  // but the constraint semantics were the same before v73 relaxed it).
+  schedule_weeks: { table: 'schedule_weeks', field: 'name', scopeColumns: ['camp_id'] },
+  // special_days has UNIQUE(camp_id, name) pre-v73.
+  special_days: { table: 'special_days', field: 'name', scopeColumns: ['camp_id'] },
+}
+
+// Extra (non-camp) scope columns a create must write BEFORE the unique field
+// itself, so detectUniqueFieldCollision can read their value off the row —
+// see the `tiers`/`time_blocks` comments above. Consumed by
+// orderFieldsForCreate (src/data/setupCrudRepository.js); kept here, next to
+// UNIQUE_FIELD_ENTITIES, so the two can't drift independently within this
+// file. src/ cannot import this module directly (better-sqlite3/node:crypto),
+// so setupCrudRepository.js carries its own transcription, the same way
+// UNIQUE_FIRST_FIELD already transcribes UNIQUE_FIELD_ENTITIES's `field`.
+export const UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS = {
+  tiers: ['cohort_id'],
+  time_blocks: ['cohort_id'],
 }
 
 // Returns the colliding row's current { id, ...fields } if `op` would
@@ -614,11 +670,34 @@ export function detectUniqueFieldCollision(db, op) {
   if (!config || op.field !== config.field || op.value == null || op.value === '') return null
   const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
   if (!camp) return null
+
+  // One bound value per scopeColumns entry, in order. `camp_id` is always
+  // this device's single camp (never read from the op or the row — see the
+  // single-camp-per-device-db invariant). Any OTHER scope column (T238's
+  // composite case, e.g. tiers' `cohort_id`) is not camp-wide, so its value
+  // can only come from the record's OWN current row for op.entity_id — the
+  // row exists at this point only if that scope column was already written
+  // (orderFieldsForCreate, src/data/setupCrudRepository.js, writes it before
+  // the unique field on a create). If the row or the column's value isn't
+  // there yet, the check genuinely cannot be performed — skip it (return
+  // null) rather than guess; this is advisory only, never blocking (Art. V).
+  const scopeValues = []
+  for (const col of config.scopeColumns) {
+    if (col === 'camp_id') {
+      scopeValues.push(camp.id)
+      continue
+    }
+    const row = getStmt(db, `SELECT ${col} FROM ${config.table} WHERE id = ?`).get(op.entity_id)
+    if (!row || row[col] == null) return null
+    scopeValues.push(row[col])
+  }
+
+  const scopePredicate = config.scopeColumns.map((col) => `${col} = ?`).join(' AND ')
   return (
     getStmt(
       db,
-      `SELECT * FROM ${config.table} WHERE ${config.scopeColumn} = ? AND ${config.field} = ? AND id != ?`
-    ).get(camp.id, op.value, op.entity_id) || null
+      `SELECT * FROM ${config.table} WHERE ${scopePredicate} AND ${config.field} = ? AND id != ?`
+    ).get(...scopeValues, op.value, op.entity_id) || null
   )
 }
 
@@ -661,6 +740,24 @@ export function listPendingConflicts(db) {
   const pending = []
   const now = new Date().toISOString()
   for (const row of rows) {
+    // T243 — a hard-set UNIQUE collision (conflictStore.js's
+    // recordUniqueConflicts) has no op-log resolution: there is no
+    // resolving op with a parent_op_id, because nothing here is "chosen" —
+    // it clears when clearResolvedUniqueConflicts next runs and the
+    // collision is no longer in the document. So this row never enters the
+    // resolvingOp check below, which is scalar-conflict-only.
+    if (row.kind === 'unique') {
+      pending.push({
+        type: 'unique_conflict',
+        id: row.id,
+        entity: row.entity,
+        field: row.field,
+        entityIds: JSON.parse(row.entity_ids),
+        existingRecord: JSON.parse(row.existing_op),
+        incomingRecord: JSON.parse(row.incoming_op),
+      })
+      continue
+    }
     const resolvingOp = db
       .prepare(
         'SELECT id FROM operations WHERE entity = ? AND entity_id = ? AND field = ? AND parent_op_id = ? LIMIT 1'

@@ -12,8 +12,7 @@
 import * as A from '@automerge/automerge'
 import { startTransport } from './transport.js'
 import { projectAll } from '../../automerge/projector.js'
-import { reconcile } from '../../automerge/reconcile.js'
-import { recordConflicts, clearResolvedConflicts } from '../../automerge/conflictStore.js'
+import { reconcileAndRecordConflicts } from '../../automerge/reconcileForProjection.js'
 import { synthesizeOpEvents } from './docDiffEvents.js'
 import { evaluateAuthenticate, evaluatePairingRequest, evaluateLogin } from '../../auth/connectionAuth.js'
 import { appendReceivedOps } from '../../automerge/historyLedger.js'
@@ -104,12 +103,11 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // for a human to settle. `projectAll` then refuses any document carrying a
   // conflict this did not record — which is what makes "the system cannot be in
   // a state where a conflict went unhandled" a property of the code rather than
-  // of whoever remembers to call this.
+  // of whoever remembers to call this. Shared with the other projectAll callers
+  // (rebuildSupportCommand.js, purgeSupportCommand.js) via reconcileForProjection.js —
+  // see that module's header for why it had to stop being private to this file.
   function reconcileForProjection(merged) {
-    const { doc: reconciled, conflicts } = reconcile(merged)
-    recordConflicts(db, conflicts)
-    clearResolvedConflicts(db, conflicts)
-    return reconciled
+    return reconcileAndRecordConflicts(db, merged)
   }
 
   function projectAndNotify(merged, before, fromPeerId) {

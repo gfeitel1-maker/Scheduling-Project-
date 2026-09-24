@@ -6,7 +6,7 @@
 // (SpecialSchedulesScreen, route 'schedule:special') is UNCHANGED — this
 // screen only authors name/notes/location and routes "Build →" there, same
 // as the two screens it replaces did.
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { whitespaceInsensitiveName } from '../ingest/preview'
@@ -17,6 +17,8 @@ import { LocationPicker } from '../components/LocationPicker'
 import { ScheduleDoor } from '../components/ScheduleDoor'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import InlineAddRow from '../components/setup/InlineAddRow'
+import DuplicateNameDot from '../components/setup/DuplicateNameDot'
+import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 import { seedFailureMessage } from './specialDay/seedFailureMessage'
 
 const repository = createSetupCrudRepository({ localClient })
@@ -226,6 +228,11 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   const [days, setDays] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  // Two separate maps, never merged: events and special_days are separate
+  // tables with separate UNIQUE constraints, and a same-named event/day pair
+  // is not a collision — only within-entity name matches are duplicates.
+  const duplicateDaySiblings = useMemo(() => duplicateSiblingsByIdFor(days), [days])
+  const duplicateEventSiblings = useMemo(() => duplicateSiblingsByIdFor(events), [events])
   const [seedPromptForId, setSeedPromptForId] = useState(null)
   const [toast, setToast] = useState(null)
 
@@ -463,8 +470,8 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   }
 
   const rows = [
-    ...days.map((d) => ({ key: `day-${d.id}`, name: d.name, type: 'day', tag: 'Special Day', tagColor: 'var(--secondary)', focus: { type: 'day', id: d.id } })),
-    ...events.map((e) => ({ key: `event-${e.id}`, name: e.name, type: 'event', tag: 'Event', tagColor: 'var(--primary)', focus: { type: 'event', id: e.id } })),
+    ...days.map((d) => ({ key: `day-${d.id}`, entity: d, name: d.name, type: 'day', tag: 'Special Day', tagColor: 'var(--secondary)', focus: { type: 'day', id: d.id }, duplicateSiblings: duplicateDaySiblings.get(d.id), entityLabel: 'special day' })),
+    ...events.map((e) => ({ key: `event-${e.id}`, entity: e, name: e.name, type: 'event', tag: 'Event', tagColor: 'var(--primary)', focus: { type: 'event', id: e.id }, duplicateSiblings: duplicateEventSiblings.get(e.id), entityLabel: 'event' })),
   ]
 
   return (
@@ -492,7 +499,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
                 </td></tr>
               ) : (
                 rows.map((r) => (
-                  <SpecialEventRow key={r.key} name={r.name} tag={r.tag} tagColor={r.tagColor} onOpen={() => setSelected(r.focus)} />
+                  <SpecialEventRow key={r.key} entity={r.entity} name={r.name} tag={r.tag} tagColor={r.tagColor} onOpen={() => setSelected(r.focus)} duplicateSiblings={r.duplicateSiblings} entityLabel={r.entityLabel} />
                 ))
               )}
               <InlineAddRow
@@ -523,7 +530,7 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
 
 // One list row — clicking anywhere opens that item's detail (the same detail
 // the old card click opened). Type shows as a colored tag, reusing S.chip.
-function SpecialEventRow({ name, tag, tagColor, onOpen }) {
+function SpecialEventRow({ entity, name, tag, tagColor, onOpen, duplicateSiblings, entityLabel }) {
   return (
     <tr
       style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
@@ -539,6 +546,7 @@ function SpecialEventRow({ name, tag, tagColor, onOpen }) {
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen() } }}
           style={{ cursor: 'pointer', fontWeight: 500 }}
         >{name || '(unnamed)'}</span>
+        {duplicateSiblings?.length > 0 && <DuplicateNameDot row={entity} siblings={duplicateSiblings} entityLabel={entityLabel} />}
       </td>
       <td style={S.td}>
         <span style={S.chip(tagColor, false, { padding: '3px 10px', fontSize: 11 })}>{tag}</span>

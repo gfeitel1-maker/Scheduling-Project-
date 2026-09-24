@@ -755,10 +755,13 @@ describe('detectUniqueFieldCollision (D2 — locations UNIQUE(camp_id, name))', 
   })
 
   it('is a no-op for an entity not registered in UNIQUE_FIELD_ENTITIES', () => {
+    // schedule_templates is one of the four HARD-set UNIQUE tables (T238
+    // non-goals) — deliberately left out of UNIQUE_FIELD_ENTITIES, unlike
+    // `groups` which T238 registers below.
     const result = detectUniqueFieldCollision(db, {
-      entity: 'groups',
-      entity_id: 'group-1',
-      field: 'name',
+      entity: 'schedule_templates',
+      entity_id: 'template-1',
+      field: 'kind',
       value: 'Anything',
     })
     expect(result).toBeNull()
@@ -1474,5 +1477,205 @@ describe('detectUniqueFieldCollision (T205 — days_of_operation UNIQUE(camp_id,
       value: 2,
     })
     expect(result).toBeNull()
+  })
+})
+
+// T238 (docs/work/tickets/T238-unique-field-registry-covers-all-ten.md):
+// groups/cohorts/tiers/time_blocks/schedule_weeks/special_days were relaxed
+// from a hard UNIQUE to a plain index in v73 (T241) and newly registered in
+// UNIQUE_FIELD_ENTITIES here, so a director typing a duplicate on purpose
+// gets a typed rejection instead of nothing (the advisory pre-check is now
+// the only local nudge left for these six).
+describe('detectUniqueFieldCollision (T238 — the six newly-registered relaxed tables)', () => {
+  it('detects a collision for groups UNIQUE(camp_id, name)', () => {
+    appendOp(db, {
+      entity: 'groups', entity_id: 'group-a', field: 'name', value: 'Bears',
+      author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null,
+    })
+    const result = detectUniqueFieldCollision(db, { entity: 'groups', entity_id: 'group-b', field: 'name', value: 'Bears' })
+    expect(result).toBeTruthy()
+    expect(result.id).toBe('group-a')
+  })
+
+  it('detects a collision for cohorts UNIQUE(camp_id, name)', () => {
+    appendOp(db, {
+      entity: 'cohorts', entity_id: 'cohort-a', field: 'name', value: 'Session 1',
+      author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null,
+    })
+    const result = detectUniqueFieldCollision(db, { entity: 'cohorts', entity_id: 'cohort-b', field: 'name', value: 'Session 1' })
+    expect(result).toBeTruthy()
+    expect(result.id).toBe('cohort-a')
+  })
+
+  it('detects a collision for schedule_weeks UNIQUE(camp_id, name)', () => {
+    appendOp(db, {
+      entity: 'schedule_weeks', entity_id: 'week-a', field: 'name', value: 'Week 1',
+      author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null,
+    })
+    const result = detectUniqueFieldCollision(db, { entity: 'schedule_weeks', entity_id: 'week-b', field: 'name', value: 'Week 1' })
+    expect(result).toBeTruthy()
+    expect(result.id).toBe('week-a')
+  })
+
+  it('detects a collision for special_days UNIQUE(camp_id, name)', () => {
+    appendOp(db, {
+      entity: 'special_days', entity_id: 'sd-a', field: 'name', value: 'Color War',
+      author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null,
+    })
+    const result = detectUniqueFieldCollision(db, { entity: 'special_days', entity_id: 'sd-b', field: 'name', value: 'Color War' })
+    expect(result).toBeTruthy()
+    expect(result.id).toBe('sd-a')
+  })
+})
+
+// T238 composite scope: tiers/time_blocks are UNIQUE(camp_id, cohort_id,
+// name), not UNIQUE(camp_id, name) — a tier named "A" under one cohort must
+// NOT collide with a tier named "A" under a DIFFERENT cohort. Registering
+// these two as camp-scoped-only would falsely reject the legal, cross-
+// cohort case, which is worse than the gap this ticket closes.
+describe('detectUniqueFieldCollision (T238 — tiers/time_blocks composite scope UNIQUE(camp_id, cohort_id, name))', () => {
+  function makeCohort(id, name) {
+    appendOp(db, { entity: 'cohorts', entity_id: id, field: 'camp_id', value: 'camp-1', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+    appendOp(db, { entity: 'cohorts', entity_id: id, field: 'name', value: name, author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+  }
+
+  it('rejects two tiers named "A" under the SAME cohort', () => {
+    makeCohort('cohort-1', 'Session 1')
+    appendOp(db, { entity: 'tiers', entity_id: 'tier-a', field: 'cohort_id', value: 'cohort-1', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+    appendOp(db, { entity: 'tiers', entity_id: 'tier-a', field: 'name', value: 'A', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+
+    // A second tier, same cohort, whose cohort_id op has ALREADY landed
+    // (mirrors orderFieldsForCreate writing cohort_id before name) before
+    // the name write triggers the check.
+    appendOp(db, { entity: 'tiers', entity_id: 'tier-b', field: 'cohort_id', value: 'cohort-1', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+    const result = detectUniqueFieldCollision(db, { entity: 'tiers', entity_id: 'tier-b', field: 'name', value: 'A' })
+    expect(result).toBeTruthy()
+    expect(result.id).toBe('tier-a')
+  })
+
+  it('accepts two tiers named "A" under two DIFFERENT cohorts (the false-rejection case this ticket exists to avoid)', () => {
+    makeCohort('cohort-1', 'Session 1')
+    makeCohort('cohort-2', 'Session 2')
+    appendOp(db, { entity: 'tiers', entity_id: 'tier-a', field: 'cohort_id', value: 'cohort-1', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+    appendOp(db, { entity: 'tiers', entity_id: 'tier-a', field: 'name', value: 'A', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+
+    appendOp(db, { entity: 'tiers', entity_id: 'tier-b', field: 'cohort_id', value: 'cohort-2', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+    const result = detectUniqueFieldCollision(db, { entity: 'tiers', entity_id: 'tier-b', field: 'name', value: 'A' })
+    expect(result).toBeNull()
+  })
+
+  it('detects a collision for time_blocks under the SAME cohort, the same way', () => {
+    makeCohort('cohort-1', 'Session 1')
+    appendOp(db, { entity: 'time_blocks', entity_id: 'tb-a', field: 'cohort_id', value: 'cohort-1', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+    appendOp(db, { entity: 'time_blocks', entity_id: 'tb-a', field: 'name', value: 'Morning', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+
+    appendOp(db, { entity: 'time_blocks', entity_id: 'tb-b', field: 'cohort_id', value: 'cohort-1', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+    const result = detectUniqueFieldCollision(db, { entity: 'time_blocks', entity_id: 'tb-b', field: 'name', value: 'Morning' })
+    expect(result).toBeTruthy()
+    expect(result.id).toBe('tb-a')
+  })
+
+  it('skips the check (returns null) when the extra scope column is not yet on the row — advisory only, never guesses', () => {
+    // tier-b's cohort_id has NOT been written yet — the row doesn't exist at
+    // all (ensureExists never ran), so detectUniqueFieldCollision cannot
+    // read a scope value for it and must not guess one.
+    makeCohort('cohort-1', 'Session 1')
+    appendOp(db, { entity: 'tiers', entity_id: 'tier-a', field: 'cohort_id', value: 'cohort-1', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+    appendOp(db, { entity: 'tiers', entity_id: 'tier-a', field: 'name', value: 'A', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+
+    const result = detectUniqueFieldCollision(db, { entity: 'tiers', entity_id: 'tier-b', field: 'name', value: 'A' })
+    expect(result).toBeNull()
+  })
+
+  // ANTI-VACUITY (owner's non-negotiable rule): a guard that only catches the
+  // defect it was designed for proves nothing. This plants a DIFFERENT
+  // defect class — a scope predicate that silently DROPS the extra scope
+  // column and falls back to camp-only scoping — and proves the real
+  // predicate (built from config.scopeColumns, plural) would catch it, by
+  // showing the camp-only predicate here wrongly reports a collision that
+  // the real, composite-aware function correctly reports as none.
+  it('non-vacuity: a camp-only (scope-column-dropping) predicate would WRONGLY collide across different cohorts — the real check does not', () => {
+    makeCohort('cohort-1', 'Session 1')
+    makeCohort('cohort-2', 'Session 2')
+    appendOp(db, { entity: 'tiers', entity_id: 'tier-a', field: 'cohort_id', value: 'cohort-1', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+    appendOp(db, { entity: 'tiers', entity_id: 'tier-a', field: 'name', value: 'A', author_user_id: 'user-1', device_id: 'device-1', parent_op_id: null })
+
+    // The planted defect: check camp_id only, exactly what the OLD single-
+    // scopeColumn shape would have done had tiers been registered with it.
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    const campOnlyResult = db
+      .prepare('SELECT * FROM tiers WHERE camp_id = ? AND name = ? AND id != ?')
+      .get(camp.id, 'A', 'tier-b')
+    expect(campOnlyResult).toBeTruthy() // the planted defect DOES fire here — proves it's a real, catchable defect class
+
+    // The real function, reading cohort_id off the row, correctly reports none.
+    const result = detectUniqueFieldCollision(db, { entity: 'tiers', entity_id: 'tier-b', field: 'name', value: 'A' })
+    expect(result).toBeNull()
+  })
+})
+
+describe('listPendingConflicts + kind: unique rows (T243 — connecting deriveUniqueConflicts to the renderer)', () => {
+  it('returns a hard-set UNIQUE collision alongside scalar conflicts, in a distinct shape', async () => {
+    const { recordUniqueConflicts } = await import('../automerge/conflictStore.js')
+    const { deriveUniqueConflicts } = await import('../automerge/uniqueConflicts.js')
+    const { recordKey } = await import('../automerge/campDocument.js')
+
+    // Two whole `users` records sharing camp_id+name — exactly what
+    // deriveUniqueConflicts produces from a merged document. Built via the
+    // real production key encoding (`recordKey`) `listRecordIds`/`readRecord`
+    // expect, not a hand-rolled shape.
+    function flattenRecord(record) {
+      const out = {}
+      for (const [field, value] of Object.entries(record)) out[recordKey(record.id, field)] = value
+      return out
+    }
+    const fakeDoc = {
+      users: {
+        ...flattenRecord({ id: 'user-a', camp_id: 'camp-1', name: 'Alice', role: 'staff', pin_hash: 'hashA', pin_salt: 'saltA' }),
+        ...flattenRecord({ id: 'user-b', camp_id: 'camp-1', name: 'Alice', role: 'admin', pin_hash: 'hashB', pin_salt: 'saltB' }),
+      },
+    }
+    const conflicts = deriveUniqueConflicts(fakeDoc)
+    expect(conflicts).toHaveLength(1)
+    recordUniqueConflicts(db, conflicts)
+
+    const pending = listPendingConflicts(db)
+    const unique = pending.find((p) => p.type === 'unique_conflict')
+    expect(unique).toBeTruthy()
+    expect(unique.entity).toBe('users')
+    expect(unique.field).toBe('name')
+    expect(unique.entityIds.sort()).toEqual(['user-a', 'user-b'])
+    // Whole records travel through at this layer (main.js's sanitizeConflictForIpc
+    // is the PIN boundary, tested separately) — but listPendingConflicts itself
+    // must not have dropped or renamed the records deriveUniqueConflicts produced.
+    expect(unique.existingRecord).toBeTruthy()
+    expect(unique.incomingRecord).toBeTruthy()
+  })
+
+  it('an existing scalar conflict is unaffected by a unique row also being pending', () => {
+    const existingOp = appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-20',
+      field: 'activity_id',
+      value: 'v1',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    const incomingOp = {
+      id: 'incoming-op-id-20',
+      entity: 'template_slots',
+      entity_id: 'slot-20',
+      field: 'activity_id',
+      value: 'v2',
+      device_id: 'device-2',
+      timestamp: new Date().toISOString(),
+      parent_op_id: null,
+    }
+    recordConflict(db, { incomingOp, existingOp })
+
+    const pending = listPendingConflicts(db)
+    expect(pending).toHaveLength(1)
+    expect(pending[0].type).toBe('op_conflict')
   })
 })

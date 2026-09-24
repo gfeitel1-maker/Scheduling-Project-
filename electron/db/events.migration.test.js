@@ -82,7 +82,7 @@ describe('migration v40: fresh vs migrated equivalence', () => {
   it('creates the events table and the template_slots.event_id column on a fresh db, declares schema version 40', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(72)
+    expect(CURRENT_SCHEMA_VERSION).toBe(73)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 40').get().c).toBe(1)
     expect(db.prepare('SELECT COUNT(*) c FROM events').get().c).toBe(0)
     expect(db.pragma('table_info(template_slots)').map((c) => c.name)).toContain('event_id')
@@ -171,13 +171,14 @@ describe('migration v40: fresh vs migrated equivalence', () => {
     db.close()
   })
 
-  it('enforces UNIQUE(camp_id, name) on events', () => {
+  it('allows two events with the same camp_id + name (UNIQUE relaxed by schema v73/T241 — a merged document\'s colliding records must both project)', () => {
     const db = freshDb()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare("INSERT INTO events (id, camp_id, name) VALUES ('ev1', 'camp1', 'Color War')").run()
     expect(() =>
       db.prepare("INSERT INTO events (id, camp_id, name) VALUES ('ev2', 'camp1', 'Color War')").run()
-    ).toThrow(/UNIQUE/)
+    ).not.toThrow()
+    expect(db.prepare("SELECT COUNT(*) c FROM events WHERE camp_id = 'camp1' AND name = 'Color War'").get().c).toBe(2)
     db.close()
   })
 

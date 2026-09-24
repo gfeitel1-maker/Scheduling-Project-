@@ -321,6 +321,16 @@ const PROJECTION_FIELD_EXCEPTIONS = {
       reason:
         "Set only by raw SQL at electron/ops/operations.js:515 (`UPDATE conflicts SET resolved_at = ? WHERE id = ?`, in the pending-conflict resolution scan), never via appendOp.",
     },
+    {
+      column: 'entity_ids',
+      reason:
+        'v73 addition (Decision 1 of docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md) — same as `entity` above: written only by raw SQL in recordConflict(), never via appendOp/PROJECTIONS. conflicts rows are derived from the merged document and never replicated, so there is nothing to project.',
+    },
+    {
+      column: 'kind',
+      reason:
+        'v73 addition, same file/decision as `entity_ids` above — same as `entity`: raw-SQL-only column on a non-appendOp, non-replicated table.',
+    },
   ],
 }
 

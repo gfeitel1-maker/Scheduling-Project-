@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import InlineAddRow from '../components/setup/InlineAddRow'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
+import DuplicateNameDot from '../components/setup/DuplicateNameDot'
+import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 
 // Repository-only migration (not the full useCrudScreen hook): load() is a
 // single camp-scoped list() with a two-key sort, and this screen has no
@@ -25,7 +27,7 @@ const CAPACITY_SOURCES = [
   { value: 'camper_headcount', label: 'Camper headcount (coming soon)' },
 ]
 
-function CohortRow({ cohort, onSave, onDelete }) {
+function CohortRow({ cohort, onSave, onDelete, duplicateSiblings }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(cohort.name)
   const [weekStart, setWeekStart] = useState(cohort.session_week_start)
@@ -114,7 +116,7 @@ function CohortRow({ cohort, onSave, onDelete }) {
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
     >
-      <td style={{ ...S.td, fontWeight: 500 }}>{cohort.name}</td>
+      <td style={{ ...S.td, fontWeight: 500 }}>{cohort.name}{duplicateSiblings?.length > 0 && <DuplicateNameDot row={cohort} siblings={duplicateSiblings} entityLabel="cohort" />}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>
         {cohort.session_week_start}–{cohort.session_week_end}
       </td>
@@ -136,6 +138,7 @@ function CohortRow({ cohort, onSave, onDelete }) {
 export default function CohortsScreen({ campId }) {
   const emptyEnter = useEnterTransition('liftFade')
   const [cohorts, setCohorts] = useState([])
+  const duplicateCohortSiblings = useMemo(() => duplicateSiblingsByIdFor(cohorts), [cohorts])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState(null)
@@ -296,7 +299,7 @@ export default function CohortsScreen({ campId }) {
                   </div>
                 </td></tr>
               ) : cohorts.map(c => (
-                <CohortRow key={c.id} cohort={c} onSave={saveCohort} onDelete={deleteCohort} />
+                <CohortRow key={c.id} cohort={c} onSave={saveCohort} onDelete={deleteCohort} duplicateSiblings={duplicateCohortSiblings.get(c.id)} />
               ))}
               {/* The always-present blank "type here to add" row — lives as
                   the last row of the programs table (Excel-like inline add).

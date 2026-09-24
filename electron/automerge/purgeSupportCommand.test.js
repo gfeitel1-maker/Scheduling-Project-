@@ -12,11 +12,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomUUID, generateKeyPairSync } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
+import { writePreMigrationBackup } from '../db/projectManager.js'
 import { appendOp } from '../ops/operations.js'
 import * as seedModule from './seed.js'
 import { seedAllFromSqlite } from './seed.js'
 import { saveDoc, loadDoc } from '../sync/automerge/docStore.js'
-import { sharesGenesis, recordKey } from './campDocument.js'
+import { sharesGenesis, recordKey, applyWrite } from './campDocument.js'
 import { projectAll } from './projector.js'
 import {
   rebuildProjectionFromDocumentAtPath,
@@ -600,6 +601,69 @@ describe('purgeCamperRecord', () => {
     freshNonHostDb.close()
     expect(() => purgeCamperRecord({ dbPath: freshNonHostPath, userDataDir: freshUserDataDir, entityId: freshCamperId }))
       .toThrow(/only the Host can mint/)
+  })
+
+  // Finding 2 (T235/T242 adversarial review round): the crash-recovery reproject at line ~268
+  // (`if (didRecoverKeys && doc) projectAll(oldDb, doc)`) and the post-key-restore reproject at
+  // line ~384 both called projectAll directly against a document loaded from disk, without ever
+  // deriving/recording conflicts first — unlike syncNode's own merge path. A camp with a live
+  // hard-set UNIQUE collision (two devices, offline, each minting a new days_of_operation row for
+  // the same day) made the crash-recovery retry throw unconditionally instead of completing,
+  // because assertConflictsRecorded's unique guard fired against an unrecorded collision.
+  it('T235/T242 finding 2: crash-recovery purge retry succeeds and records the conflict when the pre-crash document carries a live hard-set unique collision', () => {
+    const { db, dbPath } = newDb('crash-collision')
+    const campId = randomUUID()
+    const deviceId = 'device-1'
+    const camperId = randomUUID()
+    const prefId = randomUUID()
+    buildCampWithCamper(db, {
+      campId, deviceId, camperId, groupId: randomUUID(),
+      prefId, runId: randomUUID(), choiceId: randomUUID(),
+    })
+    installHostKey(db, campId)
+    let doc = seedAllFromSqlite(db)
+
+    // Fold in a live hard-set collision — the shape of the doc `purgeCamperRecord` loads from
+    // disk at its very start (line ~242). Two devices, offline, each mint a brand-new
+    // days_of_operation row for the same day; only deriveUniqueConflicts (not the scalar
+    // reconciler) ever sees this, and it can never coexist as two rows in SQLite itself (a real
+    // UNIQUE constraint), which is exactly why leaving it unrecorded is dangerous rather than
+    // merely surprising.
+    let a = A.clone(doc)
+    a = applyWrite(a, { entity: 'days_of_operation', entity_id: 'day-a', field: 'camp_id', value: campId })
+    a = applyWrite(a, { entity: 'days_of_operation', entity_id: 'day-a', field: 'day_of_week', value: 9 })
+    let b = A.clone(doc)
+    b = applyWrite(b, { entity: 'days_of_operation', entity_id: 'day-b', field: 'camp_id', value: campId })
+    b = applyWrite(b, { entity: 'days_of_operation', entity_id: 'day-b', field: 'day_of_week', value: 9 })
+    doc = A.merge(A.clone(a), b)
+
+    const userDataDir = newUserDataDir('crash-collision')
+    saveDoc(userDataDir, campId, doc)
+
+    // Reproduce the pre-crash state finding 1's test uses — BUT bypass the rebuild machinery
+    // itself (rebuildProjectionFromDocumentAtPathCore), which already records this same collision
+    // via the finding-2 fix to rebuildIntoFreshDb and would make this test vacuous for the
+    // line-268 call site under test: the guard would see the collision as already recorded and
+    // never exercise the unfixed code. Instead, write the pre-migration backup and wipe
+    // host_signing_key directly, exactly what that rebuild would have done to this device's own
+    // db, with the `conflicts` table left genuinely empty — so `doc`'s collision is unrecorded
+    // when purgeCamperRecord's retry loads it, exactly finding 2's failure mode.
+    db.pragma('wal_checkpoint(TRUNCATE)')
+    db.close()
+    writePreMigrationBackup(dbPath)
+    const wipeDb = openLocalDb(dbPath)
+    wipeDb.prepare('DELETE FROM host_signing_key WHERE id = 1').run()
+    wipeDb.close()
+
+    const checkDb = openLocalDb(dbPath)
+    expect(checkDb.prepare('SELECT 1 FROM host_signing_key WHERE id = 1').get()).toBeUndefined()
+    checkDb.close()
+
+    // The retry's line-268 `projectAll(oldDb, doc)` re-projects this collision doc directly
+    // (loaded fresh from disk) BEFORE purgeCamperRecord's own SQLite-derived regeneration runs —
+    // before the fix, this threw unconditionally because nothing had recorded the collision yet.
+    const result = purgeCamperRecord({ dbPath, userDataDir, entityId: camperId })
+    expect(result.campId).toBe(campId)
   })
 
   // T233 round 2, finding 2: a per-device purge/regen serialization lock. Two purge invocations

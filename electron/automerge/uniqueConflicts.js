@@ -1,0 +1,123 @@
+// Surfacing the four HARD-SET structural collisions the merge path never sees
+// on its own.
+// docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md, Decision 1,
+// and docs/superpowers/specs/2026-09-23-merge-unique-collision-design.md.
+//
+// reconcile.js's scalar path walks the document ONE KEY AT A TIME and only ever fires when
+// two devices write the SAME document key — Automerge's `getConflicts`. Two offline devices
+// each minting a brand-new `days_of_operation` row for Tuesday write two entirely different
+// keys (different entityIds): nothing about that is a "conflict" to Automerge, and
+// `reconcile()` correctly reports zero. But it is still a fact a director must be told about,
+// because the schema keeps `UNIQUE(camp_id, day_of_week)` a real, HARD constraint (unlike the
+// ten free-text-name tables schema v73 relaxed) — `electron/db/localDb.js`'s login lookup,
+// `deriveDayId`, the one-row-per-route assumption, all depend on there being exactly one.
+//
+// So this is a DIFFERENT pass over the document: group every record of one of the four
+// hard-set entities by its scoped unique value, and flag any group with more than one id.
+// Kept as its own module rather than folded into reconcile() because the fact being derived is
+// a different SHAPE — "two whole records share a value", not "one field has two values" — see
+// the ADR's Decision 1 for why forcing the two into one shape corrupts `conflictStore.js`,
+// `ConflictsScreen`, and every test written against the scalar shape.
+//
+// Pure with respect to SQLite, libp2p and the clock — same discipline as reconcile.js.
+import { listRecordIds, readRecord } from './campDocument.js'
+
+// The four constraints that stay HARD after schema v73 (T241 relaxed the other ten free-text
+// name tables to a plain, non-unique index). Each entry says which field of the record is the
+// scope (the other half of the compound UNIQUE) and which field is the value that collides.
+const HARD_SET = {
+  users: { scopeField: 'camp_id', field: 'name' },
+  days_of_operation: { scopeField: 'camp_id', field: 'day_of_week' },
+  schedule_templates: { scopeField: 'week_id', field: 'kind' },
+  camp_maps: { scopeField: 'camp_id', field: 'kind' },
+}
+
+function sorted(arr) {
+  return [...arr].sort()
+}
+
+// A record with no scope, or an unset/empty unique field, is not a collision candidate — it is
+// the ensureExists placeholder shape every entity is briefly written in (e.g. `users.name`
+// defaults to `''`), and two placeholders sharing "unset" is not two people disagreeing.
+function isCollisionCandidate(scopeValue, fieldValue) {
+  return scopeValue != null && scopeValue !== '' && fieldValue != null && fieldValue !== ''
+}
+
+/**
+ * Derive every hard-set UNIQUE collision in `doc`.
+ *
+ * Returns `[{ entity, scopeId, field, entityIds, values }]`:
+ *   - `entityIds` — every colliding record's id, sorted, so two devices agree on order.
+ *   - `values` — `[{ entityId, record }]` in the same order, carrying the WHOLE record (not one
+ *     field) because a director needs to see what each device actually typed.
+ *
+ * Deterministic ordering is part of the contract, not tidiness: sort by entity, then by the
+ * scoped unique value (`scopeId` + `field` value), then by the sorted tuple of colliding ids —
+ * so two devices derive byte-identical output from the same document bytes.
+ */
+export function deriveUniqueConflicts(doc) {
+  const results = []
+
+  for (const entity of sorted(Object.keys(HARD_SET))) {
+    const { scopeField, field } = HARD_SET[entity]
+    const groups = new Map()
+
+    for (const entityId of listRecordIds(doc, entity)) {
+      const record = readRecord(doc, entity, entityId)
+      if (!record) continue
+      const scopeValue = record[scopeField]
+      const fieldValue = record[field]
+      if (!isCollisionCandidate(scopeValue, fieldValue)) continue
+
+      const groupKey = `${scopeValue}\u0000${fieldValue}`
+      if (!groups.has(groupKey)) groups.set(groupKey, { scopeValue, entries: [] })
+      groups.get(groupKey).entries.push({ entityId, record })
+    }
+
+    for (const groupKey of sorted([...groups.keys()])) {
+      const { scopeValue, entries } = groups.get(groupKey)
+      if (entries.length < 2) continue
+
+      const orderedEntries = [...entries].sort((a, b) => (a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0))
+      results.push({
+        entity,
+        scopeId: scopeValue,
+        field,
+        entityIds: orderedEntries.map((e) => e.entityId),
+        values: orderedEntries.map((e) => ({ entityId: e.entityId, record: e.record })),
+      })
+    }
+  }
+
+  return results
+}
+
+/**
+ * The structural guarantee for the hard-set path, mirroring
+ * `reconcile.js`'s `assertNoUnrecordedConflicts` exactly: the requirement is not "callers
+ * remember to record a unique collision", it is that the system cannot be in a state where one
+ * went unhandled. Hangs off the same choke point (`projector.js`'s `assertConflictsRecorded`) as
+ * a SECOND, independent guard alongside the scalar one — not a replacement for it.
+ *
+ * `recorded` is `[{ entity, entityIds, field }]`, read from the `conflicts` table's `unique:`
+ * rows by the caller (never trusted as "the caller says it complied").
+ */
+export function assertNoUnrecordedUniqueConflicts(doc, recorded) {
+  const conflicts = deriveUniqueConflicts(doc)
+  const seen = new Set(
+    recorded.map((c) => `${c.entity}\u0000${sorted(c.entityIds).join(',')}\u0000${c.field}`)
+  )
+  const missing = conflicts.filter(
+    (c) => !seen.has(`${c.entity}\u0000${c.entityIds.join(',')}\u0000${c.field}`)
+  )
+  if (missing.length > 0) {
+    throw new Error(
+      `deriveUniqueConflicts: ${missing.length} hard-set UNIQUE collision(s) in this document were ` +
+        `never recorded, so nobody would be shown them — a director's edit would be silently ` +
+        `discarded. First: ${missing[0].entity}.${missing[0].field} shared by ` +
+        `${missing[0].entityIds.join(', ')}. Every path that projects a merged document must derive ` +
+        `and record hard-set collisions first ` +
+        `(docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md).`
+    )
+  }
+}

@@ -224,12 +224,31 @@ function randomId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
-// Mirrors the real SQLite UNIQUE(...) indexes (electron/db/schema.sql +
-// migrations) so the mock reproduces the same collision behavior the app's
-// write logic is built around (ensureCohort / addTier / etc. deliberately
-// write `name` first and match on /UNIQUE/i errors). Without emulating these,
-// StrictMode's double-invoked mount effect would create duplicate "Main"
-// cohorts/days in a `npm run dev` browser that could never happen in Electron.
+// Schema v73 (T241) relaxed nine of these ten tables' UNIQUE(...) index to a
+// plain index, so this map no longer mirrors a DB-level constraint for any of
+// them — it mirrors the APP-LEVEL pre-check instead: electron/ops/
+// operations.js's UNIQUE_FIELD_ENTITIES, which localWriteClient.write()
+// consults (detectUniqueFieldCollision) and rejects on BEFORE appendOp ever
+// runs, on the real local-write path. That pre-check is unconditional and
+// blocking — it stays on the local write path deliberately (docs/superpowers/
+// specs/2026-09-23-merge-unique-collision-design.md §C, "Unchanged,
+// deliberately"): a duplicate created THIS way is still refused in real
+// Electron, exactly as this map still refuses it here. The "two same-named
+// rows coexist" outcome v73 exists for is a DIFFERENT path entirely — two
+// devices independently creating the same name (different entity_ids),
+// reconciled by an Automerge MERGE, never reachable through this mock's
+// single-process write() — so it cannot be demonstrated in `npm run dev` by
+// typing a duplicate; that needs pre-seeded colliding rows instead.
+// `days_of_operation` is the one exception that is STILL a real SQLite
+// UNIQUE(camp_id, day_of_week) constraint (schema.sql) — one of the four
+// hard-set tables v73 deliberately left alone.
+// ALSO load-bearing for camp_id auto-stamping below (`uniqueKey?.includes(
+// 'camp_id')`) — do not remove an entry casually; it stamps camp_id on a
+// brand-new row, not just collision detection.
+// NOTE: elective_sets/events are structured-rejected ({status:'rejected',
+// reason:'unique_field'}) by the REAL registry but this mock still throws raw
+// for them (pre-existing, documented drift below at UNIQUE_FIELD_ENTITIES —
+// their dev-mode create callers were built against the raw-throw shape).
 const UNIQUE_KEYS = {
   cohorts:     ['camp_id', 'name'],
   groups:      ['camp_id', 'name'],
@@ -859,18 +878,39 @@ export const mockShoresh = {
       _name: item._name,
     })
 
+    // T252: sort by id ASC and use first-write-wins, so a duplicated name (now
+    // possible post-merge, schema v73) always resolves to the lowest id
+    // regardless of array order — mirrors electron's seedNameMaps `ORDER BY id
+    // ASC` over the in-memory arrays this mock holds instead of SQL rows.
+    const byIdAsc = (rows) => [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+
     // S2c §4: name->id maps for the DECIDE-phase FK resolution (eligibility/unit),
     // seeded from existing rows exactly as commitPlan's seedNameMaps. Reused (and
     // extended) by the apply phase below, so a group created this run also resolves.
     const tierIdByName = new Map()
-    for (const t of state.tiers ?? []) if (t.name && (t.cohort_id ?? null) === cohortId) tierIdByName.set(String(t.name).trim().toLowerCase(), t.id)
+    for (const t of byIdAsc(state.tiers ?? [])) {
+      if (t.name && (t.cohort_id ?? null) === cohortId) {
+        const key = String(t.name).trim().toLowerCase()
+        if (!tierIdByName.has(key)) tierIdByName.set(key, t.id)
+      }
+    }
     const groupIdByNameRun = new Map()
-    for (const g of state.groups ?? []) if (g.name) groupIdByNameRun.set(normalizeName(g.name), g.id)
+    for (const g of byIdAsc(state.groups ?? [])) {
+      if (g.name) {
+        const key = normalizeName(g.name)
+        if (!groupIdByNameRun.has(key)) groupIdByNameRun.set(key, g.id)
+      }
+    }
     // M4 §D1b/§13: TRIM-only, case-sensitive keys — NOT normalizeName — matching
     // deriveLocationId's own normalization contract, mirroring electron's
     // seedNameMaps locationIdByName exactly.
     const locationIdByNameRun = new Map()
-    for (const l of state.locations ?? []) if (l.name) locationIdByNameRun.set(String(l.name).trim(), l.id)
+    for (const l of byIdAsc(state.locations ?? [])) {
+      if (l.name) {
+        const key = String(l.name).trim()
+        if (!locationIdByNameRun.has(key)) locationIdByNameRun.set(key, l.id)
+      }
+    }
 
     // Recognition maps for commit-time re-resolution (normalized-name → set of
     // live ids), cohort-scoped for tiers/time_blocks exactly as the snapshot.
@@ -1066,15 +1106,27 @@ export const mockShoresh = {
       const id = entity === 'locations' ? deriveLocationId(campId, name) : randomId()
       const fields = {}
       for (const [field, delta] of Object.entries(item.fields)) fields[field] = delta.to
-      if (entity === 'tiers') tierIdByName.set(name.toLowerCase(), id)
+      // T252 round 2: guarded with the SAME `if (!map.has(key))` first-write-wins
+      // rule the seeding block above uses. An unconditional `.set()` here would
+      // evict an already-established lowest-id winner the moment this run
+      // creates another row of that name — mirrors electron/ops/ingest.js's
+      // commitCreate fix.
+      if (entity === 'tiers') {
+        const key = name.toLowerCase()
+        if (!tierIdByName.has(key)) tierIdByName.set(key, id)
+      }
       if (entity === 'groups') {
-        groupIdByNameRun.set(normalizeName(name), id)
+        const key = normalizeName(name)
+        if (!groupIdByNameRun.has(key)) groupIdByNameRun.set(key, id)
         const unit = item._link_unit
         const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
         if (tierId) fields.tier_id = tierId
       }
       // M4 §D1a/§D2 mirror: registered before any activities create runs.
-      if (entity === 'locations') locationIdByNameRun.set(String(name).trim(), id)
+      if (entity === 'locations') {
+        const key = String(name).trim()
+        if (!locationIdByNameRun.has(key)) locationIdByNameRun.set(key, id)
+      }
       if (entity === 'activities') {
         // T35 — inferred/edited rules, with the same round-2 validation the real
         // write boundary applies (priority exactly 'high'/'low'; min/max positive
@@ -1157,12 +1209,32 @@ export const mockShoresh = {
     // loop so the whole import flow, recurring events included, works at :5200.
     const norm = (s) => normalizeName(s)
     const targetCohort = cohortId ?? 'main'
+    // T252: sort by id ASC, first-write-wins — see byIdAsc above. time_blocks
+    // and days_of_operation are never created by this run (not in
+    // INGESTIBLE_ENTITIES), so rebuilding fresh here is safe for them.
     const blockIdByName = new Map()
-    for (const b of state.time_blocks ?? []) if (b.name && (b.cohort_id ?? null) === cohortId) blockIdByName.set(norm(b.name), b.id)
+    for (const b of byIdAsc(state.time_blocks ?? [])) {
+      if (b.name && (b.cohort_id ?? null) === cohortId) {
+        const key = norm(b.name)
+        if (!blockIdByName.has(key)) blockIdByName.set(key, b.id)
+      }
+    }
     const dayIdByName = new Map()
-    for (const d of state.days_of_operation ?? []) if (d.label) dayIdByName.set(norm(d.label), d.id)
-    const groupIdByName = new Map()
-    for (const g of state.groups ?? []) if (g.name) groupIdByName.set(norm(g.name), g.id)
+    for (const d of byIdAsc(state.days_of_operation ?? [])) {
+      if (d.label) {
+        const key = norm(d.label)
+        if (!dayIdByName.has(key)) dayIdByName.set(key, d.id)
+      }
+    }
+    // Groups CAN be created by this same run (commitCreate above, entity ===
+    // 'groups'), so rebuilding from `state.groups` here — post-commitCreate —
+    // would re-sort a set that now includes the newly-created row, and a
+    // freshly minted id that happens to sort below an already-established
+    // winner would evict it. groupIdByNameRun (built before commitCreate ran,
+    // seeded first-write-wins from pre-existing rows, then only ever extended
+    // behind an `if (!map.has(key))` guard in commitCreate) already carries
+    // the correct, eviction-proof resolution — reuse it instead of rebuilding.
+    const groupIdByName = groupIdByNameRun
 
     if (!Array.isArray(state.anchor_activities)) state.anchor_activities = []
     const fixedCreatedIds = []
@@ -1294,11 +1366,18 @@ export const mockShoresh = {
           template = { id: deriveScheduleTemplateId(week.id, 'manual'), camp_id: campId, week_id: week.id, name: '', kind: 'manual' }
           state.schedule_templates.push(template)
         }
-        const nameMap = (entity) => new Map(
-          (state[entity] ?? [])
-            .filter((r) => r.camp_id === campId)
-            .map((r) => [normalizeName(r[mockNameColumnFor(entity)]), r.id])
-        )
+        // T252: sort by id ASC, first-write-wins — mirrors
+        // electron/ops/materializeImportedVersion.js's nameMap() exactly, so
+        // an ambiguous name resolves to the same row on :5200 as it would
+        // under electron:dev.
+        const nameMap = (entity) => {
+          const map = new Map()
+          for (const r of byIdAsc((state[entity] ?? []).filter((row) => row.camp_id === campId))) {
+            const key = normalizeName(r[mockNameColumnFor(entity)])
+            if (!map.has(key)) map.set(key, r.id)
+          }
+          return map
+        }
         const maps = {
           activityIdByName: nameMap('activities'),
           anchorIdByName: nameMap('anchor_activities'),

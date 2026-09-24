@@ -25,9 +25,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
 // v67 (T162, device_identity_key), v68 (T195, elective_set_activities.status), v69 (T210,
 // rendezvous_sequence), v70 (T205, days_of_operation dedupe), v71 (T181, recurrence_level
-// removal), and v72 (T233, tombstones — multi-device erasure propagation) all land in this
-// file; 72 is the current version.
-export const CURRENT_SCHEMA_VERSION = 72
+// removal), v72 (T233, tombstones — multi-device erasure propagation), and v73 (T241, relax
+// ten name-UNIQUE constraints so a merged document's colliding records both project) all land
+// in this file; 73 is the current version.
+export const CURRENT_SCHEMA_VERSION = 73
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3061,6 +3062,223 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     )
   }
 
+  // v73 (T241, docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md) — relax
+  // ten name-UNIQUE constraints so a merged Automerge document's colliding records both project
+  // into SQLite instead of one being silently dropped by upsertRow's SAVEPOINT
+  // (electron/automerge/projector.js) into projection_failures.
+  //
+  // Nine tables (locations, activities, events, elective_sets, groups, cohorts, tiers,
+  // time_blocks, special_days) declare their UNIQUE inline in the CREATE TABLE, which SQLite
+  // compiles to a sqlite_autoindex_* that DROP INDEX cannot touch — only a table rebuild removes
+  // it (same recipe as the v50 camp_maps / v51 anchor_activities rebuilds above). schedule_weeks
+  // is the one plain named-index case. schema.sql's CREATE TABLE text for the nine has ALSO lost
+  // the inline UNIQUE, so a fresh install never gets the autoindex in the first place — without
+  // that edit, DROP INDEX below would be a no-op against an index that never existed on a fresh
+  // db (Correction 3 of the ADR).
+  //
+  // Six of the nine ALSO carry a separately-named UNIQUE index from an earlier migration
+  // (locations, activities, groups, cohorts, tiers, time_blocks); events/elective_sets/
+  // special_days relied on the inline clause alone, so they get a brand-new plain index name.
+  // Every named index is recreated in the SAME open, right after each RENAME — schema.sql already
+  // ran earlier in this same initSchema() call, before this block, so a rebuilt table's indexes
+  // will not come back until the NEXT open unless recreated here (index-survival-across-table-
+  // rebuilds, docs/adr/2026-09-16-index-survival-across-table-rebuilds.md).
+  //
+  // Guard is `>= 72 && < 73`, matching the `>= N-1 && < N` form every block from v60 onward uses
+  // — never a bare `< 73` (see the v50 block's comment for the load-bearing reason, bug #194).
+  if (getSchemaVersion(db) >= 72 && getSchemaVersion(db) < 73) {
+    // PRAGMA foreign_keys is a genuine NO-OP while a transaction is open (unlike every rebuild
+    // above, whose comments note this but don't need it to be real — none of THEIR tables are the
+    // FK target of another table with actual rows). This one's tables ARE: template_slots has real
+    // FK columns to groups(id)/activities(id) with real rows on every camp with a schedule, and
+    // week_group_exclusions/week_activity_exclusions/elective_set_activities/event_*/
+    // special_day_* all carry NOT NULL FKs into tables this block drops and recreates. Toggling
+    // the pragma OFF must happen BEFORE db.transaction() opens its BEGIN, and back ON after it
+    // commits — the documented SQLite recipe for a schema change under FK-referencing children —
+    // or DROP TABLE on the second such table fails with "FOREIGN KEY constraint failed" even
+    // though nothing is actually inconsistent (verified: this reproduces on any db with a single
+    // template_slots row referencing a real group/activity).
+    db.pragma('foreign_keys = OFF')
+    try {
+      db.transaction(() => {
+        db.exec(`
+          CREATE TABLE locations_v73 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            name TEXT NOT NULL,
+            capacity INTEGER NOT NULL DEFAULT 1,
+            notes TEXT,
+            sort_order INTEGER,
+            map_geometry TEXT,
+            kind TEXT CHECK(
+              kind IS NULL OR kind IN ('building','classroom','pool','field','cabin','court','nature','office','generic')
+            ) DEFAULT NULL,
+            grid_x INTEGER DEFAULT NULL,
+            grid_y INTEGER DEFAULT NULL,
+            map_id TEXT DEFAULT NULL
+          );
+          INSERT INTO locations_v73 (id, camp_id, name, capacity, notes, sort_order, map_geometry, kind, grid_x, grid_y, map_id)
+            SELECT id, camp_id, name, capacity, notes, sort_order, map_geometry, kind, grid_x, grid_y, map_id FROM locations;
+          DROP TABLE locations;
+          ALTER TABLE locations_v73 RENAME TO locations;
+          CREATE INDEX IF NOT EXISTS idx_locations_camp_name ON locations(camp_id, name);
+
+          CREATE TABLE activities_v73 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            name TEXT NOT NULL,
+            priority INTEGER,
+            is_locked INTEGER,
+            span_blocks INTEGER,
+            location TEXT,
+            is_outdoor INTEGER,
+            max_groups_per_slot INTEGER,
+            min_per_week INTEGER,
+            max_per_week INTEGER,
+            same_tier_only INTEGER,
+            eligible_tier_ids TEXT,
+            eligible_group_ids TEXT,
+            prefer_before_day INTEGER,
+            prefer_before_day_min INTEGER,
+            weather_alternative_id TEXT,
+            notes TEXT,
+            location_id TEXT,
+            recurrence_truth_status TEXT
+          );
+          INSERT INTO activities_v73 (id, camp_id, name, priority, is_locked, span_blocks, location, is_outdoor, max_groups_per_slot, min_per_week, max_per_week, same_tier_only, eligible_tier_ids, eligible_group_ids, prefer_before_day, prefer_before_day_min, weather_alternative_id, notes, location_id, recurrence_truth_status)
+            SELECT id, camp_id, name, priority, is_locked, span_blocks, location, is_outdoor, max_groups_per_slot, min_per_week, max_per_week, same_tier_only, eligible_tier_ids, eligible_group_ids, prefer_before_day, prefer_before_day_min, weather_alternative_id, notes, location_id, recurrence_truth_status FROM activities;
+          DROP TABLE activities;
+          ALTER TABLE activities_v73 RENAME TO activities;
+          CREATE INDEX IF NOT EXISTS idx_activities_camp_name ON activities(camp_id, name);
+
+          CREATE TABLE events_v73 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            name TEXT NOT NULL,
+            sort_order INTEGER,
+            notes TEXT,
+            location_id TEXT
+          );
+          INSERT INTO events_v73 (id, camp_id, name, sort_order, notes, location_id)
+            SELECT id, camp_id, name, sort_order, notes, location_id FROM events;
+          DROP TABLE events;
+          ALTER TABLE events_v73 RENAME TO events;
+          CREATE INDEX IF NOT EXISTS idx_events_camp_name ON events(camp_id, name);
+
+          CREATE TABLE elective_sets_v73 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            name TEXT NOT NULL,
+            sort_order INTEGER,
+            is_reusable INTEGER NOT NULL DEFAULT 1,
+            day_id TEXT REFERENCES days_of_operation(id),
+            time_block_id TEXT,
+            is_all_groups INTEGER,
+            group_ids TEXT,
+            schedule_week_id TEXT REFERENCES schedule_weeks(id)
+          );
+          INSERT INTO elective_sets_v73 (id, camp_id, name, sort_order, is_reusable, day_id, time_block_id, is_all_groups, group_ids, schedule_week_id)
+            SELECT id, camp_id, name, sort_order, is_reusable, day_id, time_block_id, is_all_groups, group_ids, schedule_week_id FROM elective_sets;
+          DROP TABLE elective_sets;
+          ALTER TABLE elective_sets_v73 RENAME TO elective_sets;
+          CREATE INDEX IF NOT EXISTS idx_elective_sets_camp_name ON elective_sets(camp_id, name);
+
+          CREATE TABLE groups_v73 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            name TEXT NOT NULL,
+            tier_id TEXT,
+            availability TEXT
+          );
+          INSERT INTO groups_v73 (id, camp_id, name, tier_id, availability)
+            SELECT id, camp_id, name, tier_id, availability FROM groups;
+          DROP TABLE groups;
+          ALTER TABLE groups_v73 RENAME TO groups;
+          CREATE INDEX IF NOT EXISTS idx_groups_camp_name ON groups(camp_id, name);
+
+          CREATE TABLE cohorts_v73 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            name TEXT NOT NULL,
+            session_week_start TEXT,
+            session_week_end TEXT,
+            capacity_source TEXT,
+            anchor_model TEXT,
+            sort_order INTEGER
+          );
+          INSERT INTO cohorts_v73 (id, camp_id, name, session_week_start, session_week_end, capacity_source, anchor_model, sort_order)
+            SELECT id, camp_id, name, session_week_start, session_week_end, capacity_source, anchor_model, sort_order FROM cohorts;
+          DROP TABLE cohorts;
+          ALTER TABLE cohorts_v73 RENAME TO cohorts;
+          CREATE INDEX IF NOT EXISTS idx_cohorts_camp_name ON cohorts(camp_id, name);
+
+          CREATE TABLE tiers_v73 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            name TEXT NOT NULL,
+            sort_order INTEGER,
+            cohort_id TEXT REFERENCES cohorts(id)
+          );
+          INSERT INTO tiers_v73 (id, camp_id, name, sort_order, cohort_id)
+            SELECT id, camp_id, name, sort_order, cohort_id FROM tiers;
+          DROP TABLE tiers;
+          ALTER TABLE tiers_v73 RENAME TO tiers;
+          CREATE INDEX IF NOT EXISTS idx_tiers_camp_cohort_name ON tiers(camp_id, cohort_id, name);
+
+          CREATE TABLE time_blocks_v73 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            cohort_id TEXT REFERENCES cohorts(id),
+            name TEXT NOT NULL,
+            start_time TEXT,
+            end_time TEXT,
+            part_of_day TEXT,
+            sort_order INTEGER
+          );
+          INSERT INTO time_blocks_v73 (id, camp_id, cohort_id, name, start_time, end_time, part_of_day, sort_order)
+            SELECT id, camp_id, cohort_id, name, start_time, end_time, part_of_day, sort_order FROM time_blocks;
+          DROP TABLE time_blocks;
+          ALTER TABLE time_blocks_v73 RENAME TO time_blocks;
+          CREATE INDEX IF NOT EXISTS idx_time_blocks_camp_cohort_name ON time_blocks(camp_id, cohort_id, name);
+
+          CREATE TABLE special_days_v73 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            name TEXT NOT NULL,
+            sort_order INTEGER,
+            notes TEXT
+          );
+          INSERT INTO special_days_v73 (id, camp_id, name, sort_order, notes)
+            SELECT id, camp_id, name, sort_order, notes FROM special_days;
+          DROP TABLE special_days;
+          ALTER TABLE special_days_v73 RENAME TO special_days;
+          CREATE INDEX IF NOT EXISTS idx_special_days_camp_name ON special_days(camp_id, name);
+
+          DROP INDEX IF EXISTS idx_schedule_weeks_camp_name;
+          CREATE INDEX idx_schedule_weeks_camp_name ON schedule_weeks(camp_id, name);
+        `)
+
+        // conflicts: additive columns for the hard-set typed conflict (Decision 1 of the ADR,
+        // built by a separate ticket) — entity_ids is nullable (JSON array, only populated for
+        // `unique:`-prefixed rows), kind defaults every existing row to 'scalar' via SQLite's
+        // ADD COLUMN ... DEFAULT backfill (no separate UPDATE needed).
+        const conflictCols = db.pragma('table_info(conflicts)').map((c) => c.name)
+        if (!conflictCols.includes('entity_ids')) {
+          db.exec('ALTER TABLE conflicts ADD COLUMN entity_ids TEXT')
+        }
+        if (!conflictCols.includes('kind')) {
+          db.exec("ALTER TABLE conflicts ADD COLUMN kind TEXT NOT NULL DEFAULT 'scalar'")
+        }
+      })()
+    } finally {
+      db.pragma('foreign_keys = ON')
+    }
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (73, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
 }
 
 // v60 backfill helper (Q1 fix). On the HOST only (a device with a host_signing_key
@@ -3231,8 +3449,7 @@ export const LOCATIONS_DDL = `CREATE TABLE IF NOT EXISTS locations (
   capacity INTEGER NOT NULL DEFAULT 1,
   notes TEXT,
   sort_order INTEGER,
-  map_geometry TEXT,
-  UNIQUE(camp_id, name)
+  map_geometry TEXT
 )`
 
 // Byte-identical duplicate of the week_location_exclusions block in schema.sql.
@@ -3271,8 +3488,7 @@ export const SPECIAL_DAYS_DDL = `CREATE TABLE IF NOT EXISTS special_days (
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
-  notes TEXT,
-  UNIQUE(camp_id, name)
+  notes TEXT
 )`
 
 export const SPECIAL_DAY_TIME_BLOCKS_DDL = `CREATE TABLE IF NOT EXISTS special_day_time_blocks (
@@ -3308,8 +3524,7 @@ export const ELECTIVE_SETS_DDL = `CREATE TABLE IF NOT EXISTS elective_sets (
   time_block_id TEXT,
   is_all_groups INTEGER,
   group_ids TEXT,
-  schedule_week_id TEXT REFERENCES schedule_weeks(id),
-  UNIQUE(camp_id, name)
+  schedule_week_id TEXT REFERENCES schedule_weeks(id)
 )`
 
 export const ELECTIVE_SET_ACTIVITIES_DDL = `CREATE TABLE IF NOT EXISTS elective_set_activities (
@@ -3339,8 +3554,7 @@ export const EVENTS_DDL = `CREATE TABLE IF NOT EXISTS events (
   name TEXT NOT NULL,
   sort_order INTEGER,
   notes TEXT,
-  location_id TEXT,
-  UNIQUE(camp_id, name)
+  location_id TEXT
 )`
 
 // Byte-identical duplicates of the event_time_blocks / event_groups /

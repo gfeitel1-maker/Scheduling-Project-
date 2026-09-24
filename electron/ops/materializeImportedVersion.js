@@ -21,9 +21,17 @@ async function writeFields(syncClient, entity, entityId, fields, authorUserId) {
   }
 }
 
-function nameMap(db, table, campId, nameColumn = 'name') {
-  const rows = db.prepare(`SELECT id, ${nameColumn} AS name FROM ${table} WHERE camp_id = ?`).all(campId)
-  return new Map(rows.map((row) => [normalizeName(row.name), row.id]))
+// T252: sort by id ASC and use first-write-wins, so a duplicated name (now
+// possible post-merge, schema v73) always resolves to the lowest id
+// regardless of the unordered SELECT's physical row order.
+export function nameMap(db, table, campId, nameColumn = 'name') {
+  const rows = db.prepare(`SELECT id, ${nameColumn} AS name FROM ${table} WHERE camp_id = ? ORDER BY id ASC`).all(campId)
+  const map = new Map()
+  for (const row of rows) {
+    const key = normalizeName(row.name)
+    if (!map.has(key)) map.set(key, row.id)
+  }
+  return map
 }
 
 /**

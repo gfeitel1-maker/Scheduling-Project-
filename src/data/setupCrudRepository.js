@@ -31,6 +31,32 @@ export const UNIQUE_FIRST_FIELD = {
   // days_of_operation has UNIQUE(camp_id, day_of_week) as of T205 — see
   // electron/ops/operations.js's UNIQUE_FIELD_ENTITIES entry.
   days_of_operation: 'day_of_week',
+  // T238 (docs/work/tickets/T238-unique-field-registry-covers-all-ten.md):
+  // the six relaxed-in-v73 entities newly registered in
+  // electron/ops/operations.js's UNIQUE_FIELD_ENTITIES. Required here too —
+  // electron/uniqueFirstFieldRegistryParity.test.js hard-fails otherwise.
+  groups: 'name',
+  cohorts: 'name',
+  tiers: 'name',
+  time_blocks: 'name',
+  schedule_weeks: 'name',
+  special_days: 'name',
+}
+
+// T238: extra (non-camp) scope columns that must be written BEFORE the
+// UNIQUE_FIRST_FIELD field itself on a create, so
+// electron/ops/operations.js's detectUniqueFieldCollision can read their
+// current value off the row when it checks the unique field's write — see
+// that module's UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS (this is the src/-side
+// transcription; electron/ can't be imported from src/, same reason
+// UNIQUE_FIRST_FIELD above transcribes UNIQUE_FIELD_ENTITIES's `field`).
+// `tiers`/`time_blocks` are UNIQUE(camp_id, cohort_id, name): without this,
+// a create writes `name` first (per orderFieldsForCreate below) while
+// `cohort_id` is still unset, so the collision check would have no scope
+// value to read and would silently skip itself on every create.
+export const UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS = {
+  tiers: ['cohort_id'],
+  time_blocks: ['cohort_id'],
 }
 
 // Fixed vs Recurring events (docs/adr/2026-08-28-fixed-vs-recurring-events.md
@@ -102,10 +128,19 @@ export function orderFieldsForCreate(entity, fields) {
       `same-value collision.`
     )
   }
+  // T238: extra scope columns (present) go BEFORE the unique field itself,
+  // so a composite-scope entity's collision check (electron/ops/operations.js's
+  // detectUniqueFieldCollision) can read their value off the row by the time
+  // the unique field's own write lands. A missing extra scope column is left
+  // in place — that create is unprotectable for composite scope the same way
+  // an absent uniqueFirst field would be, but it is not this function's job
+  // to invent a value that was never provided.
+  const extraScopeColumns = (UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS[entity] || []).filter((col) => col in fields)
   const entries = Object.entries(fields)
-  const first = entries.find(([field]) => field === uniqueFirst)
-  const rest = entries.filter(([field]) => field !== uniqueFirst)
-  return [first, ...rest]
+  const scopeFirst = extraScopeColumns.map((col) => entries.find(([field]) => field === col))
+  const uniqueFirstEntry = entries.find(([field]) => field === uniqueFirst)
+  const rest = entries.filter(([field]) => field !== uniqueFirst && !extraScopeColumns.includes(field))
+  return [...scopeFirst, uniqueFirstEntry, ...rest]
 }
 
 export function createSetupCrudRepository({
@@ -123,7 +158,32 @@ export function createSetupCrudRepository({
     for (const [field, value] of orderedEntries) {
       const result = await localClient.write(token, entity, id, field, value)
       if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error(`write failed for field "${field}"`)
+        // T238: a duplicate-name rejection must stay DISTINGUISHABLE from any
+        // other write failure, because six screens turn it into the specific
+        // "a group with this name already exists — choose a different name"
+        // message rather than a generic "could not be added".
+        //
+        // Before v73 those screens got that specificity for free: the entity
+        // was unregistered, so a duplicate threw a raw SQLITE_CONSTRAINT_UNIQUE
+        // and their `/UNIQUE/i` test matched it. T238 registered six more
+        // entities, which converts the same collision into a STRUCTURED
+        // `{status:'rejected', reason:'unique_field'}` that resolves rather than
+        // throws — so a bare "write failed" here silently downgraded every one
+        // of those messages to the generic fallback. The create was still
+        // correctly blocked; only what the director was told got worse.
+        //
+        // The word UNIQUE is load-bearing in this message, not decoration: it is
+        // what keeps those existing `/UNIQUE/i` call sites working unchanged.
+        // `reason` is attached so a future caller can branch on the value
+        // instead of the wording.
+        const err = new Error(
+          result?.reason === 'unique_field'
+            ? `write failed for field "${field}": UNIQUE constraint — a record with this value already exists`
+            : `write failed for field "${field}"`
+        )
+        if (result?.reason) err.reason = result.reason
+        if (result?.existing) err.existing = result.existing
+        throw err
       }
     }
   }

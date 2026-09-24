@@ -94,3 +94,83 @@ export function clearResolvedConflicts(db, conflicts, { now = () => new Date().t
   run()
   return stale.map((r) => r.id)
 }
+
+// ---------------------------------------------------------------------------
+// HARD-SET UNIQUE collisions (docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md,
+// Decision 1). Parallel to the pair above rather than a generalization of it: a hard-set
+// collision is "two whole records share one scoped value", not "one field has two values", and
+// forcing the two into one function would corrupt the scalar rows' shape (single `entity_id`,
+// single-value `incoming_op`/`existing_op`). Rows here live under the `unique:` id namespace so
+// the two sweeps below never touch each other's rows.
+//
+// Deterministic id per unresolved collision, keyed by (entity, scope, field) rather than by the
+// colliding ids themselves — like `conflictKey` above, this is what makes two devices agree on
+// one row instead of two, and lets the same row keep identifying "this scope+field's collision"
+// even if the set of colliding ids it names later changes.
+function uniqueConflictKey(entity, scopeId, field) {
+  return `unique:${entity}:${scopeId}:${field}`
+}
+
+/**
+ * Record every hard-set collision `deriveUniqueConflicts` found, skipping any already pending —
+ * same idempotence rule as `recordConflicts`: this is re-derived every merge, so a pending row is
+ * written once and left alone until the collision clears from the document.
+ */
+export function recordUniqueConflicts(db, conflicts, { now = () => new Date().toISOString() } = {}) {
+  if (!conflicts || conflicts.length === 0) return []
+  const existing = db.prepare('SELECT id FROM conflicts WHERE id = ? AND resolved_at IS NULL')
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO conflicts
+       (id, entity, entity_id, field, entity_ids, kind, incoming_op, existing_op, existing_op_id, created_at)
+     VALUES (?, ?, ?, ?, ?, 'unique', ?, ?, ?, ?)`
+  )
+  const inserted = []
+  const run = db.transaction(() => {
+    for (const c of conflicts) {
+      const id = uniqueConflictKey(c.entity, c.scopeId, c.field)
+      if (existing.get(id)) continue
+      // `entity_id` (NOT NULL) holds the lowest colliding id — a director's-convenience link
+      // target per the ADR, never load-bearing for correctness, which lives in `entity_ids`
+      // instead. `existing_op_id` (also NOT NULL) has no natural op id for a hard-set collision,
+      // so it reuses the same lowest id.
+      const [first, ...rest] = c.values
+      const last = rest[rest.length - 1] ?? first
+      insert.run(
+        id,
+        c.entity,
+        c.entityIds[0],
+        c.field,
+        JSON.stringify(c.entityIds),
+        JSON.stringify(last.record),
+        JSON.stringify(first.record),
+        c.entityIds[0],
+        now()
+      )
+      inserted.push({ id, entity: c.entity, entityIds: c.entityIds, field: c.field })
+    }
+  })
+  run()
+  return inserted
+}
+
+/**
+ * Close out any pending `unique:` row whose collision is no longer in the document — a director
+ * renamed or deleted one of the colliding records on either device. Scoped to `id LIKE
+ * 'unique:%'` the same way `clearResolvedConflicts` is scoped to `crdt:%`, so the two sweeps
+ * never resolve each other's rows.
+ */
+export function clearResolvedUniqueConflicts(db, conflicts, { now = () => new Date().toISOString() } = {}) {
+  const live = new Set((conflicts ?? []).map((c) => uniqueConflictKey(c.entity, c.scopeId, c.field)))
+  const pending = db
+    .prepare("SELECT id FROM conflicts WHERE resolved_at IS NULL AND id LIKE 'unique:%'")
+    .all()
+  const stale = pending.filter((r) => !live.has(r.id))
+  if (stale.length === 0) return []
+  const update = db.prepare('UPDATE conflicts SET resolved_at = ? WHERE id = ?')
+  const at = now()
+  const run = db.transaction(() => {
+    for (const r of stale) update.run(at, r.id)
+  })
+  run()
+  return stale.map((r) => r.id)
+}

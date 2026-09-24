@@ -43,6 +43,48 @@ describe('createSetupCrudRepository — writeFields', () => {
     expect(client.calls.write).toHaveLength(1)
   })
 
+  // T238 regression guard. Six screens turn a duplicate-name rejection into the
+  // specific "a <thing> with this name already exists" message by testing the
+  // thrown message against /UNIQUE/i. Before v73 those entities were
+  // unregistered, so a duplicate threw a raw SQLITE_CONSTRAINT_UNIQUE and that
+  // matched for free; T238 registered six more, converting the same collision
+  // into a STRUCTURED {status:'rejected', reason:'unique_field'} that RESOLVES.
+  // A bare "write failed" therefore downgraded every one of those messages to
+  // the generic fallback — the create was still blocked, but the director was
+  // told less. The word UNIQUE below is load-bearing, not decoration.
+  it('a unique_field rejection throws an error the screens\' /UNIQUE/i check still matches', async () => {
+    const client = makeFakeClient({
+      writeResult: { status: 'rejected', reason: 'unique_field', existing: { id: 'g-other', name: 'Bunk 1' } },
+    })
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
+
+    const err = await repo.writeFields('groups', 'g1', { name: 'Bunk 1' }).catch((e) => e)
+
+    expect(err).toBeInstanceOf(Error)
+    // The assertion the screens actually depend on.
+    expect(err.message).toMatch(/UNIQUE/i)
+    expect(err.message).toMatch(/name/)
+    // Structured alternative, so a future caller can branch on the value
+    // rather than on the wording.
+    expect(err.reason).toBe('unique_field')
+    expect(err.existing).toEqual({ id: 'g-other', name: 'Bunk 1' })
+  })
+
+  // Non-vacuity: the guard above must not match a rejection it was NOT written
+  // for. A blanket "put UNIQUE in every failure message" would pass the test
+  // above while making every unrelated failure read as a duplicate-name
+  // collision to all six screens — strictly worse than the bug being fixed.
+  it('a NON-unique rejection does NOT mention UNIQUE (so other failures keep the generic message)', async () => {
+    const client = makeFakeClient({ writeResult: { status: 'rejected', reason: 'role_required' } })
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
+
+    const err = await repo.writeFields('groups', 'g1', { name: 'Bunk 1' }).catch((e) => e)
+
+    expect(err.message).toMatch(/write failed for field "name"/)
+    expect(err.message).not.toMatch(/UNIQUE/i)
+    expect(err.reason).toBe('role_required')
+  })
+
   it('defaults getToken to reading shoresh-token from localStorage', async () => {
     vi.stubGlobal('localStorage', { getItem: vi.fn(() => 'ls-token') })
     const client = makeFakeClient()
@@ -97,7 +139,7 @@ describe('createSetupCrudRepository — createRecord', () => {
   it('writes ordered fields, no cleanup on success', async () => {
     const client = makeFakeClient()
     const repo = createSetupCrudRepository({ localClient: client, getToken })
-    await repo.createRecord('time_blocks', 'tb1', { label: 'Monday', sort_order: 1 })
+    await repo.createRecord('anchor_activities', 'tb1', { label: 'Monday', sort_order: 1 })
     expect(client.calls.write.map((c) => c[3])).toEqual(['label', 'sort_order'])
     expect(client.calls.deleteEntity).toHaveLength(0)
   })
@@ -110,9 +152,9 @@ describe('createSetupCrudRepository — createRecord', () => {
     })
     const repo = createSetupCrudRepository({ localClient: client, getToken })
     await expect(
-      repo.createRecord('time_blocks', 'tb1', { label: 'Monday', sort_order: 1 })
+      repo.createRecord('anchor_activities', 'tb1', { label: 'Monday', sort_order: 1 })
     ).rejects.toThrow(/write failed for field "sort_order"/)
-    expect(client.calls.deleteEntity).toEqual([['tok', 'time_blocks', 'tb1']])
+    expect(client.calls.deleteEntity).toEqual([['tok', 'anchor_activities', 'tb1']])
   })
 
   it('swallows a cleanup failure — does not mask the original error or throw a second exception', async () => {
@@ -120,7 +162,7 @@ describe('createSetupCrudRepository — createRecord', () => {
     client.write.mockResolvedValue({ status: 'rejected' })
     client.deleteEntity.mockRejectedValue(new Error('cleanup boom'))
     const repo = createSetupCrudRepository({ localClient: client, getToken })
-    await expect(repo.createRecord('time_blocks', 'tb1', { label: 'Monday' })).rejects.toThrow(
+    await expect(repo.createRecord('anchor_activities', 'tb1', { label: 'Monday' })).rejects.toThrow(
       /write failed for field "label"/
     )
   })
@@ -202,15 +244,53 @@ describe('createSetupCrudRepository — createRecord', () => {
   it('UNIQUE_FIRST_FIELD guard: does not fire for an entity absent from the registry', async () => {
     const client = makeFakeClient()
     const repo = createSetupCrudRepository({ localClient: client, getToken })
-    await repo.createRecord('time_blocks', 'tb1', { sort_order: 1, label: 'Monday' })
+    await repo.createRecord('anchor_activities', 'tb1', { sort_order: 1, label: 'Monday' })
     expect(client.calls.write.map((c) => c[3])).toEqual(['sort_order', 'label'])
   })
 })
 
 describe('orderFieldsForCreate', () => {
   it('is a no-op for an entity not registered in UNIQUE_FIRST_FIELD', () => {
-    expect(orderFieldsForCreate('time_blocks', { sort_order: 1, label: 'Monday' })).toEqual([
+    // anchor_activities is registered in REQUIRED_FIRST_ON_WRITE (a different
+    // registry, orderFieldsForWrite's concern) but not in UNIQUE_FIRST_FIELD,
+    // so orderFieldsForCreate must leave its field order untouched.
+    expect(orderFieldsForCreate('anchor_activities', { sort_order: 1, label: 'Monday' })).toEqual([
       ['sort_order', 1], ['label', 'Monday'],
+    ])
+  })
+
+  // T238: tiers/time_blocks are UNIQUE(camp_id, cohort_id, name) — a
+  // COMPOSITE scope. orderFieldsForCreate must place the extra scope column
+  // (cohort_id) BEFORE the unique field (name) so that, by the time `name`'s
+  // write reaches detectUniqueFieldCollision (electron/ops/operations.js),
+  // cohort_id is already on the row for it to read.
+  it('places a composite entity\'s extra scope column before its unique field, ahead of everything else', () => {
+    expect(
+      orderFieldsForCreate('tiers', { name: 'A', camp_id: 'camp-1', cohort_id: 'cohort-1', sort_order: 1 })
+    ).toEqual([
+      ['cohort_id', 'cohort-1'],
+      ['name', 'A'],
+      ['camp_id', 'camp-1'],
+      ['sort_order', 1],
+    ])
+  })
+
+  it('places time_blocks\' extra scope column (cohort_id) before its unique field the same way', () => {
+    expect(
+      orderFieldsForCreate('time_blocks', { name: 'AM', camp_id: 'camp-1', cohort_id: 'cohort-1', start_time: '09:00' })
+    ).toEqual([
+      ['cohort_id', 'cohort-1'],
+      ['name', 'AM'],
+      ['camp_id', 'camp-1'],
+      ['start_time', '09:00'],
+    ])
+  })
+
+  it('does not reorder a single-scope entity (locations has no extra scope column)', () => {
+    expect(orderFieldsForCreate('locations', { camp_id: 'camp-1', name: 'Pool', capacity: 20 })).toEqual([
+      ['name', 'Pool'],
+      ['camp_id', 'camp-1'],
+      ['capacity', 20],
     ])
   })
 })

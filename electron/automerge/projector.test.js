@@ -15,7 +15,8 @@ import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD } from '../ops/operations.js
 import { STAGE1_ENTITY, createEmptyDoc, applyWrite, readRecord } from './campDocument.js'
 import { projectEntity, rebuildFromDoc, projectAll } from './projector.js'
 import { reconcile } from './reconcile.js'
-import { recordConflicts } from './conflictStore.js'
+import { recordConflicts, recordUniqueConflicts, clearResolvedUniqueConflicts } from './conflictStore.js'
+import { deriveUniqueConflicts } from './uniqueConflicts.js'
 
 let files = []
 function freshDb(tag) {
@@ -393,5 +394,143 @@ describe('projector — recording a projection failure touches no operations or 
     expect(failure.store).toBe('document-replay')
     expect(failure.op_id).toBe("replay:elective_assignment_runs:run-bad:status")
     expect(failure.resolved_at).toBeNull()
+  })
+})
+
+// docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md, Decision 1: a HARD-SET
+// UNIQUE collision (two whole `days_of_operation` records for the same weekday) is invisible to
+// `reconcile()` — two different entityIds, never the same document key, so `getConflicts` never
+// fires. This is the defect `assertConflictsRecorded`'s scalar-only guard could NOT have caught:
+// before `uniqueConflicts.js` existed, `projectAll` below would have projected this document
+// straight through, silently dropping the second row via `upsertRow`'s SAVEPOINT into
+// `projection_failures`, with no `conflicts` row and no director signal at all.
+describe('projector — hard-set UNIQUE collisions (two whole records, not one field)', () => {
+  it('refuses to project a document with an unrecorded hard-set collision', () => {
+    // Two devices, each minting a brand-new days_of_operation row for the same weekday — the
+    // exact scenario the free-text-name relaxed set does not cover, because this constraint
+    // stays HARD.
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'day_of_week', value: 2 })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'day_of_week', value: 2 })
+
+    // The scalar path finds nothing to object to.
+    expect(reconcile(doc).conflicts).toEqual([])
+
+    // Proves the non-vacuity of the guard: deriveUniqueConflicts DOES see it even though
+    // reconcile() does not.
+    expect(deriveUniqueConflicts(doc)).toHaveLength(1)
+
+    // Nothing has been recorded yet — projectAll must refuse rather than silently drop it.
+    expect(() => projectAll(db, doc)).toThrow(/silently discarded/)
+  })
+
+  it('projects and records a unique: conflicts row once the collision is recorded (real write path, both devices agree)', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'day_of_week', value: 2 })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'day_of_week', value: 2 })
+
+    const uniqueConflicts = deriveUniqueConflicts(doc)
+    recordUniqueConflicts(db, uniqueConflicts)
+
+    expect(() => projectAll(db, doc)).not.toThrow()
+
+    const row = db.prepare("SELECT * FROM conflicts WHERE id LIKE 'unique:%' AND resolved_at IS NULL").get()
+    expect(row).toBeTruthy()
+    expect(row.kind).toBe('unique')
+    expect(row.entity).toBe('days_of_operation')
+    expect(JSON.parse(row.entity_ids)).toEqual(['day-a', 'day-b'])
+    expect(row.field).toBe('day_of_week')
+
+    // Both records' whole values are carried, not just one field.
+    expect(JSON.parse(row.existing_op)).toEqual({ camp_id: 'camp-1', day_of_week: 2 })
+    expect(JSON.parse(row.incoming_op)).toEqual({ camp_id: 'camp-1', day_of_week: 2 })
+  })
+
+  it('clears once a director renames one of the colliding records', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'day_of_week', value: 2 })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'day_of_week', value: 2 })
+    recordUniqueConflicts(db, deriveUniqueConflicts(doc))
+    projectAll(db, doc)
+    expect(db.prepare("SELECT COUNT(*) AS n FROM conflicts WHERE id LIKE 'unique:%' AND resolved_at IS NULL").get().n).toBe(1)
+
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'day_of_week', value: 3 })
+    clearResolvedUniqueConflicts(db, deriveUniqueConflicts(doc))
+    expect(db.prepare("SELECT COUNT(*) AS n FROM conflicts WHERE id LIKE 'unique:%' AND resolved_at IS NULL").get().n).toBe(0)
+  })
+})
+
+// T235/T242 finding 1 (adversarial review round): the unique-conflict guard's query
+// unconditionally selected `entity_ids`, a column that only exists from schema v73 — against a
+// pre-v73 `conflicts` table (e.g. mid-migration, or the FK-survival fixture in
+// uniqueRelax.migration.test.js, which legitimately drives projectAll against a v72 db before
+// migrating it forward) this threw a raw SqliteError instead of the intended, informative guard
+// behavior. A pre-v73 db cannot physically have recorded a `unique:` conflict — that id namespace
+// and column did not exist yet — so there is nothing to assert; the fix is a defensive
+// table_info(conflicts) read, same pattern localDb.js already uses for column-presence checks.
+describe('projector — assertConflictsRecorded is defensive about a pre-v73 conflicts table', () => {
+  function dropUniqueConflictColumns(db) {
+    // Mirrors what rollbackV73 does to the `conflicts` table: v73 ALTER-added `entity_ids` and
+    // `kind` (schema.sql's own comment on the table: "Appended LAST ... ALTER-added on a migrated
+    // db"), so "pre-v73" means the table built without those two columns, in the same order every
+    // other column already had.
+    db.exec(`
+      ALTER TABLE conflicts RENAME TO conflicts_v73;
+      CREATE TABLE conflicts (
+        id TEXT PRIMARY KEY,
+        entity TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        field TEXT NOT NULL,
+        incoming_op TEXT NOT NULL,
+        existing_op TEXT NOT NULL,
+        existing_op_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        resolved_at TEXT
+      );
+      INSERT INTO conflicts (id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at, resolved_at)
+        SELECT id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at, resolved_at FROM conflicts_v73;
+      DROP TABLE conflicts_v73;
+    `)
+  }
+
+  it('does not throw a raw SqliteError when conflicts lacks entity_ids — a document with no unique collision still projects', () => {
+    dropUniqueConflictColumns(db)
+    expect(db.pragma('table_info(conflicts)').some((c) => c.name === 'entity_ids')).toBe(false)
+
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'day_of_week', value: 2 })
+
+    expect(() => projectAll(db, doc)).not.toThrow()
+    expect(daysRows(db)).toEqual([{ id: 'day-a', camp_id: 'camp-1', label: '', day_of_week: 2, sort_order: null }])
+  })
+
+  it('non-vacuity: the SAME pre-v73 table would still throw a raw SqliteError without the defensive read (proves the test exercises the real code path)', () => {
+    dropUniqueConflictColumns(db)
+    const vulnerable = () => {
+      db.prepare("SELECT entity, entity_ids, field FROM conflicts WHERE resolved_at IS NULL AND id LIKE 'unique:%'").all()
+    }
+    expect(vulnerable).toThrow(/no such column: entity_ids/)
+  })
+
+  it('the guard STILL FIRES normally on a v73+ database — the defensive read must not disable it', () => {
+    // Same fixture as "refuses to project a document with an unrecorded hard-set collision" above,
+    // against this file's ordinary (current-schema, v73+) db — proves the defensive column check
+    // does not accidentally swallow the guard when the columns DO exist.
+    expect(db.pragma('table_info(conflicts)').some((c) => c.name === 'entity_ids')).toBe(true)
+
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-a', field: 'day_of_week', value: 2 })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-b', field: 'day_of_week', value: 2 })
+
+    expect(() => projectAll(db, doc)).toThrow(/silently discarded/)
   })
 })

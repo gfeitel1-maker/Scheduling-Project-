@@ -13,7 +13,7 @@
 //
 // No campers roster, no solver (ADR §2) — this screen only holds and
 // displays what the director decides.
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
@@ -22,11 +22,13 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { S } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import InlineAddRow from '../components/setup/InlineAddRow'
+import DuplicateNameDot from '../components/setup/DuplicateNameDot'
+import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
 
 const repository = createSetupCrudRepository({ localClient })
 const setScopeFilter = (row, campId) => row.camp_id === campId
 
-function ElectiveSetRow({ set, onBuild, onSave, onDelete, role }) {
+function ElectiveSetRow({ set, onBuild, onSave, onDelete, role, duplicateSiblings }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(set.name)
   const [saving, setSaving] = useState(false)
@@ -68,6 +70,7 @@ function ElectiveSetRow({ set, onBuild, onSave, onDelete, role }) {
     <tr style={{ borderBottom: '1px solid var(--border)' }}>
       <td style={{ ...S.td, fontWeight: 500 }}>
         {set.name || '(untitled set)'}
+        {duplicateSiblings?.length > 0 && <DuplicateNameDot row={set} siblings={duplicateSiblings} entityLabel="elective set" />}
       </td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button className="press-97" onClick={() => onBuild(set)} style={S.btnSecondary} title="Build this set's offerings from Electives under Schedule">Open</button>
@@ -99,6 +102,7 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
     addFailedText: 'That elective set could not be added.',
     saveFailedText: 'That elective set could not be saved.',
   })
+  const duplicateSetSiblings = useMemo(() => duplicateSiblingsByIdFor(sets), [sets])
 
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
@@ -159,6 +163,7 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
                   onBuild={(s) => onNavigate?.('schedule:electives', { electiveSetId: s.id })}
                   onSave={save}
                   onDelete={setPendingDelete}
+                  duplicateSiblings={duplicateSetSiblings.get(set.id)}
                 />
               ))}
               {/* The always-present blank "type here to add" row — lives as

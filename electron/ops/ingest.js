@@ -896,23 +896,42 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // mode the rows these maps would name are about to be destroyed, and seeding
   // first would file a new bunk under a unit that no longer exists. In add mode
   // nothing has changed — the same queries, the same results.
+  // T252: a duplicated name can now exist post-merge (schema v73 relaxed the
+  // UNIQUE constraint). SQLite gives no ordering guarantee over an unordered
+  // SELECT, so two devices could seed these maps from the same rows in
+  // different physical order and resolve a name to different ids. Every site
+  // below sorts by id ASC and uses first-write-wins, so the lowest id always
+  // claims the map slot regardless of row return order.
   function seedNameMaps() {
-    for (const row of db.prepare('SELECT id, name, cohort_id FROM tiers WHERE camp_id = ?').all(camp_id)) {
+    for (const row of db.prepare('SELECT id, name, cohort_id FROM tiers WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
       if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) {
-        tierIdByName.set(String(row.name).trim().toLowerCase(), row.id)
+        const key = String(row.name).trim().toLowerCase()
+        if (!tierIdByName.has(key)) tierIdByName.set(key, row.id)
       }
     }
-    for (const row of db.prepare('SELECT id, name, cohort_id FROM time_blocks WHERE camp_id = ?').all(camp_id)) {
-      if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) blockIdByName.set(normalizeName(row.name), row.id)
+    for (const row of db.prepare('SELECT id, name, cohort_id FROM time_blocks WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
+      if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) {
+        const key = normalizeName(row.name)
+        if (!blockIdByName.has(key)) blockIdByName.set(key, row.id)
+      }
     }
-    for (const row of db.prepare('SELECT id, label FROM days_of_operation WHERE camp_id = ?').all(camp_id)) {
-      if (row.label) dayIdByName.set(normalizeName(row.label), row.id)
+    for (const row of db.prepare('SELECT id, label FROM days_of_operation WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
+      if (row.label) {
+        const key = normalizeName(row.label)
+        if (!dayIdByName.has(key)) dayIdByName.set(key, row.id)
+      }
     }
-    for (const row of db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(camp_id)) {
-      if (row.name) groupIdByName.set(normalizeName(row.name), row.id)
+    for (const row of db.prepare('SELECT id, name FROM groups WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
+      if (row.name) {
+        const key = normalizeName(row.name)
+        if (!groupIdByName.has(key)) groupIdByName.set(key, row.id)
+      }
     }
-    for (const row of db.prepare('SELECT id, name FROM locations WHERE camp_id = ?').all(camp_id)) {
-      if (row.name) locationIdByName.set(String(row.name).trim(), row.id)
+    for (const row of db.prepare('SELECT id, name FROM locations WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
+      if (row.name) {
+        const key = String(row.name).trim()
+        if (!locationIdByName.has(key)) locationIdByName.set(key, row.id)
+      }
     }
   }
 
@@ -1392,15 +1411,39 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // tier could not be found: its groups failed to link, and (T183 PR-2) a
     // re-imported division-scoped event false-flattened. One normalization, all
     // three sites.
-    if (entity === 'tiers') tierIdByName.set(name.trim().toLowerCase(), entityId)
-    if (entity === 'time_blocks') blockIdByName.set(normalizeName(name), entityId)
-    if (entity === 'days_of_operation') dayIdByName.set(normalizeName(name), entityId)
-    if (entity === 'groups') groupIdByName.set(normalizeName(name), entityId)
+    // T252 round 2: guarded with the SAME `if (!map.has(key))` first-write-wins
+    // rule seedNameMaps uses above. An unconditional `.set()` here would evict
+    // an already-established lowest-id winner the moment this run creates
+    // another row of that name (a director-pinned ambiguous-identity 'create',
+    // or a second create of the same name within one run) — every later
+    // lookup in this SAME run (the group->tier link below, resolveFieldWrite,
+    // fixed-event scoping) would then silently resolve to the brand-new row
+    // instead of the row every other device already agrees is canonical. A
+    // row created this run may only ever claim a name slot no live row holds.
+    if (entity === 'tiers') {
+      const key = name.trim().toLowerCase()
+      if (!tierIdByName.has(key)) tierIdByName.set(key, entityId)
+    }
+    if (entity === 'time_blocks') {
+      const key = normalizeName(name)
+      if (!blockIdByName.has(key)) blockIdByName.set(key, entityId)
+    }
+    if (entity === 'days_of_operation') {
+      const key = normalizeName(name)
+      if (!dayIdByName.has(key)) dayIdByName.set(key, entityId)
+    }
+    if (entity === 'groups') {
+      const key = normalizeName(name)
+      if (!groupIdByName.has(key)) groupIdByName.set(key, entityId)
+    }
     // M4 §D1a/§D2: registered BEFORE any activities create runs, in the same
     // toCreate loop — INGESTIBLE_ENTITIES order places locations before
     // activities, so this is always populated by the time an activity's
     // location resolves (§D1c below reads this map).
-    if (entity === 'locations') locationIdByName.set(String(name).trim(), entityId)
+    if (entity === 'locations') {
+      const key = String(name).trim()
+      if (!locationIdByName.has(key)) locationIdByName.set(key, entityId)
+    }
     if (entity === 'groups') {
       // The file said which unit this bunk is in; file it there rather than
       // leaving the director to assign 33 bunks by hand.
