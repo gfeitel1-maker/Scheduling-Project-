@@ -49,12 +49,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Phase E — measure whether WAN failure is discovery or direct dial](../../docs/work/tickets/T212-wan-connectivity-measurement.md) | open | [2026-09-18-connectivity-observability-event-vocabulary](../../docs/adr/2026-09-18-connectivity-observability-event-vocabulary.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 
-### ui-ux-design
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Derived duplicate flag on the eight relaxed screens that lack one](../../docs/work/tickets/T239-duplicate-flag-on-eight-remaining-screens.md) | open | — |
-
 ### unclassified
 
 | Ticket | Status | Referenced by |

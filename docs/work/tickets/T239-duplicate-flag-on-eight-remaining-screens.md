@@ -1,16 +1,16 @@
 ---
-title: "Derived duplicate flag on the eight relaxed screens that lack one"
+title: "Derived duplicate flag on the nine in-scope relaxed entities"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
-archive_when: every one of the ten relaxed entities shows a derived, never-persisted duplicate marker on its own screen, clearing the moment the list stops holding two matching rows
+archive_when: each of the NINE in-scope relaxed entities shows a derived, never-persisted duplicate marker on its own screen, clearing the moment the list stops holding two matching rows; schedule_weeks is explicitly excluded by the recorded owner decision below and its marker is not a condition of archiving
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md, docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md]
 related_adrs: [docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md]
 related_tickets: [docs/work/tickets/T241-relax-name-unique-constraints-schema-v73.md]
 ---
 
-# T239 — Derived duplicate flag on the eight remaining relaxed screens
+# T239 — Derived duplicate flag on the nine in-scope relaxed entities
 
 ## Why
 
@@ -39,8 +39,16 @@ marker off it.
 
 ## Success predicate (observable)
 
-1. Eight screens gain the marker: Events, Elective Sets, Groups, Cohorts, Tiers, Time Blocks, Schedule
-   Weeks, Special Days. Locations and Activities already have it and are **not** touched.
+1. **Nine of the ten relaxed entities carry the marker.** Seven of the nine are in scope here — `events`,
+   `elective_sets`, `groups`, `cohorts`, `tiers`, `time_blocks`, `special_days` — across **six** screens,
+   because `SpecialEventsScreen` owns two of them (`events` and `special_days`) behind two separate
+   sibling maps. `locations` and `activities` already had it and are **not** touched. ~~`schedule_weeks`~~
+   is the tenth and is **excluded** — see "Owner decision, 2026-09-24" below.
+
+   _Prior: this predicate read "Eight screens gain the marker: Events, Elective Sets, Groups, Cohorts,
+   Tiers, Time Blocks, Schedule Weeks, Special Days". Two errors: it listed Schedule Weeks, contradicting
+   the owner decision recorded at the foot of this ticket, and it counted screens as if `events` and
+   `special_days` had one screen each. Nine entities, not ten; seven in scope across six screens._
 2. Each uses `duplicateSiblingsByIdFor` with **exact** matching (the `near` heuristic is
    Activities-specific and tuned against real workbooks; do not spread it).
 3. **Tiers and Time Blocks are cohort-scoped.** Their marker must group within a cohort, not across the
@@ -69,10 +77,44 @@ Two further reasons it is the safest of the ten to leave unmarked: a week is cho
 than resolved by name anywhere in the engine, and `schedule_weeks` was the single plain-named-index
 case in the v73 relax (never an inline `UNIQUE`), so nothing about its rebuild is load-bearing here.
 
-Decide where the marker belongs **as part of this ticket**, alongside the eighth screen, with a proper
-look at `ScheduleScreen` — not as a tail-end addition to a migration review. The candidate the owner
-named as the plausible home is the week *picker* control (where a director chooses a week, so the
-duplicate surfaces exactly when it could confuse someone) rather than the canvas itself.
+Where the marker belongs is a **design question about `ScheduleScreen`**, to be answered on its own and
+not folded into the mechanical extension this ticket covers. The candidate the owner named as the
+plausible home is the week *picker* control (where a director chooses a week, so the duplicate surfaces
+exactly when it could confuse someone) rather than the canvas itself.
 
-Until then the gap is known and accepted. `archive_when` above already covers it: this ticket cannot
-archive while any of the ten lacks a marker, so the decision cannot quietly become permanent.
+The decision stands, and the exclusion is deliberate rather than an oversight.
+
+**How this stays visible without making the ticket unarchivable.** The original wording said
+`archive_when` "already covers it: this ticket cannot archive while any of the ten lacks a marker". That
+was wrong, and it is corrected above: since the owner decision means the tenth marker may never be
+built, that phrasing made this ticket **permanently unarchivable** even after all nine in-scope markers
+shipped — a status-drift check would then trip on work that is in fact complete. `archive_when` now
+counts the nine. The `schedule_weeks` design question is carried instead by
+[T255](T255-name-keyed-lookups-assume-uniqueness.md)'s "Also in scope" section, which is open, so the
+decision cannot quietly become permanent by being forgotten — only by being made again, deliberately.
+
+## What shipped
+
+All nine in-scope entities render the marker, verified against the tree on 2026-09-24:
+
+| Entity | Screen | Marker |
+|---|---|---|
+| `locations` | `src/screens/LocationsScreen.jsx` | pre-existing, via `locationDuplicates.js` (merge verb) |
+| `activities` | `src/screens/ActivitiesScreen.jsx` | pre-existing, `{near:true}` (merge verb) |
+| `events` | `src/screens/SpecialEventsScreen.jsx` | `duplicateEventSiblings` → `DuplicateNameDot` |
+| `special_days` | `src/screens/SpecialEventsScreen.jsx` | `duplicateDaySiblings` → `DuplicateNameDot` |
+| `elective_sets` | `src/screens/ElectivesScreen.jsx` | `duplicateSetSiblings` → `DuplicateNameDot` |
+| `groups` | `src/screens/GroupsScreen.jsx` | `duplicateGroupSiblings` → `DuplicateNameDot` |
+| `cohorts` | `src/screens/CohortsScreen.jsx` | `duplicateCohortSiblings` → `DuplicateNameDot` |
+| `tiers` | `src/screens/TiersScreen.jsx` | `duplicateTierSiblings` → `DuplicateNameDot` |
+| `time_blocks` | `src/screens/TimeBlocksScreen.jsx` | `duplicateBlockSiblings` → `DuplicateNameDot` |
+| ~~`schedule_weeks`~~ | `src/screens/ScheduleScreen.jsx` | **deliberately absent** — owner decision below |
+
+Predicate 3 (cohort scoping) is satisfied structurally rather than by a scoping argument passed to the
+derivation: `TiersScreen` and `TimeBlocksScreen` both filter their fetched rows to
+`camp_id === campId && cohort_id === <active cohort>` before `setState`, and the memo derives over that
+already-scoped state. Two same-named tiers in different cohorts are never in the same list, so they
+cannot be grouped.
+
+Predicate 4 is satisfied by `src/components/setup/DuplicateNameDot.jsx`, which passes no `actions` to
+`ProvenanceDot` and therefore renders no footer at all — there is no merge verb to accidentally reach.
