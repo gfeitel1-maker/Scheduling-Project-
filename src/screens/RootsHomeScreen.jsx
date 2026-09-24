@@ -11,6 +11,7 @@ import { dedupeChipItems } from './rootsChips'
 import { downloadWorkbook } from '../utils/exportWorkbook.js'
 import { ACTIVITY_COLORS } from '../components/schedule/slotCellConstants.js'
 import { ScheduleDoor } from '../components/ScheduleDoor'
+import { SIDEBAR_WIDTH_PX } from '../components/layout/Sidebar.jsx'
 
 // ADR docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md — the Roots
 // home is a distinct screen from now on: no census/diff vocabulary, no
@@ -53,14 +54,18 @@ const CHIP_CAP = { large: 4, wide: 6 }
 
 // T236 — window width below which the two-column rail layout collapses to a
 // single stacked column. matchMedia measures the WINDOW, but Shell.jsx's
-// fixed sidebar (measured at 216px — src/components/layout/Sidebar.jsx) plus
-// <main>'s 24px padding on each side (48px) come out of that before the
-// screen's own content box starts. At 1150 the content box is
-// 1150 - 216 - 48 = 886px, leaving the bento ~562px after the 300px rail and
-// --space-5 (24px) gap — the minimum width the 3-column bento reads
-// comfortably at. Below 1150 the bento would get pinched before it, so the
-// layout collapses to a stack instead.
-const NARROW_BREAKPOINT_PX = 1150
+// fixed sidebar (SIDEBAR_WIDTH_PX, imported below so this can't drift from
+// the real value) plus <main>'s 24px padding on each side (MAIN_PADDING_PX)
+// come out of that before the screen's own content box starts. What's left
+// has to fit the 300px rail (RAIL_PX), the --space-5 gap between rail and
+// bento (GAP_PX), and MIN_BENTO_PX — the minimum width the 3-column bento
+// reads comfortably at. Below the sum, the bento would get pinched before
+// it, so the layout collapses to a stack instead.
+const MAIN_PADDING_PX = 48
+const RAIL_PX = 300
+const GAP_PX = 24
+const MIN_BENTO_PX = 562
+export const NARROW_BREAKPOINT_PX = SIDEBAR_WIDTH_PX + MAIN_PADDING_PX + RAIL_PX + GAP_PX + MIN_BENTO_PX
 
 function countFor(collections, key) {
   if (!collections) return 0
@@ -211,6 +216,13 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
               </div>
             )}
           </section>
+
+          <div style={styles.bottomActions}>
+            <button className="press-97" onClick={() => onNavigate('import')} style={S.btnSecondary}>Import last year</button>
+            <button className="press-97" disabled={preparingWorksheet} onClick={downloadWorksheet} style={S.btnSecondary}>
+              Download worksheet
+            </button>
+          </div>
         </div>
 
         <aside
@@ -247,13 +259,6 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
             </div>
           )}
         </aside>
-      </div>
-
-      <div style={styles.bottomActions}>
-        <button className="press-97" onClick={() => onNavigate('import')} style={S.btnSecondary}>Import last year</button>
-        <button className="press-97" disabled={preparingWorksheet} onClick={downloadWorksheet} style={S.btnSecondary}>
-          Download worksheet
-        </button>
       </div>
     </div>
   )
@@ -409,10 +414,12 @@ const styles = {
     fontWeight: 600,
     fontSize: 13,
     color: 'var(--text)',
+    overflowWrap: 'break-word',
   },
   attentionWhy: {
     fontSize: 12,
     color: 'var(--text-secondary)',
+    overflowWrap: 'break-word',
   },
   domainChip: {
     padding: '3px var(--space-3)',

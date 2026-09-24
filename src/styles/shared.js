@@ -57,16 +57,19 @@ export function useEnterTransition(variant, { transformOrigin } = {}) {
 // jsdom has no matchMedia by default.
 export function useNarrowViewport(breakpointPx) {
   const query = `(max-width: ${breakpointPx}px)`
-  const [narrow, setNarrow] = useState(() =>
-    typeof window !== 'undefined' && Boolean(window.matchMedia?.(query).matches)
+  // One matchMedia() call per query, not two — its MediaQueryList is created
+  // lazily alongside the initial state and reused by the effect below, so
+  // the "current" read and the "watch for changes" read agree by construction.
+  const [mql] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query) : null
   )
+  const [narrow, setNarrow] = useState(() => Boolean(mql?.matches))
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return undefined
-    const mql = window.matchMedia(query)
+    if (!mql) return undefined
     const onChange = (e) => setNarrow(e.matches)
     mql.addEventListener('change', onChange)
     return () => mql.removeEventListener('change', onChange)
-  }, [query])
+  }, [mql])
   return narrow
 }
 

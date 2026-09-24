@@ -353,4 +353,25 @@ describe('RootsHomeScreen', () => {
     expect(rail.contains(screen.getByTestId('attention-empty-check'))).toBe(true)
     expect(rail.contains(screen.getByText('Nothing needs you right now.'))).toBe(true)
   })
+
+  it('keeps the bottom actions inside rootsMain so their position follows the bento column, not the rail (round-2 fix 1)', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Import last year')).not.toBeNull())
+
+    const importButton = screen.getByText('Import last year')
+    const rootsMain = screen.getByText('What has taken root').closest('section').parentElement
+    expect(rootsMain.contains(importButton)).toBe(true)
+
+    const rail = screen.getByRole('complementary', { name: 'Needs your attention' })
+    expect(rail.contains(importButton)).toBe(false)
+  })
+
+  it('derives the narrow-layout breakpoint from the real sidebar width, not a hardcoded copy (round-2 fix 2)', async () => {
+    const { SIDEBAR_WIDTH_PX } = await import('../components/layout/Sidebar.jsx')
+    const { NARROW_BREAKPOINT_PX } = await import('./RootsHomeScreen.jsx')
+    expect(NARROW_BREAKPOINT_PX).toBe(SIDEBAR_WIDTH_PX + 48 + 300 + 24 + 562)
+  })
 })
