@@ -20,7 +20,7 @@ import Database from 'better-sqlite3'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './localDb.js'
 import { rollbackV73, findRelaxedSetDuplicates } from './rollback/v73_down.js'
-import { createEmptyDoc, applyWrite } from '../automerge/campDocument.js'
+import { createEmptyDoc, applyWrite, applyBulkReplace } from '../automerge/campDocument.js'
 import { projectAll } from '../automerge/projector.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -240,6 +240,169 @@ describe('migration v73: two colliding records project without a projection_fail
     }
 
     expect(db.prepare('SELECT COUNT(*) c FROM projection_failures').get().c).toBe(0)
+    db.close()
+  })
+})
+
+// WHY THIS BLOCK EXISTS. Nine of the ten relaxed tables are DROPped and recreated by the v73
+// rebuild, and `PRAGMA foreign_keys = OFF` is set globally around it precisely so those drops can
+// proceed. That means nothing at all enforces referential integrity while the rebuild runs: if a
+// row's parent id were dropped, or a column misplaced by a positional copy, the migration would
+// complete clean, the schema would still compare equal, and a camp would silently lose schedule
+// data. The other cases in this file check schema shape and collision behaviour; none of them
+// check that CHILD rows survived, which is the worst-consequence failure this migration has.
+describe('migration v73: FK-dependent rows across all ten relaxed tables survive the rebuild', () => {
+  // Runtime-derived, per the ticket: PRAGMA foreign_key_list over every table in the db, keeping
+  // only edges whose parent is one of the ten relaxed tables. NOT hardcoded, so a table added
+  // later that references any of the ten is picked up automatically without touching this test.
+  function dependentEdges(db) {
+    const allTables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map((r) => r.name)
+    const edges = []
+    for (const table of allTables) {
+      for (const fk of db.pragma(`foreign_key_list(${table})`)) {
+        if (TABLES.includes(fk.table)) {
+          edges.push({ table, from: fk.from, parentTable: fk.table, to: fk.to })
+        }
+      }
+    }
+    return edges
+  }
+
+  // Seeds one parent row in each of the ten relaxed tables, plus one real dependent row across
+  // every FK edge `dependentEdges` will find, ALL through the real write path (applyWrite ->
+  // projectAll) per the non-negotiable owner rule — never a hand-inserted INSERT INTO for any of
+  // these rows.
+  function seedFixture(db) {
+    db.prepare("INSERT INTO camps (id, name) VALUES ('camp-1', 'Camp One')").run()
+    let doc = createEmptyDoc()
+    const write = (entity, id, field, value) => {
+      doc = applyWrite(doc, { entity, entity_id: id, field, value })
+    }
+
+    // Parents: one row per relaxed table.
+    write('schedule_weeks', 'week-1', 'camp_id', 'camp-1')
+    write('schedule_weeks', 'week-1', 'name', 'Week 1')
+    write('cohorts', 'cohort-1', 'camp_id', 'camp-1')
+    write('cohorts', 'cohort-1', 'name', 'Session 1')
+    write('activities', 'activity-1', 'camp_id', 'camp-1')
+    write('activities', 'activity-1', 'name', 'Swim')
+    write('groups', 'group-1', 'camp_id', 'camp-1')
+    write('groups', 'group-1', 'name', 'Bunk A')
+    write('elective_sets', 'elset-1', 'camp_id', 'camp-1')
+    write('elective_sets', 'elset-1', 'name', 'Choice A')
+    write('elective_sets', 'elset-1', 'schedule_week_id', 'week-1')
+    write('events', 'event-1', 'camp_id', 'camp-1')
+    write('events', 'event-1', 'name', 'Color War')
+    write('special_days', 'sday-1', 'camp_id', 'camp-1')
+    write('special_days', 'sday-1', 'name', 'Visiting Day')
+    write('locations', 'loc-1', 'camp_id', 'camp-1')
+    write('locations', 'loc-1', 'name', 'Pool')
+    write('tiers', 'tier-1', 'camp_id', 'camp-1')
+    write('tiers', 'tier-1', 'cohort_id', 'cohort-1')
+    write('tiers', 'tier-1', 'name', 'Yeladim')
+    write('time_blocks', 'tb-1', 'camp_id', 'camp-1')
+    write('time_blocks', 'tb-1', 'cohort_id', 'cohort-1')
+    write('time_blocks', 'tb-1', 'name', 'Period 1')
+
+    // Dependents — one real row per FK edge discovered by dependentEdges, seeded in an order that
+    // satisfies each entity's own ensureExists ordering contract (electron/ops/projections.js).
+    write('schedule_templates', 'templ-1', 'kind', 'manual')
+    write('schedule_templates', 'templ-1', 'camp_id', 'camp-1')
+    write('schedule_templates', 'templ-1', 'week_id', 'week-1')
+
+    // template_slots is dual-modeled (electron/automerge/projector.js's upsertEntity /
+    // deleteReconcileBulkReplaceEntity comments): its EXISTENCE is owned by the bulk-replace scope
+    // pass (a real schedule generate/regenerate), not the flat per-field write applyWrite uses for
+    // every other entity here. Seeding it via applyWrite would round-trip through projectAll fine
+    // on its own, but the SAME projectAll call's delete-reconcile pass then wipes it straight back
+    // out — deleteReconcileBulkReplaceEntity treats any template_id scope absent from
+    // doc.template_slots_scopes as an empty scope and clears it. applyBulkReplace is the real write
+    // path for this table (ScheduleScreen's generate()/placeAnchors()), so it is what a genuine
+    // camp's schedule data looks like on disk.
+    doc = applyBulkReplace(doc, {
+      entity: 'template_slots',
+      scope_id: 'templ-1',
+      rows: [{ id: 'ts-1', template_id: 'templ-1', group_id: 'group-1', activity_id: 'activity-1' }],
+    })
+
+    write('week_activity_exclusions', 'wae-1', 'week_id', 'week-1')
+    write('week_activity_exclusions', 'wae-1', 'activity_id', 'activity-1')
+
+    write('week_group_exclusions', 'wge-1', 'week_id', 'week-1')
+    write('week_group_exclusions', 'wge-1', 'group_id', 'group-1')
+
+    write('week_location_exclusions', 'wle-1', 'week_id', 'week-1')
+    write('week_location_exclusions', 'wle-1', 'location_id', 'loc-1')
+
+    // schedule_week_id deliberately not set here: anchor_activities projects BEFORE
+    // schedule_weeks in MODELED_ORDER (electron/ops/campScopedEntities.js's DOMAIN_SNAPSHOT_ORDER),
+    // so setting it would trip the FK check inside projectAll itself, before the migration is even
+    // reached — a pre-existing projector ordering fact, not something this test should route around
+    // with a non-write-path insert. The schedule_weeks parent-edge is still exercised below via
+    // schedule_templates/week_*_exclusions/elective_sets, which DO project after schedule_weeks.
+    write('anchor_activities', 'anchor-1', 'camp_id', 'camp-1')
+    write('anchor_activities', 'anchor-1', 'cohort_id', 'cohort-1')
+
+    write('elective_set_activities', 'esa-1', 'elective_set_id', 'elset-1')
+    write('elective_set_activities', 'esa-1', 'activity_id', 'activity-1')
+
+    write('event_time_blocks', 'etb-1', 'event_id', 'event-1')
+    write('event_groups', 'eg-1', 'event_id', 'event-1')
+    write('event_slots', 'esl-1', 'event_id', 'event-1')
+    write('event_slots', 'esl-1', 'event_group_id', 'eg-1')
+    write('event_slots', 'esl-1', 'time_block_id', 'tb-1')
+
+    write('special_day_time_blocks', 'sdtb-1', 'special_day_id', 'sday-1')
+    write('special_day_slots', 'sds-1', 'special_day_id', 'sday-1')
+    write('special_day_slots', 'sds-1', 'group_id', 'group-1')
+    write('special_day_slots', 'sds-1', 'time_block_id', 'tb-1')
+
+    const failures = projectAll(db, doc)
+    expect(failures).toEqual([])
+  }
+
+  it('keeps every FK-dependent row (same ids, same counts) with a live parent, and PRAGMA foreign_key_check clean, across the v73 rebuild', () => {
+    const db = preV73Db('v73-fk-survival')
+    seedFixture(db)
+
+    const edges = dependentEdges(db)
+    // Sanity on the derivation itself: if this were empty, the rest of the test would vacuously
+    // pass over nothing.
+    expect(edges.length).toBeGreaterThan(0)
+
+    const beforeRowsByTable = {}
+    for (const { table } of edges) {
+      if (!beforeRowsByTable[table]) {
+        beforeRowsByTable[table] = db.prepare(`SELECT * FROM ${table}`).all()
+        expect(beforeRowsByTable[table].length, `expected a seeded row in ${table} before migrating`).toBeGreaterThan(0)
+      }
+    }
+
+    initSchema(db) // runs v73
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
+
+    expect(db.pragma('foreign_key_check')).toEqual([])
+
+    for (const { table, from, parentTable, to } of edges) {
+      const afterRows = db.prepare(`SELECT * FROM ${table}`).all()
+      const beforeRows = beforeRowsByTable[table]
+      expect(afterRows.length, `row count changed for ${table}: was ${beforeRows.length}, now ${afterRows.length}`).toBe(
+        beforeRows.length
+      )
+      expect(afterRows.length, `expected nonzero surviving rows in ${table}`).toBeGreaterThan(0)
+      expect(afterRows.map((r) => r.id).sort()).toEqual(beforeRows.map((r) => r.id).sort())
+
+      for (const row of afterRows) {
+        const fkValue = row[from]
+        if (fkValue == null) continue
+        const parent = db.prepare(`SELECT ${to} FROM ${parentTable} WHERE ${to} = ?`).get(fkValue)
+        expect(parent, `${table}.${from}=${fkValue} has no matching ${parentTable}.${to} after migrating`).toBeTruthy()
+      }
+    }
+
     db.close()
   })
 })
