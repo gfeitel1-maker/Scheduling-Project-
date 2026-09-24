@@ -34,7 +34,10 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // which there are zero). Assert the count explicitly so a future rollback
     // file changes this number and forces a look, rather than silently
     // enlarging or shrinking what's covered.
-    expect(files.length).toBe(33)
+    // 34 as of v74_down.js (T243). Looked, as this tripwire demands, rather than
+    // just re-counting: v74_down.js deletes with `WHERE version >= 74`, so it
+    // satisfies the guard below on its own merits.
+    expect(files.length).toBe(34)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {
