@@ -153,8 +153,16 @@ in-scope entities, so this item is carried here rather than there.
   in the loop is the same create-time eviction bug T252 fixed in `electron/ops/ingest.js` and
   `src/localClient.mock.js`, left un-fixed here; and `tierMap`/`actMap` there use bare `.toLowerCase()`
   with no trim, so they fold differently than ingest's `tierIdByName`.
-- **Slice C — not started:** findings 7, 8, 10. Needs an array-level lowest-id helper — `nameMap` in
-  `electron/ops/materializeImportedVersion.js` is db-bound and cannot be reused directly, and the
-  array-shaped equivalent is currently inlined in `src/localClient.mock.js` and
-  `electron/ops/ingest.js`'s `seedNameMaps`. Extract one and have `nameMap` delegate to it.
+- **Slice C — IN REVIEW:** findings **8** and **10**, plus the `listAliasMap` carried item. The
+  array-level helper is `src/lib/nameIdTiebreak.js` (`lowestIdOf`). `nameMap` and `seedNameMaps` were
+  deliberately left db-bound rather than made to delegate — they are pinned by their own tie-break
+  tests and reshaping them buys nothing here.
+- **Finding 7 — spun out to [T257](T257-import-tier-dropdown-cannot-reach-second-division.md).** It is
+  not the one-line "carry the id instead of the name" this ticket described. Reconnaissance against the
+  tree found three things that resize it: proposed tiers have **no id** and become indistinguishable
+  from existing ones once `tierNames` merges them (so the option value needs a discriminated token, not
+  an id); an id would **leak into director-facing copy**, because the reconciliation card renders
+  `proposedValue` verbatim; and `writeDivisionEvidence` gates on a **name** comparison, so an id-valued
+  `unit` would silently stop writing division evidence. Two hops this ticket never traced are also
+  involved — `resolveFieldWrite`'s `unit` arm and the update-diff's `unit_name` snapshot comparison.
 - **Finding 9 — CLOSED, deferred by owner decision** to T256. Not a slice.

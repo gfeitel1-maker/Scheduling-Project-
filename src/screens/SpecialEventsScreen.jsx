@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
+import { createLocationRecord } from '../lib/locationDedup'
 import { whitespaceInsensitiveName } from '../ingest/preview'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
@@ -369,15 +370,10 @@ export default function SpecialEventsScreen({ campId, role, initialFocus = null,
   }
 
   async function createLocation(name) {
-    const trimmedName = String(name ?? '').trim()
-    if (!trimmedName) return null
-    const existing = supportData.locations.find((l) => String(l.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())
-    if (existing) return existing.id
-    const newId = crypto.randomUUID()
-    const fields = { name: trimmedName, camp_id: campId, capacity: 1, notes: null }
-    await repository.createRecord('locations', newId, fields)
-    setSupportData((prev) => ({ ...prev, locations: [...prev.locations, { id: newId, ...fields }] }))
-    return newId
+    const result = await createLocationRecord({ repository, campId, name, existing: supportData.locations })
+    if (!result) return null
+    if (result.created) setSupportData((prev) => ({ ...prev, locations: [...prev.locations, result.location] }))
+    return result.location.id
   }
 
   async function updateLocationCapacity(locationId, capacity) {
