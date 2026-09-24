@@ -53,3 +53,35 @@ describe('the tie-break is byte order, matching SQL ORDER BY id ASC on TEXT', ()
     expect(lowestIdOf([{ id: 'a-row' }, { id: 'B-row' }]).id).toBe('B-row')
   })
 })
+
+// The divergence that made the contract above a claim rather than a fact.
+// JS `<` is UTF-16 CODE UNIT order; SQLite's BINARY collation is UTF-8 byte
+// order, which is code-point order. They disagree for exactly one shape: a
+// surrogate pair (code point >= U+10000) against a BMP character in
+// U+E000..U+FFFF. Plain `<` sees only the high surrogate (0xD83D here) and puts
+// the astral character FIRST; SQLite puts it LAST.
+//
+// Not reachable through today's two call sites — ids are hex uuids or
+// deriveLocationId output, and same-named rows share that derived base — but
+// this helper advertises the SQL equivalence to every future caller, and an id
+// derived from a director-typed name needs only an emoji to reach it.
+describe('the ordering is code-point order, as SQLite BINARY is — not JS UTF-16 order', () => {
+  const ASTRAL = '\u{1F600}' // U+1F600, surrogate pair D83D DE00
+  const BMP = '' // U+E000, one code unit, numerically LOWER code point
+
+  it('demonstrates that plain JS `<` would get this backwards', () => {
+    // Pinning the premise, so this test cannot quietly stop testing anything
+    // if a future JS engine changed string comparison.
+    expect(ASTRAL < BMP).toBe(true)
+    expect(ASTRAL.codePointAt(0) < BMP.codePointAt(0)).toBe(false)
+  })
+
+  it('picks the BMP id, because SQLite ORDER BY id ASC would', () => {
+    expect(lowestIdOf([{ id: `x${ASTRAL}` }, { id: `x${BMP}` }]).id).toBe(`x${BMP}`)
+    expect(lowestIdOf([{ id: `x${BMP}` }, { id: `x${ASTRAL}` }]).id).toBe(`x${BMP}`)
+  })
+
+  it('still orders a shared prefix by length, as a byte comparison does', () => {
+    expect(lowestIdOf([{ id: 'loc' }, { id: 'loc:2' }]).id).toBe('loc')
+  })
+})
