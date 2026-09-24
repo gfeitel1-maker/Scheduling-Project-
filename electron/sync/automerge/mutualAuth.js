@@ -106,11 +106,20 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
 
   // peerId -> monotonic attempt counter. A fresh id per attempt (not per peer) lets an analyst
   // reading the emitted log tell which events belong to which attempt, and lets rate computations
-  // avoid double-counting the stall race described below.
+  // avoid double-counting the stall race described below. Bounded the same way deniedRecently/
+  // discoveryEmitState/ownerOf are, with the same insertion-order-as-recency eviction — the one
+  // remaining unbounded map under the same peer-id-churn threat (T230 round 2). Eviction resetting
+  // a peer's numeric counter back to 1 is harmless: attemptId is used only for log correlation,
+  // never for ownership — ownership uses the identity-compared `ownerOf` token objects precisely
+  // so a recycled id can never alias a stale attempt.
   const attemptCounters = new Map()
   function nextAttemptId(peerId) {
     const id = (attemptCounters.get(peerId) ?? 0) + 1
+    attemptCounters.delete(peerId)
     attemptCounters.set(peerId, id)
+    if (attemptCounters.size > NEGATIVE_CACHE_MAX_SIZE) {
+      attemptCounters.delete(attemptCounters.keys().next().value)
+    }
     return id
   }
 
@@ -219,25 +228,39 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     ownerOf.delete(peerId)
     ownerOf.set(peerId, ownerToken)
     if (ownerOf.size > NEGATIVE_CACHE_MAX_SIZE) {
-      ownerOf.delete(ownerOf.keys().next().value)
+      // T230 round 2 (Red Hat + Security): now that every terminal path below — including
+      // AUTH_OK success — clears its own entry via `owns()`, this map's live size is bounded by
+      // attempts genuinely in flight right now, which on a camp LAN should never approach
+      // NEGATIVE_CACHE_MAX_SIZE. Picked the simpler of the two remediations Governor offered
+      // (log loudly vs. skip-still-pending eviction): a scan-to-skip-pending eviction adds a
+      // second traversal to a hot path for a case that should no longer occur, in exchange for
+      // protecting against something a loud log already makes visible and actionable. Hitting
+      // this now means something is wrong (a leak reintroduced, or a peer-id-churn flood beyond
+      // what this cap was sized for) — evicting the oldest entry (as before) can still strand a
+      // live attempt, so surface it instead of silently continuing to look healthy.
+      const evictedPeerId = ownerOf.keys().next().value
+      console.error(`mutualAuth: ownerOf cap (${NEGATIVE_CACHE_MAX_SIZE}) hit — evicting oldest in-flight owner (${evictedPeerId}); this should not happen after every terminal path clears its own entry`)
+      ownerOf.delete(evictedPeerId)
     }
     const owns = () => ownerOf.get(peerId) === ownerToken
 
     // Set by the stall watchdog below. The underlying dial/authenticateWith promise IS aborted
-    // when the watchdog fires (T230 — see the AbortController below), but abort is
-    // best-effort against the libp2p layer (see the module-level comment on aborting only the
-    // stream, never a shared connection), so this function's own code can still keep running
-    // after ATTEMPT_STALLED has already been emitted for this attemptId. Every terminal emit
-    // below checks this flag first so a late settlement is not ALSO reported as
-    // DIAL_FAILED/AUTH_ERROR/AUTH_OK for the same attempt — that would double an analyst's
-    // failure count for one real event and could attribute a stale settlement to whatever newer
-    // attempt has since reused the same peerId/attempted slot.
+    // when the watchdog fires (T230 — see the AbortController below), but abort only tears down
+    // the one stream `dial`/`authenticateWith` opened, never the shared libp2p connection (a
+    // connection can carry other live protocol streams) — see transport.js's `authenticateWith`,
+    // whose `finally` block calls `stream.abort()` rather than closing the connection. So this
+    // function's own code can still keep running after ATTEMPT_STALLED has already been emitted
+    // for this attemptId. Every terminal emit below checks this flag first so a late settlement
+    // is not ALSO reported as DIAL_FAILED/AUTH_ERROR/AUTH_OK for the same attempt — that would
+    // double an analyst's failure count for one real event and could attribute a stale settlement
+    // to whatever newer attempt has since reused the same peerId/attempted slot.
     let stalled = false
 
     // T230: aborts the in-flight dial/authenticateWith stream (not the underlying connection —
-    // see transport.js's newStream abort, which tears down only the one stream it opened) when
-    // the watchdog fires, so a stalled attempt actually stops doing work instead of running to
-    // whatever conclusion it reaches on its own in the background.
+    // see transport.js's `authenticateWith`, which tears down only the one stream it opened, via
+    // `stream.abort()` in its `finally` block) when the watchdog fires, so a stalled attempt
+    // actually stops doing work instead of running to whatever conclusion it reaches on its own
+    // in the background.
     const controller = new AbortController()
 
     // A peer that accepts the connection and then never replies would otherwise
@@ -363,10 +386,21 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
           ownerOf.delete(peerId)
         }
         if (!stalled) emitter.emit(EVENTS.AUTH_REJECTED, { peerId, retried, attemptId })
-      } else if (!stalled) {
-        // AUTH_OK success path: mutates neither `attempted` nor `deniedRecently`, so it is
-        // deliberately NOT guarded by owns() — a stale success is still a real authentication.
-        emitter.emit(EVENTS.AUTH_OK, { peerId, attemptId })
+      } else {
+        // AUTH_OK success path (T230 round 2, Red Hat + Security): `attempted` is deliberately
+        // left set — a peer this device has already authenticated to must not be re-dialed by a
+        // later announce, and that behavior does not change here. But `ownerOf` held this
+        // attempt's token open on success in round 1, so it was never released except by
+        // eviction — the one path that both leaks (a permanently-successful peer's token is
+        // immortal in the map) AND, under peer-id churn, lets eviction take the oldest entry
+        // even when it belongs to a still-in-flight, not-yet-settled attempt (stranding that
+        // legitimate owner: `owns()` then reads false for it, so its own terminal cleanup is
+        // skipped and it stays deduped until the stall watchdog fires). Clearing it here, on
+        // every terminal path including success, keeps the map's live size bounded by genuinely
+        // concurrent in-flight attempts, so eviction should no longer be reachable in the normal
+        // case — see NEGATIVE_CACHE_MAX_SIZE's cap above, kept as a backstop.
+        if (owns()) ownerOf.delete(peerId)
+        if (!stalled) emitter.emit(EVENTS.AUTH_OK, { peerId, attemptId })
       }
     } catch (err) {
       release()

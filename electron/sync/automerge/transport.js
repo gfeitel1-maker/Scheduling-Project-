@@ -268,9 +268,36 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
   // authenticatedPeers set.
   async function authenticateWith(peerId, msg, options = {}) {
     const stream = await node.dialProtocol(toDialTarget(peerId), AUTH_PROTO, { runOnLimitedConnection: true, ...options })
+    // T230 round 2 (Red Hat finding 1): `options.signal` above only reaches libp2p's own
+    // `mss.select` (connection.js's `newStream`) — once dialProtocol resolves, nothing downstream
+    // reads it again. Without this, a peer that accepts the stream and then never replies (the
+    // stall watchdog's documented case, mutualAuth.js) leaves the `receiveFramed` await below
+    // running forever regardless of `controller.abort()`, because `receiveFramed`
+    // (wireProtocol.js) is an unbounded `for await` with no signal of its own. Make the wrapping
+    // Promise itself abort-aware so a post-negotiation abort actually settles it.
+    const signal = options.signal
+    let abortListener
+    let abortedBySignal = false
     try {
       return await new Promise((resolve, reject) => {
         let settled = false
+        const settleReject = (err) => {
+          if (settled) return
+          settled = true
+          reject(err)
+        }
+        if (signal) {
+          if (signal.aborted) {
+            abortedBySignal = true
+            settleReject(signal.reason ?? new Error('authenticateWith aborted'))
+            return
+          }
+          abortListener = () => {
+            abortedBySignal = true
+            settleReject(signal.reason ?? new Error('authenticateWith aborted'))
+          }
+          signal.addEventListener('abort', abortListener)
+        }
         receiveFramed(stream, (bytes) => {
           if (settled) return
           settled = true
@@ -279,20 +306,11 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
           } catch (err) {
             reject(err)
           }
-        }).catch((err) => {
-          if (!settled) {
-            settled = true
-            reject(err)
-          }
-        })
-        sendFramed(stream, new TextEncoder().encode(JSON.stringify(msg))).catch((err) => {
-          if (!settled) {
-            settled = true
-            reject(err)
-          }
-        })
+        }).catch((err) => settleReject(err))
+        sendFramed(stream, new TextEncoder().encode(JSON.stringify(msg))).catch((err) => settleReject(err))
       })
     } finally {
+      if (signal && abortListener) signal.removeEventListener('abort', abortListener)
       // libp2p v3 (T215 migration): a Stream never auto-closes once its
       // consumer stops reading/writing — unlike the old pull-stream model,
       // where draining the source implicitly tore the stream down. Without
@@ -311,7 +329,24 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
       // arrives after the close. Pinned by
       // ./transportAuthCloseRace.test.js, which also exercises the teardowns
       // that DO truncate (`closeRead`, `abort`) so the result is not vacuous.
-      await stream.close().catch(() => {})
+      //
+      // T230 round 2 (Red Hat finding 1): when THIS call is the one that settled via
+      // `abortedBySignal` above, a plain `close()` is exactly the T217 bug — it would leave the
+      // still-pending `receiveFramed` read unresolved at the protocol level even though the JS
+      // Promise above already rejected, so the stream (and the outbound-stream-count slot it
+      // holds — libp2p's `DEFAULT_MAX_OUTBOUND_STREAMS`) never actually frees. `abort()` resets
+      // both directions immediately, which is what an abort needs. See
+      // ./transport.test.js's "rejects and tears down the stream" test, which observes this from
+      // the RESPONDER's side (streams.length returning to 0) to prove the teardown actually
+      // reaches the wire, not just this local Promise.
+      if (abortedBySignal) {
+        // Unlike close(), abort() is synchronous — it does not return a Promise.
+        try {
+          stream.abort(signal?.reason instanceof Error ? signal.reason : new Error('authenticateWith aborted'))
+        } catch { /* best-effort teardown */ }
+      } else {
+        await stream.close().catch(() => {})
+      }
     }
   }
 
