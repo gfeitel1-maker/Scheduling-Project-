@@ -1,7 +1,7 @@
 ---
 title: "days_of_operation needs the uniqueness its own comments already claim — and the round-1 design for it was wrong in four ways"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
@@ -115,3 +115,62 @@ migrated schema equivalence. ADR required — amend
 a new one, and do not carry its decision 3 forward unexamined; Amendment 2 there records why it was
 withdrawn. If the migration would have to destroy rows a camp needs in order to apply, that is an
 owner decision — stop and ask.
+
+## 6. Closure audit (2026-09-23) — every `archive_when` clause checked against the tree
+
+Shipped as a2d9721 (schema v70, PR #504). This section records the independent re-verification
+against the tree at 3b4aa0a, clause by clause, because `archive_when` here is unusually wide and
+several clauses exist precisely to stop someone assuming rather than checking.
+
+**Uniqueness through every path.** Both enforcement mechanisms are present, and the asymmetry this
+repo keeps tripping over is handled and documented: `electron/db/schema.sql:669` declares
+`UNIQUE(camp_id, day_of_week)` inline, which — because the whole file is `CREATE TABLE IF NOT
+EXISTS` — binds **brand-new installs only**; already-existing dbs are enforced by
+`CREATE UNIQUE INDEX ... idx_days_of_operation_camp_day` at `electron/db/localDb.js:3000`. The
+schema file states this caveat in-place (`schema.sql:671-676`), matching the cohorts/groups
+precedent.
+
+**Premise (§1) — genuinely checked, not assumed.** ADR Amendment 3 records the verdict as **TRUE**
+with a mechanism different from the one originally analyzed: a Host's un-awaited `seedDays` racing
+an immediate second-device invite on a brand-new camp. So the dedupe/repoint branch is a routine
+path against real director data, not near-dead code — which is why defect 3 was live data loss.
+
+**The four defects (§3) — all CLOSED**, each traced through code rather than taken from the commit
+message: (1) `day_of_week` is stamped in the same INSERT via `parseDayOfWeek`
+(`electron/ops/projections.js:187-206`), with ids minted by `deriveDayId` in both `seedDays`
+(`src/utils/seedDays.js:54`) and the importer (`electron/ops/ingest.js:1379-1385`); (2) registered
+in `UNIQUE_FIELD_ENTITIES` (`electron/ops/operations.js:593`) with cross-registry drift blocked by
+`electron/uniqueFirstFieldRegistryParity.test.js`; (3) all **four** `day_id`-holding columns
+repointed (`localDb.js:2938-2944`) — `template_slots`, `anchor_activities`, `elective_sets`,
+`elective_occurrences`, two of which declare no FK, which is exactly how round 1's grep-based
+enumerations missed them; (4) the one-launch-only guard is now restart-durable via the
+`domain_state_migration_pending` marker and, critically, *resolvable* — `main.js:2843-2861` runs
+`resolvePendingDomainStateMigrations` before deciding to refuse, so it cannot deadlock a device.
+
+**Method (§4) — met.** `electron/db/daysOfOperationDedup.migration.test.js` builds fixtures by
+driving `applyProjection` (what `appendOp` actually calls), states in-test why each raw `INSERT` is
+necessary, plants the timed-out-write-then-retry scenario, and plants the NULL-day orphan in both
+directions — the defect round 1 was structurally incapable of catching.
+
+**Gate.** CI `gate.yml` conclusion `success` at `3b4aa0a`. Note the known blind spot: CI
+shallow-clones, so the status-drift check is **skipped** there — which is why this ticket sat at
+`status: open` after its own implementation merged, and why the flip is being made by hand here.
+
+### Scoped OUT, deliberately — not a narrowing of this ticket's condition
+
+A merge-path collision between two records holding the same weekday under **different** ids is
+caught by the per-row `SAVEPOINT` in `electron/automerge/projector.js:489` and recorded to
+`projection_failures` — so the table genuinely cannot hold two rows, and defect 2's catastrophic
+form (a raw `SQLITE_CONSTRAINT_UNIQUE` rolling back `projectAll`'s shared transaction and freezing
+every entity's projection) is closed. But the losing row is *silently skipped* rather than surfaced
+as the typed, director-resolvable conflict the `UNIQUE_FIELD_ENTITIES` registration promises:
+`detectUniqueFieldCollision` is invoked only from `electron/sync/localWriteClient.js:102` and
+`electron/ops/restore.js:262`, never from the projector's merge-apply path.
+
+This is **repo-wide and predates T205** — it is equally true of `locations`, `activities`, `events`
+and `elective_sets`, every entity in that registry — so closing it is not this ticket's job and
+holding T205 open for it would misattribute an architectural gap to a weekday constraint. Spun off
+rather than absorbed. The reachable trigger worth naming for that ticket: `useCrudScreen`'s generic
+add (`src/hooks/useCrudScreen.js:57`) and `DaysScreen`'s own import (`src/screens/DaysScreen.jsx:209`)
+both mint `crypto.randomUUID()`, so the deterministic-id convergence that protects the seed and
+importer paths does not cover an interactive create.
