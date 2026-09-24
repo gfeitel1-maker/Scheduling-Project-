@@ -1,7 +1,7 @@
 ---
 title: "A stalled dial/authenticate attempt is never cancelled, so a later re-announce races its own late settlement"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-18
 task_class: concurrency
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, SECURITY.md]
@@ -71,3 +71,21 @@ exists to measure — repeated stalls are the expected case, not an edge case.
 ## Cross-reference
 
 Spun off from `docs/work/tickets/T212-wan-connectivity-measurement.md` round 2 (Red Hat finding).
+
+## Round 2 addendum (Red Hat finding 1, 2026-09-23)
+
+Round 1's `AbortController`/`ownerOf` design was real, but `syncNodeHandle.authenticateWith`
+(`transport.js`) only forwarded the abort `signal` into `node.dialProtocol` — which only consults
+it during protocol negotiation (`mss.select`). Once that resolved, execution moved into
+`authenticateWith`'s own hand-rolled Promise wrapping `receiveFramed`/`sendFramed`
+(`wireProtocol.js`), which had no abort listener at all. So `controller.abort()` from the stall
+watchdog did nothing for the exact case this ticket names as the common one — a peer that accepts
+the connection and never replies — leaving the zombie stream open (and, under sustained flakiness
+against one peer, contributing to libp2p's `DEFAULT_MAX_OUTBOUND_STREAMS` ceiling). Fixed by making
+`authenticateWith`'s wrapping Promise itself listen for the signal's `abort` event and reject, and
+by tearing the stream down with `stream.abort()` (not the pre-existing `stream.close()`, which only
+closes the writable half — see T217 finding 1's comment in `transport.js`) on that path. Covered by
+`transport.test.js`'s "rejects and tears down the stream when the signal aborts AFTER the peer
+accepted but never replied" test, which uses a raw libp2p responder that accepts the AUTH_PROTO
+stream and never writes a reply, and observes the responder's own connection lose the stream after
+the initiator aborts — proving the teardown reaches the wire, not just this process's local Promise.

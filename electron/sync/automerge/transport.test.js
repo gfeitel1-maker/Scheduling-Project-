@@ -24,6 +24,7 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { identify } from '@libp2p/identify'
 import { startTransport } from './transport.js'
+import { AUTH_PROTO, receiveFramed } from './wireProtocol.js'
 
 let handles = []
 afterEach(async () => {
@@ -56,6 +57,108 @@ describe('transport — libp2p node lifecycle', () => {
     expect(b.getPeers().length).toBeGreaterThan(0)
     expect(a.peerId).not.toBe(b.peerId)
   })
+
+  // T230 (docs/work/tickets/T230-stalled-dial-is-never-cancelled.md): mutualAuth.js's stall
+  // watchdog aborts a stalled attempt via an AbortController, and that only works if `dial`/
+  // `authenticateWith` actually forward the caller's `signal` down to libp2p's own
+  // `node.dial`/`node.dialProtocol` alongside `runOnLimitedConnection: true`. This is the
+  // plumbing seam — assert it against a real libp2p node (a mocked `node.dial` would not prove
+  // libp2p itself honors the signal), not reason about it from reading the source.
+  it('forwards an already-aborted signal to node.dial, so dial rejects instead of proceeding', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({ deviceId: 'device-b', onAuthenticate: alwaysAdmit })
+    handles.push(a, b)
+
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(a.dial(b.getMultiaddrs()[0], { signal: controller.signal })).rejects.toBeTruthy()
+    expect(a.getPeers().length).toBe(0)
+  })
+
+  it('forwards an already-aborted signal to node.dialProtocol, so authenticateWith rejects instead of proceeding', async () => {
+    const a = await startTransport({ deviceId: 'device-a', onAuthenticate: alwaysAdmit })
+    const b = await startTransport({ deviceId: 'device-b', onAuthenticate: alwaysAdmit })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      a.authenticateWith(b.peerId, { type: 'authenticate' }, { signal: controller.signal })
+    ).rejects.toBeTruthy()
+  })
+
+  // T230 round 2 (Red Hat finding 1): the two tests above both abort BEFORE calling
+  // authenticateWith, so mss/throwIfAborted rejects immediately — that proves nothing about
+  // abort AFTER protocol negotiation, which is the ticket's actual documented case ("a peer that
+  // accepts the connection and then never replies", mutualAuth.js's stall-watchdog comment). Once
+  // node.dialProtocol resolves, execution is inside authenticateWith's hand-rolled Promise
+  // wrapping receiveFramed/sendFramed — a plain `options.signal` passed only to dialProtocol has
+  // no effect there. Reproduce that shape for real: a raw libp2p responder (full control, not
+  // startTransport, so it can accept the AUTH_PROTO stream and simply never write a reply frame)
+  // paired with a real startTransport initiator under test.
+  it('rejects and tears down the stream when the signal aborts AFTER the peer accepted but never replied', async () => {
+    const responder = await createLibp2p({
+      addresses: { listen: ['/ip4/127.0.0.1/tcp/0'] },
+      transports: [tcp()],
+      connectionEncrypters: [noise()],
+      streamMuxers: [yamux()],
+      services: { identify: identify() },
+    })
+    // Accepts the AUTH_PROTO stream and reads the initiator's frame, but never replies and never
+    // closes — the "accepts and then never replies" peer transport.js's own AUTH_PROTO handler
+    // comment and mutualAuth.js's stall watchdog both describe.
+    //
+    // T230 round 3 (Code Reviewer: flaky in 1/4 full-file runs under load). Round 2's version of
+    // this test waited only for the RESPONDER's side of negotiation (the stream appearing in its
+    // connection) plus a fixed 200ms margin, guessing that would also be enough time for the
+    // INITIATOR's own `dialProtocol` promise to resolve — it resolves strictly later, after the
+    // mss ack travels back across the wire, so it is a genuinely different, unobserved instant.
+    // Under heavy machine load 200ms was not always enough (confirmed empirically: repeated runs
+    // showed real negotiation-to-resolution gaps up to ~136ms even before contention, so a busy
+    // scheduler can push past 200ms), landing the abort inside mss.select's PRE-negotiation path
+    // instead of the POST-negotiation path this test exists to prove — the two tests above already
+    // cover that path, so this one would have silently degenerated into a duplicate of them.
+    //
+    // Fixed by using a signal that is causally, not just probabilistically, ordered after the
+    // initiator's abort-listener attachment: authenticateWith's Promise executor attaches the
+    // `abort` listener and then calls `receiveFramed`/`sendFramed` synchronously, with no `await`
+    // between them (transport.js's `authenticateWith`) — so the initiator's authenticate frame
+    // cannot leave the wire before the listener is attached. Waiting for the RESPONDER to actually
+    // receive that frame is therefore proof the listener is already attached, with no timing
+    // assumption at all.
+    let receivedAuthFrame = false
+    await responder.handle(AUTH_PROTO, (stream) => {
+      receiveFramed(stream, () => { receivedAuthFrame = true }).catch(() => {})
+    })
+
+    const a = await startTransport({ deviceId: 'device-a' })
+    handles.push(a, responder)
+
+    await a.dial(responder.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    const controller = new AbortController()
+    const pending = a.authenticateWith(responder.peerId, { type: 'authenticate' }, { signal: controller.signal })
+
+    await waitFor(() => receivedAuthFrame)
+
+    controller.abort()
+
+    // (a) authenticateWith rejects.
+    await expect(pending).rejects.toBeTruthy()
+
+    // (b) the stream is actually torn down, not merely locally abandoned: the responder — which
+    // never wrote anything and never closed anything itself — observes the stream disappear from
+    // its own connection once the initiator's abort propagates over the wire. A plain
+    // stream.close() (T217 finding 1: closes only the writable half, never unblocks a pending
+    // read) would leave this hanging; only stream.abort()/closeRead() reliably produces this.
+    await waitFor(() => !(responder.getConnections(a.peerId)[0]?.streams ?? []).some((s) => s.protocol === AUTH_PROTO), { timeout: 2000 })
+  }, 8000)
 
   it('broadcastDoc delivers byte-identical bytes to onDocReceived', async () => {
     const received = []

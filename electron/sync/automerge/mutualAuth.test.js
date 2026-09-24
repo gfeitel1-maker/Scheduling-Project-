@@ -20,8 +20,12 @@ describe('wireMutualAuth', () => {
     handle.fireDiscovery('peer-b')
     await new Promise((r) => setTimeout(r, 10))
 
-    expect(handle.dial).toHaveBeenCalledWith('peer-b')
-    expect(handle.authenticateWith).toHaveBeenCalledWith('peer-b', { type: 'authenticate', token: 'tok-1', device_id: 'device-a' })
+    expect(handle.dial).toHaveBeenCalledWith('peer-b', { signal: expect.any(AbortSignal) })
+    expect(handle.authenticateWith).toHaveBeenCalledWith(
+      'peer-b',
+      { type: 'authenticate', token: 'tok-1', device_id: 'device-a' },
+      { signal: expect.any(AbortSignal) }
+    )
   })
 
   it('does not dial a discovered peer when there is no token yet', async () => {
@@ -157,9 +161,11 @@ describe('wireMutualAuth — local trust filter (T208)', () => {
     handle.fireDiscovery('peer-trusted')
     await new Promise((r) => setTimeout(r, 10))
 
-    expect(handle.authenticateWith).toHaveBeenCalledWith('peer-trusted', {
-      type: 'authenticate', token: 'tok-1', device_id: 'device-a',
-    })
+    expect(handle.authenticateWith).toHaveBeenCalledWith(
+      'peer-trusted',
+      { type: 'authenticate', token: 'tok-1', device_id: 'device-a' },
+      { signal: expect.any(AbortSignal) }
+    )
   })
 
   // NON-VACUITY. A filter that silently stops being consulted is worse than no
@@ -280,7 +286,7 @@ describe('wireMutualAuth — a connection getPeers() still lists, but which is d
     handle.fireDiscovery('peer-b')
     await new Promise((r) => setTimeout(r, 20))
 
-    expect(handle.dial).toHaveBeenCalledWith('peer-b')   // it redialled
+    expect(handle.dial).toHaveBeenCalledWith('peer-b', { signal: expect.any(AbortSignal) })   // it redialled
     expect(calls).toBe(2)                                 // and retried once
   })
 
@@ -355,9 +361,11 @@ describe('wireMutualAuth — negative cache for untrusted peers (T208 round 2)',
     clock += 5_001
     handle.fireDiscovery('peer-b')
     await new Promise((r) => setTimeout(r, 5))
-    expect(handle.authenticateWith).toHaveBeenCalledWith('peer-b', {
-      type: 'authenticate', token: 'tok-1', device_id: 'device-a',
-    })
+    expect(handle.authenticateWith).toHaveBeenCalledWith(
+      'peer-b',
+      { type: 'authenticate', token: 'tok-1', device_id: 'device-a' },
+      { signal: expect.any(AbortSignal) }
+    )
   })
 
   it('caches denials independently per peer id', async () => {
@@ -564,7 +572,8 @@ describe('wireMutualAuth — connectivity event emission (T212)', () => {
     await new Promise((r) => setTimeout(r, 40))
     expect(emitter.events.map((e) => e.name)).toEqual(['PEER_DISCOVERED', 'ATTEMPT_STALLED'])
 
-    // The stalled dial now settles successfully (T230: it was never cancelled).
+    // The mock dial ignores the abort signal and settles successfully late anyway (T230: abort is
+    // best-effort at the stream layer, so this must stay a no-op against shared state either way).
     resolveDial(undefined)
     await new Promise((r) => setTimeout(r, 20))
 
@@ -606,5 +615,171 @@ describe('wireMutualAuth — connectivity event emission (T212)', () => {
 
     expect(() => handle.fireDiscovery('peer-b')).not.toThrow()
     await new Promise((r) => setTimeout(r, 10))
+  })
+})
+
+// T230 (docs/work/tickets/T230-stalled-dial-is-never-cancelled.md). Plants two overlapping
+// attempts for the same peer: attempt 1's dial hangs, the watchdog stalls it, attempt 2 starts
+// independently on the next discovery and succeeds, and THEN attempt 1's original promise finally
+// settles. Both settlement shapes are covered (a stale rejection and a stale resolution) because
+// the ownership guard must be a no-op against shared state either way.
+function deferred() {
+  let resolve, reject
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
+describe('wireMutualAuth — a stalled attempt does not race a newer one for the same peer (T230)', () => {
+  function fakeEmitter() {
+    const events = []
+    return { events, emit: (name, fields) => events.push({ name, fields }) }
+  }
+
+  it('aborts the stalled attempt\'s signal, and a later attempt\'s bookkeeping survives its stale late REJECTION', async () => {
+    const handle = fakeHandle()
+    const first = deferred()
+    let dialCalls = 0
+    handle.dial = vi.fn().mockImplementation(() => {
+      dialCalls += 1
+      return dialCalls === 1 ? first.promise : Promise.resolve(undefined)
+    })
+    const emitter = fakeEmitter()
+    wireMutualAuth(handle, {
+      deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true,
+      attemptTimeoutMs: 20, emitter,
+    })
+
+    // Attempt 1: discovery fires, its dial hangs.
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 5))
+    expect(handle.dial).toHaveBeenCalledTimes(1)
+
+    // Past the stall timeout: ATTEMPT_STALLED fires, `attempted` is cleared, and the
+    // AbortSignal captured from attempt 1's own dial call is now aborted — proving the
+    // watchdog actually abandons the in-flight work, not just the bookkeeping.
+    await new Promise((r) => setTimeout(r, 40))
+    expect(emitter.events.map((e) => e.name)).toEqual(['PEER_DISCOVERED', 'ATTEMPT_STALLED'])
+    const attempt1Signal = handle.dial.mock.calls[0][1].signal
+    expect(attempt1Signal.aborted).toBe(true)
+
+    // Attempt 2: a later re-announce starts a genuinely independent attempt for the same
+    // peer (its own dial call, its own attemptId) and completes successfully.
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.dial).toHaveBeenCalledTimes(2)
+    const authOkEvents = emitter.events.filter((e) => e.name === 'AUTH_OK')
+    expect(authOkEvents).toHaveLength(1)
+    expect(authOkEvents[0].fields.attemptId).toBe(2)
+
+    // NOW attempt 1's original dial promise settles late — with a rejection.
+    first.reject(new Error('stale network failure'))
+    await new Promise((r) => setTimeout(r, 10))
+
+    // Attempt 2's bookkeeping survives: no stale/duplicate terminal event was emitted for
+    // attempt 1's id, and a further re-announce is deduped by attempt 2's still-live
+    // `attempted` entry — proving attempt 1's late rejection did not clear it out from
+    // under attempt 2 (the exact race this ticket closes). deniedRecently is untouched by
+    // this path entirely: recordDenial is only ever called from the trust-check branch,
+    // which this scenario never reaches for either attempt.
+    expect(emitter.events.map((e) => e.name)).toEqual(['PEER_DISCOVERED', 'ATTEMPT_STALLED', 'AUTH_OK'])
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.dial).toHaveBeenCalledTimes(2)
+  })
+
+  it('aborts the stalled attempt\'s signal, and a later attempt\'s bookkeeping survives its stale late RESOLUTION', async () => {
+    const handle = fakeHandle()
+    const first = deferred()
+    let dialCalls = 0
+    handle.dial = vi.fn().mockImplementation(() => {
+      dialCalls += 1
+      return dialCalls === 1 ? first.promise : Promise.resolve(undefined)
+    })
+    const emitter = fakeEmitter()
+    wireMutualAuth(handle, {
+      deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true,
+      attemptTimeoutMs: 20, emitter,
+    })
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 5))
+    expect(handle.dial).toHaveBeenCalledTimes(1)
+
+    await new Promise((r) => setTimeout(r, 40))
+    expect(emitter.events.map((e) => e.name)).toEqual(['PEER_DISCOVERED', 'ATTEMPT_STALLED'])
+    const attempt1Signal = handle.dial.mock.calls[0][1].signal
+    expect(attempt1Signal.aborted).toBe(true)
+
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.dial).toHaveBeenCalledTimes(2)
+    const authOkEvents = emitter.events.filter((e) => e.name === 'AUTH_OK')
+    expect(authOkEvents).toHaveLength(1)
+    expect(authOkEvents[0].fields.attemptId).toBe(2)
+
+    // NOW attempt 1's original dial promise settles late — with a successful resolution.
+    // Attempt 1's own code keeps running (release()'s guard is best-effort at the stream
+    // layer, not a hard kill switch), reaching authenticateWith for attempt 1 too — but
+    // because `stalled` is already true for attempt 1, no second AUTH_OK is emitted, and
+    // because the success path never mutates `attempted`/`deniedRecently` in the first
+    // place, there is nothing here for the ownership guard to even need to stop.
+    first.resolve(undefined)
+    await new Promise((r) => setTimeout(r, 10))
+
+    expect(emitter.events.map((e) => e.name)).toEqual(['PEER_DISCOVERED', 'ATTEMPT_STALLED', 'AUTH_OK'])
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.dial).toHaveBeenCalledTimes(2)
+  })
+
+  // T230 round 2 (Code Reviewer finding 4): the two tests above race a stale settlement at the
+  // DIAL level (dial-level rejection, dial-level late resolution). Neither exercises the
+  // AUTH-REJECTED branch specifically — attempt 1's own peer accepting the connection but
+  // rejecting our authenticate frame, settling late after attempt 2 has already taken over.
+  it('a later attempt\'s bookkeeping survives a stale late AUTH-REJECTED settlement from a stalled attempt', async () => {
+    const handle = fakeHandle()
+    const firstAuth = deferred()
+    let authCalls = 0
+    handle.authenticateWith = vi.fn().mockImplementation(() => {
+      authCalls += 1
+      return authCalls === 1 ? firstAuth.promise : Promise.resolve({ type: 'auth_ok' })
+    })
+    const emitter = fakeEmitter()
+    wireMutualAuth(handle, {
+      deviceId: 'device-a', getToken: () => 'tok-1', isPeerTrusted: () => true,
+      attemptTimeoutMs: 20, emitter,
+    })
+
+    // Attempt 1: discovery fires, dial succeeds immediately, authenticateWith hangs (the peer
+    // accepted the connection and never replied — or, as here, replies only much later).
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 5))
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(1)
+
+    // Past the stall timeout: ATTEMPT_STALLED fires and `attempted`/`ownerOf` are released.
+    await new Promise((r) => setTimeout(r, 40))
+    expect(emitter.events.map((e) => e.name)).toEqual(['PEER_DISCOVERED', 'ATTEMPT_STALLED'])
+
+    // Attempt 2: a later re-announce starts a genuinely independent attempt and succeeds.
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(2)
+    const authOkEvents = emitter.events.filter((e) => e.name === 'AUTH_OK')
+    expect(authOkEvents).toHaveLength(1)
+    expect(authOkEvents[0].fields.attemptId).toBe(2)
+
+    // NOW attempt 1's original authenticateWith settles late — the peer REJECTED it (not a dial
+    // failure; a real reply with type !== 'auth_ok', the AUTH_REJECTED emit branch).
+    firstAuth.resolve({ type: 'auth_rejected', reason: 'unknown-device' })
+    await new Promise((r) => setTimeout(r, 10))
+
+    // Attempt 2's bookkeeping survives: no stale AUTH_REJECTED was emitted for attempt 1 (the
+    // `stalled` guard on that branch), and peer-b stays deduped by attempt 2's still-live
+    // `attempted` entry rather than reopened by attempt 1's late, now-unowned rejection clearing
+    // it out from under attempt 2.
+    expect(emitter.events.map((e) => e.name)).toEqual(['PEER_DISCOVERED', 'ATTEMPT_STALLED', 'AUTH_OK'])
+    handle.fireDiscovery('peer-b')
+    await new Promise((r) => setTimeout(r, 10))
+    expect(handle.authenticateWith).toHaveBeenCalledTimes(2)
   })
 })
