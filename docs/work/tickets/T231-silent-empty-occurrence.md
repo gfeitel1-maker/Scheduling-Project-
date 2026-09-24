@@ -1,7 +1,7 @@
 ---
 title: T231-silent-empty-occurrence
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-18
 archive_when: buildElectiveAssignments reports an occurrence with no eligible campers or no offerings, pinned by tests
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md]

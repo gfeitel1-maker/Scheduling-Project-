@@ -1,7 +1,7 @@
 ---
 title: T232-propose-the-division-they-meant
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-18
 archive_when: an unmatched division is reported by value with a proposed match, pinned by tests
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md]

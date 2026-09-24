@@ -1,7 +1,7 @@
 ---
 title: T227-elective-run-ipc-seam
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-18
 archive_when: the renderer can commit and read an elective assignment run over IPC, admin-only, with the mock mirroring it
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, SECURITY.md]
