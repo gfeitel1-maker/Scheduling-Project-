@@ -8,7 +8,6 @@ import CampBootstrapScreen from './screens/CampBootstrapScreen'
 import LoginScreen from './screens/LoginScreen'
 import CampScreen from './screens/CampScreen'
 import ImportScreen from './screens/ImportScreen'
-import ReconciliationScreen from './screens/ReconciliationScreen'
 import RootsHomeScreen from './screens/RootsHomeScreen'
 import TiersScreen from './screens/TiersScreen'
 import GroupsScreen from './screens/GroupsScreen'
@@ -48,10 +47,12 @@ const SCREENS = {
   seed:         SeedScreen,
   // Roots home is a distinct screen (docs/adr/2026-08-28-roots-home-is-a-
   // distinct-screen.md §2) — route-level split, not a `mode` fork. Census
-  // tiles / RootMap / RootMapPanel stay scoped to ReconciliationScreen's
-  // `mode="import"` reconcile-a-file flow (reached via the bottom "Import
-  // last year" action below), never inlined here. Also the in-session
-  // landing screen (see the 'readiness' redirect below) — Setup Readiness
+  // tiles / RootMap / RootMapPanel stay scoped to ReconciliationScreen,
+  // which ImportScreen renders as its whole surface once an import is
+  // staged (reached via the bottom "Import last year" action below), never
+  // inlined here — ReconciliationScreen has no `mode` prop; its only `mode`
+  // is the local `apply(mode)` commit mode. Also the in-session landing
+  // screen (see the 'readiness' redirect below) — Setup Readiness
   // (ReadinessHub) is retired; there is no verdict banner on this screen.
   roots:        RootsHomeScreen,
   conflicts:    ConflictsScreen,

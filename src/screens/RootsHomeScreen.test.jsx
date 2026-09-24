@@ -149,7 +149,9 @@ describe('RootsHomeScreen', () => {
     await waitFor(() => expect(screen.queryByText('Download worksheet')).not.toBeNull())
     fireEvent.click(screen.getByText('Download worksheet'))
 
-    await waitFor(() => expect(screen.queryByText('The worksheet could not be created.')).not.toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByText((text) => text.startsWith('The worksheet could not be created.'))).not.toBeNull()
+    )
   })
 
   it('renders name chips on the large/wide cards but not on the small cards, with overflow', async () => {
