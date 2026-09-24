@@ -1,6 +1,16 @@
+---
+title: "The restored grace-window import undo actually reverses an import"
+document_type: evidence
+status: active
+date: 2026-09-24
+task_class: ingestion
+related_tickets: [docs/work/tickets/T253-restore-grace-window-import-undo.md]
+related_specs: [docs/adr/2026-08-17-onescreen-reconciliation-undo.md]
+archive_when: the undo has been exercised against Electron (not the :5200 mock) so the seq-gated field-update half is covered by observed evidence rather than unit tests alone
+---
+
 # T253 evidence — the grace-window import undo actually reverses an import
 
-Date: 2026-09-24
 Branch: `claude/t253-restore-grace-window-import-undo`
 Base: `09fe3a2f`
 
