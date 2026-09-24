@@ -138,6 +138,20 @@ describe('RootsHomeScreen', () => {
     await waitFor(() => expect(downloadWorkbook).toHaveBeenCalled())
   })
 
+  it('surfaces a failure message when the worksheet download fails', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+    downloadWorkbook.mockImplementation(() => {
+      throw new Error('boom')
+    })
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Download worksheet')).not.toBeNull())
+    fireEvent.click(screen.getByText('Download worksheet'))
+
+    await waitFor(() => expect(screen.queryByText('The worksheet could not be created.')).not.toBeNull())
+  })
+
   it('renders name chips on the large/wide cards but not on the small cards, with overflow', async () => {
     const collections = collectionsFor({
       activities: [
