@@ -77,7 +77,36 @@ Confirmed before touching anything:
   assertion go red, then reverting — the production T234 guard logic itself was not otherwise
   touched.
 
-## Open question for the owner (not decided here)
+## Owner ruling — RESTORE the grace-window undo (decided; NOT implemented here)
+
+**The owner has ruled: restore the undo capability. Do not retire it.** Implementation is
+deliberately out of scope for T240 and will be dispatched as its own stream once this PR lands — it
+needs a home chosen, which is design work, and it would touch files this ticket already has open.
+
+**THE CONSTRAINT THAT MATTERS — restore the CAPABILITY, not the BANNER.** Do **not** resurrect
+`src/components/reconciliation/postImportBanner.jsx`. It is a banner; banners are banned by standing
+owner rule; and that ban is *precisely what orphaned the undo in the first place*. Re-mounting the
+banner to "restore" the undo will be reverted. The undo belongs in the per-slot flag vocabulary, or
+as an action inside the reconciliation flow — matching the detect-and-surface, let-the-director-act
+posture used elsewhere in the app.
+
+**Why the ruling went this way (git archaeology, verified against the tree, not inferred):**
+
+- `0bc51e4b` — "route a finished import to Roots with a post-import banner + surviving grace-window
+  undo (plan T4)" introduced the undo *inside a banner*.
+- `66354590` — "feat(roots): RootsHomeScreen — the redesigned Roots home (WS4) (#215)" retired
+  `ReconciliationScreen`'s `mode="inspect"` branches. Its own commit message lists what went with
+  them: "RootsBanner/PostImportBanner rendering, **the grace-window undo carrier**", and
+  "Does not resurrect the retired justImported/PostImportBanner".
+
+So **nobody ever decided to drop undo — it was collateral.** The no-banners rule plus the Roots
+redesign deleted the banner, and the undo went with it because it had been built inside one. That
+asymmetry settled the question: retiring would mean deleting working, tested code and permanently
+removing the only undo for the least-reversible thing a director does, while restoring means
+mounting something that already works and whose capture cost is *already being paid on every
+import*.
+
+## Background to that ruling (the state this ticket found)
 
 `src/components/reconciliation/postImportBanner.jsx` and `src/hooks/useGraceWindowUndo.js` are ALSO
 orphaned today — nothing in the running app renders `PostImportBanner` or calls
@@ -87,8 +116,8 @@ it is not free-standing dead weight — `ReconciliationScreen.jsx:191` still cal
 `captureInverse: inputs.mode !== 'replace'` on every non-replace commit specifically to feed it, so
 **every import pays for a before-snapshot that nothing currently surfaces to a director**. This
 ticket does not delete, rewire, or "fix" any of the three (per the Governor brief's explicit
-out-of-scope instruction) — restoring the undo affordance to a live screen, versus retiring it and
-the `captureInverse` cost together, is a product decision for the owner, not an engineering one.
+out-of-scope instruction). That decision has since been made by the owner — see the ruling above:
+**restore**, and restore the capability without the banner.
 
 ## Non-goals
 
@@ -97,8 +126,10 @@ the `captureInverse` cost together, is a product decision for the owner, not an 
   sheets), not touched.
 - Narrowing `eslint.config.js`'s `varsIgnorePattern` — measured at 135 files, too large and largely
   false-positive; the orphan guard test is the fix instead.
-- Restoring or retiring `postImportBanner.jsx`/`useGraceWindowUndo.js`/`captureInverse` — see Open
-  Question above.
+- **Implementing** the grace-window undo restoration. The owner has ruled to restore it (see "Owner
+  ruling" above), but it is dispatched as its own stream after this PR lands: it needs a home chosen
+  (design work) and would touch files this ticket already has open. The binding constraint for that
+  stream is *capability, not banner* — `postImportBanner.jsx` must not be re-mounted.
 
 ## Tests
 
