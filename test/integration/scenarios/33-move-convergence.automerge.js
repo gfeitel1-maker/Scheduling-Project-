@@ -18,12 +18,18 @@
  * WHAT WOULD MAKE THIS FAIL, which is what makes the assertions non-vacuous:
  * swap `deriveElectiveAssignmentId` in setElectiveAssignment.js for
  * `randomUUID()`. A and B then write two distinct Automerge map keys, the
- * merge is not a conflict at all, both rows survive — assertion (1) reports
- * 2 rows, and (4) never sees a conflict, so one camper is silently assigned
- * to two activities in one period with no human ever asked. Verified in T245
- * round 2 (the red output is in that report): with the derivation swapped, and
- * the pre-merge `out.assignmentId !== SHARED_ID` guard relaxed so the run
- * reaches the merge, assertion (1) reports "got 2".
+ * merge is not a conflict at all, both rows survive, and one camper is
+ * silently assigned to two activities in one period with no human ever asked.
+ *
+ * WHERE it fails, stated precisely, because a guard's description is part of
+ * the guard. Verified against THIS file (T245, Verifier): the swap is caught
+ * by the PRE-MERGE guard below — `out.assignmentId !== SHARED_ID`, which
+ * throws "the handler did not write the derived id (got <uuid>)" before the
+ * partition ever heals. It does NOT reach assertion (1). An earlier version of
+ * this comment claimed (1) reports "got 2"; that was observed only with the
+ * pre-merge guard deliberately relaxed, and the guard is not relaxed here. If
+ * you want to watch (1) fire, relax that guard first — but the scenario is
+ * non-vacuous as written, one assertion earlier than the comment used to say.
  */
 import {
   setupTwoJoinedDevices, partitionClients, healPartition, cleanupDirs, waitFor, configureDualWrite,
