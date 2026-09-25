@@ -42,6 +42,19 @@ inert there. The two are complementary: finding 3 = "the keychain failed to yiel
 app); T260 = "no key was provided to this open at all, but encryption is on" (headless callers and any
 future caller). No `main.js`/`preload.js` edit is required.
 
+## Intended coarseness — fail-closed regardless of on-disk format (stated, not silent)
+The guard fires BEFORE any file inspection, so with the flag on and no key it refuses even a genuine,
+still-plaintext SQLite file, not only an encrypted one. This is deliberate and matches the owner's
+Stage-3 fail-closed decision: a keyless caller must not silently read or write a plaintext database
+once encryption is the policy. Consequence to name plainly: once the production default flips, a
+headless MCP/CLI invocation with no `SHORESH_DB_KEY` is refused (by name) even against a file that
+happens to still be plaintext — the caller must obtain a key via the unlock helper (ADR 2026-09-16).
+The interactive app is unaffected: it passes a real key and migrates the plaintext file to encrypted
+on first launch, so the "flag on + plaintext file" state is transient there. This behavior is
+test-pinned (see below). The alternative reading — sniff the header and allow a keyless plaintext
+open when the flag is on — was rejected: it reintroduces exactly the silent-plaintext path the flag
+exists to forbid.
+
 ## Non-vacuity (mandatory)
 A test that asserts only "an error was thrown" passes in both worlds and proves nothing. The test must:
 - (a) assert the SPECIFIC `db_key_unavailable` code and that the message names the key/recovery;
@@ -54,4 +67,9 @@ A test that asserts only "an error was thrown" passes in both worlds and proves 
 - `electron/db/localDb.test.js` (or the encryption-focused sibling) covers the three points above.
 - Guard confirmed inert with the flag off (full keyless suite green) and on the interactive path
   (main.js passes a real key when enabled).
-- `node scripts/check-governance.js` green.
+- `node scripts/check-governance.js` green (after `npm run index:work` / `/update-state` regen).
+- Test hazard to respect: `isAtRestEncryptionEnabled()` reads the env var ONCE at atRestEncryption
+  import, so every guard test must set `SHORESH_AT_REST_ENCRYPTION`, then `vi.resetModules()`, then
+  dynamically `import('./localDb.js')` — a static import would read a stale flag. The finding-5
+  `plaintext: true` gate lives in `electron/db/sqliteCipher.test.js` ("finding 5 gate"), not in
+  check-governance/verify.

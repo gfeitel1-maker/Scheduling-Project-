@@ -70,4 +70,29 @@ describe('openLocalDb at-rest key guard', () => {
     expect(db).toBeDefined()
     db.close()
   })
+
+  it('refuses even a genuine plaintext SQLite file once encryption turns on — fail-closed regardless of on-disk format', async () => {
+    delete process.env.SHORESH_AT_REST_ENCRYPTION
+    vi.resetModules()
+    const { openLocalDb: openLocalDbEncOff } = await import('./localDb.js')
+
+    tmpFile = path.join(os.tmpdir(), `shoresh-test-guard-plaintext-${Date.now()}.sqlite`)
+    const db = openLocalDbEncOff(tmpFile, {})
+    db.close()
+
+    process.env.SHORESH_AT_REST_ENCRYPTION = 'on'
+    vi.resetModules()
+    const { openLocalDb: openLocalDbEncOn } = await import('./localDb.js')
+
+    let caught
+    try {
+      openLocalDbEncOn(tmpFile, {})
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeDefined()
+    expect(caught.code).toBe('db_key_unavailable')
+    expect(caught.message).toMatch(/key/i)
+    expect(caught.message).toMatch(/KEY_RECOVERY_STORY/)
+  })
 })
