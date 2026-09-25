@@ -1,7 +1,7 @@
 ---
 title: "Headless DB key access for the MCP server and CLI (encryption flip-blocker #2)"
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-16
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md, docs/work/tickets/T175-at-rest-encryption-activation.md]
@@ -55,3 +55,31 @@ Electron unlock helper).
 ## Note
 Dev/test harnesses that deliberately use plaintext DBs (`make-era-fixtures.mjs`, `ingest-sweep.mjs`)
 pass no key and are unaffected — correct.
+
+## CLOSED 2026-09-25 — all three archive_when conditions met in shipped code
+
+Verified against the tree (not the ticket prose) on 2026-09-25:
+
+- **Headless open of an encrypted DB works without a PIN.** The Electron unlock helper
+  (`electron/unlockDbKey.js`, `--exec` mode) unseals the per-device key via `safeStorage` /
+  `getOrCreateDbKey` — OS-user keychain access, no interactive PIN — and hands it to the spawned
+  headless process in its env only. The MCP server (`scripts/mcp/server.js`) resolves it once via
+  `resolveHeadlessDbKey` and threads `{ key: dbKey }` into every `openLocalDb`; the ingest CLI
+  (`scripts/ingestCli.js`) threads `dbKey` the same way. `electron/db/headlessDbKey.test.js` +
+  `electron/unlockDbKey.test.js` — 14/14 green (2026-09-25).
+- **Verified against the real driver** — slice-3 e2e harness, node@22 + the real driver, 7/7 (recorded above).
+- **security-assessment re-reviewed the key channel** —
+  `docs/work/security/2026-09-16-headless-key-channel-assessment.md`; the two HIGH file-producer
+  findings were closed by removing `--to-file` and making `--exec` (key in the child env only, never
+  on disk) the primary channel.
+
+**Effect beyond this ticket:** T179 no longer blocks T175 (turn on at-rest encryption). T175 remains
+the owner's gated decision; this ticket only clears its named flip-blocker #2.
+
+**One field caveat, recorded for the owner, deliberately NOT fixed here (out of scope):** after the
+T175 flip, a headless caller that *fails to obtain* the key passes `key: null`, which
+`openLocalDb` (`electron/db/localDb.js:3903`) routes to the plaintext driver. Against an encrypted
+file that fails on first access — so it fails in the safe direction (no silent plaintext read of
+encrypted bytes) — but surfaces as an opaque SQLite error rather than a named "could not obtain the
+database key". A small, optional legibility fix if the owner wants it; logged as a board card.
+

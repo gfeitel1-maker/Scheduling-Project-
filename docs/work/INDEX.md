@@ -40,7 +40,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) |
-| [Headless DB key access for the MCP server and CLI (encryption flip-blocker #2)](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) | in-progress | — |
 | [Update-on-open: keep a device current before it is allowed to sync](../../docs/work/tickets/T222-update-on-open.md) | open | [2026-09-18-mixed-version-replication-out-of-scope](../../docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md) |
 
 ### test-infrastructure
