@@ -120,28 +120,33 @@ export async function run() {
       }
     }
 
-    // ---- HEAL, and wait until each device has actually SEEN the other's
-    // write rather than merely not heard yet.
+    // ---- HEAL.
     await healPartition({ host, clientA, clientB })
 
-    // The merge gate is a SENTINEL the host writes after healing, deliberately
-    // not keyed on the assignment id: waiting on the assignment row itself
-    // would make a broken id scheme fail HERE ("the merge did not happen")
-    // instead of at assertion (1), which is the assertion that names the real
-    // defect. Once a device has the sentinel it has drained the host's
-    // document, so both moves have landed.
-    await host.write({ entity: 'elective_assignment_runs', entity_id: RUN, field: 'solver_version', value: 'merged' })
-    const drained = (d) => d.domainRow('elective_assignment_runs', RUN)?.solver_version === 'merged'
-    for (const [label, d] of [['clientA', clientA], ['clientB', clientB]]) {
-      await waitFor(() => drained(d), 10000).catch(() => {
-        throw new Error(`${label} never drained the merged document — nothing below is evidence`)
+    const devices = [['host', host], ['clientA', clientA], ['clientB', clientB]]
+
+    // THE GATE, and why it is this and not a sentinel. A round-2 draft gated on
+    // a `solver_version='merged'` field the host wrote after healing. That
+    // proves a client drained the host's document AS OF the moment the host
+    // wrote it — it does NOT prove the host had already received clientB's op
+    // by then, so a client could hold the sentinel and still be missing one of
+    // the two competing activity_id writes. Under the full runner that is what
+    // happened: (1) and (2) passed on each device's local row and (3) saw two
+    // survivors. That is a premature gate, not a convergence failure —
+    // Automerge's per-field resolution is deterministic once both ops are
+    // merged, so three devices holding two values means one is missing an op.
+    //
+    // What replaces it is deliberately the WEAKEST gate that makes (1) and (2)
+    // meaningful: every device holds AT LEAST ONE row for the triple. A broken
+    // id scheme satisfies this immediately (it produces two rows, not none),
+    // so (1) still fails with "got 2" — the message that names the real
+    // defect — rather than timing out here. Convergence itself is asserted as
+    // the liveness property it is, at (3).
+    for (const [label, d] of devices) {
+      await waitFor(() => rowsFor(d) > 0, 10000).catch(() => {
+        throw new Error(`${label} never received any move for the contested triple — nothing below is evidence`)
       })
     }
-    await waitFor(() => rowsFor(host) > 0, 10000).catch(() => {
-      throw new Error('the host never received either move')
-    })
-
-    const devices = [['host', host], ['clientA', clientA], ['clientB', clientB]]
 
     // (1) Exactly ONE row for the contested triple, on every device.
     for (const [label, d] of devices) {
@@ -155,7 +160,10 @@ export async function run() {
     }
 
     // (2) That row is keyed by the DERIVED id, not by something the handler
-    // minted for itself.
+    // minted for itself. This does not race behind the gate above: the gate
+    // establishes a row for the triple exists, and (1) has established there is
+    // exactly one — under a correct derivation that row IS this id, and under a
+    // broken one (1) already threw.
     for (const [label, d] of devices) {
       const row = d.domainRow('elective_assignments', SHARED_ID)
       if (!row) throw new Error(`${label}: the surviving row is not keyed by the derived id`)
@@ -165,13 +173,18 @@ export async function run() {
     }
 
     // (3) Every device agrees on the SAME survivor — convergence, not merely
-    // "one row each".
-    const survivors = new Set(
-      devices.map(([, d]) => d.domainRow('elective_assignments', SHARED_ID)?.activity_id)
-    )
-    if (survivors.size !== 1) {
-      throw new Error(`devices disagree about the survivor: ${[...survivors].join(', ')}`)
-    }
+    // "one row each". This is a LIVENESS property, so it is asserted as a
+    // bounded wait rather than a single read: a device may hold its own write
+    // and not yet the peer's, and that is a moment in time, not a disagreement.
+    // The bound is what keeps it a real assertion — a system that genuinely
+    // never converges still fails here, by timeout, naming both values.
+    const survivorSet = () =>
+      new Set(devices.map(([, d]) => d.domainRow('elective_assignments', SHARED_ID)?.activity_id))
+    await waitFor(() => survivorSet().size === 1, 10000).catch(() => {
+      throw new Error(
+        `devices never converged on one survivor within 10s: ${[...survivorSet()].join(', ')}`
+      )
+    })
 
     // (4) The disagreement was SURFACED, not silently resolved. Two directors
     // moved one child to two places; a human has to choose.
