@@ -1,7 +1,7 @@
 ---
 title: T248-child-schedule-export
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: a per-camper child schedule export exists, is span-aware, reads the finalize snapshot for a final run and derives live for a draft, uses T244's shared generation-visibility predicate (not a re-derived filter), surfaces finalizedAgainstStaleGeneration when reading a final run, a cross-handler fixture test proves getElectiveRunHandler and get-elective-run-outer-schedule agree on roster membership, and no new staff-reachable path was added
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, SECURITY.md]
