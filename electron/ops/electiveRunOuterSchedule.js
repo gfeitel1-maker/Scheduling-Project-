@@ -34,12 +34,18 @@ import { electiveGenerationVisibleFragment } from './electiveGenerationPredicate
  * @returns {{rows: Array, skipped: Array}}
  */
 export function deriveElectiveRunOuterRows(db, run) {
+  // An unknown runId (round 2, Code Reviewer + Red Hat) leaves `run`
+  // undefined — degrade the same way getElectiveRunHandler does for the
+  // same input, rather than dereferencing run.id below.
+  if (!run) return { rows: [], skipped: [] }
+
   const assignmentRows = db
     .prepare(
       `SELECT a.camper_id, a.activity_id, o.day_id, o.time_block_id
          FROM elective_assignments a
          JOIN elective_occurrences o ON o.id = a.occurrence_id
-        WHERE a.run_id = :runId AND ${electiveGenerationVisibleFragment('a')}`
+        WHERE a.run_id = :runId AND ${electiveGenerationVisibleFragment('a')}
+        ORDER BY a.camper_id, o.day_id, o.time_block_id`
     )
     .all({ runId: run.id, gen: run.solver_generation })
 

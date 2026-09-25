@@ -1982,13 +1982,19 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const run = db.prepare('SELECT * FROM elective_assignment_runs WHERE id = ?').get(runId)
 
     let rows
+    // Any status other than 'final' (including an unknown runId, where
+    // `run` is undefined) takes the live-derive branch below. A future
+    // 'archived' status landing here and being read live rather than from
+    // the snapshot table is therefore a deliberate consequence of this
+    // check, not an oversight.
     if (run?.status === 'final') {
       rows = db
         .prepare(
           `SELECT camper_id, day_id, time_block_id, activity_id, activity_name,
                   location_id, location_name, span_blocks, solver_generation
              FROM elective_run_outer_snapshots
-            WHERE run_id = ?`
+            WHERE run_id = ?
+            ORDER BY camper_id, day_id, time_block_id`
         )
         .all(runId)
     } else {

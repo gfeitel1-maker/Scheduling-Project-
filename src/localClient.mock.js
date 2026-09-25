@@ -1817,8 +1817,15 @@ export const mockShoresh = {
       rows = (state.elective_run_outer_snapshots || []).filter((s) => s.run_id === runId)
     } else {
       const occurrenceById = new Map((state.elective_occurrences || []).map((o) => [o.id, o]))
+      // Mirrors electron/ops/electiveGenerationPredicate.js's
+      // electiveGenerationVisibleFragment — that module is the authority;
+      // if its rule changes, this filter must change alongside it. A
+      // manual row is exempt from the generation check; a solver row is
+      // visible only when its generation matches the run's current one
+      // (JS `===` covers the predicate's SQL `IS`, since `null === null`
+      // is true).
       rows = (state.elective_assignments || [])
-        .filter((a) => a.run_id === runId)
+        .filter((a) => a.run_id === runId && (a.source === 'manual' || a.solver_generation === run?.solver_generation))
         .map((a) => {
           const occurrence = occurrenceById.get(a.occurrence_id)
           const activity = activityById.get(a.activity_id)
@@ -1835,8 +1842,18 @@ export const mockShoresh = {
         })
     }
 
+    // Same ORDER BY camper_id, day_id, time_block_id as both real-handler
+    // queries (electron/ops/electiveRunOuterSchedule.js and
+    // electron/main.js), so the mock's row order matches electron:dev.
+    const sortedRows = [...rows].sort((a, b) => {
+      if (a.camper_id !== b.camper_id) return a.camper_id < b.camper_id ? -1 : 1
+      if (a.day_id !== b.day_id) return a.day_id < b.day_id ? -1 : 1
+      if (a.time_block_id !== b.time_block_id) return a.time_block_id < b.time_block_id ? -1 : 1
+      return 0
+    })
+
     return {
-      rows: rows.map((r) => ({
+      rows: sortedRows.map((r) => ({
         camperId: r.camper_id,
         dayId: r.day_id,
         timeBlockId: r.time_block_id,
@@ -1848,6 +1865,9 @@ export const mockShoresh = {
         solverGeneration: r.solver_generation ?? null,
       })),
       runStatus: run?.status ?? null,
+      // Hardcoded false: computing this honestly in the mock (comparing
+      // snapshot generations, per finalizedAgainstStaleGeneration.js) is
+      // disproportionate for a browser-dev-only fixture layer.
       finalizedAgainstStaleGeneration: false,
     }
   },

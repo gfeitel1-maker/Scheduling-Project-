@@ -37,7 +37,7 @@ vi.mock('./sync/localWriteClient.js', async (importOriginal) => {
 
 import { getOrCreateDeviceId } from './db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
-import { createUser, ensureHostSigningKey } from './auth/localAuth.js'
+import { createUser, ensureHostSigningKey, issueLocalToken } from './auth/localAuth.js'
 import { appendOp } from './ops/operations.js'
 import { commitElectiveRun } from './ops/commitElectiveRun.js'
 import { makeHandlers } from './main.js'
@@ -276,5 +276,116 @@ describe('getElectiveRunOuterScheduleHandler', () => {
 
     expect(viaGetRun.rows.map((r) => r.camper_id)).toContain(fx.camperId)
     expect(viaOuterSchedule.rows.map((r) => r.camperId)).toContain(fx.camperId)
+  })
+
+  // Round 2, item 1 (Code Reviewer + Red Hat, both confirmed): an unknown
+  // runId left `run` undefined, and the draft branch dereferenced
+  // `run.id` inside deriveElectiveRunOuterRows — a crash, not an empty
+  // result. Mirrors getElectiveRunHandler's own graceful-degradation
+  // posture for the same input.
+  it('unknown runId degrades to an empty result instead of crashing', async () => {
+    const { handlers, token } = await seedAdmin()
+
+    const result = await handlers.getElectiveRunOuterSchedule({ token, runId: randomUUID() })
+
+    expect(result).toEqual({ rows: [], runStatus: null, finalizedAgainstStaleGeneration: false })
+  })
+
+  // Round 2, item 2 (Red Hat): neither the draft-derive query nor the
+  // final-snapshot query had an ORDER BY, so the printed export could come
+  // out in arbitrary order, and the two branches could disagree on order.
+  // Two campers, two (day, time_block) cells, inserted deliberately out of
+  // sorted order.
+  it('rows come back ordered by camper_id, day_id, time_block_id — identically on the draft and final branches', async () => {
+    const { campId, handlers, token } = await seedAdmin()
+    const fx = seedFixture(db, { campId })
+    const secondCamperId = randomUUID()
+    db.prepare('INSERT INTO campers (id, camp_id, display_name, is_active) VALUES (?, ?, ?, 1)').run(
+      secondCamperId, campId, 'Camper B'
+    )
+    const secondTimeBlockId = 'tb-0'
+    db.prepare(
+      'INSERT INTO template_slots (id, template_id, group_id, elective_set_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(randomUUID(), fx.templateId, fx.groupId, fx.setId, fx.dayId, secondTimeBlockId)
+
+    const { runId } = buildRun(db, campId, fx, { extraCampers: [{ id: secondCamperId, name: 'Camper B' }] })
+
+    // Add a second occurrence/assignment at an earlier time block for the
+    // FIRST camper, so a naive insertion-order read would list it after the
+    // second camper's row despite sorting earlier by time_block_id.
+    const secondOccurrenceId = deriveElectiveOccurrenceId(runId, fx.setId, fx.dayId, secondTimeBlockId, fx.tierId)
+    appendOp(db, { entity: 'elective_occurrences', entity_id: secondOccurrenceId, field: 'run_id', value: runId, device_id: deviceId })
+    appendOp(db, { entity: 'elective_occurrences', entity_id: secondOccurrenceId, field: 'elective_set_id', value: fx.setId, device_id: deviceId })
+    appendOp(db, { entity: 'elective_occurrences', entity_id: secondOccurrenceId, field: 'day_id', value: fx.dayId, device_id: deviceId })
+    appendOp(db, { entity: 'elective_occurrences', entity_id: secondOccurrenceId, field: 'time_block_id', value: secondTimeBlockId, device_id: deviceId })
+    const secondAssignmentId = deriveElectiveAssignmentId(runId, fx.camperId, secondOccurrenceId)
+    appendOp(db, { entity: 'elective_assignments', entity_id: secondAssignmentId, field: 'run_id', value: runId, device_id: deviceId })
+    appendOp(db, { entity: 'elective_assignments', entity_id: secondAssignmentId, field: 'occurrence_id', value: secondOccurrenceId, device_id: deviceId })
+    appendOp(db, { entity: 'elective_assignments', entity_id: secondAssignmentId, field: 'camper_id', value: fx.camperId, device_id: deviceId })
+    appendOp(db, { entity: 'elective_assignments', entity_id: secondAssignmentId, field: 'activity_id', value: fx.activityId, device_id: deviceId })
+    appendOp(db, { entity: 'elective_assignments', entity_id: secondAssignmentId, field: 'source', value: 'manual', device_id: deviceId })
+
+    const draft = await handlers.getElectiveRunOuterSchedule({ token, runId })
+    const draftOrder = draft.rows.map((r) => [r.camperId, r.timeBlockId])
+    const sortedOrder = [...draftOrder].sort(([ac, at], [bc, bt]) => (ac === bc ? at.localeCompare(bt) : ac.localeCompare(bc)))
+    expect(draftOrder).toEqual(sortedOrder)
+
+    const fin = await handlers.finalizeElectiveRun({ token, runId })
+    expect(fin.ok).toBe(true)
+
+    // Scramble the snapshot table's PHYSICAL (rowid/insertion) order — the
+    // scenario an ORDER BY guards against is a peer device's merge writing
+    // these rows in a different sequence than finalize did locally. Without
+    // an ORDER BY, a bare table scan reads back in whatever order this
+    // re-insert leaves it in.
+    const snapshotRows = db.prepare('SELECT * FROM elective_run_outer_snapshots WHERE run_id = ?').all(runId)
+    db.prepare('DELETE FROM elective_run_outer_snapshots WHERE run_id = ?').run(runId)
+    for (const row of [...snapshotRows].reverse()) {
+      db.prepare(
+        `INSERT INTO elective_run_outer_snapshots
+           (id, run_id, camper_id, day_id, time_block_id, activity_id, activity_name,
+            location_id, location_name, span_blocks, solver_generation)
+         VALUES (@id, @run_id, @camper_id, @day_id, @time_block_id, @activity_id, @activity_name,
+                 @location_id, @location_name, @span_blocks, @solver_generation)`
+      ).run(row)
+    }
+
+    const final = await handlers.getElectiveRunOuterSchedule({ token, runId })
+
+    expect(final.rows.map((r) => [r.camperId, r.timeBlockId])).toEqual(draftOrder)
+  })
+
+  // Round 2, item 4 (Security): the source-pinning check is a static scan;
+  // this is the executing negative-authorization proof — a real staff token
+  // must be rejected, not merely absent from a string search.
+  it('rejects a real staff token — this domain stays admin-only', async () => {
+    const { campId, handlers, token: adminToken } = await seedAdmin()
+    const fx = seedFixture(db, { campId })
+    const { runId } = buildRun(db, campId, fx)
+
+    const staffId = randomUUID()
+    db.prepare(
+      'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(staffId, campId, 'Counsellor', 'hash', 'salt', 'staff')
+    const staffToken = issueLocalToken(db, staffId, deviceId)
+
+    expect(() => handlers.getElectiveRunOuterSchedule({ token: staffToken, runId })).toThrow()
+    // Positive control: the same call succeeds for the admin token, proving
+    // the rejection above is the role check, not a broken fixture.
+    expect(handlers.getElectiveRunOuterSchedule({ token: adminToken, runId })).toBeTruthy()
+  })
+
+  // Round 2, item 5 (LOW): span_blocks: null must pass through unchanged,
+  // not get silently defaulted to some other value.
+  it('an activity with NULL span_blocks passes through as spanBlocks: null, not defaulted', async () => {
+    const { campId, handlers, token } = await seedAdmin()
+    const fx = seedFixture(db, { campId })
+    db.prepare('UPDATE activities SET span_blocks = NULL WHERE id = ?').run(fx.activityId)
+    const { runId } = buildRun(db, campId, fx)
+
+    const result = await handlers.getElectiveRunOuterSchedule({ token, runId })
+
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0].spanBlocks).toBeNull()
   })
 })
