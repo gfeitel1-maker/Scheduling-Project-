@@ -179,6 +179,21 @@ describe('history and Trash on the seven are admin-only BY CONSTRUCTION', () => 
     expect(body).not.toContain('trash.read')
   })
 
+  // T248 — the same source-pinning pattern as getEntityHistoryHandler above,
+  // for the new getElectiveRunOuterScheduleHandler (electron/main.js).
+  it('elective outer schedule: the handler really authorizes elective_assignment_runs.read', () => {
+    const main = fs.readFileSync(
+      new URL('../main.js', import.meta.url),
+      'utf8'
+    )
+    const start = main.indexOf('function getElectiveRunOuterScheduleHandler')
+    expect(start, 'getElectiveRunOuterScheduleHandler not found — was it renamed?').toBeGreaterThan(-1)
+    const body = main.slice(start, main.indexOf('\n  }', start))
+    expect(body).toContain("action: 'elective_assignment_runs.read'")
+    const actionStrings = [...body.matchAll(/action:\s*'([^']+)'/g)].map((m) => m[1])
+    expect(actionStrings).toEqual(['elective_assignment_runs.read'])
+  })
+
   it('trash: none of the seven can ever be enumerated by listDeleted', () => {
     // listDeleted (electron/ops/trash.js) filters its result to
     // RESTORABLE_ENTITIES, which restore.js derives as exactly those keys whose

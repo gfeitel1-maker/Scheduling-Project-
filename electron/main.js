@@ -42,6 +42,8 @@ import { commitElectiveRun } from './ops/commitElectiveRun.js'
 import { finalizeElectiveRun } from './ops/finalizeElectiveRun.js'
 import { setElectiveAssignment } from './ops/setElectiveAssignment.js'
 import { resolveOfferingCapacity } from './ops/electiveOfferingCapacity.js'
+import { deriveElectiveRunOuterRows } from './ops/electiveRunOuterSchedule.js'
+import { computeFinalizedAgainstStaleGeneration } from './ops/finalizedAgainstStaleGeneration.js'
 import {
   electiveGenerationVisibleFragment,
   electiveGenerationStaleSolverFragment,
@@ -1879,19 +1881,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       )
       .get({ runId, gen }).c
 
-    let finalizedAgainstStaleGeneration = false
-    if (run?.status === 'final') {
-      const snapshotGenerations = db
-        .prepare('SELECT DISTINCT solver_generation FROM elective_run_outer_snapshots WHERE run_id = ?')
-        .all(runId)
-      // No snapshot rows -> nothing to be stale against -> false. A `final`
-      // run written by finalizeElectiveRun always has at least one snapshot
-      // generation value (possibly NULL itself), so an empty result here
-      // means "no snapshot exists at all" (e.g. a legacy pre-v74 final row).
-      if (snapshotGenerations.length > 0) {
-        finalizedAgainstStaleGeneration = snapshotGenerations.some((r) => r.solver_generation !== gen)
-      }
-    }
+    // Shared with getElectiveRunOuterScheduleHandler (T248) — see
+    // electron/ops/finalizedAgainstStaleGeneration.js.
+    const finalizedAgainstStaleGeneration = computeFinalizedAgainstStaleGeneration(db, run)
 
     const capacityRows = db
       .prepare(
@@ -1963,6 +1955,61 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       runId, camperId, occurrenceId, activityId, locked,
       authorUserId: session?.userId ?? null, deviceId,
     })
+  }
+
+  // T248 (docs/work/tickets/T248-child-schedule-export.md) — read-only,
+  // per-camper outer schedule for a run, source for the child schedule
+  // export (T250 wires the UI trigger; this is the data path only). Same
+  // read action as getElectiveRunHandler — no new staff-reachable path.
+  //
+  // A `final` run reads the immutable elective_run_outer_snapshots rows
+  // finalizeElectiveRun.js wrote (D6: survives the activity being renamed
+  // afterward, since the snapshot copied activity_name/location_name at
+  // finalize time). Any other status (draft) derives live via the SAME
+  // function finalizeElectiveRun.js calls (electron/ops/
+  // electiveRunOuterSchedule.js) — see that module's header comment for why
+  // this is a deliberate deviation from the ADR's (d) prose.
+  //
+  // Response shape deviates from the ADR's bare-Array (d) sketch by returning
+  // an object: the ticket also requires surfacing finalizedAgainstStaleGeneration
+  // on this handler, which a bare array cannot carry.
+  function getElectiveRunOuterScheduleHandler(args) {
+    const { token, runId } = args ?? {}
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'elective_assignment_runs.read' })
+    if (!isNonEmptyString(runId)) throw new Error('runId is required')
+
+    const run = db.prepare('SELECT * FROM elective_assignment_runs WHERE id = ?').get(runId)
+
+    let rows
+    if (run?.status === 'final') {
+      rows = db
+        .prepare(
+          `SELECT camper_id, day_id, time_block_id, activity_id, activity_name,
+                  location_id, location_name, span_blocks, solver_generation
+             FROM elective_run_outer_snapshots
+            WHERE run_id = ?`
+        )
+        .all(runId)
+    } else {
+      rows = deriveElectiveRunOuterRows(db, run).rows
+    }
+
+    return {
+      rows: rows.map((r) => ({
+        camperId: r.camper_id,
+        dayId: r.day_id,
+        timeBlockId: r.time_block_id,
+        activityId: r.activity_id,
+        activityName: r.activity_name,
+        locationId: r.location_id,
+        locationName: r.location_name,
+        spanBlocks: r.span_blocks,
+        solverGeneration: r.solver_generation,
+      })),
+      runStatus: run?.status ?? null,
+      finalizedAgainstStaleGeneration: computeFinalizedAgainstStaleGeneration(db, run),
+    }
   }
 
   // T249 (docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md
@@ -2212,6 +2259,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     getElectiveRun: getElectiveRunHandler,
     finalizeElectiveRun: finalizeElectiveRunHandler,
     setElectiveAssignment: setElectiveAssignmentHandler,
+    getElectiveRunOuterSchedule: getElectiveRunOuterScheduleHandler,
     // T249 — append-only per the ADR's merge-order note; do not reorder.
     getSecurityStatus: getSecurityStatusHandler,
     listImportEvidence: listImportEvidenceHandler,
@@ -2522,6 +2570,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
     ipcMain.handle('shoresh:list-division-evidence', (_event, args) => handlers.listDivisionEvidence(args && args.token))
     ipcMain.handle('shoresh:location-capacity-provenance', (_event, args) => handlers.locationCapacityProvenance(args && args.token))
+    ipcMain.handle('shoresh:get-elective-run-outer-schedule', (_event, args) => handlers.getElectiveRunOuterSchedule(args))
   }
 
   /**

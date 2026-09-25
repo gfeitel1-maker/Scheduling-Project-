@@ -1799,6 +1799,58 @@ export const mockShoresh = {
     saveState(state)
     return { ok: true, assignmentId }
   },
+  // T248 — mirrors getElectiveRunOuterScheduleHandler (electron/main.js). For
+  // a final run, reads the mock's elective_run_outer_snapshots rows (written
+  // above by finalizeElectiveRun); otherwise derives live from
+  // elective_assignments joined to elective_occurrences, same additive-
+  // degradation posture as getElectiveRun above (activity/location name
+  // lookups degrade to null rather than crashing when the mock fixture
+  // hasn't seeded those tables).
+  async getElectiveRunOuterSchedule({ runId } = {}) {
+    const state = loadState()
+    const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
+    const activityById = new Map((state.activities || []).map((a) => [a.id, a]))
+    const locationById = new Map((state.locations || []).map((l) => [l.id, l]))
+
+    let rows
+    if (run?.status === 'final') {
+      rows = (state.elective_run_outer_snapshots || []).filter((s) => s.run_id === runId)
+    } else {
+      const occurrenceById = new Map((state.elective_occurrences || []).map((o) => [o.id, o]))
+      rows = (state.elective_assignments || [])
+        .filter((a) => a.run_id === runId)
+        .map((a) => {
+          const occurrence = occurrenceById.get(a.occurrence_id)
+          const activity = activityById.get(a.activity_id)
+          return {
+            camper_id: a.camper_id,
+            day_id: occurrence?.day_id ?? null,
+            time_block_id: occurrence?.time_block_id ?? null,
+            activity_id: a.activity_id,
+            activity_name: activity?.name ?? null,
+            location_id: activity?.location_id ?? null,
+            span_blocks: activity?.span_blocks ?? null,
+            solver_generation: run?.solver_generation ?? null,
+          }
+        })
+    }
+
+    return {
+      rows: rows.map((r) => ({
+        camperId: r.camper_id,
+        dayId: r.day_id,
+        timeBlockId: r.time_block_id,
+        activityId: r.activity_id,
+        activityName: r.activity_name ?? null,
+        locationId: r.location_id ?? null,
+        locationName: r.location_id != null ? locationById.get(r.location_id)?.name ?? null : null,
+        spanBlocks: r.span_blocks ?? null,
+        solverGeneration: r.solver_generation ?? null,
+      })),
+      runStatus: run?.status ?? null,
+      finalizedAgainstStaleGeneration: false,
+    }
+  },
   // T249 — mirrors getSecurityStatusHandler (electron/main.js). Browser-dev
   // has no Electron, no OS keychain and no encrypted store, so nothing is
   // encrypted at rest here under any circumstances: reporting `false` is the
