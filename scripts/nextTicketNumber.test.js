@@ -98,5 +98,70 @@ describe('nextTicketNumber — the aggregator closes the T234-239/v73 gap', () =
       readDocsFn: fakeReadDocs,
     })
     expect(result.next).toBe(241)
+    expect(result.sources.worktrees).toBe('read (1 of 2 siblings)')
+  })
+
+  it('reports a zero-of-M-siblings scan honestly instead of an unqualified "read"', () => {
+    const allFailListWorktrees = () => [
+      { path: '/fake/root', branch: 'main' },
+      { path: '/fake/sibling-a', branch: 'a' },
+      { path: '/fake/sibling-b', branch: 'b' },
+      { path: '/fake/sibling-c', branch: 'c' },
+    ]
+    const allFailReadWorktreeTickets = () => { throw new Error('locked') }
+    const result = nextTicketNumber({
+      root: '/fake/root',
+      execFn: throwingExecFn,
+      listWorktrees: allFailListWorktrees,
+      readWorktreeTickets: allFailReadWorktreeTickets,
+      readDocsFn: fakeReadDocs,
+    })
+    expect(result.sources.worktrees).toBe('read (0 of 3 siblings)')
+    expect(result.next).toBe(240)
+  })
+
+  it('normalizes root vs worktree paths via realpath so a symlinked root spelling ' +
+     'is not double-counted as a sibling', () => {
+    const fakeRealpathFn = (p) => ({
+      '/tmp/root': '/private/tmp/root',
+      '/private/tmp/root': '/private/tmp/root',
+      '/fake/sibling': '/fake/sibling',
+    }[p] ?? p)
+    const symlinkListWorktrees = () => [
+      { path: '/private/tmp/root', branch: 'main' }, // same real root, different spelling
+      { path: '/fake/sibling', branch: 'x' },
+    ]
+    const symlinkReadWorktreeTickets = (worktreePath) => {
+      if (worktreePath === '/private/tmp/root') return [{ path: 'docs/work/tickets/T239-b.md' }]
+      if (worktreePath === '/fake/sibling') return [{ path: 'docs/work/tickets/T240-uncommitted.md' }]
+      return []
+    }
+    const result = nextTicketNumber({
+      root: '/tmp/root',
+      execFn: throwingExecFn,
+      listWorktrees: symlinkListWorktrees,
+      readWorktreeTickets: symlinkReadWorktreeTickets,
+      readDocsFn: fakeReadDocs,
+      realpathFn: fakeRealpathFn,
+    })
+    expect(result.next).toBe(241)
+    expect(result.sources.worktrees).toBe('read (1 of 1 siblings)')
+  })
+
+  it('extractNumbers ignores false-positive substrings like SORT250 or PORT2500', () => {
+    const result = nextTicketNumber({
+      root: '/fake/root',
+      execFn: (cmd) => {
+        if (cmd.startsWith('git ls-remote')) return 'abc123\trefs/heads/feature/SORT250-fix\n'
+        if (cmd.startsWith('gh pr list')) return JSON.stringify([
+          { headRefName: 'PORT2500-migrate', title: 'Unrelated PR' },
+        ])
+        throw new Error('unexpected command')
+      },
+      listWorktrees: () => [{ path: '/fake/root', branch: 'main' }],
+      readWorktreeTickets: () => [],
+      readDocsFn: fakeReadDocs,
+    })
+    expect(result.next).toBe(240)
   })
 })

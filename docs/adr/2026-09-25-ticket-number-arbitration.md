@@ -105,7 +105,7 @@ below), not in whether aggregation is the right mechanism.
     execFn,               // injectable, same contract as checkAll's execFn: runs `git ls-remote`, `gh pr list`
     listWorktrees,        // injectable: () => [{ path, branch, locked }], default parses
                            // `git worktree list --porcelain`
-    readWorktreeTickets,  // injectable: (worktreePath) => [{ path, number }], default does
+    readWorktreeTickets,  // injectable: (worktreePath) => [{ path }], default does
                            // readdirSync(join(worktreePath, 'docs/work/tickets')) + regex match,
                            // wrapped in try/catch (a worktree can be mid-rebase, deleted, or
                            // permission-denied — a read failure there is a skip, never a crash)
@@ -141,20 +141,22 @@ still matter in practice.
 
 ## The residual race (documented, not closed)
 
-Even with source (d) present, a same-second window survives: two sessions can both invoke
-`nextTicketNumber` before either one **writes its ticket file to disk** (in its own worktree) — let
-alone commits or pushes it. The aggregator reads whatever exists on disk *at the moment it runs*; it does
-not lock, reserve, or announce. If session A calls it, gets `T260`, and has not yet created
-`T260-foo.md` on disk when session B calls it a second later, B also gets `T260`. Sources (b) and (c)
-(branch names, PR titles) are soft signals for exactly this reason — they only exist once something has
-been pushed or opened, which is later still.
+Even with source (d) present, a window survives: it is the interval between allocation and the ticket
+file being written to disk (unbounded; in practice seconds to minutes) — not a "same-second" window.
+`nextTicketNumber` only sees a ticket number once a file for it exists on some tree it reads; a session
+can call the allocator, get `T260`, and then spend minutes drafting the ticket's content before it
+actually writes `T260-foo.md` to disk. For all of that time the number is invisible to source (d)
+everywhere else — a second session calling the allocator during that gap also gets `T260`. The window is
+bounded only by however long a session takes between computing the number and writing the file, which is
+not a fixed or short quantity. Sources (b) and (c) (branch names, PR titles) are soft signals for the
+same reason and close the gap later still — they only exist once something has been pushed or opened.
 
 This is the same race `checkTicketNumberUniqueness` already lives with today, just narrowed from "can
-persist across a merge, undetected, for days" (the T165/T175/T234-239 shape) down to "a same-second
-window between two sessions' allocator calls." **`checkTicketNumberUniqueness` remains the backstop that
-catches whatever this window lets through** — it does not become redundant, and this ADR does not claim
-it can be retired. Per constraint (a), this document does not claim the race is closed: it is narrowed,
-and the narrower race is still real and still needs the existing post-hoc gate.
+persist across a merge, undetected, for days" (the T165/T175/T234-239 shape) down to "the allocate-to-write
+window described above." **`checkTicketNumberUniqueness` remains the backstop that catches whatever this
+window lets through** — it does not become redundant, and this ADR does not claim it can be retired. Per
+constraint (a), this document does not claim the race is closed: it is narrowed, and the narrower race is
+still real and still needs the existing post-hoc gate.
 
 ## Test seam (non-vacuity)
 

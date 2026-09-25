@@ -19,7 +19,7 @@
 // ticket exists to stop.
 
 import { execSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
+import { readdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readDocs } from './build-work-index.js'
@@ -33,7 +33,16 @@ function ticketNumber(path) {
 
 /** Soft signal: a ticket number embedded anywhere in a branch name or PR title. */
 function extractNumbers(text) {
-  return [...String(text).matchAll(/T(\d+)/g)].map((m) => m[1])
+  return [...String(text).matchAll(/\bT(\d+)\b/g)].map((m) => m[1])
+}
+
+/** realpath a path for comparison; a path that no longer exists falls back to itself. */
+function safeRealpath(path, realpathFn) {
+  try {
+    return realpathFn(path)
+  } catch {
+    return path
+  }
 }
 
 const defaultExecFn = (cmd) => execSync(cmd, { encoding: 'utf8' })
@@ -67,7 +76,11 @@ export function defaultReadWorktreeTickets(worktreePath) {
  * @param listWorktrees       injectable — () => [{ path, branch, locked }]
  * @param readWorktreeTickets injectable — (worktreePath) => [{ path }]
  * @param readDocsFn          injectable — defaults to build-work-index's readDocs
- * @returns {{ next: number, sources: Record<string, 'read'|'skipped'> }}
+ * @param realpathFn          injectable — defaults to fs.realpathSync; used to compare `root`
+ *                            against each worktree path symlink-robustly (e.g. /tmp vs /private/tmp)
+ * @returns {{ next: number, sources: Record<string, string> }} sources.worktrees is 'skipped' when
+ *          `listWorktrees` itself failed, otherwise `'read (N of M siblings)'` — N is the number of
+ *          sibling worktrees whose tickets dir was actually enumerated without throwing.
  */
 export function nextTicketNumber({
   root,
@@ -75,6 +88,7 @@ export function nextTicketNumber({
   listWorktrees = () => defaultListWorktrees(execFn),
   readWorktreeTickets = defaultReadWorktreeTickets,
   readDocsFn = readDocs,
+  realpathFn = realpathSync,
 } = {}) {
   const numbers = new Set()
   const sources = {}
@@ -92,25 +106,37 @@ export function nextTicketNumber({
 
   // (d) every OTHER local worktree — the load-bearing source
   let worktrees = []
+  let listWorktreesFailed = false
   try {
     worktrees = listWorktrees()
-    sources.worktrees = 'read'
   } catch {
-    sources.worktrees = 'skipped'
+    listWorktreesFailed = true
   }
 
+  const normRoot = safeRealpath(root, realpathFn)
+  let siblingsTotal = 0
+  let siblingsRead = 0
+
   for (const wt of worktrees) {
-    if (!wt?.path || wt.path === root) continue
+    if (!wt?.path) continue
+    const normPath = safeRealpath(wt.path, realpathFn)
+    if (normPath === normRoot) continue
+    siblingsTotal++
     try {
       for (const t of readWorktreeTickets(wt.path)) {
         const n = ticketNumber(t.path)
         if (n) numbers.add(n)
       }
+      siblingsRead++
     } catch {
       // one sibling worktree's read failing (locked, deleted, permission-denied)
       // must not prevent the others from being read
     }
   }
+
+  sources.worktrees = listWorktreesFailed
+    ? 'skipped'
+    : `read (${siblingsRead} of ${siblingsTotal} siblings)`
 
   // (b) remote branch names — soft signal
   try {
@@ -147,9 +173,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   for (const [name, state] of Object.entries(sources)) {
     console.log(`  ${name}: ${state}`)
   }
-  if (Object.values(sources).some((s) => s === 'skipped')) {
-    console.log('')
-    console.log('One or more sources were skipped — this number is advisory, not a guarantee. ' +
-      'checkTicketNumberUniqueness (npm run verify) is the backstop that catches a collision.')
-  }
+  console.log('')
+  console.log('This number is advisory, not a guarantee — checkTicketNumberUniqueness ' +
+    '(npm run verify) is the backstop that catches a collision.')
 }
