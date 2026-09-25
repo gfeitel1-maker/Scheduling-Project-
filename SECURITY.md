@@ -300,6 +300,30 @@ encrypted until it is deliberately turned on.** When it is on, the SQLite databa
 - **Headless tools:** the MCP server and CLI reach an encrypted DB only via the protected key channel
   and the Electron unlock helper (`docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md`); the
   key is never passed on the command line.
+- **Headless key-acquisition failure is FAIL-CLOSED (stated policy — T260).** The intended policy is:
+  a headless caller (MCP server, CLI, rebuild) that reaches `openLocalDb` with no key — because
+  `resolveHeadlessDbKey()` found neither `SHORESH_DB_KEY` nor `SHORESH_DB_KEY_FILE` — must be refused,
+  exit non-zero, and stop; it must **never continue unencrypted when encryption is expected**, because
+  continuing unencrypted would defeat the purpose. The refusal is enforced by the T260 guard in
+  `openLocalDb`, which throws a named `db_key_unavailable` *before any open attempt* — **but only when
+  at-rest encryption is enabled in that process.** Be precise about that dependency, because it
+  determines exactly how much is enforced today versus after the production default-flip:
+  - `isAtRestEncryptionEnabled()` reads `SHORESH_AT_REST_ENCRYPTION` **once per process, at import**.
+    A headless tool inherits the policy only if that flag is present in *its own* environment. The
+    unlock helper injects `SHORESH_DB_KEY` (the key), not the flag — so under the current env-var-only
+    activation a headless process that is not itself launched with the flag set has the guard dormant,
+    and a keyless open there behaves as it did before (a plaintext file opens; an encrypted file dies
+    with an opaque SQLite error — still unreadable, i.e. fail-closed by physics, but not the named
+    refusal). To get the named, before-open refusal in a headless tool today, launch it with the flag.
+  - **After the production default-flip** (making `'on'` the default in `atRestEncryption.js`, T175),
+    the policy is process-wide with no env var, so the guard fires unconditionally in every process,
+    including headless — at which point "a keyless headless tool cannot silently read or write
+    cleartext once encryption is the policy" holds without qualification. Closing that gap for the
+    env-var-only era (e.g. an on-disk-header refusal independent of the flag) is a remaining flip
+    step recorded in T175, not a claim to make before the default flips.
+  - The interactive app is unaffected in every regime: it acquires a real key via the OS keychain and,
+    on the first launch with encryption on, migrates the plaintext file to encrypted; the "encryption
+    on + plaintext file" state is transient there.
 
 This section states the boundary up front rather than letting "encrypted at rest" imply more than it
 delivers (the T149 stale-claim lesson, applied in advance). The claim will only be made once the flag

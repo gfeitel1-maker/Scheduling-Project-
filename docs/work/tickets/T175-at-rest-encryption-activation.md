@@ -33,6 +33,55 @@ by design — trusted-device model).
 > recovered" copy change (with its absence-test) in that same commit, smoke evidence recorded. A new
 > session should NOT re-chase this as unfinished work — it is owner-deferred.
 
+## 2026-09-25 — owner-authorized DEV activation; production default-flip STILL DEFERRED
+The owner authorized turning at-rest encryption ON in the DEVELOPMENT environment (env-var only, against
+the disposable dev DB) and asked that the key-acquisition failure be named (→ T260). Work done this pass:
+
+- **T260 shipped (this branch):** `openLocalDb` now throws a named `db_key_unavailable` *before any open*
+  when encryption is enabled and no key is supplied, instead of falling to the plaintext driver and
+  dying with an opaque SQLite error. Non-vacuous test (red-without-guard/green-with), plus a test
+  pinning that it refuses even a genuine plaintext file (intended fail-closed). Complementary to
+  finding-3 (which handles keychain-throws on the interactive path). Security 5 / Resilience 4 / Verifier PASS.
+- **Electron-ABI smoke DONE ON THIS MACHINE (deterministic).** The encrypting fork
+  `better-sqlite3-multiple-ciphers@12.11.1` was installed (`--ignore-scripts`) and rebuilt for Electron 43
+  via `electron-rebuild -f -w better-sqlite3-multiple-ciphers` (exit 0; binary at
+  `build/Release/better_sqlite3.node`). An Electron-main harness exercising the REAL `openLocalDb` keyed
+  path proved, under the Electron ABI: driver loads; a fresh keyed db reads back and is non-plaintext on
+  disk (header `dac738f7…`, not `SQLite format 3\0`); a plaintext fixture (header `53514c69…format 3\0`)
+  migrates once — data preserved (id=42), backup shredded — and is non-plaintext afterward (`619fe351…`);
+  a SEPARATE Electron process (genuine relaunch) reads both back; a wrong key is rejected. This closes the
+  "does the driver load under Electron's ABI" gap that Vitest cannot see. (safeStorage integration itself
+  was already proven in the 2026-09-16 run; this pass used a fixed test key so as not to touch the owner's
+  login keychain. The `.automerge` side is docCipher = pure Node AES-GCM, ABI-independent, already proven.)
+- **SECURITY.md headless fail-closed policy stated** (was only implied), and then CORRECTED for accuracy
+  after Stage-3 review (see below).
+
+**Stage-3 security-assessment (2026-09-25) — Security 4/5, production flip NOT clean.** One MEDIUM:
+`isAtRestEncryptionEnabled()` reads the flag once per process; nothing propagates it into headless
+processes (the unlock helper injects only `SHORESH_DB_KEY`), so under env-var-only activation the T260
+guard is dormant in a headless tool unless that tool is itself launched with the flag — my first
+SECURITY.md wording overstated the headless guarantee as if the default were already flipped. Corrected
+the wording to match the code exactly (the refusal holds when encryption is enabled *in that process*;
+becomes process-wide only after the default-flip).
+
+**DECISION: the production default-flip stays DEFERRED.** Stages 2 (Electron ABI) is clean but Stage 3 is
+not, so per the activation gate the one-line default flip in `atRestEncryption.js` was NOT made. DEV
+activation (launch with `SHORESH_AT_REST_ENCRYPTION=on`) is safe and available now.
+
+**Precise remaining steps before the production default-flip (owner-side + one code decision):**
+1. Run the end-to-end headless path against a real encrypted db on a build env where the fork compiles:
+   `electron electron/unlockDbKey.js --exec -- node scripts/mcp/server.js …` reads a row back, and a
+   keyless run against the same encrypted file refuses. (Not yet exercised; required by ADR 2026-09-16
+   and by Stage-3.)
+2. Decide the env-var-era headless gap (Stage-3 finding 1): either accept it (the interactive app migrates
+   first, and the production flip closes it process-wide) or strengthen the guard with an on-disk-header
+   refusal independent of the flag. This is a headless-key-model decision, out of T260's surgical scope.
+3. Then the one-line default flip in `atRestEncryption.js` + the user-facing single-device "cannot be
+   recovered" copy change with its absence-test (below) + smoke evidence, in one commit, after an
+   independent `security-assessment` re-review of that flip diff.
+4. Owner-side: install a packaged build and run a real-app encryption-on smoke on the owner's machine
+   (this ticket's "real-app verification … must not be skipped").
+
 ## Order is load-bearing (assessment finding 1, HIGH)
 The crackable PIN hashes live in the **SQLite** file, not the document. So:
 1. Document encryption activation (main.js wiring + readers). Real progress, but does NOT close the

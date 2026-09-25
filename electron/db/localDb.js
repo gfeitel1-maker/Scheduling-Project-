@@ -17,6 +17,7 @@ import { deriveDayId } from '../ops/dayId.js'
 import { applyProjection } from '../ops/projections.js'
 import { isBulkReplaceOp, applyBulkReplaceProjection } from '../ops/operations.js'
 import { signAuthFields } from '../auth/authSignature.js'
+import { isAtRestEncryptionEnabled } from './atRestEncryption.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -3901,6 +3902,20 @@ function encryptingDatabaseCtor() {
 //     committed plaintext era fixtures (a gate asserts it appears only under test/). It exists so a
 //     future caller cannot accidentally MIGRATE (mutate) a committed fixture by passing a key.
 export function openLocalDb(filePath, { key = null, plaintext = false } = {}) {
+  // Refusal decision at the open seam itself: if at-rest encryption is on but no key reached us,
+  // refuse by name rather than falling to the plaintext driver (which would either open an
+  // unencrypted file wrong or die later with an opaque SQLite error). Complementary to main.js
+  // finding-3, which handles keychain-throws on the interactive path — this stays correct even if
+  // that path or the plaintext branch below changes. Outside the try/catch so the catch's generic
+  // wrapper below cannot swallow the named code.
+  if (isAtRestEncryptionEnabled() && !key && !plaintext) {
+    const err = new Error(
+      'At-rest encryption is enabled but no database key could be obtained for this open. ' +
+        'Refusing to open — see docs/current/KEY_RECOVERY_STORY.md.'
+    )
+    err.code = 'db_key_unavailable'
+    throw err
+  }
   let db
   try {
     if (key && !plaintext) {
