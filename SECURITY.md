@@ -300,6 +300,19 @@ encrypted until it is deliberately turned on.** When it is on, the SQLite databa
 - **Headless tools:** the MCP server and CLI reach an encrypted DB only via the protected key channel
   and the Electron unlock helper (`docs/adr/2026-09-16-headless-db-key-access-for-mcp-cli.md`); the
   key is never passed on the command line.
+- **Headless key-acquisition failure is FAIL-CLOSED (stated policy, not inferred from code — T260).**
+  When at-rest encryption is enabled and a headless caller (MCP server, CLI, rebuild) reaches
+  `openLocalDb` with no key — because `resolveHeadlessDbKey()` found neither `SHORESH_DB_KEY` nor
+  `SHORESH_DB_KEY_FILE` — the open is **refused by name** (`db_key_unavailable`) *before any open
+  attempt*, rather than falling back to a plaintext open or dying later with an opaque SQLite error.
+  The caller must exit non-zero and stop; it must **never continue unencrypted when encryption is
+  expected** — continuing unencrypted would defeat the purpose of the flag. This refusal is
+  deliberately coarse: it fires whenever the policy is "encryption on" and no key was supplied,
+  regardless of whether the file on disk happens to still be plaintext, so a keyless headless tool
+  cannot silently read or write cleartext data once encryption is the policy. The remedy is to
+  provide a key through the unlock helper, not to open keyless. (The interactive app is unaffected —
+  it acquires a real key via the OS keychain and, on the first launch with the flag on, migrates the
+  plaintext file to encrypted; the "flag on + plaintext file" state is transient there.)
 
 This section states the boundary up front rather than letting "encrypted at rest" imply more than it
 delivers (the T149 stale-claim lesson, applied in advance). The claim will only be made once the flag
