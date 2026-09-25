@@ -132,8 +132,9 @@ export function scanDangerous(files) {
 // Files that legitimately carry the patterns below — third-party metadata (npm package
 // authors' emails, bundled license texts) or fixtures for this check's own tests. The
 // ticket's own list (package-lock.json, this file's test, test/fuzz/**) measured short by
-// three: electron/license-texts/**, electron/third-party-licenses.json and .html carry
-// 40+ upstream-author addresses from bundled license text and are exempted here too.
+// three: electron/license-texts/**, electron/third-party-licenses.json and the single file
+// electron/third-party-licenses.html (not ".html" files in general — only this one path is
+// exempt) carry 40+ upstream-author addresses from bundled license text and are exempted here too.
 const PRIVACY_EXEMPT_FILES = new Set([
   'package-lock.json',
   'scripts/security-gate.js',
@@ -156,6 +157,11 @@ function isPrivacyExempt(path) {
 // wordlist, so this digest is NOT a secret and this is NOT confidentiality. It prevents the
 // string being present, greppable, and search-indexed in a public repo — that is the actual
 // goal, and no stronger claim is made.
+//
+// COUPLING (Fix 4): IDENTITY_TOKEN_DIGESTS and IDENTITY_TOKEN_LENGTHS must change together.
+// A digest here of a plaintext length not present in IDENTITY_TOKEN_LENGTHS is filtered out
+// before it is ever hashed — the check silently becomes a no-op for that digest. Adding a
+// digest REQUIRES adding its plaintext length below, in the same change.
 export const IDENTITY_TOKEN_DIGESTS = new Set([
   '2a123e7bdd96337aef54d45a21c2a25a61a3fe8f96cee351751dc47c47b6f5bf',
   'f95c3e4db9977fccda1aee1dcf25f6f4452d4e2c399e2f622db36626dc14e443',
@@ -163,10 +169,35 @@ export const IDENTITY_TOKEN_DIGESTS = new Set([
 // Plaintext token lengths (not digest lengths) the two identity tokens are known to have.
 // Restricting candidates to these lengths before hashing is what keeps this check cheap:
 // we hash only the unique short/mid-length tokens a file actually contains, not every token.
+// COUPLING (Fix 4): see IDENTITY_TOKEN_DIGESTS above — a length omitted here means any digest
+// of that length silently never matches. Keep the two in lockstep.
 const IDENTITY_TOKEN_LENGTHS = new Set([5, 10])
 
+// Splits on non-letter runs AND on a lower/digit → upper case transition, so CamelCase
+// concatenation ("CampTokenSpec") separates into its parts the way a human reads it.
 function tokenize(str) {
-  return str.toLowerCase().split(/[^a-z]+/).filter(Boolean)
+  return str.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z]+/).filter(Boolean)
+}
+
+// Candidate identity tokens for a string: every base token (case/non-letter split) at a
+// known length, PLUS the prefix/suffix window of each known length for a longer token — so
+// a plural/possessive/adjectival suffix with no separator ("<token>s") or a prefix with no
+// separator ("x<token>") still surfaces the bare token. Cheap on purpose: at most two extra
+// substrings per base token per known length, not a sliding window over every position.
+// HONEST BLIND SPOT: an infix with no case or non-letter boundary on EITHER side
+// ("xx<token>yy") is still missed — neither a prefix nor a suffix window lands on it.
+function identityCandidates(str) {
+  const candidates = new Set()
+  for (const tok of tokenize(str)) {
+    if (IDENTITY_TOKEN_LENGTHS.has(tok.length)) candidates.add(tok)
+    for (const len of IDENTITY_TOKEN_LENGTHS) {
+      if (tok.length > len) {
+        candidates.add(tok.slice(0, len))
+        candidates.add(tok.slice(-len))
+      }
+    }
+  }
+  return candidates
 }
 
 function sha256(str) {
@@ -189,9 +220,41 @@ const HOME_PATH_RE = /\/(?:Users|home)\/([^/\s'"]+)/g
 // `fetched-pkg@1.0.0.json` (a real filename in scripts/generate-licenses.test.js) does not
 // match — its label-before-TLD is "0", all digits. Allowlisted by shape: placeholder domains
 // and non-PII local-parts this repo legitimately carries (git@github.com, noreply@anthropic.com).
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
+//
+// Fix 1 (ReDoS): a single combined regex `[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}` lets
+// the domain class `[A-Za-z0-9.-]+` overlap the following `\.[A-Za-z]{2,}`, so on a long
+// domain-shaped run with no valid ending the engine backtracks catastrophically. Replaced with
+// a linear scan: find each `@`, expand the local part left and the domain run right by
+// character class (no ambiguity — a single class, no overlap), then locate the TLD ending
+// inside that already-bounded domain run with a small non-overlapping regex.
+const LOCAL_CHAR_RE = /[A-Za-z0-9._%+-]/
+const DOMAIN_CHAR_RE = /[A-Za-z0-9.-]/
+const TLD_RE = /\.[A-Za-z]{2,}/g
 const EMAIL_ALLOW_DOMAINS = /@(?:example\.com|example\.org|example\.net|localhost)\b/i
 const EMAIL_ALLOW_LOCALPARTS = /^(?:noreply|no-reply|git)@/i
+
+// Finds email-shaped substrings in `line` without backtracking: '@' can only be preceded/
+// followed by bounded character-class runs, so total work is linear in line length.
+function findEmailCandidates(line) {
+  const matches = []
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] !== '@') continue
+    if (i === 0 || !LOCAL_CHAR_RE.test(line[i - 1])) continue
+    let start = i
+    while (start > 0 && LOCAL_CHAR_RE.test(line[start - 1])) start--
+    let domainEnd = i + 1
+    while (domainEnd < line.length && DOMAIN_CHAR_RE.test(line[domainEnd])) domainEnd++
+    const domainRun = line.slice(i + 1, domainEnd)
+    TLD_RE.lastIndex = 0
+    let tldMatch
+    let lastTld = null
+    while ((tldMatch = TLD_RE.exec(domainRun))) lastTld = tldMatch
+    if (!lastTld) continue
+    const domain = domainRun.slice(0, lastTld.index + lastTld[0].length)
+    matches.push(line.slice(start, i + 1) + domain)
+  }
+  return matches
+}
 
 function isPlausibleEmail(match) {
   const domain = match.slice(match.indexOf('@') + 1)
@@ -208,17 +271,19 @@ function isAllowedEmail(match) {
 // a looser pattern fires on version strings and hashes instead.
 const PHONE_RES = [/\(\d{3}\)\s\d{3}-\d{4}/, /\b\d{3}[-. ]\d{3}[-. ]\d{4}\b/]
 
-// files: [{ path, content }]. digests is injectable so tests can prove the hashed-identity
-// mechanism with a freshly generated token instead of the real plaintext.
+// files: [{ path, content }], where content may be null/absent — a path-only entry still
+// gets Rule 2's path check (Fix 2: every tracked file's PATH is scanned regardless of
+// whether its content is text-shaped or was even read). digests is injectable so tests can
+// prove the hashed-identity mechanism with a freshly generated token instead of the real
+// plaintext.
 export function scanPrivacy(files, digests = IDENTITY_TOKEN_DIGESTS) {
   const findings = []
   for (const { path, content } of files) {
     if (isPrivacyExempt(path)) continue
-    const lines = content.split('\n')
 
     // Rule 2, path — no line number, and deliberately NO allow-marker escape hatch: a
-    // sensitive filename must be renamed, not annotated.
-    const pathTokens = new Set(tokenize(path).filter((t) => IDENTITY_TOKEN_LENGTHS.has(t.length)))
+    // sensitive filename must be renamed, not annotated. Runs regardless of content.
+    const pathTokens = identityCandidates(path)
     for (const t of pathTokens) {
       if (digests.has(sha256(t))) {
         findings.push({ kind: 'privacy', pattern: 'identity-token', path, line: null,
@@ -227,9 +292,15 @@ export function scanPrivacy(files, digests = IDENTITY_TOKEN_DIGESTS) {
       }
     }
 
+    // RESIDUAL BLIND SPOT (Fix 2): a binary/opaque format (.xlsx, .docx, .pdf, images,
+    // .sqlite) has content: null here — only its PATH was checked above. Its CONTENTS are
+    // never scanned; extracting text from those formats is explicitly out of scope.
+    if (content == null) continue
+    const lines = content.split('\n')
+
     // Rule 2, content — build the unique candidate set once per file, hash only those, and
     // only if one matches do a second pass to locate the offending line(s).
-    const contentCandidates = new Set(tokenize(content).filter((t) => IDENTITY_TOKEN_LENGTHS.has(t.length)))
+    const contentCandidates = identityCandidates(content)
     const matchedTokens = new Set()
     for (const t of contentCandidates) {
       if (digests.has(sha256(t))) matchedTokens.add(t)
@@ -240,8 +311,8 @@ export function scanPrivacy(files, digests = IDENTITY_TOKEN_DIGESTS) {
       const allowed = line.includes(ALLOW)
 
       if (!allowed && matchedTokens.size > 0) {
-        const lineTokens = tokenize(line)
-        if (lineTokens.some((t) => matchedTokens.has(t))) {
+        const lineTokens = identityCandidates(line)
+        if ([...lineTokens].some((t) => matchedTokens.has(t))) {
           findings.push({ kind: 'privacy', pattern: 'identity-token', path, line: i + 1,
             detail: `${path}:${i + 1} — hashed identity token present in content. If intentional (a test fixture), append \`// ${ALLOW}\` to the line.` })
         }
@@ -264,10 +335,7 @@ export function scanPrivacy(files, digests = IDENTITY_TOKEN_DIGESTS) {
       }
 
       // Rule 3 — email
-      EMAIL_RE.lastIndex = 0
-      let em
-      while ((em = EMAIL_RE.exec(line))) {
-        const match = em[0]
+      for (const match of findEmailCandidates(line)) {
         if (!isPlausibleEmail(match) || isAllowedEmail(match)) continue
         findings.push({ kind: 'privacy', pattern: 'email', path, line: i + 1,
           detail: `${path}:${i + 1} — possible email address. If intentional (a test fixture), append \`// ${ALLOW}\` to the line.` })
@@ -295,19 +363,36 @@ function runAudit() {
   }
 }
 
-const TEXT_EXT = /\.(js|jsx|ts|tsx|mjs|cjs|json|md|sql|css|html|yml|yaml|sh|txt|env)$/i
+// Text-shaped extensions whose CONTENT gets read and scanned. csv/tsv added (Fix 2) — this
+// repo's ingestion workflow writes plain-text data files into docs/ under these extensions.
+// Any tracked path NOT matching this (images, .xlsx/.docx/.pdf/.sqlite, etc.) still gets its
+// PATH scanned by trackedFiles() below — only its content is skipped.
+export const TEXT_EXT = /\.(js|jsx|ts|tsx|mjs|cjs|json|md|sql|css|html|yml|yaml|sh|txt|env|csv|tsv)$/i
 
-function trackedTextFiles() {
+// Every tracked file, content included only when it is text-shaped (TEXT_EXT) and readable.
+// A binary/opaque file, or a text-shaped file that fails to read (deleted-but-tracked), comes
+// back with content: null — scanPrivacy still scans its PATH; scanSecrets/scanDangerous need
+// real content and skip null entries entirely (see call sites below).
+function trackedFiles() {
   const res = spawnSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
   if (res.status !== 0) throw new Error(`git ls-files failed: ${res.stderr}`)
-  const paths = res.stdout.split('\n').filter((p) => p && TEXT_EXT.test(p))
+  const paths = res.stdout.split('\n').filter(Boolean)
   const files = []
+  let unreadable = 0
   for (const path of paths) {
+    if (!TEXT_EXT.test(path)) {
+      files.push({ path, content: null })
+      continue
+    }
     try {
       files.push({ path, content: readFileSync(path, 'utf8') })
-    } catch { /* deleted-but-tracked, or binary mislabeled — skip */ }
+    } catch {
+      // deleted-but-tracked, or a text extension whose actual bytes aren't readable as utf8
+      files.push({ path, content: null })
+      unreadable++
+    }
   }
-  return files
+  return { files, unreadable }
 }
 
 const invokedDirectly =
@@ -321,16 +406,21 @@ if (invokedDirectly) {
     console.error(`security-gate: dependency audit could not run — ${e.message}`)
     process.exit(2)
   }
-  const files = trackedTextFiles()
-  findings.push(...scanSecrets(files), ...scanDangerous(files), ...scanPrivacy(files))
+  const { files, unreadable } = trackedFiles()
+  const textFiles = files.filter((f) => f.content != null)
+  findings.push(...scanSecrets(textFiles), ...scanDangerous(textFiles), ...scanPrivacy(files))
+
+  // Fix 5: "0 findings" must be distinguishable from "never read the file" — print how many
+  // tracked files this run could not read, so a green verdict isn't silently vacuous.
+  const unreadableNote = unreadable > 0 ? `, ${unreadable} file(s) unreadable and skipped` : ''
 
   if (findings.length === 0) {
     // eslint-disable-next-line no-console
-    console.log('✅ security-gate: 0 findings (deps + secrets + dangerous patterns + privacy)')
+    console.log(`✅ security-gate: 0 findings (deps + secrets + dangerous patterns + privacy)${unreadableNote}`)
     process.exit(0)
   }
   // eslint-disable-next-line no-console
-  console.log(`❌ security-gate: ${findings.length} finding(s)\n`)
+  console.log(`❌ security-gate: ${findings.length} finding(s)${unreadableNote}\n`)
   for (const f of findings) {
     // eslint-disable-next-line no-console
     console.log(`  [${f.kind}] ${f.detail}`)

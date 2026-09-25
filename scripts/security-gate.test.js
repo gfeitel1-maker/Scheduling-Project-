@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createHash, randomBytes } from 'node:crypto'
-import { auditFindings, scanSecrets, scanDangerous, scanPrivacy, FAILING_SEVERITIES } from './security-gate.js'
+import { auditFindings, scanSecrets, scanDangerous, scanPrivacy, FAILING_SEVERITIES, TEXT_EXT } from './security-gate.js'
 
 // Builds a fresh random token of the given length and its digest, without ever holding
 // the real identity token. Used to prove the hashed-identity mechanism without the plaintext.
@@ -191,5 +191,102 @@ describe('scanPrivacy', () => {
   it('honours the allow marker on a content line', () => {
     const files = [{ path: 'docs/x.md', content: 'contact person@realdomain.com // security-gate:allow' }]
     expect(scanPrivacy(files).some((f) => f.pattern === 'email')).toBe(false)
+  })
+
+  // Fix 1 — ReDoS in EMAIL_RE. The old combined regex overlapped its own quantifiers
+  // ([A-Za-z0-9.-]+ then \.[A-Za-z]{2,}) and backtracked catastrophically on a long
+  // domain-shaped run with no valid TLD to terminate on.
+  it('does not catastrophically backtrack on an adversarial email-shaped line', () => {
+    const adversarial = 'a@' + 'a'.repeat(40000) + '!'
+    const files = [{ path: 'docs/x.md', content: adversarial }]
+    const start = Date.now()
+    scanPrivacy(files)
+    expect(Date.now() - start).toBeLessThan(500)
+  })
+
+  it('stays fast on a long line combining home-path and identity-token shapes', () => {
+    const { digest } = freshTokenAndDigest(10)
+    const adversarial = '/Users/' + 'a'.repeat(20000) + ' ' + 'b'.repeat(20000)
+    const files = [{ path: 'docs/x.md', content: adversarial }]
+    const start = Date.now()
+    scanPrivacy(files, new Set([digest]))
+    expect(Date.now() - start).toBeLessThan(500)
+  })
+
+  // Fix 2 — the guard must scan the PATH of every tracked file, even when content is
+  // unreadable/binary (content: null), and must content-scan csv/tsv.
+  it('scans the PATH of a file even when content is null (binary/unreadable)', () => {
+    const { token, digest } = freshTokenAndDigest(5)
+    const files = [{ path: `assets/camp-${token}.png`, content: null }]
+    const findings = scanPrivacy(files, new Set([digest]))
+    expect(findings.some((f) => f.pattern === 'identity-token' && f.line === null)).toBe(true)
+  })
+
+  it('path-scans a .csv and a .png path alike', () => {
+    const { token, digest } = freshTokenAndDigest(10)
+    const files = [
+      { path: `data/${token}-roster.csv`, content: 'a,b,c' },
+      { path: `images/${token}-logo.png`, content: null },
+    ]
+    const findings = scanPrivacy(files, new Set([digest]))
+    const paths = findings.filter((f) => f.pattern === 'identity-token').map((f) => f.path)
+    expect(paths).toEqual(expect.arrayContaining([`data/${token}-roster.csv`, `images/${token}-logo.png`]))
+  })
+
+  it('content-scans a .csv file', () => {
+    const { token, digest } = freshTokenAndDigest(10)
+    const files = [{ path: 'data/roster.csv', content: `name,camp\nkid,${token}` }]
+    const findings = scanPrivacy(files, new Set([digest]))
+    expect(findings.some((f) => f.pattern === 'identity-token' && f.path === 'data/roster.csv' && f.line === 2)).toBe(true)
+  })
+
+  it('TEXT_EXT includes csv and tsv, excludes image/binary formats', () => {
+    expect(TEXT_EXT.test('data/roster.csv')).toBe(true)
+    expect(TEXT_EXT.test('data/roster.tsv')).toBe(true)
+    expect(TEXT_EXT.test('images/logo.png')).toBe(false)
+    expect(TEXT_EXT.test('docs/spec.docx')).toBe(false)
+  })
+
+  // Fix 3 — the tokenizer misses suffix/prefix/CamelCase forms of the identity token.
+  it('flags a plural suffix form (<token>s)', () => {
+    const { token, digest } = freshTokenAndDigest(5)
+    const files = [{ path: 'docs/x.md', content: `the ${token}s program` }]
+    expect(scanPrivacy(files, new Set([digest])).some((f) => f.pattern === 'identity-token')).toBe(true)
+  })
+
+  it('flags a prefixed form (x<token>)', () => {
+    const { token, digest } = freshTokenAndDigest(5)
+    const files = [{ path: 'docs/x.md', content: `see x${token} here` }]
+    expect(scanPrivacy(files, new Set([digest])).some((f) => f.pattern === 'identity-token')).toBe(true)
+  })
+
+  it('flags CamelCase concatenation (Camp<Token>Spec)', () => {
+    const { token, digest } = freshTokenAndDigest(5)
+    const capitalized = token[0].toUpperCase() + token.slice(1)
+    const files = [{ path: 'docs/x.md', content: `class Camp${capitalized}Spec {}` }]
+    expect(scanPrivacy(files, new Set([digest])).some((f) => f.pattern === 'identity-token')).toBe(true)
+  })
+
+  it('does not catch an infix with no case/non-letter boundary on either side (knowingly not caught)', () => {
+    const { token, digest } = freshTokenAndDigest(5)
+    const files = [{ path: 'docs/x.md', content: `xx${token}yy` }]
+    expect(scanPrivacy(files, new Set([digest])).some((f) => f.pattern === 'identity-token')).toBe(false)
+  })
+
+  it('the suffix/prefix window check stays cheap (perf sanity, not a hard budget)', () => {
+    const { digest } = freshTokenAndDigest(10)
+    const big = Array.from({ length: 2000 }, (_, i) => `word${i}Suffixed and word${i}`).join(' ')
+    const files = [{ path: 'docs/x.md', content: big }]
+    const start = Date.now()
+    scanPrivacy(files, new Set([digest]))
+    expect(Date.now() - start).toBeLessThan(500)
+  })
+
+  // Fix 4 — IDENTITY_TOKEN_LENGTHS and IDENTITY_TOKEN_DIGESTS must move in lockstep;
+  // a length outside the set is a documented, knowing gap, not an accidental miss.
+  it('a token whose length is outside IDENTITY_TOKEN_LENGTHS is knowingly not caught (documents the coupling)', () => {
+    const { token, digest } = freshTokenAndDigest(7)
+    const files = [{ path: 'docs/x.md', content: `about ${token} today` }]
+    expect(scanPrivacy(files, new Set([digest])).some((f) => f.pattern === 'identity-token')).toBe(false)
   })
 })
