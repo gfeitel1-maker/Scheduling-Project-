@@ -48,6 +48,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Phase E — measure whether WAN failure is discovery or direct dial](../../docs/work/tickets/T212-wan-connectivity-measurement.md) | open | [2026-09-18-connectivity-observability-event-vocabulary](../../docs/adr/2026-09-18-connectivity-observability-event-vocabulary.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
+| [CI minutes: stop re-verifying a tree that already went green](../../docs/work/tickets/T261-ci-minutes-duplicate-main-runs.md) | open | — |
 
 ### unclassified
 
