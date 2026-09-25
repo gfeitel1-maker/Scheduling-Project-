@@ -1,7 +1,7 @@
 ---
 title: T250-draft-and-final-director-ui
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: the Draft state (move/lock, regenerate with staleness offer, run list, satisfaction summary, overCapacityOccurrences and DANGLING_MANUAL_ASSIGNMENT surfaced live) and Final state (read-only identity, export, start-a-revision, finalizedAgainstStaleGeneration and overCapacityOccurrences surfaced inline in the run's own displayed run-state area on this screen, not via the schedule findings vocabulary) from T199's director-flow table are both built and reachable only by admin
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
