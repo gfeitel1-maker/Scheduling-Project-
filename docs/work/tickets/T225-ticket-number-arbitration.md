@@ -1,7 +1,8 @@
 ---
 title: "Ticket numbers are allocated from a tree that cannot see unmerged branches"
 document_type: ticket
-status: open
+status: completed
+resolved_by: [scripts/nextTicketNumber.js, scripts/nextTicketNumber.test.js, docs/adr/2026-09-25-ticket-number-arbitration.md]
 created: 2026-09-18
 task_class: documentation-governance
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
@@ -72,3 +73,17 @@ another session's citations. That hazard was avoided by hand on 2026-09-18 and w
 - Any change that claims to close the race rather than narrow it.
 - A mitigation that replaces one unobservable source (the working tree) with another.
 - Automated renumbering that rewrites references outside the renumbering session's own documents.
+
+## Resolution (2026-09-25 — PR #539)
+
+Both `archive_when` clauses are satisfied: numbers are now allocated against a source both concurrent
+sessions can observe before either merges (root + **every sibling worktree's tickets, uncommitted
+files included** + `git ls-remote` + open PRs, via `scripts/nextTicketNumber.js`), and the residual
+race is **documented, not claimed closed** — the interval between allocating a number and writing the
+ticket file to disk (unbounded; seconds-to-minutes), with `checkTicketNumberUniqueness` retained
+unchanged as the post-hoc backstop.
+
+The product owner **accepted** `docs/adr/2026-09-25-ticket-number-arbitration.md` on 2026-09-25, so this
+ticket is **completed**. A cheaper follow-up (a pushed claim-ref marker to shrink the residual window
+further) remains recorded for the owner to weigh if the narrowed race is ever observed to bite; it is
+not part of this ticket.
