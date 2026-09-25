@@ -42,7 +42,7 @@ Two things worth keeping from this:
   T191. Every prior green was on a machine that happens to have zsh because it is a Mac.
 - **The second red was a test that named one machine.** With zsh installed, 444 of 445 files
   passed and the last was `scripts/gateLock.test.js` — a test *this programme wrote* — asserting
-  `repoKey(process.cwd()) === repoKey('/Users/gregfeitel/dev/shoresh')`. On a runner that path does
+  `repoKey(process.cwd()) === repoKey('~/dev/shoresh')`. On a runner that path does
   not exist, so `repoKey` returned its no-git fallback and the comparison failed. A test for
   machine-independent behaviour had a developer's home directory baked into it, and **only a
   different machine could see that.** Now asserted between two directories of whatever repository is

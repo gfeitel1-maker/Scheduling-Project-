@@ -5,7 +5,7 @@
 import { createReadStream, readFileSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { homedir } from 'node:os'
-import { memoryProjectSlug } from './memoryProject.js'
+import { memoryProjectSlug, homeDerivedSlugPrefix } from './memoryProject.js'
 
 // One JSONL line -> zero or more events. Never throws.
 export function parseLine(rawLine) {
@@ -194,10 +194,11 @@ export function subagentTranscriptPath(mainTranscriptPath, agentId) {
 
 // The second entry is the live memory store's slug, which lives in
 // scripts/memoryProject.js so the shell pipeline and this file cannot drift about
-// where it is (T171 item 4). The first is a literal prefix on purpose: it matches
-// ~/dev/shoresh AND every worktree slug beneath it, which is a pattern, not a path.
+// where it is (T171 item 4). The first is a $HOME-derived prefix on purpose (T263): it
+// matches ~/dev/shoresh AND every worktree slug beneath it, which is a pattern, not a path,
+// and deriving it from $HOME keeps the developer's username out of this file's source.
 const SLUGS_GLOB_PREFIXES = [
-  '-Users-gregfeitel-dev-shoresh',
+  `${homeDerivedSlugPrefix()}-dev-shoresh`,
   memoryProjectSlug(),
 ]
 

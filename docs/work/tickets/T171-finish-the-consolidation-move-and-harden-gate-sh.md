@@ -19,7 +19,7 @@ extraction) and are present and passing on `main`.
 
 1. **launchd runs the in-repo consolidation scripts — MET.**
    `~/Library/LaunchAgents/com.shoresh.memory-consolidation.plist` execs
-   `/Users/gregfeitel/dev/shoresh/scripts/consolidation/run.sh` (the in-repo
+   `~/dev/shoresh/scripts/consolidation/run.sh` (the in-repo
    copy). The owner-observable half — "one 03:00 run has actually succeeded
    through the new path" — is now observed: the live `run.log` records
    `=== run 2026-09-17 @ Fri Sep 18 03:00:02 EDT 2026 ===` followed by the
@@ -64,7 +64,7 @@ Two follow-on observations left for the owner (not blocking, outside this ticket
 ## Status, 2026-09-15
 
 **Item 1 (plist repoint) — done, verified on disk.** `com.shoresh.memory-consolidation.plist`
-runs `/Users/gregfeitel/dev/shoresh/scripts/consolidation/run.sh` and the
+runs `~/dev/shoresh/scripts/consolidation/run.sh` and the
 `~/.claude/projects/.../_consolidation/` copies are gone. Still owed: confirming
 one 03:00 run has actually succeeded through the new path — the ticket's own
 "done when" asks for that and it has not been observed.
@@ -172,7 +172,7 @@ user's launchd configuration is the owner's call, not a cleanup.
 ## 4 (original). The per-user slug is hardcoded in three scripts
 
 `run.sh`, `mineFromPacket.sh` and `integration.sh` each embed
-`-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project`. The move's stated
+`-Users-<user>-Desktop-Camp-App-System--Applications-Schedule-Project`. The move's stated
 point was "works from any checkout", and that is only half true: the SCRIPTS half is portable via
 `${0:A:h}`, the DATA half is one person's home directory literal. Pre-existing, not introduced
 here, but the claim and the code should agree.

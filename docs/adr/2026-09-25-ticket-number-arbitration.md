@@ -42,7 +42,7 @@ allocator is therefore not merely incomplete; it is a check that reports green w
 worse than no check, because it is trusted.
 
 As of this ADR there are on the order of 28 sibling worktrees under
-`/Users/gregfeitel/dev/shoresh/.claude/worktrees/`, verified via `git worktree list --porcelain`
+`~/dev/shoresh/.claude/worktrees/`, verified via `git worktree list --porcelain`
 (confirmed in this session: the command lists each worktree's absolute path, `HEAD`, `branch` or
 `detached`, and a `locked` line when a Claude agent session holds it — no flag or state is needed
 beyond parsing that output). Each one can hold ticket files git itself does not know about yet.

@@ -43,7 +43,7 @@ fi
 # 0b. Read side: ensure every shoresh-family project slug shares the ONE canonical memory, so a
 #     session launched from ~/dev/shoresh or any (future) worktree loads the same memory rather
 #     than a blank slate. Idempotent + best-effort; never clobbers a real memory dir.
-for d in "$HOME/.claude/projects"/-Users-gregfeitel-dev-shoresh*/; do
+for d in "$HOME/.claude/projects"/${HOME//\//-}-dev-shoresh*/; do
   [ -d "$d" ] || continue
   m="${d%/}/memory"
   [ -L "$m" ] && continue

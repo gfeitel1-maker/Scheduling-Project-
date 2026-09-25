@@ -20,7 +20,7 @@ print -- "_Deterministic gather across ALL shoresh-family launch identities (Des
 # Selected by mtime == DAY.
 PROJECTS="$HOME/.claude/projects"
 typeset -a SRCDIRS
-SRCDIRS=("$PROJ" "$PROJECTS"/-Users-gregfeitel-dev-shoresh*(/N))
+SRCDIRS=("$PROJ" "$PROJECTS"/${HOME//\//-}-dev-shoresh*(/N))
 found=0
 for d in "${SRCDIRS[@]}"; do
   slug="${d:t}"

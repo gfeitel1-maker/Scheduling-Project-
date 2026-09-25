@@ -16,7 +16,14 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
-import { memoryProjectSlug, memoryProjectDir, DEFAULT_MEMORY_PROJECT_SLUG } from '../scripts/memoryProject.js'
+import {
+  memoryProjectSlug,
+  memoryProjectDir,
+  homeDerivedSlugPrefix,
+  defaultMemoryProjectSlug,
+  MEMORY_PROJECT_SUFFIX,
+  DEFAULT_MEMORY_PROJECT_SLUG,
+} from '../scripts/memoryProject.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRIPTS = join(ROOT, 'scripts')
@@ -47,11 +54,32 @@ describe('the slug lives in exactly one place per language', () => {
     ).toEqual([])
   })
 
-  it('the shell and the JS halves agree on the default', () => {
+  it('the shell and the JS halves agree on the fixed suffix', () => {
     // Two definitions is one per language, not a duplicate to be tolerated: shell
     // cannot import JS. They MUST agree, so that is asserted rather than assumed.
+    // T263: the machine-specific PREFIX is now derived ($HOME with "/" -> "-") in both
+    // languages rather than a shared literal, so only the fixed suffix can be compared by
+    // string containment here; full-value agreement (including the derived prefix) is
+    // asserted below by actually evaluating the shell script.
     const sh = readFileSync(join(SCRIPTS, 'memoryProject.sh'), 'utf8')
-    expect(sh).toContain(DEFAULT_MEMORY_PROJECT_SLUG)
+    expect(sh).toContain(MEMORY_PROJECT_SUFFIX)
+  })
+})
+
+describe('the default slug is derived from $HOME, not a hardcoded developer identity (T263)', () => {
+  it('the machine-specific prefix is $HOME with "/" replaced by "-"', () => {
+    expect(homeDerivedSlugPrefix('/home/synthetic-user')).toBe('-home-synthetic-user') // security-gate:allow (synthetic fixture)
+    expect(homeDerivedSlugPrefix('/Users/anyone')).toBe('-Users-anyone') // security-gate:allow (synthetic fixture)
+  })
+
+  it('the default slug is that prefix plus the fixed, non-identifying suffix', () => {
+    expect(defaultMemoryProjectSlug('/home/synthetic-user')).toBe( // security-gate:allow (synthetic fixture)
+      '-home-synthetic-user-Desktop-Camp-App-System--Applications-Schedule-Project',
+    )
+  })
+
+  it('is value-preserving: the exported constant equals the derivation from THIS machine\'s home', () => {
+    expect(DEFAULT_MEMORY_PROJECT_SLUG).toBe(defaultMemoryProjectSlug())
   })
 })
 

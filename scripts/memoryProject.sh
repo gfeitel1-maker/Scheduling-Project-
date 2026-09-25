@@ -16,7 +16,12 @@
 # point the pipeline at a different project directory (another machine, another
 # user, a test fixture); leave it unset and the default below is used, which is the
 # behaviour every caller had before this file existed.
-: "${SHORESH_MEMORY_PROJECT:=-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project}"
+#
+# T263: the `-Desktop-Camp-App-System...` suffix is still the non-derivable literal above —
+# that directory name has nothing to do with today's repo location. Only the machine-specific
+# PREFIX (the `$HOME`-with-'/'-replaced-by-'-' half Claude Code itself derives a slug from) is
+# computed here instead of hardcoded, so this file holds no developer identity in plaintext.
+: "${SHORESH_MEMORY_PROJECT:=${HOME//\//-}-Desktop-Camp-App-System--Applications-Schedule-Project}"
 
 MEMORY_PROJECT_SLUG="$SHORESH_MEMORY_PROJECT"
 MEMORY_PROJ="$HOME/.claude/projects/$MEMORY_PROJECT_SLUG"
