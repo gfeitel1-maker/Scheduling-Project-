@@ -1,7 +1,7 @@
 ---
 title: "The findings copy guardrail scans a hardcoded SOURCES list, so a new home for finding text escapes it silently"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-24
 archive_when: findingsLanguage.test.js no longer depends on a hand-maintained four-file list to decide what it scans — either it discovers candidate sources mechanically, or an explicit registry exists whose omission fails a test — and a non-vacuity check proves a banned word planted in a NEW finding-text home is caught
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
