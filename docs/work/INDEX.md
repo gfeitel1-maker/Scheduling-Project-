@@ -68,7 +68,6 @@ Regenerate with `npm run index:work`.
 | [T248-child-schedule-export](../../docs/work/tickets/T248-child-schedule-export.md) | open | [2026-09-23-elective-run-lifecycle-and-remaining-slices](../../docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) |
 | [T250-draft-and-final-director-ui](../../docs/work/tickets/T250-draft-and-final-director-ui.md) | open | [2026-09-23-elective-run-lifecycle-and-remaining-slices](../../docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) · [T254-findings-copy-guardrail-hardcoded-sources](../../docs/work/tickets/T254-findings-copy-guardrail-hardcoded-sources.md) |
 | [T251-t199-acceptance-fixture](../../docs/work/tickets/T251-t199-acceptance-fixture.md) | open | [2026-09-23-elective-run-lifecycle-and-remaining-slices](../../docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) |
-| [The findings copy guardrail scans a hardcoded SOURCES list, so a new home for finding text escapes it silently](../../docs/work/tickets/T254-findings-copy-guardrail-hardcoded-sources.md) | open | — |
 
 ## Decisions
 
