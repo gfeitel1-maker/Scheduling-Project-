@@ -9,7 +9,8 @@
 // commitElectiveRun.js / finalizeElectiveRun.js.
 import { randomUUID } from 'node:crypto'
 import { appendOp, runAtomic } from './operations.js'
-import { deriveElectiveAssignmentId } from './electiveDerivedIds.js'
+import { deriveElectiveAssignmentId, electiveChoiceLabelKey } from './electiveDerivedIds.js'
+import { mapWithCollisions } from '../../src/ingest/mapWithCollisions.js'
 import { electiveGenerationVisibleFragment } from './electiveGenerationPredicate.js'
 import { resolveOfferingCapacity } from './electiveOfferingCapacity.js'
 
@@ -68,7 +69,57 @@ export function setElectiveAssignment(db, {
     return { ok: false, error: 'that activity is not a confirmed offering of this occurrence' }
   }
 
-  const assignmentId = deriveElectiveAssignmentId(runId, camperId, occurrenceId)
+  // Refusals are RETURNED, never thrown (the JSDoc above and the ADR both
+  // declare {ok:false, error:string} as the only failure shape). opaque()
+  // throws on a malformed id component, so this call has to be wrapped or a
+  // malformed camperId/occurrenceId rejects the IPC promise instead — the
+  // same wrapping commitElectiveRun.js gives its own opaque('run_id', …).
+  let assignmentId
+  try {
+    assignmentId = deriveElectiveAssignmentId(runId, camperId, occurrenceId)
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+
+  // PROVENANCE OF THE ROW BEING OVERWRITTEN.
+  //
+  // A move lands on an existing SOLVER row (that is the point of the derived
+  // id), so any field this write leaves alone keeps describing the PRE-MOVE
+  // activity. choice_id/preference_rank are exactly that, and
+  // getElectiveRunHandler returns preference_rank to every screen — so they
+  // must be re-derived here, the same way commitElectiveRun's commit path
+  // derives them: activity name -> electiveChoiceLabelKey -> the run's
+  // matching elective_choices row -> that camper's rank for it.
+  //
+  // elective_choices.label holds the RAW label, so BOTH sides are
+  // canonicalized before matching. Two choices in one run canonicalizing to
+  // one key are AMBIGUOUS, and mapWithCollisions (the repo's existing shape
+  // for exactly this, used by buildAttendance.js) makes an ambiguous key
+  // structurally ABSENT rather than bound to whichever row came last: an
+  // ambiguous match is no match — null choice, null rank — never a guessed
+  // one.
+  //
+  // The two fields are INDEPENDENT, exactly as they are on the commit path:
+  // choice_id names the choice the ACTIVITY belongs to (commitElectiveRun
+  // takes it from the solver's labelKey), preference_rank is the CAMPER's rank
+  // for it. So a manual placement into an activity this camper did not rank —
+  // ordinary, and it must not fail — keeps the matched choice and carries a
+  // null rank. Writing both null would give this handler's row a different
+  // shape from the solver's, which is the one thing this write path may not do.
+  const activityName = db.prepare('SELECT name FROM activities WHERE id = ?').get(activityId)?.name
+  const { map: choiceIdByKey } = mapWithCollisions(
+    db.prepare('SELECT id, label FROM elective_choices WHERE run_id = ?').all(runId),
+    (r) => electiveChoiceLabelKey(r.label),
+    (r) => r.id
+  )
+  const choiceId = activityName
+    ? choiceIdByKey.get(electiveChoiceLabelKey(activityName)) ?? null
+    : null
+  const preferenceRank = choiceId == null // PLANTED DEFECT BELOW — revert
+    ? null
+    : db
+      .prepare('SELECT rank FROM elective_preferences WHERE run_id = ? AND camper_id = ? AND choice_id = ? LIMIT 1')
+      .get(runId, camperId, choiceId)?.rank ?? null
 
   // Capacity, resolved by the ONE helper the engine's offering builder uses
   // (electiveOfferingCapacity.js). An 'unlimited' offering is never checked.
@@ -100,12 +151,19 @@ export function setElectiveAssignment(db, {
         occurrence_id: occurrenceId,
         camper_id: camperId,
         activity_id: activityId,
+        choice_id: choiceId,
+        preference_rank: preferenceRank,
         source: 'manual',
         is_locked: locked ? 1 : 0,
         // Set at THIS write, from the run's current marker, and never touched
-        // again by any other path (ADR decision (b) / Red Hat H3). A manual
-        // row survives regeneration by being exempt from the generation
-        // predicate, not by having its marker carried forward.
+        // again by any other path (ADR decision (b) / Red Hat H3). What that
+        // buys, exactly: the row stays VISIBLE across a regeneration by being
+        // exempt from the generation predicate, rather than by having its
+        // marker carried forward. It is NOT a claim that the row survives a
+        // regeneration intact — a regeneration that re-emits this (run,
+        // camper, occurrence) writes source:'solver' back over it, which is
+        // T246's scope (the ADR has commitElectiveRun pass locked rows in as
+        // lockedAssignments; not implemented yet).
         solver_generation: run.solver_generation,
       }
       for (const [field, value] of Object.entries(fields)) {

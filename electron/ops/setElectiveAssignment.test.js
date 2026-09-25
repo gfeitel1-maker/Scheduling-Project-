@@ -36,6 +36,7 @@ const PARSED = {
   preferences: [
     { camper_id: 'cam-1', label: 'Gaga', labelKey: 'gaga', rank: 1 },
     { camper_id: 'cam-2', label: 'Archery', labelKey: 'archery', rank: 1 },
+    { camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 2 },
   ],
   sameNameCampers: [],
   skippedRows: [],
@@ -57,7 +58,8 @@ function seedRun(db, campId, { capacityMode = 'limited', capacityLimit = 5 } = {
     parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCES,
   })
   expect(out.ok).toBe(true)
-  for (const activityId of ['act-archery', 'act-gaga']) {
+  for (const [activityId, name] of [['act-archery', 'Archery'], ['act-gaga', 'Gaga']]) {
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(activityId, campId, name)
     db.prepare(
       'INSERT INTO elective_set_activities (id, elective_set_id, activity_id, capacity_mode, capacity_limit, status) VALUES (?, ?, ?, ?, ?, ?)'
     ).run(randomUUID(), 'set-1', activityId, capacityMode, capacityLimit, 'confirmed')
@@ -107,8 +109,15 @@ describe('setElectiveAssignment', () => {
     db.close()
   })
 
-  // H3: a manual row survives regeneration by being EXEMPT from the generation
-  // predicate, never by having its marker carried forward.
+  // H3, stated at its true width: the row is EXEMPT FROM THE GENERATION
+  // PREDICATE, because its marker is stamped once at this write and never
+  // carried forward. That is a claim about VISIBILITY only. It is NOT a claim
+  // that a manual row survives regeneration intact — a regeneration that
+  // re-emits this (run, camper, occurrence) writes source:'solver' back over
+  // it, which is T246's scope (the ADR has commitElectiveRun pass locked rows
+  // in as lockedAssignments; that is not implemented yet). The regeneration
+  // below deliberately re-emits NO assignments, so it measures the predicate
+  // alone.
   it('keeps a manual row visible after the run is regenerated to a new marker', () => {
     const { db, campId } = freshDb()
     const runId = seedRun(db, campId)
@@ -161,6 +170,89 @@ describe('setElectiveAssignment', () => {
     const runId = seedRun(db, campId)
     db.prepare("UPDATE elective_assignment_runs SET status = 'final' WHERE id = ?").run(runId)
     expect(move(db, runId)).toEqual({ ok: false, error: 'RUN_NOT_DRAFT' })
+    db.close()
+  })
+
+  // FIX 1 (round 2). A move overwrites an existing SOLVER row, so any field the
+  // move does not write keeps describing the PRE-MOVE activity. choice_id and
+  // preference_rank are exactly that: left alone, the row says "archery, the
+  // camper's 1st choice" while activity_id says gaga.
+  it('re-derives preference_rank and choice_id for the activity moved TO', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId)
+    // cam-1's solver row is gaga (their rank 1). Move to archery, their rank 2.
+    const out = move(db, runId)
+    expect(out.ok).toBe(true)
+
+    const row = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(out.assignmentId)
+    const archery = db.prepare("SELECT id FROM elective_choices WHERE run_id = ? AND label = 'Archery'").get(runId)
+    expect(row.activity_id).toBe('act-archery')
+    expect(row.preference_rank).toBe(2)
+    expect(row.choice_id).toBe(archery.id)
+    db.close()
+  })
+
+  // SOLVER PARITY on the row shape: choice_id names the choice the ACTIVITY
+  // belongs to (commitElectiveRun takes it from the solver's labelKey), and
+  // preference_rank is the CAMPER's rank. They are independent, so an unranked
+  // manual placement keeps the choice and carries a null rank — writing both
+  // null would make this handler's row a different shape from the solver's.
+  it('keeps the matched choice with a null rank when the camper did not rank the activity moved to', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId)
+    // cam-2 ranked Archery only, and their solver row records exactly that.
+    const before = db
+      .prepare('SELECT * FROM elective_assignments WHERE id = ?')
+      .get(deriveElectiveAssignmentId(runId, 'cam-2', 'occ-1'))
+    expect(before.preference_rank).toBe(1)
+    expect(before.choice_id).not.toBe(null)
+
+    const out = move(db, runId, { camperId: 'cam-2', activityId: 'act-gaga' })
+    expect(out.ok).toBe(true)
+
+    const row = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(out.assignmentId)
+    const gaga = db.prepare("SELECT id FROM elective_choices WHERE run_id = ? AND label = 'Gaga'").get(runId)
+    expect(row.activity_id).toBe('act-gaga')
+    expect(row.preference_rank).toBe(null)
+    expect(row.choice_id).toBe(gaga.id)
+    db.close()
+  })
+
+  // Collision discipline: two choices in one run canonicalizing to one key are
+  // AMBIGUOUS, and an ambiguous match is no match — never a guessed one.
+  it('treats a canonically ambiguous choice label as no match rather than guessing', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId)
+    // 'Arch ery' keys the same as 'Archery' (whitespace is deleted, not
+    // collapsed), so the run now holds two choices under one key.
+    db.prepare('INSERT INTO elective_choices (id, run_id, label, is_linked) VALUES (?, ?, ?, 0)')
+      .run(randomUUID(), runId, 'Arch ery')
+
+    const out = move(db, runId)
+    expect(out.ok).toBe(true)
+    const row = db.prepare('SELECT * FROM elective_assignments WHERE id = ?').get(out.assignmentId)
+    expect(row.choice_id).toBe(null)
+    expect(row.preference_rank).toBe(null)
+    db.close()
+  })
+
+  // FIX 2 (round 2). deriveElectiveAssignmentId's opaque() guard throws on a
+  // malformed component. The declared failure shape is {ok:false, error:string}
+  // — a rejected IPC promise is a different contract, and every caller that
+  // reads result.error would see undefined instead.
+  it('returns a refusal, not a throw, for a malformed id component', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId)
+    // A participant row for a camper id carrying a space, so the handler
+    // reaches the derivation rather than refusing earlier.
+    const camperId = 'cam 1'
+    db.prepare('INSERT INTO elective_preferences (id, run_id, camper_id, choice_id, rank) VALUES (?, ?, ?, ?, ?)')
+      .run(randomUUID(), runId, camperId, null, 1)
+
+    let out
+    expect(() => { out = move(db, runId, { camperId }) }).not.toThrow()
+    expect(out.ok).toBe(false)
+    expect(out.error).toMatch(/opaque id/)
     db.close()
   })
 

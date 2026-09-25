@@ -41,6 +41,7 @@ import { run as scenario18 } from './scenarios/18-restore-queue.automerge.js'
 import { run as scenario30 } from './scenarios/30-who-did-that.automerge.js'
 import { run as scenario31 } from './scenarios/31-derived-id-convergence.automerge.js'
 import { run as scenario32 } from './scenarios/32-participant-substrate-sync.automerge.js'
+import { run as scenario33 } from './scenarios/33-move-convergence.automerge.js'
 
 // Scenario 08 (concurrent-create data loss) and scenario 28 (two directors
 // disagree about one slot) are both FIXED and both pass consistently, having
@@ -84,6 +85,10 @@ const SCENARIOS = [
   // randomUUID, which turns it red with "got 2".
   { name: '31 a derived id collapses two devices\' duplicate assignment (libp2p)', fn: scenario31 },
   { name: '32 the participant substrate joins and rebuilds (libp2p)', fn: scenario32 },
+  // T245. 31 covers the derived id through client.write(); 33 covers the
+  // MOVE/LOCK HANDLER a director's drag actually reaches, which derives its own
+  // id and writes through appendOp.
+  { name: '33 two devices move one camper and converge on one row (libp2p)', fn: scenario33 },
 ]
 
 // COVERAGE, so the count above is readable without arithmetic:
