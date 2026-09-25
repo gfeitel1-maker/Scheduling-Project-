@@ -882,7 +882,26 @@ describe('buildElectiveAssignments — 100-camper repeat distribution (Q3 revisi
       `    campers shut out of at least one activity they ranked: ${summary.campersShutOutAtLeastOnce} of ${summary.totalCampers}`,
       '',
     ]
-    console.log(lines.join('\n'))
+    // WRITTEN STRAIGHT TO STDOUT, NOT console.log — this is load-bearing.
+    //
+    // vitest intercepts `console.log` and hands it to the reporter, which drops
+    // it entirely when stdout is not a TTY. Measured in this repo with a
+    // throwaway test: redirect a run to a file and a `console.log` marker is
+    // absent from the log while a `process.stdout.write` marker is present. So
+    // the table below appeared on an interactive terminal and was invisible in
+    // CI, in a redirected run, and in any captured `npm run verify` output —
+    // which is every way a reader other than the test's author would meet it.
+    //
+    // This is the Q3 REVISIT TRIGGER, not debug logging. Owner ruling Q3
+    // accepted per-occurrence repeat scoring on the condition that the real
+    // distribution be observable; a figure that only renders on one developer's
+    // screen makes the ruling permanent by omission, which is exactly the
+    // failure the ticket warns about. It must survive a captured run.
+    //
+    // Deliberately NOT guarded by a stdout spy — a test asserting its own
+    // stdout is self-referential and would pass on a spy while the real stream
+    // stayed empty. This comment is the guard.
+    process.stdout.write(lines.join('\n') + '\n')
 
     // Non-vacuous: the fixture must genuinely produce repeats, or it is not
     // exercising the behaviour the owner ruled on.
