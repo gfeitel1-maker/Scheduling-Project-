@@ -1,7 +1,7 @@
 ---
 title: T247-linked-choice-flow-network
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: buildElectiveAssignments places linked-choice campers via the tier-1 choice-level bipartite pass (reusing minCostAssign unmodified) with tier-2 running against the reduced capacity, single-member choices are unaffected, UNSUPPORTED_LINKED_CHOICE fires on the two D12 malformed cases plus the new same-run occurrence-overlap case, the 2-camper worked example from the ADR passes as a test, and the 100-camper fixture REPORTS a per-camper repeat distribution (the Q3 revisit trigger)
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -60,6 +60,20 @@ decision (c) for the full derivation and the worked example this ticket's test m
   produce `UNSUPPORTED_LINKED_CHOICE`, not a silently wrong placement.
 - **Locked-seat interaction: owned by T246, not this ticket.** Consume whatever capacity contract
   T246's header comment documents; do not re-decide it here.
+- **Disclosed deviation, not in the original `archive_when` (recorded 2026-09-25).** The
+  `NO_CAMPERS` guard now tests the ELIGIBILITY set rather than the post-pre-placement free set.
+  Forced: a period tier 1 has filled entirely would otherwise report "no camper is eligible for this
+  period". It also repairs a pre-existing locks-only instance of the same bug (every eligible camper
+  holding a locked seat produced the same untrue finding before this ticket). T231's diagnostic is
+  unweakened — a malformed attendance map still reports `NO_CAMPERS`, with or without locks.
+- **Locked seats and linked choices interact, and case (b) covers it (added 2026-09-25 after
+  round-2 review).** A camper already holding a pre-placement in one of a choice's member periods is
+  structurally ineligible for that member, so they are excluded from that choice's tier-1 column and
+  `UNSUPPORTED_LINKED_CHOICE` says a seat set by hand is why. Without this the engine emitted two
+  rows for one (camper, occurrence) and `deriveElectiveAssignmentId` — keyed on (run, camper,
+  occurrence), activity deliberately excluded — collapsed both onto one id and dropped both, leaving
+  the camper attending half a linked choice on a consumed seat with no finding. The lock stands and
+  wins; T246's contract is consumed, not re-decided.
 
 ## Non-goals
 
