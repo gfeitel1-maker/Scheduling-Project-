@@ -200,7 +200,7 @@ describe('deriving the verifier report from a gate results file', () => {
 // CLI. No reviewer ever saw a line of the diff. Before this change the reducer had no way to see
 // that and returned a clean PASS_ELIGIBLE.
 describe('opinion report dispatch provenance (T171)', () => {
-  it('THE ACCEPTANCE SCENARIO: a hand-fabricated opinion report with an invented score is refused, not passed through as PASS_ELIGIBLE', () => {
+  it('THE ACCEPTANCE SCENARIO: a hand-fabricated opinion report with an invented score is refused by throwing, and no GateReport file is written', () => {
     const fabricated = {
       taskId: 'T-FAB', round: 1, expectedOpinionGates: ['security', 'red_hat', 'tester', 'code_reviewer'],
       // sessionTranscript deliberately omitted — the fabricator never dispatched anyone at all,
@@ -208,12 +208,9 @@ describe('opinion report dispatch provenance (T171)', () => {
       reports: [verifier, opinion('security', 4), opinion('red_hat', 4), opinion('tester', 4), opinion('code_reviewer', 4)],
     }
     const inputPath = writeInput('fabricated.json', fabricated)
-    const result = runGateReportCli(inputPath, { runsDir: scratch })
 
-    expect(result.decision_eligibility).toBe('BLOCK')
-    expect(result.malformed.length).toBeGreaterThan(0)
-    expect(result.malformed.some((m) => m.gate_name === 'code_reviewer')).toBe(true)
-    expect(result.malformed.some((m) => m.gate_name === 'security')).toBe(true)
+    expect(() => runGateReportCli(inputPath, { runsDir: scratch })).toThrow(/security|red_hat|tester|code_reviewer/)
+    expect(existsSync(join(scratch, 'gate-reports', 'T-FAB-r1.json'))).toBe(false)
   })
 
   it('a genuinely dispatched-and-completed opinion report is bound and counts normally', () => {
@@ -223,7 +220,7 @@ describe('opinion report dispatch provenance (T171)', () => {
     expect(result.malformed).toEqual([])
   })
 
-  it('a report from a gate that was dispatched but never reached a completed status is refused', () => {
+  it('a report from a gate that was dispatched but never reached a completed status is refused by throwing, and no GateReport file is written', () => {
     const transcript = writeTranscript('pending.jsonl', [
       dispatchLine('toolu_sec', 'security'),
       launchAckLine('toolu_sec', 'agent-sec'),
@@ -233,11 +230,9 @@ describe('opinion report dispatch provenance (T171)', () => {
       dispatchLine('toolu_cr', 'code-reviewer'), launchAckLine('toolu_cr', 'agent-cr'), terminalLine('agent-cr', 'completed'),
     ].join('\n'))
     const inputPath = writeInput('partial.json', { ...validInput, sessionTranscript: transcript })
-    const result = runGateReportCli(inputPath, { runsDir: scratch })
 
-    expect(result.decision_eligibility).toBe('BLOCK')
-    expect(result.malformed.some((m) => m.gate_name === 'security')).toBe(true)
-    expect(result.malformed.some((m) => m.gate_name === 'code_reviewer')).toBe(false)
+    expect(() => runGateReportCli(inputPath, { runsDir: scratch })).toThrow(/security/)
+    expect(existsSync(join(scratch, 'gate-reports', `${validInput.taskId}-r${validInput.round}.json`))).toBe(false)
   })
 
   it('a report claiming a gate that was dispatched for a DIFFERENT role is refused (wrong-type dispatch does not launder a claim)', () => {

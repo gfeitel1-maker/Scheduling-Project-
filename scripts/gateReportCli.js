@@ -110,6 +110,14 @@ export function runGateReportCli(inputPath, { runsDir }) {
       throw new CliUsageError(`cannot read sessionTranscript file: ${input.sessionTranscript} (${e.message})`)
     }
   }
+  // A report that fails provenance binding cannot be turned into a GateReport at all — not even
+  // a BLOCK one. Substituting a sentinel and writing it (the pre-fix behavior) produces a
+  // plausible-looking artifact recording a verdict about inputs the tool never actually saw.
+  // That is worse than no file: a reader (or a committed run record) mistakes fabricated content
+  // for a real "failed the gates" result. So an unbound opinion report throws before any write,
+  // naming every unbound gate and why — a CLI-usage-shaped failure (the caller didn't supply
+  // provable evidence), not a gate verdict, hence CliUsageError.
+  const unbound = []
   reports = reports.map((report) => {
     const gateName = report?.gate_name
     if (!OPINION_GATE_NAMES.includes(gateName)) return report
@@ -117,25 +125,19 @@ export function runGateReportCli(inputPath, { runsDir }) {
     const provenance = checkOpinionProvenance({ text: transcriptText, gateName })
     if (provenance.bound) return report
 
-    // Left unbound. Do not touch the reducer's malformed detection to enforce this — instead
-    // shape the report so validatePerGateReport (unchanged) rejects it on its own: an
-    // unrecognised verdict is exactly the reducer's existing "something is wrong with this
-    // report, force BLOCK" channel (already used for a report from an unexpected gate, §5.1).
-    // The sentinel verdict string doubles as the diagnostic that lands in the GateReport's
-    // top-level `malformed` array, so the reason is visible without any extra plumbing.
     const reason = input.sessionTranscript === undefined
       ? `no sessionTranscript was supplied — cannot verify a ${SUBAGENT_TYPE_BY_GATE[gateName]} dispatch produced this report`
       : provenance.reason
     console.error(`${gateName} report is UNBOUND — ${reason}`)
-    return {
-      gate_name: gateName,
-      verdict: 'UNBOUND_NO_DISPATCH_EVIDENCE',
-      score: null,
-      na_reason: null,
-      findings: [],
-      evidence_ref: input.sessionTranscript ?? null,
-    }
+    unbound.push(`${gateName}: ${reason}`)
+    return report
   })
+  if (unbound.length > 0) {
+    throw new CliUsageError(
+      `cannot produce a GateReport — provenance for ${unbound.length} opinion report(s) could not be ` +
+      `established, so no verdict can be written:\n${unbound.join('\n')}`,
+    )
+  }
 
   const gateReport = reduceGateReport({
     taskId: input.taskId,
