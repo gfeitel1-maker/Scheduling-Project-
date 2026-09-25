@@ -163,7 +163,24 @@ sessions would be orphaned — from a fresh clone, never from a worktree (shared
 - Ship the guard? (recommended, independent of everything else)
 - Rewrite history, or record the rewrite as declined on this evidence?
 - Go public for free CI, or pay the ~$19/month and stay private?
-- **Provenance question:** `docs/work/specs/samples/campA-bunk-schedules.txt` is **still at `HEAD`**
-  and is a real-looking camp schedule ("Adom 4's — Matzo Balls Schedule"). `campB` was the confirmed
-  real camp and `campC` is labelled synthetic. Is `campA` real? If so it is the one piece of
-  real-camp material still shipping at the tip, and that is worth knowing before any flip.
+- ~~**Provenance question:** is `campA-bunk-schedules.txt` real?~~ **RESOLVED 2026-09-25 — the owner
+  confirms campA is NOT a real camp.** Independently corroborated: PR #285's own description records
+  that the campA/campB samples were "replaced with a fabricated, length-preserving mapping." So
+  **no real-camp material ships at the tip.**
+
+### GitHub metadata — the surface the history sweep did not cover, now measured
+
+Going public also publishes PR descriptions, review comments and Actions logs, which live in GitHub's
+metadata rather than in git objects. Scanned all **542 PRs** (titles + bodies, 1.32 MB): **0 emails,
+0 phone numbers**, and exactly **three** hits — the camp name twice in **PR #285** and the home path
+once in **PR #248**, which are the scrub PRs *describing the removal*.
+
+PR bodies are **editable in place**, so this is three edits rather than anything structural. Not done
+unilaterally — it is a change to published descriptions and is the owner's call. Actions logs were
+not scanned (they expire on their own retention schedule).
+
+### Next action
+
+[T263](T263-privacy-guard-before-public.md) builds the forward-looking guard, which is the
+precondition for going public. The rewrite remains an open owner decision, and the evidence above
+argues against it.

@@ -42,6 +42,7 @@ Regenerate with `npm run index:work`.
 | [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) · [T260-name-key-acquisition-failure](../../docs/work/tickets/T260-name-key-acquisition-failure.md) |
 | [Update-on-open: keep a device current before it is allowed to sync](../../docs/work/tickets/T222-update-on-open.md) | open | [2026-09-18-mixed-version-replication-out-of-scope](../../docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md) |
 | [Name the at-rest key-acquisition failure at the openLocalDb seam](../../docs/work/tickets/T260-name-key-acquisition-failure.md) | in-progress | — |
+| [Privacy guard: fail the gate on home paths, camp identity and PII entering tracked files](../../docs/work/tickets/T263-privacy-guard-before-public.md) | open | — |
 
 ### test-infrastructure
 
