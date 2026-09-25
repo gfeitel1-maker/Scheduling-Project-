@@ -15,13 +15,35 @@
 # be the only thing forcing a macOS runner.
 name: gate
 
+# ONLY on pull requests, plus one scheduled run a day on main (T261).
+#
+# There is deliberately NO `push: branches: [main]` trigger. Measured over 100 runs (2026-09-22 ->
+# 2026-09-25): 44 of them were push-to-main, and at least 27 re-verified a tree that had ALREADY
+# gone green on a PR run minutes earlier. Merges here are rebased on main before merging, so a
+# squash merge produces the same tree as the verified PR head -- main commit 8bfa5a84 and PR head
+# 97f2338b both have tree d1703b4175. That was 46% of the bill spent re-running an 11-minute gate
+# on a byte-identical checkout, against a 2,000 min/month Free-plan allowance.
+#
+# The daily run is what makes that safe, and it is not merely a fallback for the rare merge that
+# is not a clean rebase. It is the RIGHT instrument for drift in external truth: `npm audit` reads
+# a live vulnerability database, so main can go red with no commit in between. A merge-triggered
+# run only caught that incidentally, when someone happened to merge.
+#
+# The cost, stated plainly: a bad DIRECT push to main is now visible within 24 hours rather than
+# ~11 minutes. This repository has no branch protection (Free plan), so that is a discipline
+# boundary either way, and direct pushes to main are not the practice here.
 on:
   pull_request:
-  push:
-    branches: [main]
+  schedule:
+    # 09:15 UTC daily. Off the hour on purpose -- the top of the hour is when GitHub's scheduled-run
+    # queue is most congested and starts get delayed.
+    - cron: '15 9 * * *'
+  # So a suspected-stale main can be re-gated on demand without waiting for the schedule.
+  workflow_dispatch:
 
 # A PR that gets three pushes should not run three full gates. Cancel superseded runs on the same
-# ref — except on main, where every commit's result is worth keeping.
+# ref — except on main, whose only runs are now the daily scheduled one and workflow_dispatch, and
+# neither should cancel the other.
 concurrency:
   group: gate-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -57,10 +79,45 @@ jobs:
       - name: Install zsh (required by the gate's shell tooling)
         run: sudo apt-get update && sudo apt-get install -y zsh
 
+      # Restore node_modules wholesale, keyed on the LOCKFILE, not on anything read from the
+      # working environment -- the key is derived from committed state, so a restored tree can only
+      # ever be the one this commit's lockfile describes.
+      #
+      # Worth 117s of a 660s run. better-sqlite3 is the only native dependency and its compiled
+      # output lives inside node_modules, so the cache captures the native build too.
+      #
+      # NO `restore-keys`, deliberately: an EXACT hit or nothing. A partial match would restore some
+      # other lockfile's node_modules and then skip the install, which is the one failure mode worth
+      # engineering against -- a green gate describing a dependency tree the commit does not declare.
+      # On a miss, `npm ci` below runs as it always did, and setup-node's npm cache above still makes
+      # that miss cheaper.
+      #
+      # WHEN THIS ACTUALLY PAYS OFF, because the scoping rule is not obvious. A cache written on a
+      # branch is readable from that branch and from the DEFAULT branch's caches -- never from a
+      # SIBLING branch. So two things follow, and they are different:
+      #   - A branch's SECOND and later runs read the cache its own first run wrote. A PR that gets
+      #     several pushes pays `npm ci` once, not once per push. (Observed on this very change:
+      #     run 1 missed and installed, run 2 hit and skipped Install.)
+      #   - A cache written by one PR does nothing for a DIFFERENT PR. The entry a PR's FIRST run
+      #     reads is one written by a run on `main`, which since T261 is the daily scheduled run.
+      # So a brand-new branch misses until `main` has run once (schedule, or a workflow_dispatch to
+      # prime it), and any PR that changes the lockfile misses. Both are correct, and on a miss
+      # `npm ci` runs exactly as before -- never a silent fallback.
+      - name: Restore node_modules
+        id: modules-cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node_modules-${{ runner.os }}-${{ hashFiles('.nvmrc', 'package-lock.json') }}
+
       # `npm ci` installs exactly the lockfile. better-sqlite3 is the only native dependency; it
       # builds from source here if no prebuild matches, which is why the toolchain matters and why
       # the setup-node cache above is worth having.
+      #
+      # Skipped only on an exact cache hit, where node_modules is already byte-for-byte what this
+      # lockfile installs.
       - name: Install
+        if: steps.modules-cache.outputs.cache-hit != 'true'
         run: npm ci
 
       # The whole gate, in its real order: agents:check, check:governance, security,
