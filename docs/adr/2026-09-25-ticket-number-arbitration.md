@@ -1,11 +1,11 @@
 ---
 title: "ADR: Ticket-number arbitration across unpushed worktrees — aggregate, don't claim closed"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: implemented
 date: 2026-09-25
-decided: null
+decided: 2026-09-25
 deciders: [product-owner]
 task_class: documentation-governance
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/GOVERNANCE_INDEX.md]
