@@ -1,7 +1,7 @@
 ---
 title: T247-linked-choice-flow-network
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: buildElectiveAssignments places linked-choice campers via the tier-1 choice-level bipartite pass (reusing minCostAssign unmodified) with tier-2 running against the reduced capacity, single-member choices are unaffected, UNSUPPORTED_LINKED_CHOICE fires on the two D12 malformed cases plus the new same-run occurrence-overlap case, the 2-camper worked example from the ADR passes as a test, and the 100-camper fixture REPORTS a per-camper repeat distribution (the Q3 revisit trigger)
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
