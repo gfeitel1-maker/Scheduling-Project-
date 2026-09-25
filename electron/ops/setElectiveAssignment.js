@@ -115,7 +115,7 @@ export function setElectiveAssignment(db, {
   const choiceId = activityName
     ? choiceIdByKey.get(electiveChoiceLabelKey(activityName)) ?? null
     : null
-  const preferenceRank = choiceId == null // PLANTED DEFECT BELOW — revert
+  const preferenceRank = choiceId == null
     ? null
     : db
       .prepare('SELECT rank FROM elective_preferences WHERE run_id = ? AND camper_id = ? AND choice_id = ? LIMIT 1')
