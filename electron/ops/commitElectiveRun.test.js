@@ -8,6 +8,8 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { commitElectiveRun } from './commitElectiveRun.js'
+import { setElectiveAssignment } from './setElectiveAssignment.js'
+import { deriveElectiveAssignmentId } from './electiveDerivedIds.js'
 import {
   electiveGenerationVisibleFragment,
   electiveGenerationStaleSolverFragment,
@@ -432,5 +434,96 @@ describe('commitElectiveRun', () => {
     expect(out.ok).toBe(true)
     const run = db.prepare('SELECT status FROM elective_assignment_runs WHERE id = ?').get(runId)
     expect(run.status).toBe('draft')
+  })
+
+  // ---- T246: a locked row survives a regeneration, and a manual row pointing
+  // at a deleted occurrence is reported rather than silently kept.
+  //
+  // `seedForLock` gives the move path what it validates against: the set, the
+  // activities, and a confirmed unlimited offering for each.
+  function seedForLock(db, campId) {
+    db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run('set-1', campId, 'Electives')
+    for (const [activityId, name] of [['act-archery', 'Archery'], ['act-gaga', 'Gaga']]) {
+      db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(activityId, campId, name)
+      db.prepare(
+        'INSERT INTO elective_set_activities (id, elective_set_id, activity_id, capacity_mode, status) VALUES (?, ?, ?, ?, ?)'
+      ).run(randomUUID(), 'set-1', activityId, 'unlimited', 'confirmed')
+    }
+  }
+
+  it('leaves a locked row untouched when the same run is regenerated', () => {
+    const { db, campId } = freshDb()
+    seedForLock(db, campId)
+    const runId = randomUUID()
+    const commit = (assignments) => commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1 electives', runId,
+      parsed: PARSED, assignments, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(commit(ASSIGNMENTS).ok).toBe(true)
+
+    // The director moves cam-1 to Gaga and locks it.
+    const moved = setElectiveAssignment(db, {
+      runId, camperId: 'cam-1', occurrenceId: 'occ-1', activityId: 'act-gaga',
+      locked: true, deviceId: 'dev-1',
+    })
+    expect(moved.ok).toBe(true)
+    const lockedId = deriveElectiveAssignmentId(runId, 'cam-1', 'occ-1')
+    const read = () => db.prepare('SELECT source, is_locked, activity_id, solver_generation FROM elective_assignments WHERE id = ?').get(lockedId)
+    const before = read()
+    expect(before).toMatchObject({ source: 'manual', is_locked: 1, activity_id: 'act-gaga' })
+
+    // Regeneration against the SAME runId, whose solver output puts cam-1 back
+    // in Archery. The locked row must not be written at all.
+    expect(commit(ASSIGNMENTS).ok).toBe(true)
+    expect(read()).toEqual(before)
+    // ...and the unlocked row WAS rewritten by this regeneration, so the test
+    // is not passing because the commit did nothing.
+    const other = db.prepare('SELECT source, solver_generation FROM elective_assignments WHERE id = ?')
+      .get(deriveElectiveAssignmentId(runId, 'cam-2', 'occ-1'))
+    expect(other.source).toBe('solver')
+    expect(other.solver_generation).not.toBe(before.solver_generation)
+  })
+
+  it('reports a manual row whose occurrence no longer exists as DANGLING_MANUAL_ASSIGNMENT', () => {
+    const { db, campId } = freshDb()
+    seedForLock(db, campId)
+    const runId = randomUUID()
+    const GONE = [
+      ...OCCURRENCE_FIXTURE,
+      { id: 'occ-2', elective_set_id: 'set-1', day_id: 'day-2', time_block_id: 'tb-1', tier_id: 'tier-1' },
+    ]
+    const first = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1 electives', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: GONE,
+    })
+    expect(first.ok).toBe(true)
+    expect(first.findings).toEqual([])
+
+    // The director locks cam-1 into occ-2, then occ-2 is dropped from the
+    // template — the regeneration below no longer derives it.
+    const moved = setElectiveAssignment(db, {
+      runId, camperId: 'cam-1', occurrenceId: 'occ-2', activityId: 'act-gaga',
+      locked: true, deviceId: 'dev-1',
+    })
+    expect(moved.ok).toBe(true)
+
+    const again = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1 electives', runId,
+      parsed: PARSED, assignments: ASSIGNMENTS, occurrences: OCCURRENCE_FIXTURE,
+    })
+    expect(again.ok).toBe(true)
+    expect(again.findings).toEqual([
+      expect.objectContaining({
+        kind: 'DANGLING_MANUAL_ASSIGNMENT',
+        assignment_id: deriveElectiveAssignmentId(runId, 'cam-1', 'occ-2'),
+        camper_id: 'cam-1',
+        occurrence_id: 'occ-2',
+      }),
+    ])
+    // The rest of the commit went through around it.
+    expect(again.counts.assignments).toBe(ASSIGNMENTS.length)
+    const survivor = db.prepare('SELECT source FROM elective_assignments WHERE id = ?')
+      .get(deriveElectiveAssignmentId(runId, 'cam-2', 'occ-1'))
+    expect(survivor.source).toBe('solver')
   })
 })

@@ -159,11 +159,13 @@ export function setElectiveAssignment(db, {
         // again by any other path (ADR decision (b) / Red Hat H3). What that
         // buys, exactly: the row stays VISIBLE across a regeneration by being
         // exempt from the generation predicate, rather than by having its
-        // marker carried forward. It is NOT a claim that the row survives a
-        // regeneration intact — a regeneration that re-emits this (run,
-        // camper, occurrence) writes source:'solver' back over it, which is
-        // T246's scope (the ADR has commitElectiveRun pass locked rows in as
-        // lockedAssignments; not implemented yet).
+        // marker carried forward. As of T246 the row also SURVIVES a
+        // regeneration on a device that has already merged the lock:
+        // commitElectiveRun reads `is_locked = 1` before its transaction and
+        // skips writing those derived ids entirely, so source/activity_id/
+        // solver_generation are all left alone. A lock this device has NOT yet
+        // merged is still overwritten with source:'solver' — pre-existing, and
+        // T264's scope, not this write path's.
         solver_generation: run.solver_generation,
       }
       for (const [field, value] of Object.entries(fields)) {

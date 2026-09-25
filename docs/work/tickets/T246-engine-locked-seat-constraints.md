@@ -1,7 +1,7 @@
 ---
 title: T246-engine-locked-seat-constraints
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: buildElectiveAssignments accepts lockedAssignments, pre-consumes their capacity, never re-decides a locked seat, this ticket owns and documents the locked-seat-inside-a-linked-choice interaction, no code in this ticket re-stamps a locked row's solver_generation (that mechanism was removed after Red Hat H3), and a manual row whose occurrence_id no longer exists is reported as DANGLING_MANUAL_ASSIGNMENT during ordinary draft regeneration
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]

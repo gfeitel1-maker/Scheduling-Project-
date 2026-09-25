@@ -174,6 +174,184 @@ describe('buildElectiveAssignments', () => {
     )
   })
 
+  // ---- T246: locked seats survive regeneration and pre-consume capacity.
+  //
+  // `lockedAssignments` is camelCase while the rest of the engine's inputs are
+  // snake_case; that is the ticket's chosen shape (T246 Scope), pinned here so
+  // nobody "normalizes" it away.
+  const locked = (camperId, occurrenceId, activityId) => ({ camperId, occurrenceId, activityId })
+
+  it('never re-decides a locked seat, whatever the preferences and offering order say', () => {
+    const solve = (preferences, offerings) =>
+      buildElectiveAssignments({
+        campers: [{ id: 'c1' }],
+        occurrences: [occ('o1')],
+        offerings,
+        preferences,
+        lockedAssignments: [locked('c1', 'o1', 'a-arch')],
+      })
+    const a = solve(
+      [pref('c1', 'gaga', 1), pref('c1', 'archery', 2)],
+      [offering('o1', 'archery', 'a-arch'), offering('o1', 'gaga', 'a-gaga')]
+    )
+    const b = solve(
+      [pref('c1', 'gaga', 1)],
+      [offering('o1', 'gaga', 'a-gaga'), offering('o1', 'archery', 'a-arch')]
+    )
+    expect(a.assignments.map((x) => [x.camper_id, x.activity_id, x.source, x.locked]))
+      .toEqual([['c1', 'a-arch', 'manual', true]])
+    // Compared on the decision, not on preference_rank — the two solves were
+    // handed different preference inputs, which is the point.
+    expect(b.assignments.map((x) => [x.camper_id, x.activity_id, x.source, x.locked]))
+      .toEqual([['c1', 'a-arch', 'manual', true]])
+  })
+
+  it('makes a locked seat\u2019s capacity unavailable to another camper in the same solve', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
+      occurrences: [occ('o1')],
+      // Archery holds 2. c1's locked seat takes one, so only ONE of c2/c3 can
+      // have it — without the subtraction all three would be seated there.
+      offerings: [offering('o1', 'archery', 'a-arch', 2), offering('o1', 'gaga', 'a-gaga', 5)],
+      preferences: [
+        pref('c2', 'archery', 1), pref('c2', 'gaga', 2),
+        pref('c3', 'archery', 1), pref('c3', 'gaga', 2),
+      ],
+      lockedAssignments: [locked('c1', 'o1', 'a-arch')],
+    })
+    expect(out.assignments.filter((a) => a.activity_id === 'a-arch').length).toBe(2)
+    // And the locked camper is one of them, never re-decided into Gaga.
+    expect(out.assignments.find((a) => a.camper_id === 'c1').activity_id).toBe('a-arch')
+  })
+
+  // The locked-seat / linked-choice contract this ticket owns (T246 Scope).
+  // T247's tier-1 bipartite solve must consume this function's
+  // lockedAssignments-ADJUSTED remaining capacity, where a linked choice's
+  // capacity is min() over its member occurrences. Expressed here as the
+  // engine-level property that contract rests on, on observable output: a
+  // locked seat in ONE member occurrence lowers that member's remaining
+  // capacity, hence the min() across a two-member linked choice, hence what
+  // tier 1 could place into the choice as a whole.
+  it('reduces a two-member linked choice\u2019s min() capacity by a locked seat in one member', () => {
+    // o1 and o2 are the two member occurrences of a linked choice; each offers
+    // Archery at capacity 2, so min() over the members is 2 before any lock.
+    // c1 prefers Gaga, so the ONLY thing c1's lock changes is o1's Archery
+    // capacity — not who wanted what.
+    const input = {
+      campers: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
+      occurrences: [occ('o1'), occ('o2')],
+      offerings: [
+        offering('o1', 'archery', 'a-arch', 2), offering('o1', 'gaga', 'a-gaga', 5),
+        offering('o2', 'archery', 'a-arch', 2), offering('o2', 'gaga', 'a-gaga', 5),
+      ],
+      preferences: [
+        pref('c1', 'gaga', 1),
+        pref('c2', 'archery', 1), pref('c2', 'gaga', 2),
+        pref('c3', 'archery', 1), pref('c3', 'gaga', 2),
+      ],
+    }
+    const freeCampersInBothMembers = (out) =>
+      ['c2', 'c3'].filter((id) =>
+        out.assignments.filter((a) => a.camper_id === id && a.activity_id === 'a-arch').length === 2
+      )
+
+    // Unlocked: min() is 2, and two free campers hold Archery in both members.
+    expect(freeCampersInBothMembers(buildElectiveAssignments(input))).toEqual(['c2', 'c3'])
+
+    // One locked seat in o1 only. o1's Archery remaining drops to 1 while o2's
+    // stays 2, so min() across the linked choice is 1 — exactly one free camper
+    // can hold Archery in BOTH members, which is what a tier-1 linked-choice
+    // solve reading this adjusted capacity would be able to place.
+    const after = buildElectiveAssignments({
+      ...input,
+      lockedAssignments: [locked('c1', 'o1', 'a-arch')],
+    })
+    expect(freeCampersInBothMembers(after).length).toBe(1)
+    // The locked seat still occupies o1's Archery: 1 locked + 1 free = 2.
+    expect(after.assignments.filter((a) => a.occurrence_id === 'o1' && a.activity_id === 'a-arch').length).toBe(2)
+  })
+
+  it('produces identical output however lockedAssignments is ordered', () => {
+    const base = {
+      campers: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
+      occurrences: [occ('o1'), occ('o2')],
+      offerings: [
+        offering('o1', 'archery', 'a-arch', 2), offering('o1', 'gaga', 'a-gaga', 2),
+        offering('o2', 'archery', 'a-arch', 2), offering('o2', 'gaga', 'a-gaga', 2),
+      ],
+      preferences: [pref('c1', 'archery', 1), pref('c2', 'gaga', 1), pref('c3', 'archery', 1)],
+    }
+    const set = [
+      locked('c2', 'o1', 'a-arch'),
+      locked('c1', 'o2', 'a-gaga'),
+      locked('c3', 'o1', 'a-gaga'),
+    ]
+    const first = buildElectiveAssignments({ ...base, lockedAssignments: set })
+    expect(first.assignments.filter((a) => a.locked).length).toBe(3)
+    const shuffled = buildElectiveAssignments({ ...base, lockedAssignments: [set[2], set[0], set[1]] })
+    const reversed = buildElectiveAssignments({ ...base, lockedAssignments: [...set].reverse() })
+    expect(shuffled).toEqual(first)
+    expect(reversed).toEqual(first)
+  })
+
+  it('ignores a locked row naming an unknown occurrence or a non-offered activity', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1')],
+      offerings: [offering('o1', 'archery', 'a-arch', 1)],
+      preferences: [pref('c1', 'archery', 1)],
+      lockedAssignments: [locked('c9', 'o-gone', 'a-arch')],
+    })
+    expect(out.assignments.map((a) => [a.camper_id, a.activity_id])).toEqual([['c1', 'a-arch']])
+  })
+
+  // Both early-exit guards below `continue`, so a locked seat is only emitted
+  // if the emission runs ABOVE them. These two pin that, and the second is a
+  // regression guard for T231's NO_CAMPERS diagnostic, which must keep firing
+  // on a malformed attendance map even when one locked seat exists.
+  it('emits a locked seat in an occurrence with no offerings, and still reports NO_OFFERINGS', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1')],
+      offerings: [],
+      preferences: [pref('c1', 'archery', 1)],
+      lockedAssignments: [locked('c1', 'o1', 'a-arch')],
+    })
+    expect(out.assignments.map((a) => [a.camper_id, a.activity_id, a.source, a.locked]))
+      .toEqual([['c1', 'a-arch', 'manual', true]])
+    expect(out.findings).toContainEqual(
+      expect.objectContaining({ kind: 'NO_OFFERINGS', occurrence_id: 'o1' })
+    )
+  })
+
+  it('still reports NO_CAMPERS when every camper is ineligible but one seat is locked', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }, { id: 'c2' }],
+      occurrences: [occ('o1')],
+      offerings: [offering('o1', 'archery', 'a-arch')],
+      preferences: [pref('c1', 'archery', 1)],
+      attendance: {}, // malformed map — nobody is eligible for anything
+      lockedAssignments: [locked('c1', 'o1', 'a-arch')],
+    })
+    expect(out.findings).toContainEqual(
+      expect.objectContaining({ kind: 'NO_CAMPERS', occurrence_id: 'o1' })
+    )
+    expect(out.assignments.map((a) => [a.camper_id, a.activity_id, a.locked]))
+      .toEqual([['c1', 'a-arch', true]])
+  })
+
+  it('behaves exactly as before when lockedAssignments is omitted', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }, { id: 'c2' }],
+      occurrences: [occ('o1')],
+      offerings: [offering('o1', 'archery', 'a-arch'), offering('o1', 'gaga', 'a-gaga')],
+      preferences: [pref('c1', 'archery', 1), pref('c2', 'gaga', 1)],
+    })
+    expect(out.assignments.map((a) => [a.camper_id, a.activity_id, a.preference_rank]))
+      .toEqual([['c1', 'a-arch', 1], ['c2', 'a-gaga', 1]])
+    expect(out.assignments.some((a) => a.locked)).toBe(false)
+  })
+
   // The empty-input case must stay quiet — no occurrences means no work, not a
   // problem to report. Without this the fix would make every empty preview
   // shout.

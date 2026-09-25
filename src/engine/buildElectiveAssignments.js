@@ -48,6 +48,21 @@
 // camper out — owner ruling R3, never unplaced.
 const UNRANKED_COST = 1000
 
+// LOCKED SEATS AND THE LINKED-CHOICE CONTRACT (T246). `lockedAssignments`
+// holds placements a director made by hand and locked. This function never
+// re-decides one: the locked camper is removed from the free-variable set for
+// that occurrence, the seat is subtracted from the matching offering's
+// remaining capacity, and the placement is emitted back unchanged.
+//
+// THE CONTRACT T247 MUST READ. The linked-choice bipartite tier T247 adds
+// (tier 1) must consume the SAME lockedAssignments-adjusted remaining
+// capacity this function computes, never the raw offering capacity:
+// `capacity[choice] = min(over member occurrences of the choice) of that
+// occurrence's remaining capacity AFTER locked seats are subtracted`. A tier 1
+// that reads raw capacity would place a camper into a linked choice whose
+// member occurrence is already spoken for by a lock, and the lock would then
+// have to be broken to honour it.
+
 /**
  * @param {object} input
  * @param {{id: string}[]} input.campers
@@ -56,6 +71,9 @@ const UNRANKED_COST = 1000
  * @param {{camper_id, labelKey, rank}[]} input.preferences   rank is 1-based, lower is better
  * @param {Record<string, string[]>} [input.attendance]  camper id -> occurrence ids;
  *        default: every camper attends every occurrence.
+ * @param {{camperId, occurrenceId, activityId}[]} [input.lockedAssignments]  seats a
+ *        director locked, never re-decided here. camelCase while the rest of this
+ *        function's inputs are snake_case — T246's chosen shape, kept as specified.
  * @returns {{assignments: object[], findings: object[]}}
  */
 export function buildElectiveAssignments({
@@ -64,6 +82,7 @@ export function buildElectiveAssignments({
   offerings = [],
   preferences = [],
   attendance = null,
+  lockedAssignments = [],
 } = {}) {
   const assignments = []
   const findings = []
@@ -80,6 +99,17 @@ export function buildElectiveAssignments({
     rankOf.get(p.camper_id).set(p.labelKey, p.rank)
   }
 
+  // Grouped through a sort over stable ids, never the input array's order —
+  // the same determinism property as camperIds/occurrenceIds above.
+  const lockedByOccurrence = new Map()
+  for (const l of [...lockedAssignments].sort((a, b) =>
+    a.occurrenceId < b.occurrenceId ? -1 : a.occurrenceId > b.occurrenceId ? 1
+      : a.camperId < b.camperId ? -1 : a.camperId > b.camperId ? 1 : 0
+  )) {
+    if (!lockedByOccurrence.has(l.occurrenceId)) lockedByOccurrence.set(l.occurrenceId, [])
+    lockedByOccurrence.get(l.occurrenceId).push(l)
+  }
+
   const attends = (camperId, occurrenceId) =>
     attendance ? (attendance[camperId] ?? []).includes(occurrenceId) : true
 
@@ -87,7 +117,32 @@ export function buildElectiveAssignments({
     const here = offerings
       .filter((o) => o.occurrence_id === occurrenceId)
       .sort((a, b) => (a.labelKey < b.labelKey ? -1 : a.labelKey > b.labelKey ? 1 : 0))
-    const who = camperIds.filter((id) => attends(id, occurrenceId))
+    const lockedHere = lockedByOccurrence.get(occurrenceId) ?? []
+    const lockedCampers = new Set(lockedHere.map((l) => l.camperId))
+    const who = camperIds.filter((id) => attends(id, occurrenceId) && !lockedCampers.has(id))
+
+    // A locked seat is emitted as-is so a caller's preview still shows the
+    // camper. ABOVE both early-exit guards below, which `continue`: a lock in
+    // an occurrence that has lost all its offerings must still be emitted, and
+    // neither guard's diagnostic is weakened to make that happen.
+    // A locked row naming an activity this occurrence does not offer is emitted
+    // but accounted against nothing — this function is pure and does not
+    // diagnose stale rows; DANGLING_MANUAL_ASSIGNMENT in commitElectiveRun is
+    // where that is reported.
+    for (const l of lockedHere) {
+      const o = here.find((x) => x.activity_id === l.activityId) ?? null
+      assignments.push({
+        camper_id: l.camperId,
+        occurrence_id: occurrenceId,
+        labelKey: o?.labelKey ?? null,
+        activity_id: l.activityId,
+        preference_rank: (o && rankOf.get(l.camperId)?.get(o.labelKey)) ?? null,
+        flags: [],
+        source: 'manual',
+        locked: true,
+      })
+    }
+
     // T231 — say so, rather than skipping quietly. This branch used to
     // `continue` with no finding, so an occurrence nobody could attend
     // produced a clean empty result indistinguishable from "no work to do".
@@ -121,7 +176,13 @@ export function buildElectiveAssignments({
       })
     )
 
-    const placed = minCostAssign(cost, here.map((o) => Math.max(0, o.capacity ?? 0)))
+    const remainingCapacity = here.map((o) => Math.max(0, o.capacity ?? 0))
+    for (const l of lockedHere) {
+      const j = here.findIndex((o) => o.activity_id === l.activityId)
+      if (j >= 0) remainingCapacity[j] = Math.max(0, remainingCapacity[j] - 1)
+    }
+
+    const placed = minCostAssign(cost, remainingCapacity)
 
     const unplaced = []
     who.forEach((camperId, i) => {
