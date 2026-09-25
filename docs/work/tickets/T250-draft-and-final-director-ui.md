@@ -90,3 +90,30 @@ T244/T245's own mandatory-harness tests — this ticket's own tests are componen
 
 T244, T245, T246, T248 (all four IPC/engine seams this UI wires to). Not dependent on T247 or T249.
 BLOCKED (copy only, not code) on ADR Open Questions Q1/Q2/Q5.
+
+## Known limits at close (2026-09-25)
+
+Recorded here so `status: completed` cannot be read as claiming more than shipped. Neither limit was
+fixable inside this ticket, and both are on the owner's board for a ruling.
+
+**`DANGLING_MANUAL_ASSIGNMENT` is surfaced live but is not durable.** The `archive_when` clause asks
+for it "surfaced live", and it is — in the session that produces it, during ordinary draft work.
+It is **invisible on a run reopened cold**: the finding rides the `commitElectiveRun` result, not
+`getElectiveRun`. It cannot be derived durably either, because nothing in `electron/` ever deletes an
+`elective_occurrences` row, so a handler-side "does this occurrence still exist?" check would find
+the row present and report a false all-clear — an affirmative wrong answer, worse than a known gap.
+Pruning `elective_occurrences` on regeneration is the prerequisite, and it is a data-lifecycle change
+with migration and sync implications (T243/T244 territory), not a UI change.
+Note `src/localClient.mock.js` *does* prune by `run_id`, so the mock is strictly more correct than
+production and mock-backed tests cannot see this.
+
+**"Release lock" does not resolve the dangling condition.** `setElectiveAssignment` writes
+`source='manual'` unconditionally, while the finding is keyed on `source` and never on `is_locked`,
+so releasing the lock changes a field the finding does not read. This is a defect in the design spec's
+choice of remedy, not in its implementation. Round 2 stopped the row from vanishing on release, so the
+screen no longer claims a fix it did not make — but the condition is surfaced with no working in-screen
+remedy. The real remedy is a re-place picker, which nobody has designed.
+
+The immutability condition this ticket exists to discharge is **not** affected by either limit: it
+rests on `finalizedAgainstStaleGeneration`, which is rendered, paired with its remedy, and proven
+load-bearing by a non-vacuity plant.
