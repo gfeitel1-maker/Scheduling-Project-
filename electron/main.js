@@ -1865,7 +1865,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
     const rows = db
       .prepare(
+        // T250: source/is_locked are additive — the Draft screen's move/lock
+        // table cannot render a lock state it is never told about.
         `SELECT a.id, a.occurrence_id, a.camper_id, a.activity_id, a.preference_rank,
+                a.source, a.is_locked,
                 c.display_name AS camper_name
            FROM elective_assignments a
            LEFT JOIN campers c ON c.id = a.camper_id

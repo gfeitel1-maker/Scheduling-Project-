@@ -23,6 +23,14 @@ import MappingCorrector from './MappingCorrector.jsx'
 import ParseSummary from './ParseSummary.jsx'
 import AssignmentPreview from './AssignmentPreview.jsx'
 import { A } from './assignmentStyles.js'
+// T250 — the Draft/Final director UI for a PERSISTED run. Mounted here, not as
+// a new sidebar screen, deliberately: this panel already sits under
+// ElectiveSetDetail and so inherits its admin posture (the participant entities
+// are absent from permissions.js's ENTITIES, so authorize() default-denies
+// staff). A nav row would have meant re-implementing that gate.
+import RunList from '../run/RunList.jsx'
+import DraftRunView from '../run/DraftRunView.jsx'
+import FinalRunView from '../run/FinalRunView.jsx'
 
 const emptyStyles = {
   wrap: { padding: '32px 16px', textAlign: 'center' },
@@ -186,6 +194,11 @@ export default function AssignmentPanel({
   const [result, setResult] = useState(null) // { assignments, findings }
   const [committedInfo, setCommittedInfo] = useState(null)
   const [announcement, setAnnouncement] = useState('')
+  // T250 — a persisted run the director opened from the run list, viewed
+  // independently of the import phase machine above (which it deliberately
+  // does not disturb).
+  const [viewRun, setViewRun] = useState(null)
+  const [danglingFindings, setDanglingFindings] = useState([])
   const fileInputRef = useRef(null)
   // H3 — a synchronous guard against a double-tap committing twice. The
   // `committing` prop below covers the ordinary case (React has re-rendered
@@ -221,6 +234,8 @@ export default function AssignmentPanel({
     setRunId(null)
     setResult(null)
     setCommittedInfo(null)
+    setViewRun(null)
+    setDanglingFindings([])
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -278,7 +293,7 @@ export default function AssignmentPanel({
     solve(occs)
   }
 
-  function solve(occs) {
+  function solve(occs, lockedAssignments = []) {
     setPhase('solving')
     // Deliberately async-shaped so the busy phase actually paints before the
     // (synchronous, potentially heavy) solve runs.
@@ -292,6 +307,10 @@ export default function AssignmentPanel({
       const { attendance, unmatched, ambiguous } = buildAttendance({ campers: parsed.campers, occurrences: occs, tiers })
       const { assignments, findings } = buildElectiveAssignments({
         campers: parsed.campers, occurrences: occs, offerings, preferences: parsed.preferences, attendance,
+        // T250/T246 — seats the director locked by hand on the Draft screen.
+        // Empty on a first solve; non-empty only on a regenerate, which is the
+        // only path that has a persisted run to read locks from.
+        lockedAssignments,
       })
       const mismatchFindings = findMismatches({ offerings, preferences: parsed.preferences })
       // T232 — one finding PER unmatched division value, naming the value and
@@ -353,6 +372,7 @@ export default function AssignmentPanel({
         setPhase('preview')
         return
       }
+      setDanglingFindings(out.findings ?? [])
       setCommittedInfo({ runId: out.runId, camperCount: out.counts.campers, occurrenceCount: occurrences.length })
       setPhase('committed')
     } catch (err) {
@@ -381,6 +401,30 @@ export default function AssignmentPanel({
     a.download = 'elective-assignments.json'
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  // T250 — a regenerate offered on the Draft screen when some of the run's
+  // placements came from an earlier version of the schedule. Re-solves in
+  // place, carrying the director's locked seats through, and lands back on the
+  // preview so they commit the new solve deliberately. Only offered when this
+  // session still holds the parsed sheet (a run opened cold from the list has
+  // no sheet in memory to re-solve from).
+  function regenerate({ lockedAssignments }) {
+    setViewRun(null)
+    solve(occurrences, lockedAssignments)
+  }
+
+  // Q1/Q2: a finalized run is immutable and there is no reopen. With today's
+  // IPC the honest minimal behaviour is to put the director back at the import
+  // flow, which mints a fresh runId on the next solve — a NEW run, never this
+  // one reopened.
+  function startRevision() {
+    reset()
+  }
+
+  const runViewCatalogs = {
+    activities, days, timeBlocks, groups, tiers, occurrences,
+    scheduleTemplates, scheduleWeeks,
   }
 
   const liveRegion = <div aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}>{announcement}</div>
@@ -428,6 +472,44 @@ export default function AssignmentPanel({
         onChange={(e) => onFileSelected(e.target.files?.[0])}
       />
 
+      {viewRun ? (
+        viewRun.status === 'final' ? (
+          <FinalRunView
+            run={viewRun}
+            campers={parsed?.campers ?? []}
+            onStartRevision={startRevision}
+            onBack={() => setViewRun(null)}
+            {...runViewCatalogs}
+          />
+        ) : (
+          <DraftRunView
+            run={viewRun}
+            /* KNOWN GAP, not an oversight: danglingFindings are SESSION-SCOPED.
+               commitElectiveRun returns them, this panel holds them in React
+               state, and a run reopened in a later session therefore always
+               gets []. A genuinely dangling row is invisible until the next
+               regenerate, with no path to show it.
+
+               It cannot be derived durably today. commitElectiveRun computes
+               DANGLING_MANUAL_ASSIGNMENT against the occurrence set the
+               RENDERER just derived for this generation, and the persisted
+               `elective_occurrences` rows are NOT the same set: nothing in
+               electron/ ever deletes one, so the table accumulates the union of
+               every generation's occurrences. An occurrence a template edit
+               removed — precisely the case that makes a manual row dangle —
+               is still sitting in `elective_occurrences`, so a DB-derived check
+               in getElectiveRunHandler would find it present and report a clean
+               run. That is a false all-clear, which is worse than this silence.
+               Pruning `elective_occurrences` is the prerequisite; it is not
+               T250's to do. */
+            danglingFindings={viewRun.id === committedInfo?.runId ? danglingFindings : []}
+            onRegenerate={parsed && viewRun.id === committedInfo?.runId ? regenerate : undefined}
+            onBack={() => setViewRun(null)}
+            {...runViewCatalogs}
+          />
+        )
+      ) : (<>
+
       {phase === 'empty' && (
         <div style={{ ...emptyStyles.wrap, ...enter }}>
           <div style={emptyStyles.title}>No camper preferences yet</div>
@@ -435,6 +517,7 @@ export default function AssignmentPanel({
           <button className="press-97" onClick={() => fileInputRef.current?.click()} style={S.btnSecondary}>
             Import Camper Preferences
           </button>
+          <div style={{ marginTop: 20, textAlign: 'left' }}><RunList onOpen={setViewRun} /></div>
         </div>
       )}
 
@@ -512,8 +595,10 @@ export default function AssignmentPanel({
             <button className="press-97" onClick={exportJson} style={S.btnSecondary}>Export as JSON</button>
           </div>
           <button className="press-97" onClick={reset} style={S.btnUtility}>Assign Another Sheet</button>
+          <div style={{ marginTop: 20 }}><RunList onOpen={setViewRun} /></div>
         </div>
       )}
+      </>)}
     </div>
   )
 }

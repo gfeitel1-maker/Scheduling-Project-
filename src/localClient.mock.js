@@ -1721,6 +1721,13 @@ export const mockShoresh = {
     return {
       ok: true,
       runId,
+      // T250 — the real handler returns DANGLING_MANUAL_ASSIGNMENT findings
+      // here (electron/ops/commitElectiveRun.js). The mock has no
+      // occurrence-diff pass to compute them, so this degrades to the
+      // "nothing to report" value rather than being omitted, and a caller
+      // destructuring the real shape does not crash in browser-dev — same
+      // additive-degradation discipline as getElectiveRun above.
+      findings: [],
       counts: {
         campers: parsed.campers?.length ?? 0,
         choices: parsed.choices?.length ?? 0,
