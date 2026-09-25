@@ -217,7 +217,11 @@ export function buildElectiveAssignments({
     const prePlacedCampers = new Set(prePlacedHere.map((e) => e.camperId))
     // NO_CAMPERS below is answered from `eligible`, not from the free set: a
     // period where every camper is already pre-placed (all locked, or all taken
-    // by a linked choice) is finished, not unattendable.
+    // by a linked choice) is finished, not unattendable. DISCLOSED DEVIATION —
+    // not named in T247's archive_when, but forced by tier 1, and it also
+    // repairs a pre-existing locks-only instance of the same bug: before T247, a
+    // period where every eligible camper held a locked seat already reported
+    // "no camper is eligible for this period", which was equally untrue.
     const eligible = camperIds.filter((id) => attends(id, occurrenceId))
     const who = eligible.filter((id) => !prePlacedCampers.has(id))
 
@@ -308,6 +312,8 @@ export function buildElectiveAssignments({
     a.occurrence_id < b.occurrence_id ? -1 : a.occurrence_id > b.occurrence_id ? 1
       : a.camper_id < b.camper_id ? -1 : a.camper_id > b.camper_id ? 1 : 0
   )
+  // `runLinkedChoiceTier`, called near the top, is declared BELOW this return —
+  // the ~150 lines after it are reachable, not dead code.
   return { assignments, findings }
 
   // ---- TIER 1 (T247): the choice-level bipartite pass.
@@ -362,8 +368,12 @@ export function buildElectiveAssignments({
     // (c) Two linked choices sharing a member occurrence. NOT a data problem —
     // an implementation limit of this two-tier construction, and the message
     // says so plainly rather than sending a director looking for bad data.
+    // Only over choices that SURVIVED case (a): refusing a live choice for
+    // sharing a period with one already refused for naming an out-of-run
+    // occurrence is a false positive, on a finding whose whole job is to be
+    // trustworthy.
     const byOccurrence = new Map()
-    for (const id of linked) {
+    for (const id of linked.filter((id) => !refused.has(id))) {
       for (const occurrenceId of occurrencesOf(id).sort()) {
         if (!byOccurrence.has(occurrenceId)) byOccurrence.set(occurrenceId, [])
         byOccurrence.get(occurrenceId).push(id)
@@ -388,24 +398,55 @@ export function buildElectiveAssignments({
     const columns = linked.filter((id) => !refused.has(id))
     if (columns.length === 0) return
 
-    // (b) A camper who ranked the choice does not attend every period it
-    // covers, so the set cannot be given to them as a set. A data problem.
+    // (b) The camper cannot be given the set AS a set. Two reasons, both
+    // "structurally ineligible for a member occurrence" in the ADR's terms, so
+    // both are case (b) rather than a fourth finding kind:
+    //
+    //   b1  they do not attend every period the set covers;
+    //   b2  they already hold a pre-placement in one of those periods. A seat
+    //       placed by hand and locked STANDS AND WINS — it is never re-decided
+    //       here (T246). Without this, tier 1 placed the camper into the choice
+    //       anyway and the engine emitted two rows for one (camper,
+    //       occurrence), breaking constraint 1 in this module's header. Worse
+    //       downstream: deriveElectiveAssignmentId keys on (run, camper,
+    //       occurrence) and excludes activity_id, so the two rows collide on one
+    //       id and both are dropped, while the camper's OTHER member row is
+    //       written — leaving them attending half a linked choice on a seat they
+    //       consumed. Found by round-2 review, confirmed by execution.
+    //
+    // `prePlacedByOccurrence` holds only locked seats at this point (tier 1 has
+    // not placed anything yet), and tier 1 cannot collide with itself: a row
+    // takes at most one column, and two columns sharing an occurrence are
+    // already refused by case (c) above. The check is written against the map
+    // rather than against lockedAssignments so it stays true of any future
+    // producer of a pre-placement.
+    const holdsSeatAt = (camperId, occurrenceId) =>
+      (prePlacedByOccurrence.get(occurrenceId) ?? []).some((e) => e.camperId === camperId)
+
     const excluded = new Map() // choiceId -> Set(camperId)
-    for (const id of columns) {
-      const occs = occurrencesOf(id)
-      const ineligible = camperIds.filter(
-        (c) => rankByChoice.get(c)?.has(id) && !occs.every((o) => attends(c, o))
-      )
-      if (ineligible.length === 0) continue
-      excluded.set(id, new Set(ineligible))
+    const exclude = (id, camperIds_, message) => {
+      if (camperIds_.length === 0) return
+      if (!excluded.has(id)) excluded.set(id, new Set())
+      for (const c of camperIds_) excluded.get(id).add(c)
       findings.push({
         kind: 'UNSUPPORTED_LINKED_CHOICE',
         choice_ids: [id],
-        camper_ids: ineligible,
-        message:
-          `${ineligible.length} camper(s) asked for \u201c${labelOfChoice(id)}\u201d but do not ` +
-          'attend every period it covers. They were placed one period at a time instead of together.',
+        camper_ids: camperIds_,
+        message,
       })
+    }
+    for (const id of columns) {
+      const occs = occurrencesOf(id)
+      const wanted = camperIds.filter((c) => rankByChoice.get(c)?.has(id))
+      const absent = wanted.filter((c) => !occs.every((o) => attends(c, o)))
+      exclude(id, absent,
+        `${absent.length} camper(s) asked for \u201c${labelOfChoice(id)}\u201d but do not attend ` +
+        'every period it covers. They were placed one period at a time instead of together.')
+      const held = wanted.filter((c) => !absent.includes(c) && occs.some((o) => holdsSeatAt(c, o)))
+      exclude(id, held,
+        `${held.length} camper(s) asked for \u201c${labelOfChoice(id)}\u201d but already have a ` +
+        'seat set by hand in one of the periods it covers. The seat set by hand was kept, so the ' +
+        'set could not be given to them as a set; they were placed one period at a time instead.')
     }
 
     const wants = (camperId, id) =>

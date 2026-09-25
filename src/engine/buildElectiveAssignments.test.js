@@ -609,6 +609,84 @@ describe('buildElectiveAssignments', () => {
     expect(out.findings.filter((f) => f.kind === 'NO_CAPACITY').length).toBe(2)
   })
 
+  // HIGH 2 (round-2 review), confirmed by execution before it was fixed: a
+  // camper holding a T246 locked seat at o1 was still placed into a linked
+  // choice whose member set includes o1, so the engine emitted TWO rows for
+  // (camper, o1) — the locked one and a tier-1 one. That breaks constraint 1 in
+  // this module's header, and at the persistence layer it is worse than a
+  // duplicate: deriveElectiveAssignmentId excludes activity_id, so both rows
+  // collide on one derived id and both are skipped, while the camper's OTHER
+  // member row is written normally — half a linked choice, and a consumed seat,
+  // with no finding at all.
+  it('refuses a linked choice for a camper who already holds a locked seat in one of its periods', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'x' }],
+      occurrences: [occ('o1'), occ('o2')],
+      offerings: [
+        offering('o1', 'gaga', 'a-gaga', 5), offering('o1', 'archery', 'a-arch', 5),
+        offering('o2', 'archery', 'a-arch', 5),
+      ],
+      preferences: [pref('x', 'archery', 1)],
+      lockedAssignments: [locked('x', 'o1', 'a-gaga')],
+      choices: [choice('C', 'archery')],
+      choiceOfferings: [member('C', 'o1', 'a-arch'), member('C', 'o2', 'a-arch')],
+    })
+    expect(out.findings).toContainEqual(
+      expect.objectContaining({
+        kind: 'UNSUPPORTED_LINKED_CHOICE', choice_ids: ['C'], camper_ids: ['x'],
+      })
+    )
+    expect(out.findings.find((f) => f.kind === 'UNSUPPORTED_LINKED_CHOICE').message)
+      .toMatch(/by hand/)
+    // The lock stands and wins; exactly one row per (camper, occurrence).
+    expect(out.assignments.map((a) => [a.occurrence_id, a.activity_id, a.source ?? 'solver']))
+      .toEqual([['o1', 'a-gaga', 'manual'], ['o2', 'a-arch', 'solver']])
+  })
+
+  // THE GENERAL INVARIANT, not a case test. Constraint 1 of this module's
+  // header — each (camper, occurrence) gets exactly one activity — is what
+  // protects deriveElectiveAssignmentId's (run, camper, occurrence) key. Its
+  // absence is why HIGH 2 shipped, so it is asserted over a fixture that
+  // combines locks, TWO linked choices and ordinary preferences at once.
+  it('never emits two rows for one (camper, occurrence), across locks and two linked choices', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }, { id: 'c4' }],
+      occurrences: [occ('o1'), occ('o2'), occ('o3'), occ('o4')],
+      offerings: [
+        offering('o1', 'archery', 'a-arch', 2), offering('o1', 'craft', 'a-craft', 2),
+        offering('o2', 'archery', 'a-arch', 2), offering('o2', 'craft', 'a-craft', 2),
+        offering('o3', 'boating', 'a-boat', 2), offering('o3', 'craft', 'a-craft', 2),
+        offering('o4', 'boating', 'a-boat', 2), offering('o4', 'craft', 'a-craft', 2),
+      ],
+      preferences: ['c1', 'c2', 'c3', 'c4'].flatMap((id) => [
+        pref(id, 'archery', 1), pref(id, 'boating', 2), pref(id, 'craft', 3),
+      ]),
+      lockedAssignments: [
+        locked('c1', 'o1', 'a-craft'),   // a member period, a DIFFERENT activity
+        locked('c2', 'o3', 'a-boat'),    // a member period, the SAME activity
+        locked('c3', 'o2', 'a-arch'),    // the other choice's member period
+      ],
+      // Two linked choices, deliberately sharing no occurrence so both survive
+      // case (c) and both actually reach the tier-1 solve.
+      choices: [choice('C-arch', 'archery'), choice('C-boat', 'boating')],
+      choiceOfferings: [
+        member('C-arch', 'o1', 'a-arch'), member('C-arch', 'o2', 'a-arch'),
+        member('C-boat', 'o3', 'a-boat'), member('C-boat', 'o4', 'a-boat'),
+      ],
+    })
+    const seen = new Set()
+    const duplicates = []
+    for (const a of out.assignments) {
+      const key = `${a.camper_id}@${a.occurrence_id}`
+      if (seen.has(key)) duplicates.push(key)
+      seen.add(key)
+    }
+    expect(duplicates).toEqual([])
+    // Non-vacuous: the fixture must actually exercise tier 1 and the locks.
+    expect(out.assignments.filter((a) => a.locked).length).toBe(3)
+    expect(out.assignments.length).toBeGreaterThan(3)
+  })
+
   it('is deterministic regardless of the order of choices and choiceOfferings', () => {
     const base = {
       campers: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
@@ -713,40 +791,50 @@ describe('buildElectiveAssignments — 100-camper repeat distribution (Q3 revisi
 
   // Exists to satisfy the Q3 revisit trigger: the owner accepted per-occurrence
   // independent scoring on the condition that the real distribution be visible.
-  // Returns, per repeat level k: how many (camper, activity) pairs sit at
-  // exactly k occurrences, how many distinct campers that is, and how many
-  // ranked-but-unplaced (camper, activity) pairs involve an activity that some
-  // camper repeated k times — the cross-tabulation the ruling asks for.
+  //
+  // THE CROSS-TAB IS KEYED ON THE CAMPER, not on an activity set. Round-2
+  // review caught the first version keying on activities — it filtered the whole
+  // fixture's shut-out list by "activities some camper anywhere reached k", sets
+  // that overlap heavily across k, so the x2 row printed the entire overall
+  // total and the column summed to 2.6x the truth. The ruling's words are "how
+  // many ranked-but-unplaced campers that COINCIDED with", and a camper is the
+  // thing that coincides: a row's shut-out figures are held by that row's own
+  // campers and by nobody else.
+  //
+  // Rows OVERLAP by construction — one camper can hold one activity twice and
+  // another four times, so they appear in two rows. That is disclosed in the
+  // printed note rather than hidden behind a tidy partition that would lie.
   function summariseRepeats({ assignments, campers, preferences, offerings }) {
     const activityByLabel = new Map(offerings.map((o) => [o.labelKey, o.activity_id]))
-    const counts = new Map() // `${camperId} ${activityId}` -> occurrences held
+    const counts = new Map() // `${camperId}\u0000${activityId}` -> occurrences held
     for (const a of assignments) {
-      const key = `${a.camper_id} ${a.activity_id}`
+      const key = `${a.camper_id}\u0000${a.activity_id}`
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
     const shutOut = [] // ranked the activity, received none of its occurrences
     for (const p of preferences) {
       const activityId = activityByLabel.get(p.labelKey)
       if (!activityId) continue
-      if (!counts.has(`${p.camper_id} ${activityId}`)) shutOut.push({ camper_id: p.camper_id, activity_id: activityId })
+      if (!counts.has(`${p.camper_id}\u0000${activityId}`)) shutOut.push({ camper_id: p.camper_id, activity_id: activityId })
     }
     const levels = new Map()
     for (const [key, k] of counts) {
       if (k < 2) continue
-      const [camperId, activityId] = key.split(' ')
-      if (!levels.has(k)) levels.set(k, { pairs: 0, campers: new Set(), activities: new Set() })
+      const [camperId] = key.split('\u0000')
+      if (!levels.has(k)) levels.set(k, { pairs: 0, campers: new Set() })
       const bucket = levels.get(k)
       bucket.pairs += 1
       bucket.campers.add(camperId)
-      bucket.activities.add(activityId)
     }
     const rows = [...levels.keys()].sort((a, b) => a - b).map((k) => {
       const bucket = levels.get(k)
+      const mine = shutOut.filter((s) => bucket.campers.has(s.camper_id))
       return {
         repeats: k,
         pairs: bucket.pairs,
         campers: bucket.campers.size,
-        shutOutOnSameActivities: shutOut.filter((s) => bucket.activities.has(s.activity_id)).length,
+        shutOutCampers: new Set(mine.map((s) => s.camper_id)).size,
+        shutOutPairs: mine.length,
       }
     })
     return {
@@ -772,14 +860,26 @@ describe('buildElectiveAssignments — 100-camper repeat distribution (Q3 revisi
       `  fixture: ${summary.totalCampers} campers, ${OCCURRENCES} occurrences, ${PER_OCCURRENCE} offerings each, ${ACTIVITIES} rankable choices (1 linked, 2 members)`,
       `  solve wall-clock: ${elapsedMs}ms; ${summary.totalAssignments} assignments`,
       '',
-      '  same activity x N | camper-activity pairs | distinct campers | ranked-but-unplaced pairs on those activities',
-      '  ------------------+-----------------------+------------------+-----------------------------------------------',
+      '  THE ROWS OVERLAP. One camper can hold one activity 2x and another 4x, so the same',
+      '  camper is counted in more than one row. The rows are not a partition of the campers',
+      '  and the columns do not sum to the overall totals printed underneath them.',
+      '',
+      '  repeats | pairs | campers | shutOutCampers | shutOutPairs',
+      '  --------+-------+---------+----------------+-------------',
       ...summary.rows.map((r) =>
-        `  ${String(r.repeats).padStart(17)} | ${String(r.pairs).padStart(21)} | ${String(r.campers).padStart(16)} | ${String(r.shutOutOnSameActivities).padStart(45)}`
+        `  ${String(r.repeats).padStart(7)} | ${String(r.pairs).padStart(5)} | ${String(r.campers).padStart(7)} | ${String(r.shutOutCampers).padStart(14)} | ${String(r.shutOutPairs).padStart(12)}`
       ),
       '',
-      `  ranked-but-unplaced camper-activity pairs overall: ${summary.totalShutOut}`,
-      `  campers shut out of at least one activity they ranked: ${summary.campersShutOutAtLeastOnce} of ${summary.totalCampers}`,
+      '  What each column counts:',
+      '    repeats         occurrences of ONE activity a camper received, exactly this many',
+      '    pairs           (camper, activity) pairs held exactly `repeats` times',
+      '    campers         distinct campers holding at least one such pair',
+      '    shutOutCampers  of THOSE campers, how many received none of some activity they ranked',
+      '    shutOutPairs    (camper, activity) shut-out pairs held by THOSE campers',
+      '',
+      '  Overall totals — NOT a sum of the rows above, because the rows overlap:',
+      `    ranked-but-unplaced (camper, activity) pairs: ${summary.totalShutOut}`,
+      `    campers shut out of at least one activity they ranked: ${summary.campersShutOutAtLeastOnce} of ${summary.totalCampers}`,
       '',
     ]
     console.log(lines.join('\n'))
@@ -791,5 +891,18 @@ describe('buildElectiveAssignments — 100-camper repeat distribution (Q3 revisi
     // And the halves of the figure must reconcile against the assignment count.
     expect(summary.totalCounted).toBe(summary.totalAssignments)
     expect(summary.totalShutOut).toBeGreaterThan(0)
+
+    // TRIPWIRE for the round-2 HIGH 1 defect: the per-row shut-out figure used
+    // to be the WHOLE fixture's shut-out list filtered by "activities some
+    // camper anywhere reached k". Those activity sets are not disjoint across k,
+    // so the x2 row printed the entire overall total and the column summed to
+    // 2.6x the truth. A row's cohort is a strict subset of the campers, so its
+    // figure must be strictly smaller than the overall total.
+    const partialCohorts = summary.rows.filter((r) => r.campers < summary.totalCampers)
+    expect(partialCohorts.length).toBeGreaterThan(0)
+    for (const r of partialCohorts) {
+      expect(r.shutOutPairs).toBeLessThan(summary.totalShutOut)
+      expect(r.shutOutCampers).toBeLessThanOrEqual(r.campers)
+    }
   })
 })
