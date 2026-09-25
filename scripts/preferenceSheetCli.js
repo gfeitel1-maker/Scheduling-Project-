@@ -217,6 +217,11 @@ export function runPreferenceSheetCli({
 
     let outcome
     try {
+      // T250: no `lockedAssignments` here, and that is correct rather than an
+      // omission — this CLI runs no solve at all (it commits with
+      // `assignments: []`), so there are no locked seats to carry through.
+      // The caller that DOES solve, and that must pass them, is
+      // src/screens/elective/assignment/AssignmentPanel.jsx.
       outcome = commitElectiveRun(db, {
         campId: camp.id,
         deviceId: device.id,
