@@ -4,6 +4,7 @@
 // `Math.max(0, o.capacity ?? 0)`, so 0/null CLOSES the offering.
 // capacity_mode:'unlimited' must pass a large number, never 0 or null.
 import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerivedIds.js'
+import { resolveOfferingCapacity } from '../../../../electron/ops/electiveOfferingCapacity.js'
 
 const UNLIMITED_CAPACITY = Number.MAX_SAFE_INTEGER
 
@@ -28,8 +29,14 @@ export function buildOfferings({ occurrences = [], setActivities = [], activitie
     for (const sa of confirmed) {
       const activity = activityById.get(sa.activity_id)
       if (!activity) continue
-      const capacityMode = sa.capacity_mode ?? 'unlimited'
-      const capacity = capacityMode === 'unlimited' ? UNLIMITED_CAPACITY : Math.max(0, sa.capacity_limit ?? 0)
+      // T245: capacity resolution lives in ONE place
+      // (electron/ops/electiveOfferingCapacity.js), shared with the move/lock
+      // write path. Unchanged behaviour: 'unlimited' passes a large number,
+      // and ('limited', NULL) still closes the offering at 0.
+      const resolved = resolveOfferingCapacity(sa)
+      const capacity = resolved.kind === 'unlimited'
+        ? UNLIMITED_CAPACITY
+        : resolved.kind === 'limited' ? resolved.capacity : 0
       offerings.push({
         occurrence_id: occurrence.id,
         labelKey: electiveChoiceLabelKey(activity.name),

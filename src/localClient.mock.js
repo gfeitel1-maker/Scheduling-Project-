@@ -24,6 +24,7 @@ import { deriveScheduleTemplateId } from '../electron/ops/scheduleTemplateId.js'
 import { hasContradictoryRanks } from './ingest/preferenceSheet.js'
 
 import { parseDayOfWeek } from '../electron/ops/dayId.js'
+import { deriveElectiveAssignmentId } from '../electron/ops/electiveDerivedIds.js'
 
 const STORE_KEY = 'shoresh-mock-state'
 
@@ -1773,6 +1774,30 @@ export const mockShoresh = {
     ]
     saveState(state)
     return { ok: true, finalizedAt, snapshotRows: assignmentsForRun.length }
+  },
+  // T245 — mirrors setElectiveAssignmentHandler's success/RUN_NOT_DRAFT shape.
+  // The mock has no elective_preferences or elective_set_activities capacity
+  // machinery wired here, so CAMPER_INELIGIBLE/OCCURRENCE_FULL never fire
+  // (same additive-degradation posture as the stubs above); the row it writes
+  // carries the real derived id, source and is_locked so the screen is not
+  // built against a lie.
+  async setElectiveAssignment({ runId, camperId, occurrenceId, activityId, locked = false } = {}) {
+    const state = loadState()
+    const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
+    if (!run) return { ok: false, error: 'run not found' }
+    if (run.status === 'final') return { ok: false, error: 'RUN_NOT_DRAFT' }
+    const assignmentId = deriveElectiveAssignmentId(runId, camperId, occurrenceId)
+    const row = {
+      id: assignmentId, run_id: runId, occurrence_id: occurrenceId, camper_id: camperId,
+      activity_id: activityId, source: 'manual', is_locked: locked ? 1 : 0,
+      solver_generation: run.solver_generation ?? null,
+    }
+    state.elective_assignments = [
+      ...(state.elective_assignments || []).filter((a) => a.id !== assignmentId),
+      row,
+    ]
+    saveState(state)
+    return { ok: true, assignmentId }
   },
   // T249 — mirrors getSecurityStatusHandler (electron/main.js). Browser-dev
   // has no Electron, no OS keychain and no encrypted store, so nothing is

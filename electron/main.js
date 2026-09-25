@@ -40,6 +40,8 @@ import { deleteEvent } from './ops/deleteEvent.js'
 import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
 import { commitElectiveRun } from './ops/commitElectiveRun.js'
 import { finalizeElectiveRun } from './ops/finalizeElectiveRun.js'
+import { setElectiveAssignment } from './ops/setElectiveAssignment.js'
+import { resolveOfferingCapacity } from './ops/electiveOfferingCapacity.js'
 import {
   electiveGenerationVisibleFragment,
   electiveGenerationStaleSolverFragment,
@@ -1906,13 +1908,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         .prepare('SELECT capacity_mode, capacity_limit FROM elective_set_activities WHERE elective_set_id = ? AND activity_id = ?')
         .get(row.elective_set_id, row.activity_id)
       if (!setActivity) continue
-      if (setActivity.capacity_mode !== 'limited') continue
-      if (setActivity.capacity_limit == null) continue // 'limited' + NULL capacity_limit: no finding surfaces this anywhere today; skipped rather than fabricated
-      if (row.filled > setActivity.capacity_limit) {
+      // T245: one shared resolution of the capacity columns
+      // (electron/ops/electiveOfferingCapacity.js). Behaviour here is
+      // unchanged — 'unlimited' is never checked, and 'limited' + NULL
+      // capacity_limit ('unknownLimit') is still skipped rather than
+      // fabricated, since no finding surfaces it anywhere today.
+      const resolved = resolveOfferingCapacity(setActivity)
+      if (resolved.kind !== 'limited') continue
+      if (row.filled > resolved.capacity) {
         overCapacityOccurrences.push({
           occurrenceId: row.occurrence_id,
           activityId: row.activity_id,
-          capacity: setActivity.capacity_limit,
+          capacity: resolved.capacity,
           filled: row.filled,
         })
       }
@@ -1935,6 +1942,27 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.write' })
     if (!isNonEmptyString(runId)) throw new Error('runId is required')
     return finalizeElectiveRun(db, { runId, authorUserId: session?.userId ?? null, deviceId })
+  }
+
+  // Moving/locking a camper inside a draft run (T245, same ADR, decision (b)).
+  // Same admin-only participant-entity posture as the handlers above — the
+  // action name, not a hand-written role check, is what enforces it
+  // (participantEntitiesAdminOnly.test.js). The write lives in
+  // electron/ops/setElectiveAssignment.js; this handler only authorizes,
+  // validates the argument shape, and forwards. Appended after the finalize
+  // handler per the ADR's merge-order note; do not reorder.
+  function setElectiveAssignmentHandler(args) {
+    const { token, runId, camperId, occurrenceId, activityId, locked = false } = args ?? {}
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'elective_assignment_runs.write' })
+    if (!isNonEmptyString(runId)) throw new Error('runId is required')
+    if (!isNonEmptyString(camperId)) throw new Error('camperId is required')
+    if (!isNonEmptyString(occurrenceId)) throw new Error('occurrenceId is required')
+    if (!isNonEmptyString(activityId)) throw new Error('activityId is required')
+    return setElectiveAssignment(db, {
+      runId, camperId, occurrenceId, activityId, locked,
+      authorUserId: session?.userId ?? null, deviceId,
+    })
   }
 
   // T249 (docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md
@@ -2183,6 +2211,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     listElectiveRuns: listElectiveRunsHandler,
     getElectiveRun: getElectiveRunHandler,
     finalizeElectiveRun: finalizeElectiveRunHandler,
+    setElectiveAssignment: setElectiveAssignmentHandler,
     // T249 — append-only per the ADR's merge-order note; do not reorder.
     getSecurityStatus: getSecurityStatusHandler,
     listImportEvidence: listImportEvidenceHandler,
@@ -2488,6 +2517,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:list-elective-runs', (_event, args) => handlers.listElectiveRuns(args && args.token))
     ipcMain.handle('shoresh:get-elective-run', (_event, args) => handlers.getElectiveRun(args))
     ipcMain.handle('shoresh:finalize-elective-run', (_event, args) => handlers.finalizeElectiveRun(args))
+    ipcMain.handle('shoresh:set-elective-assignment', (_event, args) => handlers.setElectiveAssignment(args))
     ipcMain.handle('shoresh:get-security-status', () => handlers.getSecurityStatus())
     ipcMain.handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
     ipcMain.handle('shoresh:list-division-evidence', (_event, args) => handlers.listDivisionEvidence(args && args.token))
