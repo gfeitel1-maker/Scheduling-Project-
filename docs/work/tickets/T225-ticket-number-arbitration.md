@@ -72,3 +72,18 @@ another session's citations. That hazard was avoided by hand on 2026-09-18 and w
 - Any change that claims to close the race rather than narrow it.
 - A mitigation that replaces one unobservable source (the working tree) with another.
 - Automated renumbering that rewrites references outside the renumbering session's own documents.
+
+## Status note (2026-09-25 — PR #539, kept open)
+
+The mechanism is built and its two `archive_when` clauses are satisfied in code: numbers are now
+allocated against a source both concurrent sessions can observe before either merges (root + **every
+sibling worktree's tickets, uncommitted files included** + `git ls-remote` + open PRs, via
+`scripts/nextTicketNumber.js`), and the residual race is **documented, not claimed closed** — the
+interval between allocating a number and writing the ticket file to disk (unbounded; seconds-to-minutes),
+with `checkTicketNumberUniqueness` retained unchanged as the post-hoc backstop.
+
+Status is left **open** deliberately: the arbitration approach is captured in
+`docs/adr/2026-09-25-ticket-number-arbitration.md` at status **`proposed`**, and per the Constitution
+the product owner accepts ADRs. This ticket closes when that ADR is accepted. A cheaper follow-up
+(a pushed claim-ref marker to shrink the residual window further) is recorded for the owner to weigh,
+not self-dispatched.
