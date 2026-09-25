@@ -305,6 +305,41 @@ describe('buildElectiveAssignments', () => {
     expect(out.assignments.map((a) => [a.camper_id, a.activity_id])).toEqual([['c1', 'a-arch']])
   })
 
+  // Both early-exit guards below `continue`, so a locked seat is only emitted
+  // if the emission runs ABOVE them. These two pin that, and the second is a
+  // regression guard for T231's NO_CAMPERS diagnostic, which must keep firing
+  // on a malformed attendance map even when one locked seat exists.
+  it('emits a locked seat in an occurrence with no offerings, and still reports NO_OFFERINGS', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1')],
+      offerings: [],
+      preferences: [pref('c1', 'archery', 1)],
+      lockedAssignments: [locked('c1', 'o1', 'a-arch')],
+    })
+    expect(out.assignments.map((a) => [a.camper_id, a.activity_id, a.source, a.locked]))
+      .toEqual([['c1', 'a-arch', 'manual', true]])
+    expect(out.findings).toContainEqual(
+      expect.objectContaining({ kind: 'NO_OFFERINGS', occurrence_id: 'o1' })
+    )
+  })
+
+  it('still reports NO_CAMPERS when every camper is ineligible but one seat is locked', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }, { id: 'c2' }],
+      occurrences: [occ('o1')],
+      offerings: [offering('o1', 'archery', 'a-arch')],
+      preferences: [pref('c1', 'archery', 1)],
+      attendance: {}, // malformed map — nobody is eligible for anything
+      lockedAssignments: [locked('c1', 'o1', 'a-arch')],
+    })
+    expect(out.findings).toContainEqual(
+      expect.objectContaining({ kind: 'NO_CAMPERS', occurrence_id: 'o1' })
+    )
+    expect(out.assignments.map((a) => [a.camper_id, a.activity_id, a.locked]))
+      .toEqual([['c1', 'a-arch', true]])
+  })
+
   it('behaves exactly as before when lockedAssignments is omitted', () => {
     const out = buildElectiveAssignments({
       campers: [{ id: 'c1' }, { id: 'c2' }],

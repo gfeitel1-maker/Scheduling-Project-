@@ -120,6 +120,29 @@ export function buildElectiveAssignments({
     const lockedHere = lockedByOccurrence.get(occurrenceId) ?? []
     const lockedCampers = new Set(lockedHere.map((l) => l.camperId))
     const who = camperIds.filter((id) => attends(id, occurrenceId) && !lockedCampers.has(id))
+
+    // A locked seat is emitted as-is so a caller's preview still shows the
+    // camper. ABOVE both early-exit guards below, which `continue`: a lock in
+    // an occurrence that has lost all its offerings must still be emitted, and
+    // neither guard's diagnostic is weakened to make that happen.
+    // A locked row naming an activity this occurrence does not offer is emitted
+    // but accounted against nothing — this function is pure and does not
+    // diagnose stale rows; DANGLING_MANUAL_ASSIGNMENT in commitElectiveRun is
+    // where that is reported.
+    for (const l of lockedHere) {
+      const o = here.find((x) => x.activity_id === l.activityId) ?? null
+      assignments.push({
+        camper_id: l.camperId,
+        occurrence_id: occurrenceId,
+        labelKey: o?.labelKey ?? null,
+        activity_id: l.activityId,
+        preference_rank: (o && rankOf.get(l.camperId)?.get(o.labelKey)) ?? null,
+        flags: [],
+        source: 'manual',
+        locked: true,
+      })
+    }
+
     // T231 — say so, rather than skipping quietly. This branch used to
     // `continue` with no finding, so an occurrence nobody could attend
     // produced a clean empty result indistinguishable from "no work to do".
@@ -135,26 +158,7 @@ export function buildElectiveAssignments({
       })
       continue
     }
-    // A locked seat is emitted as-is so a caller's preview still shows the
-    // camper. A locked row naming an activity this occurrence does not offer
-    // is emitted but accounted against nothing — this function is pure and
-    // does not diagnose stale rows; DANGLING_MANUAL_ASSIGNMENT in
-    // commitElectiveRun is where that is reported.
-    for (const l of lockedHere) {
-      const o = here.find((x) => x.activity_id === l.activityId) ?? null
-      assignments.push({
-        camper_id: l.camperId,
-        occurrence_id: occurrenceId,
-        labelKey: o?.labelKey ?? null,
-        activity_id: l.activityId,
-        preference_rank: (o && rankOf.get(l.camperId)?.get(o.labelKey)) ?? null,
-        flags: [],
-        source: 'manual',
-        locked: true,
-      })
-    }
-
-    if (who.length === 0 && lockedHere.length === 0) {
+    if (who.length === 0) {
       findings.push({
         kind: 'NO_CAMPERS',
         occurrence_id: occurrenceId,

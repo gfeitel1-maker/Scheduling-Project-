@@ -177,8 +177,19 @@ export function commitElectiveRun(db, {
   // renderer that produced `assignments`, so `assignments` may well carry a
   // solver placement for a (camper, occurrence) that is locked here. The skip
   // is decided from the local projection at commit time, not from the caller.
+  //
+  // THE RESIDUAL GAP, stated plainly. `is_locked = 1` is read from THIS
+  // device's projection, so a lock that has not yet merged here is invisible
+  // and its row is rewritten to source='solver' with the solver's activity
+  // while `is_locked` stays 1 — no path in this file writes `is_locked`. That
+  // mixed state is pre-existing: the write set before this change never wrote
+  // `is_locked` either, so this ticket neither worsens it nor claims to fix it.
+  // It is not closed here because closing it needs a mechanism nobody has
+  // designed: the ADR's Red Hat H3 correction moved lock survival to the READ
+  // side precisely to avoid depending on the regenerating device's local view
+  // of which rows are locked, and this skip depends on exactly that view.
   const lockedRows = db
-    .prepare('SELECT id, camper_id, occurrence_id, activity_id FROM elective_assignments WHERE run_id = ? AND is_locked = 1')
+    .prepare('SELECT id, occurrence_id FROM elective_assignments WHERE run_id = ? AND is_locked = 1')
     .all(runId)
 
   // DANGLING_MANUAL_ASSIGNMENT, detection only — no auto-repair, no throw; the
