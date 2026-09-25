@@ -65,6 +65,24 @@ describe('localClient.onLocalWrite', () => {
     unsub()
   })
 
+  // T259. Import-undo reverts an accepted import — restoring prior field
+  // values and deleting the rows the import created — but it was the one
+  // mutation left OUT of the announcing() wrapper (ingestReconcile beside it
+  // is a read-only dry run and correctly stays out; ingestUndo writes). So
+  // undoing an import left the sidebar readiness ticks and counts on their
+  // post-import state until something else forced a refetch — the same stale
+  // sidebar T123 fixed for the write path, reopened for undo.
+  it('notifies after an import undo', async () => {
+    const seen = vi.fn()
+    const unsub = localClient.onLocalWrite(seen)
+    await localClient.ingestUndo({
+      invertibleOps: [],
+      createdEntityIds: [{ entity: 'groups', entity_id: 'g-imported' }],
+    })
+    expect(seen).toHaveBeenCalledTimes(1)
+    unsub()
+  })
+
   it('stops notifying once unsubscribed', async () => {
     const seen = vi.fn()
     localClient.onLocalWrite(seen)()

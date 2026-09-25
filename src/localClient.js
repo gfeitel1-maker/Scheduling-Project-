@@ -133,8 +133,12 @@ export const localClient = {
   // captureInverse commit. See the ADR's "grace-window" mechanism;
   // invertibleOps/createdEntityIds never persist past the renderer session
   // (Invariant 5), so this is the only place they are read from.
-  ingestUndo: ({ invertibleOps, createdEntityIds, client_write_id } = {}) =>
-    shoresh.ingestUndo({ token: currentToken(), invertibleOps, createdEntityIds, client_write_id }),
+  // announcing() because this WRITES — it reverts field-updates and deletes
+  // the import's created rows — so the sidebar's readiness ticks and counts
+  // must refresh, exactly as they do after ingestCommit. (ingestReconcile
+  // above is a read-only dry run and correctly stays unwrapped.) T259.
+  ingestUndo: announcing(({ invertibleOps, createdEntityIds, client_write_id } = {}) =>
+    shoresh.ingestUndo({ token: currentToken(), invertibleOps, createdEntityIds, client_write_id })),
   // S1b — remember an import label -> existing entity mapping so the next
   // import recognizes it without re-asking. Host-only, admin-gated at the IPC
   // boundary (electron/main.js's confirmAliasHandler); best-effort by callers.
