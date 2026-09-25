@@ -275,6 +275,9 @@ export const localClient = {
   listElectiveRuns: () => shoresh.listElectiveRuns(currentToken()),
   getElectiveRun: ({ runId }) => shoresh.getElectiveRun({ token: currentToken(), runId }),
   finalizeElectiveRun: ({ runId }) => shoresh.finalizeElectiveRun({ token: currentToken(), runId }),
+  // T245 — draft move/lock.
+  setElectiveAssignment: ({ runId, camperId, occurrenceId, activityId, locked = false }) =>
+    shoresh.setElectiveAssignment({ token: currentToken(), runId, camperId, occurrenceId, activityId, locked }),
   // T249 — no token by design (public config read; see electron/main.js).
   getSecurityStatus: () => shoresh.getSecurityStatus(),
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),

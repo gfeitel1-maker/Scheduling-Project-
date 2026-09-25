@@ -1,7 +1,7 @@
 ---
 title: T245-draft-assignment-move-lock-ipc
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: shoresh:set-elective-assignment is callable, writes the same derived row the solver writes, refuses on a final run, is capacity/eligibility-checked using the engine's own resolution helpers, and sets solver_generation exactly once with no later re-stamp anywhere in the codebase
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
