@@ -39,7 +39,7 @@ export default function FinalRunView({
   activities = [], days = [], timeBlocks = [], groups = [], occurrences = [],
   scheduleTemplates = [], scheduleWeeks = [], tiers = [],
 }) {
-  const { state, loadError } = useRunState(run.id)
+  const { state, loaded, loadError } = useRunState(run.id)
   const [error, setError] = useState(null)
 
   async function exportChildSchedules() {
@@ -67,6 +67,14 @@ export default function FinalRunView({
     </button>
   )
 
+  // AN UNKNOWN IS NOT "NOT STALE". useRunState's EMPTY default carries
+  // all-clear values and a thrown getElectiveRun leaves it in place, while
+  // RunStateArea renders nothing when it has nothing to say — so reading
+  // `state` without first establishing that the read SUCCEEDED paints an
+  // unread run as a clean one, with Export and the revision action both live.
+  // That is this ticket's own failure ("a detection nobody renders is
+  // functionally no detection") one layer up, and it is the reason everything
+  // below the identity line is gated on `loaded`, exactly as DraftRunView is.
   const stale = state.finalizedAgainstStaleGeneration === true
   const overCapacityRows = state.overCapacityOccurrences
 
@@ -98,14 +106,18 @@ export default function FinalRunView({
       <RunIdentity run={run} scheduleTemplates={scheduleTemplates} scheduleWeeks={scheduleWeeks} tiers={tiers} />
       <RunError message={error ?? loadError} />
 
-      <RunStateArea>{stateRows}</RunStateArea>
+      {loaded ? (
+        <>
+          <RunStateArea>{stateRows}</RunStateArea>
 
-      <div style={styles.actions}>
-        <button className="press-97" style={S.btnSecondary} onClick={exportChildSchedules}>Export</button>
-        {/* One control per screen: when the stale row is showing, the button
-            lives inside that pairing instead, never duplicated. */}
-        {stale ? null : startRevision}
-      </div>
+          <div style={styles.actions}>
+            <button className="press-97" style={S.btnSecondary} onClick={exportChildSchedules}>Export</button>
+            {/* One control per screen: when the stale row is showing, the button
+                lives inside that pairing instead, never duplicated. */}
+            {stale ? null : startRevision}
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }

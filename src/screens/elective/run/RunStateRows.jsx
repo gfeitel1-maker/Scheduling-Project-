@@ -6,10 +6,18 @@
 // action slot; see the ADR's "Amendment (2026-09-24)") and not a banner.
 //
 // Every visual value here is reused, not invented: S.cautionBanner's exact
-// colour formula, S.btnSecondary for the one action, useEnterTransition
-// ('liftFade') for a row arriving, and the collapse property list already in
-// src/styles/shared.js for a row leaving.
-import { S, prefersReducedMotion, useEnterTransition } from '../../../styles/shared'
+// colour formula and S.btnSecondary for the one action.
+//
+// NOTHING HERE ANIMATES, and that is the spec, not an omission. The spec's
+// "Animation" section reserves motion for a transition INTO a new state
+// during an active session and forbids an entrance animation on a screen that
+// already has findings when it mounts. These two screens have no in-session
+// transition: the run-state area is rendered from one load of getElectiveRun
+// and no row is ever added to or removed from it while mounted. Round 1 wrapped
+// the area in useEnterTransition('liftFade'), which fires on every mount and so
+// animated exactly the case the spec excludes. A row that CAN arrive or leave
+// mid-session is what re-earns motion here.
+import { S } from '../../../styles/shared'
 
 // S.cautionBanner as a ROW rather than a block: the bottom margin is dropped
 // and a structural 1px divider separates stacked rows, so five conditions read
@@ -28,17 +36,7 @@ const rowBase = {
   overflow: 'hidden',
 }
 
-// The same property list src/styles/shared.js already uses for its own collapse
-// (mergeCard), so a row leaving does not read as a layout jump.
-const COLLAPSE_TRANSITION =
-  'max-height var(--motion-settle) var(--ease-out), opacity var(--motion-settle) var(--ease-out), margin var(--motion-settle) var(--ease-out), padding var(--motion-settle) var(--ease-out), border-color var(--motion-settle) var(--ease-out)'
-
-export const COLLAPSE_MS = 340
-
-const collapsed = { maxHeight: 0, opacity: 0, paddingTop: 0, paddingBottom: 0, borderColor: 'transparent' }
-
-export function RunStateRow({ testId, message, action, first, last, removing }) {
-  const reduced = prefersReducedMotion()
+export function RunStateRow({ testId, message, action, first, last }) {
   return (
     <div
       data-testid={testId}
@@ -51,9 +49,6 @@ export function RunStateRow({ testId, message, action, first, last, removing }) 
         borderTopRightRadius: first ? 6 : 0,
         borderBottomLeftRadius: last ? 6 : 0,
         borderBottomRightRadius: last ? 6 : 0,
-        maxHeight: 200,
-        transition: reduced ? undefined : COLLAPSE_TRANSITION,
-        ...(removing ? collapsed : null),
       }}
     >
       <span>{message}</span>
@@ -66,11 +61,10 @@ export function RunStateRow({ testId, message, action, first, last, removing }) 
 // tile would read as a dashboard on a screen whose personality is quiet — the
 // clean case renders nothing at all and occupies no vertical space.
 export function RunStateArea({ children }) {
-  const enter = useEnterTransition('liftFade')
   const present = [children].flat().filter(Boolean)
   if (present.length === 0) return null
   return (
-    <div data-testid="run-state-area" style={{ marginBottom: 16, ...enter }}>
+    <div data-testid="run-state-area" style={{ marginBottom: 16 }}>
       {present}
     </div>
   )

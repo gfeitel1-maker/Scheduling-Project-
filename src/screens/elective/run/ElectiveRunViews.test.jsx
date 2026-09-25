@@ -40,7 +40,8 @@ import { localClient } from '../../../localClient'
 import RunList from './RunList.jsx'
 import DraftRunView from './DraftRunView.jsx'
 import FinalRunView from './FinalRunView.jsx'
-import { START_REVISION_LABEL, STALE_GENERATION_COPY } from './runStateCopy.js'
+import { prefersReducedMotion } from '../../../styles/shared'
+import { RELEASE_LOCK_LABEL, START_REVISION_LABEL, STALE_GENERATION_COPY } from './runStateCopy.js'
 
 // Fabricated names only — real camper data is refused at a tested gate until
 // at-rest encryption ships (T249 / ADR 2026-09-23 Q4), and the privacy guard
@@ -180,8 +181,10 @@ describe('T250 archive_when — Draft: DANGLING_MANUAL_ASSIGNMENT surfaced live'
     expect(localClient.setElectiveAssignment).toHaveBeenCalledWith({
       runId: 'run-1', camperId: 'camper-3', occurrenceId: 'occ-gone', activityId: 'act-2', locked: false,
     })
-    // Live: the row goes away once its condition is resolved.
-    await waitFor(() => expect(screen.queryByTestId('run-state-dangling-a3')).toBeNull())
+    // Round 2: the row does NOT go away. Releasing the lock does not resolve
+    // the dangling condition — see the FIX 2 describe block below.
+    await waitFor(() =>
+      expect(within(screen.getByTestId('run-state-dangling-a3')).queryByRole('button')).toBeNull())
   })
 
   it('orders over-capacity rows before dangling rows, per the spec fixed order', async () => {
@@ -486,5 +489,148 @@ describe('T250 — Q5 terminology is a single swappable constant', () => {
       .readFileSync(path.join(process.cwd(), 'src/screens/elective/run/FinalRunView.jsx'), 'utf8')
       .replace(/\/\/.*$/gm, '')
     expect(src).not.toMatch(/Start a revision/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Round 2, FIX 1 — a failed state read must not present as a clean run.
+//
+// useRunState's EMPTY default carries all-clear values
+// (finalizedAgainstStaleGeneration: false, overCapacityOccurrences: []), and
+// RunStateArea renders nothing when it has nothing to say. Those two are
+// correct on their own and catastrophic together: read `state` without first
+// establishing that the read SUCCEEDED and a thrown getElectiveRun renders a
+// screen indistinguishable from a clean finalized run, with Export and the
+// revision action both live. An unknown is not "not stale".
+//
+// This is the ticket's own failure — "a detection nobody renders is
+// functionally no detection" — reproduced one layer up, so the guard below is
+// required to go RED if FinalRunView ever reads run state ungated again.
+// ---------------------------------------------------------------------------
+describe('T250 round 2 — Final: an unread run never reads as a clean one', () => {
+  it('says the read failed and offers neither the run-state area nor any action', async () => {
+    localClient.getElectiveRun.mockRejectedValue(new Error('run state unavailable'))
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} onStartRevision={vi.fn()} {...catalogs()} />)
+
+    await waitFor(() => expect(screen.getByTestId('run-view-error')).toBeTruthy())
+    // The identity line still says which run this is — that much is known.
+    expect(screen.getByTestId('run-identity')).toBeTruthy()
+    // Everything derived from the unread state is absent, including the
+    // absence-of-findings reading that an all-clear default would produce.
+    expect(screen.queryByTestId('run-state-area')).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Export$/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: START_REVISION_LABEL })).toBeNull()
+  })
+
+  // The defect the description above would NOT lead you to: gating on
+  // `loadError` alone still leaves the whole in-flight window — every render
+  // between mount and the promise settling — presenting as a clean run with
+  // live actions. Only a positive `loaded` gate closes it.
+  it('offers no action while the state read is still in flight', async () => {
+    let settle
+    localClient.getElectiveRun.mockReturnValue(new Promise((resolve) => { settle = resolve }))
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} onStartRevision={vi.fn()} {...catalogs()} />)
+
+    expect(await screen.findByTestId('run-identity')).toBeTruthy()
+    expect(screen.queryByTestId('run-view-error')).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Export$/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: START_REVISION_LABEL })).toBeNull()
+
+    settle({ ...CLEAN_RUN_STATE, finalizedAgainstStaleGeneration: true })
+    // ...and once the read lands, the state it actually carries is shown.
+    expect(await screen.findByTestId('run-state-stale-generation')).toBeTruthy()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Round 2, FIX 2 — Release lock must not claim a fix it did not make.
+//
+// setElectiveAssignment writes source:'manual' on EVERY write through that
+// path (electron/ops/setElectiveAssignment.js), and commitElectiveRun derives
+// DANGLING_MANUAL_ASSIGNMENT from source='manual' rows whose occurrence_id is
+// outside the derived occurrence set — keyed on `source`, never on `is_locked`.
+// Releasing the lock therefore changes nothing about the dangling condition:
+// the next regenerate re-reports the identical row. A row that vanishes on
+// click tells the director it is fixed. It is not.
+// ---------------------------------------------------------------------------
+describe('T250 round 2 — Draft: Release lock does not pretend to resolve the dangling row', () => {
+  const dangling = [{
+    kind: 'DANGLING_MANUAL_ASSIGNMENT', assignment_id: 'a3',
+    camper_id: 'camper-3', occurrence_id: 'occ-gone', message: 'ignored — T250 owns this screens copy',
+  }]
+
+  it('keeps the row after a successful release, and retires only the action it actually performed', async () => {
+    render(<DraftRunView run={DRAFT_RUN} danglingFindings={dangling} {...catalogs()} />)
+    const row = await screen.findByTestId('run-state-dangling-a3')
+    fireEvent.click(within(row).getByRole('button', { name: RELEASE_LOCK_LABEL }))
+    await waitFor(() => expect(localClient.setElectiveAssignment).toHaveBeenCalled())
+
+    // The lock is genuinely gone, so its control is gone...
+    await waitFor(() =>
+      expect(within(screen.getByTestId('run-state-dangling-a3')).queryByRole('button')).toBeNull())
+    // ...but the dangling condition is untouched, so the row stays.
+    expect(screen.getByTestId('run-state-dangling-a3')).toBeTruthy()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Round 2, FIX 3 — a remedy that is unavailable must not be silently absent.
+//
+// AssignmentPanel only passes onRegenerate when a parsed sheet is in hand and
+// the run is the one this session just committed. On a run opened cold from
+// RunList neither holds, so the ENTIRE staleness offer used to vanish —
+// staleCount > 0 and not a word about it. The fact is the director's to know
+// whether or not this session can act on it.
+// ---------------------------------------------------------------------------
+describe('T250 round 2 — Draft: staleness is stated even when regenerate is unavailable', () => {
+  it('states the stale placement count with no regenerate control when none is offered', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, staleCount: 3 })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    const offer = await screen.findByTestId('run-staleness-offer')
+    expect(offer.textContent).toMatch(/3 placements in this run came from an earlier version/)
+    expect(within(offer).queryByRole('button')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Round 2, FIX 4 — a screen that already has findings when it mounts renders
+// at rest (docs/work/specs/2026-09-25-t250-run-state-surface.md, "Animation").
+//
+// Round 1 applied useEnterTransition('liftFade') to the whole run-state area,
+// which fires on EVERY mount: a Final run opened cold with a stale flag
+// already set animated in. The spec reserves motion for a transition INTO a
+// new state during an active session, and these screens have none.
+// ---------------------------------------------------------------------------
+describe('T250 round 2 — the run-state area renders at rest on first mount', () => {
+  function assertAtRest() {
+    const area = screen.getByTestId('run-state-area')
+    for (const node of [area, ...area.querySelectorAll('[data-testid^="run-state-"]')]) {
+      expect(node.style.transition).toBe('')
+      expect(node.style.transform).toBe('')
+      expect(node.style.opacity).toBe('')
+    }
+  }
+
+  it('gives a cold-opened Final run with a stale flag no entrance animation', async () => {
+    localClient.getElectiveRun.mockResolvedValue({ ...CLEAN_RUN_STATE, finalizedAgainstStaleGeneration: true })
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} {...catalogs()} />)
+    await screen.findByTestId('run-state-stale-generation')
+    assertAtRest()
+  })
+
+  it('renders at rest under prefers-reduced-motion too, so no branch reintroduces motion', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query, addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    })))
+    expect(prefersReducedMotion()).toBe(true)
+    localClient.getElectiveRun.mockResolvedValue({
+      ...CLEAN_RUN_STATE,
+      overCapacityOccurrences: [{ occurrenceId: 'occ-1', activityId: 'act-1', capacity: 1, filled: 2 }],
+    })
+    render(<DraftRunView run={DRAFT_RUN} {...catalogs()} />)
+    await screen.findByTestId('run-state-over-capacity-occ-1-act-1')
+    assertAtRest()
+    vi.unstubAllGlobals()
   })
 })

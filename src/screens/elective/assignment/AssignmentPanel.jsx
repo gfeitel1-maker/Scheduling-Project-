@@ -484,6 +484,24 @@ export default function AssignmentPanel({
         ) : (
           <DraftRunView
             run={viewRun}
+            /* KNOWN GAP, not an oversight: danglingFindings are SESSION-SCOPED.
+               commitElectiveRun returns them, this panel holds them in React
+               state, and a run reopened in a later session therefore always
+               gets []. A genuinely dangling row is invisible until the next
+               regenerate, with no path to show it.
+
+               It cannot be derived durably today. commitElectiveRun computes
+               DANGLING_MANUAL_ASSIGNMENT against the occurrence set the
+               RENDERER just derived for this generation, and the persisted
+               `elective_occurrences` rows are NOT the same set: nothing in
+               electron/ ever deletes one, so the table accumulates the union of
+               every generation's occurrences. An occurrence a template edit
+               removed — precisely the case that makes a manual row dangle —
+               is still sitting in `elective_occurrences`, so a DB-derived check
+               in getElectiveRunHandler would find it present and report a clean
+               run. That is a false all-clear, which is worse than this silence.
+               Pruning `elective_occurrences` is the prerequisite; it is not
+               T250's to do. */
             danglingFindings={viewRun.id === committedInfo?.runId ? danglingFindings : []}
             onRegenerate={parsed && viewRun.id === committedInfo?.runId ? regenerate : undefined}
             onBack={() => setViewRun(null)}

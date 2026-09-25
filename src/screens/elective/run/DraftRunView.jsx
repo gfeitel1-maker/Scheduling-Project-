@@ -12,7 +12,7 @@
 import { useState } from 'react'
 import { localClient } from '../../../localClient'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
-import { S, RunStateArea, RunStateRow, RunIdentity, RunError, COLLAPSE_MS } from './RunStateRows.jsx'
+import { S, RunStateArea, RunStateRow, RunIdentity, RunError } from './RunStateRows.jsx'
 import { useRunState } from './useRunState.js'
 import {
   RELEASE_LOCK_LABEL, danglingMessage, occurrenceLabel, overCapacityMessage,
@@ -34,8 +34,7 @@ export default function DraftRunView({
 }) {
   const { state, setState, loaded, loadError } = useRunState(run.id)
   const [error, setError] = useState(null)
-  const [resolved, setResolved] = useState([])
-  const [collapsing, setCollapsing] = useState([])
+  const [released, setReleased] = useState([])
 
   const rows = state.rows
   const labelFor = (o) => occurrenceLabel({ ...o, activities, occurrences, days, timeBlocks })
@@ -64,6 +63,23 @@ export default function DraftRunView({
     }
   }
 
+  // RELEASING THE LOCK DOES NOT RESOLVE THE DANGLING CONDITION, so this row
+  // must not disappear as though it had.
+  //
+  // setElectiveAssignment writes source:'manual' on EVERY write through that
+  // path (electron/ops/setElectiveAssignment.js), and commitElectiveRun derives
+  // DANGLING_MANUAL_ASSIGNMENT from source='manual' rows whose occurrence_id is
+  // outside the derived occurrence set — keyed on `source`, never on
+  // `is_locked`. Unlocking leaves `source` exactly where it was, so the very
+  // next regenerate re-reports the identical row. Round 1 collapsed the row
+  // away on a successful write, which told the director it was fixed.
+  //
+  // What the write DOES do is real and worth keeping: the lock is genuinely
+  // released. So the action retires once performed and the row stays, stating
+  // the condition that is still true. The spec chose this remedy without
+  // knowing `source` stays 'manual'; a remedy that actually closes the
+  // condition has to move the placement onto an occurrence this run still has,
+  // which is a picker and copy this ticket was not asked to invent.
   async function releaseLock(finding) {
     const row = rows.find((r) => r.id === finding.assignment_id)
     const ok = await writeAssignment({
@@ -73,12 +89,11 @@ export default function DraftRunView({
       locked: false,
     })
     if (!ok) return
-    setCollapsing((c) => [...c, finding.assignment_id])
-    setTimeout(() => setResolved((r) => [...r, finding.assignment_id]), COLLAPSE_MS)
+    setReleased((r) => [...r, finding.assignment_id])
   }
 
   const overCapacityRows = state.overCapacityOccurrences
-  const danglingRows = danglingFindings.filter((f) => !resolved.includes(f.assignment_id))
+  const danglingRows = danglingFindings
   const stateRowCount = overCapacityRows.length + danglingRows.length
 
   const stateRows = [
@@ -99,13 +114,12 @@ export default function DraftRunView({
           testId={`run-state-dangling-${f.assignment_id}`}
           first={index === 0}
           last={index === stateRowCount - 1}
-          removing={collapsing.includes(f.assignment_id)}
           message={danglingMessage({ camperName: rows.find((r) => r.camper_id === f.camper_id)?.camper_name ?? f.camper_id })}
-          action={
+          action={released.includes(f.assignment_id) ? null : (
             <button className="press-97" style={S.btnSecondary} onClick={() => releaseLock(f)}>
               {RELEASE_LOCK_LABEL}
             </button>
-          }
+          )}
         />
       )
     }),
@@ -122,21 +136,29 @@ export default function DraftRunView({
 
           <RunStateArea>{stateRows}</RunStateArea>
 
-          {/* An offer, never a block: the table below stays fully usable. */}
-          {state.staleCount > 0 && onRegenerate ? (
+          {/* An offer, never a block: the table below stays fully usable.
+              The FACT is stated whenever there is one, and the control appears
+              only when this session can act on it — AssignmentPanel withholds
+              onRegenerate for a run opened cold from the run list, which has no
+              parsed sheet to re-derive against. Round 1 gated the whole block
+              on the control, so the only in-UI remedy and the staleness itself
+              vanished together, silently. */}
+          {state.staleCount > 0 ? (
             <div data-testid="run-staleness-offer" style={styles.offer}>
               <span>{stalenessOfferMessage({ staleCount: state.staleCount })}</span>
-              <button
-                className="press-97"
-                style={S.btnSecondary}
-                onClick={() => onRegenerate({
-                  lockedAssignments: rows
-                    .filter((r) => r.is_locked === 1 || r.is_locked === true)
-                    .map((r) => ({ camperId: r.camper_id, occurrenceId: r.occurrence_id, activityId: r.activity_id })),
-                })}
-              >
-                Re-derive and regenerate
-              </button>
+              {onRegenerate ? (
+                <button
+                  className="press-97"
+                  style={S.btnSecondary}
+                  onClick={() => onRegenerate({
+                    lockedAssignments: rows
+                      .filter((r) => r.is_locked === 1 || r.is_locked === true)
+                      .map((r) => ({ camperId: r.camper_id, occurrenceId: r.occurrence_id, activityId: r.activity_id })),
+                  })}
+                >
+                  Re-derive and regenerate
+                </button>
+              ) : null}
             </div>
           ) : null}
 
