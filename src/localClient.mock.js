@@ -1799,6 +1799,78 @@ export const mockShoresh = {
     saveState(state)
     return { ok: true, assignmentId }
   },
+  // T248 — mirrors getElectiveRunOuterScheduleHandler (electron/main.js). For
+  // a final run, reads the mock's elective_run_outer_snapshots rows (written
+  // above by finalizeElectiveRun); otherwise derives live from
+  // elective_assignments joined to elective_occurrences, same additive-
+  // degradation posture as getElectiveRun above (activity/location name
+  // lookups degrade to null rather than crashing when the mock fixture
+  // hasn't seeded those tables).
+  async getElectiveRunOuterSchedule({ runId } = {}) {
+    const state = loadState()
+    const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
+    const activityById = new Map((state.activities || []).map((a) => [a.id, a]))
+    const locationById = new Map((state.locations || []).map((l) => [l.id, l]))
+
+    let rows
+    if (run?.status === 'final') {
+      rows = (state.elective_run_outer_snapshots || []).filter((s) => s.run_id === runId)
+    } else {
+      const occurrenceById = new Map((state.elective_occurrences || []).map((o) => [o.id, o]))
+      // Mirrors electron/ops/electiveGenerationPredicate.js's
+      // electiveGenerationVisibleFragment — that module is the authority;
+      // if its rule changes, this filter must change alongside it. A
+      // manual row is exempt from the generation check; a solver row is
+      // visible only when its generation matches the run's current one
+      // (JS `===` covers the predicate's SQL `IS`, since `null === null`
+      // is true).
+      rows = (state.elective_assignments || [])
+        .filter((a) => a.run_id === runId && (a.source === 'manual' || a.solver_generation === run?.solver_generation))
+        .map((a) => {
+          const occurrence = occurrenceById.get(a.occurrence_id)
+          const activity = activityById.get(a.activity_id)
+          return {
+            camper_id: a.camper_id,
+            day_id: occurrence?.day_id ?? null,
+            time_block_id: occurrence?.time_block_id ?? null,
+            activity_id: a.activity_id,
+            activity_name: activity?.name ?? null,
+            location_id: activity?.location_id ?? null,
+            span_blocks: activity?.span_blocks ?? null,
+            solver_generation: run?.solver_generation ?? null,
+          }
+        })
+    }
+
+    // Same ORDER BY camper_id, day_id, time_block_id as both real-handler
+    // queries (electron/ops/electiveRunOuterSchedule.js and
+    // electron/main.js), so the mock's row order matches electron:dev.
+    const sortedRows = [...rows].sort((a, b) => {
+      if (a.camper_id !== b.camper_id) return a.camper_id < b.camper_id ? -1 : 1
+      if (a.day_id !== b.day_id) return a.day_id < b.day_id ? -1 : 1
+      if (a.time_block_id !== b.time_block_id) return a.time_block_id < b.time_block_id ? -1 : 1
+      return 0
+    })
+
+    return {
+      rows: sortedRows.map((r) => ({
+        camperId: r.camper_id,
+        dayId: r.day_id,
+        timeBlockId: r.time_block_id,
+        activityId: r.activity_id,
+        activityName: r.activity_name ?? null,
+        locationId: r.location_id ?? null,
+        locationName: r.location_id != null ? locationById.get(r.location_id)?.name ?? null : null,
+        spanBlocks: r.span_blocks ?? null,
+        solverGeneration: r.solver_generation ?? null,
+      })),
+      runStatus: run?.status ?? null,
+      // Hardcoded false: computing this honestly in the mock (comparing
+      // snapshot generations, per finalizedAgainstStaleGeneration.js) is
+      // disproportionate for a browser-dev-only fixture layer.
+      finalizedAgainstStaleGeneration: false,
+    }
+  },
   // T249 — mirrors getSecurityStatusHandler (electron/main.js). Browser-dev
   // has no Electron, no OS keychain and no encrypted store, so nothing is
   // encrypted at rest here under any circumstances: reporting `false` is the

@@ -282,6 +282,9 @@ export const localClient = {
   // T245 — draft move/lock.
   setElectiveAssignment: ({ runId, camperId, occurrenceId, activityId, locked = false }) =>
     shoresh.setElectiveAssignment({ token: currentToken(), runId, camperId, occurrenceId, activityId, locked }),
+  // T248 — per-camper outer schedule (final-run snapshot or draft-derive).
+  getElectiveRunOuterSchedule: ({ runId }) =>
+    shoresh.getElectiveRunOuterSchedule({ token: currentToken(), runId }),
   // T249 — no token by design (public config read; see electron/main.js).
   getSecurityStatus: () => shoresh.getSecurityStatus(),
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),

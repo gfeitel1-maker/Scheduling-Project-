@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto'
 import { appendOp, runAtomic } from './operations.js'
 import { deriveElectiveRunOuterSnapshotId } from './deriveElectiveRunOuterSnapshotId.js'
-import { electiveGenerationVisibleFragment } from './electiveGenerationPredicate.js'
+import { deriveElectiveRunOuterRows } from './electiveRunOuterSchedule.js'
 import { deriveOccurrences } from '../../src/screens/elective/assignment/deriveOccurrences.js'
 import { findRouteConflicts } from '../../src/engine/routeConflicts.js'
 
@@ -100,18 +100,6 @@ export function finalizeElectiveRun(db, { runId, authorUserId = null, deviceId }
   // either (INCOMPLETE_PLACEMENT), so a live-matching occurrence always has
   // both; skip-and-report defensively rather than let a stray row crash the
   // whole finalize.
-  const assignmentRows = db
-    .prepare(
-      `SELECT a.camper_id, a.activity_id, o.day_id, o.time_block_id
-         FROM elective_assignments a
-         JOIN elective_occurrences o ON o.id = a.occurrence_id
-        WHERE a.run_id = :runId AND ${electiveGenerationVisibleFragment('a')}`
-    )
-    .all({ runId, gen: run.solver_generation })
-
-  const activityById = new Map(db.prepare('SELECT * FROM activities').all().map((a) => [a.id, a]))
-  const locationById = new Map(db.prepare('SELECT * FROM locations').all().map((l) => [l.id, l]))
-
   // `skipped` is deliberately not returned to the caller: the ADR's response
   // shape for a success is exactly {ok, finalizedAt, snapshotRows}, and this
   // branch should be unreachable in practice (the STALE_OUTER_SCHEDULE check
@@ -121,28 +109,11 @@ export function finalizeElectiveRun(db, { runId, authorUserId = null, deviceId }
   // see is dropped rather than crashing the whole finalize; if this array is
   // ever non-empty in practice, that is itself a bug worth a real finding,
   // not a value worth threading through the response contract.
-  const snapshots = []
-  const skipped = []
-  for (const row of assignmentRows) {
-    if (row.day_id == null || row.time_block_id == null) {
-      skipped.push({ camperId: row.camper_id, reason: 'missing day_id or time_block_id' })
-      continue
-    }
-    const activity = activityById.get(row.activity_id) ?? null
-    const location = activity?.location_id != null ? locationById.get(activity.location_id) ?? null : null
-    snapshots.push({
-      id: deriveElectiveRunOuterSnapshotId(runId, row.camper_id, row.day_id, row.time_block_id),
-      camper_id: row.camper_id,
-      day_id: row.day_id,
-      time_block_id: row.time_block_id,
-      activity_id: row.activity_id,
-      activity_name: activity?.name ?? null,
-      location_id: activity?.location_id ?? null,
-      location_name: location?.name ?? null,
-      span_blocks: activity?.span_blocks ?? null,
-      solver_generation: run.solver_generation,
-    })
-  }
+  const { rows: derivedRows } = deriveElectiveRunOuterRows(db, run)
+  const snapshots = derivedRows.map((row) => ({
+    id: deriveElectiveRunOuterSnapshotId(runId, row.camper_id, row.day_id, row.time_block_id),
+    ...row,
+  }))
 
   const finalizedAt = new Date().toISOString()
 
