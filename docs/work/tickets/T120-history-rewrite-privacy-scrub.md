@@ -106,7 +106,7 @@ secret patterns. Results:
 | date-of-birth-shaped | **0** | — |
 | JWTs, Slack / Google / Stripe keys, Supabase URLs | **0** | — |
 | PEM private key | 1 | `scripts/security-gate.test.js` — a fixture proving the secret detector fires |
-| AWS access key | 1 | `AKIAIOSFODNN7EXAMPLE` — the canonical AWS *documentation example*, same file |
+| AWS access key | 1 | the canonical AWS *documentation example* key (`AKIA…EXAMPLE`, redacted here — writing it out trips this repo's own secret gate, which is itself a datapoint), same file |
 | GitHub token | 1 | `ghp_0123456789…` — an obvious placeholder, same file |
 | email-shaped | 17 | **all** npm package authors (from the lockfile), `git@github.com`, `you@example.com`, `noreply@anthropic.com`, two `*-pkg@1.0.0.json` filenames, and 5 fuzz-generated strings |
 

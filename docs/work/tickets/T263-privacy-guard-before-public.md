@@ -79,6 +79,17 @@ Extend the existing `security-gate:allow` marker to this check and **say so in t
 only. That comment exists because omitting the scope actively misled someone on 2026-09-17; leaving
 it stale would repeat exactly that.
 
+## A live demonstration, for free
+
+While writing T120's evidence table, this ticket's author pasted the AWS documentation example key
+into the ticket as a *description of a finding*. `npm run security` failed the gate on it
+(`docs/work/tickets/T120-…:109 — possible aws-access-key-id`, CI run 36140342005). The existing
+secret check works, and it caught sensitive-shaped material entering a **documentation** file, which
+is precisely the surface this ticket is about.
+
+Two things follow. The mechanism being extended is known-good rather than hypothetical. And the
+failure mode is real: material arrives in `docs/` while someone is busy writing *about* privacy.
+
 ## Test-first, and non-vacuity
 
 Per `TESTING_STANDARD.md` and the standing rule that a guard's *description* is part of the guard:
