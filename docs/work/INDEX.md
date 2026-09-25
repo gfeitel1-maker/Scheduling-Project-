@@ -27,7 +27,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Multi-device erasure propagation via signed purge tombstones](../../docs/work/tickets/T233-multi-device-erasure-propagation.md) | open | [2026-09-19-multi-device-erasure-propagation](../../docs/adr/2026-09-19-multi-device-erasure-propagation.md) |
-| [Name-keyed lookups across ingest, screens and export still assume a name identifies one row](../../docs/work/tickets/T255-name-keyed-lookups-assume-uniqueness.md) | open | [T256-locations-sheet-round-trip](../../docs/work/tickets/T256-locations-sheet-round-trip.md) · [T257-import-tier-dropdown-cannot-reach-second-division](../../docs/work/tickets/T257-import-tier-dropdown-cannot-reach-second-division.md) |
 
 ### documentation-governance
 

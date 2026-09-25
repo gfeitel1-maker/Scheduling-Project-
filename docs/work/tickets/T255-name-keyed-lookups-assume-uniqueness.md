@@ -1,9 +1,9 @@
 ---
 title: "Name-keyed lookups across ingest, screens and export still assume a name identifies one row"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-24
-archive_when: every name-keyed map or find() resolving one of the ten v73-relaxed entities either applies the lowest-id tie-break or surfaces the ambiguity to the director, rather than silently binding to an arbitrary row
+archive_when: archived 2026-09-25 — every name-keyed map or find() resolving one of the ten v73-relaxed entities either applies the lowest-id tie-break or surfaces the ambiguity to the director, EXCEPT the two findings carried by their own tickets: finding 7 (docs/work/tickets/T257-import-tier-dropdown-cannot-reach-second-division.md) and finding 9 (docs/work/tickets/T256-locations-sheet-round-trip.md). Neither is a silent wrong bind — 7 is a capability gap on an already-hardened commit path, 9 is a sheet that updates nothing at all — so this ticket's own predicate is met and its closure does not depend on them
 task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md]
 related_adrs: [docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md]
@@ -147,13 +147,13 @@ in-scope entities, so this item is carried here rather than there.
   the same file. Shared `src/ingest/mapWithCollisions.js`; the refusal is structural (a colliding key
   is deleted from the map, so a caller that ignores the `ambiguous` set still cannot bind to a wrong
   row).
-- **Slice B — IN REVIEW** (PR #531): findings 4, 5, 6 — shipped. All three are XLSX-import `reader.onload` handlers with
+- **Slice B (MERGED, #531, squash da9efff5) — IN REVIEW** (PR #531): findings 4, 5, 6 — shipped. All three are XLSX-import `reader.onload` handlers with
   the same per-row `warning` + preview-then-confirm structure, so they share one treatment. Two
   spillovers belong here: `ActivitiesScreen`'s unconditional `locationIdByName.set()` for a row created
   in the loop is the same create-time eviction bug T252 fixed in `electron/ops/ingest.js` and
   `src/localClient.mock.js`, left un-fixed here; and `tierMap`/`actMap` there use bare `.toLowerCase()`
   with no trim, so they fold differently than ingest's `tierIdByName`.
-- **Slice C — IN REVIEW:** findings **8** and **10**, plus the `listAliasMap` carried item. The
+- **Slice C — MERGED (#534, squash 981bcf18):** findings **8** and **10**, plus the `listAliasMap` carried item. The
   array-level helper is `src/lib/nameIdTiebreak.js` (`lowestIdOf`). `nameMap` and `seedNameMaps` were
   deliberately left db-bound rather than made to delegate — they are pinned by their own tie-break
   tests and reshaping them buys nothing here.
@@ -166,3 +166,23 @@ in-scope entities, so this item is carried here rather than there.
   `unit` would silently stop writing division evidence. Two hops this ticket never traced are also
   involved — `resolveFieldWrite`'s `unit` arm and the update-diff's `unit_name` snapshot comparison.
 - **Finding 9 — CLOSED, deferred by owner decision** to T256. Not a slice.
+
+## Closed 2026-09-25
+
+All three slices are on `main`: A (#530, `da94ffc8`), B (#531, `da9efff5`), C (#534, `981bcf18`). Every
+one of the ten findings is dispatched — eight fixed here, finding 7 carried by
+[T257](T257-import-tier-dropdown-cannot-reach-second-division.md), finding 9 closed by owner decision
+and carried by [T256](T256-locations-sheet-round-trip.md).
+
+Two findings were **reclassified** during verification rather than fixed as described, which is why the
+count of fixes is eight and not ten: finding 7 is a capability gap on a commit path T252 already
+hardened, and finding 10 was never mis-binding (post-migration creates use `randomUUID()`, so no
+collision is possible) but incompleteness plus a redundant re-derivation of a stored id.
+
+Beyond the ten, the sweep found two real defects the ticket had not predicted, both in `listAliasMap`:
+no `ORDER BY`, so SQLite chose the surviving alias arbitrarily, and a cohort filter skipped on a falsy
+`cohort_id`, merging two Programs' alias namespaces with no signal — the existing `alias_divergence`
+warning only fires for a *surviving* alias. Both fixed in slice C.
+
+_Prior: this ticket's §"Also in scope" listed the ~~`schedule_weeks` marker~~ as carried here; that
+decision now lives in T239's recorded owner decision, which archives on its nine in-scope entities._
