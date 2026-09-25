@@ -49,7 +49,7 @@ export function describeElectiveRunRefusal(parsed) {
 }
 
 /**
- * @returns {{ok: true, runId, counts} | {ok: false, error}}
+ * @returns {{ok: true, runId, counts, findings} | {ok: false, error}}
  */
 export function commitElectiveRun(db, {
   campId,
@@ -163,6 +163,51 @@ export function commitElectiveRun(db, {
   // marker carried forward.
   const solverGeneration = randomUUID()
 
+  // T246 — LOCKED ROWS ARE READ-ONLY TO THIS PASS. A regeneration used to
+  // write `source:'solver'` over the derived row a director had locked
+  // (setElectiveAssignment writes source:'manual', is_locked:1 to the SAME
+  // derived id), which removed that row's `source='manual'` exemption in
+  // electiveGenerationPredicate.js: the lock stayed visible but did not
+  // survive. Skipping the write entirely — no field, INCLUDING
+  // solver_generation, which the ADR's Red Hat H3 correction forbids
+  // re-stamping — is what makes a lock survive.
+  //
+  // This is also the belt-and-braces for H3's own hazard: a lock written on
+  // ANOTHER device that this device has not yet synced is invisible to the
+  // renderer that produced `assignments`, so `assignments` may well carry a
+  // solver placement for a (camper, occurrence) that is locked here. The skip
+  // is decided from the local projection at commit time, not from the caller.
+  const lockedRows = db
+    .prepare('SELECT id, camper_id, occurrence_id, activity_id FROM elective_assignments WHERE run_id = ? AND is_locked = 1')
+    .all(runId)
+
+  // DANGLING_MANUAL_ASSIGNMENT, detection only — no auto-repair, no throw; the
+  // commit completes around it and a director acts via T245's move/lock IPC.
+  // Checked on `source='manual'`, the SUPERSET of locked rows: the ticket's
+  // prose says "locked row" in one sentence and "any manual row" in the next,
+  // and it is the manual EXEMPTION from the generation predicate that creates
+  // the hazard — a manual row pointing at an occurrence a template edit
+  // removed stays visible forever with nothing to anchor it to.
+  const findings = db
+    .prepare("SELECT id, camper_id, occurrence_id FROM elective_assignments WHERE run_id = ? AND source = 'manual'")
+    .all(runId)
+    .filter((r) => !occurrenceIds.has(r.occurrence_id))
+    .map((r) => ({
+      kind: 'DANGLING_MANUAL_ASSIGNMENT',
+      assignment_id: r.id,
+      camper_id: r.camper_id,
+      occurrence_id: r.occurrence_id,
+      message:
+        'A placement made by hand sits in a period this schedule no longer has, so nobody will see ' +
+        'it on the grid \u2014 move it to a period that still exists, or remove it.',
+    }))
+
+  // A dangling row is outside this pass's occurrence set, so it is excluded
+  // from the protected set too — nothing this commit writes could reach it.
+  const protectedIds = new Set(
+    lockedRows.filter((r) => occurrenceIds.has(r.occurrence_id)).map((r) => r.id)
+  )
+
   try {
     runAtomic(db, () => {
       const write = (entity, entity_id, fields) => {
@@ -237,7 +282,11 @@ export function commitElectiveRun(db, {
         if (!occurrenceIds.has(a.occurrence_id)) {
           throw new Error(`assignment names an occurrence not in this run: ${a.occurrence_id}`)
         }
-        write('elective_assignments', deriveElectiveAssignmentId(runId, a.camper_id, a.occurrence_id), {
+        const assignmentId = deriveElectiveAssignmentId(runId, a.camper_id, a.occurrence_id)
+        // The locked row keeps its source, its activity and its marker — see
+        // protectedIds above.
+        if (protectedIds.has(assignmentId)) continue
+        write('elective_assignments', assignmentId, {
           run_id: runId,
           occurrence_id: a.occurrence_id,
           camper_id: a.camper_id,
@@ -263,5 +312,9 @@ export function commitElectiveRun(db, {
       preferences: parsed.preferences?.length ?? 0,
       assignments: assignments.length,
     },
+    // Run-level state, returned for the run's own screen (T250) — NOT a
+    // schedule finding, and never routed into the schedule findings
+    // vocabulary (ADR 2026-09-24 amendment).
+    findings,
   }
 }
