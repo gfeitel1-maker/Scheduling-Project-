@@ -57,7 +57,7 @@ The strongest evidence in this ticket is not that the lesson was written down an
 that it was written down **in the standing instructions both agents load at the start of every
 session**, was in context tonight, and did not prevent the recurrence.
 
-`~/.claude/CLAUDE.md:51-56` (identically at `/Users/gregfeitel/dev/.claude/CLAUDE.md`), section
+`~/.claude/CLAUDE.md:51-56` (identically at `~/dev/.claude/CLAUDE.md`), section
 **"Why this is a rule and not a suggestion,"** dated 2026-09-08, from deleting a ~14k-line sync
 layer: hand-written `grep` sweeps produced **four separate false negatives** — an unquoted zsh
 `--include` glob, a regex assuming a path prefix, a `| head` that truncated results, and `file -b`

@@ -31,15 +31,15 @@
   "malformed": [
     {
       "gate_name": "security",
-      "problem": "missing or invalid verdict: UNBOUND_NO_DISPATCH_EVIDENCE (evidence_ref: /private/tmp/claude-501/-Users-gregfeitel-dev-shoresh/335a7679-8094-4bfc-97e2-ffd859cf758e/scratchpad/session.txt)"
+      "problem": "missing or invalid verdict: UNBOUND_NO_DISPATCH_EVIDENCE (evidence_ref: /private/tmp/claude-501/-Users-<user>-dev-shoresh/335a7679-8094-4bfc-97e2-ffd859cf758e/scratchpad/session.txt)"
     },
     {
       "gate_name": "red_hat",
-      "problem": "missing or invalid verdict: UNBOUND_NO_DISPATCH_EVIDENCE (evidence_ref: /private/tmp/claude-501/-Users-gregfeitel-dev-shoresh/335a7679-8094-4bfc-97e2-ffd859cf758e/scratchpad/session.txt)"
+      "problem": "missing or invalid verdict: UNBOUND_NO_DISPATCH_EVIDENCE (evidence_ref: /private/tmp/claude-501/-Users-<user>-dev-shoresh/335a7679-8094-4bfc-97e2-ffd859cf758e/scratchpad/session.txt)"
     },
     {
       "gate_name": "code_reviewer",
-      "problem": "missing or invalid verdict: UNBOUND_NO_DISPATCH_EVIDENCE (evidence_ref: /private/tmp/claude-501/-Users-gregfeitel-dev-shoresh/335a7679-8094-4bfc-97e2-ffd859cf758e/scratchpad/session.txt)"
+      "problem": "missing or invalid verdict: UNBOUND_NO_DISPATCH_EVIDENCE (evidence_ref: /private/tmp/claude-501/-Users-<user>-dev-shoresh/335a7679-8094-4bfc-97e2-ffd859cf758e/scratchpad/session.txt)"
     }
   ],
   "self_declared_na": []

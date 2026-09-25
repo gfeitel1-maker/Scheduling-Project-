@@ -2,7 +2,7 @@
 // is a sibling; this is the continuous, cheap layer of the security program described in
 // docs/work/security/2026-09-14-security-program.md).
 //
-// Three checks, all self-contained — no external scanner binary the gate could choke on
+// Four checks, all self-contained — no external scanner binary the gate could choke on
 // when it is absent (gitleaks/semgrep are NOT assumed installed):
 //   1. dependency advisories — `npm audit --omit=dev`, fail on high/critical. This is the
 //      check that would have caught the xlsx@0.18.5 CVE automatically instead of by luck.
@@ -11,21 +11,28 @@
 //      on the same line opts a deliberate fixture out.
 //   3. dangerous code patterns — string-interpolated SQL, eval, and dangerouslySetInnerHTML,
 //      the three that map directly to this app's own threat surface (SECURITY.md).
+//   4. privacy scan (T263) — absolute home paths, hashed identity tokens (camp name +
+//      developer username), and PII shapes (email/phone), across both file CONTENTS and
+//      PATHS. Precondition for making this repository public: everything in tracked files
+//      is about to be published, and every future commit publishes live.
 //
 // SCOPE OF `security-gate:allow` — stated because omitting it actively misled someone (2026-09-17).
-// The marker is honoured by the SECRET scan (2) and the DANGEROUS-PATTERN scan (3) ONLY.
-// `auditFindings` (1) has NO allowlist of any kind: a high/critical advisory cannot be excepted,
-// annotated, or deferred here, and the only way to a green gate is to fix the dependency. Describing
-// the marker without its scope read as "advisories can be excepted too", and a session went looking
-// for how to do that during the GHSA-vrf4-mx87-p53w response. A mechanism documented without its
-// limits invites exactly that misreading — the same rule the boundary guards follow when they state
-// their own blind spots.
+// The marker is honoured by the SECRET scan (2), the DANGEROUS-PATTERN scan (3), and the
+// PRIVACY scan (4)'s CONTENT findings ONLY. `auditFindings` (1) has NO allowlist of any kind: a
+// high/critical advisory cannot be excepted, annotated, or deferred here, and the only way to a
+// green gate is to fix the dependency. The privacy scan's PATH findings (4) also have no marker
+// escape hatch, deliberately — see scanPrivacy below. Describing the marker without its scope
+// read as "advisories can be excepted too", and a session went looking for how to do that during
+// the GHSA-vrf4-mx87-p53w response. A mechanism documented without its limits invites exactly
+// that misreading — the same rule the boundary guards follow when they state their own blind
+// spots.
 //
-// The pure functions (auditFindings / scanSecrets / scanDangerous) take data and return
-// findings, so they unit-test without spawning anything (security-gate.test.js). The CLI
+// The pure functions (auditFindings / scanSecrets / scanDangerous / scanPrivacy) take data and
+// return findings, so they unit-test without spawning anything (security-gate.test.js). The CLI
 // tail gathers the data (npm audit + `git ls-files`) and prints a verdict.
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 
 const ALLOW = 'security-gate:allow'
 
@@ -121,6 +128,161 @@ export function scanDangerous(files) {
   return findings
 }
 
+// ── 4. Privacy scan (T263) ──────────────────────────────────────────────────
+// Files that legitimately carry the patterns below — third-party metadata (npm package
+// authors' emails, bundled license texts) or fixtures for this check's own tests. The
+// ticket's own list (package-lock.json, this file's test, test/fuzz/**) measured short by
+// three: electron/license-texts/**, electron/third-party-licenses.json and .html carry
+// 40+ upstream-author addresses from bundled license text and are exempted here too.
+const PRIVACY_EXEMPT_FILES = new Set([
+  'package-lock.json',
+  'scripts/security-gate.js',
+  'scripts/security-gate.test.js',
+  'electron/third-party-licenses.json',
+  'electron/third-party-licenses.html',
+])
+const PRIVACY_EXEMPT_PREFIXES = ['test/fuzz/', 'electron/license-texts/']
+
+function isPrivacyExempt(path) {
+  if (PRIVACY_EXEMPT_FILES.has(path)) return true
+  return PRIVACY_EXEMPT_PREFIXES.some((p) => path.startsWith(p))
+}
+
+// Rule 2 — hashed identity tokens (camp name + developer macOS username). The guard must
+// never hold either in plaintext: a denylist written into this file would itself be the leak,
+// committed and published. These are SHA-256 digests of the two lowercased tokens.
+//
+// HONEST LIMITATION: a SHA-256 of a short lowercase word is trivially brute-forced from a
+// wordlist, so this digest is NOT a secret and this is NOT confidentiality. It prevents the
+// string being present, greppable, and search-indexed in a public repo — that is the actual
+// goal, and no stronger claim is made.
+export const IDENTITY_TOKEN_DIGESTS = new Set([
+  '2a123e7bdd96337aef54d45a21c2a25a61a3fe8f96cee351751dc47c47b6f5bf',
+  'f95c3e4db9977fccda1aee1dcf25f6f4452d4e2c399e2f622db36626dc14e443',
+])
+// Plaintext token lengths (not digest lengths) the two identity tokens are known to have.
+// Restricting candidates to these lengths before hashing is what keeps this check cheap:
+// we hash only the unique short/mid-length tokens a file actually contains, not every token.
+const IDENTITY_TOKEN_LENGTHS = new Set([5, 10])
+
+function tokenize(str) {
+  return str.toLowerCase().split(/[^a-z]+/).filter(Boolean)
+}
+
+function sha256(str) {
+  return createHash('sha256').update(str).digest('hex')
+}
+
+// Rule 1 — absolute home paths, generic by SHAPE (not a denylist of one username), so a
+// different machine's path is caught too. A placeholder allowlist keeps synthetic fixtures
+// (`/Users/x`, `/home/user`) from firing — this is still shape-generic, not a real-username
+// denylist, since nobody can choose their real account name to BE one of these placeholders.
+// HONEST BLIND SPOT: a real account literally named one of these placeholders (e.g. an account
+// named "test") would pass uncaught.
+const HOME_PATH_PLACEHOLDERS = new Set([
+  'x', 'y', 'u', 'user', 'users', 'someone', 'test', 'me', 'name',
+  'alice', 'bob', 'foo', 'bar', '<user>', '$user', '$home', '~',
+])
+const HOME_PATH_RE = /\/(?:Users|home)\/([^/\s'"]+)/g
+
+// Rule 3 — PII shapes. Email: the label immediately before the TLD must contain a letter, so
+// `fetched-pkg@1.0.0.json` (a real filename in scripts/generate-licenses.test.js) does not
+// match — its label-before-TLD is "0", all digits. Allowlisted by shape: placeholder domains
+// and non-PII local-parts this repo legitimately carries (git@github.com, noreply@anthropic.com).
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
+const EMAIL_ALLOW_DOMAINS = /@(?:example\.com|example\.org|example\.net|localhost)\b/i
+const EMAIL_ALLOW_LOCALPARTS = /^(?:noreply|no-reply|git)@/i
+
+function isPlausibleEmail(match) {
+  const domain = match.slice(match.indexOf('@') + 1)
+  const parts = domain.split('.')
+  if (parts.length < 2) return false
+  return /[a-z]/i.test(parts[parts.length - 2])
+}
+
+function isAllowedEmail(match) {
+  return EMAIL_ALLOW_DOMAINS.test(match) || EMAIL_ALLOW_LOCALPARTS.test(match)
+}
+
+// Phone: kept tight on purpose. Measured zero matches in the current tree with this shape;
+// a looser pattern fires on version strings and hashes instead.
+const PHONE_RES = [/\(\d{3}\)\s\d{3}-\d{4}/, /\b\d{3}[-. ]\d{3}[-. ]\d{4}\b/]
+
+// files: [{ path, content }]. digests is injectable so tests can prove the hashed-identity
+// mechanism with a freshly generated token instead of the real plaintext.
+export function scanPrivacy(files, digests = IDENTITY_TOKEN_DIGESTS) {
+  const findings = []
+  for (const { path, content } of files) {
+    if (isPrivacyExempt(path)) continue
+    const lines = content.split('\n')
+
+    // Rule 2, path — no line number, and deliberately NO allow-marker escape hatch: a
+    // sensitive filename must be renamed, not annotated.
+    const pathTokens = new Set(tokenize(path).filter((t) => IDENTITY_TOKEN_LENGTHS.has(t.length)))
+    for (const t of pathTokens) {
+      if (digests.has(sha256(t))) {
+        findings.push({ kind: 'privacy', pattern: 'identity-token', path, line: null,
+          detail: `${path} — filename contains a hashed identity token. Rename the file; there is no allow-marker escape for path findings.` })
+        break
+      }
+    }
+
+    // Rule 2, content — build the unique candidate set once per file, hash only those, and
+    // only if one matches do a second pass to locate the offending line(s).
+    const contentCandidates = new Set(tokenize(content).filter((t) => IDENTITY_TOKEN_LENGTHS.has(t.length)))
+    const matchedTokens = new Set()
+    for (const t of contentCandidates) {
+      if (digests.has(sha256(t))) matchedTokens.add(t)
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const allowed = line.includes(ALLOW)
+
+      if (!allowed && matchedTokens.size > 0) {
+        const lineTokens = tokenize(line)
+        if (lineTokens.some((t) => matchedTokens.has(t))) {
+          findings.push({ kind: 'privacy', pattern: 'identity-token', path, line: i + 1,
+            detail: `${path}:${i + 1} — hashed identity token present in content. If intentional (a test fixture), append \`// ${ALLOW}\` to the line.` })
+        }
+      }
+      if (allowed) continue
+
+      // Rule 1 — home path
+      HOME_PATH_RE.lastIndex = 0
+      let hp
+      while ((hp = HOME_PATH_RE.exec(line))) {
+        // Strip wrapping punctuation (`<name>`, trailing `:`/`…`) before comparing against the
+        // placeholder set, so meta-notation in prose (`/Users/<someone>/dev/shoresh`) reads as
+        // its bare word. A segment with no identifier-shaped core left (e.g. a bare "…" elision)
+        // has nothing to flag.
+        const core = hp[1].replace(/^[^A-Za-z0-9$~]+/, '').replace(/[^A-Za-z0-9$~]+$/, '')
+        if (core && !HOME_PATH_PLACEHOLDERS.has(core.toLowerCase())) {
+          findings.push({ kind: 'privacy', pattern: 'home-path', path, line: i + 1,
+            detail: `${path}:${i + 1} — absolute home path. If intentional (a test fixture), append \`// ${ALLOW}\` to the line.` })
+        }
+      }
+
+      // Rule 3 — email
+      EMAIL_RE.lastIndex = 0
+      let em
+      while ((em = EMAIL_RE.exec(line))) {
+        const match = em[0]
+        if (!isPlausibleEmail(match) || isAllowedEmail(match)) continue
+        findings.push({ kind: 'privacy', pattern: 'email', path, line: i + 1,
+          detail: `${path}:${i + 1} — possible email address. If intentional (a test fixture), append \`// ${ALLOW}\` to the line.` })
+      }
+
+      // Rule 3 — phone
+      if (PHONE_RES.some((re) => re.test(line))) {
+        findings.push({ kind: 'privacy', pattern: 'phone', path, line: i + 1,
+          detail: `${path}:${i + 1} — possible phone number. If intentional (a test fixture), append \`// ${ALLOW}\` to the line.` })
+      }
+    }
+  }
+  return findings
+}
+
 // ── CLI plumbing (impure) ─────────────────────────────────────────────────
 function runAudit() {
   const res = spawnSync('npm', ['audit', '--omit=dev', '--json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
@@ -160,11 +322,11 @@ if (invokedDirectly) {
     process.exit(2)
   }
   const files = trackedTextFiles()
-  findings.push(...scanSecrets(files), ...scanDangerous(files))
+  findings.push(...scanSecrets(files), ...scanDangerous(files), ...scanPrivacy(files))
 
   if (findings.length === 0) {
     // eslint-disable-next-line no-console
-    console.log('✅ security-gate: 0 findings (deps + secrets + dangerous patterns)')
+    console.log('✅ security-gate: 0 findings (deps + secrets + dangerous patterns + privacy)')
     process.exit(0)
   }
   // eslint-disable-next-line no-console

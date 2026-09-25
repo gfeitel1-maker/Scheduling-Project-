@@ -91,7 +91,7 @@ prose. Everything below is measured on the repository as it stands today.
 | Remote branches to force-push | 42 |
 | PRs whose history breaks | 542 |
 | Forks / stars | **0 / 0** — no evidence anyone copied it |
-| Camp name | **0 files at tip**, 30 commits in history, 1 committed filename (`docs/work/specs/samples/campB-achva-by-day.txt`, deleted from tip) |
+| Camp name | **0 files at tip**, 30 commits in history, 1 committed filename (`docs/work/specs/samples/campB-<camp-name>-by-day.txt`, deleted from tip) |
 | Developer home path | **11 files at tip** (not 0 — see regression), 29 commits in history (not 14) |
 
 ### What is actually in the history — full sweep

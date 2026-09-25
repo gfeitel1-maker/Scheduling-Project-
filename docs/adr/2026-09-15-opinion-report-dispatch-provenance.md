@@ -269,7 +269,7 @@ downgrade). Filed at `docs/adr/2026-09-15-opinion-report-dispatch-provenance.md`
   ADR does not audit or update those call sites; confirm they get updated before this lands on a
   branch anyone runs gates from. The current session's own transcript path is available (see this
   ADR's Context section for how it was located: `~/.claude/projects/<slug>/<session-uuid>.jsonl`,
-  found from `.claude/projects/-Users-gregfeitel-dev-shoresh/` by mtime) but nothing in this repo
+  found from `.claude/projects/-Users-<user>-dev-shoresh/` by mtime) but nothing in this repo
   currently plumbs "my own transcript path" to a script programmatically — that is a product
   decision (does Grader know its own transcript path today, or does a human supply it?) rather than
   a technical one, and is out of this ADR's scope to resolve unilaterally.

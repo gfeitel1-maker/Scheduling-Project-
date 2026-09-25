@@ -7,8 +7,23 @@
 import path from 'node:path'
 import os from 'node:os'
 
-export const DEFAULT_MEMORY_PROJECT_SLUG =
-  '-Users-gregfeitel-Desktop-Camp-App-System--Applications-Schedule-Project'
+// Claude Code names a project directory after the path a session was started from, by
+// replacing every '/' with '-'. Shared with memoryProject.sh and observeRun.js (T263) so
+// nothing else needs to hardcode a developer's home path to reproduce that transform.
+export function homeDerivedSlugPrefix(home = os.homedir()) {
+  return home.replace(/\//g, '-')
+}
+
+// Fixed, non-identifying — the directory name this store was first created under.
+export const MEMORY_PROJECT_SUFFIX = '-Desktop-Camp-App-System--Applications-Schedule-Project'
+
+export function defaultMemoryProjectSlug(home = os.homedir()) {
+  return homeDerivedSlugPrefix(home) + MEMORY_PROJECT_SUFFIX
+}
+
+// Value-preserving: this evaluates to exactly the prior hardcoded literal on this machine,
+// since it is this machine's own $HOME driving the derivation.
+export const DEFAULT_MEMORY_PROJECT_SLUG = defaultMemoryProjectSlug()
 
 export function memoryProjectSlug(env = process.env) {
   return env.SHORESH_MEMORY_PROJECT || DEFAULT_MEMORY_PROJECT_SLUG

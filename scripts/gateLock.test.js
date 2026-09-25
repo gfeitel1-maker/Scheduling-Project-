@@ -64,7 +64,7 @@ describe('repoKey / lockPath', () => {
     // The whole point of keying on the git COMMON dir: every worktree of this repository resolves
     // the same key, because the contention is for the machine's cores rather than for a branch.
     //
-    // This asserted that against a HARDCODED '/Users/gregfeitel/dev/shoresh' until CI caught it:
+    // This asserted that against a HARDCODED '~/dev/shoresh' until CI caught it:
     // on a runner that path does not exist, repoKey fell back to 'shoresh_default', and the test
     // failed comparing a real key to the fallback. A test for machine-independent behaviour must
     // not itself name one machine. Two directories inside whatever repo is actually being tested

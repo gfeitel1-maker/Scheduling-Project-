@@ -20,7 +20,7 @@ The evidence is in T120's 2026-09-25 re-scope. In short: a full sweep of all 9,1
 history found **no PII and no live secrets** — the only residual material is a camp name, some
 cohort labels, and the developer's macOS username. So the history is not the problem.
 
-**The problem is that the tip re-accumulates it, silently.** PR #248 scrubbed `/Users/gregfeitel`
+**The problem is that the tip re-accumulates it, silently.** PR #248 scrubbed the developer's `~` home directory path
 and recorded "verified 0 occurrences remain in the tree." It is back in **11 tracked files at
 `HEAD`**: `scripts/gateLock.test.js`, `scripts/observeRun.js`, `scripts/memoryProject.{js,sh}`,
 `scripts/consolidation/{gather,run}.sh`, `docs/adr/2026-09-15-opinion-report-dispatch-provenance.md`,
@@ -61,7 +61,7 @@ defeat the entire purpose of the ticket.
 
 ### It must scan PATHS, not only contents
 
-This is how the material leaked the first time: `docs/work/specs/samples/campB-achva-by-day.txt`
+This is how the material leaked the first time: `docs/work/specs/samples/campB-<camp-name>-by-day.txt`
 carried the camp name **in the filename**. A guard that reads file contents and never looks at the
 paths it was handed would have passed that file cleanly. Scan both.
 
