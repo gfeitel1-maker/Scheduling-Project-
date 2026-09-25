@@ -55,14 +55,22 @@ fewer runs, not in making a run cheaper.
 3. **Cache `node_modules`, keyed on `.nvmrc` + the lockfile.** Removes the 117s `npm ci` on an
    exact cache hit (~18% of what remains).
 
-   The ~18% is **not** immediate, and the reason is a scoping rule worth stating rather than
-   discovering: an Actions cache written on a branch is readable from that branch and from the
-   **default** branch's caches — never from a sibling branch. A cache written by one PR does nothing
-   for the next PR. The entry every PR reads is one written by a run on `main`, which after change
-   (1) is the daily scheduled run. So this step misses for every PR until `main` has run once (the
-   schedule, or a manual `workflow_dispatch` to prime it), and misses for any PR that changes the
-   lockfile. Both are correct behaviour, and on a miss `npm ci` runs exactly as before — but the
-   saving arrives on day two, not day one.
+   The scoping rule is worth stating rather than discovering: an Actions cache written on a branch is
+   readable from that branch and from the **default** branch's caches — never from a **sibling**
+   branch. Two consequences, and they are different:
+
+   - A branch's **second and later** runs read the cache its own first run wrote. A PR that gets
+     several pushes pays `npm ci` once, not once per push. Observed on this change: run 1 missed and
+     installed (117s), run 2 hit and **skipped** `Install`.
+   - A cache written by one PR does nothing for a **different** PR. The entry a PR's *first* run
+     reads is one written by a run on `main` — after change (1), the daily scheduled run.
+
+   So a brand-new branch misses until `main` has run once (the schedule, or a `workflow_dispatch` to
+   prime it), and any PR that changes the lockfile misses. On a miss `npm ci` runs exactly as before.
+
+   _Prior: an earlier draft of this ticket and of the workflow comment claimed this step "misses for
+   every PR until main has run once". That is true across branches and **false** for repeat runs on
+   one branch, which is the common case for a PR under review. Corrected rather than narrowed._
 
 ## Non-goals — what was considered and deliberately rejected
 
@@ -88,6 +96,31 @@ fewer runs, not in making a run cheaper.
   cheap mechanism does not work and it needs `actions: read`, an API query over recent runs, and
   `fetch-depth: 0` to compute historical trees. ~30 lines and a new failure mode for two points
   over a three-line change. Recorded here so the next reader does not re-derive it.
+
+## The merge window — the precise version of the safety argument
+
+Observed while merging #543 on 2026-09-25, and it refines this ticket's central claim. #543 was
+verified green against `main` at `950d54c7`; by the time it merged, `main` had moved to `9d8b19f1`
+(#544 landed in between). GitHub still reported `MERGEABLE`/`CLEAN` and the squash succeeded.
+
+So the claim "the PR head tree equals the merge tree" is **not** guaranteed by rebasing alone — main
+can move between the green and the merge. In that instance it was genuinely safe, verified rather
+than assumed: #544 touched only `electron/db/headlessDbKey.e2e.test.js` and `T175`'s ticket, #543
+touched `electron/ops/**`, and the intersection of the two file lists was **empty**.
+
+The honest form of the safety argument is therefore: **check overlap at merge time, not base equality.**
+
+```bash
+comm -12 <(git diff --name-only <tested-base> origin/main | sort) \
+         <(git diff --name-only <tested-base> <pr-head> | sort)
+```
+
+Empty output means the PR's green still describes its content. Non-empty means rebase and re-run
+before merging. `MERGEABLE`/`CLEAN` answers a narrower question — "do these apply without textual
+conflict" — and a non-conflicting merge can still be semantically wrong.
+
+Without `push: main`, a mistake here is caught by the daily run rather than in ~11 minutes. That is
+the real residual risk this ticket takes on, and the one-line check above is what keeps it small.
 
 ## Why dropping `push: main` is safe, and what it costs
 

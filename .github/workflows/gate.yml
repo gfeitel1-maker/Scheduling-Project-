@@ -94,11 +94,15 @@ jobs:
       #
       # WHEN THIS ACTUALLY PAYS OFF, because the scoping rule is not obvious. A cache written on a
       # branch is readable from that branch and from the DEFAULT branch's caches -- never from a
-      # sibling branch. So a cache written by one PR does nothing for the next PR. The entry every
-      # PR reads is the one written by a run on `main`, which since T261 is the daily scheduled run.
-      # Consequence: this step is a miss for every PR until `main` has run once (schedule, or a
-      # manual workflow_dispatch to prime it), and a miss for any PR that changes the lockfile.
-      # Both are correct; neither is a silent fallback.
+      # SIBLING branch. So two things follow, and they are different:
+      #   - A branch's SECOND and later runs read the cache its own first run wrote. A PR that gets
+      #     several pushes pays `npm ci` once, not once per push. (Observed on this very change:
+      #     run 1 missed and installed, run 2 hit and skipped Install.)
+      #   - A cache written by one PR does nothing for a DIFFERENT PR. The entry a PR's FIRST run
+      #     reads is one written by a run on `main`, which since T261 is the daily scheduled run.
+      # So a brand-new branch misses until `main` has run once (schedule, or a workflow_dispatch to
+      # prime it), and any PR that changes the lockfile misses. Both are correct, and on a miss
+      # `npm ci` runs exactly as before -- never a silent fallback.
       - name: Restore node_modules
         id: modules-cache
         uses: actions/cache@v4
