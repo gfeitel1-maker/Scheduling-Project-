@@ -82,6 +82,69 @@ activation (launch with `SHORESH_AT_REST_ENCRYPTION=on`) is safe and available n
 4. Owner-side: install a packaged build and run a real-app encryption-on smoke on the owner's machine
    (this ticket's "real-app verification … must not be skipped").
 
+## 2026-09-25 — headless end-to-end path PROVEN (minus keychain); DE-RISK only, default STILL OFF
+Owner ruling (2026-09-25): prep only, do NOT flip; do not touch the OS keychain, the real/dev DB, or the
+installed app. This pass cleared the single caveat step 1 above left unproven — the headless read-back —
+without touching any of those. **No default was changed** (`atRestEncryption.js` `AT_REST_ENCRYPTION`
+stays `'off'`), **no keychain/safeStorage was invoked**, and only a THROWAWAY temp DB under a FIXED TEST
+key was used. The keychain unseal itself remains out of scope (already proven 2026-09-16); a fixed test
+key was substituted at that boundary.
+
+- **Driver build for the current runtime — ACTUAL RESULT.** `better-sqlite3-multiple-ciphers@12.11.1`
+  **cannot** compile under this worktree's Vitest runtime, **Node 25.8.1 + Apple clang 16**: the Node 25
+  V8 headers use `I::ReadExternalPointerField<{internal::kFirstEmbedderDataTag, …}>` which clang 16
+  rejects ("expected expression", 4 errors, `make` exit 2 — no `.node` produced). This is exactly the
+  incompatibility recorded on 2026-09-16. The regular `better-sqlite3` DOES load under Node 25 (prebuilt).
+  The fork **does** build + load under **node@22.23.2** (clang 16 compiles its headers), as before.
+- **Real headless E2E evidence (node@22.23.2, real driver, real repo modules — `resolveHeadlessDbKey`
+  + `rawKeyPragma`):**
+  ```
+  PASS: on-disk file is NOT plaintext (encrypted header)
+  PASS: resolveHeadlessDbKey returned a 32-byte Buffer from the env channel
+     read-back row.name = "Encrypted Camp"
+  PASS: headless keyed open read the row back
+     wrong-key open threw: "file is not a database"
+  PASS: wrong key on the channel is REJECTED
+  ```
+  The chain proven: key placed ONLY on `SHORESH_DB_KEY` → `resolveHeadlessDbKey` → keyed open of a real
+  SQLCipher-encrypted file → row read back. **Non-vacuity:** a wrong (but valid-length) key on the
+  identical path is rejected with `file is not a database`, so the key channel is load-bearing, not a
+  path that "throws on any error".
+- **Durable gated regression test:** `electron/db/headlessDbKey.e2e.test.js`, mirroring
+  `sqliteCipher.integration.test.js`'s gating contract. It runs three groups:
+  1. **ABI-independent, always runs** — `resolveHeadlessDbKey` (valid → 32-byte Buffer; unset → null;
+     malformed → throws), the unlock-helper plumbing (`parseUnlockArgs` exec/print, and `childEnvWithKey`
+     putting the key in the child ENV **only**, asserted absent from the command argv), and the **T260
+     `db_key_unavailable`** fail-closed guard (flag enabled in-process + no key → refuse by name).
+  2. **driver-gated** (`describe.skipIf(!driverAvailable)`) — the real encrypted read-back through the env
+     channel, wrong-key rejection (non-vacuity), keyless-open-fails-closed against a real encrypted file,
+     and a **spawned plain-Node child** that receives the key in its env only and reads the row back (plus
+     its no-key negative). SKIPS with a visible `driver ABSENT — NOT a pass` marker where the fork is not
+     built (e.g. Node 25 here).
+  3. an explicit availability-marker test so a skipped driver run can never read as a pass.
+  Under Node 25.8.1 on this machine: **7 passed, 5 skipped** (driver absent — the honest state). The
+  driver-gated group runs anywhere the fork builds for the test runtime (node@22 harness above; CI/Electron
+  ABI where it compiles).
+
+**Step 1 above is now satisfied minus the keychain unseal** (the `electron unlockDbKey.js --exec` glue that
+calls safeStorage was deliberately NOT run per the owner ruling; its arg/env plumbing is unit-proven, and
+the read-back it feeds is proven with a substituted test key). Steps 2–4 (env-var-era headless-gap
+decision, the one-line default flip + SECURITY.md wording + single-device copy change, and the owner's
+packaged real-app smoke) remain, and the flip stays **DEFERRED at the owner's request**.
+
+### Exact remaining flip recipe (DEFERRED — do NOT execute now; owner flips when ready)
+More work remains first (owner: "still playing around … would rather not mess with access right now").
+Default stays `'off'`. When the owner is ready, the flip is this known small sequence:
+1. Decide the env-var-era headless gap (Stage-3 finding 1): accept it, or add an on-disk-header refusal
+   independent of the flag. (One code decision; out of this pass's scope.)
+2. Independent `security-assessment` re-review of the flip diff.
+3. In ONE commit: change `AT_REST_ENCRYPTION` default to `'on'` in `electron/db/atRestEncryption.js`; land
+   the drafted SECURITY.md "At-rest encryption (what it does and does not protect)" wording; land the
+   single-device "cannot be recovered" copy change **with its absence-test**; record the smoke evidence.
+4. Owner-side: install a packaged build, launch with encryption on against the real Test Camp, confirm it
+   migrates once + reads back + persists across a relaunch (the real-app smoke that "must not be skipped").
+Only after step 4 is T175 done; this DE-RISK pass does not close it.
+
 ## Order is load-bearing (assessment finding 1, HIGH)
 The crackable PIN hashes live in the **SQLite** file, not the document. So:
 1. Document encryption activation (main.js wiring + readers). Real progress, but does NOT close the
