@@ -56,10 +56,8 @@ const tableInfo = (db, table) =>
   }))
 
 describe('migration v74: fresh vs migrated equivalence', () => {
-  it('declares schema version 74 on a fresh db', () => {
+  it('applied the v74 migration marker on a fresh db (v76 stacks on top — see electiveRunOuterInheritance.migration.test.js for the current-version tripwire)', () => {
     const db = freshDb()
-    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(75)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 74').get().c).toBe(1)
     db.close()
   })
@@ -72,13 +70,13 @@ describe('migration v74: fresh vs migrated equivalence', () => {
     db.close()
   })
 
-  it('a fresh install has elective_run_outer_snapshots with exactly the declared columns', () => {
+  it('a fresh install has elective_run_outer_snapshots with the v74 columns present (v76 appends more — see electiveRunOuterInheritance.migration.test.js for the exact current list)', () => {
     const db = freshDb()
     const cols = db.pragma('table_info(elective_run_outer_snapshots)').map((c) => c.name)
-    expect(cols).toEqual([
+    expect(cols).toEqual(expect.arrayContaining([
       'id', 'run_id', 'camper_id', 'day_id', 'time_block_id', 'activity_id',
       'activity_name', 'location_id', 'location_name', 'span_blocks', 'solver_generation',
-    ])
+    ]))
     db.close()
   })
 
@@ -260,15 +258,15 @@ describe('migration v72->v74 composition: fresh vs a genuinely-migrated database
   it('lands the genuinely-migrated database at the current schema version, same as fresh', () => {
     const fresh = freshDb()
     const migrated = v72SeededDb('v72-to-74-version')
-    initSchema(migrated) // runs the REAL v73 rebuild, then v74, then v75, in one pass
+    initSchema(migrated) // runs the REAL v73 rebuild, then v74, v75, then v76, in one pass
 
     // The property is "a migrated database ends up where a fresh one is", not
     // "both are at 74" — so the literal moves with every schema bump. Kept as a
     // literal rather than CURRENT_SCHEMA_VERSION on both sides, because
     // comparing two things that are both derived would pass even if the chain
-    // stopped stamping entirely. v75 (T266) is the current head.
-    expect(getSchemaVersion(fresh)).toBe(75)
-    expect(getSchemaVersion(migrated)).toBe(75)
+    // stopped stamping entirely. v76 (T197) is the current head.
+    expect(getSchemaVersion(fresh)).toBe(76)
+    expect(getSchemaVersion(migrated)).toBe(76)
 
     fresh.close()
     migrated.close()

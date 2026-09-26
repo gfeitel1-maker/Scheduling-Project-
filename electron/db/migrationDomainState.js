@@ -189,6 +189,14 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // for a director who never saw it. Every existing row stays NULL and the next import classifies
   // them. Same reading as v66's capacity columns above, for the same reason.
   75,
+  // v76 (T197) adds four additive columns to elective_run_outer_snapshots
+  // (cell_kind, choice_id, is_linked_choice, choice_label). Schema-only: the
+  // migration backfills nothing — cell_kind's DEFAULT 'elective' applies to the
+  // v74/v75 rows already present, and those rows are never read as meaningful
+  // 'elective' data (a pre-v76 snapshot holds only elective placements by
+  // construction, since inherited cells did not exist to snapshot). A run
+  // finalized before v76 is RE-FINALIZED, not migrated.
+  76,
 ])
 
 /** True if applying `version` can change what the camp means. */

@@ -50,7 +50,7 @@ const columns = (db, table) => db.prepare(`PRAGMA table_info(${table})`).all().m
 
 describe('migration v71: recurrence_level removal', () => {
   it('CURRENT_SCHEMA_VERSION is 71', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(75)
+    expect(CURRENT_SCHEMA_VERSION).toBe(76)
   })
 
   it('is present at v70, before the v71 migration runs (non-vacuity)', () => {

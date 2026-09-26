@@ -13,8 +13,16 @@
 // happens here — this function only groups by camper and resolves day/time
 // block/group labels.
 //
+// v76 (T197, docs/adr/2026-09-26-elective-run-outer-inheritance-and-linked-choice-export.md §4):
+// each row now carries cell_kind ('elective' | 'inherited'), and a linked elective choice is
+// clustered via clusterLinkedElectiveRows into ONE schedule entry before emission, so it renders
+// as one unit rather than N separate cells. format_version bumps 1 -> 2 for this shape change —
+// this file's OWN contract, not exportScheduleJson.js's group-schedule contract, which is untouched.
+//
 // A public contract — bump format_version on any shape change, mirroring
 // exportScheduleJson.js's and exportElectiveRun.js's own rule.
+import { clusterLinkedElectiveRows } from '../../../utils/clusterLinkedElectiveRows.js'
+
 export function buildChildScheduleExport({
   run,
   campers = [],
@@ -34,8 +42,23 @@ export function buildChildScheduleExport({
     rowsByCamper.get(row.camperId).push(row)
   }
 
+  const toScheduleEntry = (unit) => {
+    if (unit.kind === 'linked_choice') {
+      return { kind: 'linked_choice', label: unit.label, memberRows: unit.memberRows }
+    }
+    return {
+      kind: 'span',
+      day: dayById.get(unit.dayId)?.name ?? unit.dayId,
+      time_block: timeBlockById.get(unit.timeBlockId)?.name ?? unit.timeBlockId,
+      cell_kind: unit.cellKind,
+      activity_name: unit.activityName,
+      location_name: unit.locationName,
+      span_blocks: unit.spanBlocks,
+    }
+  }
+
   return {
-    format_version: 1,
+    format_version: 2,
     run_id: run.id,
     run_name: run.name,
     run_status: run.status,
@@ -44,13 +67,7 @@ export function buildChildScheduleExport({
       camper_id: camper.id,
       display_name: camper.display_name,
       group_name: groupById.get(camper.group_id)?.name ?? null,
-      schedule: (rowsByCamper.get(camper.id) ?? []).map((row) => ({
-        day: dayById.get(row.dayId)?.name ?? row.dayId,
-        time_block: timeBlockById.get(row.timeBlockId)?.name ?? row.timeBlockId,
-        activity_name: row.activityName,
-        location_name: row.locationName,
-        span_blocks: row.spanBlocks,
-      })),
+      schedule: clusterLinkedElectiveRows(rowsByCamper.get(camper.id) ?? []).map(toScheduleEntry),
     })),
   }
 }

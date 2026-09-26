@@ -1994,7 +1994,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       rows = db
         .prepare(
           `SELECT camper_id, day_id, time_block_id, activity_id, activity_name,
-                  location_id, location_name, span_blocks, solver_generation
+                  location_id, location_name, span_blocks, solver_generation,
+                  cell_kind, choice_id, is_linked_choice, choice_label
              FROM elective_run_outer_snapshots
             WHERE run_id = ?
             ORDER BY camper_id, day_id, time_block_id`
@@ -2015,6 +2016,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         locationName: r.location_name,
         spanBlocks: r.span_blocks,
         solverGeneration: r.solver_generation,
+        cellKind: r.cell_kind,
+        choiceId: r.choice_id ?? null,
+        isLinkedChoice: !!r.is_linked_choice,
+        choiceLabel: r.choice_label ?? null,
       })),
       runStatus: run?.status ?? null,
       finalizedAgainstStaleGeneration: computeFinalizedAgainstStaleGeneration(db, run),

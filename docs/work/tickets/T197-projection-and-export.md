@@ -1,7 +1,7 @@
 ---
 title: T197-projection-and-export
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-17
 archive_when: both projections reconcile and the export contract ships
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]

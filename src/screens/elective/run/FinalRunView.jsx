@@ -14,6 +14,8 @@ import { useState } from 'react'
 import { localClient } from '../../../localClient'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { buildChildScheduleExport } from '../export/exportChildSchedule.js'
+import { buildElectiveRunProjectionExport } from '../export/exportElectiveRunProjection.js'
+import { exportElectiveRunWorkbookFile } from '../export/exportElectiveRunWorkbook.js'
 import { S, RunStateArea, RunStateRow, RunIdentity, RunError } from './RunStateRows.jsx'
 import { useRunState } from './useRunState.js'
 import {
@@ -58,6 +60,42 @@ export default function FinalRunView({
       URL.revokeObjectURL(url)
     } catch (err) {
       setError(describeWriteFailure(err, 'That export could not be produced.'))
+    }
+  }
+
+  // F6 (round 2): the combined JSON projection (child schedules, activity roster, exceptions,
+  // summary — exportElectiveRunProjection.js) and the XLSX workbook (exportElectiveRunWorkbook.js)
+  // were built and unit-tested in round 1 but wired to no caller, so the real data path never
+  // exercised them. This is that caller. `state.rows`/`state.staleCount`/
+  // `state.overCapacityOccurrences` are already loaded by useRunState; preferences are camp-scoped
+  // (localClient.list, same pattern as ElectiveSetDetail.jsx) and filtered to this run client-side.
+  async function exportFullReport() {
+    setError(null)
+    try {
+      const [outer, allPreferences] = await Promise.all([
+        localClient.getElectiveRunOuterSchedule({ runId: run.id }),
+        localClient.list('elective_preferences'),
+      ])
+      const input = {
+        run, campers, groups, days, timeBlocks, occurrences,
+        outerRows: outer?.rows ?? [],
+        preferences: (allPreferences ?? []).filter((p) => p.run_id === run.id),
+        assignments: state.rows,
+        staleCount: state.staleCount,
+        capacityRows: state.overCapacityOccurrences,
+        generatedAt: new Date().toISOString(),
+      }
+      const data = buildElectiveRunProjectionExport(input)
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `elective-run-report-${run.id}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      exportElectiveRunWorkbookFile(input, `elective-run-report-${run.id}.xlsx`)
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That report could not be produced.'))
     }
   }
 
@@ -112,6 +150,7 @@ export default function FinalRunView({
 
           <div style={styles.actions}>
             <button className="press-97" style={S.btnSecondary} onClick={exportChildSchedules}>Export</button>
+            <button className="press-97" style={S.btnSecondary} onClick={exportFullReport}>Export Full Report</button>
             {/* One control per screen: when the stale row is showing, the button
                 lives inside that pairing instead, never duplicated. */}
             {stale ? null : startRevision}

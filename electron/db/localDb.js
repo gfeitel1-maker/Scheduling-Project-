@@ -30,7 +30,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // ten name-UNIQUE constraints so a merged document's colliding records both project), and v74
 // (T243, elective run lifecycle: finalized_at/finalized_by + elective_run_outer_snapshots) all
 // land in this file; 74 is the current version.
-export const CURRENT_SCHEMA_VERSION = 75
+export const CURRENT_SCHEMA_VERSION = 76
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3338,6 +3338,38 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (75, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v76 (T197, docs/adr/2026-09-26-elective-run-outer-inheritance-and-linked-choice-export.md) —
+  // four additive columns on elective_run_outer_snapshots: cell_kind ('elective' | 'inherited'),
+  // choice_id, is_linked_choice, choice_label. Purely additive, same non-destructive posture as
+  // v74. Per the
+  // ADR's migration posture: no backfill for pre-v76 snapshot rows — a v74-final run is
+  // re-finalized (flip to draft, finalize again), not migrated, so a stale DEFAULT 'elective' on
+  // an old row is never read as meaningful data.
+  if (getSchemaVersion(db) >= 75 && getSchemaVersion(db) < 76) {
+    db.transaction(() => {
+      const cols = db.pragma('table_info(elective_run_outer_snapshots)').map((c) => c.name)
+      if (!cols.includes('cell_kind')) {
+        db.exec(
+          "ALTER TABLE elective_run_outer_snapshots ADD COLUMN cell_kind TEXT NOT NULL DEFAULT 'elective' " +
+          "CHECK (cell_kind IN ('elective', 'inherited'))"
+        )
+      }
+      if (!cols.includes('choice_id')) {
+        db.exec('ALTER TABLE elective_run_outer_snapshots ADD COLUMN choice_id TEXT')
+      }
+      if (!cols.includes('is_linked_choice')) {
+        db.exec('ALTER TABLE elective_run_outer_snapshots ADD COLUMN is_linked_choice INTEGER NOT NULL DEFAULT 0')
+      }
+      if (!cols.includes('choice_label')) {
+        db.exec('ALTER TABLE elective_run_outer_snapshots ADD COLUMN choice_label TEXT')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (76, ?)').run(
       new Date().toISOString()
     )
   }
