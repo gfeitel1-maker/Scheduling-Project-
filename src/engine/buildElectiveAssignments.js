@@ -4,6 +4,17 @@
 // out — no database, no IPC, no file parsing, no writes. Same discipline as
 // buildSchedule.js, a different level of the nested schedule.
 //
+// SUPERSEDED 2026-09-26 — THE PREMISE BELOW IS WITHDRAWN. Read
+// docs/adr/2026-09-26-per-cell-elective-preferences.md BEFORE changing this file.
+// A real camp artifact (JCC Medford GILAD 2024 selection sheet) shows preferences
+// are chosen PER (day, period) CELL, each cell carrying its own offering list. The
+// global model is not merely different, it is unreadable on that form: one activity
+// appears in ~15 of 18 selectable cells, so "rank 1" names no occurrence. D14 never
+// established the global shape — it RETIRED the per-occurrence one and said in terms
+// that "no design should treat either observed format as confirmed input." This
+// header read that withdrawal as an affirmation. The paragraph is kept rather than
+// rewritten so the mistake stays visible; the code still implements it.
+//
 // THE COUPLING, which is the whole design problem. Preferences are ranked
 // GLOBALLY: a camper ranks each elective once for the session, not once per
 // slot (ADR D14, after real camp artifacts contradicted the per-occurrence
