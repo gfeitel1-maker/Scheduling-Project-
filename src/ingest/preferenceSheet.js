@@ -140,7 +140,7 @@ export function parsePreferenceSheet(rows = [], { campId, mapping } = {}) {
 }
 
 /**
- * Does any camper hold the same rank twice?
+ * Does any camper hold the same rank twice IN THE SAME CELL?
  *
  * This is the CONSEQUENCE of a same-name collision, and the reason
  * `sameNameCampers` is a blocking decision rather than a notice. Observed on a
@@ -149,13 +149,35 @@ export function parsePreferenceSheet(rows = [], { campId, mapping } = {}) {
  * would resolve it by picking whichever it encountered first — a silent,
  * invisible decision about a real child's week.
  *
+ * ROUND 3 CORRECTION — this function is now called on BOTH source shapes
+ * (round 1's "preferenceSheet.js is out of scope" ruling was wrong and is
+ * retracted). Governing this function's ORIGINAL, still-real case is a
+ * WHOLE-RUN sheet (no `occurrence_id` at all, exactly what today's parser
+ * emits) — there, a camper holding the same rank twice can only mean the
+ * same collision this function was built to catch. But a PER-CELL sheet
+ * (ADR docs/adr/2026-09-26-per-cell-elective-preferences.md, Decision 1)
+ * legitimately gives the same camper rank 1 in Monday period 3 AND rank 1 in
+ * Monday period 6 — two independent first choices, not a contradiction. The
+ * key therefore includes the occurrence dimension: a duplicate rank WITHIN
+ * one occurrence (or within the single implicit whole-run "cell", when
+ * `occurrence_id` is absent from every row) is still refused; the same rank
+ * across two DIFFERENT occurrences is not. An absent `occurrence_id`
+ * collapses to the SAME empty component for every whole-run row, so the
+ * original T226 behaviour is preserved exactly for that shape — this is a
+ * widening of the key, not a replacement of it.
+ *
+ * The `\u0000` delimiter is load-bearing (as elsewhere in this codebase —
+ * grep with `-a` to find it in a binary-unsafe search): it cannot appear in
+ * a camper_id, occurrence_id or rank, so two distinct (camper_id,
+ * occurrence_id, rank) triples can never collide onto the same key string.
+ *
  * Kept separate from parsePreferenceSheet so the caller can show the director
  * the collision and its effect as two different sentences.
  */
 export function hasContradictoryRanks({ preferences = [] } = {}) {
   const seen = new Set()
   for (const p of preferences) {
-    const key = `${p.camper_id}\u0000${p.rank}`
+    const key = `${p.camper_id}\u0000${p.occurrence_id ?? ''}\u0000${p.rank}`
     if (seen.has(key)) return true
     seen.add(key)
   }

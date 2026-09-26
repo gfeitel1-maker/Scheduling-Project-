@@ -307,6 +307,61 @@ columns, and feeds that read-back row into `buildElectiveAssignments`, asserting
 identically in every occurrence — proving the path end to end, not just the engine's own logic in
 isolation.
 
+## Amendment 2026-09-26 (round 3): `src/ingest/preferenceSheet.js` was wrongly ruled out of scope, and its contradiction check needed the same widening
+
+Round 1 ruled `src/ingest/preferenceSheet.js` out of scope, on the premise that its parser only ever
+emits the whole-run shape. Red Hat found the flaw in that reasoning during round-3 review, confirmed
+against the source: `hasContradictoryRanks` (`src/ingest/preferenceSheet.js`) is called unconditionally
+by `describeElectiveRunRefusal` (`electron/ops/commitElectiveRun.js`), and its key had no occurrence
+dimension —`` `${camper_id} ${rank}` ``. A camper ranking Archery #1 in Monday period 3 and Swim #1
+in Monday period 6 is the NORMAL shape of a per-cell grid (this ADR's own Decision 1: two independent
+first choices, not a contradiction) — but the flat key saw two rows sharing `(camper_id, rank=1)` and
+refused the ENTIRE run with *"a camper holds the same preference rank twice — the sheet cannot be read
+unambiguously,"* a message with nothing a director could act on. This is the exact defect this ADR
+exists to remove, surfacing one layer up from where round 1 looked.
+
+**The fix widens the key, not weakens it:**
+`` `${camper_id} ${occurrence_id ?? ''} ${rank}` ``. Two real contradictions stay caught:
+
+- **Within one cell**, a duplicate rank is still refused — two rank-1s in the SAME occurrence is
+  genuinely unreadable, the property T226 exists to protect.
+- **On a whole-run sheet** (no `occurrence_id` on any row — exactly what today's parser still emits),
+  every row shares the same empty occurrence component, so the key collapses to the pre-fix 2-tuple
+  exactly, and T226's original documented failure (a same-name collision producing one camper with
+  three different rank-1 choices) is still caught, unweakened.
+
+The ` ` delimiter is load-bearing here the same way it already is elsewhere in this codebase
+(`localDb.js`'s migration guard) — a plain-text search for it must use `grep -a`, and this ADR records
+that rather than relying on the next reader rediscovering it.
+
+## Two accepted risks, recorded rather than fixed (round 3)
+
+Neither of these is this ticket's to fix — recorded here so the next person meets them as a named
+tradeoff instead of rediscovering them.
+
+- **Tier-1 min-fold fairness (Red Hat, round 3).** A camper who ranked a 5-occurrence linked choice #1
+  in ONE cell and left the other four blank outranks a camper who ranked the SAME choice #2 in every
+  one of its five cells — the min-fold (this ADR's round-4 amendment) takes the single best rank
+  regardless of how much of the choice a camper actually ranked. This is real, and it strains this
+  ADR's own "explainable in one sentence" standard for the aggregation rule. It is not being changed:
+  the min rule is this ADR's own ruling, and any alternative (a coverage-weighted rank, an average) is
+  a cost-model change, which owner ruling Q3 puts out of scope for this ticket (score each placement
+  independently, no cross-occurrence term). Accepted for now; revisit only alongside a Q3 revisit.
+- **The derived-id module's `V` constant, unbumped across a shape change it changed twice (Red Hat,
+  round 3).** `deriveElectivePreferenceId`'s encoding changed shape twice on this branch under the same
+  `V = 1`: the 3-component form on `main`, to the 4-component occurrence-required form (round 1), to
+  the 5-component two-arm form (round 5) — and the module's own header describes `V` as meaning "this
+  encoding is stable; bump it for a deliberate re-key," which was not true across this branch's own
+  history. The "no live camp data" defence (round 5) covers a fresh production database; it does NOT
+  cover a developer's own `shoresh-dev` database that already ran an elective commit on an earlier
+  round of this branch, or a paired device holding an existing Automerge document with round-1 or
+  round-4-shaped ids already written. `V` is deliberately still not bumped here either — it would
+  re-key four unrelated id kinds (occurrence, choice, offering, assignment) for a change that only
+  touches preference ids — but the header must not let a reader infer a stability that does not hold.
+  **Recorded, not fixed**: a developer rebuilding a local `shoresh-dev` database from this branch's
+  history should expect stale preference ids from an earlier round and may need to clear it. Whether
+  this needs its own follow-up ticket is an open question for the ADR's owner, not decided here.
+
 ## Migration note
 
 `elective_preferences` gains an occurrence dimension, and the existing uniqueness — one rank per

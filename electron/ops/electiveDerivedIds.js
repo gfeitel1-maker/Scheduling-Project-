@@ -39,6 +39,23 @@ import { whitespaceInsensitiveName } from '../../src/ingest/preview.js'
 
 // Derivation version. Bumping it is a deliberate, visible re-keying of every
 // row of that kind — it is not a free change.
+//
+// WHAT THIS DOES NOT GUARANTEE (Red Hat, T265 round 3). An unbumped V does
+// NOT mean "this encoding has been stable." deriveElectivePreferenceId's own
+// shape changed TWICE on this branch under this same V = 1: the 3-component
+// form inherited from `main`, to a 4-component occurrence-required form
+// (T265 round 1), to the 5-component two-arm form (round 5, this file's own
+// comment on that function). Each change was judged, on this branch, as
+// acceptable without a bump because this repo has no LIVE camp data
+// anywhere to re-key. That defence covers a fresh production database. It
+// does NOT cover a developer's own local `shoresh-dev` database that already
+// ran an elective commit on an earlier round of this branch, or a paired
+// device holding an Automerge document with an earlier round's ids already
+// written — those ids are now stale and will not match a freshly-derived id
+// for the same logical row. A reader must not infer stability from an
+// unbumped V on this branch; check the git history of this function's own
+// body, not just this constant, before assuming two ids from different
+// points in this branch's history are comparable.
 const V = 1
 
 // Length-prefixed concatenation, NOT a hash.

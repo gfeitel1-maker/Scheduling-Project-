@@ -568,6 +568,37 @@ describe('describeElectiveRunRefusal — whole-run fallback preferences are legi
   })
 })
 
+// T265 ROUND 3 — Red Hat found this gap: no test exercised
+// describeElectiveRunRefusal with the SAME camper ranking #1 in two DIFFERENT
+// occurrences, which is the normal shape of a per-cell grid (ADR Decision 1),
+// not a contradiction. Before the fix, hasContradictoryRanks' key had no
+// occurrence dimension, so this call refused the ENTIRE run with a false
+// claim. A unit test on hasContradictoryRanks alone would not have caught
+// this — the bug was in what the CALLER fed it.
+describe('describeElectiveRunRefusal — same camper, same rank, different occurrences (T265 round 3)', () => {
+  it('does not refuse a camper ranking #1 in two different occurrences', () => {
+    const parsed = {
+      ...PARSED,
+      preferences: [
+        { camper_id: 'cam-1', occurrence_id: 'occ-mon-p3', label: 'Archery', labelKey: 'archery', rank: 1 },
+        { camper_id: 'cam-1', occurrence_id: 'occ-mon-p6', label: 'Swim', labelKey: 'swim', rank: 1 },
+      ],
+    }
+    expect(describeElectiveRunRefusal(parsed)).toBeNull()
+  })
+
+  it('still refuses a camper ranking #1 twice within the SAME occurrence', () => {
+    const parsed = {
+      ...PARSED,
+      preferences: [
+        { camper_id: 'cam-1', occurrence_id: 'occ-mon-p3', label: 'Archery', labelKey: 'archery', rank: 1 },
+        { camper_id: 'cam-1', occurrence_id: 'occ-mon-p3', label: 'Gaga', labelKey: 'gaga', rank: 1 },
+      ],
+    }
+    expect(describeElectiveRunRefusal(parsed)).not.toBeNull()
+  })
+})
+
 // NON-VACUITY (T265 round 5). Round 1's fallback path in
 // buildElectiveAssignments.js was only ever exercised by hand-built in-memory
 // fixtures — the exact T62 failure shape this repo has already had once (an
