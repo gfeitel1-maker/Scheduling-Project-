@@ -88,10 +88,17 @@ export function checkRollbackIdentity(files) {
       const isUsageComment = /^\s*\/\/\s*Usage:/.test(line)
       const isUsageString = /usage:\s*node electron\/db\/rollback\//.test(line)
       if (!isUsageComment && !isUsageString) continue
-      for (const usageMatch of line.matchAll(/v(\d+)_down\.js/g)) {
-        if (usageMatch[1] !== N) {
-          offenders.push(`${name}: documented usage names v${usageMatch[1]}_down.js, expected v${N}_down.js`)
-        }
+      // Only the FIRST invoked path on the line — the one after
+      // `node electron/db/rollback/` — is this file's identity. A usage line may
+      // legitimately carry a trailing sibling citation
+      // ("... <path>   (same shape as v74_down.js)"), and scanning every match
+      // on the line would make that a spurious offender. Narrow by construction
+      // rather than relying on nobody ever writing it: a guard with a
+      // false-positive rate trains people to ignore it, which is worse than no
+      // guard at all.
+      const invoked = line.match(/node\s+electron\/db\/rollback\/v(\d+)_down\.js/)
+      if (invoked && invoked[1] !== N) {
+        offenders.push(`${name}: documented usage names v${invoked[1]}_down.js, expected v${N}_down.js`)
       }
     }
   }
@@ -255,6 +262,23 @@ export function rollbackV98(db) {
     const offenders = checkRollbackIdentity(files)
     expect(offenders).toHaveLength(1)
     expect(offenders[0]).toMatch(/v98_down\.js: documented usage names v97_down\.js, expected v98_down\.js/)
+  })
+
+  it('does NOT flag a Usage line that carries a trailing sibling citation after the invoked path', () => {
+    // False-positive regression (T269 code review). A guard that fires on a
+    // legitimate line trains people to ignore it, which is worse than no guard.
+    const files = [
+      {
+        name: 'v98_down.js',
+        source: `
+// Usage:  node electron/db/rollback/v98_down.js <path>   (same shape as v74_down.js)
+export function rollbackV98(db) {
+  db.prepare('DELETE FROM schema_migrations WHERE version >= 98').run()
+}
+`,
+      },
+    ]
+    expect(checkRollbackIdentity(files)).toEqual([])
   })
 
   it('catches two verbatim-identical bodies under different, otherwise-correct names (R5)', () => {

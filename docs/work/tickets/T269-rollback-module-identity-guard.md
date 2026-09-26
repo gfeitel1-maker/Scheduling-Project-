@@ -114,7 +114,16 @@ this ticket's own subject matter:
 - It **cannot** detect a module that is internally consistent but whose *body* performs another
   version's work — semantically duplicated logic under a correct name. A normalized body-identity
   check catches only a verbatim duplicate, not a paraphrased one.
-- It does not verify that `vN_down.js` actually inverts migration `vN` in `localDb.js`.
+- It does not verify that `vN_down.js` actually inverts migration `vN` in `localDb.js` — and that
+  limit is **broader than "cites the wrong version," which is how an earlier draft of this line
+  read.** R1–R5 match five narrow syntactic tokens: the `export function` signature, the `endsWith`
+  literal, the invoked path on a Usage line, the number in the `schema_migrations` DELETE, and
+  whole-body text equality. **Nothing between the signature and the DELETE is read at all.** A
+  module can therefore be green on every rule while its body drops the wrong table, drops only
+  three of the four tables the forward migration created, or alters a column that does not exist.
+  That is a likelier defect than a wrong version number, and this gate is silent on it. Only a
+  per-module behavioural test — which `v62_down.js`, `v64_down.js` and `v67_down.js` all lack —
+  covers it.
 - It **does not read prose rationale**, and a copy-pasted rationale can name the wrong version while
   every scanned shape is correct. This is not hypothetical: `v67_down.js`'s in-body comment
   explaining its `>= 67` DELETE was itself a v66 leftover, arguing about v66/v65 and citing the v66
