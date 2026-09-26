@@ -17,6 +17,24 @@
 // here plus a campers row is 'this child wants this activity'"), and a
 // committed fixture must not read as real roster data even by accident.
 //
+// RE-IDENTIFICATION CLEARED BY THE OWNER, 2026-09-26. Security could confirm
+// there is no camp name, no path and no verbatim content here, but could not
+// diff this against a source document it has no access to. The owner, who has
+// read the sheet, ruled: "there is no way for someone to recognize what we just
+// ran." Recorded so a later reader does not re-open a question that was closed
+// by the one person able to answer it. This clearance covers THIS catalog and
+// grid; widening the fixture toward the real sheet's content re-opens it.
+//
+// SEAT ABUNDANCE IS INTENTIONAL AND REALISTIC, not over-provisioning. Owner
+// ruling 2026-09-26: a camp deliberately offers far more than it expects to
+// run, and the MINIMUM is what culls the rest. A fixture with more seats than
+// campers is the true starting state of a run, so do not "fix" the capacities
+// down to parity. Measured consequence, and the reason this matters: the share
+// of placements matching a camper's in-cell ranking runs 77.8% at these
+// capacities and 33.6% when they are scaled toward scarcity. That range is the
+// trajectory a two-phase run walks, not an error bar — so any satisfaction
+// figure taken from this fixture MUST state where on that curve it was taken.
+//
 // Deterministic: DJB2 + Mulberry32 seeded PRNG (same construction as
 // src/engine/buildSchedule.js), no wall-clock, no Math.random. Re-running this
 // script produces byte-identical output; a diff means a real change.

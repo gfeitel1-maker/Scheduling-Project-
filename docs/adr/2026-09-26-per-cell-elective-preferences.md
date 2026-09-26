@@ -129,6 +129,31 @@ offerings **different** minimums. Archery 4 of 6 (shortfall 2) against Fishing 3
 Fishing has fewer campers, but Archery is further below its own minimum, so **Archery** is cancelled
 first. An implementation that sorts by enrolled count, or by id, gets this backwards.
 
+## Over-offering is deliberate, so seat abundance is not a fixture defect
+
+**Owner ruling 2026-09-26.** A camp offers far more activities than it expects to run, knowing many
+will not attract enough campers. Culling is the *job of the minimum*, and what happens to the campers
+in a culled offering is the camp's reprovisioning decision. So a generated fixture with 1.3-2.5x more
+seats than campers is **modelling the real starting state**, not over-provisioning by mistake.
+
+This resolves a measurement that otherwise reads as an error bar. Holding preferences, engine and
+collapse fixed and scaling only capacity, the share of placements matching something the camper
+ranked in that cell runs **77.8% at the abundant end and 33.6% at the scarce end**. That range is not
+uncertainty about one number. **It is the trajectory a run walks:** placement happens at the abundant
+end, minimums cull offerings, seats contract, and reprovisioning happens at the scarce end.
+
+Two consequences follow, and the second is the load-bearing one:
+
+- **A satisfaction figure measured before culling is close to meaningless.** With more seats than
+  campers almost any model looks adequate, including the withdrawn global one. Any future measurement
+  of placement quality must state where on this curve it was taken.
+- **The global model's cost is concentrated AFTER culling.** Reprovisioning requires reading a
+  camper's *next choice in that specific cell*. A global ranked list cannot answer that question at
+  all — it names an activity, not an occurrence, and the activity it names may not be offered in the
+  cell that needs refilling. So the per-cell shape is not merely more faithful to the form; it is a
+  **precondition for the reprovisioning half of the two-phase loop**, which is the half the owner
+  identified as where the real work happens.
+
 ## What this does not decide
 
 - **The ingest format.** D14's warning stands in full: the artifact here is a **blank form**, and the
