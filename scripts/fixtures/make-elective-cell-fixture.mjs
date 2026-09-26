@@ -38,9 +38,11 @@
 // DELIBERATE DEFECTS FIXED FROM THE SUPERSEDED DRAFT
 // (/private/tmp/.../scratchpad/gen/grid.mjs), not inherited:
 //   1. No seat-supply precondition there at all. This script CHECKS it after
-//      generating each cell (checkSeatSupply below) and tops up the largest
-//      offering's capacity to satisfy it before writing anything out — the
-//      fixture is constructed to pass the precondition, not merely hoped to.
+//      generating each cell (checkSeatSupply below) and THROWS if any cell is
+//      short, rather than topping up a capacity to force the check to pass —
+//      a top-up would make the guard's success condition diverge from the
+//      system's ("these are CATALOG's real capacities"), so an under-supplied
+//      cell must fail the generator, not be silently patched.
 //   2. The "leaves a cell short" campers there got 1-2 ranks, never zero, so
 //      the ADR's "not every camper needs a placement in every occurrence" case
 //      was never produced. Here `wantForCell` below has a genuine zero branch.
@@ -135,11 +137,28 @@ const RANKS_PER_CELL = 4 // a per-camp SETTING modeled here as a fixed value for
 
 function slugify(label) { return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') }
 
+// Plain codepoint comparison, not `.localeCompare()` — default ICU collation
+// can differ between macOS and Linux CI, and this fixture's entire value is
+// byte-stable regeneration across machines.
+function cmp(a, b) { return a < b ? -1 : a > b ? 1 : 0 }
+
 // --- offerings, choices, choiceOfferings ------------------------------------
 // Every offering, linked or not, belongs to exactly one choice. A non-linked
 // offering gets its own single-member (degenerate) choice, so a preference
 // naming it still carries `choice_id` — the uniform row shape the ADR wants,
 // with no `labelKey` branch for a caller to get wrong.
+//
+// Each choice row below carries BOTH `label` and `labelKey`, deliberately, not
+// as a pick between them: the real `elective_choices` schema column is
+// `label` (electron/db/schema.sql:1364), but src/engine/buildElectiveAssignments.js
+// reads `c.labelKey` at src/engine/buildElectiveAssignments.js:126,152-171 — its
+// own JSDoc claim that `labelKey` "mirrors elective_choices" is already wrong
+// against the schema (pre-existing, out of scope to fix here). The measurement
+// script never passes `choices` to the engine today, so this divergence is
+// currently harmless, but T251's acceptance work will pass choices to exercise
+// tier 1, and would get `undefined` from every `c.labelKey` with no error —
+// silently degrading the linked-choice pass. Emitting both names avoids
+// silently picking the wrong one.
 function buildOfferingsAndChoices() {
   const cells = selectableCells()
   const offerings = []
@@ -155,7 +174,7 @@ function buildOfferingsAndChoices() {
     // above can occasionally land outside that band. Top up or trim
     // deterministically by ubiquity so every cell stays inside it, rather than
     // leaving the range to chance.
-    const byUbiquity = [...CATALOG].sort((a, b) => b.ubiquity - a.ubiquity || a.label.localeCompare(b.label))
+    const byUbiquity = [...CATALOG].sort((a, b) => b.ubiquity - a.ubiquity || cmp(a.label, b.label))
     if (chosen.length < 9) {
       for (const a of byUbiquity) {
         if (chosen.length >= 9) break
@@ -169,7 +188,7 @@ function buildOfferingsAndChoices() {
     for (const a of chosen) {
       const activityId = `act-${slugify(a.label)}`
       const choiceId = `choice-${slugify(a.label)}-${cell.id}`
-      choices.push({ id: choiceId, label: a.label, is_linked: false })
+      choices.push({ id: choiceId, label: a.label, labelKey: a.label, is_linked: false })
       choiceOfferings.push({ choice_id: choiceId, occurrence_id: cell.id, activity_id: activityId })
       offerings.push({ occurrence_id: cell.id, labelKey: a.label, activity_id: activityId, capacity: a.cap, choice_id: choiceId, theme: a.theme })
     }
@@ -179,7 +198,7 @@ function buildOfferingsAndChoices() {
     const activityId = `act-${slugify(dp.label)}`
     for (const d of dp.days) {
       const choiceId = `choice-${slugify(dp.label)}-${d}`
-      choices.push({ id: choiceId, label: `${dp.label} (${d})`, is_linked: true })
+      choices.push({ id: choiceId, label: `${dp.label} (${d})`, labelKey: dp.label, is_linked: true })
       for (const p of dp.periods) {
         const occ = `occ-${d}-p${p}`
         choiceOfferings.push({ choice_id: choiceId, occurrence_id: occ, activity_id: activityId })
@@ -190,7 +209,7 @@ function buildOfferingsAndChoices() {
   for (const md of MULTI_DAY) {
     const activityId = `act-${slugify(md.label)}`
     const choiceId = `choice-${slugify(md.label)}`
-    choices.push({ id: choiceId, label: md.label, is_linked: true })
+    choices.push({ id: choiceId, label: md.label, labelKey: md.label, is_linked: true })
     for (const d of md.days) {
       const occ = `occ-${d}-p${md.period}`
       choiceOfferings.push({ choice_id: choiceId, occurrence_id: occ, activity_id: activityId })
@@ -210,6 +229,14 @@ function buildOfferingsAndChoices() {
 // gap is deliberate and stated, not hidden: it is the same gap the measurement
 // script's own precondition check carries, and no fixture-side balancing
 // beyond `chosen`'s ubiquity-weighted selection is attempted here.
+//
+// This THROWS on a short cell rather than topping up a capacity to make the
+// check pass. A top-up would make the guard's success condition ("total
+// capacity >= attendees") diverge from the system's success condition ("the
+// fixture's capacities are the ones CATALOG actually declares") — exactly the
+// review-panel finding this fixture must not repeat: a future change to
+// CAMPER_COUNT or CATALOG could silently inflate a capacity and distort the
+// measurement's fidelity while this check stayed green.
 function checkSeatSupply(cells, offerings, attendeeCount) {
   const byCell = new Map()
   for (const o of offerings) {
@@ -220,11 +247,11 @@ function checkSeatSupply(cells, offerings, attendeeCount) {
     const here = byCell.get(cell.id) ?? []
     const total = here.reduce((sum, o) => sum + o.capacity, 0)
     if (total < attendeeCount) {
-      // Top up the largest offering rather than silently under-provisioning —
-      // this is the exact 24%-empty-camper-periods incident (a generator
-      // defect misread as an engine finding) this fixture must not repeat.
-      const biggest = here.reduce((a, b) => (b.capacity > a.capacity ? b : a))
-      biggest.capacity += attendeeCount - total
+      throw new Error(
+        `seat-supply precondition failed for cell ${cell.id}: ${attendeeCount} campers attend, ` +
+        `only ${total} seats offered (shortfall ${attendeeCount - total}). Fix CATALOG/DOUBLE_PERIODS/` +
+        `MULTI_DAY capacities or CAMPER_COUNT — do not top up a capacity to make this pass.`
+      )
     }
   }
 }
@@ -315,7 +342,7 @@ function buildPreferences(campers, cells, offerings, choiceOfferings, ranksPerCe
       const want = wantForCell(r, ranksPerCell)
       if (want === 0 || !opts.length) continue
       const scored = opts.map((o) => ({ o, s: scoreOffering(c.affinity, o, r) }))
-      scored.sort((a, b) => b.s - a.s || a.o.labelKey.localeCompare(b.o.labelKey))
+      scored.sort((a, b) => b.s - a.s || cmp(a.o.labelKey, b.o.labelKey))
       scored.slice(0, Math.min(want, opts.length)).forEach(({ o }, i) => {
         prefs.push({ camper_id: c.id, occurrence_id: cell.id, choice_id: o.choice_id, rank: rankFloor + i + 1 })
       })
@@ -338,7 +365,7 @@ function generate() {
     },
     occurrences: cells.map((c) => ({ id: c.id, day: c.day, period: c.period })),
     offerings: offerings.map(({ occurrence_id, labelKey, activity_id, capacity, choice_id }) => ({ occurrence_id, labelKey, activity_id, capacity, choice_id })),
-    choices: choices.map(({ id, label, is_linked }) => ({ id, label, is_linked })),
+    choices: choices.map(({ id, label, labelKey, is_linked }) => ({ id, label, labelKey, is_linked })),
     choiceOfferings,
     campers: campers.map(({ id, name }) => ({ id, name })),
     preferences,
@@ -353,4 +380,4 @@ if (isMain) {
   process.stdout.write(`wrote ${path.relative(ROOT, OUT_PATH)}\n`)
 }
 
-export { generate }
+export { generate, CATALOG, DOUBLE_PERIODS, MULTI_DAY }

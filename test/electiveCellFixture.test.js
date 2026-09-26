@@ -100,6 +100,29 @@ describe('T251 per-cell elective preference fixture', () => {
     expect(zeroCount).toBeGreaterThan(0)
   })
 
+  it('carries no capacity inflated by a seat-supply top-up — every offering capacity is a declared CATALOG/linkage value', async () => {
+    // SYSTEM predicate: this fixture's capacities are the ones the generator's
+    // CATALOG/DOUBLE_PERIODS/MULTI_DAY tables actually declare, never a value
+    // silently patched to satisfy the seat-supply guard (round-2 review
+    // finding: a top-up mechanism made checkSeatSupply's success condition
+    // diverge from the system's — a future change to CAMPER_COUNT or CATALOG
+    // could inflate a capacity and distort fidelity while the guard stayed
+    // green). CHECK predicate: every committed offering's capacity is a value
+    // present in one of the three declared tables — narrower than "correctly
+    // attributed to the right activity", but catches any capacity the
+    // generator computed rather than copied verbatim.
+    const { CATALOG, DOUBLE_PERIODS, MULTI_DAY } = await import('../scripts/fixtures/make-elective-cell-fixture.mjs')
+    const declaredCapacities = new Set([
+      ...CATALOG.map((a) => a.cap),
+      ...DOUBLE_PERIODS.map((dp) => dp.cap),
+      ...MULTI_DAY.map((md) => md.cap),
+    ])
+    expect(fixture.offerings.length).toBeGreaterThan(0)
+    for (const o of fixture.offerings) {
+      expect(declaredCapacities.has(o.capacity)).toBe(true)
+    }
+  })
+
   it('names campers unmistakably as synthetic', () => {
     // SYSTEM predicate: no row in a committed, PII-adjacent fixture could be
     // mistaken for a real child's name. CHECK predicate: every camper name
@@ -110,6 +133,54 @@ describe('T251 per-cell elective preference fixture', () => {
     for (const c of fixture.campers) {
       expect(c.name).toMatch(/^Synthetic Camper \d+$/)
     }
+  })
+
+  it('demonstrates the derived-id collision this fixture exists to scope: linked-choice preference rows collapse under deriveElectivePreferenceId', () => {
+    // SYSTEM predicate: this is NOT a bug in the fixture — it is the concrete,
+    // quantified demonstration of the exact schema gap deliverable C exists to
+    // scope (round-2 review, Red Hat). `deriveElectivePreferenceId(run_id,
+    // camper_id, choice_id)` (electron/ops/electiveDerivedIds.js:286) keys on
+    // exactly those three fields. A linked choice has MULTIPLE member
+    // occurrences (e.g. `choice-coding-tue` spans occ-tue-p6 and occ-tue-p7),
+    // and this generator writes one preference row per member occurrence with
+    // the SAME (camper_id, choice_id) — so both rows derive the SAME id.
+    // Written through `write()` in electron/ops/commitElectiveRun.js:277, the
+    // second silently overwrites the first: no error, no finding, no log
+    // line. These rows CANNOT round-trip through today's write path until
+    // `elective_preferences` gains an occurrence dimension.
+    // CHECK predicate: count distinct (camper_id, choice_id) pairs that name
+    // more than one occurrence_id, and assert that count is non-zero and
+    // confined entirely to linked choices (a collision among NON-linked
+    // choices would mean something else broke, since non-linked choice_ids
+    // are already scoped per cell).
+    const membersByChoice = new Map()
+    for (const co of fixture.choiceOfferings) {
+      if (!membersByChoice.has(co.choice_id)) membersByChoice.set(co.choice_id, new Set())
+      membersByChoice.get(co.choice_id).add(co.occurrence_id)
+    }
+    const linkedChoiceIds = new Set(
+      [...membersByChoice.entries()].filter(([, occs]) => occs.size > 1).map(([id]) => id)
+    )
+
+    const occurrencesByPair = new Map() // "camper_id|choice_id" -> Set(occurrence_id)
+    for (const p of fixture.preferences) {
+      const key = `${p.camper_id}|${p.choice_id}`
+      if (!occurrencesByPair.has(key)) occurrencesByPair.set(key, new Set())
+      occurrencesByPair.get(key).add(p.occurrence_id)
+    }
+
+    let collidingPairs = 0
+    let collidingNonLinkedPairs = 0
+    for (const [key, occs] of occurrencesByPair) {
+      if (occs.size > 1) {
+        collidingPairs++
+        const choiceId = key.split('|')[1]
+        if (!linkedChoiceIds.has(choiceId)) collidingNonLinkedPairs++
+      }
+    }
+
+    expect(collidingPairs).toBe(177)
+    expect(collidingNonLinkedPairs).toBe(0)
   })
 
   it('regenerates byte-identically (documents the determinism this suite depends on)', async () => {

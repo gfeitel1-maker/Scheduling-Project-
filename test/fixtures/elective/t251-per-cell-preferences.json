@@ -1950,1291 +1950,1549 @@
     {
       "id": "choice-digi-photo-occ-tue-p2",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-tue-p2",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-gaga-occ-tue-p2",
       "label": "Gaga",
+      "labelKey": "Gaga",
       "is_linked": false
     },
     {
       "id": "choice-lake-inflatables-occ-tue-p2",
       "label": "Lake Inflatables",
+      "labelKey": "Lake Inflatables",
       "is_linked": false
     },
     {
       "id": "choice-paddleboarding-occ-tue-p2",
       "label": "Paddleboarding",
+      "labelKey": "Paddleboarding",
       "is_linked": false
     },
     {
       "id": "choice-ropes-high-occ-tue-p2",
       "label": "Ropes High",
+      "labelKey": "Ropes High",
       "is_linked": false
     },
     {
       "id": "choice-9-square-in-the-air-occ-tue-p2",
       "label": "9 Square in the Air",
+      "labelKey": "9 Square in the Air",
       "is_linked": false
     },
     {
       "id": "choice-zipline-occ-tue-p2",
       "label": "Zipline",
+      "labelKey": "Zipline",
       "is_linked": false
     },
     {
       "id": "choice-newcombe-occ-tue-p2",
       "label": "Newcombe",
+      "labelKey": "Newcombe",
       "is_linked": false
     },
     {
       "id": "choice-jewelry-occ-tue-p2",
       "label": "Jewelry",
+      "labelKey": "Jewelry",
       "is_linked": false
     },
     {
       "id": "choice-court-time-occ-tue-p2",
       "label": "Court Time",
+      "labelKey": "Court Time",
       "is_linked": false
     },
     {
       "id": "choice-drawing-occ-tue-p2",
       "label": "Drawing",
+      "labelKey": "Drawing",
       "is_linked": false
     },
     {
       "id": "choice-3d-printing-occ-tue-p2",
       "label": "3D Printing",
+      "labelKey": "3D Printing",
       "is_linked": false
     },
     {
       "id": "choice-circuitry-occ-tue-p2",
       "label": "Circuitry",
+      "labelKey": "Circuitry",
       "is_linked": false
     },
     {
       "id": "choice-project-of-week-occ-tue-p2",
       "label": "Project of Week",
+      "labelKey": "Project of Week",
       "is_linked": false
     },
     {
       "id": "choice-strategic-games-occ-tue-p2",
       "label": "Strategic Games",
+      "labelKey": "Strategic Games",
       "is_linked": false
     },
     {
       "id": "choice-climbing-boulder-occ-tue-p2",
       "label": "Climbing Boulder",
+      "labelKey": "Climbing Boulder",
       "is_linked": false
     },
     {
       "id": "choice-kickball-occ-tue-p2",
       "label": "Kickball",
+      "labelKey": "Kickball",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-wed-p2",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-wed-p2",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-gaga-occ-wed-p2",
       "label": "Gaga",
+      "labelKey": "Gaga",
       "is_linked": false
     },
     {
       "id": "choice-lake-inflatables-occ-wed-p2",
       "label": "Lake Inflatables",
+      "labelKey": "Lake Inflatables",
       "is_linked": false
     },
     {
       "id": "choice-paddleboarding-occ-wed-p2",
       "label": "Paddleboarding",
+      "labelKey": "Paddleboarding",
       "is_linked": false
     },
     {
       "id": "choice-ropes-high-occ-wed-p2",
       "label": "Ropes High",
+      "labelKey": "Ropes High",
       "is_linked": false
     },
     {
       "id": "choice-zipline-occ-wed-p2",
       "label": "Zipline",
+      "labelKey": "Zipline",
       "is_linked": false
     },
     {
       "id": "choice-newcombe-occ-wed-p2",
       "label": "Newcombe",
+      "labelKey": "Newcombe",
       "is_linked": false
     },
     {
       "id": "choice-arts-and-crafts-occ-wed-p2",
       "label": "Arts and Crafts",
+      "labelKey": "Arts and Crafts",
       "is_linked": false
     },
     {
       "id": "choice-jewelry-occ-wed-p2",
       "label": "Jewelry",
+      "labelKey": "Jewelry",
       "is_linked": false
     },
     {
       "id": "choice-mosaic-art-occ-wed-p2",
       "label": "Mosaic Art",
+      "labelKey": "Mosaic Art",
       "is_linked": false
     },
     {
       "id": "choice-circuitry-occ-wed-p2",
       "label": "Circuitry",
+      "labelKey": "Circuitry",
       "is_linked": false
     },
     {
       "id": "choice-robotics-occ-wed-p2",
       "label": "Robotics",
+      "labelKey": "Robotics",
       "is_linked": false
     },
     {
       "id": "choice-bucket-golf-occ-wed-p2",
       "label": "Bucket Golf",
+      "labelKey": "Bucket Golf",
       "is_linked": false
     },
     {
       "id": "choice-teva-nature-occ-wed-p2",
       "label": "Teva Nature",
+      "labelKey": "Teva Nature",
       "is_linked": false
     },
     {
       "id": "choice-magic-occ-wed-p2",
       "label": "Magic",
+      "labelKey": "Magic",
       "is_linked": false
     },
     {
       "id": "choice-chess-occ-wed-p2",
       "label": "Chess",
+      "labelKey": "Chess",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-thu-p2",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-top-chef-occ-thu-p2",
       "label": "Top Chef",
+      "labelKey": "Top Chef",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-thu-p2",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-thu-p2",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-gaga-occ-thu-p2",
       "label": "Gaga",
+      "labelKey": "Gaga",
       "is_linked": false
     },
     {
       "id": "choice-paddleboarding-occ-thu-p2",
       "label": "Paddleboarding",
+      "labelKey": "Paddleboarding",
       "is_linked": false
     },
     {
       "id": "choice-fishing-occ-thu-p2",
       "label": "Fishing",
+      "labelKey": "Fishing",
       "is_linked": false
     },
     {
       "id": "choice-newcombe-occ-thu-p2",
       "label": "Newcombe",
+      "labelKey": "Newcombe",
       "is_linked": false
     },
     {
       "id": "choice-bucket-golf-occ-thu-p2",
       "label": "Bucket Golf",
+      "labelKey": "Bucket Golf",
       "is_linked": false
     },
     {
       "id": "choice-ropes-low-occ-thu-p2",
       "label": "Ropes Low",
+      "labelKey": "Ropes Low",
       "is_linked": false
     },
     {
       "id": "choice-kickball-occ-thu-p2",
       "label": "Kickball",
+      "labelKey": "Kickball",
       "is_linked": false
     },
     {
       "id": "choice-magic-occ-thu-p2",
       "label": "Magic",
+      "labelKey": "Magic",
       "is_linked": false
     },
     {
       "id": "choice-hip-hop-occ-thu-p2",
       "label": "Hip Hop",
+      "labelKey": "Hip Hop",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-mon-p3",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-mon-p3",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-mon-p3",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-lake-inflatables-occ-mon-p3",
       "label": "Lake Inflatables",
+      "labelKey": "Lake Inflatables",
       "is_linked": false
     },
     {
       "id": "choice-paddleboarding-occ-mon-p3",
       "label": "Paddleboarding",
+      "labelKey": "Paddleboarding",
       "is_linked": false
     },
     {
       "id": "choice-9-square-in-the-air-occ-mon-p3",
       "label": "9 Square in the Air",
+      "labelKey": "9 Square in the Air",
       "is_linked": false
     },
     {
       "id": "choice-basketball-occ-mon-p3",
       "label": "Basketball",
+      "labelKey": "Basketball",
       "is_linked": false
     },
     {
       "id": "choice-drawing-occ-mon-p3",
       "label": "Drawing",
+      "labelKey": "Drawing",
       "is_linked": false
     },
     {
       "id": "choice-3d-printing-occ-mon-p3",
       "label": "3D Printing",
+      "labelKey": "3D Printing",
       "is_linked": false
     },
     {
       "id": "choice-circuitry-occ-mon-p3",
       "label": "Circuitry",
+      "labelKey": "Circuitry",
       "is_linked": false
     },
     {
       "id": "choice-games-occ-mon-p3",
       "label": "Games",
+      "labelKey": "Games",
       "is_linked": false
     },
     {
       "id": "choice-improvisation-occ-mon-p3",
       "label": "Improvisation",
+      "labelKey": "Improvisation",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-tue-p3",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-fishing-occ-tue-p3",
       "label": "Fishing",
+      "labelKey": "Fishing",
       "is_linked": false
     },
     {
       "id": "choice-newcombe-occ-tue-p3",
       "label": "Newcombe",
+      "labelKey": "Newcombe",
       "is_linked": false
     },
     {
       "id": "choice-jewelry-occ-tue-p3",
       "label": "Jewelry",
+      "labelKey": "Jewelry",
       "is_linked": false
     },
     {
       "id": "choice-mosaic-art-occ-tue-p3",
       "label": "Mosaic Art",
+      "labelKey": "Mosaic Art",
       "is_linked": false
     },
     {
       "id": "choice-3d-printing-occ-tue-p3",
       "label": "3D Printing",
+      "labelKey": "3D Printing",
       "is_linked": false
     },
     {
       "id": "choice-robotics-occ-tue-p3",
       "label": "Robotics",
+      "labelKey": "Robotics",
       "is_linked": false
     },
     {
       "id": "choice-bucket-golf-occ-tue-p3",
       "label": "Bucket Golf",
+      "labelKey": "Bucket Golf",
       "is_linked": false
     },
     {
       "id": "choice-hip-hop-occ-tue-p3",
       "label": "Hip Hop",
+      "labelKey": "Hip Hop",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-wed-p3",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-top-chef-occ-wed-p3",
       "label": "Top Chef",
+      "labelKey": "Top Chef",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-wed-p3",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-gaga-occ-wed-p3",
       "label": "Gaga",
+      "labelKey": "Gaga",
       "is_linked": false
     },
     {
       "id": "choice-paddleboarding-occ-wed-p3",
       "label": "Paddleboarding",
+      "labelKey": "Paddleboarding",
       "is_linked": false
     },
     {
       "id": "choice-ropes-high-occ-wed-p3",
       "label": "Ropes High",
+      "labelKey": "Ropes High",
       "is_linked": false
     },
     {
       "id": "choice-9-square-in-the-air-occ-wed-p3",
       "label": "9 Square in the Air",
+      "labelKey": "9 Square in the Air",
       "is_linked": false
     },
     {
       "id": "choice-ceramics-occ-wed-p3",
       "label": "Ceramics",
+      "labelKey": "Ceramics",
       "is_linked": false
     },
     {
       "id": "choice-zipline-occ-wed-p3",
       "label": "Zipline",
+      "labelKey": "Zipline",
       "is_linked": false
     },
     {
       "id": "choice-newcombe-occ-wed-p3",
       "label": "Newcombe",
+      "labelKey": "Newcombe",
       "is_linked": false
     },
     {
       "id": "choice-arts-and-crafts-occ-wed-p3",
       "label": "Arts and Crafts",
+      "labelKey": "Arts and Crafts",
       "is_linked": false
     },
     {
       "id": "choice-drawing-occ-wed-p3",
       "label": "Drawing",
+      "labelKey": "Drawing",
       "is_linked": false
     },
     {
       "id": "choice-robotics-occ-wed-p3",
       "label": "Robotics",
+      "labelKey": "Robotics",
       "is_linked": false
     },
     {
       "id": "choice-strategic-games-occ-wed-p3",
       "label": "Strategic Games",
+      "labelKey": "Strategic Games",
       "is_linked": false
     },
     {
       "id": "choice-climbing-boulder-occ-wed-p3",
       "label": "Climbing Boulder",
+      "labelKey": "Climbing Boulder",
       "is_linked": false
     },
     {
       "id": "choice-bucket-golf-occ-wed-p3",
       "label": "Bucket Golf",
+      "labelKey": "Bucket Golf",
       "is_linked": false
     },
     {
       "id": "choice-teva-nature-occ-wed-p3",
       "label": "Teva Nature",
+      "labelKey": "Teva Nature",
       "is_linked": false
     },
     {
       "id": "choice-book-club-occ-wed-p3",
       "label": "Book Club",
+      "labelKey": "Book Club",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-thu-p3",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-thu-p3",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-thu-p3",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-ropes-high-occ-thu-p3",
       "label": "Ropes High",
+      "labelKey": "Ropes High",
       "is_linked": false
     },
     {
       "id": "choice-zipline-occ-thu-p3",
       "label": "Zipline",
+      "labelKey": "Zipline",
       "is_linked": false
     },
     {
       "id": "choice-jewelry-occ-thu-p3",
       "label": "Jewelry",
+      "labelKey": "Jewelry",
       "is_linked": false
     },
     {
       "id": "choice-court-time-occ-thu-p3",
       "label": "Court Time",
+      "labelKey": "Court Time",
       "is_linked": false
     },
     {
       "id": "choice-boating-occ-thu-p3",
       "label": "Boating",
+      "labelKey": "Boating",
       "is_linked": false
     },
     {
       "id": "choice-project-of-week-occ-thu-p3",
       "label": "Project of Week",
+      "labelKey": "Project of Week",
       "is_linked": false
     },
     {
       "id": "choice-robotics-occ-thu-p3",
       "label": "Robotics",
+      "labelKey": "Robotics",
       "is_linked": false
     },
     {
       "id": "choice-climbing-boulder-occ-thu-p3",
       "label": "Climbing Boulder",
+      "labelKey": "Climbing Boulder",
       "is_linked": false
     },
     {
       "id": "choice-bucket-golf-occ-thu-p3",
       "label": "Bucket Golf",
+      "labelKey": "Bucket Golf",
       "is_linked": false
     },
     {
       "id": "choice-teva-nature-occ-thu-p3",
       "label": "Teva Nature",
+      "labelKey": "Teva Nature",
       "is_linked": false
     },
     {
       "id": "choice-magic-occ-thu-p3",
       "label": "Magic",
+      "labelKey": "Magic",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-fri-p3",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-top-chef-occ-fri-p3",
       "label": "Top Chef",
+      "labelKey": "Top Chef",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-fri-p3",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-gaga-occ-fri-p3",
       "label": "Gaga",
+      "labelKey": "Gaga",
       "is_linked": false
     },
     {
       "id": "choice-ceramics-occ-fri-p3",
       "label": "Ceramics",
+      "labelKey": "Ceramics",
       "is_linked": false
     },
     {
       "id": "choice-zipline-occ-fri-p3",
       "label": "Zipline",
+      "labelKey": "Zipline",
       "is_linked": false
     },
     {
       "id": "choice-newcombe-occ-fri-p3",
       "label": "Newcombe",
+      "labelKey": "Newcombe",
       "is_linked": false
     },
     {
       "id": "choice-arts-and-crafts-occ-fri-p3",
       "label": "Arts and Crafts",
+      "labelKey": "Arts and Crafts",
       "is_linked": false
     },
     {
       "id": "choice-painting-occ-fri-p3",
       "label": "Painting",
+      "labelKey": "Painting",
       "is_linked": false
     },
     {
       "id": "choice-teva-nature-occ-fri-p3",
       "label": "Teva Nature",
+      "labelKey": "Teva Nature",
       "is_linked": false
     },
     {
       "id": "choice-book-club-occ-fri-p3",
       "label": "Book Club",
+      "labelKey": "Book Club",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-mon-p6",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-top-chef-occ-mon-p6",
       "label": "Top Chef",
+      "labelKey": "Top Chef",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-mon-p6",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-lake-inflatables-occ-mon-p6",
       "label": "Lake Inflatables",
+      "labelKey": "Lake Inflatables",
       "is_linked": false
     },
     {
       "id": "choice-paddleboarding-occ-mon-p6",
       "label": "Paddleboarding",
+      "labelKey": "Paddleboarding",
       "is_linked": false
     },
     {
       "id": "choice-9-square-in-the-air-occ-mon-p6",
       "label": "9 Square in the Air",
+      "labelKey": "9 Square in the Air",
       "is_linked": false
     },
     {
       "id": "choice-ceramics-occ-mon-p6",
       "label": "Ceramics",
+      "labelKey": "Ceramics",
       "is_linked": false
     },
     {
       "id": "choice-mini-golf-occ-mon-p6",
       "label": "Mini Golf",
+      "labelKey": "Mini Golf",
       "is_linked": false
     },
     {
       "id": "choice-fishing-occ-mon-p6",
       "label": "Fishing",
+      "labelKey": "Fishing",
       "is_linked": false
     },
     {
       "id": "choice-newcombe-occ-mon-p6",
       "label": "Newcombe",
+      "labelKey": "Newcombe",
       "is_linked": false
     },
     {
       "id": "choice-arts-and-crafts-occ-mon-p6",
       "label": "Arts and Crafts",
+      "labelKey": "Arts and Crafts",
       "is_linked": false
     },
     {
       "id": "choice-basketball-occ-mon-p6",
       "label": "Basketball",
+      "labelKey": "Basketball",
       "is_linked": false
     },
     {
       "id": "choice-drawing-occ-mon-p6",
       "label": "Drawing",
+      "labelKey": "Drawing",
       "is_linked": false
     },
     {
       "id": "choice-boating-occ-mon-p6",
       "label": "Boating",
+      "labelKey": "Boating",
       "is_linked": false
     },
     {
       "id": "choice-robotics-occ-mon-p6",
       "label": "Robotics",
+      "labelKey": "Robotics",
       "is_linked": false
     },
     {
       "id": "choice-yoga-occ-mon-p6",
       "label": "Yoga",
+      "labelKey": "Yoga",
       "is_linked": false
     },
     {
       "id": "choice-zumba-occ-mon-p6",
       "label": "Zumba",
+      "labelKey": "Zumba",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-tue-p6",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-top-chef-occ-tue-p6",
       "label": "Top Chef",
+      "labelKey": "Top Chef",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-tue-p6",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-lake-inflatables-occ-tue-p6",
       "label": "Lake Inflatables",
+      "labelKey": "Lake Inflatables",
       "is_linked": false
     },
     {
       "id": "choice-ropes-high-occ-tue-p6",
       "label": "Ropes High",
+      "labelKey": "Ropes High",
       "is_linked": false
     },
     {
       "id": "choice-ceramics-occ-tue-p6",
       "label": "Ceramics",
+      "labelKey": "Ceramics",
       "is_linked": false
     },
     {
       "id": "choice-newcombe-occ-tue-p6",
       "label": "Newcombe",
+      "labelKey": "Newcombe",
       "is_linked": false
     },
     {
       "id": "choice-jewelry-occ-tue-p6",
       "label": "Jewelry",
+      "labelKey": "Jewelry",
       "is_linked": false
     },
     {
       "id": "choice-boating-occ-tue-p6",
       "label": "Boating",
+      "labelKey": "Boating",
       "is_linked": false
     },
     {
       "id": "choice-circuitry-occ-tue-p6",
       "label": "Circuitry",
+      "labelKey": "Circuitry",
       "is_linked": false
     },
     {
       "id": "choice-games-occ-tue-p6",
       "label": "Games",
+      "labelKey": "Games",
       "is_linked": false
     },
     {
       "id": "choice-strategic-games-occ-tue-p6",
       "label": "Strategic Games",
+      "labelKey": "Strategic Games",
       "is_linked": false
     },
     {
       "id": "choice-climbing-boulder-occ-tue-p6",
       "label": "Climbing Boulder",
+      "labelKey": "Climbing Boulder",
       "is_linked": false
     },
     {
       "id": "choice-kickball-occ-tue-p6",
       "label": "Kickball",
+      "labelKey": "Kickball",
       "is_linked": false
     },
     {
       "id": "choice-tailgate-games-occ-tue-p6",
       "label": "Tailgate Games",
+      "labelKey": "Tailgate Games",
       "is_linked": false
     },
     {
       "id": "choice-top-chef-occ-wed-p6",
       "label": "Top Chef",
+      "labelKey": "Top Chef",
       "is_linked": false
     },
     {
       "id": "choice-gaga-occ-wed-p6",
       "label": "Gaga",
+      "labelKey": "Gaga",
       "is_linked": false
     },
     {
       "id": "choice-paddleboarding-occ-wed-p6",
       "label": "Paddleboarding",
+      "labelKey": "Paddleboarding",
       "is_linked": false
     },
     {
       "id": "choice-ropes-high-occ-wed-p6",
       "label": "Ropes High",
+      "labelKey": "Ropes High",
       "is_linked": false
     },
     {
       "id": "choice-mini-golf-occ-wed-p6",
       "label": "Mini Golf",
+      "labelKey": "Mini Golf",
       "is_linked": false
     },
     {
       "id": "choice-fishing-occ-wed-p6",
       "label": "Fishing",
+      "labelKey": "Fishing",
       "is_linked": false
     },
     {
       "id": "choice-zipline-occ-wed-p6",
       "label": "Zipline",
+      "labelKey": "Zipline",
       "is_linked": false
     },
     {
       "id": "choice-jewelry-occ-wed-p6",
       "label": "Jewelry",
+      "labelKey": "Jewelry",
       "is_linked": false
     },
     {
       "id": "choice-court-time-occ-wed-p6",
       "label": "Court Time",
+      "labelKey": "Court Time",
       "is_linked": false
     },
     {
       "id": "choice-drawing-occ-wed-p6",
       "label": "Drawing",
+      "labelKey": "Drawing",
       "is_linked": false
     },
     {
       "id": "choice-3d-printing-occ-wed-p6",
       "label": "3D Printing",
+      "labelKey": "3D Printing",
       "is_linked": false
     },
     {
       "id": "choice-project-of-week-occ-wed-p6",
       "label": "Project of Week",
+      "labelKey": "Project of Week",
       "is_linked": false
     },
     {
       "id": "choice-robotics-occ-wed-p6",
       "label": "Robotics",
+      "labelKey": "Robotics",
       "is_linked": false
     },
     {
       "id": "choice-strategic-games-occ-wed-p6",
       "label": "Strategic Games",
+      "labelKey": "Strategic Games",
       "is_linked": false
     },
     {
       "id": "choice-teva-nature-occ-wed-p6",
       "label": "Teva Nature",
+      "labelKey": "Teva Nature",
       "is_linked": false
     },
     {
       "id": "choice-krav-maga-occ-wed-p6",
       "label": "Krav Maga",
+      "labelKey": "Krav Maga",
       "is_linked": false
     },
     {
       "id": "choice-improvisation-occ-wed-p6",
       "label": "Improvisation",
+      "labelKey": "Improvisation",
       "is_linked": false
     },
     {
       "id": "choice-tailgate-games-occ-wed-p6",
       "label": "Tailgate Games",
+      "labelKey": "Tailgate Games",
       "is_linked": false
     },
     {
       "id": "choice-book-club-occ-wed-p6",
       "label": "Book Club",
+      "labelKey": "Book Club",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-thu-p6",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-thu-p6",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-thu-p6",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-9-square-in-the-air-occ-thu-p6",
       "label": "9 Square in the Air",
+      "labelKey": "9 Square in the Air",
       "is_linked": false
     },
     {
       "id": "choice-ceramics-occ-thu-p6",
       "label": "Ceramics",
+      "labelKey": "Ceramics",
       "is_linked": false
     },
     {
       "id": "choice-jewelry-occ-thu-p6",
       "label": "Jewelry",
+      "labelKey": "Jewelry",
       "is_linked": false
     },
     {
       "id": "choice-mosaic-art-occ-thu-p6",
       "label": "Mosaic Art",
+      "labelKey": "Mosaic Art",
       "is_linked": false
     },
     {
       "id": "choice-basketball-occ-thu-p6",
       "label": "Basketball",
+      "labelKey": "Basketball",
       "is_linked": false
     },
     {
       "id": "choice-drawing-occ-thu-p6",
       "label": "Drawing",
+      "labelKey": "Drawing",
       "is_linked": false
     },
     {
       "id": "choice-ropes-low-occ-thu-p6",
       "label": "Ropes Low",
+      "labelKey": "Ropes Low",
       "is_linked": false
     },
     {
       "id": "choice-kickball-occ-thu-p6",
       "label": "Kickball",
+      "labelKey": "Kickball",
       "is_linked": false
     },
     {
       "id": "choice-mad-science-occ-thu-p6",
       "label": "Mad Science",
+      "labelKey": "Mad Science",
       "is_linked": false
     },
     {
       "id": "choice-krav-maga-occ-thu-p6",
       "label": "Krav Maga",
+      "labelKey": "Krav Maga",
       "is_linked": false
     },
     {
       "id": "choice-improvisation-occ-thu-p6",
       "label": "Improvisation",
+      "labelKey": "Improvisation",
       "is_linked": false
     },
     {
       "id": "choice-book-club-occ-thu-p6",
       "label": "Book Club",
+      "labelKey": "Book Club",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-fri-p6",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-fri-p6",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-gaga-occ-fri-p6",
       "label": "Gaga",
+      "labelKey": "Gaga",
       "is_linked": false
     },
     {
       "id": "choice-lake-inflatables-occ-fri-p6",
       "label": "Lake Inflatables",
+      "labelKey": "Lake Inflatables",
       "is_linked": false
     },
     {
       "id": "choice-9-square-in-the-air-occ-fri-p6",
       "label": "9 Square in the Air",
+      "labelKey": "9 Square in the Air",
       "is_linked": false
     },
     {
       "id": "choice-ceramics-occ-fri-p6",
       "label": "Ceramics",
+      "labelKey": "Ceramics",
       "is_linked": false
     },
     {
       "id": "choice-fishing-occ-fri-p6",
       "label": "Fishing",
+      "labelKey": "Fishing",
       "is_linked": false
     },
     {
       "id": "choice-mosaic-art-occ-fri-p6",
       "label": "Mosaic Art",
+      "labelKey": "Mosaic Art",
       "is_linked": false
     },
     {
       "id": "choice-basketball-occ-fri-p6",
       "label": "Basketball",
+      "labelKey": "Basketball",
       "is_linked": false
     },
     {
       "id": "choice-3d-printing-occ-fri-p6",
       "label": "3D Printing",
+      "labelKey": "3D Printing",
       "is_linked": false
     },
     {
       "id": "choice-games-occ-fri-p6",
       "label": "Games",
+      "labelKey": "Games",
       "is_linked": false
     },
     {
       "id": "choice-project-of-week-occ-fri-p6",
       "label": "Project of Week",
+      "labelKey": "Project of Week",
       "is_linked": false
     },
     {
       "id": "choice-robotics-occ-fri-p6",
       "label": "Robotics",
+      "labelKey": "Robotics",
       "is_linked": false
     },
     {
       "id": "choice-teva-nature-occ-fri-p6",
       "label": "Teva Nature",
+      "labelKey": "Teva Nature",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-mon-p7",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-top-chef-occ-mon-p7",
       "label": "Top Chef",
+      "labelKey": "Top Chef",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-mon-p7",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-gaga-occ-mon-p7",
       "label": "Gaga",
+      "labelKey": "Gaga",
       "is_linked": false
     },
     {
       "id": "choice-lake-inflatables-occ-mon-p7",
       "label": "Lake Inflatables",
+      "labelKey": "Lake Inflatables",
       "is_linked": false
     },
     {
       "id": "choice-mini-golf-occ-mon-p7",
       "label": "Mini Golf",
+      "labelKey": "Mini Golf",
       "is_linked": false
     },
     {
       "id": "choice-arts-and-crafts-occ-mon-p7",
       "label": "Arts and Crafts",
+      "labelKey": "Arts and Crafts",
       "is_linked": false
     },
     {
       "id": "choice-jewelry-occ-mon-p7",
       "label": "Jewelry",
+      "labelKey": "Jewelry",
       "is_linked": false
     },
     {
       "id": "choice-mosaic-art-occ-mon-p7",
       "label": "Mosaic Art",
+      "labelKey": "Mosaic Art",
       "is_linked": false
     },
     {
       "id": "choice-project-of-week-occ-mon-p7",
       "label": "Project of Week",
+      "labelKey": "Project of Week",
       "is_linked": false
     },
     {
       "id": "choice-climbing-boulder-occ-mon-p7",
       "label": "Climbing Boulder",
+      "labelKey": "Climbing Boulder",
       "is_linked": false
     },
     {
       "id": "choice-bucket-golf-occ-mon-p7",
       "label": "Bucket Golf",
+      "labelKey": "Bucket Golf",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-tue-p7",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-top-chef-occ-tue-p7",
       "label": "Top Chef",
+      "labelKey": "Top Chef",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-tue-p7",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-tue-p7",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-gaga-occ-tue-p7",
       "label": "Gaga",
+      "labelKey": "Gaga",
       "is_linked": false
     },
     {
       "id": "choice-ceramics-occ-tue-p7",
       "label": "Ceramics",
+      "labelKey": "Ceramics",
       "is_linked": false
     },
     {
       "id": "choice-mini-golf-occ-tue-p7",
       "label": "Mini Golf",
+      "labelKey": "Mini Golf",
       "is_linked": false
     },
     {
       "id": "choice-jewelry-occ-tue-p7",
       "label": "Jewelry",
+      "labelKey": "Jewelry",
       "is_linked": false
     },
     {
       "id": "choice-painting-occ-tue-p7",
       "label": "Painting",
+      "labelKey": "Painting",
       "is_linked": false
     },
     {
       "id": "choice-3d-printing-occ-tue-p7",
       "label": "3D Printing",
+      "labelKey": "3D Printing",
       "is_linked": false
     },
     {
       "id": "choice-games-occ-tue-p7",
       "label": "Games",
+      "labelKey": "Games",
       "is_linked": false
     },
     {
       "id": "choice-ropes-low-occ-tue-p7",
       "label": "Ropes Low",
+      "labelKey": "Ropes Low",
       "is_linked": false
     },
     {
       "id": "choice-krav-maga-occ-tue-p7",
       "label": "Krav Maga",
+      "labelKey": "Krav Maga",
       "is_linked": false
     },
     {
       "id": "choice-tailgate-games-occ-tue-p7",
       "label": "Tailgate Games",
+      "labelKey": "Tailgate Games",
       "is_linked": false
     },
     {
       "id": "choice-book-club-occ-tue-p7",
       "label": "Book Club",
+      "labelKey": "Book Club",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-wed-p7",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-top-chef-occ-wed-p7",
       "label": "Top Chef",
+      "labelKey": "Top Chef",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-wed-p7",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-gaga-occ-wed-p7",
       "label": "Gaga",
+      "labelKey": "Gaga",
       "is_linked": false
     },
     {
       "id": "choice-ceramics-occ-wed-p7",
       "label": "Ceramics",
+      "labelKey": "Ceramics",
       "is_linked": false
     },
     {
       "id": "choice-mini-golf-occ-wed-p7",
       "label": "Mini Golf",
+      "labelKey": "Mini Golf",
       "is_linked": false
     },
     {
       "id": "choice-arts-and-crafts-occ-wed-p7",
       "label": "Arts and Crafts",
+      "labelKey": "Arts and Crafts",
       "is_linked": false
     },
     {
       "id": "choice-painting-occ-wed-p7",
       "label": "Painting",
+      "labelKey": "Painting",
       "is_linked": false
     },
     {
       "id": "choice-climbing-boulder-occ-wed-p7",
       "label": "Climbing Boulder",
+      "labelKey": "Climbing Boulder",
       "is_linked": false
     },
     {
       "id": "choice-bucket-golf-occ-wed-p7",
       "label": "Bucket Golf",
+      "labelKey": "Bucket Golf",
       "is_linked": false
     },
     {
       "id": "choice-ropes-low-occ-wed-p7",
       "label": "Ropes Low",
+      "labelKey": "Ropes Low",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-thu-p7",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-thu-p7",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-thu-p7",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-lake-inflatables-occ-thu-p7",
       "label": "Lake Inflatables",
+      "labelKey": "Lake Inflatables",
       "is_linked": false
     },
     {
       "id": "choice-paddleboarding-occ-thu-p7",
       "label": "Paddleboarding",
+      "labelKey": "Paddleboarding",
       "is_linked": false
     },
     {
       "id": "choice-zipline-occ-thu-p7",
       "label": "Zipline",
+      "labelKey": "Zipline",
       "is_linked": false
     },
     {
       "id": "choice-newcombe-occ-thu-p7",
       "label": "Newcombe",
+      "labelKey": "Newcombe",
       "is_linked": false
     },
     {
       "id": "choice-circuitry-occ-thu-p7",
       "label": "Circuitry",
+      "labelKey": "Circuitry",
       "is_linked": false
     },
     {
       "id": "choice-teva-nature-occ-thu-p7",
       "label": "Teva Nature",
+      "labelKey": "Teva Nature",
       "is_linked": false
     },
     {
       "id": "choice-book-club-occ-thu-p7",
       "label": "Book Club",
+      "labelKey": "Book Club",
       "is_linked": false
     },
     {
       "id": "choice-archery-occ-fri-p7",
       "label": "Archery",
+      "labelKey": "Archery",
       "is_linked": false
     },
     {
       "id": "choice-top-chef-occ-fri-p7",
       "label": "Top Chef",
+      "labelKey": "Top Chef",
       "is_linked": false
     },
     {
       "id": "choice-digi-photo-occ-fri-p7",
       "label": "Digi Photo",
+      "labelKey": "Digi Photo",
       "is_linked": false
     },
     {
       "id": "choice-laser-tag-occ-fri-p7",
       "label": "Laser Tag",
+      "labelKey": "Laser Tag",
       "is_linked": false
     },
     {
       "id": "choice-lake-inflatables-occ-fri-p7",
       "label": "Lake Inflatables",
+      "labelKey": "Lake Inflatables",
       "is_linked": false
     },
     {
       "id": "choice-paddleboarding-occ-fri-p7",
       "label": "Paddleboarding",
+      "labelKey": "Paddleboarding",
       "is_linked": false
     },
     {
       "id": "choice-zipline-occ-fri-p7",
       "label": "Zipline",
+      "labelKey": "Zipline",
       "is_linked": false
     },
     {
       "id": "choice-newcombe-occ-fri-p7",
       "label": "Newcombe",
+      "labelKey": "Newcombe",
       "is_linked": false
     },
     {
       "id": "choice-arts-and-crafts-occ-fri-p7",
       "label": "Arts and Crafts",
+      "labelKey": "Arts and Crafts",
       "is_linked": false
     },
     {
       "id": "choice-drawing-occ-fri-p7",
       "label": "Drawing",
+      "labelKey": "Drawing",
       "is_linked": false
     },
     {
       "id": "choice-3d-printing-occ-fri-p7",
       "label": "3D Printing",
+      "labelKey": "3D Printing",
       "is_linked": false
     },
     {
       "id": "choice-boating-occ-fri-p7",
       "label": "Boating",
+      "labelKey": "Boating",
       "is_linked": false
     },
     {
       "id": "choice-yoga-occ-fri-p7",
       "label": "Yoga",
+      "labelKey": "Yoga",
       "is_linked": false
     },
     {
       "id": "choice-tailgate-games-occ-fri-p7",
       "label": "Tailgate Games",
+      "labelKey": "Tailgate Games",
       "is_linked": false
     },
     {
       "id": "choice-coding-tue",
       "label": "Coding (tue)",
+      "labelKey": "Coding",
       "is_linked": true
     },
     {
       "id": "choice-coding-wed",
       "label": "Coding (wed)",
+      "labelKey": "Coding",
       "is_linked": true
     },
     {
       "id": "choice-coding-fri",
       "label": "Coding (fri)",
+      "labelKey": "Coding",
       "is_linked": true
     },
     {
       "id": "choice-theater",
       "label": "Theater",
+      "labelKey": "Theater",
       "is_linked": true
     }
   ],
