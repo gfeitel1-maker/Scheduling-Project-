@@ -3,7 +3,7 @@ title: "Elective preferences are per (day, period) cell, and placement is two-ph
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not-started
+implementation_state: in-progress (schema v78 + engine per-cell reads/tier-1 min-fold done; two-phase minimum validation and cancellation order, Decisions 2/3, not built)
 date: 2026-09-26
 approved: 2026-09-26 (owner — preference shape corrected against a real artifact; cancellation order ruled)
 task_class: scheduling-engine
@@ -179,8 +179,55 @@ Two consequences follow, and the second is the load-bearing one:
   does **not** claim to know the file that will arrive.
 - **Fairness across cells.** A camper unlucky in period 3 is still not compensated in period 6.
   Ruling R4 deferred this and it stays deferred.
-- **The tier-1 / tier-2 linked-choice split** (T247, ADR 2026-09-23 decision (c)) is untouched. It
-  operates on occurrences, which is the axis this ADR *adds* precision to, not one it removes.
+- ~~**The tier-1 / tier-2 linked-choice split** (T247, ADR 2026-09-23 decision (c)) is untouched. It
+  operates on occurrences, which is the axis this ADR *adds* precision to, not one it removes.~~
+  _Prior: written before implementation. See "Amendment 2026-09-26: tier 1's min-fold" below — the
+  split itself (two bipartite passes, tier 2 unchanged in its own logic) is still untouched, but tier
+  1's rank READ is not, because a per-cell preference set can rank one linked choice differently across
+  its member occurrences and `minCostAssign` needs one scalar per column._
+
+## Amendment 2026-09-26: tier 1's min-fold over a linked choice's member occurrences
+
+`src/engine/buildElectiveAssignments.js` implements this ADR (T265 round 4). Tier 2 (the
+per-occurrence loop) reads `rankAt(camperId, occurrenceId, labelKey)`: the scoped rank for that
+occurrence if a preference row named it, else the whole-run fallback (an unscoped row), else none —
+exactly the model this ADR specifies, with no change to tier 2's own logic.
+
+Tier 1 (linked choices, T247) needed one addition this ADR did not spell out. A linked choice spans
+more than one member occurrence, and `minCostAssign` takes one scalar cost per column — but a camper
+can now rank the SAME linked choice differently in each member occurrence's cell. **The rule: `rank
+(camper, choice)` is the MINIMUM (best) rank across the rows relevant to that choice — its member
+occurrences, plus any unscoped whole-run fallback — never the mean, never first-seen, never
+last-seen.** An unranked member occurrence is silent: not a vote against, not `UNRANKED_COST`, not an
+exclusion; partial coverage still leaves the camper a `wants()` candidate at the best rank they did
+give.
+
+**This is a read-time derivation of a rank the camper actually gave, not a new cost term.** It does
+not touch owner ruling Q3 (score each placement independently; no discount for repetition; repeats are
+normal) — nothing here compares one occurrence's cost against another's or introduces a
+cross-occurrence penalty. It only decides, for a single scalar the solver already needed, which of the
+camper's own rows is the relevant one. The director-facing sentence this stays true to: *"If a camper
+ranked a multi-period activity differently across its days, we use their best ranking of it — not
+ranking it on every one of its days doesn't count against them."*
+
+**Relevance filtering, and why no dead-code guard is needed.** The min-fold only considers rows whose
+`occurrence_id` is one of the choice's own member occurrences (from `elective_choice_offerings`), plus
+unscoped fallback rows — never a row naming some other, unrelated occurrence. This is enforced by
+construction: the fold iterates the choice's member-occurrence list and looks up only those keys in
+the camper's per-occurrence map, so a row scoped to a non-member occurrence is simply never visited.
+Whether such a row can exist in practice was checked against the code: nothing in this module
+validates that a preference's `occurrence_id` is one of its `choice_id`'s members, so a malformed or
+adversarial preference set COULD supply one — the filter is live defense against real (if unlikely)
+input, not a guard against something structurally impossible, and is therefore kept.
+
+**Fixture measurement** (re-run against `test/fixtures/elective/t251-per-cell-preferences.json`, which
+has 4 linked choices spanning 96 campers' preferences): of the **203** (camper, linked-choice) pairs
+with at least one relevant ranked row, **198** agree trivially (a single relevant rank, or the same
+rank repeated across every ranked member), **31** are partial coverage (the camper ranked some but not
+all member occurrences), **4** genuinely disagree by 2 ranks or less, and **1** disagrees by **3**
+ranks (ranks 1 and 4 for the same linked choice, by one camper) — narrower than this amendment's first
+draft assumed ("none by more than 2 ranks"); the actual fixture has exactly one such case, and the
+min-fold rule handles it the same way regardless of magnitude.
 
 ## Migration note
 

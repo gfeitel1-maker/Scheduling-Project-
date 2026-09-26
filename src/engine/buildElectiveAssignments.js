@@ -4,23 +4,34 @@
 // out — no database, no IPC, no file parsing, no writes. Same discipline as
 // buildSchedule.js, a different level of the nested schedule.
 //
-// SUPERSEDED 2026-09-26 — THE PREMISE BELOW IS WITHDRAWN. Read
-// docs/adr/2026-09-26-per-cell-elective-preferences.md BEFORE changing this file.
-// A real camp artifact (JCC Medford GILAD 2024 selection sheet) shows preferences
-// are chosen PER (day, period) CELL, each cell carrying its own offering list. The
-// global model is not merely different, it is unreadable on that form: one activity
-// appears in ~15 of 18 selectable cells, so "rank 1" names no occurrence. D14 never
-// established the global shape — it RETIRED the per-occurrence one and said in terms
-// that "no design should treat either observed format as confirmed input." This
-// header read that withdrawal as an affirmation. The paragraph is kept rather than
-// rewritten so the mistake stays visible; the code still implements it.
+// PER-CELL PREFERENCES (T265, 2026-09-26) — see
+// docs/adr/2026-09-26-per-cell-elective-preferences.md. A real camp artifact
+// (JCC Medford GILAD 2024 selection sheet) shows preferences are chosen PER
+// (day, period) CELL, each cell carrying its own offering list: one activity
+// appears in ~15 of 18 selectable cells, so a single global "rank 1" names no
+// occurrence. A camper's rank for an activity in one cell is INDEPENDENT of
+// their rank for the same activity in another cell — `rankOf`/`rankByChoice`
+// below store an optional per-occurrence rank plus an optional whole-run
+// fallback (a preference row with no occurrence_id), read through `rankAt`
+// (tier 2) and `choiceRankMinOverMembers` (tier 1), never a single flat rank
+// per (camper, activity).
 //
-// THE COUPLING, which is the whole design problem. Preferences are ranked
-// GLOBALLY: a camper ranks each elective once for the session, not once per
-// slot (ADR D14, after real camp artifacts contradicted the per-occurrence
-// premise). So placing a camper into Water Ski on Monday consumes that
-// preference for the entire week, and occurrences of the same activity are NOT
-// independent sub-problems.
+// HISTORY, KEPT SO THE MISTAKE IS NOT RE-DERIVED. This header used to read
+// D14's withdrawal of the *previous* per-occurrence model as an affirmation of
+// a GLOBAL one — "a camper ranks each elective once for the session, not once
+// per slot" — and the code implemented that flat model for T196 through T247.
+// D14 never actually established a global shape; it retired the per-occurrence
+// one and said, in terms, that "no design should treat either observed format
+// as confirmed input." The per-cell model above is what the artifact actually
+// requires, and it is a distinct third shape from both of D14's two.
+//
+// PLACEMENT REMAINS UNCOUPLED ACROSS OCCURRENCES for the same reason as
+// before, restated for the per-cell shape: placing a camper into Water Ski on
+// Monday does not consume any preference that Wednesday's Water Ski cell
+// might independently hold for them, because the two cells were never the
+// same preference to begin with. Occurrences of the same activity are NOT
+// coupled sub-problems, and the per-occurrence solve loop below is unchanged
+// by this shift — only what a "rank" means at each lookup site changed.
 //
 // Three constraints:
 //   1. each (camper, occurrence) gets exactly one activity
@@ -64,6 +75,19 @@
 // its own logic, running against the capacity tier 1 left and treating
 // tier-1-placed campers as pre-placed, through the SAME mechanism locked seats
 // use.
+//
+// TIER 1's RANK IS A MIN-FOLD OVER MEMBER OCCURRENCES (T265 round 4). Since
+// preferences are per-cell, a camper may rank a linked choice differently in
+// each member occurrence it appears in. `minCostAssign` needs one scalar rank
+// per column, so `rank(camper, choice)` is the MINIMUM (best) rank across the
+// rows relevant to that choice — its own member occurrences, plus any
+// unscoped whole-run fallback row (`choiceRankMinOverMembers`). An unranked
+// member occurrence is silent: not a vote against, not UNRANKED_COST, not an
+// exclusion — partial coverage still leaves the camper a `wants()` candidate.
+// This is a READ-TIME derivation of a rank the camper actually gave, not a new
+// cost term: it does not touch owner ruling Q3 (score each placement
+// independently, no cross-occurrence discount for repetition). Order-
+// independent by construction (min, not first/last-seen).
 //
 // WHY A SECOND BIPARTITE PASS AND NOT A CHAIN. The first design for this was a
 // flow chain `camper -> choiceNode(C) -> o1 -> o2 -> sink`. It is wrong, not
@@ -117,7 +141,13 @@ const UNRANKED_COST = 1000
  * @param {{id: string}[]} input.campers
  * @param {{id: string}[]} input.occurrences      solved in ascending id order
  * @param {{occurrence_id, labelKey, activity_id, capacity}[]} input.offerings
- * @param {{camper_id, labelKey, rank}[]} input.preferences   rank is 1-based, lower is better
+ * @param {{camper_id, labelKey, choice_id?, occurrence_id?, rank}[]} input.preferences
+ *        rank is 1-based, lower is better. `occurrence_id` is OPTIONAL (T265):
+ *        a row naming one applies ONLY to that occurrence; a row with none is
+ *        a whole-run fallback used for any occurrence with no scoped row for
+ *        that (camper, labelKey/choice_id). Mixing scoped and unscoped rows is
+ *        legal. An occurrence-scoped row never becomes a fallback for a
+ *        different occurrence.
  * @param {Record<string, string[]>} [input.attendance]  camper id -> occurrence ids;
  *        default: every camper attends every occurrence.
  * @param {{camperId, occurrenceId, activityId}[]} [input.lockedAssignments]  seats a
@@ -164,71 +194,67 @@ export function buildElectiveAssignments({
   // when it names one this run knows, and by `labelKey` otherwise. A
   // choice_id-only preference also registers its choice's labelKey in rankOf,
   // so tier 2 costs it exactly as it costs a labelKey preference.
-  const rankOf = new Map()            // camperId -> Map(labelKey -> rank)
-  const rankByChoice = new Map()      // camperId -> Map(choiceId -> rank)
-  // T265 round-2 review finding 3. rankByChoice above has no occurrence
-  // dimension, so a second occurrence-scoped row for the same (camper, choice)
-  // silently overwrites the first's rank — exactly the collapse the schema's
-  // occurrence_id column exists to prevent, reintroduced here at read time.
-  // This function does not (and per Governor's brief, must not) fix that — the
-  // fix is the per-cell two-phase solver, a separate ticket. It surfaces the
-  // collapse as a finding instead, once per colliding (camper, choice) pair,
-  // so a director can see which ranking was not honoured rather than getting a
-  // silently wrong placement.
-  // camper_id\u0000choice_id -> { labelKey, occurrenceIds: Set }, built alongside
-  // rankByChoice so the finding below can report every occurrence a colliding
-  // pair spans, not just the first two seen.
-  const occurrencesOfChoiceRank = new Map()
+  // OCCURRENCE-AWARE RANK STORAGE (T265 round 4). Each (camper, labelKey) or
+  // (camper, choiceId) key holds `{ byOccurrence: Map<occurrenceId, rank>,
+  // fallback: rank|null }`. A row naming an occurrence_id applies ONLY to that
+  // occurrence; a row with none is a whole-run fallback used for any
+  // occurrence with no scoped row for that key. `rankAt` (tier 2) and
+  // `choiceRankMinOverMembers` (tier 1, below) are the only readers, so an
+  // occurrence-scoped rank can never leak into a different cell and a
+  // fallback never overrides a more specific scoped row for the occurrence
+  // it names.
+  const rankOf = new Map()            // camperId -> Map(labelKey -> entry)
+  const rankByChoice = new Map()      // camperId -> Map(choiceId -> entry)
+
+  const entryFor = (map, camperId, key) => {
+    if (!map.has(camperId)) map.set(camperId, new Map())
+    const byKey = map.get(camperId)
+    if (!byKey.has(key)) byKey.set(key, { byOccurrence: new Map(), fallback: null })
+    return byKey.get(key)
+  }
+  const record = (entry, occurrenceId, rank) => {
+    if (occurrenceId != null) entry.byOccurrence.set(occurrenceId, rank)
+    else entry.fallback = rank
+  }
+  const rankAt = (camperId, occurrenceId, labelKey) => {
+    const entry = rankOf.get(camperId)?.get(labelKey)
+    if (!entry) return null
+    return entry.byOccurrence.has(occurrenceId) ? entry.byOccurrence.get(occurrenceId) : entry.fallback
+  }
+  // TIER 1's min-fold over a choice's MEMBER occurrences (T265 round 4).
+  // `rankByChoice` above stores raw occurrence-scoped rows, same shape as
+  // `rankOf` — it is NOT folded at parse time, because folding requires
+  // knowing which occurrence rows are RELEVANT to a choice, and that is only
+  // known once `choiceOfferings` is read (in runLinkedChoiceTier, below).
+  // Relevant = a row scoped to one of the choice's own member occurrences, or
+  // an unscoped whole-run fallback row. A row scoped to some OTHER occurrence
+  // (one not a member of this choice) is excluded from the fold simply by not
+  // being in `memberOccurrenceIds` — no explicit guard needed, the iteration
+  // itself is the filter. Returns the MINIMUM (best) rank, or null if the
+  // camper has no relevant rank at all for this choice.
+  const choiceRankMinOverMembers = (camperId, choiceId, memberOccurrenceIds) => {
+    const entry = rankByChoice.get(camperId)?.get(choiceId)
+    if (!entry) return null
+    let best = entry.fallback
+    for (const occurrenceId of memberOccurrenceIds) {
+      if (!entry.byOccurrence.has(occurrenceId)) continue
+      const rank = entry.byOccurrence.get(occurrenceId)
+      if (best == null || rank < best) best = rank
+    }
+    return best
+  }
+
   for (const p of preferences) {
     const ch = (p.choice_id != null ? choiceById.get(p.choice_id) : undefined)
       ?? (p.labelKey != null ? choiceByLabelKey.get(p.labelKey) : undefined)
       ?? null
     const labelKey = p.labelKey ?? ch?.labelKey ?? null
     if (labelKey != null) {
-      if (!rankOf.has(p.camper_id)) rankOf.set(p.camper_id, new Map())
-      rankOf.get(p.camper_id).set(labelKey, p.rank)
+      record(entryFor(rankOf, p.camper_id, labelKey), p.occurrence_id ?? null, p.rank)
     }
     if (ch) {
-      if (!rankByChoice.has(p.camper_id)) rankByChoice.set(p.camper_id, new Map())
-      rankByChoice.get(p.camper_id).set(ch.id, p.rank)
-
-      if (p.occurrence_id != null) {
-        const key = `${p.camper_id}\u0000${ch.id}`
-        if (!occurrencesOfChoiceRank.has(key)) {
-          occurrencesOfChoiceRank.set(key, { camperId: p.camper_id, choiceId: ch.id, labelKey: ch.labelKey, occurrenceIds: new Set() })
-        }
-        occurrencesOfChoiceRank.get(key).occurrenceIds.add(p.occurrence_id)
-      }
+      record(entryFor(rankByChoice, p.camper_id, ch.id), p.occurrence_id ?? null, p.rank)
     }
-  }
-  // T265 round-3 review finding 7 \u2014 one finding per COLLIDING PAIR produced
-  // 177 findings on the t251 fixture; two independent reviews called that
-  // volume unusable, and this vocabulary has no rendering surface yet to page
-  // through them. Collapsed to ONE finding for the whole run, carrying every
-  // colliding pair in its payload so the detail survives for a future screen
-  // and for a test, without flooding the findings list.
-  const collapsedPairs = [...occurrencesOfChoiceRank.values()]
-    .filter(({ occurrenceIds }) => occurrenceIds.size > 1)
-    .map(({ camperId, choiceId, labelKey, occurrenceIds }) => ({
-      camper_id: camperId,
-      choice_id: choiceId,
-      labelKey,
-      occurrence_ids: [...occurrenceIds].sort(),
-    }))
-    .sort((a, b) =>
-      a.camper_id < b.camper_id ? -1 : a.camper_id > b.camper_id ? 1
-        : a.choice_id < b.choice_id ? -1 : a.choice_id > b.choice_id ? 1 : 0
-    )
-  if (collapsedPairs.length > 0) {
-    findings.push({
-      kind: 'PREFERENCE_OCCURRENCE_COLLAPSED',
-      count: collapsedPairs.length,
-      pairs: collapsedPairs,
-      message:
-        `${collapsedPairs.length} camper ranking${collapsedPairs.length === 1 ? '' : 's'} ` +
-        'differ from one cell to another for the same activity choice, but only one ranking per ' +
-        'choice is used when placing campers \u2014 the others were not honoured.',
-    })
   }
   const attends = (camperId, occurrenceId) =>
     attendance ? (attendance[camperId] ?? []).includes(occurrenceId) : true
@@ -259,7 +285,7 @@ export function buildElectiveAssignments({
         occurrence_id: l.occurrenceId,
         labelKey: o?.labelKey ?? null,
         activity_id: l.activityId,
-        preference_rank: (o && rankOf.get(l.camperId)?.get(o.labelKey)) ?? null,
+        preference_rank: (o && rankAt(l.camperId, l.occurrenceId, o.labelKey)) ?? null,
         flags: [],
         source: 'manual',
         locked: true,
@@ -323,7 +349,7 @@ export function buildElectiveAssignments({
 
     const cost = who.map((camperId) =>
       here.map((o) => {
-        const rank = rankOf.get(camperId)?.get(o.labelKey)
+        const rank = rankAt(camperId, occurrenceId, o.labelKey)
         return rank == null ? UNRANKED_COST : rank
       })
     )
@@ -344,7 +370,7 @@ export function buildElectiveAssignments({
         return
       }
       const o = here[j]
-      const rank = rankOf.get(camperId)?.get(o.labelKey) ?? null
+      const rank = rankAt(camperId, occurrenceId, o.labelKey) ?? null
       const flags = []
       if (rank == null) flags.push('NOT_REQUESTED')
       else if (rank > 1) flags.push('NOT_TOP_CHOICE')
@@ -497,7 +523,7 @@ export function buildElectiveAssignments({
     }
     for (const id of columns) {
       const occs = occurrencesOf(id)
-      const wanted = camperIds.filter((c) => rankByChoice.get(c)?.has(id))
+      const wanted = camperIds.filter((c) => choiceRankMinOverMembers(c, id, occs) != null)
       const absent = wanted.filter((c) => !occs.every((o) => attends(c, o)))
       exclude(id, absent,
         `${absent.length} camper(s) asked for \u201c${labelOfChoice(id)}\u201d but do not attend ` +
@@ -509,8 +535,14 @@ export function buildElectiveAssignments({
         'set could not be given to them as a set; they were placed one period at a time instead.')
     }
 
+    // MIN-FOLD (T265 round 4): `rank(camper, choice)` is the MINIMUM (best)
+    // rank the camper gave across the choice's own member occurrences, plus
+    // any unscoped whole-run fallback row — `choiceRankMinOverMembers` above.
+    // A member occurrence with no rank at all is silent: not a vote against,
+    // not UNRANKED_COST, not an exclusion. Partial coverage still leaves the
+    // camper a `wants()` candidate, at the best rank they DID give.
     const wants = (camperId, id) =>
-      rankByChoice.get(camperId)?.has(id) && !excluded.get(id)?.has(camperId)
+      choiceRankMinOverMembers(camperId, id, occurrencesOf(id)) != null && !excluded.get(id)?.has(camperId)
     const rows = camperIds.filter((c) => columns.some((id) => wants(c, id)))
     if (rows.length === 0) return
 
@@ -521,7 +553,7 @@ export function buildElectiveAssignments({
     // at all. An unranked cell is therefore unreachable as a placement by
     // construction, and forbidding it keeps it that way.
     const cost = rows.map((camperId) =>
-      columns.map((id) => (wants(camperId, id) ? rankByChoice.get(camperId).get(id) : null))
+      columns.map((id) => (wants(camperId, id) ? choiceRankMinOverMembers(camperId, id, occurrencesOf(id)) : null))
     )
 
     // THE T246 CONTRACT: the min() is over remaining capacity AFTER locked
@@ -549,7 +581,7 @@ export function buildElectiveAssignments({
       const j = placed[i]
       if (j == null) return
       const id = columns[j]
-      const rank = rankByChoice.get(camperId).get(id)
+      const rank = choiceRankMinOverMembers(camperId, id, occurrencesOf(id))
       for (const m of membersOf(id)) {
         // EMITTED SHAPE: an ordinary solver row, identical in shape to tier 2's
         // own output — no `source`, no `locked`. These are solver decisions, not
