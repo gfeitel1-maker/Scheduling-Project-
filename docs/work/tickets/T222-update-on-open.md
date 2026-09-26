@@ -107,12 +107,24 @@ minimum-supported-version record, and the ADR this ticket said it would need. Th
 take the decision back to the owner. This is the second: the decision went back to the owner and he
 made it directly.
 
-**The ADR obligation named above is not silently dropped.** That section requires
-`docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md` be amended in the same change, on
-the grounds that its "mixed-version replication is out of scope" decision rested on update-on-open
-existing. That ADR is held by another session in this window and was deliberately not touched here;
-the amendment is handed to the owner as an open item rather than assumed done. **A reader of that
-ADR should treat its enforcement story as unsettled until it is amended.**
+**Read this before you read that ADR: closing this ticket removed the mechanism its safety
+argument depended on.**
+
+`docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md` is `status: accepted`,
+`authority: normative`, and it asserts that Shoresh does not promise replication between devices
+running different app versions. That decision was affordable **because update-on-open would keep a
+camp's devices on one build** — the ADR removed the promise at the product level on the strength of
+this ticket eventually shipping. This ticket has now been closed by owner ruling and will not ship.
+The dependency was therefore not forgotten; it was **deliberately cut**, and the ADR was left
+standing with nothing behind that specific property.
+
+Concretely, the property now unsupported is: *"two versions in the same camp never becomes a state
+the fleet can settle into."* Nothing in the code enforces it. A stale device syncs like any other.
+
+That ADR is held by another session in this window and was deliberately not touched from here, so
+the amendment it needs is handed to the owner as an open item rather than assumed done. **Until it
+is amended, do not read that ADR as load-bearing on this point** — its decision stands as a product
+choice, but its enforcement story does not.
 
 **The narrower correctness concern this ticket did not actually contain.** A peer session suggested
 T222's real content might be a transport-boundary correctness question — a
