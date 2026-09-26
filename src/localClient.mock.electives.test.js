@@ -172,3 +172,61 @@ describe('mockShoresh — listDurableElectiveSets (T105 §2 reuse-surface exclus
     expect(durable).toEqual([])
   })
 })
+
+// F8 (round 2): the mock's finalizeElectiveRun/getElectiveRunOuterSchedule had drifted from the
+// real v76 shape (electron/ops/electiveRunOuterSchedule.js) — no cell_kind/choice_id/
+// is_linked_choice/choice_label, and no inherited rows at all, so `npm run dev` + mockShoresh could
+// never show the T197 feature working.
+describe('mockShoresh — F8: v76 outer-schedule parity (cell_kind, choice fields, inherited rows)', () => {
+  function seedState(overrides = {}) {
+    return {
+      camp: { id: 'camp-1' },
+      users: [], conflicts: [], devices: [],
+      campers: [{ id: 'camper-1', camp_id: 'camp-1', display_name: 'Camper A', group_id: 'group-1' }],
+      activities: [
+        { id: 'act-elective', camp_id: 'camp-1', name: 'Archery', location_id: null, span_blocks: 1 },
+        { id: 'act-inherited', camp_id: 'camp-1', name: 'Arts & Crafts', location_id: null, span_blocks: 1 },
+      ],
+      locations: [],
+      template_slots: [
+        // Non-elective group-template slot the camper should INHERIT.
+        { id: 'slot-1', template_id: 'tpl-1', group_id: 'group-1', activity_id: 'act-inherited', day_id: 'day-1', time_block_id: 'tb-2' },
+      ],
+      elective_occurrences: [{ id: 'occ-1', run_id: 'run-1', elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', tier_id: null }],
+      elective_choices: [{ id: 'ch-1', run_id: 'run-1', label: 'Bundle Pack', is_linked: 1 }],
+      elective_assignments: [
+        { id: 'a-1', run_id: 'run-1', occurrence_id: 'occ-1', camper_id: 'camper-1', activity_id: 'act-elective', choice_id: 'ch-1', source: 'manual', is_locked: 0, solver_generation: null },
+      ],
+      elective_assignment_runs: [
+        { id: 'run-1', camp_id: 'camp-1', schedule_template_id: 'tpl-1', name: 'Run', status: 'draft', solver_generation: null },
+      ],
+      ...overrides,
+    }
+  }
+
+  it('draft-derive: elective row carries cell_kind/choice_id/is_linked_choice/choice_label, AND the inherited group-template cell appears too', async () => {
+    const { mockShoresh } = await import('./localClient.mock.js')
+    globalThis.localStorage.setItem('shoresh-mock-state', JSON.stringify(seedState()))
+
+    const result = await mockShoresh.getElectiveRunOuterSchedule({ runId: 'run-1' })
+
+    const elective = result.rows.find((r) => r.cellKind === 'elective')
+    expect(elective).toMatchObject({ activityName: 'Archery', choiceId: 'ch-1', isLinkedChoice: true, choiceLabel: 'Bundle Pack' })
+    const inherited = result.rows.find((r) => r.cellKind === 'inherited')
+    expect(inherited).toMatchObject({ activityName: 'Arts & Crafts', timeBlockId: 'tb-2' })
+  })
+
+  it('finalize writes a snapshot with the SAME v76 fields, including the inherited row', async () => {
+    const { mockShoresh } = await import('./localClient.mock.js')
+    globalThis.localStorage.setItem('shoresh-mock-state', JSON.stringify(seedState()))
+
+    const fin = await mockShoresh.finalizeElectiveRun({ runId: 'run-1' })
+    expect(fin.ok).toBe(true)
+    expect(fin.snapshotRows).toBe(2) // 1 elective + 1 inherited
+
+    const result = await mockShoresh.getElectiveRunOuterSchedule({ runId: 'run-1' })
+    expect(result.runStatus).toBe('final')
+    const inherited = result.rows.find((r) => r.cellKind === 'inherited')
+    expect(inherited).toMatchObject({ activityName: 'Arts & Crafts' })
+  })
+})

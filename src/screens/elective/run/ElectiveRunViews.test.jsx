@@ -36,6 +36,20 @@ vi.mock('../../../localClient', () => ({
   },
 }))
 
+// F6 (round 2): buildElectiveRunProjectionExport/buildElectiveRunWorkbook were built and tested in
+// isolation but wired to nothing — this mock lets the "Export Full Report" wiring test assert the
+// real XLSX write happened without touching the filesystem, same pattern as ActivitiesScreen.test.jsx.
+vi.mock('xlsx', () => ({
+  utils: {
+    book_new: vi.fn(() => ({})),
+    book_append_sheet: vi.fn(),
+    sheet_to_json: vi.fn(() => []),
+    aoa_to_sheet: vi.fn(() => ({})),
+  },
+  writeFile: vi.fn(),
+  read: vi.fn(() => ({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })),
+}))
+
 import { localClient } from '../../../localClient'
 import RunList from './RunList.jsx'
 import DraftRunView from './DraftRunView.jsx'
@@ -404,12 +418,14 @@ describe('T250 archive_when — Final: export', () => {
     await waitFor(() => expect(click).toHaveBeenCalled())
     expect(localClient.getElectiveRunOuterSchedule).toHaveBeenCalledWith({ runId: 'run-2' })
     const payload = JSON.parse(await created[0].text())
-    expect(payload.format_version).toBe(1)
+    // v76 (T197): buildChildScheduleExport's own contract bumped format_version 1 -> 2 for the
+    // cell_kind/linked-choice shape change — this test went stale when that shipped (round 2 fix).
+    expect(payload.format_version).toBe(2)
     expect(payload.run_id).toBe('run-2')
     expect(payload.run_status).toBe('final')
     const alpha = payload.campers.find((c) => c.camper_id === 'camper-1')
     expect(alpha.schedule).toEqual([
-      { day: 'Monday', time_block: 'First Period', activity_name: 'Archery', location_name: null, span_blocks: 1 },
+      { kind: 'span', day: 'Monday', time_block: 'First Period', activity_name: 'Archery', location_name: null, span_blocks: 1 },
     ])
     document.createElement.mockRestore()
   })
@@ -419,6 +435,41 @@ describe('T250 archive_when — Final: export', () => {
     render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} {...catalogs()} />)
     fireEvent.click(await screen.findByRole('button', { name: /^Export$/ }))
     await waitFor(() => expect(screen.getByTestId('run-view-error').textContent).toMatch(/That export could not be produced\./))
+  })
+
+  // F6 (round 2): buildElectiveRunProjectionExport (JSON) and buildElectiveRunWorkbook (XLSX) were
+  // built and unit-tested but never wired to a caller — the "Export" button above only produces
+  // the child-schedule JSON. This is the FIRST reachable caller.
+  it('"Export Full Report" produces the combined JSON projection AND the XLSX workbook', async () => {
+    localClient.getElectiveRunOuterSchedule.mockResolvedValue({
+      rows: [{ camperId: 'camper-1', dayId: 'day-1', timeBlockId: 'tb-1', cellKind: 'elective', activityId: 'act-1', activityName: 'Archery', locationId: null, locationName: null, spanBlocks: 1, isLinkedChoice: false }],
+      runStatus: 'final',
+    })
+    localClient.list.mockResolvedValue([
+      { run_id: 'run-2', camper_id: 'camper-1', choice_id: 'ch-1', rank: 1 },
+      { run_id: 'run-other', camper_id: 'camper-9', choice_id: 'ch-9', rank: 1 },
+    ])
+    const XLSX = await import('xlsx')
+    const click = vi.fn()
+    const realCreate = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation((tag) => {
+      const el = realCreate(tag)
+      if (tag === 'a') el.click = click
+      return el
+    })
+
+    render(<FinalRunView run={FINAL_RUN} campers={CAMPERS} {...catalogs()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Export Full Report$/ }))
+
+    await waitFor(() => expect(click).toHaveBeenCalled())
+    expect(localClient.list).toHaveBeenCalledWith('elective_preferences')
+    const payload = JSON.parse(await created[created.length - 1].text())
+    expect(payload.format_version).toBe(1)
+    // Only this run's preferences (run_id: 'run-2') feed the export — the 'run-other' row is
+    // filtered out client-side since localClient.list returns all camp-scoped rows.
+    expect(payload.exceptions.unranked.some((u) => u.camper_id === 'camper-9')).toBe(false)
+    await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalled())
+    document.createElement.mockRestore()
   })
 })
 

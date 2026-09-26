@@ -1456,6 +1456,15 @@ CREATE TABLE IF NOT EXISTS tombstones (
 -- or empty value for either, since the ADR's id definition keys on all four fields — a row without
 -- a day or block has no derivable identity and should not be representable. This schema constraint
 -- makes that agreement enforceable at the table, not just at the one call site that derives the id.
+-- v76 additions (T197, docs/adr/2026-09-26-elective-run-outer-inheritance-and-linked-choice-
+-- export.md): cell_kind distinguishes a resolved elective placement from a cell inherited from
+-- the camper's group template; choice_id/is_linked_choice/choice_label carry a linked elective
+-- choice's identity through to the snapshot so a final run can render it as one unit.
+-- choice_label is denormalized from elective_choices.label for the SAME D6 immutability reason as
+-- activity_name/location_name above — a choice can be renamed or deleted after finalize. DEFAULT
+-- 'elective' on cell_kind exists only to satisfy NOT NULL on a table an ALTER TABLE may already
+-- hold v74 rows in — those pre-v76 rows are never read as meaningful 'elective' data (see the
+-- ADR's migration posture: a v74-final run is re-finalized, not migrated).
 CREATE TABLE IF NOT EXISTS elective_run_outer_snapshots (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
@@ -1467,5 +1476,9 @@ CREATE TABLE IF NOT EXISTS elective_run_outer_snapshots (
   location_id TEXT,
   location_name TEXT,
   span_blocks INTEGER,
-  solver_generation TEXT
+  solver_generation TEXT,
+  cell_kind TEXT NOT NULL DEFAULT 'elective' CHECK (cell_kind IN ('elective', 'inherited')),
+  choice_id TEXT,
+  is_linked_choice INTEGER NOT NULL DEFAULT 0,
+  choice_label TEXT
 );

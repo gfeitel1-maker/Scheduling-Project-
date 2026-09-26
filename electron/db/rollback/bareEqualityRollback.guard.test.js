@@ -34,12 +34,16 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // which there are zero). Assert the count explicitly so a future rollback
     // file changes this number and forces a look, rather than silently
     // enlarging or shrinking what's covered.
-    // 35 as of v75_down.js (T266). Looked, as this tripwire demands, rather than
-    // just re-counting: v75_down.js deletes with `WHERE version >= 75`, so it
-    // satisfies the guard below on its own merits — and it drops a nullable
-    // column that nothing but ingest writes, so the rollback loses a
-    // classification rather than any camp data.
-    expect(files.length).toBe(35)
+    // 36 as of v76_down.js (T197). Looked, as this tripwire demands, rather than
+    // just re-counting: v76_down.js deletes with `WHERE version >= 76`, so it
+    // satisfies the guard below on its own merits — and the four columns it
+    // drops (cell_kind, choice_id, is_linked_choice, choice_label) are all
+    // derivable again by re-finalizing the run, so the rollback loses a
+    // denormalized projection rather than any camp data.
+    //
+    // 35 was v75_down.js (T266): deletes with `WHERE version >= 75`, drops a
+    // nullable column only ingest writes, so it loses a classification.
+    expect(files.length).toBe(36)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

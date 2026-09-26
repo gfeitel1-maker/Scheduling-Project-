@@ -101,8 +101,8 @@ afterEach(() => {
 
 // Schema tripwire. A sibling migration lands and silently renumbers, and every
 // assertion below still passes while the column it depends on is gone.
-it('is written against schema v75', () => {
-  expect(CURRENT_SCHEMA_VERSION).toBe(75)
+it('is written against schema v76', () => {
+  expect(CURRENT_SCHEMA_VERSION).toBe(76)
 })
 
 // ── The real ingest path, run once per test ────────────────────────────────

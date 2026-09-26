@@ -513,14 +513,86 @@ export const MOCK_WRITE_ALLOWLIST = {
     'run_id', 'occurrence_id', 'camper_id', 'activity_id', 'choice_id', 'preference_rank',
     'source', 'is_locked', 'solver_generation',
   ],
-  // T243 (v74). Mirrors PROJECTIONS.elective_run_outer_snapshots.fields — no
-  // write path exists yet (T244+), but ipcSurfaceParity.test.js requires this
-  // parity mirror to exist regardless of whether any UI writes to it today.
+  // T243 (v74) + v76 (T197, F8 round-2 parity fix). Mirrors
+  // PROJECTIONS.elective_run_outer_snapshots.fields — no write path exists yet
+  // (T244+), but ipcSurfaceParity.test.js requires this parity mirror to exist
+  // regardless of whether any UI writes to it today.
   elective_run_outer_snapshots: [
     'run_id', 'camper_id', 'day_id', 'time_block_id', 'activity_id',
     'activity_name', 'location_id', 'location_name', 'span_blocks', 'solver_generation',
+    'cell_kind', 'choice_id', 'is_linked_choice', 'choice_label',
   ],
   conflicts: [],
+}
+
+// F8 (round 2): shared by finalizeElectiveRun (snapshot write) and getElectiveRunOuterSchedule's
+// draft branch — mirrors electron/ops/electiveRunOuterSchedule.js's deriveElectiveRunOuterRows
+// closely enough for the dev mock's OWN purpose (visual verification under `npm run dev` per
+// TESTING_STANDARD; anything touching real persistence is verified under `electron:dev` instead).
+// Simplifications versus the real function, both acceptable for a browser-mock fixture layer: no
+// span-collapsing of adjacent inherited template_slots rows (one row per raw slot instead), and no
+// F4 elective-wins-over-inherited exclusion (the mock's own seed data never creates that overlap).
+function deriveMockOuterRows(state, run) {
+  if (!run) return { rows: [] }
+  const activityById = new Map((state.activities || []).map((a) => [a.id, a]))
+  const locationById = new Map((state.locations || []).map((l) => [l.id, l]))
+  const occurrenceById = new Map((state.elective_occurrences || []).map((o) => [o.id, o]))
+  const choiceById = new Map((state.elective_choices || []).map((c) => [c.id, c]))
+
+  // Mirrors electron/ops/electiveGenerationPredicate.js's electiveGenerationVisibleFragment —
+  // that module is the authority; if its rule changes, this filter must change alongside it.
+  const electiveRows = (state.elective_assignments || [])
+    .filter((a) => a.run_id === run.id && (a.source === 'manual' || a.solver_generation === run.solver_generation))
+    .map((a) => {
+      const occurrence = occurrenceById.get(a.occurrence_id)
+      const activity = activityById.get(a.activity_id)
+      const choice = a.choice_id != null ? choiceById.get(a.choice_id) : null
+      return {
+        camper_id: a.camper_id,
+        day_id: occurrence?.day_id ?? null,
+        time_block_id: occurrence?.time_block_id ?? null,
+        cell_kind: 'elective',
+        activity_id: a.activity_id,
+        activity_name: activity?.name ?? null,
+        location_id: activity?.location_id ?? null,
+        location_name: activity?.location_id != null ? locationById.get(activity.location_id)?.name ?? null : null,
+        span_blocks: activity?.span_blocks ?? null,
+        solver_generation: run.solver_generation ?? null,
+        choice_id: a.choice_id ?? null,
+        is_linked_choice: !!choice?.is_linked,
+        choice_label: choice?.label ?? null,
+      }
+    })
+
+  // Inherited: each camper's group's non-elective template_slots, one row per raw slot (no
+  // span-collapsing — see the function comment above).
+  const inheritedRows = []
+  if (run.schedule_template_id != null) {
+    for (const slot of state.template_slots || []) {
+      if (slot.template_id !== run.schedule_template_id || slot.elective_set_id != null) continue
+      const activity = slot.activity_id != null ? activityById.get(slot.activity_id) : null
+      const campersInGroup = (state.campers || []).filter((c) => c.group_id === slot.group_id)
+      for (const camper of campersInGroup) {
+        inheritedRows.push({
+          camper_id: camper.id,
+          day_id: slot.day_id,
+          time_block_id: slot.time_block_id,
+          cell_kind: 'inherited',
+          activity_id: slot.activity_id ?? null,
+          activity_name: activity?.name ?? null,
+          location_id: activity?.location_id ?? null,
+          location_name: activity?.location_id != null ? locationById.get(activity.location_id)?.name ?? null : null,
+          span_blocks: activity?.span_blocks ?? 1,
+          solver_generation: null,
+          choice_id: null,
+          is_linked_choice: false,
+          choice_label: null,
+        })
+      }
+    }
+  }
+
+  return { rows: [...electiveRows, ...inheritedRows] }
 }
 
 export const mockShoresh = {
@@ -1764,25 +1836,27 @@ export const mockShoresh = {
   // never fire here (same additive-degradation posture as commitElectiveRun's
   // op-log write above) — the refusal a director actually needs to see while
   // building the screen is ALREADY_FINAL, which this does mirror faithfully.
+  // F8 (round 2): brought to v76 parity — snapshot rows now carry cell_kind/choice_id/
+  // is_linked_choice/choice_label, and inherited (group-template) rows are written too, mirroring
+  // deriveElectiveRunOuterRows' shape closely enough for the dev-mock's own purpose (visual
+  // verification under `npm run dev`), even though it does not reimplement that function's
+  // span-collapsing.
   async finalizeElectiveRun({ runId } = {}) {
     const state = loadState()
     const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
     if (!run) return { ok: false, error: 'run not found' }
     if (run.status === 'final') return { ok: false, error: 'ALREADY_FINAL' }
     const finalizedAt = new Date().toISOString()
-    const assignmentsForRun = (state.elective_assignments || []).filter((a) => a.run_id === runId)
+    const { rows } = deriveMockOuterRows(state, run)
     state.elective_assignment_runs = (state.elective_assignment_runs || []).map((r) =>
       r.id === runId ? { ...r, status: 'final', finalized_at: finalizedAt } : r
     )
     state.elective_run_outer_snapshots = [
       ...(state.elective_run_outer_snapshots || []).filter((s) => s.run_id !== runId),
-      ...assignmentsForRun.map((a, i) => ({
-        id: `${runId}-snap-${i}`, run_id: runId, camper_id: a.camper_id,
-        solver_generation: run.solver_generation ?? null,
-      })),
+      ...rows.map((r, i) => ({ id: `${runId}-snap-${i}`, run_id: runId, ...r })),
     ]
     saveState(state)
-    return { ok: true, finalizedAt, snapshotRows: assignmentsForRun.length }
+    return { ok: true, finalizedAt, snapshotRows: rows.length }
   },
   // T245 — mirrors setElectiveAssignmentHandler's success/RUN_NOT_DRAFT shape.
   // The mock has no elective_preferences or elective_set_activities capacity
@@ -1818,37 +1892,15 @@ export const mockShoresh = {
   async getElectiveRunOuterSchedule({ runId } = {}) {
     const state = loadState()
     const run = (state.elective_assignment_runs || []).find((r) => r.id === runId)
-    const activityById = new Map((state.activities || []).map((a) => [a.id, a]))
+    // activity_name is resolved inside deriveMockOuterRows (and copied onto the
+    // snapshot rows at finalize), so only the location lookup is needed here.
     const locationById = new Map((state.locations || []).map((l) => [l.id, l]))
 
     let rows
     if (run?.status === 'final') {
       rows = (state.elective_run_outer_snapshots || []).filter((s) => s.run_id === runId)
     } else {
-      const occurrenceById = new Map((state.elective_occurrences || []).map((o) => [o.id, o]))
-      // Mirrors electron/ops/electiveGenerationPredicate.js's
-      // electiveGenerationVisibleFragment — that module is the authority;
-      // if its rule changes, this filter must change alongside it. A
-      // manual row is exempt from the generation check; a solver row is
-      // visible only when its generation matches the run's current one
-      // (JS `===` covers the predicate's SQL `IS`, since `null === null`
-      // is true).
-      rows = (state.elective_assignments || [])
-        .filter((a) => a.run_id === runId && (a.source === 'manual' || a.solver_generation === run?.solver_generation))
-        .map((a) => {
-          const occurrence = occurrenceById.get(a.occurrence_id)
-          const activity = activityById.get(a.activity_id)
-          return {
-            camper_id: a.camper_id,
-            day_id: occurrence?.day_id ?? null,
-            time_block_id: occurrence?.time_block_id ?? null,
-            activity_id: a.activity_id,
-            activity_name: activity?.name ?? null,
-            location_id: activity?.location_id ?? null,
-            span_blocks: activity?.span_blocks ?? null,
-            solver_generation: run?.solver_generation ?? null,
-          }
-        })
+      rows = deriveMockOuterRows(state, run).rows
     }
 
     // Same ORDER BY camper_id, day_id, time_block_id as both real-handler
@@ -1872,6 +1924,10 @@ export const mockShoresh = {
         locationName: r.location_id != null ? locationById.get(r.location_id)?.name ?? null : null,
         spanBlocks: r.span_blocks ?? null,
         solverGeneration: r.solver_generation ?? null,
+        cellKind: r.cell_kind ?? 'elective',
+        choiceId: r.choice_id ?? null,
+        isLinkedChoice: !!r.is_linked_choice,
+        choiceLabel: r.choice_label ?? null,
       })),
       runStatus: run?.status ?? null,
       // Hardcoded false: computing this honestly in the mock (comparing

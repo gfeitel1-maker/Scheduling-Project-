@@ -994,6 +994,10 @@ export const PROJECTIONS = {
       'location_name',
       'span_blocks',
       'solver_generation',
+      'cell_kind',
+      'choice_id',
+      'is_linked_choice',
+      'choice_label',
     ],
     ensureExists: (db, id, field, value, knownRow) => {
       const table = 'elective_run_outer_snapshots'

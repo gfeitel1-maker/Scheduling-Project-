@@ -126,6 +126,8 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'elective_run_outer_snapshots', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'elective_run_outer_snapshots', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
   { fromTable: 'elective_run_outer_snapshots', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
+  // v76 (T197): choice_id is a soft reference to elective_choices, same posture as the four above.
+  { fromTable: 'elective_run_outer_snapshots', fromColumn: 'choice_id', toEntity: 'elective_choices', kind: 'scalar', enforced: false },
 ])
 
 // entities U2's deletion slice is allowed to act on — deliberately mirrors

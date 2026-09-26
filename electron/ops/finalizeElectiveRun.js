@@ -140,6 +140,12 @@ export function finalizeElectiveRun(db, { runId, authorUserId = null, deviceId }
           location_name: s.location_name,
           span_blocks: s.span_blocks,
           solver_generation: s.solver_generation,
+          // v76 (T197): sourced from the SAME deriveElectiveRunOuterRows call above — no second
+          // derivation exists, which is what keeps draft-derive and finalize symmetric.
+          cell_kind: s.cell_kind,
+          choice_id: s.choice_id,
+          is_linked_choice: s.is_linked_choice ? 1 : 0,
+          choice_label: s.choice_label,
         })
       }
       write('elective_assignment_runs', runId, {
