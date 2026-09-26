@@ -49,8 +49,18 @@ startup function directly.
 - No change to what the sidebar displays — T268 shipped that and it is correct.
   This changes what is *true*, not what is *shown*.
 - No retry loop or poller if a direct call at the right moment suffices.
-- The join-by-code path is out of scope; if it has the same gap it is reported,
-  not fixed here.
+- The join-by-code path is out of scope and has the same gap. The joining
+  device's camp arrives at `joinAwaitData` (`electron/main.js:2306`), which is
+  also after `app.whenReady()` has already returned on `!campId`, and nothing
+  invokes the sync starter afterwards there either.
+
+  **This ticket does not make pairing work.** Pairing is: the Host creates the
+  camp and displays an 8-character code, a second device on the same wifi types
+  it, the Host approves. T273 starts the Host's node in the session that
+  created the camp. It does nothing for the joining device — so until the join
+  route is fixed too, **both ends of a first pairing can still be silently
+  offline**, on the single path this product is most often tested through.
+  Fixed in the follow-up ticket alongside the db-swap paths below, not here.
 - The db-swap paths are out of scope and remain broken. `reinitialize()`
   (`electron/main.js:2677`) and the backup-restore handler
   (`electron/main.js:2917`) rebuild handlers without the sync getters or
