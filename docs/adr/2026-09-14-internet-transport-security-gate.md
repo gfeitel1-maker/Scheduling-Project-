@@ -110,3 +110,57 @@ catch.
 - The egress assertion is confirmed by a **planted defect** rather than by construction: a
   rendezvous client added under `electron/sync/**` turns the suite red, and its removal turns it
   green again. That is the check the earlier three could not make — see T207.
+
+## Re-assessment — RECORDED 2026-09-26 (for the WAN-discovery sign-off; owner review pending)
+
+The Decision above requires a full re-assessment to be recorded before a reviewer/owner may set
+`INTERNET_TRANSPORT_SIGNOFF = true`. That re-assessment, scoped to enabling **WAN rendezvous
+discovery** (wiring T270's `rendezvousClient.js` via the parked T211; NOT relay/hole-punch, which
+remains separately gated as Phase F), is recorded at:
+
+- **`docs/work/security/2026-09-26-internet-transport-signoff-reassessment.md`**
+  (assessed against commit `2aa53fcdcd121e8866a9002b66fd6aaa6682f75f`).
+
+It covers each mandatory topic from the Decision list, with current-code evidence:
+
+1. **Transport confidentiality / plaintext-PIN-on-wire.** Re-opened. Rendezvous changes *discovery*,
+   not the transport — sync still runs over Noise between authenticated peers, and the PIN still
+   travels inside the Noise channel. The tradeoff remains acceptable *for discovery-only sign-off*.
+   Caveat recorded: the ephemeral/rotating/KDF-hardened join secret (ADR 2026-09-15, WAN blocker #1)
+   is still `proposed`, so join-over-WAN is not yet fully hardened — do not read sign-off as covering
+   it.
+2. **Relay/rendezvous trust.** The rendezvous record is self-certifying (signed by the device's
+   libp2p identity key; verifier recovers the key from the claimed peerId), so knowing the namespace
+   lets an attacker publish noise, never impersonate a trusted peer. No relay is admitted by this
+   sign-off. The worker is an untrusted, unauthenticated cache; the client treats every GET field as
+   adversarial (signature, freshness, monotonic watermark, isKnownPeer, and a round-2 count+size
+   DoS bound before any decode/verify).
+3. **Rate limiting and abuse.** Partially re-confirmed. The worker's own caps
+   (`MAX_PEERS_PER_NAMESPACE`, size/body caps, 2h TTL) plus **owner-configured Cloudflare
+   rate-limiting/WAF** (a required deploy-time action, no code substitute) bound board abuse. The
+   libp2p dial/auth rate limits and `MAX_CONNECTIONS` remain LAN-sized and are recorded as a
+   re-confirmed-still-open fast-follow (bounded for discovery-only because only `isKnownPeer`
+   candidates are dialed).
+4. **Electron update integrity.** Re-opened and **not yet resolved** — signed auto-update remains an
+   open WAN blocker the owner must confirm before broad rollout; flagged as an owner decision.
+5. **Device-side role enforcement under CRDT sync.** Re-confirmed accepted: WAN discovery does not
+   change what an admitted peer can do or add an admission path; it raises the value of prompt
+   revocation and of the namespace-rotation decision.
+6. **Credential-signature replay + degrade-window permanence (T172).** Remains closed; re-verify
+   obligation noted, no regression found in the discovery path (which carries no credential
+   mutations).
+
+**Additionally recorded (new since this ADR was written):** the schema-version gate (T271, ADR
+2026-09-26) is accident-prevention, not anti-forgery, and is intentionally landing before WAN is
+enabled; and a client/worker wire-format mismatch (Q5 in the assessment) must be reconciled in T211
+before wiring functions — a correctness gap, not a boundary gap.
+
+**Items requiring specific owner decision (see the assessment §"what the owner must decide"):**
+Cloudflare rate-limit/WAF + log minimization configured (D1); namespace-rotation-on-revocation
+policy (D2); knowing acceptance of public-IP exposure on the board for children's-camp staff devices
+(D3); and the two re-confirmed-still-open WAN blockers the owner must weigh for broad rollout
+(internet-scale libp2p rate limits; signed auto-update).
+
+**This ADR does not itself flip `INTERNET_TRANSPORT_SIGNOFF`.** The constant stays `false` in
+`electron/sync/automerge/transportBoundary.guard.test.js`. Flipping it is the owner's act, to be
+taken only after reviewing the assessment above and ruling on D1–D3 and the two open blockers.
