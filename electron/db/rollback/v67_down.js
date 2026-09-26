@@ -14,16 +14,17 @@
 //      registered there in the first place (§1/§4), so there is nothing to
 //      undo on that front.
 //
-// Usage:  node electron/db/rollback/v66_down.js <path-to-shoresh.sqlite>
+// Usage:  node electron/db/rollback/v67_down.js <path-to-shoresh.sqlite>
 
-export function rollbackV66(db) {
+export function rollbackV67(db) {
   db.transaction(() => {
     db.exec('DROP TABLE IF EXISTS device_identity_key')
 
-    // >= 66, not just = 66 (v32_down/v46_down/v59_down precedent): a later
+    // >= 67, not just = 67 (v32_down/v46_down/v59_down precedent): a later
     // migration's schema_migrations row surviving this rollback would make
-    // getSchemaVersion() report higher than 66, which defeats the v66
-    // migration's own `>= 65 && < 66` guard on the next initSchema() — the
+    // getSchemaVersion() report higher than 67, which defeats the v67
+    // migration's own `>= 66 && < 67` guard (localDb.js:2825) on the next
+    // initSchema() — the
     // table would never get re-created and re-dropped correctly.
     db.prepare('DELETE FROM schema_migrations WHERE version >= 67').run()
   })()
@@ -31,17 +32,17 @@ export function rollbackV66(db) {
   return { dropped: ['device_identity_key'], dataRestored: false }
 }
 
-// Direct invocation (node electron/db/rollback/v66_down.js <file>).
-if (process.argv[1] && process.argv[1].endsWith('v66_down.js')) {
+// Direct invocation (node electron/db/rollback/v67_down.js <file>).
+if (process.argv[1] && process.argv[1].endsWith('v67_down.js')) {
   const file = process.argv[2]
   if (!file) {
-    console.error('usage: node electron/db/rollback/v66_down.js <path-to-shoresh.sqlite>')
+    console.error('usage: node electron/db/rollback/v67_down.js <path-to-shoresh.sqlite>')
     process.exit(1)
   }
   const { default: Database } = await import('better-sqlite3')
   const db = new Database(file)
   db.pragma('foreign_keys = ON')
-  const result = rollbackV66(db)
+  const result = rollbackV67(db)
   console.log(JSON.stringify(result))
   db.close()
 }
