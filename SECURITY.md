@@ -390,7 +390,8 @@ Every table this device keeps that is **not** document-replicated is wiped **cam
 same stroke — confirmed against the schema, this is `conflicts`, `import_evidence`,
 `import_decisions`, `open_reconciliation_decisions`, `pending_writes`, `pending_restores`,
 `device_health_events`, `projection_failures`, `source_aliases`, `compound_cell_decisions`,
-`location_word_decisions`, and `declined_two_row_splits` — plus `camps.signing_secret` (the retired
+`location_word_decisions`, `declined_two_row_splits`, and `fixed_event_identity_gaps` (T267 — the
+fixed-event backfill's unresolved-name worklist) — plus `camps.signing_secret` (the retired
 legacy HMAC field, never read, whose loss is inert). (`schedule_snapshots` and every other
 camp-scoped entity in `MODELED_ENTITIES`/`GENESIS_ENTITIES`, by contrast, ARE document-replicated and
 correctly survive — they round-trip back in via the fresh document, exactly as an ordinary sync would

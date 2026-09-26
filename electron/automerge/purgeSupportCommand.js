@@ -33,8 +33,9 @@
 //      non-modeled, host-only table on this device (PURGE_WIPED_TABLES in purgeCollateral.js:
 //      conflicts, import_evidence, import_decisions, open_reconciliation_decisions, pending_writes,
 //      pending_restores, device_health_events, projection_failures, source_aliases,
-//      compound_cell_decisions, location_word_decisions, declined_two_row_splits, plus the
-//      camps.signing_secret column) is wiped along with it, camp-wide, not just for the purged
+//      compound_cell_decisions, location_word_decisions, declined_two_row_splits,
+//      fixed_event_identity_gaps (T267 — the fixed-event backfill's unresolved-name worklist), plus
+//      the camps.signing_secret column) is wiped along with it, camp-wide, not just for the purged
 //      camper. That collateral is an accepted tradeoff. (schedule_snapshots is MODELED — it is
 //      document-replicated and round-trips back via the fresh document, so it is NOT collateral;
 //      purgeCollateral.js and its test are the source of truth this list must match.)
