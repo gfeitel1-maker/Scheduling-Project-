@@ -2,6 +2,20 @@
 //
 // T187 — engine fixture / schema parity guard.
 //
+// OUT OF SCOPE BY THIS GUARD'S OWN NAME-CLASSIFICATION DESIGN:
+// `elective_preferences` / `elective_choices` fixtures (T251, ADR
+// docs/adr/2026-09-26-per-cell-elective-preferences.md). This file's
+// classification below (ANCHOR_VAR_RE/ANCHOR_PROP_NAMES, SLOT_VAR_RE/
+// SLOT_PROP_NAMES) only recognizes anchor- and slot-shaped fixtures and checks
+// keys against `anchor_activities`/`template_slots` columns — it has no
+// elective classification and no column map for `elective_preferences`. Do
+// not add an "exemption" entry for a key this guard never checks; that would
+// be dead code that looks like it is doing something. If this guard is ever
+// extended to cover elective fixtures, read the ADR first: the fixture's
+// `occurrence_id` key on a preference row names no column today —
+// `elective_preferences` has no `occurrence_id` column yet — and a naive
+// column-parity check would fail on the ADR's own forward shape.
+//
 // THE BUG CLASS. T62 (#443) fixed a defect where the engine read
 // `anchor.activity_id` — a column `fixed_events` has NEVER had. It stayed
 // green for a month because the test fixture hand-built the column, so the
