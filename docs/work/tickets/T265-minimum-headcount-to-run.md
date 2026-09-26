@@ -151,29 +151,33 @@ week and "next choice in THIS period" cannot be read from it. Do not build the c
 
 ---
 
-## The v78 migration is destructive by design, and its safety expires
+## ~~The v78 migration is destructive by design, and its safety expires~~ — RESOLVED 2026-09-26
 
-Recorded here as well as in the code (`electron/db/localDb.js`, above the v78 block) because this is
-the kind of condition that reads as settled once it is green and becomes false without anything in
-the code changing.
+_Prior: this section stated that the v78 migration DROPs `elective_preferences` and recreates it,
+discarding every row, and that its safety rested entirely on there being no live camp data. **That
+was true when written and is no longer true.** The migration is now
+`ALTER TABLE elective_preferences ADD COLUMN occurrence_id TEXT` (`electron/db/localDb.js`), so a
+pre-v78 row SURVIVES — as the whole-run preference it always was._
 
-The v78 migration **DROPs `elective_preferences` and recreates it.** `occurrence_id` is `NOT NULL`,
-no valid default exists, and inventing one was forbidden — so every existing row is discarded. The
-count is logged, never swallowed.
+The rewrite was forced by the owner's format ruling below, not by the safety argument. Once a
+preference with no cell became **legitimate** rather than malformed, discarding those rows stopped
+being an acceptable pre-production shortcut and became destruction of valid data. The safety
+condition did not expire; the definition of "valid" changed underneath it.
 
-**That is acceptable for exactly one reason: there is no live camp data.** Not because the migration
-is gentle, not because it is guarded, and not because the gate is green. The day a real camp's
-database reaches this code, it destroys a director's collected preference forms.
+**Worth keeping as the lesson, because the original section was right about the wrong thing.** It
+correctly identified that the migration's safety rested on a standing condition that could expire.
+It guessed the condition would expire when a real camp appeared. It actually expired the same day,
+from a ruling that changed what the data meant. A documented dependency on "no live data" reads as a
+far-off expiry and can be hours away.
 
-**The question this migration dodges, which a data-preserving replacement must answer:** what
-occurrence does an existing global-format preference belong to? Nothing in the row can say. That is
-why no backfill was attempted rather than attempted badly — and it is the same fact that motivated
-the whole per-cell change.
+Two consequences carried into the fix rather than left implied:
 
-**Before real data exists anywhere, this must be replaced.** Inherit the condition, not the
-conclusion.
-
----
+- `occurrence_id` is NULLABLE, not `NOT NULL`. A row naming an occurrence applies to that cell; a row
+  with none is a whole-run fallback. Both are legal.
+- `electron/db/rollback/v78_down.js` detected collisions with `COUNT(DISTINCT occurrence_id) > 1`.
+  **SQLite never counts NULL in `COUNT(DISTINCT)`**, so a fallback row plus a scoped row evaluated to
+  1, and rollback would have silently collapsed two legitimately distinct rows into one. Found
+  unprompted during the fix and corrected test-first with a verified RED.
 
 ## STANDING RULE — the source format is not ours to choose. Do not ask again.
 
