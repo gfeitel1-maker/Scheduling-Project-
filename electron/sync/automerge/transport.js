@@ -63,7 +63,7 @@ const MAX_CONNECTIONS = 200
 // scoped discovery; omitted by default so tests keep dialing directly over
 // loopback (mDNS needs a real network interface — see discovery.js's own
 // module comment).
-export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey } = {}) {
+export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyncMessageReceived, listen, onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, peerDiscovery, now, connectionRateLimiter, privateKey, schemaVersion } = {}) {
   // Per-SOURCE-IP inbound rate limiting (blocker #2 of the WAN hardening; connectionRateLimiter.js).
   // Closes the connection-churn hole authGate.js documents: a peer opening a fresh connection (fresh
   // peer id) per frame evades per-peer throttling and is otherwise bounded only by MAX_CONNECTIONS.
@@ -122,6 +122,7 @@ export async function startTransport({ deviceId: _deviceId, onDocReceived, onSyn
     onPeerAdmitted,
     onPairingDecision,
     ...(now ? { now } : {}),
+    ...(schemaVersion != null ? { schemaVersion } : {}),
   })
 
   await node.handle(PROTO, (stream, connection) => {

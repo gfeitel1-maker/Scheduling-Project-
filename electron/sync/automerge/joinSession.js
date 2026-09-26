@@ -28,6 +28,7 @@ import { createEmptyDoc } from '../../automerge/campDocument.js'
 import { joinDiscoveryTag, normalizeJoinCode, newJoinNonce, joinProof, verifyJoinProof } from '../joinCode.js'
 import { createMdnsDiscovery } from './discovery.js'
 import { startSyncNode } from './syncNode.js'
+import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 
 // How long to wait for the document after a successful login before telling the
 // director it did not arrive.
@@ -291,10 +292,15 @@ export async function startJoinSession({
       // away — which the director would experience as the join hanging after
       // a successful sign-in.
       node.setAuthToken(reply.token)
+      // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md): this authenticate
+      // call is what lets the HOST learn THIS device's schema version (syncNode.js's onAuthenticate
+      // records it into peerSchemaVersions) — without this field the Host would treat a freshly-
+      // joined device as permanently incompatible, refusing every sync exchange with it forever.
       await node.authenticateWith(hostPeerId, {
         type: 'authenticate',
         token: reply.token,
         device_id: deviceId,
+        schemaVersion: CURRENT_SCHEMA_VERSION,
       })
       // ADOPT THE CAMP. This is the libp2p-native replacement for the op-log's
       // first-pairing `full_sync`, which projector.js's own comment names as
@@ -360,6 +366,14 @@ export async function startJoinSession({
       // the same human trust anchor (typed code, director approval, PIN) the
       // op-log's full_sync already relied on. See transport.js's admitPeer for
       // the full argument and its misuse boundary.
+      //
+      // T271 round 3: admitPeer bypasses onAuthenticate entirely (this device never processes an
+      // inbound `authenticate` FROM the Host — see the comment two paragraphs up), so it never
+      // records the Host's schema version the normal way either. `reply.host_schema_version`
+      // (syncNode.js's onLogin, relayed by authGate.js's login_ok reply) is this device's ONLY
+      // source for that fact; recording it manually here is what lets THIS device's own
+      // isPeerSyncCompatible check the Host correctly once sync starts.
+      node.recordPeerSchemaVersion(hostPeerId, reply.host_schema_version)
       node.admitPeer(hostPeerId)
 
       return { status: 'ok', token: reply.token, userId: reply.userId, role: reply.role, camp: reply.camp ?? null }

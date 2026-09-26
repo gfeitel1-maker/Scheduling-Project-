@@ -106,7 +106,15 @@ function decodeMessage(bytes) {
 // joins after a write never learns about it, and two devices that each have prior data both sit
 // showing nothing until somebody happens to make a new edit. Admission is the correct trigger —
 // it is the first moment we are both allowed to send to a peer and know they will accept it.
-export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, now = Date.now } = {}) {
+// T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md): `schemaVersion`, when
+// supplied, is THIS device's own CURRENT_SCHEMA_VERSION, included in the `auth_ok` reply as a cheap,
+// early, observability-only signal (the authoritative check lives in syncNode.js's
+// `peerSchemaVersions` map / `isPeerSyncCompatible`, populated from the peer's own `authenticate`
+// handshake at admission time — NOT read from the document; round 1's document-root carrier was
+// removed as broken, see the ADR's round-3 revision). It never gates admission: a caller that omits
+// it, or a peer whose `authenticate` frame omits its own schemaVersion (an older, pre-T271 build),
+// is admitted exactly as before.
+export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLogin, onPeerAdmitted, onPairingDecision, now = Date.now, schemaVersion } = {}) {
   const authenticatedPeers = new Set()
   // device_id -> PeerId string, for a pairing_request whose director
   // decision hasn't landed yet. See module comment above.
@@ -150,6 +158,12 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
       }
 
       if (msg.type === 'authenticate') {
+        // T271: observability-only — logged, never gates admission. A peer that omits it (an older,
+        // pre-T271 build) is treated as "unknown" here, same as anywhere else this field is read.
+        if (typeof msg.schemaVersion === 'number') {
+          console.log(`authGate: peer ${fromPeerId} authenticated at schema v${msg.schemaVersion}`)
+        }
+
         let result
         try {
           result = (await onAuthenticate?.(msg, { fromPeerId })) ?? { ok: false, reason: 'no_authenticator' }
@@ -165,7 +179,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
             Promise.resolve(onPeerAdmitted?.(fromPeerId)).catch(() => {})
           } catch { /* a throwing callback must not un-admit a legitimately authenticated peer */ }
           try {
-            await sendFramed(stream, encodeMessage({ type: 'auth_ok' }))
+            await sendFramed(stream, encodeMessage({ type: 'auth_ok', ...(schemaVersion != null ? { schemaVersion } : {}) }))
           } catch {
             // Peer went away right after being admitted; admission still
             // stands — peer:disconnect will clean it up once libp2p notices.
@@ -260,7 +274,7 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
         try {
           if (result.ok) {
-            await sendFramed(stream, encodeMessage({ type: 'login_ok', token: result.token, userId: result.userId, role: result.role, ...(result.camp ? { camp: result.camp } : {}), ...(result.hostDeviceId ? { host_device_id: result.hostDeviceId } : {}) }))
+            await sendFramed(stream, encodeMessage({ type: 'login_ok', token: result.token, userId: result.userId, role: result.role, ...(result.camp ? { camp: result.camp } : {}), ...(result.hostDeviceId ? { host_device_id: result.hostDeviceId } : {}), ...(result.hostSchemaVersion != null ? { host_schema_version: result.hostSchemaVersion } : {}) }))
           } else {
             await sendFramed(
               stream,

@@ -25,7 +25,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import * as A from '@automerge/automerge'
-import { openLocalDb } from '../../db/localDb.js'
+import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { applyWrite } from '../../automerge/campDocument.js'
 import { projectAll } from '../../automerge/projector.js'
 import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
@@ -68,8 +68,8 @@ function setupAuthorizedDevicePair(dbA, dbB) {
 }
 
 async function authenticateBothWays(a, b, tokenA, tokenB) {
-  await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a' })
-  await b.authenticateWith(a.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b' })
+  await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION })
+  await b.authenticateWith(a.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
 }
 
 async function waitFor(predicate, { timeout = 3000, interval = 20 } = {}) {

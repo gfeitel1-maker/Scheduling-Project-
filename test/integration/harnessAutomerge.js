@@ -32,7 +32,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomUUID, randomBytes, scryptSync } from 'node:crypto'
 
-import { openLocalDb, getOrCreateDeviceId } from '../../electron/db/localDb.js'
+import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION } from '../../electron/db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../electron/automerge/campDocument.js'
 import { startSyncNode } from '../../electron/sync/automerge/syncNode.js'
 import { startJoinSession } from '../../electron/sync/automerge/joinSession.js'
@@ -50,6 +50,17 @@ import { setUserDataDirGetter, setLocalWriteBroadcaster } from '../../electron/s
 /** A fresh temp directory for one scenario's device databases. */
 export function makeTmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-int-'))
+}
+
+// T271 round 3 cleanup: resolves an AmHost/AmClient's `handshakeSchemaVersion` constructor override
+// (number, function, or undefined) to the value it should announce right now, falling back to the
+// real CURRENT_SCHEMA_VERSION when no override was given — mirrors syncNode.js's own
+// getHandshakeSchemaVersion. Used by `reconnect()`, which builds its own authenticate frames rather
+// than going through startSyncNode's wireMutualAuth wiring (the normal path this override already
+// reaches).
+function resolveHandshakeSchemaVersionOverride(override) {
+  if (override === undefined) return CURRENT_SCHEMA_VERSION
+  return typeof override === 'function' ? override() : override
 }
 
 /** Remove a list of temp directories created by makeTmpDir. */
@@ -137,8 +148,18 @@ export class AmHost {
    * not upgrade together). It must match syncNode.js's `startSyncNode` shape.
    * Left undefined, defaults to this checkout's own — identical to every
    * scenario's behaviour before this seam existed.
+   *
+   * `localSchemaVersion`/`handshakeSchemaVersion` (T271 round 3,
+   * docs/adr/2026-09-26-schema-version-gate-before-merge.md): forwarded verbatim to every
+   * `startSyncNode` call this device makes (start/join/restart) — see that function's own doc
+   * comment in syncNode.js for what each controls (`localSchemaVersion` = what THIS device
+   * REQUIRES of a peer; `handshakeSchemaVersion` = what THIS device ANNOUNCES in its own
+   * `authenticate` frame, independently overridable so a single test process can simulate a peer
+   * on a different schema version without running a second installed build). Both default to
+   * `undefined`, which `startSyncNode` itself defaults from there — a scenario that doesn't pass
+   * either gets today's real-version behavior, unchanged.
    */
-  constructor(dbPath, { startSyncNode: startSyncNodeOverride } = {}) {
+  constructor(dbPath, { startSyncNode: startSyncNodeOverride, localSchemaVersion, handshakeSchemaVersion } = {}) {
     this.dbPath = dbPath
     this.db = null
     this.node = null
@@ -147,7 +168,17 @@ export class AmHost {
     this.adminUserId = null
     this.adminToken = null
     this.addingDevices = false
-    this._startSyncNode = startSyncNodeOverride || startSyncNode
+    const baseStartSyncNode = startSyncNodeOverride || startSyncNode
+    const extraOpts = {
+      ...(localSchemaVersion !== undefined ? { localSchemaVersion } : {}),
+      ...(handshakeSchemaVersion !== undefined ? { handshakeSchemaVersion } : {}),
+    }
+    this._startSyncNode = (opts) => baseStartSyncNode({ ...opts, ...extraOpts })
+    // T271 round 3 cleanup: kept (not just passed into startSyncNode above) so `reconnect()` can
+    // announce the SAME overridden value on a manually-constructed authenticate frame — that call
+    // builds its own message rather than going through startSyncNode's wireMutualAuth wiring, so it
+    // previously ignored this override entirely and always announced the real CURRENT_SCHEMA_VERSION.
+    this._handshakeSchemaVersion = handshakeSchemaVersion
   }
 
   async start() {
@@ -313,7 +344,7 @@ export class AmHost {
  */
 export class AmClient {
   /** See AmHost's constructor comment — same seam, same default. */
-  constructor(dbPath, { startSyncNode: startSyncNodeOverride } = {}) {
+  constructor(dbPath, { startSyncNode: startSyncNodeOverride, localSchemaVersion, handshakeSchemaVersion } = {}) {
     this.dbPath = dbPath
     this.db = null
     this.node = null
@@ -321,7 +352,15 @@ export class AmClient {
     this.token = null
     this.hostPeerId = null
     this._mutual = null
-    this._startSyncNode = startSyncNodeOverride || startSyncNode
+    const baseStartSyncNode = startSyncNodeOverride || startSyncNode
+    const extraOpts = {
+      ...(localSchemaVersion !== undefined ? { localSchemaVersion } : {}),
+      ...(handshakeSchemaVersion !== undefined ? { handshakeSchemaVersion } : {}),
+    }
+    this._startSyncNode = (opts) => baseStartSyncNode({ ...opts, ...extraOpts })
+    // See AmHost's constructor comment — same reason: `reconnect()` builds its own authenticate
+    // frame rather than going through startSyncNode's wireMutualAuth wiring.
+    this._handshakeSchemaVersion = handshakeSchemaVersion
   }
 
   open() {
@@ -454,6 +493,11 @@ export class AmClient {
       await waitForCond(() => this.node.getPeers().includes(this.hostPeerId))
     }
     this.node.setAuthToken(this.token)
+    // T271 round 3 cleanup: each side announces its OWN handshakeSchemaVersion override when one was
+    // given at construction, not always the real constant — a scenario combining an override with
+    // restart+reconnect would otherwise silently exercise the wrong (real) value and false-pass.
+    const myAnnouncedVersion = resolveHandshakeSchemaVersionOverride(this._handshakeSchemaVersion)
+    const hostAnnouncedVersion = resolveHandshakeSchemaVersionOverride(host._handshakeSchemaVersion)
     // Mirrors wireMutualAuth's redial-once (electron/sync/automerge/mutualAuth.js).
     // Since T162 a restarted Host returns under the SAME PeerId, so getPeers()
     // above can still name the dead connection, the dial is skipped, and this
@@ -461,16 +505,16 @@ export class AmClient {
     // this, or the harness would be stricter than the product it models.
     try {
       await this.node.authenticateWith(this.hostPeerId, {
-        type: 'authenticate', token: this.token, device_id: this.deviceId,
+        type: 'authenticate', token: this.token, device_id: this.deviceId, schemaVersion: myAnnouncedVersion,
       })
     } catch {
       await this.node.dial(host.node.getMultiaddrs()[0])
       await this.node.authenticateWith(this.hostPeerId, {
-        type: 'authenticate', token: this.token, device_id: this.deviceId,
+        type: 'authenticate', token: this.token, device_id: this.deviceId, schemaVersion: myAnnouncedVersion,
       })
     }
     await host.node.authenticateWith(this.node.peerId, {
-      type: 'authenticate', token: host.adminToken, device_id: host.deviceId,
+      type: 'authenticate', token: host.adminToken, device_id: host.deviceId, schemaVersion: hostAnnouncedVersion,
     })
     await waitForCond(() => host.node.isPeerAuthenticated(this.node.peerId))
     await waitForCond(() => this.node.isPeerAuthenticated(this.hostPeerId))

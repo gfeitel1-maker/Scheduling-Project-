@@ -225,6 +225,13 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole
       // point. This is the exact assertion that caught the runtime-top-up regression above.
+      //
+      // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md, Verification item
+      // 5): this is also the genesis-identity tripwire for the ROUND-1 T271 mechanism that used to
+      // live here (a synthetic schemaVersion-stamping change on genesisDoc(), removed in round 3 in
+      // favor of a per-device handshake value — see syncNode.js's peerSchemaVersions). This
+      // assertion alone catches any future re-introduction of a per-call side effect on
+      // genesisDoc() — a repeat of round 1's mistake would immediately break it.
       expect(A.getHeads(createEmptyDoc())).toEqual(A.getHeads(doc))
     })
 

@@ -23,6 +23,18 @@ import { createBoundPeerTrust } from './peerIdentity.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { sharesGenesis } from '../../automerge/campDocument.js'
 import { joinCode as joinCodeFor, joinProof, verifyJoinProof } from '../joinCode.js'
+import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
+
+// T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md): pure, directly-testable
+// predicate deciding whether a PEER's schema version (learned from its own `authenticate` handshake
+// — see `peerSchemaVersions` below, NOT a document field; round 1 shipped a document-root carrier
+// and it was wrong, see the ADR's round-3 revision) is safe to sync/merge with. Owner-ruled: STRICT
+// exact-match only. `incomingVersion` of null/undefined ("unknown" — a peer that never sent the
+// field, or sent a non-numeric value) is treated as incompatible, not as an automatic pass — see
+// isSyncCompatible.test.js.
+export function isSyncCompatible(incomingVersion, localVersion) {
+  return typeof incomingVersion === 'number' && incomingVersion === localVersion
+}
 
 // Starts a transport node and wires it to `doc`/`db`. Returns a handle that
 // exposes the current doc and the same lifecycle/broadcast surface as
@@ -46,7 +58,30 @@ import { joinCode as joinCodeFor, joinProof, verifyJoinProof } from '../joinCode
 // only computes and hands them off. Wrapped in try/catch so a consumer's own throw can never break
 // sync or escape as an unhandled rejection — sync must keep converging regardless of what a push-
 // event listener does with what it's handed.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now } = {}) {
+// `localSchemaVersion` (T271): defaults to this build's real CURRENT_SCHEMA_VERSION for every
+// production caller. Overridable ONLY so the integration harness can simulate a device running a
+// different schema version without needing an actually-different installed build — mirroring the
+// `startSyncNode` substitution seam this module's callers already use for the same cross-version
+// testing need (see harnessAutomerge.js's AmHost/AmClient constructor comment). May be a plain
+// number (the common case) or a zero-arg function re-read on every gate check — the function form
+// is what lets an integration test simulate "this device just upgraded" on the SAME live
+// node/connection: bumping what THIS device now requires re-evaluates against a peer's ALREADY-
+// recorded (round 3: handshake-sourced, not document-sourced) version with no new dial, no new
+// authenticate, proving the self-resolve is automatic.
+//
+// `handshakeSchemaVersion` (T271 round 3): what THIS device itself ANNOUNCES in its own outbound
+// `authenticate` frame (mutualAuth.js). Defaults to `localSchemaVersion` — in production these are
+// the same fact ("my build's schema version"), so a caller that doesn't pass this gets today's
+// natural behavior. Kept as a DISTINCT, independently-overridable seam (rather than always reusing
+// `localSchemaVersion`) only for the integration harness, which cannot literally run two different
+// installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
+// than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
+// without needing a second codebase.
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion } = {}) {
+  const getLocalSchemaVersion = () =>
+    typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
+  const getHandshakeSchemaVersion = () =>
+    typeof handshakeSchemaVersion === 'function' ? handshakeSchemaVersion() : handshakeSchemaVersion
   // Stage 5f: this module no longer keeps a private `state.doc` — the doc lives in liveDoc.js's
   // `docRegistry`, keyed by THIS `db`, so that a local write (liveDoc.recordLocalWrite) and a
   // remote merge (handleReceived below) mutate the exact same document instead of two copies that
@@ -195,6 +230,26 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       return
     }
 
+    // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md): a same-genesis
+    // document can still be a different, incompatible field encoding if it was sent by a peer on a
+    // different schema version (e.g. a renaming migration where two devices write two different
+    // document keys for the same logical field — both survive the CRDT merge, one silently stale).
+    // Sourced from `peerSchemaVersions` (recorded at authentication time from the peer's OWN
+    // handshake — round 1 read this off document CONTENT instead, which is shared/racy CRDT state
+    // and answers the wrong question; see the ADR's round-3 revision for why that was wrong).
+    // Refuse the MERGE, not the peer's authentication/connection (owner-ruled Decision 3): this
+    // device stays admitted and trusted, only THIS specific document delivery is declined, and the
+    // very next delivery — automatically, once either device upgrades — merges normally. Silent per
+    // owner ruling: a console.error dev-log line only, mirroring the sharesGenesis refusal directly
+    // above, no connectivity event, no director-facing surface.
+    if (!isPeerSyncCompatible(fromPeerId)) {
+      console.error(
+        `syncNode: refused a document from ${fromPeerId ?? 'an unknown peer'} — ` +
+          `${describeSchemaMismatch(fromPeerId)}; merge skipped, will retry once versions match`
+      )
+      return
+    }
+
     const currentDoc = getCurrentDoc(db)
     const before = A.getHeads(currentDoc)
     const merged = A.merge(currentDoc, incoming)
@@ -253,6 +308,67 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // left off.
   const syncStates = new Map()
 
+  // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md, Decision 2): the
+  // AUTHORITATIVE compatibility signal — peerId -> the schema version that peer reported in its OWN
+  // `authenticate` handshake (`onAuthenticate` below), recorded once at authentication time. This
+  // replaced a round-1 design that read a document-ROOT field instead, which Red Hat/Security found
+  // was shared/racy CRDT state that froze every pre-existing camp document's sync forever and
+  // answered the wrong question ("has this document ever seen a higher version" instead of "is the
+  // peer that sent me THESE bytes compatible with me"). A live, per-connection, freshly-
+  // authenticated fact has none of those problems: it cannot be stale relative to the peer that
+  // actually sent the bytes, and a document created before this field existed has nothing for this
+  // map to be missing FROM (there is no document-level state at all). Cleared on disconnect, same
+  // lifecycle as `syncStates` directly above — see transport.js's onPeerDisconnected wiring below.
+  const peerSchemaVersions = new Map()
+
+  // Thin, pure(-ish — reads two closure-local values, no side effects) wrapper around
+  // isSyncCompatible: what the peer announced (peerSchemaVersions, `null` if never recorded — a
+  // peer that hasn't authenticated yet, or omitted the field) vs. what THIS device currently
+  // requires (`getLocalSchemaVersion()`, function-form-aware so a test can simulate an upgrade
+  // without a new connection — see startSyncNode's doc comment). Used at all THREE places this
+  // module touches an Automerge merge/sync primitive for a remote peer: `stepSync`,
+  // `handleSyncMessage`, and `handleReceived` below — round 1 only gated `handleReceived`, which
+  // the comment two blocks above already states is direct-send/adversarial-test-only; the real
+  // production path (`stepSync`/`handleSyncMessage`) had no gate at all until round 3.
+  // Peers currently (or most recently) found incompatible — used only to force a truly FRESH
+  // A.initSyncState() the moment a peer transitions back to compatible, rather than resuming
+  // whatever state existed before/during the mismatch. This matters because Automerge's sync state
+  // tracks what THIS side believes it has told the peer OPTIMISTICALLY, the instant
+  // A.generateSyncMessage is called — NOT once the peer confirms it applied the bytes. A peer that
+  // sent data while genuinely believing itself compatible (it has no way to know the OTHER side
+  // refused) has therefore already advanced its OWN local bookkeeping past that data, even though
+  // the receiving side never applied it; left alone, that side would never re-offer it once
+  // versions converge. Resetting the RECEIVING side's state on recovery is what makes the resumed
+  // exchange re-request everything from scratch instead of trusting either side's stale belief.
+  const pendingVersionReset = new Set()
+
+  function isPeerSyncCompatible(peerId) {
+    const compatible = isSyncCompatible(peerSchemaVersions.get(peerId) ?? null, getLocalSchemaVersion())
+    if (!compatible) {
+      pendingVersionReset.add(peerId)
+    } else if (pendingVersionReset.has(peerId)) {
+      pendingVersionReset.delete(peerId)
+      syncStates.delete(peerId)
+    }
+    return compatible
+  }
+
+  // T271 round 3 cleanup (Code Reviewer): under fail-closed, "no version was ever recorded for this
+  // peer" and "a version was recorded and genuinely mismatches" produce IDENTICAL silent-forever
+  // refusal behavior — but they have completely different causes. The first means an admission path
+  // forgot to populate `peerSchemaVersions` (the bug hit twice this ticket: the join path bypassing
+  // onAuthenticate entirely), which is a wiring defect a developer needs to go fix; the second is the
+  // gate working exactly as designed on an honest version skew. Distinguishing them in the one-shot
+  // refusal logs (handleSyncMessage/handleReceived) is what lets whoever debugs a peer that never
+  // syncs tell which case they're in without re-deriving it from scratch.
+  function describeSchemaMismatch(peerId) {
+    const recorded = peerSchemaVersions.get(peerId)
+    return recorded === undefined
+      ? 'no schema version was ever recorded for this peer (an admission path likely forgot to ' +
+          'populate peerSchemaVersions)'
+      : `recorded schema version ${recorded} does not match this device's ${getLocalSchemaVersion()}`
+  }
+
   // Stage 6c: who this device can currently reach is a question the renderer
   // asks (main.js's getSyncStatus, for the sidebar's connection copy). Under
   // the WebSocket transport the answer came from a socket's open/close events;
@@ -274,6 +390,15 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   // or its own next inbound message) will retry the exchange from the current state, and a real
   // disconnect will clear this peer's state via onPeerDisconnected below.
   function stepSync(peerId) {
+    // T271 round 3: do not even BEGIN a sync exchange with an incompatible peer — no sync state is
+    // created or advanced for it, so there is nothing for the peer to be later marked "caught up"
+    // on. Deliberately SILENT, not even a log line (unlike the one-shot refusals in
+    // handleSyncMessage/handleReceived below): this fires on EVERY sync trigger for the duration of
+    // a mismatch (peer admission, every subsequent local write, every inbound message from other
+    // peers), and logging each occurrence would be exactly the unbounded-repeat log noise this
+    // project already guards against elsewhere (mutualAuth.js's DISCOVERY_EMIT_WINDOW_MS precedent
+    // for the same class of problem) — being incompatible is not a new fact each time this runs.
+    if (!isPeerSyncCompatible(peerId)) return
     const state = syncStates.get(peerId) ?? A.initSyncState()
     const currentDoc = getCurrentDoc(db)
     const [nextState, msg] = A.generateSyncMessage(currentDoc, state)
@@ -285,6 +410,21 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   }
 
   async function handleSyncMessage(bytes, { fromPeerId }) {
+    // T271 round 3: refuse to APPLY an incoming sync message from a schema-version-incompatible
+    // peer — this is the production path round 1 missed entirely (see peerSchemaVersions' comment
+    // above). The check happens BEFORE any syncStates.set for this exchange, which is the load-
+    // bearing property: it means the sync state is NEVER advanced/acked for bytes that were never
+    // applied, so the SENDER's own state (once it re-triggers stepSync, e.g. on its next
+    // authentication after upgrading) still shows this peer as behind and re-offers the same data.
+    // A refused delivery must not mark the peer caught-up, or the mismatched write would never be
+    // retried once versions converge.
+    if (!isPeerSyncCompatible(fromPeerId)) {
+      console.error(
+        `syncNode: refused a sync message from ${fromPeerId} — ${describeSchemaMismatch(fromPeerId)}; ` +
+          `sync paused for this peer, will resume once versions match`
+      )
+      return
+    }
     const state = syncStates.get(fromPeerId) ?? A.initSyncState()
     const currentDoc = getCurrentDoc(db)
     const before = A.getHeads(currentDoc)
@@ -331,6 +471,20 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // overwrite is no longer called here, since it would let a reinstalled/
     // impostor device bypass the mismatch check.
     const result = evaluateAuthenticate(db, { token: msg.token, device_id: msg.device_id, peerId: fromPeerId })
+    if (result.ok) {
+      // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md, Decision 2): record
+      // this peer's OWN reported schema version — the authoritative signal for isPeerSyncCompatible
+      // above — the moment admission succeeds. A message that omits the field (a hypothetical
+      // pre-T271 peer) or sends a non-numeric value is recorded as `null`/"unknown", which
+      // isSyncCompatible treats as incompatible, never as an automatic pass. This does NOT gate
+      // authentication itself (Decision 3: identity/trust and data-merge-compatibility are kept
+      // independent) — admission succeeds or fails purely on `evaluateAuthenticate`'s own result.
+      // String(...) for key symmetry with recordPeerSchemaVersion's own String(peerId) below —
+      // currently harmless (transport.js already stringifies fromPeerId before calling in), but a
+      // future admission path passing a non-string peerId would otherwise create a second,
+      // never-matched entry that, under fail-closed, refuses a legitimate peer forever.
+      peerSchemaVersions.set(String(fromPeerId), typeof msg.schemaVersion === 'number' ? msg.schemaVersion : null)
+    }
     return result.ok ? { ok: true } : { ok: false, reason: result.reason }
   }
 
@@ -405,7 +559,14 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       pin: msg.pin,
       peerId: fromPeerId,
     })
-    return result.ok ? { ...result, hostDeviceId: deviceId } : result
+    // T271 round 3: this Host's own schema version, relayed to the joining device via the
+    // `login_ok` reply (authGate.js) — the ONLY way that device ever learns it. A first-joining
+    // device's node.admitPeer(hostPeerId) (joinSession.js) admits the Host WITHOUT ever processing
+    // an inbound `authenticate` message from it (the Host cannot authenticate back before the
+    // document — carrying its signing key — has arrived), so onAuthenticate's normal
+    // peerSchemaVersions recording never runs for this direction. joinSession.js records this value
+    // manually (node.recordPeerSchemaVersion) at the same point it calls admitPeer.
+    return result.ok ? { ...result, hostDeviceId: deviceId, hostSchemaVersion: getHandshakeSchemaVersion() } : result
   }
 
   const transport = await startTransport({
@@ -414,6 +575,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     privateKey: deviceIdentityPrivateKey,
     onDocReceived: handleReceived,
     onSyncMessageReceived: handleSyncMessage,
+    schemaVersion: getHandshakeSchemaVersion(),
     // Stage 5f-2: initial-sync-on-admission is back, this time built on the real sync protocol
     // (stepSync above) rather than a whole-document push. The prior attempt (Stage 5f) removed a
     // push-on-admission because it was fire-and-forget: a frame rejected by the peer's admission
@@ -424,7 +586,12 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // the next trigger" (this peer's own admission event, or its next inbound message), and the
     // exchange has a real settled state instead of "sent, hopefully received".
     onPeerAdmitted: (peerId) => {
-      syncStates.set(peerId, A.initSyncState())
+      // T271 round 3: do NOT pre-seed syncStates here — stepSync itself lazily initializes
+      // (`syncStates.get(peerId) ?? A.initSyncState()`) only when it actually proceeds. Seeding it
+      // here unconditionally, before stepSync's own compatibility check runs, would create sync
+      // state for an incompatible peer regardless of what stepSync decides — exactly the bookkeeping
+      // hole the ADR's round-3 revision calls out ("no sync state is created or advanced for an
+      // incompatible peer, so there is nothing for it to be marked caught up on").
       stepSync(peerId)
       notifyPeersChanged()
     },
@@ -443,9 +610,14 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   })
 
   // Discard this peer's sync progress the moment the connection is gone (see syncStates' own
-  // comment above for why this is correct rather than merely tidy).
+  // comment above for why this is correct rather than merely tidy). peerSchemaVersions is cleared
+  // the same way, same reasoning, same lifecycle (T271 round 3) — a reconnecting peer re-runs
+  // `authenticate` and its version is recorded fresh, so a stale entry here would only ever be
+  // wrong, never merely stale-but-harmless.
   transport.onPeerDisconnected((peerId) => {
     syncStates.delete(peerId)
+    peerSchemaVersions.delete(peerId)
+    pendingVersionReset.delete(peerId)
     notifyPeersChanged()
   })
 
@@ -497,7 +669,7 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
   const emitter = createConnectivityEmitter({ verboseAddrs: process.env.SHORESH_CONNECTIVITY_LOG_ADDRS === '1' })
   wireMutualAuth(
     { dial: transport.dial, authenticateWith: transport.authenticateWith, onPeerDiscovery: transport.onPeerDiscovery },
-    { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter }
+    { deviceId, getToken: () => authToken, onRejected: onAuthRejected, isPeerTrusted: isPeerTrusted ?? createBoundPeerTrust(db), emitter, getSchemaVersion: getHandshakeSchemaVersion }
   )
 
   return {
@@ -514,6 +686,15 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // rather than when it next drops.
     revokePeer: transport.revokePeer,
     admitPeer: transport.admitPeer,
+    // T271 round 3: manual counterpart to onAuthenticate's normal peerSchemaVersions recording, for
+    // the one admission path that bypasses onAuthenticate entirely — a joining device's
+    // admitPeer(hostPeerId) (joinSession.js), which cannot rely on processing an inbound
+    // `authenticate` FROM the Host (see onLogin's comment above for why). `version` of
+    // null/non-numeric is recorded as `null`/incompatible, same fail-closed handling as everywhere
+    // else this value is read.
+    recordPeerSchemaVersion: (peerId, version) => {
+      peerSchemaVersions.set(String(peerId), typeof version === 'number' ? version : null)
+    },
     sendPairingApproved: transport.sendPairingApproved,
     sendPairingDenied: transport.sendPairingDenied,
     onPeerDiscovery: transport.onPeerDiscovery,
@@ -530,6 +711,15 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     // valid Automerge doc); not part of the normal edit/broadcast flow.
     sendDocTo: transport.sendDocTo,
     getDoc: () => getCurrentDoc(db),
+    // T271 round 3 test-only accessor (docs/adr/2026-09-26-schema-version-gate-before-merge.md,
+    // Verification item 2): a byte snapshot of `peerId`'s current sync state (null if none exists
+    // yet), for a test to capture BEFORE and AFTER a refused exchange and assert byte-for-byte
+    // equality — proving the bookkeeping was left exactly as untouched as no attempt at all, not
+    // merely that no message was applied. Not used by any production code path.
+    getSyncStateBytesForTest: (peerId) => {
+      const state = syncStates.get(peerId)
+      return state ? A.encodeSyncState(state) : null
+    },
     // Direct test/adversarial-scenario API: apply an already-changed doc (via the caller's own
     // A.change/applyWrite), project it locally, and broadcast the new bytes to every connected
     // peer. NOT the production local-write path — that's liveDoc.recordLocalWrite, which only
