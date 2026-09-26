@@ -58,7 +58,7 @@ describe('migration v69: rendezvous_sequence', () => {
     const db = freshDb()
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 69').get().c).toBe(1)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(74)
+    expect(CURRENT_SCHEMA_VERSION).toBe(75)
     expect(db.prepare('SELECT COUNT(*) c FROM rendezvous_sequence').get().c).toBe(0)
     db.close()
   })

@@ -12,6 +12,7 @@
 // is schedule_templates-specific (this is the one seam Red Hat should check).
 import { useEffect, useRef, useState } from 'react'
 import { localClient } from '../../localClient'
+import { filterFreeChoiceActivities } from '../../engine/freeChoiceActivities'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../../styles/shared'
 import { ArrowIcon, CloseIcon } from '../../components/icons'
@@ -57,6 +58,10 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   const [slots, setSlots] = useState([])
   const [groups, setGroups] = useState([])
   const [activities, setActivities] = useState([])
+  // T266 — the free-choice subset, derived once. `activities` itself stays whole
+  // (anchor name resolution and any id->name lookup still need every row); only
+  // the pickable menu is narrowed.
+  const freeChoiceActivities = filterFreeChoiceActivities(activities)
   const [locations, setLocations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -381,7 +386,10 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
                         ariaColIndex={groupIndex + 2}
                         blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
                         column={g.name}
-                        eligibleActivities={activities}
+                        /* T266 (site 7 of 7) — this sub-grid is a free-choice menu like the
+                           main one; a pinned event is not pickable here either. No
+                           eligibility filtering is added or removed. */
+                        eligibleActivities={freeChoiceActivities}
                         locations={locations}
                         onPlace={(_slot, activityId) => placeActivity(g.id, block.id, activityId)}
                         onCreateNew={(_slot, name) => createAndPlace(g.id, block.id, name)}

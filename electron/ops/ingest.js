@@ -214,7 +214,13 @@ const COMPARABLE_COLUMNS = Object.freeze({
   // import for review when this year's grid disagrees — correct Policy A
   // behaviour, but behaviour that camp has never seen before, because these
   // columns were never written by an import until now.
-  activities: ['priority', 'min_per_week', 'max_per_week', 'location_id', 'eligible_group_ids', 'max_groups_per_slot', 'same_tier_only'],
+  // T266: 'catalog_role' is here so the snapshot CARRIES it — buildPlan only
+  // emits a field it can compare against the snapshot, so without this entry the
+  // emitRecognized marker below would be silently inert and only brand-new rows
+  // would ever be marked (exactly the T114 trap recorded above). Unlike the T114
+  // columns this one is never director-authored, so it adds no new hold-for-review
+  // surface: ingest is its only writer.
+  activities: ['priority', 'min_per_week', 'max_per_week', 'location_id', 'eligible_group_ids', 'max_groups_per_slot', 'same_tier_only', 'catalog_role'],
   // No comparable fields — a locations plan item is only ever create/unchanged
   // (§D3: exact-match recognition means it can never surface an update either).
   locations: [],

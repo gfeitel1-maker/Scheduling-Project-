@@ -1,9 +1,9 @@
 ---
 title: "Ingest category exclusivity and anchor identity — why the duplicate activity is load-bearing"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
-implementation_state: not-started
+implementation_state: partial
 date: 2026-09-26
 task_class: architecture
 governing_docs:
@@ -18,11 +18,54 @@ related_adrs:
 related_tickets:
   - docs/work/tickets/T251-t199-acceptance-fixture.md
   - docs/work/tickets/T234-ingest-recurring-event-catalog-exclusivity.md
+  - docs/work/tickets/T266-ingest-pass-exclusivity.md
 ---
 
 # Ingest category exclusivity and anchor identity
 
-**Status: PROPOSED — owner decision required. Nothing here is settled.**
+**Status: ACCEPTED 2026-09-26 by the product owner — Option A, in two halves.**
+
+The owner ruled on the substance in conversation on 2026-09-26, after the scope below was put to him
+in plain terms: a marker rather than a hole, a visibility flag on the existing activity row, present
+so anchor name resolution still succeeds and absent from pass 3's menu. His words were *"go ahead,
+run the ticket and get this done."* His statement of the rule itself — *"once something is pulled
+from the first or second pass it should no longer be available to be pulled out in the third"* — is
+also the answer to OQ2 below: hidden entirely, not greyed and not deprioritised.
+
+**What is implemented, and what is not.** Option A has two halves and only one of them is being
+built now.
+
+- **The role marker — implemented** by `docs/work/tickets/T266-ingest-pass-exclusivity.md`
+  (`activities.catalog_role`, schema v75; NULL = ordinary free choice, `'pinned_event'` = excluded
+  from the free-choice catalogue and from the engine's placeable pool). This is §3's "marker, not a
+  hole", and it is the whole of the reported symptom.
+- **The `activity_id` identity half — NOT implemented, and deliberately still open.** Keeping the
+  catalog row is precisely what makes it unnecessary for the cleanup: name resolution keeps working
+  because the row it resolves to keeps existing. Option A's ordering constraint
+  (identity-before-cleanup) is satisfied vacuously here, because nothing is deleted or merged. It
+  becomes required the moment anything *does* delete or merge a catalog row, and D's invariant
+  ("every anchor resolves to exactly one activity") remains the acceptance condition for that work.
+
+The role marker is **symmetric**: a later import that no longer claims a name clears it. Written
+one way only it would be a one-way door with no UI behind it (OQ2 chose "hidden entirely"), so a
+heuristic false positive would make an activity vanish irreversibly. Re-importing a corrected sheet
+is the recovery path. Clearing is guarded on detection having actually run (a non-empty claimed set),
+because every caller except ImportScreen supplies an empty one and an unguarded clear would re-expose
+a camp's whole event catalogue.
+
+Sync is settled too, by the same owner ruling: a disagreement about `catalog_role` raises a conflict
+for a human, because an activity's category is a fact about the camp rather than an opinion a device
+holds, so two devices can never legitimately differ and a disagreement is evidence that one of them
+ingested something wrong. It raises by INHERITANCE — `PROJECTIONS[entity].fields` is the single gate
+for both syncing and conflict-raising, and `reconcile` has no field allowlist — so no mechanism was
+added, only the evidence (`electron/catalogRoleConflict.test.js`) and a human-readable label.
+
+One thing this ADR does NOT settle: whether ImportScreen's React layer is covered. Its derivation is;
+the component is not mounted.
+
+OQ1 is answered: **A**, not B. OQ3 is **not** answered here and nothing depends on it — the existing
+`dualUseNames` carve-out keeps a genuinely dual-use name out of the pin-only set entirely, so the
+one-row-or-two question is untouched by T266.
 
 This ADR does not fix anything. It states one decision the product owner has to make, because the
 obvious fix for the bug he reported would introduce a worse, silent one. It is also the gate on

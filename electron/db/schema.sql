@@ -542,7 +542,25 @@ CREATE TABLE IF NOT EXISTS activities (
   -- location_id is above it: ALTER-added on a migrated db (localDb.js v44),
   -- which always appends, so declaring it last here keeps a fresh install's
   -- column order byte-identical to a migrated one (column-order trap).
-  recurrence_truth_status TEXT
+  recurrence_truth_status TEXT,
+  -- v75 (T266, docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md,
+  -- Option A's role marker). The ingest pass that CLAIMED this name. NULL means
+  -- an ordinary free-choice activity; 'pinned_event' means ingest pass 1 (fixed)
+  -- or pass 2 (recurring) already claimed it, so it is not available to pass 3
+  -- and does not appear in any free-choice menu.
+  --
+  -- The row still EXISTS, deliberately: an anchor references its activity BY
+  -- NAME (src/engine/anchorActivityLink.js, no activity_id column), and both
+  -- don't-schedule-twice suppressions resolve through that name. Deleting the
+  -- row would remove the handle and silently place the event twice. This is a
+  -- MARKER, NOT A HOLE.
+  --
+  -- Must be LAST, for the same reason recurrence_truth_status and location_id
+  -- above it are: ALTER-added on a migrated db (localDb.js v75), which always
+  -- appends, so a fresh install's column order stays byte-identical to a
+  -- migrated one (column-order trap). Note there is NO inline UNIQUE anywhere
+  -- in this table, so no autoindex is created and fresh/migrated cannot diverge.
+  catalog_role TEXT
 );
 -- UNIQUE(camp_id, name) relaxed to a plain index in schema v73 (T241) — see the comment above
 -- `locations`. idx_activities_camp_name (originally added by localDb.js's version-15 migration)

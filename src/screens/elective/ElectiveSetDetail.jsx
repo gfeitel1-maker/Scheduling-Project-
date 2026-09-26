@@ -18,6 +18,7 @@ import { workbookToPages } from '../../ingest/sheetGrid'
 import { parseGridSchedule } from '../../ingest/parseGridSchedule'
 import { populateElectiveSet } from '../../ingest/electiveSetPopulate'
 import { markElectivePermissionTier } from '../../ingest/electivePermissionTier'
+import { filterFreeChoiceActivities } from '../../engine/freeChoiceActivities'
 import { clearElectivePermissionOnRemoval } from '../../ingest/electivePermissionClear'
 import { createActivity } from '../schedule/createActivityHelper'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../../utils/exportSanitize.js'
@@ -186,7 +187,11 @@ export default function ElectiveSetDetail({
   const fileInputRef = useRef(null)
 
   const offeredActivityIds = new Set(offerings.map((o) => o.activity_id))
-  const availableActivities = activities.filter((a) => !offeredActivityIds.has(a.id))
+  // T266 (site 5 of 7) — an elective offering is a free choice a camper picks, so
+  // a name ingest pass 1/2 already claimed is not offerable. Applied alongside
+  // the existing already-offered-here filter, not folded into it.
+  const availableActivities = filterFreeChoiceActivities(activities)
+    .filter((a) => !offeredActivityIds.has(a.id))
 
   async function addExistingOffering(activityId) {
     await add({ activityId })

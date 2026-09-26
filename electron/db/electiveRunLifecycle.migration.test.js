@@ -59,7 +59,7 @@ describe('migration v74: fresh vs migrated equivalence', () => {
   it('declares schema version 74 on a fresh db', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(74)
+    expect(CURRENT_SCHEMA_VERSION).toBe(75)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 74').get().c).toBe(1)
     db.close()
   })
@@ -257,13 +257,18 @@ describe('migration v72->v74 composition: fresh vs a genuinely-migrated database
   const REBUILT_TABLES = ['activities', 'elective_sets']
   const T243_TABLES = ['elective_assignment_runs', 'elective_run_outer_snapshots']
 
-  it('lands the genuinely-migrated database at schema version 74, same as fresh', () => {
+  it('lands the genuinely-migrated database at the current schema version, same as fresh', () => {
     const fresh = freshDb()
     const migrated = v72SeededDb('v72-to-74-version')
-    initSchema(migrated) // runs the REAL v73 rebuild, then v74, in one pass
+    initSchema(migrated) // runs the REAL v73 rebuild, then v74, then v75, in one pass
 
-    expect(getSchemaVersion(fresh)).toBe(74)
-    expect(getSchemaVersion(migrated)).toBe(74)
+    // The property is "a migrated database ends up where a fresh one is", not
+    // "both are at 74" — so the literal moves with every schema bump. Kept as a
+    // literal rather than CURRENT_SCHEMA_VERSION on both sides, because
+    // comparing two things that are both derived would pass even if the chain
+    // stopped stamping entirely. v75 (T266) is the current head.
+    expect(getSchemaVersion(fresh)).toBe(75)
+    expect(getSchemaVersion(migrated)).toBe(75)
 
     fresh.close()
     migrated.close()

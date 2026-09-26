@@ -14,6 +14,7 @@ import SetupScreenShell from '../components/setup/SetupScreenShell'
 import ProvenanceDot from '../components/setup/ProvenanceDot'
 import { provenanceDotStyles } from '../components/setup/provenanceDotStyles.js'
 import { duplicateSiblingsByIdFor } from './duplicateSiblings.js'
+import { filterFreeChoiceActivities } from '../engine/freeChoiceActivities'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -305,7 +306,10 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
     setSaving(false)
   }
 
-  const otherActivities = activities.filter(a => a.id !== activity?.id)
+  // T266 — the weather-alternative picker is a free-choice menu: a pinned event
+  // is not something another activity falls back TO. The `activities` prop stays
+  // whole (the caller needs it for id->name resolution); only this list narrows.
+  const otherActivities = filterFreeChoiceActivities(activities).filter(a => a.id !== activity?.id)
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: '24px 16px', overflowY: 'auto' }}>
@@ -564,6 +568,17 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         localClient.listImportEvidence(),
       ])
       setProvenance(provenanceData || { evidence: [], fieldSources: {} })
+      // T266 — NOT filtered here, deliberately, and this is a correction worth
+      // recording. Filtering the whole `activities` state at load looks tidier
+      // and is wrong: this screen's own CSV importer dedupes against
+      // `existingNames`, and its weather-alternative resolution uses `actMap`,
+      // both derived from this state. Hiding the pinned-event rows from THOSE
+      // would let the importer create a SECOND row with a name an anchor already
+      // resolves by — two rows for one real thing, which is the exact corruption
+      // this ticket exists to avoid, reached through a different door. The
+      // exclusion is applied at the two readers that are genuinely free-choice
+      // menus instead (the priority lists below, which feed the rendered
+      // catalogue and ActivityModal's picker).
       const list = (aData || [])
         .filter(a => a.camp_id === campId)
         .map(normalizeActivity)
@@ -1105,8 +1120,12 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     }
   }
 
-  const highPriority = activities.filter(a => a.priority === 'high')
-  const lowPriority = activities.filter(a => a.priority === 'low')
+  // T266 (site 4 of 7) — the free-choice catalogue the director browses and
+  // picks from. `activities` itself stays whole above, so the CSV importer's
+  // dedupe and every id->name lookup still see every row.
+  const catalogActivities = filterFreeChoiceActivities(activities)
+  const highPriority = catalogActivities.filter(a => a.priority === 'high')
+  const lowPriority = catalogActivities.filter(a => a.priority === 'low')
   const readyRows = importRows.filter(r => r.name && !r.warning)
   const warnRows = importRows.filter(r => r.warning || !r.name)
   const actMap = Object.fromEntries(activities.map(a => [a.id, a.name]))
@@ -1122,12 +1141,12 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           weeks={weeks}
           onSelectWeek={onSelectWeek}
           exclusionCount={excludedActivityIds.size}
-          totalCount={activities.length}
+          totalCount={catalogActivities.length}
           entityLabel="activities"
         />
       )}
       <SetupScreenShell
-        countLabel={`${activities.length} activit${activities.length !== 1 ? 'ies' : 'y'}`}
+        countLabel={`${catalogActivities.length} activit${catalogActivities.length !== 1 ? 'ies' : 'y'}`}
         role={role}
         actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
         fileInputRef={fileRef}
@@ -1143,7 +1162,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
 
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
-      ) : activities.length === 0 ? (
+      ) : catalogActivities.length === 0 ? (
         // padding 40px 24px intentional — wider horizontal padding than other empty states
         <div style={{ ...S.emptyState, padding: '40px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
           <div style={emptyEnter}>

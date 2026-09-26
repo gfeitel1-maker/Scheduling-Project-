@@ -30,7 +30,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // ten name-UNIQUE constraints so a merged document's colliding records both project), and v74
 // (T243, elective run lifecycle: finalized_at/finalized_by + elective_run_outer_snapshots) all
 // land in this file; 74 is the current version.
-export const CURRENT_SCHEMA_VERSION = 74
+export const CURRENT_SCHEMA_VERSION = 75
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3305,6 +3305,39 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (74, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v75 (T266, docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md) — one
+  // additive, nullable column: activities.catalog_role. NULL = an ordinary free-choice activity;
+  // 'pinned_event' = ingest pass 1 (fixed) or pass 2 (recurring) already claimed this name, so it
+  // is excluded from pass 3 and from every free-choice menu while the ROW ITSELF REMAINS, because
+  // anchors resolve their activity by name and deleting the row would silently switch the
+  // don't-schedule-twice suppression off (see the column comment in schema.sql).
+  //
+  // No backfill. Every existing row stays NULL, which is the correct reading of "we have never
+  // classified this one" — a pre-v75 database cannot distinguish a free choice from a leaked event
+  // without re-running the inference, and CONSTITUTION Art. V forbids a migration silently deciding
+  // that for a director who never saw it. The next import classifies them.
+  //
+  // Guard is `>= 74 && < 75`, the `>= N-1 && < N` form every block from v49 onward uses (see the
+  // bug #194 note at the v49 block). The LOWER bound is the one doing the safety work: a bare
+  // `< 75` would let this block fire from any earlier version, stamp 75, and push MAX() past an
+  // unstamped predecessor so that predecessor's own work never retries. The UPPER bound stays
+  // tight for the complementary reason — `< 76` would re-fire this block on a database ALREADY at
+  // 75, re-running a migration that has applied. Harmless for an ALTER guarded by a column-presence
+  // check like this one; not harmless for the several blocks above that do full table rebuilds, and
+  // not a convention worth being the single exception to.
+  if (getSchemaVersion(db) >= 74 && getSchemaVersion(db) < 75) {
+    db.transaction(() => {
+      const cols = db.pragma('table_info(activities)').map((c) => c.name)
+      if (!cols.includes('catalog_role')) {
+        db.exec('ALTER TABLE activities ADD COLUMN catalog_role TEXT')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (75, ?)').run(
       new Date().toISOString()
     )
   }
