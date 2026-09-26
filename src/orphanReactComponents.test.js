@@ -28,12 +28,45 @@ const SRC_DIR = path.join(__dirname)
 // owner-acknowledged one belongs here.
 const KNOWN_ORPHANS = new Set([])
 
+// This guard walks a LIVE directory, and another test writes into it:
+// eslint.supabase-ban.test.js plants `src/__supabase_ban_probe.js` to prove the
+// Supabase import ban actually fires, then removes it in its own afterEach. In a
+// different worker that delete can land between our readdirSync and our read, so
+// both the stat and the read below must tolerate a file that has vanished.
+//
+// Observed as `ENOENT ... src/__supabase_ban_probe.js` at the read site, on 2 of 2
+// CI runs of one branch (2026-09-26) — a red naming a path that does not exist in
+// the repo, which is maximally confusing on first encounter.
+//
+// Skipping a vanished file cannot weaken this guard: a file that is not on disk
+// when we look is not a component this repo ships, and it cannot be the importer
+// that rescues a real orphan either. What WOULD weaken the guard is swallowing a
+// read error generally, so both helpers rethrow anything that is not ENOENT.
+function statIfPresent(full) {
+  try {
+    return statSync(full)
+  } catch (err) {
+    if (err.code === 'ENOENT') return null
+    throw err
+  }
+}
+
+function readIfPresent(file) {
+  try {
+    return readFileSync(file, 'utf8')
+  } catch (err) {
+    if (err.code === 'ENOENT') return null
+    throw err
+  }
+}
+
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
     const rel = path.relative(SRC_DIR, full)
     if (rel.split(path.sep).some((p) => p.startsWith('.'))) continue
-    const st = statSync(full)
+    const st = statIfPresent(full)
+    if (!st) continue
     if (st.isDirectory()) walk(full, out)
     else out.push(full)
   }
@@ -62,7 +95,8 @@ describe('no orphaned React component files (guard, see header comment)', () => 
     for (const file of candidates) {
       const repoRel = path.relative(path.join(SRC_DIR, '..'), file).split(path.sep).join('/')
       if (KNOWN_ORPHANS.has(repoRel)) continue
-      const source = readFileSync(file, 'utf8')
+      const source = readIfPresent(file)
+      if (source === null) continue // vanished between walk and read — see header
       const exportName = defaultExportName(source)
       if (!exportName) continue // not a default-exporting component; out of scope for this guard
 
@@ -71,7 +105,8 @@ describe('no orphaned React component files (guard, see header comment)', () => 
 
       const hasImporter = sourceFiles.some((other) => {
         if (other === file) return false
-        const otherSource = readFileSync(other, 'utf8')
+        const otherSource = readIfPresent(other)
+        if (otherSource === null) return false // vanished between walk and read
         return importPattern.test(otherSource)
       })
 
