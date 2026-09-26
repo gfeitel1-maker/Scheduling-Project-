@@ -148,3 +148,27 @@ This ticket is now downstream of the per-cell preference model
 The cascade "to their next available ranked choice" is only well-defined once a preference names the
 cell it applies to — under the withdrawn global model a camper has one ranked list for the whole
 week and "next choice in THIS period" cannot be read from it. Do not build the cascade first.
+
+---
+
+## The v78 migration is destructive by design, and its safety expires
+
+Recorded here as well as in the code (`electron/db/localDb.js`, above the v78 block) because this is
+the kind of condition that reads as settled once it is green and becomes false without anything in
+the code changing.
+
+The v78 migration **DROPs `elective_preferences` and recreates it.** `occurrence_id` is `NOT NULL`,
+no valid default exists, and inventing one was forbidden — so every existing row is discarded. The
+count is logged, never swallowed.
+
+**That is acceptable for exactly one reason: there is no live camp data.** Not because the migration
+is gentle, not because it is guarded, and not because the gate is green. The day a real camp's
+database reaches this code, it destroys a director's collected preference forms.
+
+**The question this migration dodges, which a data-preserving replacement must answer:** what
+occurrence does an existing global-format preference belong to? Nothing in the row can say. That is
+why no backfill was attempted rather than attempted badly — and it is the same fact that motivated
+the whole per-cell change.
+
+**Before real data exists anywhere, this must be replaced.** Inherit the condition, not the
+conclusion.

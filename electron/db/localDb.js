@@ -3645,6 +3645,33 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // busywork: it is what re-closes that hole. `electivePreferencesOccurrence.migration.test.js`
   // carries a mechanical tripwire that fails as soon as a v75/v76/v77 rollback module exists in
   // this tree, so the rebase cannot silently forget to narrow this guard to `>= 77 && < 78`.
+  // THIS MIGRATION IS DESTRUCTIVE BY DESIGN, AND ITS SAFETY EXPIRES.
+  // It DROPs elective_preferences and recreates it — occurrence_id is NOT NULL,
+  // no valid default exists, and inventing one was forbidden, so every existing
+  // row is discarded (the count is logged below, never swallowed). That is
+  // acceptable for exactly ONE reason: there is no live camp data. It is NOT
+  // acceptable because the migration is gentle, because it is guarded, or
+  // because it is green. The day a real camp's database reaches this code, this
+  // block destroys a director's collected preference forms.
+  //
+  // Inherit the CONDITION, not the conclusion. Before this ships anywhere with
+  // real data, it must be replaced by a migration that preserves rows — which
+  // means answering the question this one dodges: what occurrence does an
+  // existing global-format preference belong to? There is no answer derivable
+  // from the row itself, which is why it was not attempted here.
+  //
+  // Re-application is impossible rather than merely unlikely, and the UPPER
+  // bound is what makes that true: a database already at 78 fails `< 78` and
+  // never re-enters. A wide LOWER bound cannot cause a re-apply. The lower
+  // bound is wide (74, not 77) only because v75-77 do not exist on this branch
+  // yet, so `>= 77` would never fire and the column would be silently missing —
+  // a worse failure than the one it trades against. That deviation from the
+  // house `>= N-1 && < N` form (localDb.js:3089) EXPIRES: see the tripwire in
+  // electron/db/electivePreferencesOccurrence.migration.test.js, which fails
+  // once v75-77 land and names this line. The tripwire was verified non-vacuous
+  // by planting a rollback file and observing it go red — but it detects a
+  // landed version by rollback-file PRESENCE, which is a proxy, and v72 shipped
+  // with no rollback module at all. Confirm v77 by version number, not by file.
   if (getSchemaVersion(db) >= 74 && getSchemaVersion(db) < 78) {
     db.transaction(() => {
       const discarded = tableExists('elective_preferences')
