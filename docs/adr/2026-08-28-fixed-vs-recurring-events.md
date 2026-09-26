@@ -2,7 +2,7 @@
 title: "Fixed vs Recurring events: un-conflating anchor_activities (WS2 of the lifecycle-IA program)"
 document_type: adr
 authority: normative
-status: proposed
+status: superseded
 date: 2026-08-28
 supersedes: []
 governing_docs:
@@ -28,6 +28,8 @@ affects:
 ---
 
 # Fixed vs Recurring events: un-conflating anchor_activities
+
+> **SUPERSEDED 2026-09-26 by [`docs/adr/2026-09-26-fixed-recurring-event-identity-model.md`](2026-09-26-fixed-recurring-event-identity-model.md) (accepted).** This ADR proposed **un-conflating `anchor_activities` into two scope-keyed ENTITIES** (Fixed = all-camp, Recurring = group-scoped). T267 decided the opposite and shipped it (PR #560, schema v77): **one table** — `anchor_activities` renamed to `fixed_events`, with the fixed/recurring distinction kept as the existing `kind` column, not as a table split. T267 also gives the row a real `activity_id` (the identity fix this ADR did not address). The entity-split proposed here was considered and **rejected** as disproportionate; recorded so a reader does not build on it. This file is retained for that rationale, not as current instruction.
 
 **DRAFT — for owner approval. No code authorized by this document.**
 

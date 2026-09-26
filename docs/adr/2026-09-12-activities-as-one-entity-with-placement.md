@@ -2,7 +2,7 @@
 title: "Activities as one entity with a placement axis: retiring the fixed/recurring entity split"
 document_type: adr
 authority: normative
-status: proposed
+status: superseded
 date: 2026-09-12
 supersedes: []
 refines: [docs/adr/2026-08-28-fixed-vs-recurring-events.md]
@@ -12,6 +12,8 @@ affects: [electron/db/schema.sql, electron/db/localDb.js, electron/ops/projectio
 ---
 
 # Activities as one entity with a placement axis
+
+> **SUPERSEDED 2026-09-26 by [`docs/adr/2026-09-26-fixed-recurring-event-identity-model.md`](2026-09-26-fixed-recurring-event-identity-model.md) (accepted).** This ADR proposed keeping the name `anchor_activities` and treating fixed/recurring/general as a **classification COMPUTED at render time from coverage**. T267 decided and shipped the opposite (PR #560, schema v77): the table is **renamed to `fixed_events`** and the distinction stays a **STORED `kind` column** (derived-at-render kind was explicitly rejected as contradicting the shipped `kind` CHECK constraint). The one durable idea here — giving the placement row a real `activity_id` foreign key — was **carried forward** by T267; the computed-classification and keep-the-name proposals were **rejected**. Retained for that rationale, not as current instruction.
 
 **DRAFT — for owner approval. No code authorized by this document.**
 
