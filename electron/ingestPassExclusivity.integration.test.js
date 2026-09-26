@@ -101,8 +101,11 @@ afterEach(() => {
 
 // Schema tripwire. A sibling migration lands and silently renumbers, and every
 // assertion below still passes while the column it depends on is gone.
-it('is written against schema v76', () => {
-  expect(CURRENT_SCHEMA_VERSION).toBe(77)
+// NAME/ASSERTION MISMATCH INHERITED FROM MAIN: this was titled "v76" while asserting 77. A
+// tripwire whose name and assertion disagree tells a future reader the wrong thing about when it
+// was last looked at — the whole point of pinning the literal. Both now say 78.
+it('is written against schema v78', () => {
+  expect(CURRENT_SCHEMA_VERSION).toBe(78)
 })
 
 // ── The real ingest path, run once per test ────────────────────────────────

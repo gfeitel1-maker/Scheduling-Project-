@@ -35,7 +35,11 @@ describe('rollbackV78', () => {
     expect(result.ok).toBe(true)
     expect(result.discarded.preferences).toBe(1)
     expect(db.pragma('table_info(elective_preferences)').map((c) => c.name)).not.toContain('occurrence_id')
-    expect(db.prepare('SELECT MAX(version) v FROM schema_migrations').get().v).toBe(74)
+    // 77, not 74. v78_down deletes `WHERE version >= 78`, so the database lands on its
+    // immediate predecessor. This expectation said 74 because it was written when v75-v77 did
+    // not exist on this branch; it is the same stale-predecessor assumption the v78 guard's
+    // tripwire made. Rolling v78 back must leave a db at the highest LANDED predecessor.
+    expect(db.prepare('SELECT MAX(version) v FROM schema_migrations').get().v).toBe(77)
     db.close()
   })
 
