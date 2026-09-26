@@ -3499,8 +3499,13 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         // exact trap docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md names.
         // A deterministic PK sidesteps it entirely: no schema change, and fresh vs migrated agree by
         // construction because both paths compute the same id for the same fixed_event_id.
+        // `kind` (Red Hat + owner, round 4): 'no_match' (candidate_count === 0) is the correct,
+        // permanent state for an event with no catalog activity — expected to be the common case,
+        // never a queue item. 'ambiguous' (candidate_count >= 2) is a genuine naming collision
+        // needing a human decision — expected to be rare, per this camp's own fixed/recurring/
+        // activity classification rules. See schema.sql's table comment for the full reasoning.
         const insertGap = db.prepare(
-          'INSERT OR IGNORE INTO fixed_event_identity_gaps (id, camp_id, fixed_event_id, name, candidate_count, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+          'INSERT OR IGNORE INTO fixed_event_identity_gaps (id, camp_id, fixed_event_id, name, candidate_count, created_at, kind) VALUES (?, ?, ?, ?, ?, ?, ?)'
         )
         const setActivityId = db.prepare('UPDATE fixed_events SET activity_id = ? WHERE id = ?')
         const activitiesByCamp = new Map()
@@ -3520,7 +3525,8 @@ const DEVICE_HEALTH_EVENTS_DDL = `
             setActivityId.run(candidates[0].id, row.id)
             backfilledCount += 1
           } else {
-            insertGap.run(`gap:${row.id}`, row.camp_id, row.id, row.name, candidates.length, now)
+            const kind = candidates.length === 0 ? 'no_match' : 'ambiguous'
+            insertGap.run(`gap:${row.id}`, row.camp_id, row.id, row.name, candidates.length, now, kind)
             gapCount += 1
           }
         }
@@ -3532,9 +3538,21 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         // this backfill sets it by direct SQL, outside the document, so on a document-bearing camp
         // that value would never reach the document and the next projectAll/merge would silently
         // discard it camp-wide — the exact T62 failure class this ticket exists to close, restored
-        // silently if this marker is skipped. Written only when the backfill actually did something
-        // (rows.length > 0), matching v70's `losers.length > 0` condition — a fresh install with no
-        // legacy fixed_events rows changes no domain state and needs no marker.
+        // silently if this marker is skipped.
+        //
+        // Written only when the backfill actually WROTE an activity_id (backfilledCount > 0), not
+        // merely when there were rows to consider (rows.length > 0, which was this block's original,
+        // over-broad condition — Red Hat round 4). `rows` is queried once, before the loop, so its
+        // length means "rows that needed a decision," not "rows whose modeled field actually
+        // changed." A camp whose fixed events ALL land in fixed_event_identity_gaps (0 or 2+
+        // candidates for every row) ends with activity_id NULL on every row — the same value the
+        // column already had — so nothing modeled diverged from the document, and arming the marker
+        // there would strand that camp's sync permanently for a divergence that never happened.
+        // `fixed_event_identity_gaps` rows are NOT a divergence needing this marker either: the
+        // table is SQLite-only, never modeled (not in PROJECTIONS/MODELED_ENTITIES) and carries no
+        // sync/IPC surface, so it cannot disagree with a document that has never heard of it. A camp
+        // with SOME backfilled rows and SOME gaps still arms — correctly — because the backfilled
+        // rows ARE a real divergence regardless of how many other rows landed in gaps.
         //
         // `detail` is DELIBERATELY NOT the `{note, losers}` JSON shape resolvePendingDomainStateMigrations
         // parses: that resolver treats a parseable payload with no (or an empty) `losers` array as
@@ -3543,9 +3561,27 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         // is no losers-shaped remediation for a field backfill (no entity to tombstone), and no
         // auto-repair mechanism exists yet for it (that is PR 2+ work), so this marker must fail
         // resolvePendingDomainStateMigrations's JSON.parse and fall into its documented "left
-        // UNRESOLVED forever... never guessed at" branch — a human/future-ticket resolution path,
-        // exactly what that function's own comment prescribes for a marker shaped like this one.
-        if (rows.length > 0) {
+        // UNRESOLVED forever... never guessed at" branch.
+        //
+        // WHAT THAT MEANS IN PRACTICE, stated plainly rather than as a euphemism: a camp that arms
+        // this marker refuses sync FOREVER, until a future ticket builds a real resolution path —
+        // there is no in-app way to clear it today. The only existing mechanism is
+        // `node electron/db/rollback/v77_down.js <db>`, and that is not a repair, it is an UNDO of
+        // the entire rename and backfill. On a paired camp it leaves that one device below v77 while
+        // its peers still declare it — the same unrepairable-version-skew hazard the `>= N` rollback
+        // convention (see this file's own comments on it) exists to prevent, recreated at fleet
+        // level instead of at the schema_migrations row level. It is therefore not a safe escape
+        // hatch, and this migration does not attempt to provide one; that is an owner decision, not
+        // implemented here.
+        //
+        // AND THIS IS NOT A RARE PATH: the marker arms exactly when matching SUCCEEDS
+        // (backfilledCount > 0), not when data is messy — ambiguous and unmatched rows go to gaps
+        // and arm nothing. Any real camp with at least one fixed/recurring event whose name matches
+        // an ordinary catalog activity (a swim block, an art block) backfills that row and arms this
+        // marker. That is most camps, not an edge case reached by bad data — the migration doing its
+        // job correctly is what triggers the refusal. PR 2's resolution path is therefore not
+        // deferrable busywork; it is what most upgraded camps will need before they can sync again.
+        if (backfilledCount > 0) {
           db.prepare(
             `INSERT OR IGNORE INTO domain_state_migration_pending (version, detail, created_at)
              VALUES (77, ?, ?)`

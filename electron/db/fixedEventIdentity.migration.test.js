@@ -96,7 +96,7 @@ describe('migration v77: fresh vs migrated equivalence', () => {
   it('a fresh install has fixed_event_identity_gaps with the declared columns', () => {
     const db = freshDb()
     expect(db.pragma('table_info(fixed_event_identity_gaps)').map((c) => c.name)).toEqual([
-      'id', 'camp_id', 'fixed_event_id', 'name', 'candidate_count', 'created_at',
+      'id', 'camp_id', 'fixed_event_id', 'name', 'candidate_count', 'created_at', 'kind',
     ])
     db.close()
   })
@@ -156,6 +156,7 @@ describe('migration v77: backfill resolves fixed_events.activity_id by name-matc
     const gap = db.prepare('SELECT * FROM fixed_event_identity_gaps WHERE fixed_event_id = ?').get('a-zero')
     expect(gap).toBeTruthy()
     expect(gap.candidate_count).toBe(0)
+    expect(gap.kind).toBe('no_match')
     expect(gap.name).toBe('Mifkad')
     expect(gap.camp_id).toBe('camp1')
     db.close()
@@ -175,6 +176,7 @@ describe('migration v77: backfill resolves fixed_events.activity_id by name-matc
     const gap = db.prepare('SELECT * FROM fixed_event_identity_gaps WHERE fixed_event_id = ?').get('a-two')
     expect(gap).toBeTruthy()
     expect(gap.candidate_count).toBe(2)
+    expect(gap.kind).toBe('ambiguous')
     db.close()
   })
 
@@ -194,10 +196,10 @@ describe('migration v77: backfill resolves fixed_events.activity_id by name-matc
     expect(byId('a-one').activity_id).toBe('act-swim')
     expect(byId('a-zero').activity_id).toBeNull()
     expect(byId('a-two').activity_id).toBeNull()
-    const gaps = db.prepare('SELECT fixed_event_id, candidate_count FROM fixed_event_identity_gaps ORDER BY fixed_event_id').all()
+    const gaps = db.prepare('SELECT fixed_event_id, candidate_count, kind FROM fixed_event_identity_gaps ORDER BY fixed_event_id').all()
     expect(gaps).toEqual([
-      { fixed_event_id: 'a-two', candidate_count: 2 },
-      { fixed_event_id: 'a-zero', candidate_count: 0 },
+      { fixed_event_id: 'a-two', candidate_count: 2, kind: 'ambiguous' },
+      { fixed_event_id: 'a-zero', candidate_count: 0, kind: 'no_match' },
     ])
     db.close()
   })
@@ -215,7 +217,9 @@ describe('migration v77: backfill resolves fixed_events.activity_id by name-matc
     // is camp-scoped, not a global name index (this app is one-camp-per-device in practice, but the
     // migration must not silently cross-link camps if that invariant is ever relaxed).
     expect(db.prepare('SELECT activity_id FROM fixed_events WHERE id = ?').get('a-one').activity_id).toBeNull()
-    expect(db.prepare('SELECT candidate_count FROM fixed_event_identity_gaps WHERE fixed_event_id = ?').get('a-one').candidate_count).toBe(0)
+    const scopedGap = db.prepare('SELECT candidate_count, kind FROM fixed_event_identity_gaps WHERE fixed_event_id = ?').get('a-one')
+    expect(scopedGap.candidate_count).toBe(0)
+    expect(scopedGap.kind).toBe('no_match')
     db.close()
   })
 })
@@ -269,9 +273,11 @@ describe('migration v77: domain-state marker survives a restart (Red Hat HIGH fi
   it('leaves an unresolved marker that keeps shouldRefuseSyncForDomainMigration true on a simulated restart', () => {
     const db = preV77Db()
     seedCamp(db)
-    // Zero candidates — guarantees rows.length > 0 in the migration's backfill loop, which is the
-    // condition the marker write is gated on.
-    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-zero', 'camp1', 'Mifkad')").run()
+    // A real one-candidate match — the marker is gated on backfilledCount > 0 (Red Hat round 4: a
+    // camp where every row lands in a gap changes nothing modeled and must not arm the marker), so
+    // this test needs an actual backfill, not just a row to consider.
+    db.prepare("INSERT INTO activities (id, camp_id, name) VALUES ('act-swim', 'camp1', 'Swim')").run()
+    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-one', 'camp1', 'Swim')").run()
 
     initSchema(db) // runs v77
 
@@ -325,7 +331,9 @@ describe('migration v77: domain-state marker survives a restart (Red Hat HIGH fi
   it('TRIPWIRE: the v77 marker detail must stay non-JSON, or resolvePendingDomainStateMigrations will silently auto-clear it', () => {
     const db = preV77Db()
     seedCamp(db)
-    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-zero', 'camp1', 'Mifkad')").run()
+    // A real one-candidate match — the marker is gated on backfilledCount > 0 (Red Hat round 4).
+    db.prepare("INSERT INTO activities (id, camp_id, name) VALUES ('act-swim', 'camp1', 'Swim')").run()
+    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-one', 'camp1', 'Swim')").run()
     initSchema(db) // runs v77, writes the marker
 
     const marker = db.prepare('SELECT detail FROM domain_state_migration_pending WHERE version = 77').get()
@@ -372,6 +380,52 @@ describe('migration v77: domain-state marker survives a restart (Red Hat HIGH fi
     expect(marker).toBeUndefined()
     db.close()
   })
+
+  // Red Hat round 4: `rows` (the WHERE activity_id IS NULL query, taken BEFORE the backfill loop)
+  // means "rows that needed a decision," not "rows whose modeled field actually changed." A camp
+  // whose fixed events ALL land in fixed_event_identity_gaps ends with activity_id NULL on every
+  // row — the value the column already had — so nothing modeled diverged from the document. Arming
+  // the marker there would strand that camp's sync permanently for a divergence that never
+  // happened, with no in-app way to clear it (the only mechanism, v77_down.js, desyncs schema
+  // versions across a paired fleet). `rows.length > 0` was the original (over-broad) condition;
+  // this test pins the honest one, `backfilledCount > 0`.
+  it('writes no marker when every fixed_events row lands in a gap — nothing modeled diverged', () => {
+    const db = preV77Db()
+    seedCamp(db)
+    // Zero candidates (no matching activity at all).
+    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-zero', 'camp1', 'Mifkad')").run()
+    // Two candidates (ambiguous match).
+    db.prepare("INSERT INTO activities (id, camp_id, name) VALUES ('act-lunch-1', 'camp1', 'Lunch')").run()
+    db.prepare("INSERT INTO activities (id, camp_id, name) VALUES ('act-lunch-2', 'camp1', 'lunch')").run()
+    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-two', 'camp1', 'Lunch')").run()
+
+    initSchema(db) // runs v77 — rows.length is 2, but backfilledCount is 0
+
+    // Non-vacuity: confirm both rows really did land in gaps, not silently skipped.
+    expect(db.prepare('SELECT COUNT(*) c FROM fixed_event_identity_gaps').get().c).toBe(2)
+    expect(db.prepare('SELECT activity_id FROM fixed_events WHERE id = ?').get('a-zero').activity_id).toBeNull()
+    expect(db.prepare('SELECT activity_id FROM fixed_events WHERE id = ?').get('a-two').activity_id).toBeNull()
+
+    const marker = db.prepare('SELECT * FROM domain_state_migration_pending WHERE version = 77').get()
+    expect(marker).toBeUndefined()
+    db.close()
+  })
+
+  it('still arms the marker when SOME rows backfill and SOME land in a gap', () => {
+    const db = preV77Db()
+    seedCamp(db)
+    db.prepare("INSERT INTO activities (id, camp_id, name) VALUES ('act-swim', 'camp1', 'Swim')").run()
+    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-one', 'camp1', 'Swim')").run()
+    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-zero', 'camp1', 'Mifkad')").run()
+
+    initSchema(db)
+
+    expect(db.prepare('SELECT activity_id FROM fixed_events WHERE id = ?').get('a-one').activity_id).toBe('act-swim')
+    const marker = db.prepare('SELECT * FROM domain_state_migration_pending WHERE version = 77').get()
+    expect(marker).toBeTruthy()
+    expect(marker.resolved_at).toBeNull()
+    db.close()
+  })
 })
 
 describe('migration v77: interrupted-migration idempotence (Red Hat MEDIUM finding)', () => {
@@ -388,12 +442,17 @@ describe('migration v77: interrupted-migration idempotence (Red Hat MEDIUM findi
   // and-restart integration test (it cannot prove nothing ELSE about process-death timing matters,
   // e.g. WAL/journal recovery), but it does exercise the real re-fire path against the real
   // post-crash row shape, not a hand-simulated call to the backfill loop in isolation.
-  it('does not duplicate a fixed_event_identity_gaps row when the migration re-fires after a crash between the transaction commit and the version stamp', () => {
+  it('does not duplicate a fixed_event_identity_gaps row or the domain-state marker when the migration re-fires after a crash between the transaction commit and the version stamp', () => {
     const db = preV77Db()
     seedCamp(db)
     // Zero-candidate row (Mifkad) exercises the gap-insert path; this is the row that would
     // duplicate without the deterministic-id fix.
     db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-zero', 'camp1', 'Mifkad')").run()
+    // A real one-candidate row too, so the marker actually arms (backfilledCount > 0) — the crash
+    // this test reconstructs must match a genuinely committed transaction, and a transaction that
+    // only produced gap rows would not have armed the marker at all (round 4's other fix).
+    db.prepare("INSERT INTO activities (id, camp_id, name) VALUES ('act-swim', 'camp1', 'Swim')").run()
+    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-one', 'camp1', 'Swim')").run()
 
     // Reconstruct the post-crash state by hand: run the same rename + activity_id + backfill work
     // the v77 transaction does, using the SAME SQL the real migration uses, then stop — deliberately
@@ -401,6 +460,7 @@ describe('migration v77: interrupted-migration idempotence (Red Hat MEDIUM findi
     // committed but before the stamp ran.
     db.exec('ALTER TABLE anchor_activities RENAME TO fixed_events')
     db.exec('ALTER TABLE fixed_events ADD COLUMN activity_id TEXT')
+    db.prepare("UPDATE fixed_events SET activity_id = 'act-swim' WHERE id = 'a-one'").run()
     // rollbackV77 (used by preV77Db) DROPs fixed_event_identity_gaps entirely, so it must be
     // recreated here — schema.sql's own shape — before the hand-reconstructed gap row can be
     // inserted, matching what schema.sql's CREATE TABLE IF NOT EXISTS would have done at the top
@@ -412,15 +472,36 @@ describe('migration v77: interrupted-migration idempotence (Red Hat MEDIUM findi
         fixed_event_id TEXT NOT NULL,
         name TEXT,
         candidate_count INTEGER NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('no_match', 'ambiguous'))
       )
     `)
     db.prepare(
-      "INSERT OR IGNORE INTO fixed_event_identity_gaps (id, camp_id, fixed_event_id, name, candidate_count, created_at) VALUES ('gap:a-zero', 'camp1', 'a-zero', 'Mifkad', 0, ?)"
+      "INSERT OR IGNORE INTO fixed_event_identity_gaps (id, camp_id, fixed_event_id, name, candidate_count, created_at, kind) VALUES ('gap:a-zero', 'camp1', 'a-zero', 'Mifkad', 0, ?, 'no_match')"
     ).run(new Date().toISOString())
+    // The domain_state_migration_pending INSERT is the LAST statement INSIDE the same
+    // db.transaction() as the rename/backfill work above (electron/db/localDb.js) — a transaction
+    // that fully committed would have committed this row too. Hand-inserting it here is what makes
+    // this reconstruction match a genuine crash rather than only exercising the gap-row half of the
+    // idempotency fix (Red Hat round 4: the crash test previously never armed the marker at all).
+    const originalDetail = 'fixed_events.activity_id backfill resolved 1 row(s) and recorded 1 identity gap(s) in fixed_event_identity_gaps — not auto-resolvable (no document-routed remediation exists yet; PR 2+ work)'
+    db.prepare(
+      `INSERT OR IGNORE INTO domain_state_migration_pending (version, detail, created_at)
+       VALUES (77, ?, ?)`
+    ).run(originalDetail, new Date().toISOString())
     // schema_migrations is deliberately NOT stamped — getSchemaVersion(db) still reports < 77.
     expect(getSchemaVersion(db)).toBeLessThan(77)
     expect(db.prepare('SELECT COUNT(*) c FROM fixed_event_identity_gaps').get().c).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM domain_state_migration_pending WHERE version = 77').get().c).toBe(1)
+
+    // Between the crash and the relaunch, a sync from another device adds a catalog activity named
+    // "Mifkad" — the exact real-world case that turns 'a-zero' from a zero-candidate gap into a
+    // one-candidate match. This is what makes the marker-insert code path (backfilledCount > 0)
+    // actually execute AGAIN on retry: without this, retry would find backfilledCount === 0 (the
+    // only unresolved row, 'a-one', is already resolved from the reconstructed commit) and never
+    // attempt the marker write a second time, leaving domain_state_migration_pending's own
+    // INSERT OR IGNORE untested — the exact gap Red Hat round 4 found in the original crash test.
+    db.prepare("INSERT INTO activities (id, camp_id, name) VALUES ('act-mifkad', 'camp1', 'Mifkad')").run()
 
     // The "relaunch": the real migration block re-fires because the guard's lower bound (`>= 76`)
     // is still satisfied and the upper bound (`< 77`) still is too — this IS the re-fire this
@@ -428,11 +509,23 @@ describe('migration v77: interrupted-migration idempotence (Red Hat MEDIUM findi
     initSchema(db)
 
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    // Still exactly one gap row for this fixed_event_id — INSERT OR IGNORE against the deterministic
-    // `gap:<fixed_event_id>` id collided with the row already there instead of minting a second one.
+    // 'a-zero' now resolves to the newly-visible 'act-mifkad' and is backfilled on retry — its
+    // ORIGINAL gap row from the reconstructed crash is not deleted (this migration never revisits or
+    // cleans up a previously-recorded gap), so exactly one stale gap row remains, unchanged.
     const gapRows = db.prepare('SELECT * FROM fixed_event_identity_gaps WHERE fixed_event_id = ?').all('a-zero')
     expect(gapRows).toHaveLength(1)
     expect(gapRows[0].id).toBe('gap:a-zero')
+    expect(db.prepare('SELECT activity_id FROM fixed_events WHERE id = ?').get('a-zero').activity_id).toBe('act-mifkad')
+    // The retry's backfill (a-zero -> act-mifkad) makes backfilledCount > 0 AGAIN, so the
+    // marker-insert code path actually executes a second time — this is the genuine INSERT OR
+    // IGNORE collision Red Hat round 4 found untested: the original crash test never re-armed the
+    // marker-write path at all, so a regression here (e.g. an `ON CONFLICT DO UPDATE` swapped in for
+    // `OR IGNORE`, or `INSERT` without `OR IGNORE`) would not have been caught. Still exactly one row
+    // for version 77, and its `detail` is the ORIGINAL text from the reconstructed crash, not a
+    // second insert's different counts (1 row, 0 gaps this time) — proving OR IGNORE actually fired.
+    const markerRows = db.prepare('SELECT * FROM domain_state_migration_pending WHERE version = 77').all()
+    expect(markerRows).toHaveLength(1)
+    expect(markerRows[0].detail).toBe(originalDetail)
     db.close()
   })
 })

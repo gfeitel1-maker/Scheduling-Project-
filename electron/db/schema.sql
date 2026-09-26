@@ -813,19 +813,32 @@ CREATE TABLE IF NOT EXISTS fixed_events (
 
 -- T267 (docs/adr/2026-09-26-fixed-recurring-event-identity-model.md): a
 -- SQLite-only, non-synced worklist for `fixed_events` rows the migration's
--- name-match backfill could not resolve to exactly one `activities` row
--- (zero candidates, or two-or-more). A human resolves these post-migration;
--- surfaced on the Roots/Setup screen using the existing flag vocabulary, no
--- new banner (repo's standing "no banners" rule). Deliberately absent from
--- PROJECTIONS/MODELED_ENTITIES: it is a local migration-time worklist, not
--- camp data two devices need to agree on.
+-- name-match backfill could not resolve to exactly one `activities` row.
+-- Deliberately absent from PROJECTIONS/MODELED_ENTITIES: it is a local
+-- migration-time worklist, not camp data two devices need to agree on.
+--
+-- `kind` distinguishes two rows that share a table but not a remedy, or a
+-- severity (Red Hat + owner, round 4): `'no_match'` (candidate_count = 0) is
+-- a fixed/recurring event with NO matching catalog activity — Carpool,
+-- Flagpole, Dismissal, Mifkad. This is NOT a failure to resolve; it is the
+-- correct, permanent state for an event that legitimately has no activity,
+-- and is expected to be the common case. `'ambiguous'` (candidate_count >= 2)
+-- is a genuine naming collision that DOES need a human decision, and — per
+-- this camp's own fixed/recurring/activity rules — should be rare. Only
+-- `'ambiguous'` rows belong in a director-facing queue; a future PR must not
+-- surface `'no_match'` rows as something to fix, or it would be asking a
+-- director to "resolve" Carpool. `candidate_count` is kept alongside `kind`
+-- because it still carries useful magnitude for the ambiguous case (two
+-- candidates reads differently than five); `kind` carries the semantic that
+-- decides whether the row needs anyone's attention at all.
 CREATE TABLE IF NOT EXISTS fixed_event_identity_gaps (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   fixed_event_id TEXT NOT NULL,
   name TEXT,
   candidate_count INTEGER NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('no_match', 'ambiguous'))
 );
 
 -- A week is director-named text (e.g. "Week 1"), not a `template`/`slot`/
