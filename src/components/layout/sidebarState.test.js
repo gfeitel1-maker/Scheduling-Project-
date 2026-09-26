@@ -307,3 +307,69 @@ describe('syncStatusLabel — no second copy of the camp (T176)', () => {
     expect(syncStatusLabel({ state: 'host' }).text).not.toMatch(/only this computer/)
   })
 })
+
+describe('syncStatusLabel — a refused sync outranks every other label (T268)', () => {
+  // A refused sync (electron/db/migrationDomainState.js) means nothing is
+  // reaching any other computer at all — which subsumes unsharedWrites,
+  // lowDisk and otherDeviceCount, so it must win over each of them
+  // individually and over all of them at once. It must also never read as a
+  // healthy "connected" state.
+  it('outranks an unshared-write warning alone', () => {
+    const label = syncStatusLabel({ state: 'sync-blocked', syncBlocked: true, unsharedWrites: 3 })
+    expect(label.text).not.toMatch(/not shared/)
+    expect(label.tone).toBe('danger')
+  })
+
+  it('outranks a low-disk warning alone', () => {
+    const label = syncStatusLabel({ state: 'sync-blocked', syncBlocked: true, lowDisk: true })
+    expect(label.text).not.toBe('storage almost full')
+    expect(label.tone).toBe('danger')
+  })
+
+  it('outranks an otherDeviceCount warning alone', () => {
+    const label = syncStatusLabel({ state: 'sync-blocked', syncBlocked: true, otherDeviceCount: 0 })
+    expect(label.text).not.toMatch(/only this computer/)
+    expect(label.tone).toBe('danger')
+  })
+
+  it('outranks all three at once', () => {
+    const label = syncStatusLabel({
+      state: 'sync-blocked',
+      syncBlocked: true,
+      unsharedWrites: 5,
+      lowDisk: true,
+      otherDeviceCount: 0,
+    })
+    expect(label.text).not.toMatch(/not shared|storage almost full|only this computer/)
+    expect(label.tone).toBe('danger')
+  })
+
+  it('never reads as a healthy/connected state', () => {
+    const label = syncStatusLabel({ state: 'sync-blocked', syncBlocked: true })
+    // Plant the defect a narrower guard wouldn't catch: a naive fix might
+    // route 'sync-blocked' through SYNC_STATUS_COPY without a dedicated
+    // entry, silently falling back to the 'standalone'/'host' copy. Assert
+    // the actual text/tone rather than just "is not the host label".
+    expect(label.text).toBe('not syncing')
+    expect(label.tone).toBe('danger')
+  })
+})
+
+describe('syncStatusLabel — host-not-syncing renders distinctly from host (T268)', () => {
+  it('is a different label than a healthy host', () => {
+    const healthy = syncStatusLabel({ state: 'host' })
+    const notSyncing = syncStatusLabel({ state: 'host-not-syncing' })
+    expect(notSyncing.text).not.toBe(healthy.text)
+    expect(notSyncing.tone).toBe('danger')
+  })
+})
+
+describe('syncStatusLabel — unknown/absent state still falls back to standalone (T268 regression guard)', () => {
+  it('an unrecognized state string still falls back to the standalone copy', () => {
+    expect(syncStatusLabel({ state: 'not-a-real-state' })).toEqual(syncStatusLabel({ state: 'standalone' }))
+  })
+
+  it('an absent status object still falls back to the standalone copy', () => {
+    expect(syncStatusLabel(null)).toEqual(syncStatusLabel({ state: 'standalone' }))
+  })
+})

@@ -43,6 +43,7 @@
  * checked rather than trusted.
  */
 import { appendOp, DELETE_FIELD, DOCUMENT_OUTCOME } from '../ops/operations.js'
+import { migrationSpanFor } from './localDb.js'
 
 export const DOMAIN_STATE_MIGRATIONS = new Map([
   [11, 'cohort de-duplication re-points time_blocks.cohort_id and anchor_activities.cohort_id'],
@@ -314,4 +315,38 @@ export function resolvePendingDomainStateMigrations(db, { device_id = null } = {
   }
 
   return resolvedVersions
+}
+
+// T268: the startup guard (main.js's startAutomergeSyncNodeIfEnabled) and getSyncStatus() both need
+// to answer "is sync refused for a domain-state migration right now", and previously only the
+// startup guard assembled the three inputs (migrationSpanFor + unresolvedDomainStateMigrations +
+// shouldRefuseSyncForDomainMigration) plus the human-readable detail string. Duplicating that
+// assembly in getSyncStatus would let the two readings drift. One helper, two callers.
+//
+// Strictly read-only, unlike the startup guard: it must NEVER seed a document, call
+// resolvePendingDomainStateMigrations, or write anything — getSyncStatus's own contract insists on
+// this, and a status read that could change durable state would be a much larger change than it
+// looks. It only reads the already-resolved-or-not marker; whoever wants a marker resolved must go
+// through the startup guard's own resolve-before-decide path.
+//
+// `docExists` is passed in rather than computed here so this module never needs to know about
+// userDataPath/automergeDocPath — the caller already has that expression (main.js reuses the exact
+// one the startup guard uses, so there is exactly one notion of "a document exists").
+//
+// Returns `null` when sync is not refused, or `{ versions, detail }` when it is — the same shape the
+// startup guard's own audit/log detail string was already built from, byte-for-byte.
+export function syncRefusalForDomainMigration(db, { docExists }) {
+  const migrationSpan = migrationSpanFor(db)
+  const riskyThisLaunch = migrationSpan ? domainStateMigrationsIn(migrationSpan.from, migrationSpan.to) : []
+  const unresolvedMarkers = unresolvedDomainStateMigrations(db)
+
+  if (!shouldRefuseSyncForDomainMigration({ docExists, riskyThisLaunch, unresolvedMarkers })) return null
+
+  const versions = [...new Set([...riskyThisLaunch, ...unresolvedMarkers.map((m) => m.version)])].sort(
+    (a, b) => a - b
+  )
+  const detail = versions
+    .map((v) => `v${v} (${DOMAIN_STATE_MIGRATIONS.get(v) ?? unresolvedMarkers.find((m) => m.version === v)?.detail})`)
+    .join('; ')
+  return { versions, detail }
 }

@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { ENTITIES } from './auth/permissions.js'
 
@@ -2728,5 +2729,105 @@ describe('makeHandlers: getSecurityStatus (T249)', () => {
     expect(handler).toContain('isAtRestEncryptionEnabled()')
     expect(handler).not.toContain('process.env')
     expect(handler).not.toContain('SHORESH_AT_REST_ENCRYPTION')
+  })
+})
+
+// T268 — a refused sync (electron/db/migrationDomainState.js) must be visible
+// via getSyncStatus, not just logged/audited. Before this, a Host read
+// { mode: 'host', connected: true, state: 'host' } UNCONDITIONALLY, so a
+// director whose sync was refused for a domain-state migration saw a healthy
+// "main" label. isAutomergeEngine() defaults to true (no env override in this
+// test env — see electron/sync/automerge/syncEngineFlag.js), so these tests
+// exercise the real default engine, not a flagged-on special case.
+describe('getSyncStatus: a refused sync is visible for a Host, not just logged (T268)', () => {
+  function tmpUserDataPath() {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-t268-fixture-'))
+  }
+
+  // Fabricated bytes — getSyncStatus only checks the file's EXISTENCE, never
+  // its contents, so this never needs to be a real Automerge document.
+  function writeFakeAutomergeDoc(userDataPath, campId) {
+    const dir = path.join(userDataPath, 'automerge')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, `${campId}.automerge`), 'not-a-real-automerge-doc-fixture')
+  }
+
+  function insertPendingMarker(version, { resolved = false } = {}) {
+    db.prepare(
+      'INSERT INTO domain_state_migration_pending (version, detail, created_at, resolved_at) VALUES (?, ?, ?, ?)'
+    ).run(
+      version,
+      JSON.stringify({ note: 'T268 fabricated fixture marker', losers: [] }),
+      new Date().toISOString(),
+      resolved ? new Date().toISOString() : null
+    )
+  }
+
+  it('reports the blocked state for a Host when an unresolved marker exists and the document file is present', async () => {
+    const { campId } = await seedCampAndUser({ name: 'Fixture Director' })
+    const userDataPath = tmpUserDataPath()
+    writeFakeAutomergeDoc(userDataPath, campId)
+    insertPendingMarker(70)
+
+    const handlers = makeHandlers(db, deviceId, { userDataPath })
+    await handlers.chooseMode({ mode: 'host', campName: 'Fixture Camp' })
+
+    expect(handlers.getSyncStatus()).toMatchObject({
+      state: 'sync-blocked',
+      connected: false,
+      syncBlocked: true,
+    })
+  })
+
+  it('reports a normal (non-blocked) state once the marker is resolved', async () => {
+    const { campId } = await seedCampAndUser({ name: 'Fixture Director' })
+    const userDataPath = tmpUserDataPath()
+    writeFakeAutomergeDoc(userDataPath, campId)
+    insertPendingMarker(70, { resolved: true })
+
+    const handlers = makeHandlers(db, deviceId, { userDataPath })
+    await handlers.chooseMode({ mode: 'host', campName: 'Fixture Camp' })
+
+    const status = handlers.getSyncStatus()
+    expect(status.state).not.toBe('sync-blocked')
+    expect(status.syncBlocked).not.toBe(true)
+  })
+
+  // The docExists half of shouldRefuseSyncForDomainMigration: an unresolved
+  // marker alone must NOT block a camp that has never had a document at all
+  // (e.g. this device has not run the risky migration against a
+  // document-bearing camp — docExists is the guard that keeps the refusal
+  // scoped to the actual danger).
+  it('reports a normal state when no document file exists yet, even with an unresolved marker', async () => {
+    const { campId } = await seedCampAndUser({ name: 'Fixture Director' })
+    const userDataPath = tmpUserDataPath()
+    void campId // deliberately never calling writeFakeAutomergeDoc
+    insertPendingMarker(70)
+
+    const handlers = makeHandlers(db, deviceId, { userDataPath })
+    await handlers.chooseMode({ mode: 'host', campName: 'Fixture Camp' })
+
+    const status = handlers.getSyncStatus()
+    expect(status.state).not.toBe('sync-blocked')
+    expect(status.syncBlocked).not.toBe(true)
+  })
+
+  // The mechanical stand-in for "close and reopen the app": a brand-new
+  // handlers object against the SAME db, with nothing carried over from the
+  // first one in process memory. The marker table is what must survive, not
+  // any in-process flag.
+  it('survives a restart: a freshly constructed handlers object against the same db still reports blocked', async () => {
+    const { campId } = await seedCampAndUser({ name: 'Fixture Director' })
+    const userDataPath = tmpUserDataPath()
+    writeFakeAutomergeDoc(userDataPath, campId)
+    insertPendingMarker(70)
+
+    const firstLaunch = makeHandlers(db, deviceId, { userDataPath })
+    await firstLaunch.chooseMode({ mode: 'host', campName: 'Fixture Camp' })
+    expect(firstLaunch.getSyncStatus().state).toBe('sync-blocked')
+
+    const secondLaunch = makeHandlers(db, deviceId, { userDataPath })
+    await secondLaunch.chooseMode({ mode: 'host', campName: 'Fixture Camp' })
+    expect(secondLaunch.getSyncStatus().state).toBe('sync-blocked')
   })
 })

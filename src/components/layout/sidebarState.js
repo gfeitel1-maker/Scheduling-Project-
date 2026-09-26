@@ -154,6 +154,16 @@ const SYNC_STATUS_COPY = {
   'client-connecting': { text: 'connecting', tone: 'secondary', title: 'Talking to the main computer — not yet confirmed.' },
   'client-disconnected': { text: 'alone', tone: 'danger', title: 'Cannot reach the main computer right now. Your changes are saved here and will reach it when it is back.' },
   standalone: { text: 'on its own', tone: 'secondary', title: 'This computer is not sharing with any other yet.' },
+  // T268 — the sync node did not start because a domain-state migration ran
+  // against a camp that already has a document (electron/db/migrationDomainState.js).
+  // Deliberately a different sentence from 'host-not-syncing' below: this one
+  // means the refusal is structural (something about how the camp is stored
+  // has to be sorted out), not "sync just hasn't come up yet".
+  'sync-blocked': { text: 'not syncing', tone: 'danger', title: 'This computer is not sharing with the others. Something about how this camp is stored has to be sorted out first.' },
+  // T268 — the automerge engine is on, a startup attempt has completed, and no
+  // sync node is running. A Host that reads as connected while this is true is
+  // exactly the defect this state exists to close.
+  'host-not-syncing': { text: 'not sharing', tone: 'danger', title: 'Sharing with the other computers is not running on this computer right now.' },
 }
 
 // A write this device holds that the shared copy does not (T153). This OVERRIDES
@@ -166,6 +176,13 @@ const SYNC_STATUS_COPY = {
 // Deliberately not a banner (the standing rule): it is the same one-line label
 // slot beside Devices that every other sync state already uses.
 export function syncStatusLabel(status) {
+  // T268 — highest priority of all: a refused sync means nothing is reaching
+  // any other computer at all, which subsumes an unshared-write count, a low
+  // disk, and "no second copy" — none of those matter if nothing can sync in
+  // the first place.
+  if (status?.syncBlocked) {
+    return SYNC_STATUS_COPY['sync-blocked']
+  }
   const unshared = status?.unsharedWrites ?? 0
   // ORDER MATTERS, and it is the difference between a warning and a post-mortem.
   // An unshared write is something already lost to the camp; a low disk is
