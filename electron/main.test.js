@@ -60,6 +60,25 @@ vi.mock('./sync/automerge/syncEngineFlag.js', () => ({
   isOpLogEngine: vi.fn(() => false),
 }))
 
+// T274 round 2 — wraps (never replaces) the real startJoinSession so main.js's
+// join handlers exercise the real join flow exactly as before, while exposing
+// the session object it produced (`lastJoinSession`) so a single test can
+// monkeypatch e.g. `.stop()` to fail — the one path (a stop-failure) that
+// cannot be produced by driving two well-behaved real libp2p nodes. Same
+// wrap-the-real-thing shape as `./sync/localWriteClient.js`'s mock above.
+let lastJoinSession
+vi.mock('./sync/automerge/joinSession.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    startJoinSession: vi.fn(async (opts) => {
+      const result = await actual.startJoinSession(opts)
+      if (result.session) lastJoinSession = result.session
+      return result
+    }),
+  }
+})
+
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { createUser, ensureHostSigningKey } from './auth/localAuth.js'
@@ -564,6 +583,54 @@ describe('T273: bootstrapCamp starts the sync node in the same session', () => {
 // torn down — not left running double alongside the persistent one — because
 // both share the same libp2p peer identity (ensureDeviceIdentity is keyed by
 // this device's db, not by which node started it).
+// Shared by the T274 round-2 tests below, which need the same real
+// Host-with-a-user setup as the original T274 tests but do not each need to
+// restate its ~15 lines. The original two tests are left as they were
+// (each self-contained) rather than retrofitted onto this helper.
+async function startRealHostWithUser({ campId, hostDeviceId, tag }) {
+  const hostFile = path.join(os.tmpdir(), `shoresh-t274-${tag}-${Date.now()}-${Math.random()}.sqlite`)
+  const hostDb = openLocalDb(hostFile)
+  hostDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, `Camp ${tag}`)
+  ensureHostSigningKey(hostDb)
+  const salt = randomBytes(16).toString('hex')
+  const pinHash = scryptSync('1234', salt, 64).toString('hex')
+  const authSig = signAuthFields(hostDb, { id: `${tag}-user`, role: 'admin', pin_hash: pinHash, pin_salt: salt, cred_version: 1 })
+  hostDb.prepare(
+    'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig, cred_version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
+  ).run(`${tag}-user`, campId, 'Director', pinHash, salt, 'admin', authSig)
+  const host = await startSyncNode({
+    deviceId: hostDeviceId,
+    db: hostDb,
+    doc: seedAllFromSqlite(hostDb, A.clone(createEmptyDoc())),
+    onPairingRequest: () => {},
+  })
+  return {
+    host,
+    hostDb,
+    async cleanup() {
+      await host.stop()
+      hostDb.close()
+      if (fs.existsSync(hostFile)) fs.unlinkSync(hostFile)
+    },
+  }
+}
+
+/** Drives joinFindHost -> joinRequestPairing -> (director approves) -> joinLogin against a real host. */
+async function pairAndLogIn(handlers, host, hostDb, { joiningDeviceId }) {
+  expect(await handlers.joinFindHost()).toEqual({ status: 'found' })
+  const pairing = await handlers.joinRequestPairing()
+  expect(pairing.status).toBe('pending')
+  const secret = randomBytes(32).toString('hex')
+  hostDb.prepare(
+    "UPDATE devices SET authorized_at = ?, pairing_status = 'authorized', device_secret_identifier = ? WHERE id = ?"
+  ).run(new Date().toISOString(), secret, joiningDeviceId)
+  const decisionPromise = handlers.joinAwaitPairingDecision()
+  expect(await host.sendPairingApproved(joiningDeviceId, secret)).toBe(true)
+  await decisionPromise
+  const login = await handlers.joinLogin({ name: 'Director', pin: '1234', deviceSecretIdentifier: secret })
+  expect(login.status).toBe('ok')
+}
+
 describe('T274: joinAwaitData starts the sync node in the same session', () => {
   it('invokes the injected onCampJoined exactly once, after the camp has materialized, and tears down the temporary join node first', async () => {
     // A real, separate Host — its own db, its own libp2p node — never the
@@ -590,7 +657,9 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
 
     try {
       const stateAtInvocation = []
+      const callOrder = []
       const onCampJoined = vi.fn(() => {
+        callOrder.push('onCampJoined')
         stateAtInvocation.push({
           camp: db.prepare('SELECT id FROM camps LIMIT 1').get() ?? null,
         })
@@ -627,10 +696,22 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
       const login = await handlers.joinLogin({ name: 'Director', pin: '1234', deviceSecretIdentifier: secret })
       expect(login.status).toBe('ok')
 
+      // T274 round 2 (Code Reviewer, LOW) — pin the ORDER, not just the net
+      // single-node state: stop() must be called (and awaited) before
+      // onCampJoined fires, never the reverse. Cheap insurance against a
+      // future reorder reintroducing the double-node window.
+      expect(lastJoinSession).toBeTruthy()
+      const realStop = lastJoinSession.stop.bind(lastJoinSession)
+      vi.spyOn(lastJoinSession, 'stop').mockImplementation(async () => {
+        callOrder.push('stop')
+        return realStop()
+      })
+
       const data = await handlers.joinAwaitData()
       expect(data.status).toBe('ok')
       expect(data.camp.id).toBe(hostCampId)
 
+      expect(callOrder).toEqual(['stop', 'onCampJoined'])
       expect(onCampJoined).toHaveBeenCalledTimes(1)
       // Observable db state AT the moment of the call: the camp row must
       // already exist (mirrors T273's own assertion). A call one statement
@@ -701,6 +782,72 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
       if (fs.existsSync(hostFile)) fs.unlinkSync(hostFile)
     }
   })
+
+  // T274 round 2 (Red Hat, HIGH) — the entire reason joinAwaitData stops the
+  // temporary node BEFORE firing onCampJoined is that both nodes would share
+  // this device's db-keyed peer identity. If the stop itself fails, firing
+  // the starter anyway is the exact double-identity bug this file exists to
+  // prevent. A real two-well-behaved-node join cannot itself produce a
+  // stop() failure, so this forces one via the wrapped module's captured
+  // session (see the `joinSession.js` mock above `describe('T274...')`).
+  it('does not start the persistent sync node when the temporary join node fails to stop (no double identity)', async () => {
+    const campId = 'camp-t274-c'
+    const { host, hostDb, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-c', tag: 't274c' })
+
+    try {
+      const onCampJoined = vi.fn()
+      const handlers = makeHandlers(db, deviceId, { onCampJoined })
+      await handlers.joinStart({ code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
+      await pairAndLogIn(handlers, host, hostDb, { joiningDeviceId: deviceId })
+
+      expect(lastJoinSession).toBeTruthy()
+      vi.spyOn(lastJoinSession, 'stop').mockRejectedValueOnce(new Error('transport already closed'))
+
+      const data = await handlers.joinAwaitData()
+      // The join itself still succeeds and reports the camp — a stop failure
+      // is a sync-startup concern, never a reason to fail the join the
+      // director is watching.
+      expect(data.status).toBe('ok')
+      expect(data.camp.id).toBe(campId)
+
+      // The single-node invariant: onCampJoined must NOT have fired.
+      expect(onCampJoined).not.toHaveBeenCalled()
+    } finally {
+      await cleanup()
+    }
+  })
+
+  // T274 round 2 (Security + Code Reviewer, MEDIUM) — preload.js forwards the
+  // WHOLE joinStart args object over IPC, so a renderer CAN send knownHost/
+  // discoveryWaitMs/etc despite them being documented as test-only. They must
+  // be inert outside Vitest.
+  it('ignores knownHost/discoveryWaitMs/documentWaitMs outside Vitest (renderer-reachable seam must not be honored in production)', async () => {
+    const campId = 'camp-t274-d'
+    const { host, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-d', tag: 't274d' })
+    const originalVitest = process.env.VITEST
+    try {
+      delete process.env.VITEST
+      const handlers = makeHandlers(db, deviceId, {})
+      const started = await handlers.joinStart({
+        code: joinCode(campId),
+        deviceName: 'Joiner',
+        knownHost: host.getMultiaddrs()[0],
+        discoveryWaitMs: 50,
+      })
+      expect(started.status).toBe('started')
+      // With knownHost ignored, discovery falls back to mDNS, which this
+      // sandbox cannot use — findHost must time out rather than connect,
+      // proving the seam was NOT honored (a short discoveryWaitMs would
+      // otherwise make this assertion fast for the wrong reason: the value
+      // supplied is also ignored, so this uses the module's own bounded
+      // default rather than depending on that ms figure).
+      expect(await handlers.joinFindHost()).toEqual({ status: 'not_found' })
+    } finally {
+      if (originalVitest === undefined) delete process.env.VITEST
+      else process.env.VITEST = originalVitest
+      await cleanup()
+    }
+  }, 25000)
 })
 
 describe('devAuthorizeDevice (removed in sub-task 2, superseded by approveDevice)', () => {

@@ -2278,25 +2278,34 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   async function joinStart({
     code,
     deviceName,
-    // Test-only seams, forwarded straight to startJoinSession, which already
-    // documents them as such (peer discovery over loopback, no real network
-    // interface). The renderer never sends these — preload's joinStart takes
-    // only { code, deviceName } — so this is inert in production.
+    // T274 round 2 (Security + Code Reviewer): these are test-only seams,
+    // forwarded to startJoinSession, which already documents them as such
+    // (peer discovery over loopback, no real network interface, used by
+    // test/integration/harnessAutomerge.js's AmClient.join for the same
+    // reason). preload.js:72 forwards the WHOLE args object to this handler
+    // over IPC — the renderer CAN send these, so they are only HONORED under
+    // Vitest (below), never merely "inert because nothing sends them". The
+    // join-code HMAC proof still gates admission regardless of what a
+    // renderer supplies here, so this is not an auth bypass — but a
+    // discovery/timeout value a compromised renderer could otherwise steer
+    // is not a boundary worth leaving unenforced when enforcing it costs one
+    // env check.
     knownHost,
     peerDiscovery,
     discoveryWaitMs,
     documentWaitMs,
   } = {}) {
     if (activeJoin) await joinCancel()
+    const testOnly = Boolean(process.env.VITEST)
     const started = await startJoinSession({
       db,
       deviceId,
       deviceName: deviceName || db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)?.name,
       code,
-      knownHost,
-      peerDiscovery,
-      discoveryWaitMs,
-      documentWaitMs,
+      knownHost: testOnly ? knownHost : undefined,
+      peerDiscovery: testOnly ? peerDiscovery : undefined,
+      discoveryWaitMs: testOnly ? discoveryWaitMs : undefined,
+      documentWaitMs: testOnly ? documentWaitMs : undefined,
     })
     if (started.status !== 'started') return { status: started.status }
     activeJoin = started.session
@@ -2357,17 +2366,29 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!camp) return { status: 'timeout' }
 
     activeJoin = null
+    // T274 round 2 (Red Hat, HIGH): onCampJoined must fire ONLY when the
+    // temporary node is confirmed stopped. The whole reason to stop first is
+    // that the temp node and the persistent node share this device's
+    // db-keyed peer identity — if stop() throws, the temp node may still be
+    // up, and starting the persistent one anyway would be that identity live
+    // twice. Prefer safe-degraded (no persistent node started this cycle;
+    // getSyncStatus's existing T268 path surfaces "not syncing", which a
+    // retry or restart resolves) over a confirmed double-node.
+    let stopped = false
     try {
       await session.stop()
+      stopped = true
     } catch (err) {
-      console.error(`join: stopping the temporary join node failed (non-fatal): ${err?.message ?? err}`)
+      console.error(`join: stopping the temporary join node failed — sync node NOT started this cycle to avoid a duplicate peer identity (non-fatal, resolves on retry/restart): ${err?.message ?? err}`)
     }
-    try {
-      Promise.resolve(onCampJoinedFn()).catch((err) => {
+    if (stopped) {
+      try {
+        Promise.resolve(onCampJoinedFn()).catch((err) => {
+          console.error(`sync node start after join failed (non-fatal): ${err?.message ?? err}`)
+        })
+      } catch (err) {
         console.error(`sync node start after join failed (non-fatal): ${err?.message ?? err}`)
-      })
-    } catch (err) {
-      console.error(`sync node start after join failed (non-fatal): ${err?.message ?? err}`)
+      }
     }
 
     return { status: 'ok', camp }
@@ -3022,6 +3043,18 @@ if (isElectronEntryPoint()) {
   // anything about libp2p/Automerge itself — same "handed a getter, not the
   // implementation" shape as getMainWindow above.
   let automergeSyncNode = null
+  // T274 round 2 (Red Hat, MEDIUM): `if (automergeSyncNode) return` alone is
+  // a TOCTOU race — it is checked synchronously, but `automergeSyncNode` is
+  // not assigned until AFTER `await startSyncNode(...)` resolves, several
+  // awaits later in the same function. Two concurrent calls (a join
+  // completing while app.whenReady()'s own call is still in flight, an IPC
+  // retry, a re-render) can both read `automergeSyncNode` as null and both
+  // reach `startSyncNode`, producing two real libp2p nodes on this device's
+  // one peer identity. This latch is set synchronously, before the first
+  // await, so the second call's guard sees it immediately; cleared in
+  // `finally` so a failed attempt can be retried. Also hardens the merged
+  // T273 bootstrap path, which calls this same function.
+  let automergeSyncNodeStarting = false
   // T268 — has a startAutomergeSyncNodeIfEnabled() attempt finished (success,
   // refusal, or failure) since this process started? getSyncStatus reads this
   // to decide between "not yet attempted, so still read as 'host'" (avoids a
@@ -3225,6 +3258,12 @@ if (isElectronEntryPoint()) {
     // already-running cases read as healthy regardless of what the flag says.
     if (!isAutomergeEngine()) return
     if (automergeSyncNode) return // idempotency guard: never leak a second libp2p node
+    // T274 round 2: the TOCTOU latch (see its declaration above). Checked and
+    // set synchronously, in the same tick as the guard above — no await has
+    // happened yet, so a concurrent call arriving before this one reaches its
+    // own `await startSyncNode(...)` is guaranteed to see it set.
+    if (automergeSyncNodeStarting) return
+    automergeSyncNodeStarting = true
     // `attempted` tracks whether this run reached a point where a start could
     // actually have happened — distinct from "did this function run". A
     // fresh install has no camp yet at app.whenReady() (bootstrapCamp itself
@@ -3472,6 +3511,11 @@ if (isElectronEntryPoint()) {
       // running" ('host-not-syncing'). Skipped when `attempted` was flipped
       // false above (no camp bootstrapped yet) — see that comment.
       if (attempted) automergeStartupAttempted = true
+      // Cleared unconditionally (success or failure) so a failed attempt —
+      // this run's own catch above, or the no-camp/refusal/no-doc returns —
+      // can be retried by a later call rather than latching "starting"
+      // forever.
+      automergeSyncNodeStarting = false
       // A director already looking at the sidebar when this settles should
       // see it without reloading — wrapped so a UI push can never take sync
       // startup down with it.

@@ -286,3 +286,93 @@ describe('T274 wiring: the real sync starter reaches joinAwaitData', () => {
     expect(makeHandlersDeclaresOption(OPTION_NAME_JOINED), `makeHandlers does not accept \`${OPTION_NAME_JOINED}\``).toBe(true)
   })
 })
+
+// T274 round 2 (Red Hat, MEDIUM) — startAutomergeSyncNodeIfEnabled itself
+// cannot be executed under Vitest at all (it is declared inside
+// isElectronEntryPoint()'s `!process.env.VITEST`-gated block — see this
+// file's own header comment), so a real "call it twice concurrently" test is
+// structurally impossible without restructuring the function out of that
+// block, which is a bigger change than this fix. This is the same
+// AST-parsing approach the rest of this file already uses for exactly that
+// reason, aimed at the TOCTOU class of bug instead of the wiring class: it
+// proves the synchronous in-flight latch (`automergeSyncNodeStarting`) is
+// set BEFORE the function's first `await` (so a concurrent call arriving
+// before that await sees it) and cleared in a `finally` (so a failed
+// attempt can be retried) — the precise shape that closes the race, checked
+// and set synchronously before either call could have reached the
+// `startSyncNode` await that the raw `if (automergeSyncNode) return` guard
+// alone could not protect.
+describe('T274 round 2: startAutomergeSyncNodeIfEnabled has a synchronous in-flight latch', () => {
+  const STARTING_FLAG = 'automergeSyncNodeStarting'
+
+  function findStarterFunction(ast) {
+    let fn = null
+    walk(ast, (node) => {
+      if (
+        (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
+        node.id?.name === STARTER_NAME
+      ) {
+        fn = node
+      }
+    })
+    return fn
+  }
+
+  it(`sets \`${STARTING_FLAG} = true\` before the function's first await`, () => {
+    const fn = findStarterFunction(parseMain())
+    expect(fn, `${STARTER_NAME} not found in main.js`).toBeTruthy()
+
+    let setLine = null
+    let firstAwaitLine = null
+    walk(fn.body, (node) => {
+      if (
+        setLine === null &&
+        node.type === 'AssignmentExpression' &&
+        node.operator === '=' &&
+        node.left?.type === 'Identifier' &&
+        node.left.name === STARTING_FLAG &&
+        node.right?.type === 'Literal' &&
+        node.right.value === true
+      ) {
+        setLine = node.loc.start.line
+      }
+      if (firstAwaitLine === null && node.type === 'AwaitExpression') {
+        firstAwaitLine = node.loc.start.line
+      }
+    })
+
+    expect(setLine, `${STARTER_NAME} never sets \`${STARTING_FLAG} = true\` — the TOCTOU latch is missing`).not.toBeNull()
+    expect(firstAwaitLine, `${STARTER_NAME} has no await — the race this latch guards against cannot exist, so this guard is stale`).not.toBeNull()
+    expect(
+      setLine,
+      `\`${STARTING_FLAG} = true\` (line ${setLine}) must be set BEFORE the function's first await (line ${firstAwaitLine}) — set any later and a concurrent call arriving in the gap would not see it, recreating the double-node race`
+    ).toBeLessThan(firstAwaitLine)
+  })
+
+  it(`clears \`${STARTING_FLAG}\` in a finally block, on every exit`, () => {
+    const fn = findStarterFunction(parseMain())
+    expect(fn, `${STARTER_NAME} not found in main.js`).toBeTruthy()
+
+    let clearedInFinally = false
+    walk(fn.body, (node) => {
+      if (node.type !== 'TryStatement' || !node.finalizer) return
+      walk(node.finalizer, (n) => {
+        if (
+          n.type === 'AssignmentExpression' &&
+          n.operator === '=' &&
+          n.left?.type === 'Identifier' &&
+          n.left.name === STARTING_FLAG &&
+          n.right?.type === 'Literal' &&
+          n.right.value === false
+        ) {
+          clearedInFinally = true
+        }
+      })
+    })
+
+    expect(
+      clearedInFinally,
+      `${STARTER_NAME} never clears \`${STARTING_FLAG} = false\` inside a finally block — a failed attempt would latch "starting" forever and every later call would be silently refused`
+    ).toBe(true)
+  })
+})
