@@ -24,7 +24,7 @@ function makeRepo(overrides = {}) {
       days_of_operation: [{ id: 'd1', camp_id: CAMP_ID, day_of_week: 1, sort_order: 0 }],
       time_blocks: [{ id: 'b1', camp_id: CAMP_ID, sort_order: 0 }],
       activities: [{ id: 'act-1', camp_id: CAMP_ID, name: 'Swim' }],
-      anchor_activities: [],
+      fixed_events: [],
       tiers: [{ id: 't1', camp_id: CAMP_ID, sort_order: 0 }],
       cohorts: [{ id: 'coh-1', camp_id: CAMP_ID }],
       elective_sets: [],
@@ -80,7 +80,7 @@ describe('useScheduleData', () => {
     expect(result.current.weekId).toBe('week-2')
   })
 
-  // T63: anchor_activities.group_ids is stored as a JSON-stringified array
+  // T63: fixed_events.group_ids is stored as a JSON-stringified array
   // (same shape as activities.eligible_group_ids). buildSchedule is a pure
   // engine and must never see the raw string — this hook is the IPC read
   // boundary, so normalization to a real array belongs here.
@@ -91,7 +91,7 @@ describe('useScheduleData', () => {
         days_of_operation: [{ id: 'd1', camp_id: CAMP_ID, day_of_week: 1, sort_order: 0 }],
         time_blocks: [{ id: 'b1', camp_id: CAMP_ID, sort_order: 0 }],
         activities: [{ id: 'act-1', camp_id: CAMP_ID, name: 'Swim' }],
-        anchor_activities: [
+        fixed_events: [
           { id: 'anc-1', camp_id: CAMP_ID, name: 'Flag', group_ids: '["g1","g2"]', unit_id: null, is_all_groups: false, day_id: 'd1', time_block_id: 'b1', span_blocks: 1 },
         ],
         tiers: [{ id: 't1', camp_id: CAMP_ID, sort_order: 0 }],
@@ -257,7 +257,7 @@ describe('useScheduleData', () => {
           days_of_operation: [{ id: 'd1', camp_id: CAMP_ID, day_of_week: 1, sort_order: 0 }],
           time_blocks: orphanTimeBlocks,
           activities: [{ id: 'act-1', camp_id: CAMP_ID, name: 'Swim' }],
-          anchor_activities: [],
+          fixed_events: [],
           tiers: [{ id: 't1', camp_id: CAMP_ID, sort_order: 0 }],
           cohorts: [{ id: 'coh-1', camp_id: CAMP_ID }],
         })),

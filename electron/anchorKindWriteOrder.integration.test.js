@@ -77,7 +77,7 @@ describe('AnchorsScreen import path: kind write ordering against a REAL SQLite C
     // This EXACT key order — is_all_groups/group_ids BEFORE kind — is what
     // AnchorsScreen.jsx's XLSX import produced before the fix. The
     // structural guard in writeFields must reorder it regardless.
-    await repo.writeFields('anchor_activities', anchorId, {
+    await repo.writeFields('fixed_events', anchorId, {
       name: 'Lunch A',
       day_id: null,
       time_block_id: null,
@@ -89,7 +89,7 @@ describe('AnchorsScreen import path: kind write ordering against a REAL SQLite C
       cohort_id: null,
     })
 
-    const row = db.prepare('SELECT kind, is_all_groups, group_ids FROM anchor_activities WHERE id = ?').get(anchorId)
+    const row = db.prepare('SELECT kind, is_all_groups, group_ids FROM fixed_events WHERE id = ?').get(anchorId)
     expect(row).toBeTruthy()
     expect(row.kind).toBe('recurring')
     expect(row.is_all_groups).toBe(0)
@@ -106,7 +106,7 @@ describe('AnchorsScreen import path: kind write ordering against a REAL SQLite C
     const repo = createSetupCrudRepository({ localClient: realSqliteClient(db, deviceId), getToken: () => 'tok' })
     const anchorId = randomUUID()
 
-    await repo.writeFields('anchor_activities', anchorId, {
+    await repo.writeFields('fixed_events', anchorId, {
       name: 'Flagpole',
       day_id: null,
       time_block_id: null,
@@ -118,7 +118,7 @@ describe('AnchorsScreen import path: kind write ordering against a REAL SQLite C
       cohort_id: null,
     })
 
-    const row = db.prepare('SELECT kind, is_all_groups FROM anchor_activities WHERE id = ?').get(anchorId)
+    const row = db.prepare('SELECT kind, is_all_groups FROM fixed_events WHERE id = ?').get(anchorId)
     expect(row.kind).toBe('fixed')
     expect(row.is_all_groups).toBe(1)
     db.close()

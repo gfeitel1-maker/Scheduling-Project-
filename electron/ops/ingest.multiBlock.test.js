@@ -2,7 +2,7 @@
 // docs/adr/2026-08-24-merged-cell-multiblock-ingest.md, Slice B addendum.
 //
 // A recurring confirmation extends the ordinary fixedEvents commit block
-// (span_blocks threaded onto the anchor_activities INSERT). A one-off
+// (span_blocks threaded onto the fixed_events INSERT). A one-off
 // confirmation writes an `events` catalog row only (surface-then-fill, no
 // template_slots placement). Unconfirmed candidates never reach commitIngest
 // at all (ImportScreen only sends a decision, never an "ignore" third state)
@@ -63,10 +63,10 @@ const RUACH_SHABBAT = {
 }
 
 describe('Slice B — recurring multi-block candidate', () => {
-  it('a confirmed recurring candidate writes an anchor_activities row with span_blocks=N', () => {
+  it('a confirmed recurring candidate writes an fixed_events row with span_blocks=N', () => {
     const result = commit({ ...BASE, fixedEvents: [RUACH_SHABBAT] })
     expect(result.fixedEvents.created).toBe(1)
-    const row = db.prepare("SELECT * FROM anchor_activities WHERE camp_id = ? AND name = 'Ruach & Shabbat'").get(campId)
+    const row = db.prepare("SELECT * FROM fixed_events WHERE camp_id = ? AND name = 'Ruach & Shabbat'").get(campId)
     expect(row).toBeTruthy()
     expect(row.span_blocks).toBe(3)
   })
@@ -77,7 +77,7 @@ describe('Slice B — recurring multi-block candidate', () => {
   // collapses the 14 raw per-group detections into one is_all_groups
   // candidate before this layer ever sees it); this asserts the ingest
   // layer honors that verdict — an is_all_groups:true, one-day fixedEvents
-  // entry produces exactly ONE anchor_activities row, never one per group.
+  // entry produces exactly ONE fixed_events row, never one per group.
   it('an is_all_groups recurring candidate on a camp with MANY groups still writes exactly ONE anchor row', () => {
     const manyGroups = {
       approved: {
@@ -89,7 +89,7 @@ describe('Slice B — recurring multi-block candidate', () => {
     }
     const result = commit({ ...manyGroups, fixedEvents: [RUACH_SHABBAT] })
     expect(result.fixedEvents.created).toBe(1)
-    const rows = db.prepare("SELECT * FROM anchor_activities WHERE camp_id = ? AND name = 'Ruach & Shabbat'").all(campId)
+    const rows = db.prepare("SELECT * FROM fixed_events WHERE camp_id = ? AND name = 'Ruach & Shabbat'").all(campId)
     expect(rows.length).toBe(1)
     expect(rows[0].span_blocks).toBe(3)
     expect(rows[0].is_all_groups).toBe(1)
@@ -98,7 +98,7 @@ describe('Slice B — recurring multi-block candidate', () => {
   it('an ordinary fixedEvents entry with no span_blocks leaves the column NULL — true no-op, engine treats NULL as 1', () => {
     const swim = { name: 'Swim', time_block: '16:00-16:40', days: ['Friday'], scope: { is_all_groups: true, groups: [] }, confidence: 'high' }
     commit({ ...BASE, fixedEvents: [swim] })
-    const row = db.prepare("SELECT * FROM anchor_activities WHERE camp_id = ? AND name = 'Swim'").get(campId)
+    const row = db.prepare("SELECT * FROM fixed_events WHERE camp_id = ? AND name = 'Swim'").get(campId)
     expect(row.span_blocks).toBeNull()
   })
 })
@@ -134,7 +134,7 @@ describe('Slice B — one-off multi-block candidate', () => {
     const result = commit({ ...BASE })
     expect(result.fixedEvents.created).toBe(0)
     expect(result.multiBlockEvents.created).toBe(0)
-    expect(db.prepare('SELECT COUNT(*) c FROM anchor_activities').get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM fixed_events').get().c).toBe(0)
     expect(db.prepare('SELECT COUNT(*) c FROM events').get().c).toBe(0)
   })
 
@@ -170,7 +170,7 @@ describe('Slice B — MEDIUM #3 span overflow clamp', () => {
       },
     }
     commit({ ...twoBlocks, fixedEvents: [RUACH_SHABBAT] }) // span_blocks:3, only 2 blocks exist
-    const row = db.prepare("SELECT * FROM anchor_activities WHERE camp_id = ? AND name = 'Ruach & Shabbat'").get(campId)
+    const row = db.prepare("SELECT * FROM fixed_events WHERE camp_id = ? AND name = 'Ruach & Shabbat'").get(campId)
     expect(row.span_blocks).toBe(2)
   })
 
@@ -180,7 +180,7 @@ describe('Slice B — MEDIUM #3 span overflow clamp', () => {
   it('clamps all the way to 1 (no span_blocks column written) when the head is the day\'s last block', () => {
     const lastBlockHead = { ...RUACH_SHABBAT, time_block: '17:20-18:00' } // 3rd of 3 blocks in BASE
     commit({ ...BASE, fixedEvents: [lastBlockHead] })
-    const row = db.prepare("SELECT * FROM anchor_activities WHERE camp_id = ? AND name = 'Ruach & Shabbat'").get(campId)
+    const row = db.prepare("SELECT * FROM fixed_events WHERE camp_id = ? AND name = 'Ruach & Shabbat'").get(campId)
     expect(row.span_blocks).toBeNull()
   })
 
@@ -188,7 +188,7 @@ describe('Slice B — MEDIUM #3 span overflow clamp', () => {
   // ceiling, never a floor/rewrite of a value that was already valid.
   it('does not clamp a span that fits within the day\'s remaining blocks', () => {
     commit({ ...BASE, fixedEvents: [RUACH_SHABBAT] }) // span_blocks:3, BASE has exactly 3 blocks, head is the 1st
-    const row = db.prepare("SELECT * FROM anchor_activities WHERE camp_id = ? AND name = 'Ruach & Shabbat'").get(campId)
+    const row = db.prepare("SELECT * FROM fixed_events WHERE camp_id = ? AND name = 'Ruach & Shabbat'").get(campId)
     expect(row.span_blocks).toBe(3)
   })
 })

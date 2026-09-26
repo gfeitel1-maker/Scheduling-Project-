@@ -31,7 +31,7 @@ describe('the entities-only boundary (ADR §2)', () => {
       const { entities } = extractEntities(parsed)
       for (const key of Object.keys(entities)) expect(INGESTIBLE_ENTITIES).toContain(key)
       expect(entities).not.toHaveProperty('template_slots')
-      expect(entities).not.toHaveProperty('anchor_activities')
+      expect(entities).not.toHaveProperty('fixed_events')
     }
   })
 })

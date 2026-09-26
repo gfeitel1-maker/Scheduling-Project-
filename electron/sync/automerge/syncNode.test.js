@@ -243,17 +243,17 @@ describe('syncNode — Automerge merge + projector over a real transport', () =>
     // Merges cleanly, but the anchor references a cohort that doesn't exist ->
     // projectAll (foreign_keys=ON) throws atomically.
     let bad = A.clone(genesis)
-    bad = applyWrite(bad, { entity: 'anchor_activities', entity_id: 'anc-1', field: 'name', value: 'Flagpole' })
-    bad = applyWrite(bad, { entity: 'anchor_activities', entity_id: 'anc-1', field: 'cohort_id', value: 'ghost-cohort' })
+    bad = applyWrite(bad, { entity: 'fixed_events', entity_id: 'anc-1', field: 'name', value: 'Flagpole' })
+    bad = applyWrite(bad, { entity: 'fixed_events', entity_id: 'anc-1', field: 'cohort_id', value: 'ghost-cohort' })
     await a.sendDocTo(b.peerId, A.save(bad))
 
     // Failure is surfaced, not swallowed or crashed.
     await waitFor(() => projErrors.length > 0)
     expect(projErrors[0].err).toBeInstanceOf(Error)
     // SQLite left at last-good: the bad anchor never partially materialized.
-    expect(dbB.prepare('SELECT COUNT(*) AS c FROM anchor_activities').get().c).toBe(0)
+    expect(dbB.prepare('SELECT COUNT(*) AS c FROM fixed_events').get().c).toBe(0)
     // The merged doc is kept as CRDT truth (the merge was NOT reverted).
-    expect(readRecord(b.getDoc(), 'anchor_activities', 'anc-1')).toBeTruthy()
+    expect(readRecord(b.getDoc(), 'fixed_events', 'anc-1')).toBeTruthy()
 
     // NOT poisoned: node B still receives + merges further syncs. A subsequent
     // valid edit still converges into B's DOC (SQLite stays blocked on the

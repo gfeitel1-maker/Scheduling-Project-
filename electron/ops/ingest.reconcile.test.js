@@ -51,7 +51,7 @@ afterEach(() => {
 
 const TOUCHED_TABLES = [
   'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities',
-  'anchor_activities', 'operations', 'conflicts', 'import_evidence',
+  'fixed_events', 'operations', 'conflicts', 'import_evidence',
 ]
 
 function snapshotDb() {
@@ -105,11 +105,11 @@ function seedRealisticCamp() {
   // Move the live Mifkad anchor to a different time block (human edit,
   // mirrors AnchorsScreen.saveAnchor) so a re-import of the ORIGINAL slot
   // reports MOVED instead of a duplicate create.
-  const anchor = db.prepare('SELECT id, day_id, time_block_id FROM anchor_activities WHERE camp_id = ?').get(campId)
+  const anchor = db.prepare('SELECT id, day_id, time_block_id FROM fixed_events WHERE camp_id = ?').get(campId)
   const block2 = db.prepare("SELECT id FROM time_blocks WHERE camp_id = ? AND name = ?").get(campId, '10:00-10:40').id
   for (const [field, value] of Object.entries({ time_block_id: block2 })) {
     appendOp(db, {
-      entity: 'anchor_activities', entity_id: anchor.id, field, value,
+      entity: 'fixed_events', entity_id: anchor.id, field, value,
       author_user_id: 'u1', device_id: deviceId, parent_op_id: null, client_write_id: randomUUID(), source: 'human',
     })
   }
@@ -253,7 +253,7 @@ describe('D1 — commit behavior is byte-identical when dryRun is omitted', () =
     expect(outcome.dryRun).toBeUndefined()
     expect(outcome.total).toBeGreaterThan(0)
     expect(db.prepare('SELECT COUNT(*) c FROM activities WHERE camp_id = ?').get(campId).c).toBe(2)
-    expect(db.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE camp_id = ?').get(campId).c).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ?').get(campId).c).toBe(1)
   })
 })
 
@@ -438,7 +438,7 @@ describe('FIX 1 — low-confidence FULLY-RESOLVED fixed event creates a confirm_
     const report = buildReconciliationReport({
       planItems: dry.planItems, readiness: [], fixedEventsReport: fixedEventsReportFrom(dry),
     })
-    const decision = report.decisions.find((d) => d.entity === 'anchor_activities' && d.entityName === 'Quiet Time')
+    const decision = report.decisions.find((d) => d.entity === 'fixed_events' && d.entityName === 'Quiet Time')
     expect(decision).toBeTruthy()
     expect(decision.kind).toBe('confirm_value')
     expect(decision.confidence).toBe('low')
@@ -461,7 +461,7 @@ describe('FIX 1 — low-confidence FULLY-RESOLVED fixed event creates a confirm_
 
     const outcome = commit({ ...BASE, approved: heldApproved, fixedEvents: heldFixedEvents })
     expect(outcome.fixedEvents.created).toBe(0)
-    expect(db.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE camp_id = ? AND name = ?').get(campId, 'Quiet Time').c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ? AND name = ?').get(campId, 'Quiet Time').c).toBe(0)
   })
 
   it('(d): resolving looks_right and re-committing writes the anchor', () => {
@@ -470,7 +470,7 @@ describe('FIX 1 — low-confidence FULLY-RESOLVED fixed event creates a confirm_
     const report = buildReconciliationReport({
       planItems: dry.planItems, readiness: [], fixedEventsReport: fixedEventsReportFrom(dry),
     })
-    const decision = report.decisions.find((d) => d.entity === 'anchor_activities' && d.entityName === 'Quiet Time')
+    const decision = report.decisions.find((d) => d.entity === 'fixed_events' && d.entityName === 'Quiet Time')
 
     const { approved: resolvedApproved, fixedEvents: resolvedFixedEvents } = applyResolutions({
       approved: BASE.approved, decisions: report.decisions,
@@ -480,7 +480,7 @@ describe('FIX 1 — low-confidence FULLY-RESOLVED fixed event creates a confirm_
 
     const outcome = commit({ ...BASE, approved: resolvedApproved, fixedEvents: resolvedFixedEvents })
     expect(outcome.fixedEvents.created).toBe(1)
-    expect(db.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE camp_id = ? AND name = ?').get(campId, 'Quiet Time').c).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ? AND name = ?').get(campId, 'Quiet Time').c).toBe(1)
   })
 
   it('a HIGH-confidence fixed event with no shortfall ships unconditionally — never held', () => {
@@ -495,6 +495,6 @@ describe('FIX 1 — low-confidence FULLY-RESOLVED fixed event creates a confirm_
 
     const outcome = commit({ ...BASE, fixedEvents: [highConfidenceFixedEvent] })
     expect(outcome.fixedEvents.created).toBe(1)
-    expect(db.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE camp_id = ? AND name = ?').get(campId, 'Loud Time').c).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ? AND name = ?').get(campId, 'Loud Time').c).toBe(1)
   })
 })

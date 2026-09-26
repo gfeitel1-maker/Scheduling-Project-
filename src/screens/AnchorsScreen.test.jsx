@@ -71,7 +71,7 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
       day({ id: 'd3', label: 'Wednesday', day_of_week: 3, sort_order: 3 }),
     ]
     localClient.list.mockImplementation((entity) => {
-      if (entity === 'anchor_activities') return Promise.resolve([])
+      if (entity === 'fixed_events') return Promise.resolve([])
       if (entity === 'days_of_operation') return Promise.resolve(days)
       if (entity === 'time_blocks') return Promise.resolve([block()])
       if (entity === 'tiers') return Promise.resolve([])
@@ -101,7 +101,7 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
     const idCalls = localClient.write.mock.calls.filter(c => c[3] === 'name')
     const ids = idCalls.map(c => c[2])
     expect(new Set(ids).size).toBe(3)
-    ids.forEach(id => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'anchor_activities', id, 'name', 'Mifkad'))
+    ids.forEach(id => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'fixed_events', id, 'name', 'Mifkad'))
 
     const dayIdCalls = localClient.write.mock.calls.filter(c => c[3] === 'day_id')
     const dayIds = dayIdCalls.map(c => c[4]).sort()
@@ -119,7 +119,7 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
       day({ id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 2 }),
     ]
     localClient.list.mockImplementation((entity) => {
-      if (entity === 'anchor_activities') return Promise.resolve([])
+      if (entity === 'fixed_events') return Promise.resolve([])
       if (entity === 'days_of_operation') return Promise.resolve(days)
       if (entity === 'time_blocks') return Promise.resolve([block()])
       if (entity === 'tiers') return Promise.resolve([])
@@ -159,7 +159,7 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
 
   function mockList(anchors = [anchorRow]) {
     localClient.list.mockImplementation((entity) => {
-      if (entity === 'anchor_activities') return Promise.resolve(anchors)
+      if (entity === 'fixed_events') return Promise.resolve(anchors)
       if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1' })])
       if (entity === 'time_blocks') return Promise.resolve([block()])
       if (entity === 'tiers') return Promise.resolve([])
@@ -184,7 +184,7 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
     fireEvent.change(screen.getByDisplayValue('All weeks'), { target: { value: 'week-2' } })
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith(
-      'token-abc', 'anchor_activities', 'anc-1', 'schedule_week_id', 'week-2'
+      'token-abc', 'fixed_events', 'anc-1', 'schedule_week_id', 'week-2'
     ))
   })
 
@@ -203,7 +203,7 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
     fireEvent.change(screen.getByDisplayValue('Week 1'), { target: { value: '' } })
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith(
-      'token-abc', 'anchor_activities', 'anc-1', 'schedule_week_id', null
+      'token-abc', 'fixed_events', 'anc-1', 'schedule_week_id', null
     ))
   })
 
@@ -261,7 +261,7 @@ describe('AnchorsScreen — location picker (location_id)', () => {
 
   function mockList(anchors, locs = locations) {
     localClient.list.mockImplementation((entity) => {
-      if (entity === 'anchor_activities') return Promise.resolve(anchors)
+      if (entity === 'fixed_events') return Promise.resolve(anchors)
       if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1' })])
       if (entity === 'time_blocks') return Promise.resolve([block()])
       if (entity === 'tiers') return Promise.resolve([])
@@ -286,7 +286,7 @@ describe('AnchorsScreen — location picker (location_id)', () => {
     fireEvent.click(screen.getByText('Save Changes'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith(
-      'token-abc', 'anchor_activities', 'anc-1', 'location_id', 'loc-1'
+      'token-abc', 'fixed_events', 'anc-1', 'location_id', 'loc-1'
     ))
   })
 
@@ -301,7 +301,7 @@ describe('AnchorsScreen — location picker (location_id)', () => {
     fireEvent.click(screen.getByText('Save Changes'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith(
-      'token-abc', 'anchor_activities', 'anc-1', 'location_id', null
+      'token-abc', 'fixed_events', 'anc-1', 'location_id', null
     ))
   })
 })
@@ -313,7 +313,7 @@ describe('AnchorsScreen cleanup-failure surfacing', () => {
       day({ id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 2 }),
     ]
     localClient.list.mockImplementation((entity) => {
-      if (entity === 'anchor_activities') return Promise.resolve([])
+      if (entity === 'fixed_events') return Promise.resolve([])
       if (entity === 'days_of_operation') return Promise.resolve(days)
       if (entity === 'time_blocks') return Promise.resolve([block()])
       if (entity === 'tiers') return Promise.resolve([])
@@ -363,7 +363,7 @@ describe('AnchorsScreen write serialization (characterization)', () => {
   it('serializes is_all_groups to a number and group_ids to a JSON string on write', async () => {
     const days = [day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 })]
     localClient.list.mockImplementation((entity) => {
-      if (entity === 'anchor_activities') return Promise.resolve([])
+      if (entity === 'fixed_events') return Promise.resolve([])
       if (entity === 'days_of_operation') return Promise.resolve(days)
       if (entity === 'time_blocks') return Promise.resolve([block()])
       if (entity === 'tiers') return Promise.resolve([])
@@ -404,7 +404,7 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
 
   it('shows a styled confirm modal (not window.confirm) before deleting, and confirming deletes', async () => {
     localClient.list.mockImplementation((entity) =>
-      Promise.resolve(entity === 'anchor_activities' ? [existing()] : [])
+      Promise.resolve(entity === 'fixed_events' ? [existing()] : [])
     )
     render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
@@ -417,12 +417,12 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
     expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
 
     fireEvent.click(screen.getByText('Delete All Fixed Events'))
-    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-1'))
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'fixed_events', 'anchor-1'))
   })
 
   it('cancels without deleting', async () => {
     localClient.list.mockImplementation((entity) =>
-      Promise.resolve(entity === 'anchor_activities' ? [existing()] : [])
+      Promise.resolve(entity === 'fixed_events' ? [existing()] : [])
     )
     render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
@@ -438,14 +438,14 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
   it('re-fetches immediately before deleting and deletes every camp+cohort-scoped row, catching rows synced in after load', async () => {
     // Initial load sees only anchor-1.
     localClient.list.mockImplementation((entity) =>
-      Promise.resolve(entity === 'anchor_activities' ? [existing()] : [])
+      Promise.resolve(entity === 'fixed_events' ? [existing()] : [])
     )
     render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} kind="fixed" />)
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     // Another device synced in anchor-2 between load and the click.
     localClient.list.mockImplementation((entity) =>
-      Promise.resolve(entity === 'anchor_activities'
+      Promise.resolve(entity === 'fixed_events'
         ? [existing(), existing({ id: 'anchor-2', name: 'Second' })]
         : [])
     )
@@ -453,13 +453,13 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
     await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
     fireEvent.click(screen.getByText('Delete All Fixed Events'))
 
-    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-2'))
-    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-1')
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'fixed_events', 'anchor-2'))
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'fixed_events', 'anchor-1')
   })
 
   it('surfaces a partial-failure count rather than silently succeeding or aborting', async () => {
     localClient.list.mockImplementation((entity) =>
-      Promise.resolve(entity === 'anchor_activities'
+      Promise.resolve(entity === 'fixed_events'
         ? [existing({ id: 'a1' }), existing({ id: 'a2', name: 'Second' })]
         : [])
     )
@@ -481,7 +481,7 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
 
   it('shows an admin-specific message when every delete is refused for role', async () => {
     localClient.list.mockImplementation((entity) =>
-      Promise.resolve(entity === 'anchor_activities'
+      Promise.resolve(entity === 'fixed_events'
         ? [existing({ id: 'a1' }), existing({ id: 'a2', name: 'Second' })]
         : [])
     )
@@ -510,7 +510,7 @@ describe('AnchorsScreen delete confirmation', () => {
 
   function setupList() {
     localClient.list.mockImplementation((entity) => {
-      if (entity === 'anchor_activities') return Promise.resolve([existingAnchor()])
+      if (entity === 'fixed_events') return Promise.resolve([existingAnchor()])
       if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1' })])
       if (entity === 'time_blocks') return Promise.resolve([block()])
       if (entity === 'tiers') return Promise.resolve([])
@@ -532,7 +532,7 @@ describe('AnchorsScreen delete confirmation', () => {
     expect(screen.queryByText('This fixed event will be removed from your schedules.')).not.toBeNull()
 
     fireEvent.click(screen.getByText('Delete Fixed Event'))
-    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-1'))
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'fixed_events', 'anchor-1'))
   })
 
   it('cancels without deleting', async () => {
@@ -564,7 +564,7 @@ describe('AnchorsScreen — caution and error banners use shared primitives', ()
 
   it('shows a save failure through the shared danger error primitive, not hardcoded red', async () => {
     localClient.list.mockImplementation((entity) => {
-      if (entity === 'anchor_activities') return Promise.resolve([])
+      if (entity === 'fixed_events') return Promise.resolve([])
       if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1' })])
       if (entity === 'time_blocks') return Promise.resolve([block()])
       return Promise.resolve([])
@@ -600,7 +600,7 @@ describe('AnchorsScreen — recurring event division scope (T180)', () => {
 
   function mount(anchors = []) {
     localClient.list.mockImplementation((entity) => {
-      if (entity === 'anchor_activities') return Promise.resolve(anchors)
+      if (entity === 'fixed_events') return Promise.resolve(anchors)
       if (entity === 'days_of_operation') return Promise.resolve(days)
       if (entity === 'time_blocks') return Promise.resolve([block()])
       if (entity === 'tiers') return Promise.resolve(tiers)

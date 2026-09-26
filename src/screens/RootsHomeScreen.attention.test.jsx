@@ -49,7 +49,7 @@ function collectionsFor(overrides = {}) {
     time_blocks: [{ id: 'tb1', name: 'Block 1' }],
     locations: [{ id: 'l1', name: 'Field' }],
     activities: [{ id: 'a1', name: 'Kayak', eligible_tier_ids: [], eligible_group_ids: [] }],
-    anchor_activities: [{ id: 'an1', name: 'Flagpole' }],
+    fixed_events: [{ id: 'an1', name: 'Flagpole' }],
     cohorts: [],
   }
   return { ...base, ...overrides }

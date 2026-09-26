@@ -45,7 +45,7 @@ describe('synthesizeOpEvents', () => {
   })
 
   it('handles a boolean field value (coerced to \'1\'/\'0\' by applyWrite\'s coerceOpValue, same as the op-log)', () => {
-    const events = eventsFor((doc) => applyWrite(doc, { entity: 'anchor_activities', entity_id: 'anc1', field: 'is_all_groups', value: true }))
+    const events = eventsFor((doc) => applyWrite(doc, { entity: 'fixed_events', entity_id: 'anc1', field: 'is_all_groups', value: true }))
     const boolEvents = events.filter((e) => e.field === 'is_all_groups')
     expect(boolEvents).toHaveLength(1)
     expect(boolEvents[0].value).toBe('1')

@@ -437,8 +437,8 @@ describe('U2d — anchor inclusion', () => {
       author_user_id: 'u1', device_id: deviceId, client_write_id: randomUUID(),
     })
 
-    expect(undoResult.kept).toContainEqual({ entity: 'anchor_activities', entity_id: anchorId, name: 'Lunch', reason: 'still_referenced', referencedByCount: 1 })
-    expect(db.prepare('SELECT id FROM anchor_activities WHERE id = ?').get(anchorId)).toBeTruthy()
+    expect(undoResult.kept).toContainEqual({ entity: 'fixed_events', entity_id: anchorId, name: 'Lunch', reason: 'still_referenced', referencedByCount: 1 })
+    expect(db.prepare('SELECT id FROM fixed_events WHERE id = ?').get(anchorId)).toBeTruthy()
     // No FOREIGN KEY constraint failed under PRAGMA foreign_keys=ON — the
     // deletion attempt on the day/time_block that ARE deletable must not
     // throw even though the (kept) anchor still points at them.
@@ -473,13 +473,13 @@ describe('U2d — anchor inclusion', () => {
     // mint fresh ids and the rejected-slot key would never match, which
     // would test the wrong thing (id churn, not the tombstone-suppression
     // mechanism this test targets).
-    const anchorOnly = res.createdEntityIds.filter((e) => e.entity === 'anchor_activities')
+    const anchorOnly = res.createdEntityIds.filter((e) => e.entity === 'fixed_events')
     const undoResult = ingestUndo(db, {
       invertibleOps: res.invertibleOps, createdEntityIds: anchorOnly,
       author_user_id: 'u1', device_id: deviceId, client_write_id: randomUUID(),
     })
-    expect(undoResult.deleted).toContainEqual({ entity: 'anchor_activities', entity_id: anchorId })
-    expect(db.prepare('SELECT id FROM anchor_activities WHERE id = ?').get(anchorId)).toBeFalsy()
+    expect(undoResult.deleted).toContainEqual({ entity: 'fixed_events', entity_id: anchorId })
+    expect(db.prepare('SELECT id FROM fixed_events WHERE id = ?').get(anchorId)).toBeFalsy()
 
     // Reimport of the SAME fixed event, same day/time block (still live —
     // recognize-then-skip would normally no-op, but the tombstone here must
@@ -492,7 +492,7 @@ describe('U2d — anchor inclusion', () => {
     expect(reimport.held).toBe(false)
     expect(reimport.fixedEvents.created).toBe(0)
     expect(reimport.fixedEvents.rejected).toHaveLength(1)
-    const liveAnchors = db.prepare('SELECT id FROM anchor_activities WHERE camp_id = ?').all(campId)
+    const liveAnchors = db.prepare('SELECT id FROM fixed_events WHERE camp_id = ?').all(campId)
     expect(liveAnchors).toEqual([])
   })
 })

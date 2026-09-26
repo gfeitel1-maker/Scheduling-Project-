@@ -272,7 +272,7 @@ describe('reads — fetch + normalize', () => {
     const repo = createScheduleRepository({ localClient: client, getToken })
     const lists = await repo.loadSetupLists()
     expect(client.calls.list).toEqual([
-      'groups', 'days_of_operation', 'time_blocks', 'activities', 'anchor_activities', 'tiers', 'cohorts', 'locations',
+      'groups', 'days_of_operation', 'time_blocks', 'activities', 'fixed_events', 'tiers', 'cohorts', 'locations',
       'elective_sets', 'elective_set_activities', 'events',
     ])
     expect(lists.groups).toEqual([{ id: 'g1' }])

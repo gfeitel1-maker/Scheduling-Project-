@@ -114,12 +114,12 @@ function routesFor(db, rows) {
 }
 
 function anchorRows(db, day_id) {
-  return db.prepare('SELECT id FROM anchor_activities WHERE day_id = ?').all(day_id)
+  return db.prepare('SELECT id FROM fixed_events WHERE day_id = ?').all(day_id)
 }
 
 // v43 Slice 3a: elective_sets.day_id carries a real DB-level FK (schema.sql:
 // day_id TEXT REFERENCES days_of_operation(id)), same shape as
-// anchor_activities.day_id above — but unlike an anchor, an elective set is
+// fixed_events.day_id above — but unlike an anchor, an elective set is
 // a reusable, director-named entity (is_reusable), not a per-day occurrence.
 // Deleting the day therefore NULLs the binding rather than deleting the set,
 // mirroring deleteWeek.js's schedule_week_id treatment for the same table.
@@ -155,7 +155,7 @@ function camperDependents(db, group_id) {
 
 // Locations have no template_slots row to count — their references are
 // activities.location_id, week_location_exclusions.location_id,
-// anchor_activities.location_id, events.location_id,
+// fixed_events.location_id, events.location_id,
 // special_day_slots.location_id and event_slots.location_id — all no-FK
 // convention references (docs/adr/2026-08-15-locations-merge-and-delete-
 // rehome.md D1; the four newer ones added by T122 with the same posture:
@@ -170,7 +170,7 @@ function locationReferenceRows(db, location_id) {
       .prepare('SELECT id, name, max_groups_per_slot FROM activities WHERE location_id = ?')
       .all(location_id),
     exclusions: db.prepare('SELECT id FROM week_location_exclusions WHERE location_id = ?').all(location_id),
-    anchors: db.prepare('SELECT id FROM anchor_activities WHERE location_id = ?').all(location_id),
+    anchors: db.prepare('SELECT id FROM fixed_events WHERE location_id = ?').all(location_id),
     events: db.prepare('SELECT id FROM events WHERE location_id = ?').all(location_id),
     special_day_slots: db.prepare('SELECT id FROM special_day_slots WHERE location_id = ?').all(location_id),
     event_slots: db.prepare('SELECT id FROM event_slots WHERE location_id = ?').all(location_id),
@@ -337,7 +337,7 @@ function removeDayFromWeek(db, { day_id, slots, author_user_id, device_id }) {
     appendOp(db, { entity, entity_id, field: DELETE_FIELD, value: 1, author_user_id, device_id })
 
   const ops = []
-  for (const row of anchorRows(db, day_id)) ops.push(del('anchor_activities', row.id))
+  for (const row of anchorRows(db, day_id)) ops.push(del('fixed_events', row.id))
   for (const row of electiveSetRows(db, day_id)) {
     ops.push(
       appendOp(db, {
@@ -364,14 +364,14 @@ function removeDayFromWeek(db, { day_id, slots, author_user_id, device_id }) {
 //
 // Order inside the one transaction is fixed and load-bearing, mirroring the
 // existing contract below: re-count references (abort on drift) -> re-point/
-// clear activities.location_id, anchor_activities.location_id,
+// clear activities.location_id, fixed_events.location_id,
 // events.location_id, special_day_slots.location_id, event_slots.location_id
 // -> re-point/clear week_location_exclusions -> [merge only] winner capacity
 // -> delete the loser LAST (highest seq, broadcast last, so a peer has
 // already moved every reference off it).
 //
 // NULL is the correct cleared state for all five re-pointed entities, not
-// just activities: anchor_activities.location_id and events.location_id are
+// just activities: fixed_events.location_id and events.location_id are
 // documented in schema.sql as "NULL = unconstrained, identical to today's
 // behavior" (same convention as activities.location_id); special_day_slots
 // and event_slots are slot-shaped rows, but schema.sql documents their
@@ -411,7 +411,7 @@ function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to,
       push('activities', activity.id, 'location_id', reassign_to ?? null)
     }
     for (const anchor of anchors) {
-      push('anchor_activities', anchor.id, 'location_id', reassign_to ?? null)
+      push('fixed_events', anchor.id, 'location_id', reassign_to ?? null)
     }
     for (const event of events) {
       push('events', event.id, 'location_id', reassign_to ?? null)

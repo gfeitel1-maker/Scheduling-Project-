@@ -219,7 +219,7 @@ describe('resolveWeekCatalog', () => {
   })
 })
 
-// The anchors above all carry `activity_id`, a column `anchor_activities` has
+// The anchors above all carry `activity_id`, a column `fixed_events` has
 // never had (see anchorActivityLink.js). Every suppression assertion built on
 // that shape passed while the production path — a name-only anchor — matched
 // nothing and left the anchor standing. These use the real row shape.

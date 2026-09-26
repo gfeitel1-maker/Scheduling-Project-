@@ -71,9 +71,9 @@ export function buildRootMapModel(report, { answers = {}, dismissedGaps = new Se
   // Fixed-event decisions carry no entity_id at all (reconciliationReport.js's
   // addFixedEventDecision mints entityId: null for both creates AND changes —
   // fixedEventDecisionId's real identity is (name, time_block LABEL, days
-  // LABELS)). A live anchor_activities row only has time_block_id/day_id, so
+  // LABELS)). A live fixed_events row only has time_block_id/day_id, so
   // attributing it needs the same id->label maps enrichSnapshotRow would use
-  // if it had an anchor_activities branch (it doesn't).
+  // if it had an fixed_events branch (it doesn't).
   const timeBlockNameById = new Map((snapshot.time_blocks ?? []).map((t) => [t.id, t.name]))
   const dayNameById = new Map((snapshot.days_of_operation ?? []).map((d) => [d.id, d.name]))
 
@@ -85,9 +85,9 @@ export function buildRootMapModel(report, { answers = {}, dismissedGaps = new Se
 
   // A row's attributed decision (if any) — by entity_id for every ordinary
   // entity type, or by the fixed-event identity key (name, time-block label,
-  // day label) for anchor_activities, whose decisions never carry entityId.
+  // day label) for fixed_events, whose decisions never carry entityId.
   function attributedDecisionFor(entityType, row, decisions) {
-    if (entityType === 'anchor_activities') {
+    if (entityType === 'fixed_events') {
       const timeBlockName = timeBlockNameById.get(row.time_block_id) ?? null
       const dayName = dayNameById.get(row.day_id) ?? null
       return decisions.find((d) =>
@@ -118,7 +118,7 @@ export function buildRootMapModel(report, { answers = {}, dismissedGaps = new Se
     // A create-shaped decision (confirm_value, entityId: null) whose id was
     // NOT already claimed by a live row above is genuinely proposed-new —
     // true for ordinary entities (entityId is always null for creates) and
-    // for anchor_activities alike, now that attribution is tracked by id
+    // for fixed_events alike, now that attribution is tracked by id
     // rather than inferred from entityId being null.
     const proposedNew = decisions
       .filter((d) => d.kind === 'confirm_value' && d.entityId == null && !attributedIds.has(d.id))

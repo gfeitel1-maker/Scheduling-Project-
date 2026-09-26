@@ -27,7 +27,7 @@ function seedState() {
   return {
     camp: { id: 'camp1', name: 'Camp' },
     users: [], conflicts: [], devices: [], __fieldSource: {},
-    time_blocks: [], days_of_operation: [], anchor_activities: [],
+    time_blocks: [], days_of_operation: [], fixed_events: [],
     schedule_weeks: [], schedule_templates: [], schedule_snapshots: [],
     groups: [{ id: 'g1', camp_id: 'camp1', name: 'Bunk 1' }],
     locations: [

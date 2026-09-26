@@ -50,7 +50,7 @@ export const SCHEDULE_INPUT_ENTITIES = [
   'time_blocks',
   'days_of_operation',
   'activities',
-  'anchor_activities',
+  'fixed_events',
   'locations',
   'cohorts',
   'elective_sets',
@@ -103,7 +103,7 @@ export function normalizeScheduleInputs(rowsByEntity, campId) {
   // `unit_ids` (v65, T180) is the anchor's DIVISION scope and is resolved
   // live by src/engine/anchorScope.js — omitting it does not throw, it
   // silently drops the scope. See this file's header. See T63 for group_ids.
-  const anchors = raw('anchor_activities').map((x) => ({
+  const anchors = raw('fixed_events').map((x) => ({
     ...x,
     group_ids: parseIdList(x.group_ids),
     unit_ids: parseIdList(x.unit_ids),

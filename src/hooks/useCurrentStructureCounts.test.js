@@ -27,7 +27,7 @@ describe('useCurrentStructureCounts', () => {
     expect(localClient.list).toHaveBeenCalledWith('time_blocks')
     expect(localClient.list).toHaveBeenCalledWith('locations')
     expect(localClient.list).toHaveBeenCalledWith('activities')
-    expect(localClient.list).toHaveBeenCalledWith('anchor_activities')
+    expect(localClient.list).toHaveBeenCalledWith('fixed_events')
   })
 
   it('degrades a failing collection to an empty array rather than failing the whole hook', async () => {

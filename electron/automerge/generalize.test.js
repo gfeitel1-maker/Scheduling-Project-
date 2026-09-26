@@ -179,10 +179,10 @@ describe('Automerge generalization slice — multi-entity parity with the op-log
       { entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swim' },
       { entity: 'locations', entity_id: 'loc-1', field: 'camp_id', value: 'camp-1' },
       { entity: 'locations', entity_id: 'loc-1', field: 'name', value: 'Lake' },
-      { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'camp_id', value: 'camp-1' },
-      { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'cohort_id', value: 'cohort-1' },
-      { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'day_id', value: 'day-1' },
-      { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'name', value: 'Flag' },
+      { entity: 'fixed_events', entity_id: 'anchor-1', field: 'camp_id', value: 'camp-1' },
+      { entity: 'fixed_events', entity_id: 'anchor-1', field: 'cohort_id', value: 'cohort-1' },
+      { entity: 'fixed_events', entity_id: 'anchor-1', field: 'day_id', value: 'day-1' },
+      { entity: 'fixed_events', entity_id: 'anchor-1', field: 'name', value: 'Flag' },
       { entity: 'groups', entity_id: 'group-1', field: 'name', value: 'Bunk 1 (renamed)' }, // update-in-place
       { entity: 'tiers', entity_id: 'tier-1', field: '__deleted__', value: 1 }, // delete
     ]
@@ -193,7 +193,7 @@ describe('Automerge generalization slice — multi-entity parity with the op-log
     }
     projectAll(dbB, doc)
 
-    for (const entity of ['cohorts', 'days_of_operation', 'groups', 'tiers', 'time_blocks', 'activities', 'locations', 'anchor_activities']) {
+    for (const entity of ['cohorts', 'days_of_operation', 'groups', 'tiers', 'time_blocks', 'activities', 'locations', 'fixed_events']) {
       expect(rowsOf(dbB, entity)).toEqual(rowsOf(dbA, entity))
     }
     // Concrete final state, not just "both equal" — tiers should be empty
@@ -207,7 +207,7 @@ describe('Automerge generalization slice — multi-entity parity with the op-log
 })
 
 describe('Automerge generalization slice — FK-safe projectAll ordering', () => {
-  it('projects an entity that references another (anchor_activities -> cohorts/days_of_operation) without an FK error', () => {
+  it('projects an entity that references another (fixed_events -> cohorts/days_of_operation) without an FK error', () => {
     let doc = createEmptyDoc()
     doc = applyWrite(doc, { entity: 'cohorts', entity_id: 'cohort-1', field: 'camp_id', value: 'camp-1' })
     doc = applyWrite(doc, { entity: 'cohorts', entity_id: 'cohort-1', field: 'name', value: 'Session A' })
@@ -217,14 +217,14 @@ describe('Automerge generalization slice — FK-safe projectAll ordering', () =>
     doc = applyWrite(doc, { entity: 'tiers', entity_id: 'tier-1', field: 'cohort_id', value: 'cohort-1' })
     doc = applyWrite(doc, { entity: 'time_blocks', entity_id: 'tb-1', field: 'camp_id', value: 'camp-1' })
     doc = applyWrite(doc, { entity: 'time_blocks', entity_id: 'tb-1', field: 'cohort_id', value: 'cohort-1' })
-    doc = applyWrite(doc, { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'camp_id', value: 'camp-1' })
-    doc = applyWrite(doc, { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'cohort_id', value: 'cohort-1' })
-    doc = applyWrite(doc, { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'day_id', value: 'day-1' })
-    doc = applyWrite(doc, { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'name', value: 'Flag' })
+    doc = applyWrite(doc, { entity: 'fixed_events', entity_id: 'anchor-1', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'fixed_events', entity_id: 'anchor-1', field: 'cohort_id', value: 'cohort-1' })
+    doc = applyWrite(doc, { entity: 'fixed_events', entity_id: 'anchor-1', field: 'day_id', value: 'day-1' })
+    doc = applyWrite(doc, { entity: 'fixed_events', entity_id: 'anchor-1', field: 'name', value: 'Flag' })
 
     expect(() => projectAll(db, doc)).not.toThrow()
-    expect(rowsOf(db, 'anchor_activities')).toEqual([
-      { id: 'anchor-1', camp_id: 'camp-1', cohort_id: 'cohort-1', day_id: 'day-1', time_block_id: null, name: 'Flag', is_all_groups: 1, group_ids: null, notes: null, schedule_week_id: null, location_id: null, span_blocks: null, kind: 'fixed', unit_ids: null },
+    expect(rowsOf(db, 'fixed_events')).toEqual([
+      { id: 'anchor-1', camp_id: 'camp-1', cohort_id: 'cohort-1', day_id: 'day-1', time_block_id: null, name: 'Flag', is_all_groups: 1, group_ids: null, notes: null, schedule_week_id: null, location_id: null, span_blocks: null, kind: 'fixed', unit_ids: null, activity_id: null },
     ])
   })
 
@@ -349,10 +349,10 @@ describe('Automerge generalization slice — full-camp rebuildFromDoc round-trip
       { entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swim' },
       { entity: 'locations', entity_id: 'loc-1', field: 'camp_id', value: 'camp-1' },
       { entity: 'locations', entity_id: 'loc-1', field: 'name', value: 'Lake' },
-      { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'camp_id', value: 'camp-1' },
-      { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'cohort_id', value: 'cohort-1' },
-      { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'day_id', value: 'day-1' },
-      { entity: 'anchor_activities', entity_id: 'anchor-1', field: 'name', value: 'Flag' },
+      { entity: 'fixed_events', entity_id: 'anchor-1', field: 'camp_id', value: 'camp-1' },
+      { entity: 'fixed_events', entity_id: 'anchor-1', field: 'cohort_id', value: 'cohort-1' },
+      { entity: 'fixed_events', entity_id: 'anchor-1', field: 'day_id', value: 'day-1' },
+      { entity: 'fixed_events', entity_id: 'anchor-1', field: 'name', value: 'Flag' },
       // Code Reviewer LOW: broaden coverage beyond the original 8 entities to
       // every remaining direct-camp entity.
       { entity: 'camp_maps', entity_id: 'map-1', field: 'camp_id', value: 'camp-1' },
@@ -382,7 +382,7 @@ describe('Automerge generalization slice — full-camp rebuildFromDoc round-trip
     // Corrupt SQLite: junk rows + mangled fields, directly, bypassing the op-log.
     db.prepare("INSERT INTO groups (id, camp_id, name) VALUES ('junk-group', 'camp-1', 'GARBAGE')").run()
     db.prepare("UPDATE activities SET name = 'WRONG' WHERE id = 'act-1'").run()
-    db.prepare("DELETE FROM anchor_activities WHERE id = 'anchor-1'").run()
+    db.prepare("DELETE FROM fixed_events WHERE id = 'anchor-1'").run()
     db.prepare("UPDATE schedule_templates SET name = 'WRONG' WHERE id = 'tpl-1'").run()
     db.prepare("DELETE FROM camp_maps WHERE id = 'map-1'").run()
     db.prepare("UPDATE special_days SET name = 'WRONG' WHERE id = 'sd-1'").run()

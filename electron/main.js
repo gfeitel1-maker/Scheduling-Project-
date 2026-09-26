@@ -405,7 +405,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       author_user_id: session.userId,
       device_id: deviceId,
       // Recurring fixed events the director ticked, resolved to real rows and
-      // written as anchor_activities (T34). Defaults to none.
+      // written as fixed_events (T34). Defaults to none.
       fixedEvents: fixedEvents ?? [],
       // Inferred/edited activity rules (T35), keyed by activity name. Defaults
       // to none, preserving pre-T35 behaviour for callers that pass none.

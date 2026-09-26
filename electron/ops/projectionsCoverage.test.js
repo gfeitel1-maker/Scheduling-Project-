@@ -203,7 +203,7 @@ const UNRESOLVED_SPREAD_SOURCES = [
   },
   {
     file: 'src/screens/AnchorsScreen.jsx',
-    entity: 'anchor_activities',
+    entity: 'fixed_events',
     // Human-verified: `base` (saveAnchor(), `fields` from AnchorModal.save()
     // minus `selectedDays`) and `record` (import path, `row` minus
     // warning/_dayLabel/_blockName/_tierNames).
@@ -296,7 +296,7 @@ const PROJECTION_FIELD_EXCEPTIONS = {
         'Replicated read-only alongside camp bootstrap/pairing so Clients can verify camp tokens; set by host key generation, never by a renderer write.',
     },
   ],
-  anchor_activities: [
+  fixed_events: [
     {
       column: 'unit_id',
       reason:
@@ -305,7 +305,7 @@ const PROJECTION_FIELD_EXCEPTIONS = {
     {
       column: 'span_blocks',
       reason:
-        'Dead column, same era as anchor_activities.unit_id above — never read or written anywhere under src/ or electron/ besides raw replication in syncClient.js.',
+        'Dead column, same era as fixed_events.unit_id above — never read or written anywhere under src/ or electron/ besides raw replication in syncClient.js.',
     },
   ],
   conflicts: [
@@ -521,7 +521,7 @@ beforeAll(() => {
     //       <recv>.writeFields('entity', id, { ...literal } | fieldsVar)
     // The setupCrudRepository migration (PR #53) moved several Setup screens'
     // write path (groups, tiers, time_blocks, cohorts, activities,
-    // anchor_activities) off a local writeFields wrapper onto a shared
+    // fixed_events) off a local writeFields wrapper onto a shared
     // repository whose methods take the entity as their FIRST literal arg —
     // see src/data/setupCrudRepository.js. Field keys come from the last arg
     // when it is a raw object literal; screens that forward a prebuilt `fields`

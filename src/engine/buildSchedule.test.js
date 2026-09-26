@@ -39,7 +39,7 @@ describe('anchored activities excluded from regular placement', () => {
   })
 
   // T62 regression, real-row shape. The two assertions above use an anchor
-  // carrying `activity_id` — a field `anchor_activities` has never had (no
+  // carrying `activity_id` — a field `fixed_events` has never had (no
   // migration adds it; electron/ops/ingest.js writes name/day/block/scope and
   // no activity link). A real anchor references its activity BY NAME, so
   // `anchoredActivityIds` is empty in production and the T62 exclusion never
@@ -57,7 +57,7 @@ describe('anchored activities excluded from regular placement', () => {
     expect(regularLunchSlots).toHaveLength(0)
   })
 
-  // The scope half of the corrected T62 rule. `anchor_activities` holds BOTH
+  // The scope half of the corrected T62 rule. `fixed_events` holds BOTH
   // all-camp Fixed events and group-scoped Recurring ones (docs/adr/
   // 2026-08-28-fixed-vs-recurring-events.md), so a camp-wide exclusion keyed on
   // name would let one group's recurring Swim delete Swim from the whole camp.
@@ -121,7 +121,7 @@ describe('anchored activities excluded from regular placement', () => {
 })
 
 // Slice 2 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md):
-// anchor_activities.schedule_week_id (Slice 1) binds a Recurring Event to one
+// fixed_events.schedule_week_id (Slice 1) binds a Recurring Event to one
 // schedule week — NULL means all weeks (today's behavior). The engine must
 // honor that binding: a week-bound anchor is skipped entirely (never placed
 // AND never marks its activity "anchored") when the week being built doesn't
@@ -1866,7 +1866,7 @@ describe('derived time-block sort_order keeps span placement chronological (out-
 })
 
 // Fixed vs Recurring events (docs/adr/2026-08-28-fixed-vs-recurring-events.md
-// §4/§8.3): WS2 adds a classification-only `kind` column to anchor_activities
+// §4/§8.3): WS2 adds a classification-only `kind` column to fixed_events
 // — no engine change, no engine code path should ever branch on it. This is
 // the regression gate: the engine already resolves scope from unit_id/
 // is_all_groups/group_ids identically regardless of `kind` (or its absence),

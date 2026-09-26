@@ -98,9 +98,9 @@ describe('the restore allowlist is enforced, not merely documented', () => {
   it('accepts exactly the setup entities the ADR names (incl. v32 locations)', () => {
     expect([...RESTORABLE_ENTITIES].sort()).toEqual([
       'activities',
-      'anchor_activities',
       'cohorts',
       'days_of_operation',
+      'fixed_events',
       'groups',
       'locations',
       'tiers',
@@ -247,18 +247,18 @@ describe('restoreEntity refuses a colliding restore (T7 / Finding A)', () => {
     expect(db.prepare('SELECT * FROM locations WHERE id = ?').get('loc-1').name).toBe('Gym')
   })
 
-  it('does not apply the unique-field guard to a non-registered entity (anchor_activities has no UNIQUE_FIELD_ENTITIES entry)', () => {
+  it('does not apply the unique-field guard to a non-registered entity (fixed_events has no UNIQUE_FIELD_ENTITIES entry)', () => {
     // A restore for an entity absent from UNIQUE_FIELD_ENTITIES must not even
     // consult detectUniqueFieldCollision — this is the registry-driven `if
     // (uniqueConfig && ...)` guard's own opt-in. Was `groups` until T238
-    // registered it; anchor_activities is restorable (RESTORE_DECISIONS) and
+    // registered it; fixed_events is restorable (RESTORE_DECISIONS) and
     // still has no UNIQUE_FIELD_ENTITIES entry, so it exercises the same
     // "absent from the registry" branch this test targets.
-    write('anchor_activities', 'a1', 'camp_id', 'camp1')
-    write('anchor_activities', 'a1', 'kind', 'fixed')
-    del('anchor_activities', 'a1')
+    write('fixed_events', 'a1', 'camp_id', 'camp1')
+    write('fixed_events', 'a1', 'kind', 'fixed')
+    del('fixed_events', 'a1')
 
-    const result = restoreEntity(db, { entity: 'anchor_activities', entity_id: 'a1', ...session })
+    const result = restoreEntity(db, { entity: 'fixed_events', entity_id: 'a1', ...session })
 
     expect(result.ok).toBe(true)
   })

@@ -72,7 +72,7 @@ function mockList(overridesByEntity = {}) {
     days_of_operation: [day()],
     time_blocks: [timeBlock()],
     activities: [activity()],
-    anchor_activities: [],
+    fixed_events: [],
     tiers: [tier()],
     // Programs are part of the required set (src/engine/readiness.js) even
     // though buildSchedule never reads cohorts — three setup screens gate data
@@ -1162,7 +1162,7 @@ describe('ScheduleScreen — generate() is route-explicit', () => {
       days_of_operation: [day()],
       time_blocks: [timeBlock()],
       activities: [activity()],
-      anchor_activities: [],
+      fixed_events: [],
       tiers: [tier()],
       cohorts: [{ id: 'coh-1', camp_id: CAMP_ID, name: 'Main Session' }],
       schedule_weeks: [{ id: CAMP_ID, camp_id: CAMP_ID, name: 'Week 1', sort_order: 0, is_archived: 0 }],

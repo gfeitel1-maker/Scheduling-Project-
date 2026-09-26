@@ -857,7 +857,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     cohorts: 'name',
     days_of_operation: 'label',
     time_blocks: 'name',
-    anchor_activities: 'name',
+    fixed_events: 'name',
     schedule_templates: 'name',
     schedule_weeks: 'name',
     template_slots: 'activity_id',

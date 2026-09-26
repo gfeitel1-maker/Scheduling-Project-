@@ -437,7 +437,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
   })
 })
 
-// T68 — Fixed Events (anchor_activities) were destroyed by Replace but never
+// T68 — Fixed Events (fixed_events) were destroyed by Replace but never
 // named pre-confirm; the director found out only after committing, buried in
 // the aggregate success total. This also covers the split into a recoverable
 // (--accent) sub-block and an irreversible (--danger) sub-block, since both
@@ -446,7 +446,7 @@ describe('ImportScreen — Replace warning names Recurring Events and separates 
   it('warns about cleared Recurring Events with a live count when the camp has anchors, and never says "anchor"', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
-      if (entity === 'anchor_activities') return Promise.resolve([{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }])
+      if (entity === 'fixed_events') return Promise.resolve([{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }])
       return Promise.resolve([])
     })
     const { container } = render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
@@ -473,7 +473,7 @@ describe('ImportScreen — Replace warning names Recurring Events and separates 
   it('uses singular phrasing for exactly one Recurring Event', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
-      if (entity === 'anchor_activities') return Promise.resolve([{ id: 'a1' }])
+      if (entity === 'fixed_events') return Promise.resolve([{ id: 'a1' }])
       return Promise.resolve([])
     })
     await uploadFile()
@@ -486,7 +486,7 @@ describe('ImportScreen — Replace warning names Recurring Events and separates 
   it('renders the recoverable and irreversible warnings in two separate bordered containers', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
-      if (entity === 'anchor_activities') return Promise.resolve([{ id: 'a1' }])
+      if (entity === 'fixed_events') return Promise.resolve([{ id: 'a1' }])
       if (entity === 'schedule_snapshots') return Promise.resolve([{ id: 'v1' }])
       return Promise.resolve([])
     })

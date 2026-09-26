@@ -367,22 +367,23 @@ const ACKNOWLEDGED_UNKNOWNS = new Map([
         'and it touches neither the document nor the orphaned collection.',
     },
   ],
-  [
-    'v71 anchor_activities.recurrence_level',
-    {
-      blockHash: '2f1c6c3901fb',
-      why:
-        'Plain `ALTER TABLE ... DROP COLUMN recurrence_level` (T181) — the column sat in no ' +
-        'index and no CHECK constraint, so no table recreate was needed. No SELECT copies ' +
-        'or transforms any value; the column simply stops existing. Every application code ' +
-        'path only ever wrote the schema default to it (the T181 sweep established that as ' +
-        'evidence), so there is no non-default value this drop could discard.',
-    },
-  ],
+  // 'v71 anchor_activities.recurrence_level' was acknowledged here (plain `ALTER TABLE ... DROP
+  // COLUMN`, T181, same reasoning as elective_sets.recurrence_level below) until T267 (v75,
+  // docs/adr/2026-09-26-fixed-recurring-event-identity-model.md) renamed anchor_activities to
+  // fixed_events. This diffing mechanism watches MODELED table names (derived from
+  // campScopedEntities.js, which now says `fixed_events`), and v71 runs long before the v75 rename
+  // — so the table it actually alters at v71 is never observed under either watched name, and the
+  // acknowledgment stopped being produced. Removed per this describe block's own rule: "An
+  // acknowledgement outliving the thing it acknowledged... must fail rather than sit there looking
+  // like diligence." The underlying migration (v71) is unchanged and still schema-only; this is a
+  // gap in what THIS specific tracer can see across a renamed table, not a behavior change.
   [
     'v71 elective_sets.recurrence_level',
     {
-      blockHash: '2f1c6c3901fb',
+      // Hash moved when T267 (v75) rewrote this block to resolve `anchor_activities`'s live table
+      // name dynamically (anchorEventsTable()) instead of hardcoding it — the elective_sets half of
+      // this same block is untouched in behavior, only in the surrounding source text.
+      blockHash: '4a0de2af4108',
       why:
         'Plain `ALTER TABLE ... DROP COLUMN recurrence_level` (T181) — same shape and same ' +
         'reasoning as anchor_activities.recurrence_level above: no index, no CHECK, no ' +

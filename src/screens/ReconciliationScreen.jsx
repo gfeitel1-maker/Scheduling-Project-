@@ -44,7 +44,7 @@ async function fetchReadiness() {
     days: await localClient.list('days_of_operation').catch(() => []),
     timeBlocks: await localClient.list('time_blocks').catch(() => []),
     activities: await localClient.list('activities').catch(() => []),
-    anchors: await localClient.list('anchor_activities').catch(() => []),
+    anchors: await localClient.list('fixed_events').catch(() => []),
   }
   return getReadiness(collections, null)
 }

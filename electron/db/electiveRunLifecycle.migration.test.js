@@ -58,6 +58,7 @@ const tableInfo = (db, table) =>
 describe('migration v74: fresh vs migrated equivalence', () => {
   it('applied the v74 migration marker on a fresh db (v76 stacks on top — see electiveRunOuterInheritance.migration.test.js for the current-version tripwire)', () => {
     const db = freshDb()
+
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 74').get().c).toBe(1)
     db.close()
   })
@@ -258,15 +259,15 @@ describe('migration v72->v74 composition: fresh vs a genuinely-migrated database
   it('lands the genuinely-migrated database at the current schema version, same as fresh', () => {
     const fresh = freshDb()
     const migrated = v72SeededDb('v72-to-74-version')
-    initSchema(migrated) // runs the REAL v73 rebuild, then v74, v75, then v76, in one pass
+    initSchema(migrated) // runs the REAL v73 rebuild, then v74, v75, v76, then v77, in one pass
 
     // The property is "a migrated database ends up where a fresh one is", not
     // "both are at 74" — so the literal moves with every schema bump. Kept as a
     // literal rather than CURRENT_SCHEMA_VERSION on both sides, because
     // comparing two things that are both derived would pass even if the chain
-    // stopped stamping entirely. v76 (T197) is the current head.
-    expect(getSchemaVersion(fresh)).toBe(76)
-    expect(getSchemaVersion(migrated)).toBe(76)
+    // stopped stamping entirely. v77 (T267) is the current head.
+    expect(getSchemaVersion(fresh)).toBe(77)
+    expect(getSchemaVersion(migrated)).toBe(77)
 
     fresh.close()
     migrated.close()

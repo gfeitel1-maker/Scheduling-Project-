@@ -368,8 +368,8 @@ describe('deleting a group removes its week', () => {
 describe('deleting a day removes it from the week', () => {
   it('removes anchors and the slot rows no foreign key protects', () => {
     const ids = seedCamp()
-    write('anchor_activities', 'anchor-1', 'camp_id', 'camp1')
-    write('anchor_activities', 'anchor-1', 'day_id', ids.days[0])
+    write('fixed_events', 'anchor-1', 'camp_id', 'camp1')
+    write('fixed_events', 'anchor-1', 'day_id', ids.days[0])
 
     const preview = previewDelete(db, { entity: 'days_of_operation', entity_id: ids.days[0] })
     expect(preview.destructive).toBe(true)
@@ -384,7 +384,7 @@ describe('deleting a day removes it from the week', () => {
     })
     expect(result.ok).toBe(true)
     expect(db.prepare('SELECT 1 FROM days_of_operation WHERE id = ?').get(ids.days[0])).toBeFalsy()
-    expect(db.prepare('SELECT COUNT(*) n FROM anchor_activities WHERE day_id = ?').get(ids.days[0]).n).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) n FROM fixed_events WHERE day_id = ?').get(ids.days[0]).n).toBe(0)
     // The orphans a day delete leaves behind today.
     expect(db.prepare('SELECT COUNT(*) n FROM template_slots WHERE day_id = ?').get(ids.days[0]).n).toBe(0)
     expect(db.prepare('SELECT COUNT(*) n FROM schedule_snapshots').get().n).toBe(2)

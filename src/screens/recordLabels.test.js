@@ -14,7 +14,7 @@ describe('entityLabel', () => {
     expect(entityLabel('groups')).toBe('Group')
     expect(entityLabel('activities')).toBe('Activity')
     expect(entityLabel('days_of_operation')).toBe('Day')
-    expect(entityLabel('anchor_activities')).toBe('Recurring event')
+    expect(entityLabel('fixed_events')).toBe('Recurring event')
   })
 
   // W1 — vocabulary unification (docs/work/specs/2026-08-21-vocabulary-

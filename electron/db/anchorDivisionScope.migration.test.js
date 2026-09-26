@@ -3,7 +3,7 @@
 // Migration v65 — T180: a Recurring Event's DIVISION scope becomes stored data
 // instead of a group snapshot taken at save time.
 //
-// Adds `anchor_activities.unit_ids TEXT` (a JSON array of tier ids). The
+// Adds `fixed_events.unit_ids TEXT` (a JSON array of tier ids). The
 // engine resolves it live (src/engine/buildSchedule.js), so a group added to a
 // division after the event was saved is covered without a re-save — which is
 // the whole defect. `unit_id`, the legacy SINGLE-division column, is left in
@@ -38,7 +38,7 @@ function tmpFile(tag) {
   return file
 }
 
-// A db migrated fully forward, then reshaped back to the v64 anchor_activities
+// A db migrated fully forward, then reshaped back to the v64 fixed_events
 // (no unit_ids, v51's narrower CHECK) so the v65 block can be exercised.
 function preV65Db(tag = 'v65-pre') {
   const db = new Database(tmpFile(tag))
@@ -46,8 +46,8 @@ function preV65Db(tag = 'v65-pre') {
   initSchema(db)
   db.pragma('foreign_keys = OFF')
   db.exec(`
-    ALTER TABLE anchor_activities RENAME TO anchor_activities_tmp;
-    CREATE TABLE anchor_activities (
+    ALTER TABLE fixed_events RENAME TO fixed_events_tmp;
+    CREATE TABLE fixed_events (
       id TEXT PRIMARY KEY,
       camp_id TEXT NOT NULL REFERENCES camps(id),
       cohort_id TEXT REFERENCES cohorts(id),
@@ -69,40 +69,39 @@ function preV65Db(tag = 'v65-pre') {
             AND (group_ids IS NULL OR group_ids = '[]'))
       )
     );
-    -- recurrence_level is intentionally NOT selected from anchor_activities_tmp —
+    -- recurrence_level is intentionally NOT selected from fixed_events_tmp —
     -- that table came from a fully-migrated (head, v71) db, which no longer has
     -- the column (T181 dropped it). It is declared above with its own DEFAULT
     -- instead, matching the value it always held anyway (v42's DEFAULT 'daily').
-    INSERT INTO anchor_activities
+    INSERT INTO fixed_events
       (id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
        is_all_groups, group_ids, notes, schedule_week_id, location_id, kind)
       SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
              is_all_groups, group_ids, notes, schedule_week_id,
              location_id, kind
-      FROM anchor_activities_tmp;
-    DROP TABLE anchor_activities_tmp;
+      FROM fixed_events_tmp;
+    DROP TABLE fixed_events_tmp;
   `)
   db.prepare('DELETE FROM schema_migrations WHERE version >= 65').run()
   db.pragma('foreign_keys = ON')
   return db
 }
 
-describe('v65 — anchor_activities.unit_ids (division scope)', () => {
+describe('v65 — fixed_events.unit_ids (division scope)', () => {
   it('a fresh db lands at CURRENT_SCHEMA_VERSION and carries unit_ids', () => {
     const db = openLocalDb(tmpFile('v65-fresh'))
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(76)
-    const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+    expect(CURRENT_SCHEMA_VERSION).toBe(77)
     expect(cols).toContain('unit_ids')
     expect(cols).toContain('unit_id')
     db.close()
   })
 
-  it('a migrated db ends up with the same anchor_activities shape as a fresh one', () => {
+  it('a migrated db ends up with the same fixed_events shape as a fresh one', () => {
     const fresh = openLocalDb(tmpFile('v65-shape-fresh'))
     const migrated = preV65Db('v65-shape-mig')
     initSchema(migrated)
-    const shape = (d) => d.pragma('table_info(anchor_activities)').map((c) => `${c.name}:${c.type}:${c.notnull}:${c.dflt_value}`)
+    const shape = (d) => d.pragma('table_info(fixed_events)').map((c) => `${c.name}:${c.type}:${c.notnull}:${c.dflt_value}`)
     expect(shape(migrated)).toEqual(shape(fresh))
     fresh.close()
     migrated.close()
@@ -112,7 +111,7 @@ describe('v65 — anchor_activities.unit_ids (division scope)', () => {
     const db = preV65Db('v65-backfill')
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     const ins = db.prepare(
-      "INSERT INTO anchor_activities (id, camp_id, name, kind, unit_id, is_all_groups, group_ids) VALUES (?, 'camp1', ?, ?, ?, ?, ?)"
+      "INSERT INTO fixed_events (id, camp_id, name, kind, unit_id, is_all_groups, group_ids) VALUES (?, 'camp1', ?, ?, ?, ?, ?)"
     )
     ins.run('a-unit', 'Division Swim', 'recurring', 't1', 0, null)
     ins.run('a-groups', 'Snapshot Swim', 'recurring', null, 0, JSON.stringify(['g1']))
@@ -121,7 +120,7 @@ describe('v65 — anchor_activities.unit_ids (division scope)', () => {
     initSchema(db)
 
     const rows = Object.fromEntries(
-      db.prepare('SELECT id, unit_id, unit_ids, group_ids FROM anchor_activities').all().map((r) => [r.id, r])
+      db.prepare('SELECT id, unit_id, unit_ids, group_ids FROM fixed_events').all().map((r) => [r.id, r])
     )
     expect(JSON.parse(rows['a-unit'].unit_ids)).toEqual(['t1'])
     // The legacy column is NOT cleared: rolling back past v65 must not lose the scope.
@@ -140,28 +139,28 @@ describe('v65 — anchor_activities.unit_ids (division scope)', () => {
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     expect(() =>
       db.prepare(
-        "INSERT INTO anchor_activities (id, camp_id, name, kind, unit_ids, is_all_groups) VALUES ('x', 'camp1', 'Lunch', 'fixed', ?, 1)"
+        "INSERT INTO fixed_events (id, camp_id, name, kind, unit_ids, is_all_groups) VALUES ('x', 'camp1', 'Lunch', 'fixed', ?, 1)"
       ).run(JSON.stringify(['t1']))
     ).toThrow(/CHECK constraint failed/)
     // An empty array is not a scope claim, so a fixed row may carry it.
     expect(() =>
       db.prepare(
-        "INSERT INTO anchor_activities (id, camp_id, name, kind, unit_ids, is_all_groups) VALUES ('y', 'camp1', 'Lunch', 'fixed', '[]', 1)"
+        "INSERT INTO fixed_events (id, camp_id, name, kind, unit_ids, is_all_groups) VALUES ('y', 'camp1', 'Lunch', 'fixed', '[]', 1)"
       ).run()
     ).not.toThrow()
     // A recurring row may carry unit_ids — that is the point.
     expect(() =>
       db.prepare(
-        "INSERT INTO anchor_activities (id, camp_id, name, kind, unit_ids, is_all_groups) VALUES ('z', 'camp1', 'Swim', 'recurring', ?, 0)"
+        "INSERT INTO fixed_events (id, camp_id, name, kind, unit_ids, is_all_groups) VALUES ('z', 'camp1', 'Swim', 'recurring', ?, 0)"
       ).run(JSON.stringify(['t1', 't2']))
     ).not.toThrow()
     db.close()
   })
 
-  it('schema.sql and localDb.js agree on the anchor_activities shape', () => {
+  it('schema.sql and localDb.js agree on the fixed_events shape', () => {
     const schemaText = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
-    const match = schemaText.match(/CREATE TABLE IF NOT EXISTS anchor_activities \([\s\S]*?\n\);/)
-    expect(match, 'expected an anchor_activities CREATE TABLE block in schema.sql').toBeTruthy()
+    const match = schemaText.match(/CREATE TABLE IF NOT EXISTS fixed_events \([\s\S]*?\n\);/)
+    expect(match, 'expected an fixed_events CREATE TABLE block in schema.sql').toBeTruthy()
     expect(match[0]).toContain('unit_ids TEXT')
     expect(match[0]).toContain("unit_ids IS NULL OR unit_ids = '[]'")
   })

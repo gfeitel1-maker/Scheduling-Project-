@@ -60,7 +60,7 @@ export const NAV_SECTIONS = [
       // pattern as SCHEDULE_ROUTE_BY_SCREEN's fixed `route` prop) — not two
       // separate screens (§7's routing question, resolved this way per WS1's
       // nav entry + WS2's data model landing together). AREA_TABLE below
-      // still counts the whole anchor_activities table for both rows
+      // still counts the whole fixed_events table for both rows
       // (unfiltered by kind) — a known limitation, not a WS2 requirement.
       // buildSchedule.js places both first and locks their cells before
       // anything else can be scheduled (see src/engine/readiness.js
@@ -165,12 +165,12 @@ export const AREA_TABLE = {
   timeblocks: 'time_blocks',
   activities: 'activities',
   locations: 'locations',
-  // Both rows read anchor_activities, but they are not the same rows: the two
+  // Both rows read fixed_events, but they are not the same rows: the two
   // were deliberately un-conflated (ADR 2026-08-28-fixed-vs-recurring-events)
   // and the counts did not follow, so the sidebar showed "Fixed Events 112"
   // beside "Recurring Events 112" — the same 112 rows, reported twice (T124).
-  fixedevents: { table: 'anchor_activities', kind: 'fixed' },
-  anchors: { table: 'anchor_activities', kind: 'recurring' },
+  fixedevents: { table: 'fixed_events', kind: 'fixed' },
+  anchors: { table: 'fixed_events', kind: 'recurring' },
   electives: 'elective_sets',
   // No entry for 'specialevents': the merged row spans two tables
   // (special_days + events) and AREA_TABLE only supports a single table per

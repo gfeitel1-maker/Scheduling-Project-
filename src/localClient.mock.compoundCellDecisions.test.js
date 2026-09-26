@@ -35,7 +35,7 @@ function seedState() {
     locations: [],
     activities: [],
     cohorts: [],
-    anchor_activities: [],
+    fixed_events: [],
   }
 }
 

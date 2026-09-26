@@ -44,7 +44,7 @@ afterEach(() => {
   if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
 })
 
-const anchorRows = () => db.prepare('SELECT * FROM anchor_activities WHERE camp_id = ?').all(campId)
+const anchorRows = () => db.prepare('SELECT * FROM fixed_events WHERE camp_id = ?').all(campId)
 const tierIdOf = (name) => db.prepare('SELECT id FROM tiers WHERE camp_id = ? AND name = ?').get(campId, name)?.id
 const commit = (extra) => commitIngest(db, { camp_id: campId, cohort_id: null, author_user_id: 'u1', device_id: deviceId, ...extra })
 
@@ -68,7 +68,7 @@ function seedDivisionScopedAnchor() {
   commit({ approved: APPROVED, links: LINKS, fixedEvents: [SWIM], mode: 'add' })
   const jid = tierIdOf('Juniors')
   const [anchor] = anchorRows()
-  db.prepare("UPDATE anchor_activities SET is_all_groups = 0, group_ids = '[]', unit_ids = ? WHERE id = ?")
+  db.prepare("UPDATE fixed_events SET is_all_groups = 0, group_ids = '[]', unit_ids = ? WHERE id = ?")
     .run(JSON.stringify([jid]), anchor.id)
   return jid
 }
@@ -133,7 +133,7 @@ describe('T183 PR-2 — Replace re-import preserves director-set division scope'
     commit({ approved: approvedMonTue, links: LINKS, fixedEvents: [swimMonTue], mode: 'add' })
     const jid = tierIdOf('Juniors')
     for (const anchor of anchorRows()) {
-      db.prepare("UPDATE anchor_activities SET is_all_groups = 0, group_ids = '[]', unit_ids = ? WHERE id = ?")
+      db.prepare("UPDATE fixed_events SET is_all_groups = 0, group_ids = '[]', unit_ids = ? WHERE id = ?")
         .run(JSON.stringify([jid]), anchor.id)
     }
 
@@ -162,7 +162,7 @@ describe('T183 PR-2 — Replace re-import preserves director-set division scope'
     const tier = db.prepare('SELECT id FROM tiers WHERE camp_id = ? AND (name = ? OR name = ?)').get(campId, WS, WS.trim())
     expect(tier).toBeTruthy()
     const [anchor] = anchorRows()
-    db.prepare("UPDATE anchor_activities SET is_all_groups = 0, group_ids = '[]', unit_ids = ? WHERE id = ?")
+    db.prepare("UPDATE fixed_events SET is_all_groups = 0, group_ids = '[]', unit_ids = ? WHERE id = ?")
       .run(JSON.stringify([tier.id]), anchor.id)
 
     const res = commit({ approved, links, fixedEvents: [SWIM], mode: 'replace' })

@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// Migration v51 — Fixed vs Recurring events: anchor_activities.kind
+// Migration v51 — Fixed vs Recurring events: fixed_events.kind
 // (docs/adr/2026-08-28-fixed-vs-recurring-events.md §5/§8). Adds
 // `kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring'))`
 // plus a table-level CHECK enforcing the §1 decision table as a stored
@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './localDb.js'
 import { rollbackV51 } from './rollback/v51_down.js'
+import { rollbackV75 } from './rollback/v75_down.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const files = []
@@ -45,14 +46,14 @@ function freshDb() {
 }
 
 // A database migrated fully forward, then rolled back to the v50 shape (no
-// anchor_activities.kind column, no CHECK), so v51 can be exercised against it.
+// fixed_events.kind column, no CHECK), so v51 can be exercised against it.
 function preV51Db(tag = 'v51-migrated') {
   const db = new Database(tmpFile(tag))
   db.pragma('foreign_keys = ON')
   initSchema(db) // fully migrate to current
   db.pragma('foreign_keys = OFF')
-  db.exec('ALTER TABLE anchor_activities RENAME TO anchor_activities_tmp')
-  db.exec(`CREATE TABLE anchor_activities (
+  db.exec('ALTER TABLE fixed_events RENAME TO fixed_events_tmp')
+  db.exec(`CREATE TABLE fixed_events (
     id TEXT PRIMARY KEY,
     camp_id TEXT NOT NULL REFERENCES camps(id),
     cohort_id TEXT REFERENCES cohorts(id),
@@ -68,17 +69,17 @@ function preV51Db(tag = 'v51-migrated') {
     recurrence_level TEXT NOT NULL DEFAULT 'daily',
     location_id TEXT
   )`)
-  // recurrence_level is intentionally NOT selected from anchor_activities_tmp —
+  // recurrence_level is intentionally NOT selected from fixed_events_tmp —
   // that table came from a fully-migrated (head, v71) db, which no longer has
   // the column (T181 dropped it). It is declared above with its own DEFAULT
   // instead, matching the value it always held anyway (v42's DEFAULT 'daily').
-  db.exec(`INSERT INTO anchor_activities
+  db.exec(`INSERT INTO fixed_events
     (id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
      is_all_groups, group_ids, notes, schedule_week_id, location_id)
     SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
            is_all_groups, group_ids, notes, schedule_week_id, location_id
-    FROM anchor_activities_tmp`)
-  db.exec('DROP TABLE anchor_activities_tmp')
+    FROM fixed_events_tmp`)
+  db.exec('DROP TABLE fixed_events_tmp')
   db.pragma('foreign_keys = ON')
   db.prepare('DELETE FROM schema_migrations WHERE version >= 51').run()
   return db
@@ -90,12 +91,12 @@ const tableInfo = (db, table) =>
   }))
 
 describe('migration v51: fresh vs migrated equivalence', () => {
-  it('declares schema version 51 on a fresh db and gives anchor_activities the kind column', () => {
+  it('declares schema version 51 on a fresh db and gives fixed_events the kind column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(76)
+    expect(CURRENT_SCHEMA_VERSION).toBe(77)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 51').get().c).toBe(1)
-    const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+    const cols = db.pragma('table_info(fixed_events)').map((c) => c.name)
     expect(cols).toContain('kind')
     db.close()
   })
@@ -108,28 +109,29 @@ describe('migration v51: fresh vs migrated equivalence', () => {
     db.close()
   })
 
-  it('gives fresh and migrated identical anchor_activities columns', () => {
+  it('gives fresh and migrated identical fixed_events columns', () => {
     const fresh = freshDb()
     const migrated = preV51Db()
     initSchema(migrated)
-    expect(tableInfo(migrated, 'anchor_activities')).toEqual(tableInfo(fresh, 'anchor_activities'))
+    expect(tableInfo(migrated, 'fixed_events')).toEqual(tableInfo(fresh, 'fixed_events'))
     fresh.close()
     migrated.close()
   }, 30000)
 
-  it('declares anchor_activities columns in order, kind last', () => {
+  it('declares fixed_events columns in order, kind last', () => {
     const db = freshDb()
-    expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).toEqual([
+    expect(db.pragma('table_info(fixed_events)').map((c) => c.name)).toEqual([
       'id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks',
       'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'location_id', 'kind', 'unit_ids',
+      'activity_id',
     ])
     db.close()
   })
 
-  it('schema.sql and localDb.js agree on the anchor_activities CREATE TABLE shape', () => {
+  it('schema.sql and localDb.js agree on the fixed_events CREATE TABLE shape', () => {
     const schemaText = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
-    const match = schemaText.match(/CREATE TABLE IF NOT EXISTS anchor_activities \([\s\S]*?\n\);/)
-    expect(match, 'expected an anchor_activities CREATE TABLE block in schema.sql').toBeTruthy()
+    const match = schemaText.match(/CREATE TABLE IF NOT EXISTS fixed_events \([\s\S]*?\n\);/)
+    expect(match, 'expected an fixed_events CREATE TABLE block in schema.sql').toBeTruthy()
     expect(match[0]).toContain("kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring'))")
   })
 
@@ -142,7 +144,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
       db.prepare("INSERT INTO groups (id, camp_id, name, tier_id) VALUES ('g2', 'camp1', 'Group 2', 't1')").run()
 
       const insertAnchor = db.prepare(
-        `INSERT INTO anchor_activities (id, camp_id, name, unit_id, is_all_groups, group_ids)
+        `INSERT INTO fixed_events (id, camp_id, name, unit_id, is_all_groups, group_ids)
          VALUES (?, ?, ?, ?, ?, ?)`
       )
       // (a) all-groups anchor — no unit_id, is_all_groups=1, no group_ids.
@@ -170,7 +172,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
 
       initSchema(db) // runs v51
 
-      const kindOf = (id) => db.prepare('SELECT kind FROM anchor_activities WHERE id = ?').get(id).kind
+      const kindOf = (id) => db.prepare('SELECT kind FROM fixed_events WHERE id = ?').get(id).kind
       expect(kindOf('a-all')).toBe('fixed')
       expect(kindOf('a-unit')).toBe('recurring')
       expect(kindOf('a-subset')).toBe('recurring')
@@ -183,7 +185,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
       const opCountAfter = db.prepare('SELECT COUNT(*) c FROM operations').get().c
       expect(opCountAfter).toBe(opCountBefore)
       expect(
-        db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'anchor_activities' AND field = 'kind'").get().c
+        db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'fixed_events' AND field = 'kind'").get().c
       ).toBe(0)
       db.close()
     })
@@ -194,7 +196,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     expect(() =>
       db.prepare(
-        `INSERT INTO anchor_activities (id, camp_id, name, kind, is_all_groups, group_ids)
+        `INSERT INTO fixed_events (id, camp_id, name, kind, is_all_groups, group_ids)
          VALUES ('bad', 'camp1', 'Invalid Fixed', 'fixed', 0, '["g1"]')`
       ).run()
     ).toThrow(/CHECK constraint failed/)
@@ -206,7 +208,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     expect(() =>
       db.prepare(
-        `INSERT INTO anchor_activities (id, camp_id, name, kind, unit_id, is_all_groups)
+        `INSERT INTO fixed_events (id, camp_id, name, kind, unit_id, is_all_groups)
          VALUES ('bad2', 'camp1', 'Invalid Fixed', 'fixed', 't1', 1)`
       ).run()
     ).toThrow(/CHECK constraint failed/)
@@ -218,13 +220,13 @@ describe('migration v51: fresh vs migrated equivalence', () => {
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     expect(() =>
       db.prepare(
-        `INSERT INTO anchor_activities (id, camp_id, name, kind, is_all_groups, group_ids)
+        `INSERT INTO fixed_events (id, camp_id, name, kind, is_all_groups, group_ids)
          VALUES ('good-fixed', 'camp1', 'Flagpole', 'fixed', 1, NULL)`
       ).run()
     ).not.toThrow()
     expect(() =>
       db.prepare(
-        `INSERT INTO anchor_activities (id, camp_id, name, kind, is_all_groups, group_ids)
+        `INSERT INTO fixed_events (id, camp_id, name, kind, is_all_groups, group_ids)
          VALUES ('good-recurring', 'camp1', 'Lunch', 'recurring', 0, '["g1"]')`
       ).run()
     ).not.toThrow()
@@ -235,22 +237,22 @@ describe('migration v51: fresh vs migrated equivalence', () => {
     const db = preV51Db()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare(
-      "INSERT INTO anchor_activities (id, camp_id, name, unit_id, is_all_groups, group_ids) VALUES ('a1', 'camp1', 'Division Swim', 't1', 0, NULL)"
+      "INSERT INTO fixed_events (id, camp_id, name, unit_id, is_all_groups, group_ids) VALUES ('a1', 'camp1', 'Division Swim', 't1', 0, NULL)"
     ).run()
     initSchema(db) // runs v51
-    expect(db.prepare('SELECT kind FROM anchor_activities WHERE id = ?').get('a1').kind).toBe('recurring')
-    db.prepare("UPDATE anchor_activities SET kind = 'recurring' WHERE id = 'a1'").run()
+    expect(db.prepare('SELECT kind FROM fixed_events WHERE id = ?').get('a1').kind).toBe('recurring')
+    db.prepare("UPDATE fixed_events SET kind = 'recurring' WHERE id = 'a1'").run()
     db.prepare('DELETE FROM schema_migrations WHERE version >= 51').run()
     initSchema(db) // re-run v51 (no-op: column already present)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(db.pragma('table_info(anchor_activities)').filter((c) => c.name === 'kind')).toHaveLength(1)
-    expect(db.prepare('SELECT kind FROM anchor_activities WHERE id = ?').get('a1').kind).toBe('recurring')
+    expect(db.pragma('table_info(fixed_events)').filter((c) => c.name === 'kind')).toHaveLength(1)
+    expect(db.prepare('SELECT kind FROM fixed_events WHERE id = ?').get('a1').kind).toBe('recurring')
     db.close()
   })
 
   describe('cross-device backfill determinism', () => {
     // §5's "same device-independent function" claim, made executable: two DB
-    // fixtures seeded with the same anchor_activities rows in different
+    // fixtures seeded with the same fixed_events rows in different
     // insertion order must produce identical kind values after migrating.
     it('produces identical kind values regardless of row insertion order', () => {
       const rows = [
@@ -263,7 +265,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
       const dbA = preV51Db('order-a')
       dbA.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
       const insertA = dbA.prepare(
-        'INSERT INTO anchor_activities (id, camp_id, name, unit_id, is_all_groups, group_ids) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO fixed_events (id, camp_id, name, unit_id, is_all_groups, group_ids) VALUES (?, ?, ?, ?, ?, ?)'
       )
       for (const r of rows) insertA.run(r.id, 'camp1', r.id, r.unit_id, r.is_all_groups, r.group_ids)
       initSchema(dbA)
@@ -271,14 +273,14 @@ describe('migration v51: fresh vs migrated equivalence', () => {
       const dbB = preV51Db('order-b')
       dbB.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
       const insertB = dbB.prepare(
-        'INSERT INTO anchor_activities (id, camp_id, name, unit_id, is_all_groups, group_ids) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO fixed_events (id, camp_id, name, unit_id, is_all_groups, group_ids) VALUES (?, ?, ?, ?, ?, ?)'
       )
       for (const r of [...rows].reverse()) insertB.run(r.id, 'camp1', r.id, r.unit_id, r.is_all_groups, r.group_ids)
       initSchema(dbB)
 
       const kindsOf = (db) =>
         Object.fromEntries(
-          db.prepare('SELECT id, kind FROM anchor_activities ORDER BY id').all().map((r) => [r.id, r.kind])
+          db.prepare('SELECT id, kind FROM fixed_events ORDER BY id').all().map((r) => [r.id, r.kind])
         )
       expect(kindsOf(dbA)).toEqual(kindsOf(dbB))
       expect(kindsOf(dbA)).toEqual({ r1: 'fixed', r2: 'recurring', r3: 'recurring', r4: 'fixed' })
@@ -311,9 +313,9 @@ describe('FK enforcement survives a migration (success and forced failure)', () 
   it('leaves foreign_keys=ON even when the v51 DDL throws partway', () => {
     const db = preV51Db('v51-fk-throw')
     // Sabotage: a stray table with the migration's scratch name makes the
-    // block's `CREATE TABLE anchor_activities_v51` throw before it finishes,
+    // block's `CREATE TABLE fixed_events_v51` throw before it finishes,
     // exercising the throw path through the finally.
-    db.exec('CREATE TABLE anchor_activities_v51 (id TEXT)')
+    db.exec('CREATE TABLE fixed_events_v51 (id TEXT)')
     expect(() => initSchema(db)).toThrow()
     expect(db.pragma('foreign_keys', { simple: true })).toBe(1)
     db.close()
@@ -325,12 +327,16 @@ describe('rollbackV51', () => {
     const db = freshDb()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare(
-      "INSERT INTO anchor_activities (id, camp_id, name, kind, is_all_groups, group_ids) VALUES ('a1', 'camp1', 'Flagpole', 'fixed', 1, NULL)"
+      "INSERT INTO fixed_events (id, camp_id, name, kind, is_all_groups, group_ids) VALUES ('a1', 'camp1', 'Flagpole', 'fixed', 1, NULL)"
     ).run()
     db.prepare(
-      "INSERT INTO anchor_activities (id, camp_id, name, kind, unit_id, is_all_groups) VALUES ('a2', 'camp1', 'Division Swim', 'recurring', 't1', 0)"
+      "INSERT INTO fixed_events (id, camp_id, name, kind, unit_id, is_all_groups) VALUES ('a2', 'camp1', 'Division Swim', 'recurring', 't1', 0)"
     ).run()
 
+    // v75 (T267) renamed anchor_activities -> fixed_events; v51_down.js operates on the table's
+    // pre-v75 name, so undo the rename first — the real descending-rollback order (highest version
+    // first) — before exercising v51's own rollback in isolation.
+    rollbackV75(db)
     const result = rollbackV51(db)
     expect(result).toEqual({ recurringDiscarded: 1 })
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
@@ -342,21 +348,23 @@ describe('rollbackV51', () => {
 
   it('still works on a db that has ALSO taken v71 (recurrence_level already dropped) — the reverse-ordering hazard', () => {
     // v51_down.js's recreate step used to assume recurrence_level always exists
-    // on anchor_activities. Once v71 (T181) drops it, rolling back v51 on a
+    // on fixed_events. Once v71 (T181) drops it, rolling back v51 on a
     // head db hits that column during the recreate unless the step is made
     // conditional — this is the exact case v51_down.js's `hasRecurrenceLevel`
     // guard exists for. Non-vacuous: confirm the pre-state (head, v71 applied,
     // column absent) before calling rollbackV51.
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(76)
-    expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).not.toContain('recurrence_level')
+    expect(CURRENT_SCHEMA_VERSION).toBe(77)
+    expect(db.pragma('table_info(fixed_events)').map((c) => c.name)).not.toContain('recurrence_level')
 
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare(
-      "INSERT INTO anchor_activities (id, camp_id, name, kind, is_all_groups, group_ids) VALUES ('a1', 'camp1', 'Flagpole', 'fixed', 1, NULL)"
+      "INSERT INTO fixed_events (id, camp_id, name, kind, is_all_groups, group_ids) VALUES ('a1', 'camp1', 'Flagpole', 'fixed', 1, NULL)"
     ).run()
 
+    // Same descending-rollback-order note as the test above.
+    rollbackV75(db)
     expect(() => rollbackV51(db)).not.toThrow()
 
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)

@@ -177,7 +177,7 @@ describe('migration v73: fresh vs migrated equivalence (load-bearing per the ADR
   }, 30000)
 
   it('declares CURRENT_SCHEMA_VERSION as 73', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(76)
+    expect(CURRENT_SCHEMA_VERSION).toBe(77)
   })
 
   it('is idempotent — re-running v73 does not duplicate tables, indexes, or rows', () => {
@@ -337,14 +337,14 @@ describe('migration v73: FK-dependent rows across all ten relaxed tables survive
     write('week_location_exclusions', 'wle-1', 'week_id', 'week-1')
     write('week_location_exclusions', 'wle-1', 'location_id', 'loc-1')
 
-    // schedule_week_id deliberately not set here: anchor_activities projects BEFORE
+    // schedule_week_id deliberately not set here: fixed_events projects BEFORE
     // schedule_weeks in MODELED_ORDER (electron/ops/campScopedEntities.js's DOMAIN_SNAPSHOT_ORDER),
     // so setting it would trip the FK check inside projectAll itself, before the migration is even
     // reached — a pre-existing projector ordering fact, not something this test should route around
     // with a non-write-path insert. The schedule_weeks parent-edge is still exercised below via
     // schedule_templates/week_*_exclusions/elective_sets, which DO project after schedule_weeks.
-    write('anchor_activities', 'anchor-1', 'camp_id', 'camp-1')
-    write('anchor_activities', 'anchor-1', 'cohort_id', 'cohort-1')
+    write('fixed_events', 'anchor-1', 'camp_id', 'camp-1')
+    write('fixed_events', 'anchor-1', 'cohort_id', 'cohort-1')
 
     write('elective_set_activities', 'esa-1', 'elective_set_id', 'elset-1')
     write('elective_set_activities', 'esa-1', 'activity_id', 'activity-1')

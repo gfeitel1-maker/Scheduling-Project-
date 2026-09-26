@@ -27,10 +27,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // v67 (T162, device_identity_key), v68 (T195, elective_set_activities.status), v69 (T210,
 // rendezvous_sequence), v70 (T205, days_of_operation dedupe), v71 (T181, recurrence_level
 // removal), v72 (T233, tombstones — multi-device erasure propagation), v73 (T241, relax
-// ten name-UNIQUE constraints so a merged document's colliding records both project), and v74
-// (T243, elective run lifecycle: finalized_at/finalized_by + elective_run_outer_snapshots) all
-// land in this file; 74 is the current version.
-export const CURRENT_SCHEMA_VERSION = 76
+// ten name-UNIQUE constraints so a merged document's colliding records both project), v74
+// (T243, elective run lifecycle: finalized_at/finalized_by + elective_run_outer_snapshots), v75
+// (T266, docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md — activities.
+// catalog_role), v76 (T197, docs/adr/2026-09-26-elective-run-outer-inheritance-and-linked-choice-
+// export.md), and v77 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md —
+// anchor_activities renamed to fixed_events, gains activity_id) all land in this file; 77 is the
+// current version.
+export const CURRENT_SCHEMA_VERSION = 77
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -42,6 +46,24 @@ export function initSchema(db) {
   // version on an already-fully-migrated (v53) database.
   const tableExists = (name) =>
     !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name)
+  // T267 (v75): `anchor_activities` is renamed to `fixed_events` at v75. Every migration block
+  // BELOW v75 that touches this table's shape (v16, v42, v45, v51, v65, v71) or repoints a
+  // reference into it (v11, v70) was written against the pre-rename name, and stays that way for a
+  // REAL pre-v75 database — schema.sql's `CREATE TABLE IF NOT EXISTS fixed_events` at the top of
+  // every initSchema() call means `fixed_events` ALWAYS trivially exists too (even on a genuinely
+  // fresh install, before any migration block ran), so "prefer fixed_events when it exists" is not
+  // a real discriminator — it would orphan the freshly-created `anchor_activities` scratch table
+  // that v10 through v71 are supposed to build up together, and v75 would then rename that sparse
+  // orphan over the real, fully-built `fixed_events`, losing every column those blocks added.
+  // `anchor_activities` existing is the true signal: it means a real (or replaying-from-scratch)
+  // pre-v75 table is present and that is what these blocks must keep building. Only when
+  // `anchor_activities` is genuinely absent — a db that already carries the completed rename from
+  // an earlier initSchema() call, e.g. a test that rolls schema_migrations back on OTHER tables
+  // only and replays from an earlier version, or a test fixture that constructs an old-shaped table
+  // directly under the FINAL name — do these blocks fall back to `fixed_events`, and in that case
+  // each block's own `cols.includes(...)` check still guards against re-adding a column already
+  // there.
+  const anchorEventsTable = () => (tableExists('anchor_activities') ? 'anchor_activities' : 'fixed_events')
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
   db.exec(schema)
   db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)').run(
@@ -395,8 +417,13 @@ export function initSchema(db) {
             keepRow.id,
             dupeId
           )
+          // T267 (v75): the table is `anchor_activities` on a real pre-v75 db, but ALREADY
+          // `fixed_events` on a db that took the v75 rename in an earlier initSchema() call (e.g. a
+          // test that rolls schema_migrations back on OTHER tables only, then replays from an
+          // earlier version, while this table stays at head shape throughout) — repoint whichever
+          // of the two currently exists, never assume the pre-rename name unconditionally.
           db.prepare(
-            'UPDATE anchor_activities SET cohort_id = ? WHERE cohort_id = ?'
+            `UPDATE ${anchorEventsTable()} SET cohort_id = ? WHERE cohort_id = ?`
           ).run(keepRow.id, dupeId)
         }
       }
@@ -665,13 +692,19 @@ export function initSchema(db) {
   if (getSchemaVersion(db) < 16) {
     db.transaction(() => {
       const addColumnIfMissing = (table, name, type) => {
-        const has = db.pragma(`table_info(${table})`).some((col) => col.name === name)
+        const cols = db.pragma(`table_info(${table})`)
+        if (cols.length === 0) return
+        const has = cols.some((col) => col.name === name)
         if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
       }
 
-      addColumnIfMissing('anchor_activities', 'time_block_id', 'TEXT')
-      addColumnIfMissing('anchor_activities', 'name', 'TEXT')
-      addColumnIfMissing('anchor_activities', 'notes', 'TEXT')
+      // T267 (v75): resolved through anchorEventsTable() rather than hardcoded, since a caller may
+      // hand this a db already at the final `fixed_events` name/shape with schema_migrations rolled
+      // back to before v16 — see that helper's own comment.
+      const anchorTable = anchorEventsTable()
+      addColumnIfMissing(anchorTable, 'time_block_id', 'TEXT')
+      addColumnIfMissing(anchorTable, 'name', 'TEXT')
+      addColumnIfMissing(anchorTable, 'notes', 'TEXT')
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (16, ?)').run(
@@ -1722,12 +1755,14 @@ export function initSchema(db) {
   // DDL-time side effect, so this block emits no op, same posture as v33-v41.
   if (getSchemaVersion(db) >= 41 && getSchemaVersion(db) < 42) {
     db.transaction(() => {
-      const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+      // T267 (v75): resolved through anchorEventsTable() — see that helper's comment.
+      const anchorTable = anchorEventsTable()
+      const cols = db.pragma(`table_info(${anchorTable})`).map((c) => c.name)
       if (!cols.includes('schedule_week_id')) {
-        db.exec('ALTER TABLE anchor_activities ADD COLUMN schedule_week_id TEXT')
+        db.exec(`ALTER TABLE ${anchorTable} ADD COLUMN schedule_week_id TEXT`)
       }
       if (!cols.includes('recurrence_level')) {
-        db.exec("ALTER TABLE anchor_activities ADD COLUMN recurrence_level TEXT NOT NULL DEFAULT 'daily'")
+        db.exec(`ALTER TABLE ${anchorTable} ADD COLUMN recurrence_level TEXT NOT NULL DEFAULT 'daily'`)
       }
     })()
 
@@ -1808,9 +1843,11 @@ export function initSchema(db) {
   // posture as v33-v44.
   if (getSchemaVersion(db) >= 44 && getSchemaVersion(db) < 45) {
     db.transaction(() => {
-      const anchorCols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+      // T267 (v75): resolved through anchorEventsTable() — see that helper's comment.
+      const anchorTable = anchorEventsTable()
+      const anchorCols = db.pragma(`table_info(${anchorTable})`).map((c) => c.name)
       if (!anchorCols.includes('location_id')) {
-        db.exec('ALTER TABLE anchor_activities ADD COLUMN location_id TEXT')
+        db.exec(`ALTER TABLE ${anchorTable} ADD COLUMN location_id TEXT`)
       }
       const eventCols = db.pragma('table_info(events)').map((c) => c.name)
       if (!eventCols.includes('location_id')) {
@@ -2044,12 +2081,17 @@ export function initSchema(db) {
   // comment above for the load-bearing reason (bug #194).
   if (getSchemaVersion(db) >= 50 && getSchemaVersion(db) < 51) {
     db.transaction(() => {
-      const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+      // T267 (v75): resolved through anchorEventsTable() — see that helper's comment. The scratch
+      // table name is derived from it too (`${anchorTable}_v51`), so a caller already at the final
+      // `fixed_events` name (e.g. a test fixture) gets `fixed_events_v51`, matching what that
+      // fixture expects to sabotage/observe.
+      const anchorTable = anchorEventsTable()
+      const cols = db.pragma(`table_info(${anchorTable})`).map((c) => c.name)
       if (!cols.includes('kind')) {
         db.pragma('foreign_keys = OFF')
         try {
         db.exec(`
-          CREATE TABLE anchor_activities_v51 (
+          CREATE TABLE ${anchorTable}_v51 (
             id TEXT PRIMARY KEY,
             camp_id TEXT NOT NULL REFERENCES camps(id),
             cohort_id TEXT REFERENCES cohorts(id),
@@ -2071,7 +2113,7 @@ export function initSchema(db) {
                   AND (group_ids IS NULL OR group_ids = '[]'))
             )
           );
-          INSERT INTO anchor_activities_v51
+          INSERT INTO ${anchorTable}_v51
             SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
                    is_all_groups, group_ids, notes, schedule_week_id, recurrence_level, location_id,
                    CASE
@@ -2079,9 +2121,9 @@ export function initSchema(db) {
                        THEN 'fixed'
                      ELSE 'recurring'
                    END
-            FROM anchor_activities;
-          DROP TABLE anchor_activities;
-          ALTER TABLE anchor_activities_v51 RENAME TO anchor_activities;
+            FROM ${anchorTable};
+          DROP TABLE ${anchorTable};
+          ALTER TABLE ${anchorTable}_v51 RENAME TO ${anchorTable};
         `)
         } finally {
           // See the v49 block above: FK-restore on every path. The OFF is a
@@ -2531,14 +2573,16 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // unit_ids rather than replaced by it — the down path must not lose scope.
   // Guard is `>= 64 && < 65`, NOT a bare `< 65` — see the v50 block's comment.
   if (getSchemaVersion(db) >= 64 && getSchemaVersion(db) < 65) {
-    const hasUnitIds = db
-      .pragma('table_info(anchor_activities)')
-      .some((c) => c.name === 'unit_ids')
+    // T267 (v75): resolved through anchorEventsTable() — see that helper's comment. The scratch
+    // table name is derived from it too (`${anchorTable}_v65`).
+    const anchorTable = anchorEventsTable()
+    const anchorCols = db.pragma(`table_info(${anchorTable})`)
+    const hasUnitIds = anchorCols.some((c) => c.name === 'unit_ids')
     if (!hasUnitIds) {
       db.pragma('foreign_keys = OFF')
       try {
         db.exec(`
-          CREATE TABLE anchor_activities_v65 (
+          CREATE TABLE ${anchorTable}_v65 (
             id TEXT PRIMARY KEY,
             camp_id TEXT NOT NULL REFERENCES camps(id),
             cohort_id TEXT REFERENCES cohorts(id),
@@ -2562,7 +2606,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
                   AND (unit_ids IS NULL OR unit_ids = '[]'))
             )
           );
-          INSERT INTO anchor_activities_v65
+          INSERT INTO ${anchorTable}_v65
             SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
                    is_all_groups, group_ids, notes, schedule_week_id, recurrence_level,
                    location_id, kind,
@@ -2575,9 +2619,9 @@ const DEVICE_HEALTH_EVENTS_DDL = `
                      WHEN unit_id IS NOT NULL AND unit_id != '' THEN json_array(unit_id)
                      ELSE NULL
                    END
-            FROM anchor_activities;
-          DROP TABLE anchor_activities;
-          ALTER TABLE anchor_activities_v65 RENAME TO anchor_activities;
+            FROM ${anchorTable};
+          DROP TABLE ${anchorTable};
+          ALTER TABLE ${anchorTable}_v65 RENAME TO ${anchorTable};
         `)
       } finally {
         // See the v49/v51 blocks: FK-restore on every path.
@@ -2942,7 +2986,9 @@ const DEVICE_HEALTH_EVENTS_DDL = `
 
       const repointDayReferencers = (fromId, toId) => {
         db.prepare('UPDATE template_slots SET day_id = ? WHERE day_id = ?').run(toId, fromId)
-        db.prepare('UPDATE anchor_activities SET day_id = ? WHERE day_id = ?').run(toId, fromId)
+        // T267 (v75): repoint whichever of the two names currently exists — see the cohort-dedupe
+        // block's identical comment (v11) for why this cannot assume the pre-rename name.
+        db.prepare(`UPDATE ${anchorEventsTable()} SET day_id = ? WHERE day_id = ?`).run(toId, fromId)
         db.prepare('UPDATE elective_sets SET day_id = ? WHERE day_id = ?').run(toId, fromId)
         db.prepare('UPDATE elective_occurrences SET day_id = ? WHERE day_id = ?').run(toId, fromId)
       }
@@ -3037,9 +3083,11 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // rebuilt anchor_activities to grow its CHECK constraint).
   if (getSchemaVersion(db) >= 70 && getSchemaVersion(db) < 71) {
     db.transaction(() => {
-      const anchorCols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+      // T267 (v75): resolved through anchorEventsTable() — see that helper's comment.
+      const anchorTable = anchorEventsTable()
+      const anchorCols = db.pragma(`table_info(${anchorTable})`).map((c) => c.name)
       if (anchorCols.includes('recurrence_level')) {
-        db.exec('ALTER TABLE anchor_activities DROP COLUMN recurrence_level')
+        db.exec(`ALTER TABLE ${anchorTable} DROP COLUMN recurrence_level`)
       }
       const electiveCols = db.pragma('table_info(elective_sets)').map((c) => c.name)
       if (electiveCols.includes('recurrence_level')) {
@@ -3370,6 +3418,102 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (76, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v77 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md). PR 1 of 3 (schema +
+  // document-key rename + projection registration + backfill; zero behavior change — see the ADR's
+  // "Sequencing" section).
+  //
+  // Renames `anchor_activities` to `fixed_events` (vocabulary collision with the separate `events`
+  // table — see the ADR's "two families" ruling; `kind` already distinguishes fixed from recurring
+  // within this one table) and adds `activity_id`, replacing the by-NAME link
+  // src/engine/anchorActivityLink.js resolved through (the T62 scar its header describes). This PR
+  // does NOT cut the engine/ingest/UI over to `activity_id` — they still resolve by name, which
+  // still works because `name` survives the rename untouched. That cutover is PR 2.
+  //
+  // schema.sql's `db.exec(schema)` already ran at the top of initSchema, before this block runs —
+  // so on a migrating db (which still has the OLD `anchor_activities` table under its old name)
+  // schema.sql's `CREATE TABLE IF NOT EXISTS fixed_events` just created a brand-new, EMPTY table
+  // under the new name, because there was no `fixed_events` yet for IF NOT EXISTS to skip. That
+  // empty table is dropped here and the real table (with its real rows) is renamed into its place —
+  // the same shape as the `sync_health_events` -> `device_health_events` genuine rename above (v64
+  // block), the one precedent in this file for renaming a table to a name schema.sql also declares.
+  //
+  // Backfill re-spells anchorNameKey/indexActivitiesByName's semantics (src/engine/
+  // anchorActivityLink.js) rather than importing them — this file ships inside electron/, which
+  // electron-builder packages; src/ is not (same reasoning as electron/ops/electiveDerivedIds.js).
+  // A row resolving to zero or more-than-one candidate is NOT guessed: activity_id is left NULL and
+  // a fixed_event_identity_gaps row records candidate_count, for a human to resolve post-migration
+  // (the ADR's Option D invariant, applied at the one moment automatic resolution is uncertain).
+  //
+  // Guard is `>= 76 && < 77` — the house `>= N-1 && < N` form every block from v60 onward uses
+  // (see this file's own v72/v73 comments for the load-bearing reason, bug #194). Never widened past
+  // `< 77`: re-firing on an already-migrated db would DROP TABLE fixed_events (now the live table)
+  // as if it were schema.sql's placeholder — destructive, not idempotent.
+  if (getSchemaVersion(db) >= 76 && getSchemaVersion(db) < 77) {
+    const hasOld = tableExists('anchor_activities')
+    // foreign_keys OFF/ON around this whole block, same recipe as the v51/v65/v72/v73 blocks above
+    // (and load-bearing for the same reason as v73's comment: PRAGMA foreign_keys is a genuine
+    // no-op while a transaction is open, so this must happen OUTSIDE db.transaction()). Specific
+    // hazard here: SQLite's ALTER TABLE RENAME rewrites every OTHER table's FK clause text when its
+    // referenced table is renamed (the v20 test's own documented `camps` -> `camps_tmp` -> `camps`
+    // dance does this to every `REFERENCES camps(id)` table, including `fixed_events` and
+    // `fixed_event_identity_gaps`), which better-sqlite3 validates at PREPARE time whenever
+    // foreign_keys is ON — not just at write time — so even reading/writing this block's own tables
+    // safely requires FK enforcement off for its duration.
+    db.pragma('foreign_keys = OFF')
+    try {
+      db.transaction(() => {
+        if (hasOld) {
+          db.exec('DROP TABLE IF EXISTS fixed_events')
+          db.exec('ALTER TABLE anchor_activities RENAME TO fixed_events')
+        }
+        // Column add is unconditional (not gated on hasOld): a genuinely fresh install already has
+        // activity_id via schema.sql's CREATE TABLE, so this is a no-op there. It also covers a
+        // db that already carries a `fixed_events` table missing the column for a reason other than
+        // "just renamed" — belt, not load-bearing for the real forward-migration path.
+        const fixedEventCols = db.pragma('table_info(fixed_events)').map((c) => c.name)
+        if (!fixedEventCols.includes('activity_id')) {
+          db.exec('ALTER TABLE fixed_events ADD COLUMN activity_id TEXT')
+        }
+
+        // Backfill every row still missing activity_id — real historical rows from the rename, or
+        // (belt) any other row that reached this point without one. Re-spells anchorNameKey
+        // (src/engine/anchorActivityLink.js) — lowercase, whitespace stripped. If that key ever
+        // changes, these two must change together.
+        const nameKey = (name) => String(name ?? '').toLowerCase().replace(/\s+/g, '')
+
+        const rows = db.prepare('SELECT id, camp_id, name FROM fixed_events WHERE activity_id IS NULL').all()
+        const now = new Date().toISOString()
+        const insertGap = db.prepare(
+          'INSERT INTO fixed_event_identity_gaps (id, camp_id, fixed_event_id, name, candidate_count, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+        )
+        const setActivityId = db.prepare('UPDATE fixed_events SET activity_id = ? WHERE id = ?')
+        const activitiesByCamp = new Map()
+        for (const row of rows) {
+          if (!activitiesByCamp.has(row.camp_id)) {
+            activitiesByCamp.set(
+              row.camp_id,
+              db.prepare('SELECT id, name FROM activities WHERE camp_id = ?').all(row.camp_id)
+            )
+          }
+          const key = nameKey(row.name)
+          const candidates =
+            key === '' ? [] : activitiesByCamp.get(row.camp_id).filter((a) => nameKey(a.name) === key)
+          if (candidates.length === 1) {
+            setActivityId.run(candidates[0].id, row.id)
+          } else {
+            insertGap.run(randomUUID(), row.camp_id, row.id, row.name, candidates.length, now)
+          }
+        }
+      })()
+    } finally {
+      db.pragma('foreign_keys = ON')
+    }
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (77, ?)').run(
       new Date().toISOString()
     )
   }
@@ -3833,7 +3977,7 @@ export const IMPORT_DECISIONS_DDL = `CREATE TABLE IF NOT EXISTS import_decisions
 export const IMPORT_EVIDENCE_DDL = `CREATE TABLE IF NOT EXISTS import_evidence (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
-  entity_type TEXT NOT NULL,     -- 'activities' | 'anchor_activities' — the two types
+  entity_type TEXT NOT NULL,     -- 'activities' | 'fixed_events' — the two types
                                   -- that carry inferred/observed fields today
   entity_id TEXT NOT NULL,       -- plain TEXT, not a FK (same reasoning as source_aliases.entity_id)
   field TEXT NOT NULL,           -- the plan field this evidence supports, e.g.

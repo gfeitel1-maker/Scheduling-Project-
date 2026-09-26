@@ -123,6 +123,30 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
       const conflicts = A.getConflicts(merged[STAGE1_ENTITY], recordKey('day-1', 'label'))
       expect(Object.values(conflicts).sort()).toEqual(['Lunes', 'Montag'])
     })
+
+    // T267 (docs/adr/2026-09-26-fixed-recurring-event-identity-model.md): two devices concurrently
+    // re-linking the same fixed_events row to a different catalog activity_id — e.g. one re-links
+    // it after a rename, the other after a merge — is a same-field conflict, which the ADR predicts
+    // "falls out of the existing per-field CRDT model for free, exactly like every other field on
+    // this entity does today." No new conflict-handling code was written for this; this test proves
+    // that prediction rather than assuming it.
+    it('a concurrent activity_id re-link on the same fixed_events row surfaces via A.getConflicts, not silent last-write-wins', () => {
+      let base = createEmptyDoc()
+      base = applyWrite(base, { entity: 'fixed_events', entity_id: 'anchor-1', field: 'camp_id', value: 'camp-1' })
+      base = applyWrite(base, { entity: 'fixed_events', entity_id: 'anchor-1', field: 'name', value: 'Swim' })
+      base = applyWrite(base, { entity: 'fixed_events', entity_id: 'anchor-1', field: 'activity_id', value: 'act-swim-1' })
+      let a = A.clone(base)
+      let b = A.clone(base)
+      a = applyWrite(a, { entity: 'fixed_events', entity_id: 'anchor-1', field: 'activity_id', value: 'act-swim-2' })
+      b = applyWrite(b, { entity: 'fixed_events', entity_id: 'anchor-1', field: 'activity_id', value: 'act-swim-3' })
+      const merged = A.merge(A.clone(a), b)
+      // Deterministic single winner...
+      expect(['act-swim-2', 'act-swim-3']).toContain(readRecord(merged, 'fixed_events', 'anchor-1').activity_id)
+      // ...and BOTH competing values remain inspectable, exactly like the name-field case above —
+      // no bespoke merge logic exists for activity_id, and none was added.
+      const conflicts = A.getConflicts(merged.fixed_events, recordKey('anchor-1', 'activity_id'))
+      expect(Object.values(conflicts).sort()).toEqual(['act-swim-2', 'act-swim-3'])
+    })
   })
 
   // Shared genesis (see campDocument.js's GENESIS_B64 comment): every device must clone the SAME
@@ -188,10 +212,15 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // SEVENTH REGENERATION (T233, docs/adr/2026-09-19-multi-device-erasure-propagation.md):
     // `tombstones` added to MODELED_ENTITIES/GENESIS_ENTITIES — see campDocument.js's GENESIS_B64
     // comment. Same acceptance as every regeneration above.
+    //
+    // NINTH REGENERATION (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md): the
+    // document key `anchor_activities` renamed to `fixed_events` — see campDocument.js's GENESIS_B64
+    // comment for why this regeneration, unlike every prior one, does not keep the old key as an
+    // orphan. Same acceptance as every regeneration above.
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        'b3ff28193b8f59f9b8e7d71ddeb2ee32ecff999a14339758efebf8652b501803',
+        '9891ac618b8142a770c3bfcc37281128e031241ff2e83bdbdd4df8cc1c27c9df',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole

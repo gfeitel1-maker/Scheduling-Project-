@@ -60,7 +60,7 @@ export const UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS = {
 }
 
 // Fixed vs Recurring events (docs/adr/2026-08-28-fixed-vs-recurring-events.md
-// §3): anchor_activities has a cross-column CHECK (`kind='fixed' requires
+// §3): fixed_events has a cross-column CHECK (`kind='fixed' requires
 // is_all_groups=1, unit_id/group_ids empty`) evaluated after EVERY
 // single-field UPDATE, since writeFields below fires one op-log write per
 // field. A fresh row's ensureExists stub defaults kind='fixed',
@@ -86,12 +86,12 @@ export const UNIQUE_FIELD_EXTRA_SCOPE_COLUMNS = {
 // applies orderFieldsForWrite (REQUIRED_FIRST_ON_WRITE → front) second and
 // unconditionally — so if an entity were ever registered in BOTH, the
 // REQUIRED_FIRST_ON_WRITE field would silently win position 0, displacing the
-// collision-guarded field. No entity is in both today (anchor_activities only
+// collision-guarded field. No entity is in both today (fixed_events only
 // here); if one ever needs both, that priority conflict is a Governor-level
 // decision (unique-field safety vs. cross-column CHECK safety), not a silent
 // last-writer-wins default.
 export const REQUIRED_FIRST_ON_WRITE = {
-  anchor_activities: 'kind',
+  fixed_events: 'kind',
 }
 
 // Returns `fields`' entries as [field, value] pairs, with the entity's

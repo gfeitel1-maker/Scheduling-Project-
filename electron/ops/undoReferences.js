@@ -27,18 +27,18 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // -- into cohorts --
   { fromTable: 'tiers', fromColumn: 'cohort_id', toEntity: 'cohorts', kind: 'scalar', enforced: true },
   { fromTable: 'time_blocks', fromColumn: 'cohort_id', toEntity: 'cohorts', kind: 'scalar', enforced: true },
-  { fromTable: 'anchor_activities', fromColumn: 'cohort_id', toEntity: 'cohorts', kind: 'scalar', enforced: true },
+  { fromTable: 'fixed_events', fromColumn: 'cohort_id', toEntity: 'cohorts', kind: 'scalar', enforced: true },
   // -- into tiers --
   { fromTable: 'groups', fromColumn: 'tier_id', toEntity: 'tiers', kind: 'scalar', enforced: false },
   { fromTable: 'activities', fromColumn: 'eligible_tier_ids', toEntity: 'tiers', kind: 'json_array', enforced: false },
   // v65 (T180) — a Recurring Event's DIVISION scope. Same shape and same integrity posture
-  // as anchor_activities.group_ids -> groups below: a JSON id-list with no DB-level FK, so
+  // as fixed_events.group_ids -> groups below: a JSON id-list with no DB-level FK, so
   // enforced:false. Division-scoped events are deliberately NOT given stronger integrity
   // than group-scoped ones — the consequence of deleting a tier is identical in kind to
   // deleting a group, and resolveAnchorGroupIds (src/engine/anchorScope.js) resolves against
   // the LIVE group list, so a deleted division simply stops matching groups rather than
   // leaving a dangling pointer to chase.
-  { fromTable: 'anchor_activities', fromColumn: 'unit_ids', toEntity: 'tiers', kind: 'json_array', enforced: false },
+  { fromTable: 'fixed_events', fromColumn: 'unit_ids', toEntity: 'tiers', kind: 'json_array', enforced: false },
   // T194 (v66): the age division a run targets, and the division an occurrence
   // belongs to. Both soft — no declared REFERENCES (schema.sql).
   { fromTable: 'elective_assignment_runs', fromColumn: 'tier_id', toEntity: 'tiers', kind: 'scalar', enforced: false },
@@ -47,9 +47,9 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'template_slots', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: true },
   { fromTable: 'week_group_exclusions', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: true },
   { fromTable: 'activities', fromColumn: 'eligible_group_ids', toEntity: 'groups', kind: 'json_array', enforced: false },
-  { fromTable: 'anchor_activities', fromColumn: 'group_ids', toEntity: 'groups', kind: 'json_array', enforced: false }, // 3rd Red Hat pass finding
+  { fromTable: 'fixed_events', fromColumn: 'group_ids', toEntity: 'groups', kind: 'json_array', enforced: false }, // 3rd Red Hat pass finding
   // v43 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md
-  // Slice 3a) — elective_sets.group_ids mirrors anchor_activities.group_ids
+  // Slice 3a) — elective_sets.group_ids mirrors fixed_events.group_ids
   // exactly: no DB-level FK (schema.sql), so enforced:false.
   { fromTable: 'elective_sets', fromColumn: 'group_ids', toEntity: 'groups', kind: 'json_array', enforced: false },
   // T194 (v66): a camper's group membership. Soft reference — schema.sql
@@ -63,10 +63,14 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // T194 (v66): both soft, no declared REFERENCES (schema.sql).
   { fromTable: 'elective_choice_offerings', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
   { fromTable: 'elective_assignments', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
+  // v75 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md) — the new soft link
+  // replacing the by-name resolution src/engine/anchorActivityLink.js used. No DB REFERENCES
+  // clause (schema.sql), matching elective_set_activities.activity_id's precedent below.
+  { fromTable: 'fixed_events', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
   // -- into days_of_operation --
-  { fromTable: 'anchor_activities', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: true },
+  { fromTable: 'fixed_events', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: true },
   { fromTable: 'template_slots', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
-  // v43 (Slice 3a) — elective_sets.day_id mirrors anchor_activities.day_id:
+  // v43 (Slice 3a) — elective_sets.day_id mirrors fixed_events.day_id:
   // schema.sql declares `day_id TEXT REFERENCES days_of_operation(id)`, so
   // enforced:true.
   { fromTable: 'elective_sets', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: true },
@@ -75,7 +79,7 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // from live template_slots on every generation, ADR D6), so enforced:false.
   { fromTable: 'elective_occurrences', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
   // -- into time_blocks --
-  { fromTable: 'anchor_activities', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
+  { fromTable: 'fixed_events', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'template_slots', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'elective_sets', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'elective_occurrences', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false }, // T194 (v66), soft
@@ -83,13 +87,13 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'activities', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
   { fromTable: 'week_location_exclusions', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
   // v45 (docs/work/specs/2026-08-23-slice4-engine-location-contention.md
-  // §1/§6) — anchor_activities.location_id and events.location_id mirror
+  // §1/§6) — fixed_events.location_id and events.location_id mirror
   // activities.location_id exactly: no DB-level FK (schema.sql), so
   // enforced:false.
-  { fromTable: 'anchor_activities', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
+  { fromTable: 'fixed_events', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
   { fromTable: 'events', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
-  // -- into anchor_activities --
-  { fromTable: 'template_slots', fromColumn: 'anchor_id', toEntity: 'anchor_activities', kind: 'scalar', enforced: false }, // 3rd Red Hat pass finding: v17 ALTER-added column, missed by the original hand-search
+  // -- into fixed_events --
+  { fromTable: 'template_slots', fromColumn: 'anchor_id', toEntity: 'fixed_events', kind: 'scalar', enforced: false }, // 3rd Red Hat pass finding: v17 ALTER-added column, missed by the original hand-search
   // T40 slice 1 (docs/work/specs/2026-08-20-special-days-data-shape-design.md):
   // special_day_slots.group_id/activity_id/location_id point at U2-deletable
   // entities (groups/activities/locations) the same soft way template_slots
@@ -132,11 +136,11 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
 
 // entities U2's deletion slice is allowed to act on — deliberately mirrors
 // the ADR's U2_DELETABLE_ENTITIES constant (electron/ops/ingest.js's
-// INGESTIBLE_ENTITIES plus 'anchor_activities'). Duplicated here rather than
+// INGESTIBLE_ENTITIES plus 'fixed_events'). Duplicated here rather than
 // imported so this file has no dependency on ingest.js; the schema-parity
 // test asserts the two never drift apart.
 export const U2_DELETABLE_ENTITIES = Object.freeze(
-  new Set(['cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'anchor_activities'])
+  new Set(['cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'fixed_events'])
 )
 
 // Read-only single-hop referential check: does any LIVE row of fromTable

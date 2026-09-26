@@ -1,4 +1,4 @@
-// An anchor (`anchor_activities`) references its activity BY NAME, not by id.
+// An anchor (`fixed_events`) references its activity BY NAME, not by id.
 // There is no `activity_id` column and never has been — the Anchors screen has
 // asked the director to TYPE the event ("e.g. Mifkad, Lunch, Swim") since the
 // first commit, and electron/ops/ingest.js writes name/day/block/scope and no

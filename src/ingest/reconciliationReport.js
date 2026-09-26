@@ -224,7 +224,7 @@ function classifyItem(item, fieldProvenance, activityEvidence) {
 // so a confirm_change and a confirm_value sharing (reason, name) never merge.
 function fixedEventDecisionId(kind, reason, name, timeBlock, days) {
   // Full key shape is `entity:entityId:kind:reason:name:timeBlock:days` where
-  // entity is the literal 'anchor_activities' and entityId is the literal
+  // entity is the literal 'fixed_events' and entityId is the literal
   // null (fixed-event decisions carry no entity_id). reason/name/timeBlock
   // are `?? ''`-guarded so a missing segment collapses to empty rather than
   // interpolating 'undefined'. The timeBlock/days discriminator (A1, Red Hat
@@ -232,7 +232,7 @@ function fixedEventDecisionId(kind, reason, name, timeBlock, days) {
   // same-named anchors on different days/time-blocks collapse into one
   // decision and the second's identity is silently discarded.
   const daysKey = Array.isArray(days) ? days.join(',') : (days ?? '')
-  return `anchor_activities:null:${kind}:${reason ?? ''}:${name ?? ''}:${timeBlock ?? ''}:${daysKey}`
+  return `fixed_events:null:${kind}:${reason ?? ''}:${name ?? ''}:${timeBlock ?? ''}:${daysKey}`
 }
 
 // D3: fixed-event decisions carry no entity_id (see fixedEventDecisionId) —
@@ -257,7 +257,7 @@ function addFixedEventDecision(
   decisionsByKey.set(id, {
     id,
     kind,
-    entity: 'anchor_activities',
+    entity: 'fixed_events',
     entityId: null,
     entityName: name ?? null,
     field: null,
