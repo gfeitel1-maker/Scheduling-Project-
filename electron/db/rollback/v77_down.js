@@ -26,6 +26,11 @@
 //      Names (`name`) are untouched throughout, so re-running the v77
 //      backfill logic after a future re-migration would reproduce the same
 //      resolution it produced before, given the same catalog state.
+//   6. Clears the durable domain_state_migration_pending marker for version 77
+//      (v70_down.js's identical precedent) — the forward migration writes one
+//      when the backfill resolves any row, and reversing the migration must
+//      not leave a stale marker refusing sync for a version this db no
+//      longer declares.
 //
 // Usage:  node electron/db/rollback/v77_down.js <path-to-shoresh.sqlite>
 
@@ -57,6 +62,9 @@ export function rollbackV77(db) {
     // the higher version while v77's rename is undone — a shape no migration path can produce and
     // none will repair. Convention since v46_down (see T220), reused by v71_down.
     db.prepare('DELETE FROM schema_migrations WHERE version >= 77').run()
+    if (hasTable(db, 'domain_state_migration_pending')) {
+      db.prepare('DELETE FROM domain_state_migration_pending WHERE version = 77').run()
+    }
   })()
 
   return { discarded, renamed: ['fixed_events -> anchor_activities'] }

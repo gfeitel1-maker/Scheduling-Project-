@@ -3487,11 +3487,25 @@ const DEVICE_HEALTH_EVENTS_DDL = `
 
         const rows = db.prepare('SELECT id, camp_id, name FROM fixed_events WHERE activity_id IS NULL').all()
         const now = new Date().toISOString()
+        // Deterministic id (`gap:<fixed_event_id>`), not randomUUID(), and INSERT OR IGNORE against
+        // the table's own PRIMARY KEY — not a new UNIQUE index. Red Hat's finding: this whole
+        // transaction and the schema_migrations stamp below are separate statements, so a process
+        // killed between them leaves getSchemaVersion() < 77 and this block re-fires on next launch;
+        // every still-NULL row would otherwise mint a SECOND gap row with a fresh random id. Rejected
+        // an inline `UNIQUE(fixed_event_id)` on fixed_event_identity_gaps for the same reason v73's
+        // ADR rejected inline UNIQUE elsewhere in this file: SQLite compiles it to an autoindex DROP
+        // INDEX cannot touch, so a fresh install (schema.sql, no UNIQUE) would diverge from a
+        // migrated one (this ALTER-equivalent path, WITH the autoindex) behind a green gate — the
+        // exact trap docs/adr/2026-09-23-merge-unique-collision-schema-and-conflict-shape.md names.
+        // A deterministic PK sidesteps it entirely: no schema change, and fresh vs migrated agree by
+        // construction because both paths compute the same id for the same fixed_event_id.
         const insertGap = db.prepare(
-          'INSERT INTO fixed_event_identity_gaps (id, camp_id, fixed_event_id, name, candidate_count, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+          'INSERT OR IGNORE INTO fixed_event_identity_gaps (id, camp_id, fixed_event_id, name, candidate_count, created_at) VALUES (?, ?, ?, ?, ?, ?)'
         )
         const setActivityId = db.prepare('UPDATE fixed_events SET activity_id = ? WHERE id = ?')
         const activitiesByCamp = new Map()
+        let backfilledCount = 0
+        let gapCount = 0
         for (const row of rows) {
           if (!activitiesByCamp.has(row.camp_id)) {
             activitiesByCamp.set(
@@ -3504,9 +3518,43 @@ const DEVICE_HEALTH_EVENTS_DDL = `
             key === '' ? [] : activitiesByCamp.get(row.camp_id).filter((a) => nameKey(a.name) === key)
           if (candidates.length === 1) {
             setActivityId.run(candidates[0].id, row.id)
+            backfilledCount += 1
           } else {
-            insertGap.run(randomUUID(), row.camp_id, row.id, row.name, candidates.length, now)
+            insertGap.run(`gap:${row.id}`, row.camp_id, row.id, row.name, candidates.length, now)
+            gapCount += 1
           }
+        }
+
+        // T205 part D (see v70's identical pattern above): a domain-state migration must durably
+        // record that it changed modeled rows, so main.js's sync-start guard keeps refusing sync
+        // ACROSS RESTARTS, not just for the one launch that ran this block (migrationSpanFor's
+        // WeakMap is per-process). activity_id is a MODELED field (PROJECTIONS.fixed_events.fields);
+        // this backfill sets it by direct SQL, outside the document, so on a document-bearing camp
+        // that value would never reach the document and the next projectAll/merge would silently
+        // discard it camp-wide — the exact T62 failure class this ticket exists to close, restored
+        // silently if this marker is skipped. Written only when the backfill actually did something
+        // (rows.length > 0), matching v70's `losers.length > 0` condition — a fresh install with no
+        // legacy fixed_events rows changes no domain state and needs no marker.
+        //
+        // `detail` is DELIBERATELY NOT the `{note, losers}` JSON shape resolvePendingDomainStateMigrations
+        // parses: that resolver treats a parseable payload with no (or an empty) `losers` array as
+        // already-satisfied and clears resolved_at on its very next call — which would silently
+        // re-enable sync one launch later with nothing actually routed through the document. There
+        // is no losers-shaped remediation for a field backfill (no entity to tombstone), and no
+        // auto-repair mechanism exists yet for it (that is PR 2+ work), so this marker must fail
+        // resolvePendingDomainStateMigrations's JSON.parse and fall into its documented "left
+        // UNRESOLVED forever... never guessed at" branch — a human/future-ticket resolution path,
+        // exactly what that function's own comment prescribes for a marker shaped like this one.
+        if (rows.length > 0) {
+          db.prepare(
+            `INSERT OR IGNORE INTO domain_state_migration_pending (version, detail, created_at)
+             VALUES (77, ?, ?)`
+          ).run(
+            `fixed_events.activity_id backfill resolved ${backfilledCount} row(s) and recorded ` +
+              `${gapCount} identity gap(s) in fixed_event_identity_gaps — not auto-resolvable ` +
+              `(no document-routed remediation exists yet; PR 2+ work)`,
+            now
+          )
         }
       })()
     } finally {

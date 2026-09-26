@@ -15,6 +15,11 @@ import path from 'node:path'
 import Database from 'better-sqlite3'
 import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './localDb.js'
 import { rollbackV77 } from './rollback/v77_down.js'
+import {
+  unresolvedDomainStateMigrations,
+  shouldRefuseSyncForDomainMigration,
+  resolvePendingDomainStateMigrations,
+} from './migrationDomainState.js'
 
 const files = []
 
@@ -249,6 +254,128 @@ describe('rollbackV77', () => {
     )
     rollbackV77(db)
     expect(getSchemaVersion(db)).toBeLessThan(77)
+    db.close()
+  })
+})
+
+describe('migration v77: domain-state marker survives a restart (Red Hat HIGH finding)', () => {
+  // v77's backfill sets fixed_events.activity_id — a MODELED field — by direct SQL, outside the
+  // document. Without a DURABLE marker, sync only refuses on the one launch that ran the migration
+  // (migrationSpanFor's WeakMap is per-process); the NEXT launch reports nothing risky, sync
+  // silently re-enables, and projectAll's delete-reconcile discards every backfilled activity_id
+  // camp-wide on the next peer merge — exactly the T62 scar this ticket exists to close, restored
+  // silently. This test simulates that second launch directly against the persisted table, not by
+  // re-running the migration block (which would only prove the WeakMap-covered first-launch case).
+  it('leaves an unresolved marker that keeps shouldRefuseSyncForDomainMigration true on a simulated restart', () => {
+    const db = preV77Db()
+    seedCamp(db)
+    // Zero candidates — guarantees rows.length > 0 in the migration's backfill loop, which is the
+    // condition the marker write is gated on.
+    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-zero', 'camp1', 'Mifkad')").run()
+
+    initSchema(db) // runs v77
+
+    // The marker exists, durable (a real table row, not a per-process WeakMap entry) and unresolved.
+    const marker = db.prepare('SELECT * FROM domain_state_migration_pending WHERE version = 77').get()
+    expect(marker).toBeTruthy()
+    expect(marker.resolved_at).toBeNull()
+
+    // Simulate the SECOND launch: migrationSpanFor reports nothing (no migration ran this launch —
+    // main.js:3101-3102's WeakMap is per-process and this is a fresh process), so `riskyThisLaunch`
+    // is empty. The only remaining signal is the durable marker.
+    const riskyThisLaunch = []
+    const unresolvedMarkers = unresolvedDomainStateMigrations(db)
+    expect(shouldRefuseSyncForDomainMigration({ docExists: true, riskyThisLaunch, unresolvedMarkers })).toBe(true)
+
+    // The marker must not be silently auto-resolved either: resolvePendingDomainStateMigrations
+    // only knows how to resolve a `{note, losers}`-shaped marker (v70's row-deletion case) by
+    // authoring document tombstones for named losers. v77's marker has no losers-shaped remediation
+    // (there is no entity to tombstone; the fix is routing activity_id through the document, PR 2+
+    // work), so its `detail` is deliberately NOT that JSON shape — proving it here, not just by
+    // reading the migration's comment.
+    const resolvedVersions = resolvePendingDomainStateMigrations(db, { device_id: 'device-1' })
+    expect(resolvedVersions).not.toContain(77)
+    const stillUnresolved = db.prepare('SELECT resolved_at FROM domain_state_migration_pending WHERE version = 77').get()
+    expect(stillUnresolved.resolved_at).toBeNull()
+    // And the refusal still holds after that resolve attempt — the actual restart-survival property.
+    expect(
+      shouldRefuseSyncForDomainMigration({
+        docExists: true,
+        riskyThisLaunch: [],
+        unresolvedMarkers: unresolvedDomainStateMigrations(db),
+      })
+    ).toBe(true)
+
+    db.close()
+  })
+
+  it('writes no marker when the backfill resolves nothing (fresh install, or every row already linked)', () => {
+    const db = freshDb() // no legacy anchor_activities rows — rows.length === 0 in the migration
+    const marker = db.prepare('SELECT * FROM domain_state_migration_pending WHERE version = 77').get()
+    expect(marker).toBeUndefined()
+    db.close()
+  })
+})
+
+describe('migration v77: interrupted-migration idempotence (Red Hat MEDIUM finding)', () => {
+  // HONESTY NOTE, stated plainly per the review instructions: this does NOT fork a real OS process
+  // and SIGKILL it between the transaction commit and the schema_migrations stamp — that level of
+  // interleaving fidelity is impractical inside a synchronous, in-process better-sqlite3 unit test.
+  // What it does instead: it reconstructs, BY HAND, the exact database state a real crash in that
+  // window would leave — the v77 transaction has fully committed (fixed_events renamed,
+  // activity_id backfilled/gapped) but schema_migrations still reports a pre-77 version, because
+  // the stamp is a SEPARATE statement after the transaction closes (electron/db/localDb.js, the
+  // `db.prepare('INSERT OR IGNORE INTO schema_migrations ...').run(...)` call directly after the
+  // `try/finally` block) — then re-invokes the REAL migration code (initSchema) against that exact
+  // state, the same way a relaunch after a real crash would. This is weaker than an actual kill-
+  // and-restart integration test (it cannot prove nothing ELSE about process-death timing matters,
+  // e.g. WAL/journal recovery), but it does exercise the real re-fire path against the real
+  // post-crash row shape, not a hand-simulated call to the backfill loop in isolation.
+  it('does not duplicate a fixed_event_identity_gaps row when the migration re-fires after a crash between the transaction commit and the version stamp', () => {
+    const db = preV77Db()
+    seedCamp(db)
+    // Zero-candidate row (Mifkad) exercises the gap-insert path; this is the row that would
+    // duplicate without the deterministic-id fix.
+    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-zero', 'camp1', 'Mifkad')").run()
+
+    // Reconstruct the post-crash state by hand: run the same rename + activity_id + backfill work
+    // the v77 transaction does, using the SAME SQL the real migration uses, then stop — deliberately
+    // WITHOUT stamping schema_migrations, exactly like a process killed right after the transaction
+    // committed but before the stamp ran.
+    db.exec('ALTER TABLE anchor_activities RENAME TO fixed_events')
+    db.exec('ALTER TABLE fixed_events ADD COLUMN activity_id TEXT')
+    // rollbackV77 (used by preV77Db) DROPs fixed_event_identity_gaps entirely, so it must be
+    // recreated here — schema.sql's own shape — before the hand-reconstructed gap row can be
+    // inserted, matching what schema.sql's CREATE TABLE IF NOT EXISTS would have done at the top
+    // of the real migration's initSchema() call.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS fixed_event_identity_gaps (
+        id TEXT PRIMARY KEY,
+        camp_id TEXT NOT NULL REFERENCES camps(id),
+        fixed_event_id TEXT NOT NULL,
+        name TEXT,
+        candidate_count INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `)
+    db.prepare(
+      "INSERT OR IGNORE INTO fixed_event_identity_gaps (id, camp_id, fixed_event_id, name, candidate_count, created_at) VALUES ('gap:a-zero', 'camp1', 'a-zero', 'Mifkad', 0, ?)"
+    ).run(new Date().toISOString())
+    // schema_migrations is deliberately NOT stamped — getSchemaVersion(db) still reports < 77.
+    expect(getSchemaVersion(db)).toBeLessThan(77)
+    expect(db.prepare('SELECT COUNT(*) c FROM fixed_event_identity_gaps').get().c).toBe(1)
+
+    // The "relaunch": the real migration block re-fires because the guard's lower bound (`>= 76`)
+    // is still satisfied and the upper bound (`< 77`) still is too — this IS the re-fire this
+    // finding is about, not a hand-called helper.
+    initSchema(db)
+
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
+    // Still exactly one gap row for this fixed_event_id — INSERT OR IGNORE against the deterministic
+    // `gap:<fixed_event_id>` id collided with the row already there instead of minting a second one.
+    const gapRows = db.prepare('SELECT * FROM fixed_event_identity_gaps WHERE fixed_event_id = ?').all('a-zero')
+    expect(gapRows).toHaveLength(1)
+    expect(gapRows[0].id).toBe('gap:a-zero')
     db.close()
   })
 })
