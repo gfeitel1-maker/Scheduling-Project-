@@ -728,12 +728,19 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const docExists = campId ? fs.existsSync(automergeDocPath(handlersUserDataPath, campId)) : false
     const refusal = syncRefusalForDomainMigration(db, { docExists })
     if (refusal) {
+      // T268 round 2 (Finding 3): `refusal.detail` is NOT included here — it
+      // can carry raw migration-marker JSON (entity ids included, see
+      // electron/db/localDb.js's domain_state_migration_pending) across a
+      // token-less IPC boundary to the renderer, and nothing under src/
+      // consumes it. The sidebar only needs `syncBlocked`/`state`. The
+      // startup guard's console.error and audit `reason` still read
+      // `refusal.detail` directly (see startAutomergeSyncNodeIfEnabled above)
+      // — this is only about what crosses the IPC boundary.
       return {
         mode,
         connected: false,
         state: 'sync-blocked',
         syncBlocked: true,
-        blockedDetail: refusal.detail,
         unsharedWrites,
         lowDisk: disk.low,
         otherDeviceCount,
@@ -3114,12 +3121,30 @@ if (isElectronEntryPoint()) {
   // deny path already writes to (Red Hat finding on 5d-1: a console.error alone is not a
   // sufficiently surfaced signal) — see auditLog usage below.
   async function startAutomergeSyncNodeIfEnabled() {
+    // T268 round 2 (Finding 1): both early returns above are safe to leave
+    // exempt from the `attempted` bookkeeping below, because getSyncStatus's
+    // own condition (`!isAutomergeEngine() || getAutomergeNode() != null ||
+    // !getAutomergeStartupAttemptedFn()`) short-circuits on the first two
+    // clauses before ever consulting the flag — the engine-off and
+    // already-running cases read as healthy regardless of what the flag says.
     if (!isAutomergeEngine()) return
     if (automergeSyncNode) return // idempotency guard: never leak a second libp2p node
+    // `attempted` tracks whether this run reached a point where a start could
+    // actually have happened — distinct from "did this function run". A
+    // fresh install has no camp yet at app.whenReady() (bootstrapCamp itself
+    // requires a mode to already be chosen, so a first run can never have a
+    // camp this early), and that is not a start attempt that could have
+    // failed — it's "there was nothing to start yet". Starts `true`; the
+    // no-camp-yet path below is the only one that flips it to `false`, so
+    // getSyncStatus keeps reading a fresh Host as plain 'host' through its
+    // first session instead of a false 'host-not-syncing' that nothing will
+    // ever clear (nothing calls this function again after bootstrap).
+    let attempted = true
     try {
       const campId = db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
       if (!campId) {
         console.warn('automerge sync: no camp bootstrapped yet — sync node not started this run')
+        attempted = false
         return
       }
 
@@ -3348,8 +3373,9 @@ if (isElectronEntryPoint()) {
       // here exactly once. This is what lets getSyncStatus distinguish "not
       // yet attempted" (still reads as plain 'host', avoiding a boot flicker
       // while the node starts asynchronously) from "attempted and still not
-      // running" ('host-not-syncing').
-      automergeStartupAttempted = true
+      // running" ('host-not-syncing'). Skipped when `attempted` was flipped
+      // false above (no camp bootstrapped yet) — see that comment.
+      if (attempted) automergeStartupAttempted = true
       // A director already looking at the sidebar when this settles should
       // see it without reloading — wrapped so a UI push can never take sync
       // startup down with it.
