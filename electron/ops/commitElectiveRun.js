@@ -62,8 +62,9 @@ export function describeElectiveRunRefusal(parsed) {
   )
   if (missingCell) {
     return (
-      `a preference for ${missingCell.camper_id ?? 'a camper'} names no (day, period) cell — ` +
-      'every ranked choice must belong to a specific occurrence, not the whole run.'
+      `${missingCell.camper_id ?? 'A camper'}’s ranked choices don’t say which day and period ` +
+      'each one is for. This sheet’s format isn’t supported yet, so there is nothing to fix on it ' +
+      '— importing it would risk placing a camper on the wrong day, so this run is refused instead.'
     )
   }
   return null

@@ -135,7 +135,7 @@ function buildRun(db, campId, fx, { runId = randomUUID(), extraCampers = [] } = 
   const parsed = {
     campers: campers.map((c) => ({ id: c.id, display_name: c.name, external_id: null })),
     choices: [{ label: 'Archery', labelKey: 'archery' }],
-    preferences: campers.map((c) => ({ camper_id: c.id, label: 'Archery', labelKey: 'archery', rank: 1 })),
+    preferences: campers.map((c) => ({ camper_id: c.id, occurrence_id: occurrenceId, label: 'Archery', labelKey: 'archery', rank: 1 })),
     sameNameCampers: [],
     skippedRows: [],
   }
@@ -162,7 +162,7 @@ async function buildRunViaHandler(handlers, token, campId, fx, { runId = randomU
   const parsed = {
     campers: campers.map((c) => ({ id: c.id, display_name: c.name, external_id: null })),
     choices: [{ label: 'Archery', labelKey: 'archery' }],
-    preferences: campers.map((c) => ({ camper_id: c.id, label: 'Archery', labelKey: 'archery', rank: 1 })),
+    preferences: campers.map((c) => ({ camper_id: c.id, occurrence_id: occurrenceId, label: 'Archery', labelKey: 'archery', rank: 1 })),
     sameNameCampers: [],
     skippedRows: [],
   }
@@ -415,7 +415,7 @@ describe('finalizeElectiveRunHandler', () => {
       parsed: {
         campers: [{ id: regenCamperId, display_name: 'Regen Camper', external_id: null }],
         choices: [{ label: 'Archery', labelKey: 'archery' }],
-        preferences: [{ camper_id: regenCamperId, label: 'Archery', labelKey: 'archery', rank: 1 }],
+        preferences: [{ camper_id: regenCamperId, occurrence_id: occurrenceId2, label: 'Archery', labelKey: 'archery', rank: 1 }],
         sameNameCampers: [],
         skippedRows: [],
       },

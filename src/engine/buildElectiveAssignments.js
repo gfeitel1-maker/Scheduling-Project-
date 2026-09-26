@@ -201,16 +201,33 @@ export function buildElectiveAssignments({
       }
     }
   }
-  for (const { camperId, choiceId, labelKey, occurrenceIds } of occurrencesOfChoiceRank.values()) {
-    if (occurrenceIds.size <= 1) continue
-    findings.push({
-      kind: 'PREFERENCE_OCCURRENCE_COLLAPSED',
+  // T265 round-3 review finding 7 \u2014 one finding per COLLIDING PAIR produced
+  // 177 findings on the t251 fixture; two independent reviews called that
+  // volume unusable, and this vocabulary has no rendering surface yet to page
+  // through them. Collapsed to ONE finding for the whole run, carrying every
+  // colliding pair in its payload so the detail survives for a future screen
+  // and for a test, without flooding the findings list.
+  const collapsedPairs = [...occurrencesOfChoiceRank.values()]
+    .filter(({ occurrenceIds }) => occurrenceIds.size > 1)
+    .map(({ camperId, choiceId, labelKey, occurrenceIds }) => ({
       camper_id: camperId,
       choice_id: choiceId,
+      labelKey,
       occurrence_ids: [...occurrenceIds].sort(),
+    }))
+    .sort((a, b) =>
+      a.camper_id < b.camper_id ? -1 : a.camper_id > b.camper_id ? 1
+        : a.choice_id < b.choice_id ? -1 : a.choice_id > b.choice_id ? 1 : 0
+    )
+  if (collapsedPairs.length > 0) {
+    findings.push({
+      kind: 'PREFERENCE_OCCURRENCE_COLLAPSED',
+      count: collapsedPairs.length,
+      pairs: collapsedPairs,
       message:
-        `${camperId}\u2019s ranking for ${labelKey} differs by cell, but this pass costs every cell ` +
-        'with whichever rank loaded last \u2014 the other cell\u2019s ranking was not honoured.',
+        `${collapsedPairs.length} camper ranking${collapsedPairs.length === 1 ? '' : 's'} ` +
+        'differ from one cell to another for the same activity choice, but only one ranking per ' +
+        'choice is used when placing campers \u2014 the others were not honoured.',
     })
   }
   const attends = (camperId, occurrenceId) =>

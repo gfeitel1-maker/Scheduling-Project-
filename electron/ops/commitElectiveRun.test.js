@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
-import { commitElectiveRun } from './commitElectiveRun.js'
+import { commitElectiveRun, describeElectiveRunRefusal } from './commitElectiveRun.js'
 import { setElectiveAssignment } from './setElectiveAssignment.js'
 import { deriveElectiveAssignmentId } from './electiveDerivedIds.js'
 import {
@@ -525,5 +525,22 @@ describe('commitElectiveRun', () => {
     const survivor = db.prepare('SELECT source FROM elective_assignments WHERE id = ?')
       .get(deriveElectiveAssignmentId(runId, 'cam-2', 'occ-1'))
     expect(survivor.source).toBe('solver')
+  })
+})
+
+describe('describeElectiveRunRefusal — missing occurrence_id (T265 round-3 review finding 6)', () => {
+  it('names the camper, avoids engine jargon, and says the sheet format is not supported', () => {
+    const parsed = {
+      ...PARSED,
+      preferences: [
+        { camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 },
+      ],
+    }
+    const refusal = describeElectiveRunRefusal(parsed)
+    expect(refusal).toContain('cam-1')
+    expect(refusal.toLowerCase()).not.toContain('occurrence')
+    expect(refusal.toLowerCase()).toMatch(/day and period|day, period/)
+    expect(refusal.toLowerCase()).toMatch(/support/)
+    expect(refusal.toLowerCase()).toMatch(/not/)
   })
 })

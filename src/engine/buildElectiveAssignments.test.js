@@ -503,26 +503,36 @@ describe('buildElectiveAssignments', () => {
   // appears in), yet the second row silently overwrites the first's rank in
   // this map. This does not fix that (that is the two-phase per-cell solver,
   // a separate ticket) — it makes the collapse visible instead of silent.
-  it('reports PREFERENCE_OCCURRENCE_COLLAPSED when one (camper, choice) spans two occurrences', () => {
+  // T265 round-3 review finding 7 — 177 colliding pairs on the t251 fixture
+  // each produced their OWN finding, which two independent reviews flagged as
+  // noise a director would drown in (and this vocabulary has no rendering
+  // surface yet to page through 177 rows anyway). Collapsed to ONE finding
+  // per run, carrying every colliding pair in its payload so the detail is
+  // still available to a future screen and to this test — not 177 entries.
+  it('reports ONE PREFERENCE_OCCURRENCE_COLLAPSED finding per run, carrying every colliding pair', () => {
     const out = buildElectiveAssignments({
-      campers: [{ id: 'c1' }],
+      campers: [{ id: 'c1' }, { id: 'c2' }],
       occurrences: [occ('o1'), occ('o2')],
       offerings: [offering('o1', 'archery', 'a-arch', 5), offering('o2', 'archery', 'a-arch', 5)],
       preferences: [
         { camper_id: 'c1', occurrence_id: 'o1', choice_id: 'C', rank: 1 },
         { camper_id: 'c1', occurrence_id: 'o2', choice_id: 'C', rank: 4 },
+        { camper_id: 'c2', occurrence_id: 'o1', choice_id: 'C', rank: 2 },
+        { camper_id: 'c2', occurrence_id: 'o2', choice_id: 'C', rank: 3 },
       ],
       choices: [choice('C', 'archery')],
     })
-    expect(out.findings).toContainEqual(
-      expect.objectContaining({
-        kind: 'PREFERENCE_OCCURRENCE_COLLAPSED',
-        camper_id: 'c1',
-        choice_id: 'C',
-      })
+    const collapsed = out.findings.filter((f) => f.kind === 'PREFERENCE_OCCURRENCE_COLLAPSED')
+    expect(collapsed.length).toBe(1)
+    const finding = collapsed[0]
+    expect(finding.count).toBe(2)
+    expect(finding.pairs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ camper_id: 'c1', choice_id: 'C', occurrence_ids: ['o1', 'o2'] }),
+        expect.objectContaining({ camper_id: 'c2', choice_id: 'C', occurrence_ids: ['o1', 'o2'] }),
+      ])
     )
-    const finding = out.findings.find((f) => f.kind === 'PREFERENCE_OCCURRENCE_COLLAPSED')
-    expect(finding.occurrence_ids).toEqual(['o1', 'o2'])
+    expect(finding.message.toLowerCase()).not.toContain('loaded last')
   })
 
   it('does not report PREFERENCE_OCCURRENCE_COLLAPSED when preference rows carry no occurrence_id', () => {
