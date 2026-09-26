@@ -153,8 +153,7 @@ describe('migration v78: elective_preferences gains occurrence_id', () => {
   // tripwire: it fails the moment a rollback module for 75, 76, or 77 exists
   // in this tree, which is the earliest concrete signal that the migrations
   // have landed.
-  it('T265 round-2 tripwire: once v75-v77 exist, the v78 guard must narrow to >= 77 && < 78', () => {
-    const rollbackDir = path.join(path.dirname(new URL(import.meta.url).pathname), 'rollback')
+  it('regression pin: the v78 guard stays the one-wide house form >= 77 && < 78', () => {
     // RESOLVED 2026-09-26. All of v75, v76 and v77 have landed and the v78 guard is now the
     // house form `>= 77 && < 78` (localDb.js), so this tripwire has done its job and is kept
     // only as a regression pin: if anyone widens that guard again, this fails.
