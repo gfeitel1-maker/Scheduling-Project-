@@ -68,3 +68,24 @@ repeated cells. A staff session cannot produce any of these artifacts.
 
 A printable per-child PDF packet is the next presentation layer over this same projection and is
 not built here. Do not block the data model on it.
+
+## Known limits at close (2026-09-26)
+
+`status: completed` is recorded with these gaps stated rather than with `archive_when` narrowed to
+match what shipped. Two of the seven exception kinds named in **Shape** above are **not computed**:
+
+- **eligibility** and **resource**. Both are generation/finalize-time findings that are never
+  persisted, so at export time there is no stored source to read and no detector exists to
+  reconstruct them. They ship as explicitly-named, empty buckets carrying a machine-readable
+  `not_computed` marker, so a consumer cannot read an empty bucket as "checked, none found". No
+  detector was fabricated and no key was silently omitted — the two available wrong answers.
+  Discharging them requires persisting those findings at generation time, which is a separate
+  change to the run lifecycle and is not in this ticket's scope.
+
+Also true at close, and not defects to chase:
+
+- The dev mock's `deriveMockOuterRows` is a deliberate simplification: it does not span-collapse
+  inherited rows and does not implement the elective-wins exclusion, so mock visuals can differ from
+  Electron on exactly those two behaviours. Verify both against `npm run electron:dev`, not the mock.
+- Grader never scored this ticket. Round 1's review failure was unambiguous enough that no score was
+  needed to choose RETRY, and round 2 was not re-scored. Recorded in the run record as `no-predicate`.
