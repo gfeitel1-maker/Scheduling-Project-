@@ -46,9 +46,9 @@ afterEach(() => {
   if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
 })
 
-const anchorCount = () => db.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE camp_id = ?').get(campId).c
-const anchorRows = () => db.prepare('SELECT * FROM anchor_activities WHERE camp_id = ?').all(campId)
-const opCount = () => db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'anchor_activities'").get().c
+const anchorCount = () => db.prepare('SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ?').get(campId).c
+const anchorRows = () => db.prepare('SELECT * FROM fixed_events WHERE camp_id = ?').all(campId)
+const opCount = () => db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'fixed_events'").get().c
 const commit = (extra) => commitIngest(db, { camp_id: campId, cohort_id: null, author_user_id: 'u1', device_id: deviceId, mode: 'add', ...extra })
 
 const BASE = {
@@ -132,7 +132,7 @@ describe('C1a — anchor group-scope drift signal', () => {
     commit({ ...BASE, fixedEvents: [MIFKAD_ALL] })
     const [anchor] = anchorRows()
     const tuesday = db.prepare('SELECT id FROM days_of_operation WHERE camp_id = ? AND label = ?').get(campId, 'Tuesday').id
-    db.prepare('UPDATE anchor_activities SET day_id = ? WHERE id = ?').run(tuesday, anchor.id)
+    db.prepare('UPDATE fixed_events SET day_id = ? WHERE id = ?').run(tuesday, anchor.id)
 
     // Re-import the original file (still Monday, scope now different too) —
     // liveUnmatched={Tuesday}, fileUnmatched={Monday} pairs as a move; the
@@ -159,7 +159,7 @@ describe('C1a — anchor group-scope drift signal', () => {
     // A real human tombstone goes through DELETE_FIELD so rejectedSlots
     // recognizes it, mirroring C1b's deleteAnchor helper.
     appendOp(db, {
-      entity: 'anchor_activities', entity_id: anchor.id, field: DELETE_FIELD, value: 1,
+      entity: 'fixed_events', entity_id: anchor.id, field: DELETE_FIELD, value: 1,
       author_user_id: 'u1', device_id: deviceId, parent_op_id: null, client_write_id: randomUUID(), source: 'human',
     })
     expect(anchorCount()).toBe(0)
@@ -210,7 +210,7 @@ describe('C1a — anchor group-scope drift signal', () => {
     const [anchor] = anchorRows()
     // Simulate malformed group_ids directly on the live row, bypassing
     // appendOp's normal JSON.stringify write path.
-    db.prepare("UPDATE anchor_activities SET group_ids = '' WHERE id = ?").run(anchor.id)
+    db.prepare("UPDATE fixed_events SET group_ids = '' WHERE id = ?").run(anchor.id)
 
     // Re-import the SAME unchanged fixed event — must not throw, and must not
     // report a spurious scopeChanged for the corrupted slot.
@@ -252,7 +252,7 @@ describe('C1a — anchor group-scope drift signal', () => {
     db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run(tierId, campId, 'Juniors')
     db.prepare('UPDATE groups SET tier_id = ? WHERE camp_id = ?').run(tierId, campId)
     const [anchor] = anchorRows()
-    db.prepare("UPDATE anchor_activities SET is_all_groups = 0, group_ids = '[]', unit_ids = ? WHERE id = ?")
+    db.prepare("UPDATE fixed_events SET is_all_groups = 0, group_ids = '[]', unit_ids = ? WHERE id = ?")
       .run(JSON.stringify([tierId]), anchor.id)
 
     const second = commit({ ...BASE, fixedEvents: [{
@@ -283,7 +283,7 @@ describe('C1a — anchor group-scope drift signal', () => {
     db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run(tierId, campId, 'Juniors')
     db.prepare('UPDATE groups SET tier_id = ? WHERE camp_id = ?').run(tierId, campId)
     const [anchor] = anchorRows()
-    db.prepare("UPDATE anchor_activities SET kind = 'recurring', is_all_groups = 1, group_ids = '[]', unit_ids = ? WHERE id = ?")
+    db.prepare("UPDATE fixed_events SET kind = 'recurring', is_all_groups = 1, group_ids = '[]', unit_ids = ? WHERE id = ?")
       .run(JSON.stringify([tierId]), anchor.id)
 
     const second = commit({ ...BASE, fixedEvents: [{

@@ -8,7 +8,7 @@ import { localClient } from '../localClient'
 // entity itself, mirroring fetchReadiness's pattern rather than importing it.
 // Refetches on every mount (Candidate C1/C4) — no cross-render cache.
 const STRUCTURE_ENTITIES = [
-  'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'anchor_activities',
+  'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'fixed_events',
 ]
 
 export function useCurrentStructureCounts(campId) {

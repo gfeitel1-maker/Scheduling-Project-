@@ -47,7 +47,7 @@ function baseState() {
     groups: [],
     locations: [],
     activities: [],
-    anchor_activities: [],
+    fixed_events: [],
     schedule_weeks: [{ id: 'w1', camp_id: 'camp1', name: 'Week 1', sort_order: 0, is_archived: 0 }],
     schedule_templates: [],
     schedule_snapshots: [],
@@ -112,7 +112,7 @@ describe('T252 round 2 — fixed-events groupIdByName/blockIdByName resolve dupl
       })
       expect(outcome.held).toBeFalsy()
       const s = getState()
-      const anchor = s.anchor_activities[0]
+      const anchor = s.fixed_events[0]
       return anchor
     }
 
@@ -180,7 +180,7 @@ describe('T252 round 2 — mock commitCreate must not evict an already-seeded na
     // test would pass vacuously, the same way the original flaky version did.
     expect(newGroup.id < 'aaa-group-low').toBe(true)
 
-    const anchor = s.anchor_activities[0]
+    const anchor = s.fixed_events[0]
     const anchorGroups = String(anchor.group_ids ?? anchor.scope_groups ?? '')
     expect(anchorGroups).toContain('aaa-group-low')
     expect(anchorGroups).not.toContain(newGroup.id)

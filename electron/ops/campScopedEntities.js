@@ -19,7 +19,7 @@ export const DIRECT_CAMP_ENTITIES = new Set([
   'cohorts',
   'days_of_operation',
   'time_blocks',
-  'anchor_activities',
+  'fixed_events',
   'schedule_templates',
   'schedule_weeks',
   'locations',
@@ -184,7 +184,7 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'activities',
   'locations', // v32; references camps.id only. activities.location_id has NO DB-level FK, so order relative to activities is unconstrained.
   'camp_maps', // v33 (M6); references camps.id only, applied separately (unconditional) from this loop on the Client.
-  'anchor_activities', // references cohorts.id/days_of_operation.id, both nullable
+  'fixed_events', // references cohorts.id/days_of_operation.id, both nullable
   'schedule_weeks', // references camps.id only; must precede schedule_templates and every week_*_exclusions table below, all of which reference it
   'schedule_templates', // references schedule_weeks.id, nullable
   'template_slots', // references groups.id/activities.id, both nullable — no declared FK to schedule_templates.id (schema.sql); elective_set_id (v35) also has no declared FK

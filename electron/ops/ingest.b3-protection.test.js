@@ -67,7 +67,7 @@ afterEach(() => {
 const commit = (extra) => commitIngest(db, { camp_id: campId, cohort_id: null, author_user_id: 'u1', device_id: deviceId, mode: 'add', ...extra })
 const tierRow = (name) => db.prepare('SELECT * FROM tiers WHERE camp_id = ? AND lower(name) = lower(?)').get(campId, name)
 const opCount = (entity) => db.prepare('SELECT COUNT(*) c FROM operations WHERE entity = ?').get(entity).c
-const anchorGroupIds = (id) => db.prepare('SELECT group_ids, is_all_groups FROM anchor_activities WHERE id = ?').get(id)
+const anchorGroupIds = (id) => db.prepare('SELECT group_ids, is_all_groups FROM fixed_events WHERE id = ?').get(id)
 
 // ---------------------------------------------------------------------------
 // groups.tier_id — the one field with a real import UPDATE path. Already fully
@@ -166,7 +166,7 @@ describe('B3 · tiers — a recognized tier re-imports as unchanged (no clobber 
 })
 
 // ---------------------------------------------------------------------------
-// fixed events (anchor_activities) — recognize-then-skip (T72) means an
+// fixed events (fixed_events) — recognize-then-skip (T72) means an
 // already-live slot is left untouched on re-import, so a director's in-app
 // hand-edit to that anchor's attributes survives. T72's suite proves the
 // deletion/rejection half; this adds the hand-EDIT-survives half, B3-framed.
@@ -189,7 +189,7 @@ describe('B3 · fixed events — a director hand-edit to a live anchor survives 
     const first = commit({ ...BASE, fixedEvents: [MIFKAD_ALL] })
     expect(first.fixedEvents.created).toBe(1)
     const [{ id: anchorId }] = db
-      .prepare('SELECT id FROM anchor_activities WHERE camp_id = ?').all(campId)
+      .prepare('SELECT id FROM fixed_events WHERE camp_id = ?').all(campId)
     expect(anchorGroupIds(anchorId).is_all_groups).toBe(1)
 
     // Director hand-edits the anchor in-app: narrow "all groups" to just Bunk 1.
@@ -202,7 +202,7 @@ describe('B3 · fixed events — a director hand-edit to a live anchor survives 
     const bunk1 = db.prepare('SELECT id FROM groups WHERE camp_id = ? AND name = ?').get(campId, 'Bunk 1')
     for (const [field, value] of Object.entries({ kind: 'recurring', is_all_groups: 0, group_ids: JSON.stringify([bunk1.id]) })) {
       appendOp(db, {
-        entity: 'anchor_activities', entity_id: anchorId, field, value,
+        entity: 'fixed_events', entity_id: anchorId, field, value,
         author_user_id: 'u1', device_id: deviceId, parent_op_id: null,
         client_write_id: randomUUID(), source: 'human',
       })
@@ -217,7 +217,7 @@ describe('B3 · fixed events — a director hand-edit to a live anchor survives 
     expect(second.fixedEvents.unchanged).toBe(1)
     expect(anchorGroupIds(anchorId).is_all_groups).toBe(0) // hand-edit survived
     expect(JSON.parse(anchorGroupIds(anchorId).group_ids)).toEqual([bunk1.id])
-    expect(latestOp(db, 'anchor_activities', anchorId, 'is_all_groups').source).toBe('human')
+    expect(latestOp(db, 'fixed_events', anchorId, 'is_all_groups').source).toBe('human')
   })
 
   // Deletion guard only (bare existsSync, not a prose regex): the T72 suite proves

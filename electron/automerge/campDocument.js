@@ -257,7 +257,7 @@ function assertModeled(entity) {
 // assertion passes with day_overrides absent from MODELED_ENTITIES.
 const GENESIS_ENTITIES = [
   'activities',
-  'anchor_activities',
+  'fixed_events',
   'camp_maps',
   'campers',
   'camps',
@@ -307,8 +307,20 @@ const GENESIS_ENTITIES = [
 // automatically, same forcing function as the sixth regeneration above). Same acceptance as every
 // prior regeneration: pre-production, no live camps on this sync engine, existing `.automerge`
 // files may be discarded. New pinned head: b3ff28193b8f59f9b8e7d71ddeb2ee32ecff999a14339758efebf8652b501803
+//
+// NINTH REGENERATION (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md): the
+// document key `anchor_activities` renamed to `fixed_events` (in GENESIS_ENTITIES above and in
+// this bytes constant) — the "two families" vocabulary ruling (fixed_events vs the separate
+// `events` table). This is a RENAME, not an addition, so — unlike every regeneration above, which
+// only appended a key — the old key does not survive as an orphan the way `day_overrides` does:
+// there is no reason to keep `anchor_activities` in genesis once the SQL table and every reader are
+// renamed together in the same commit (this PR), and GENESIS_B64 is being regenerated regardless
+// (a rename changes what a document key MEANS, which a subset-superset genesis cannot paper over
+// the way an unused orphan key can). Same acceptance as every prior regeneration: pre-production,
+// no live camps on this sync engine, existing `.automerge` files may be discarded. New pinned head:
+// 9891ac618b8142a770c3bfcc37281128e031241ff2e83bdbdd4df8cc1c27c9df
 const GENESIS_B64 =
-  'hW9Kg54mIe4AlQMBECWl3YlnQBZYZHRLlRX3P0UBs/8oGTuPWfm459cd3rLuMuz/mZoUM5dY7+v4ZStQGAMGAQIDAhMCIwZAAlYCBx2oAiECIwI0AUICVgKAAQJ/AH8Bfyh/1P6C1QZ/AH8HbZHBTsMwEERPLYK2qEFUFIkP42YZZ9JYOF5rxw7071EStTWIk3ff2KPZ9fuDddmPPnuwsdH1ouZG7p0dkhls4t1UQbmaTt456UUzd609Gxmh6luwae2ZRjojCWqzl3hEwGQGY0l/igNiNloin/8R+HqFrhfvYKTroD6euP+jVO/FuaKK+AsmRYcFvl2hlmikZKhhtIm9ZL5cRSJXc+9qzi3GKfdJpSRuloZBMpulzn6A+QjiPrmeCbedR2iNLbkX3S9NUhkRbXRYL073Qdy8JT7R9WhLwC3ZDWUMKdgMPl7RF/DJhgnO22CmP5jjvNSkCrWtOB8vfsubw+/W0EkCV9lDuak8HrIMH8wSwVUhlMcpxGVlZ4NvFwqnYQ6zMI9Y0eX6ZeJK+AEoACgBKCgAKAAoAAA=='
+  'hW9Kg1NqDusAnQMBECWl3YlnQBZYZHRLlRX3P0UBmJGsYYuBQqdww7/MNygRKOAxJB/y6Dvb3U34zBwnyd8GAQIDAhMCIwZAAlYCBx2oAiECIwo0AUICVgKAAQJ/AH8Bfyh/1P6C1QZ/AH8HbZHdbsIwDIWvAPErmIbGpD3Y7qKQntKINI58EgZvP7UVUKZdxf6ObR073wvrsr/47MG5s20yrU2cdRGUk+7lzEkjmrmu7M3IBaq+AneVvdFIbSRBbfYSDwjohsFY0p9ii5iNlsj3fwR+PqBrxDsYqWuojydu/yijfnGuqCK+wKSoMcCvB9QSjZQMNYw2sZHMj4dIZPPcez3mXOHS+T6plMTlkDBI5m6Is29hjkHcmdOecFV7hMrYkhvR7ZAklQuijQ6r2l9RmaF0OoydB3H9yfhG16AqAU+bT5TRpmAzuHmgH+DMHROct8F0H9J7+xiTkcPViHNznzf07F9TQycJnGQP5XI0Y5GlPTJLBCeFUB46E/f73QyuLhR2y+x7oV9xRIfy+8Yj4RcoAH4BAhQBfmsWEAEoKAAoACgAAA=='
 
 function genesisDoc() {
   return A.clone(A.load(Uint8Array.from(Buffer.from(GENESIS_B64, 'base64'))))

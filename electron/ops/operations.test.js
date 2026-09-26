@@ -1205,7 +1205,7 @@ describe('appendOp — Stage 5b Automerge dual-write', () => {
     ops.appendOp(db, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swim', author_user_id: 'user-1', device_id: 'device-1' })
     ops.appendOp(db, { entity: 'activities', entity_id: 'a1', field: 'name', value: 'Swimming', author_user_id: 'user-1', device_id: 'device-1' })
     ops.appendOp(db, { entity: 'locations', entity_id: 'l1', field: 'name', value: 'Pool', author_user_id: 'user-1', device_id: 'device-1' })
-    ops.appendOp(db, { entity: 'anchor_activities', entity_id: 'aa1', field: 'day_id', value: 'd1', author_user_id: 'user-1', device_id: 'device-1' })
+    ops.appendOp(db, { entity: 'fixed_events', entity_id: 'aa1', field: 'day_id', value: 'd1', author_user_id: 'user-1', device_id: 'device-1' })
     ops.appendOp(db, { entity: 'activities', entity_id: 'a2', field: 'name', value: 'Delete me', author_user_id: 'user-1', device_id: 'device-1' })
     ops.appendOp(db, { entity: 'activities', entity_id: 'a2', field: DELETE_FIELD, value: 1, author_user_id: 'user-1', device_id: 'device-1' })
 

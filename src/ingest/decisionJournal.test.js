@@ -9,7 +9,7 @@ import { journalEntriesFor, OUTCOMES } from './decisionJournal'
 // that happening again.
 const confirmValue = (id) => ({ id, kind: 'confirm_value', entity: 'activities', entityName: 'Swim' })
 const backedChange = (id) => ({ id, kind: 'confirm_change', entity: 'activities', entityName: 'Swim', field: ['min_per_week'] })
-const unbackedChange = (id) => ({ id, kind: 'confirm_change', entity: 'anchor_activities', entityName: 'Mifkad', field: [] })
+const unbackedChange = (id) => ({ id, kind: 'confirm_change', entity: 'fixed_events', entityName: 'Mifkad', field: [] })
 const legacy = (id) => ({ id, kind: 'review_legacy_priority', entity: 'activities', entityName: 'Archery' })
 const conflict = (id) => ({ id, kind: 'resolve_conflict', entity: 'groups', entityName: 'Bunk 1' })
 

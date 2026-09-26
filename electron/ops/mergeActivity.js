@@ -53,6 +53,12 @@ const ACTIVITY_REFERRERS = Object.freeze([
   // deleted. The merge changes what the id points to; it must never change
   // what the frozen snapshot says was actually scheduled.
   { entity: 'elective_run_outer_snapshots', field: 'activity_id' },  // no FK
+  // T267 (v77, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md). A soft reference
+  // (no FK, matching this table's existing FK-by-convention columns) from a fixed/recurring event
+  // to the catalog activity it resolves to. Merging the loser away without re-pointing this would
+  // leave the fixed event silently pointing at a deleted activity — the identity link PR 1 exists
+  // to add in the first place, orphaned by the very next merge.
+  { entity: 'fixed_events', field: 'activity_id' },  // no FK
 ])
 
 /** Rows pointing at this activity, per referrer table. */

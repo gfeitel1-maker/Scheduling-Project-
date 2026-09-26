@@ -32,7 +32,7 @@ function seedState() {
     days_of_operation: [{ id: 'd1', camp_id: 'camp1', label: 'Monday' }],
     groups: [{ id: 'g1', camp_id: 'camp1', name: 'Bunk 1' }],
     activities: [{ id: 'a1', camp_id: 'camp1', name: 'Swim' }],
-    anchor_activities: [],
+    fixed_events: [],
     schedule_weeks: [{ id: 'w1', camp_id: 'camp1', name: 'Week 1', sort_order: 0, is_archived: 0 }],
     schedule_templates: [],
     schedule_snapshots: [],

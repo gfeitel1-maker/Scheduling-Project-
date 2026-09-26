@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Dev/mock parity for anchor_activities.kind (docs/adr/2026-08-28-fixed-vs-
+// Dev/mock parity for fixed_events.kind (docs/adr/2026-08-28-fixed-vs-
 // recurring-events.md §6/§8.4): the mock's ingestCommit fixed-events fan-out
 // (src/localClient.mock.js ~line 976) must attach the same `kind` the real
 // commit path (electron/ops/ingest.js) does, for the same input — same isAll
@@ -34,7 +34,7 @@ function seedState() {
       { id: 'g1', camp_id: 'camp1', name: 'Group A' },
       { id: 'g2', camp_id: 'camp1', name: 'Group B' },
     ],
-    anchor_activities: [],
+    fixed_events: [],
   }
 }
 
@@ -44,7 +44,7 @@ beforeEach(() => {
   globalThis.localStorage.setItem(STORE_KEY, JSON.stringify(seedState()))
 })
 
-describe('mockShoresh.ingestCommit — anchor_activities.kind parity with the real commit path', () => {
+describe('mockShoresh.ingestCommit — fixed_events.kind parity with the real commit path', () => {
   it('an all-groups fixed event commits as kind=fixed (mirrors electron/ops/ingest.js)', async () => {
     const { mockShoresh } = await import('./localClient.mock.js')
     await mockShoresh.ingestCommit({
@@ -56,7 +56,7 @@ describe('mockShoresh.ingestCommit — anchor_activities.kind parity with the re
       }],
     })
     const state = JSON.parse(globalThis.localStorage.getItem(STORE_KEY))
-    const row = state.anchor_activities.find((a) => a.name === 'Flagpole')
+    const row = state.fixed_events.find((a) => a.name === 'Flagpole')
     expect(row).toBeTruthy()
     expect(row.is_all_groups).toBe(1)
     expect(row.kind).toBe('fixed')
@@ -73,7 +73,7 @@ describe('mockShoresh.ingestCommit — anchor_activities.kind parity with the re
       }],
     })
     const state = JSON.parse(globalThis.localStorage.getItem(STORE_KEY))
-    const row = state.anchor_activities.find((a) => a.name === 'Lunch A')
+    const row = state.fixed_events.find((a) => a.name === 'Lunch A')
     expect(row).toBeTruthy()
     expect(row.is_all_groups).toBe(0)
     expect(row.kind).toBe('recurring')

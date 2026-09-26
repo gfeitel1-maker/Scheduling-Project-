@@ -277,7 +277,7 @@ describe('isBackedConfirmChange', () => {
 
 describe('applyResolutions — a NOT-backed confirm_change (fixed-event drift) never emits a resolution', () => {
   it('regardless of which local answer is given, or none at all', () => {
-    const decision = confirmChangeDecision({ entity: 'anchor_activities', field: null, entityName: 'Movie Night' })
+    const decision = confirmChangeDecision({ entity: 'fixed_events', field: null, entityName: 'Movie Night' })
     for (const answer of [undefined, { choice: 'accept' }, { choice: 'keep' }, { ack: true }]) {
       const { resolutions } = applyResolutions({
         approved: {},
@@ -296,8 +296,8 @@ describe('applyResolutions — a NOT-backed confirm_change (fixed-event drift) n
 // A1 discriminator — never by name alone.
 function fixedEventValueDecision(overrides = {}) {
   return {
-    id: 'anchor_activities:null:confirm_value:1 of 2 groups not imported:Free Swim:Afternoon:Monday',
-    kind: 'confirm_value', entity: 'anchor_activities', entityId: null,
+    id: 'fixed_events:null:confirm_value:1 of 2 groups not imported:Free Swim:Afternoon:Monday',
+    kind: 'confirm_value', entity: 'fixed_events', entityId: null,
     entityName: 'Free Swim', field: null, confidence: 'low', proposedValue: null,
     timeBlock: 'Afternoon', days: ['Monday'],
     unknowns: [], evidence: null, reason: '1 of 2 groups not imported', ...overrides,
@@ -331,11 +331,11 @@ describe('applyResolutions — fixed-event hold-back (sub-slice 4)', () => {
 
   it('two same-named fixed events on different days: resolving one holds only the unresolved one — proves name-alone matching would be wrong', () => {
     const decisionMonday = fixedEventValueDecision({
-      id: 'anchor_activities:null:confirm_value:r:Free Swim:Afternoon:Monday',
+      id: 'fixed_events:null:confirm_value:r:Free Swim:Afternoon:Monday',
       timeBlock: 'Afternoon', days: ['Monday'],
     })
     const decisionTuesday = fixedEventValueDecision({
-      id: 'anchor_activities:null:confirm_value:r:Free Swim:Afternoon:Tuesday',
+      id: 'fixed_events:null:confirm_value:r:Free Swim:Afternoon:Tuesday',
       timeBlock: 'Afternoon', days: ['Tuesday'],
     })
     const feMonday = { name: 'Free Swim', time_block: 'Afternoon', days: ['Monday'], scope: { is_all_groups: true } }

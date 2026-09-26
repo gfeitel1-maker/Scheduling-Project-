@@ -75,13 +75,13 @@ export function createScheduleRepository({
   return {
     // --- reads -------------------------------------------------------------
     async loadSetupLists() {
-      const [groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations] =
+      const [groups, days_of_operation, time_blocks, activities, fixed_events, tiers, cohorts, locations] =
         await Promise.all([
           localClient.list('groups'),
           localClient.list('days_of_operation'),
           localClient.list('time_blocks'),
           localClient.list('activities'),
-          localClient.list('anchor_activities'),
+          localClient.list('fixed_events'),
           localClient.list('tiers'),
           localClient.list('cohorts'),
           localClient.list('locations'),
@@ -123,7 +123,7 @@ export function createScheduleRepository({
       } catch {
         // best-effort — see comment above
       }
-      return { groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations, elective_sets, elective_set_activities, events }
+      return { groups, days_of_operation, time_blocks, activities, fixed_events, tiers, cohorts, locations, elective_sets, elective_set_activities, events }
     },
 
     // durableElectiveSets (design §2) — the reuse-surface list, is_reusable=1

@@ -50,7 +50,7 @@ describe('the span query the startup guard asks', () => {
   it('reports only migrations inside (from, to]', () => {
     expect(domainStateMigrationsIn(11, 12)).toEqual([12])
     expect(domainStateMigrationsIn(12, 12)).toEqual([])
-    expect(domainStateMigrationsIn(32, CURRENT_SCHEMA_VERSION)).toEqual([70])
+    expect(domainStateMigrationsIn(32, CURRENT_SCHEMA_VERSION)).toEqual([70, 77])
   })
 
   it('a fresh database (from 0) reports every one of them — and has no document by definition', () => {
@@ -67,7 +67,13 @@ describe('the span query the startup guard asks', () => {
     // one-launch-only WeakMap span. A future migration in this set must get
     // the SAME durable-marker treatment, not just a classification entry.
     const aboveDocumentEra = [...DOMAIN_STATE_MIGRATIONS.keys()].filter((v) => v > 52)
-    expect(aboveDocumentEra).toEqual([70])
+    // v77 (T267) is the second: it backfills fixed_events.activity_id, a MODELED field, by direct
+    // SQL. It does NOT get the durable domain_state_migration_pending marker v70 uses, because that
+    // marker exists specifically to survive a DELETE that needs document-routed reconciliation
+    // (repointing/tombstoning); v77 only SETS a field on rows that still exist, and — like v70 before
+    // it went live — is unreachable today (no live camp predates v57's document era yet). The
+    // per-launch migrationSpanFor guard (main.js) still covers it for the one launch that runs it.
+    expect(aboveDocumentEra).toEqual([70, 77])
   })
 
   it('isDomainStateMigration agrees with the map', () => {

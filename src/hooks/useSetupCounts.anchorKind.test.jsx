@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 
 // T124 — the sidebar showed "Fixed Events 112" beside "Recurring Events 112":
-// the same 112 anchor_activities rows counted once each. The two rows were
+// the same 112 fixed_events rows counted once each. The two rows were
 // deliberately un-conflated by kind; the counts never followed.
 const rows = [
   { id: '1', camp_id: 'c1', kind: 'fixed', name: 'Flagpole' },
@@ -16,7 +16,7 @@ const rows = [
 
 vi.mock('../localClient', () => ({
   localClient: {
-    list: vi.fn(async (table) => (table === 'anchor_activities' ? rows : [])),
+    list: vi.fn(async (table) => (table === 'fixed_events' ? rows : [])),
     getCamp: vi.fn(async () => ({ name: 'Camp Ramah Tikvah' })),
     onOpApplied: () => () => {},
     onLocalWrite: () => () => {},

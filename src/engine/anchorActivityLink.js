@@ -1,11 +1,20 @@
-// An anchor (`anchor_activities`) references its activity BY NAME, not by id.
-// There is no `activity_id` column and never has been — the Anchors screen has
-// asked the director to TYPE the event ("e.g. Mifkad, Lunch, Swim") since the
-// first commit, and electron/ops/ingest.js writes name/day/block/scope and no
-// activity link. T62 ("the engine places anchor activities a second time as
-// regular slots") was closed against an `anchor.activity_id` the row does not
-// carry, so its exclusion Set was empty in production for a month while its
-// unit test — which hand-built an anchor WITH that field — stayed green.
+// An anchor (`fixed_events`) references its activity BY NAME, not by id, in
+// this module's own resolution logic below — that is still true and is what
+// buildSchedule/weekCatalog actually call through. What is NO LONGER true:
+// "there is no activity_id column and never has been." T267
+// (docs/adr/2026-09-26-fixed-recurring-event-identity-model.md) added a real
+// `fixed_events.activity_id` column and backfills it at migration time, but
+// PR 1 stops there — no runtime write path sets it yet (the Anchors screen
+// still asks the director to TYPE the event, and electron/ops/ingest.js still
+// writes name/day/block/scope with no activity link), and this module still
+// resolves by name for every real caller. PR 2 is what cuts resolution over to
+// `activity_id` and deletes the name-matching fallback below. T62 ("the
+// engine places anchor activities a second time as regular slots") was closed
+// against an `anchor.activity_id` the row did not carry at the time, so its
+// exclusion Set was empty in production for a month while its unit test —
+// which hand-built an anchor WITH that field — stayed green. That history is
+// the reason PR 2 must prove the cutover against the REAL table, not a
+// fixture that assumes the field exists.
 //
 // This module is the one place that link is resolved, so buildSchedule (pass 1
 // placement) and weekCatalog (week-exclusion suppression) cannot drift apart.
@@ -33,11 +42,12 @@ export function indexActivitiesByName(activities) {
   return byName
 }
 
-// The catalog activities one anchor stands for. `activity_id` is still honored
-// first — no row carries it today, but callers and fixtures may, and an
-// explicit link should always beat a name guess. An anchor whose name matches
-// nothing in the catalog ("Mifkad", "Lunch + Leave") resolves to [], which is
-// the correct no-op.
+// The catalog activities one anchor stands for. `activity_id` is honored
+// first — real rows CAN carry it now (T267's migration backfill sets it for
+// existing data), but no runtime write path sets it yet, so most callers
+// still resolve by name in practice. An explicit link always beats a name
+// guess. An anchor whose name matches nothing in the catalog ("Mifkad", "Lunch
+// + Leave") resolves to [], which is the correct no-op.
 export function resolveAnchorActivityIds(anchor, activitiesByName) {
   if (anchor?.activity_id != null) return [anchor.activity_id]
   return activitiesByName.get(anchorNameKey(anchor?.name)) ?? []

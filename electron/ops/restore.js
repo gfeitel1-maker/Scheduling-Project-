@@ -23,7 +23,7 @@ export const RESTORE_DECISIONS = Object.freeze({
   activities: 'restorable',
   days_of_operation: 'restorable',
   time_blocks: 'restorable',
-  anchor_activities: 'restorable',
+  fixed_events: 'restorable',
   locations: 'restorable',
 
   users: 'refused: a restore would re-emit pin_hash and pin_salt as replicating ops',
@@ -121,11 +121,12 @@ const CHILD_LINKS = {
   cohorts: [
     { entity: 'tiers', field: 'cohort_id' },
     { entity: 'time_blocks', field: 'cohort_id' },
-    { entity: 'anchor_activities', field: 'cohort_id' },
+    { entity: 'fixed_events', field: 'cohort_id' },
   ],
   tiers: [{ entity: 'groups', field: 'tier_id' }],
-  days_of_operation: [{ entity: 'anchor_activities', field: 'day_id' }],
-  time_blocks: [{ entity: 'anchor_activities', field: 'time_block_id' }],
+  days_of_operation: [{ entity: 'fixed_events', field: 'day_id' }],
+  time_blocks: [{ entity: 'fixed_events', field: 'time_block_id' }],
+  activities: [{ entity: 'fixed_events', field: 'activity_id' }],
 }
 
 // days_of_operation has no `name` column; its human label lives in `label`.

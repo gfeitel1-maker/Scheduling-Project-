@@ -727,7 +727,7 @@ export function projectAll(db, doc) {
 // "seed the document from current SQLite" step must run first (see
 // seed.js's seedDocFromSqlite/seedAllFromSqlite) — otherwise an empty/partial
 // document would delete real rows and silently orphan convention-only
-// referrers (anchor_activities.day_id). Nothing here wires
+// referrers (fixed_events.day_id). Nothing here wires
 // this to live data; it runs only against documents built in-process.
 export function rebuildFromDoc(db, doc, entity) {
   assertConflictsRecorded(db, doc)

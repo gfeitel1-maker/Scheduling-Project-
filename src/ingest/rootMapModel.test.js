@@ -129,7 +129,7 @@ describe('buildRootMapModel', () => {
       tiers: [{ id: 't1', name: 'Amitim' }],
       time_blocks: [{ id: 'tb1', name: 'Morning' }],
       days_of_operation: [{ id: 'day1', name: 'Monday' }],
-      anchor_activities: [{ id: 'fe1', name: 'Flag Raising', time_block_id: 'tb1', day_id: 'day1' }],
+      fixed_events: [{ id: 'fe1', name: 'Flag Raising', time_block_id: 'tb1', day_id: 'day1' }],
       ...overrides,
     }
   }
@@ -231,7 +231,7 @@ describe('buildRootMapModel', () => {
     )
   })
 
-  // ── Fixed Events (anchor_activities) attribution — Red Hat HIGH, round 2 ──
+  // ── Fixed Events (fixed_events) attribution — Red Hat HIGH, round 2 ──
   // addFixedEventDecision (reconciliationReport.js) mints entityId: null for
   // EVERY anchor decision, create and change alike, so attribution can't use
   // the entityId match every other entity type uses — it must use the same
@@ -284,7 +284,7 @@ describe('buildRootMapModel', () => {
         created: [{ name: 'Campfire', time_block: 'Evening', days: ['Friday'], confidence: 'low' }],
       },
     })
-    const snapshot = makeSnapshot({ anchor_activities: [] })
+    const snapshot = makeSnapshot({ fixed_events: [] })
     const model = buildRootMapModel(report, { answers: {}, dismissedGaps: new Set(), snapshot })
 
     const fixedEvents = model.domains.flatMap((d) => d.children).find((c) => c.key === 'Recurring Events')
@@ -292,7 +292,7 @@ describe('buildRootMapModel', () => {
     expect(fixedEvents.roster[0]).toMatchObject({ entityId: null, name: 'Campfire', state: 'attention' })
   })
 
-  it('census-completeness invariants hold with anchor_activities in the mix, not just groups', () => {
+  it('census-completeness invariants hold with fixed_events in the mix, not just groups', () => {
     const report = buildReconciliationReport({
       planItems: [],
       readiness: [],
@@ -305,7 +305,7 @@ describe('buildRootMapModel', () => {
 
     const fixedEvents = model.domains.flatMap((d) => d.children).find((c) => c.key === 'Recurring Events')
     const liveCount = fixedEvents.roster.filter((r) => r.entityId != null).length
-    expect(liveCount).toBe(snapshot.anchor_activities.length)
+    expect(liveCount).toBe(snapshot.fixed_events.length)
 
     const snapshotEntityCount = Object.values(snapshot).flat().length
     const proposedNewCount = report.decisions.filter((d) => d.kind === 'confirm_value' && d.entityId == null).length

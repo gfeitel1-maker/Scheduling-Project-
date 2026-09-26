@@ -189,8 +189,8 @@ export function attributeByMigration(trace) {
  *
  * A table RECREATE legitimately INSERTs into its own `_vNN` shadow table and
  * then renames, which is shape work. The trailing `\b` excludes those without
- * needing to name them: `anchor_activities\b` does not match
- * `anchor_activities_v65`, because `_` is a word character and there is no
+ * needing to name them: `fixed_events\b` does not match
+ * `fixed_events_v65`, because `_` is a word character and there is no
  * boundary between `s` and `_`. The same boundary excludes `users_new`.
  */
 export function domainWritesIn(entries, tables) {

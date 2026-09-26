@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb, getSchemaVersion } from '../localDb.js'
 import { rollbackV71 } from './v71_down.js'
+import { rollbackV77 } from './v77_down.js'
 
 const files = []
 
@@ -27,6 +28,10 @@ const columns = (db, table) => db.prepare(`PRAGMA table_info(${table})`).all().m
 describe('rollbackV71', () => {
   it('re-adds recurrence_level to both tables and reverts the schema_migrations row', () => {
     const db = freshDb()
+    // v75 (T267) renamed anchor_activities -> fixed_events; rollbackV71 operates on the table's
+    // pre-v75 name, so undo the rename first — the real descending-rollback order (highest version
+    // first) — before exercising v71's own rollback in isolation.
+    rollbackV77(db)
     expect(columns(db, 'anchor_activities')).not.toContain('recurrence_level')
     expect(columns(db, 'elective_sets')).not.toContain('recurrence_level')
 
@@ -41,6 +46,7 @@ describe('rollbackV71', () => {
 
   it('restores the column at its DEFAULT for every existing row', () => {
     const db = freshDb()
+    rollbackV77(db)
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
     db.prepare(
       'INSERT INTO anchor_activities (id, camp_id, name) VALUES (?, ?, ?)'
@@ -55,6 +61,7 @@ describe('rollbackV71', () => {
 
   it('never strands a higher schema version (uses >= not =)', () => {
     const db = freshDb()
+    rollbackV77(db)
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (72, ?)').run(
       new Date().toISOString()
     )
@@ -67,6 +74,7 @@ describe('rollbackV71', () => {
 
   it('is idempotent — running twice does not error on a column that already exists', () => {
     const db = freshDb()
+    rollbackV77(db)
     rollbackV71(db)
     expect(() => rollbackV71(db)).not.toThrow()
     expect(columns(db, 'anchor_activities')).toContain('recurrence_level')

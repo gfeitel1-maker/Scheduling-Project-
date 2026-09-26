@@ -92,7 +92,7 @@ function normalizeInput(input) {
 
 // T62, corrected (T182 extraction). An anchor names its activity, it does not
 // link to it (see anchorActivityLink.js) — so this is keyed by NAME, and
-// scoped PER GROUP rather than camp-wide. The scope matters: `anchor_activities`
+// scoped PER GROUP rather than camp-wide. The scope matters: `fixed_events`
 // holds both all-camp Fixed events (Lunch) and group-scoped Recurring ones
 // (docs/adr/2026-08-28-fixed-vs-recurring-events.md). A camp-wide exclusion
 // would let one group's recurring Swim delete Swim from every other group's
@@ -242,7 +242,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   )
   // T62, corrected. An anchor names its activity, it does not link to it (see
   // anchorActivityLink.js) — so this is keyed by NAME, and scoped PER GROUP
-  // rather than camp-wide. The scope matters: `anchor_activities` holds both
+  // rather than camp-wide. The scope matters: `fixed_events` holds both
   // all-camp Fixed events (Lunch) and group-scoped Recurring ones (docs/adr/
   // 2026-08-28-fixed-vs-recurring-events.md). A camp-wide exclusion would let
   // one group's recurring Swim delete Swim from every other group's catalog.

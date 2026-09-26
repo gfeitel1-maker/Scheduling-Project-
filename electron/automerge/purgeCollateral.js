@@ -33,6 +33,13 @@ export const PURGE_WIPED_TABLES = [
   'compound_cell_decisions',
   'location_word_decisions',
   'declined_two_row_splits',
+  // T267 (v77, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md): a host-local worklist
+  // of fixed/recurring events the migration's name-match backfill could not resolve to exactly one
+  // catalog activity. Holds director-relevant data (the event's `name`, `candidate_count`, `kind`)
+  // that a human has not yet acted on and that the migration will never regenerate (it already ran,
+  // schema_migrations reports v77) — real work-in-progress, not a derivable diagnostic, so a purge
+  // loses it the same way it loses import_evidence/compound_cell_decisions above.
+  'fixed_event_identity_gaps',
 ]
 
 // Emptied for the WHOLE ledger (not just the purged camper) — Trash, Restore's prior values, and

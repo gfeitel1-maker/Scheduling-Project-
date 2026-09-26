@@ -1,11 +1,11 @@
 // @vitest-environment node
 //
-// Migration v42 — recurrence-axis storage on anchor_activities (unified-
+// Migration v42 — recurrence-axis storage on fixed_events (unified-
 // schedule-overlay Slice 1, docs/work/specs/2026-08-23-unified-schedule-
 // overlay-slices.md). Adds two additive columns,
 // `schedule_week_id TEXT REFERENCES schedule_weeks(id)` (nullable) and
 // `recurrence_level TEXT NOT NULL DEFAULT 'daily'`, to the existing
-// anchor_activities table (v17). schedule_week_id NULL preserves today's
+// fixed_events table (v17). schedule_week_id NULL preserves today's
 // implicit meaning exactly (all-weeks). recurrence_level's DEFAULT 'daily'
 // labels every pre-existing anchor concretely (they ARE daily-recurring) —
 // SQLite's ADD COLUMN ... NOT NULL DEFAULT populates existing rows for free,
@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './localDb.js'
 import { rollbackV42 } from './rollback/v42_down.js'
+import { rollbackV77 } from './rollback/v77_down.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const files = []
@@ -44,15 +45,15 @@ function freshDb() {
 }
 
 // A database migrated fully forward, then rolled back to the v41 shape (no
-// anchor_activities.schedule_week_id/recurrence_level columns), so v42 can
+// fixed_events.schedule_week_id/recurrence_level columns), so v42 can
 // be exercised against it.
 function preV42Db(tag = 'v42-migrated') {
   const db = new Database(tmpFile(tag))
   db.pragma('foreign_keys = ON')
   initSchema(db) // fully migrate to current
   db.pragma('foreign_keys = OFF')
-  db.exec('ALTER TABLE anchor_activities RENAME TO anchor_activities_tmp')
-  db.exec(`CREATE TABLE anchor_activities (
+  db.exec('ALTER TABLE fixed_events RENAME TO fixed_events_tmp')
+  db.exec(`CREATE TABLE fixed_events (
     id TEXT PRIMARY KEY,
     camp_id TEXT NOT NULL REFERENCES camps(id),
     cohort_id TEXT REFERENCES cohorts(id),
@@ -65,11 +66,11 @@ function preV42Db(tag = 'v42-migrated') {
     group_ids TEXT,
     notes TEXT
   )`)
-  db.exec(`INSERT INTO anchor_activities
+  db.exec(`INSERT INTO fixed_events
     (id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks, is_all_groups, group_ids, notes)
     SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks, is_all_groups, group_ids, notes
-    FROM anchor_activities_tmp`)
-  db.exec('DROP TABLE anchor_activities_tmp')
+    FROM fixed_events_tmp`)
+  db.exec('DROP TABLE fixed_events_tmp')
   db.pragma('foreign_keys = ON')
   db.prepare('DELETE FROM schema_migrations WHERE version >= 42').run()
   return db
@@ -81,15 +82,15 @@ const tableInfo = (db, table) =>
   }))
 
 describe('migration v42: fresh vs migrated equivalence', () => {
-  it('declares schema version 42 on a fresh db and gives anchor_activities its surviving new column', () => {
+  it('declares schema version 42 on a fresh db and gives fixed_events its surviving new column', () => {
     // v42 added two columns; recurrence_level (the second) was dropped in
     // v71/T181 — dead data, superseded by kind/day_id/schedule_week_id. A
     // fresh (head) db therefore carries schedule_week_id only.
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(76)
+    expect(CURRENT_SCHEMA_VERSION).toBe(77)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 42').get().c).toBe(1)
-    const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+    const cols = db.pragma('table_info(fixed_events)').map((c) => c.name)
     expect(cols).toContain('schedule_week_id')
     expect(cols).not.toContain('recurrence_level')
     db.close()
@@ -103,7 +104,7 @@ describe('migration v42: fresh vs migrated equivalence', () => {
     db.close()
   })
 
-  it('gives fresh and migrated identical anchor_activities columns', () => {
+  it('gives fresh and migrated identical fixed_events columns', () => {
     // Same rationale as electivesDurability's equivalent check: these columns
     // arrive via ALTER TABLE ADD COLUMN on the migrated path, so table_info
     // (actual column set, types, defaults) is the meaningful equivalence
@@ -111,16 +112,17 @@ describe('migration v42: fresh vs migrated equivalence', () => {
     const fresh = freshDb()
     const migrated = preV42Db()
     initSchema(migrated)
-    expect(tableInfo(migrated, 'anchor_activities')).toEqual(tableInfo(fresh, 'anchor_activities'))
+    expect(tableInfo(migrated, 'fixed_events')).toEqual(tableInfo(fresh, 'fixed_events'))
     fresh.close()
     migrated.close()
   }, 30000)
 
-  it('declares anchor_activities columns in order, schedule_week_id before v45\'s location_id and v51\'s kind', () => {
+  it('declares fixed_events columns in order, schedule_week_id before v45\'s location_id and v51\'s kind', () => {
     const db = freshDb()
-    expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).toEqual([
+    expect(db.pragma('table_info(fixed_events)').map((c) => c.name)).toEqual([
       'id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks',
       'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'location_id', 'kind', 'unit_ids',
+      'activity_id',
     ])
     db.close()
   })
@@ -128,14 +130,14 @@ describe('migration v42: fresh vs migrated equivalence', () => {
   it('no backfill logic — schedule_week_id stays NULL for every existing anchor', () => {
     const db = preV42Db()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
-    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a1', 'camp1', 'Flag Raising')").run()
+    db.prepare("INSERT INTO fixed_events (id, camp_id, name) VALUES ('a1', 'camp1', 'Flag Raising')").run()
     initSchema(db)
-    const row = db.prepare('SELECT schedule_week_id FROM anchor_activities WHERE id = ?').get('a1')
+    const row = db.prepare('SELECT schedule_week_id FROM fixed_events WHERE id = ?').get('a1')
     expect(row.schedule_week_id).toBeNull()
     // No op was written for the migration — a DDL-only change, matching v35/v36's posture.
     expect(
       db.prepare(
-        "SELECT COUNT(*) c FROM operations WHERE entity = 'anchor_activities' AND field IN ('schedule_week_id', 'recurrence_level')"
+        "SELECT COUNT(*) c FROM operations WHERE entity = 'fixed_events' AND field IN ('schedule_week_id', 'recurrence_level')"
       ).get().c
     ).toBe(0)
     db.close()
@@ -145,23 +147,23 @@ describe('migration v42: fresh vs migrated equivalence', () => {
     const db = preV42Db()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare("INSERT INTO schedule_weeks (id, camp_id, name) VALUES ('wk1', 'camp1', 'Week 1')").run()
-    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a1', 'camp1', 'Flag Raising')").run()
+    db.prepare("INSERT INTO fixed_events (id, camp_id, name) VALUES ('a1', 'camp1', 'Flag Raising')").run()
     initSchema(db) // runs v42
-    db.prepare("UPDATE anchor_activities SET schedule_week_id = 'wk1' WHERE id = 'a1'").run()
+    db.prepare("UPDATE fixed_events SET schedule_week_id = 'wk1' WHERE id = 'a1'").run()
     db.prepare('DELETE FROM schema_migrations WHERE version >= 42').run()
     initSchema(db) // re-run v42
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(db.pragma('table_info(anchor_activities)').filter((c) => c.name === 'schedule_week_id')).toHaveLength(1)
+    expect(db.pragma('table_info(fixed_events)').filter((c) => c.name === 'schedule_week_id')).toHaveLength(1)
     // Re-running the migration must not clobber a value already set.
-    const row = db.prepare('SELECT schedule_week_id FROM anchor_activities WHERE id = ?').get('a1')
+    const row = db.prepare('SELECT schedule_week_id FROM fixed_events WHERE id = ?').get('a1')
     expect(row.schedule_week_id).toBe('wk1')
     db.close()
   })
 
   it('schema.sql and localDb.js ANCHOR_ACTIVITIES_DDL usage agree on final column order', () => {
     const schemaText = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
-    const match = schemaText.match(/CREATE TABLE IF NOT EXISTS anchor_activities \([\s\S]*?\n\);/)
-    expect(match, 'expected an anchor_activities CREATE TABLE block in schema.sql').toBeTruthy()
+    const match = schemaText.match(/CREATE TABLE IF NOT EXISTS fixed_events \([\s\S]*?\n\);/)
+    expect(match, 'expected an fixed_events CREATE TABLE block in schema.sql').toBeTruthy()
     expect(match[0]).toContain(
       "notes TEXT,\n  schedule_week_id TEXT REFERENCES schedule_weeks(id),\n  location_id TEXT,"
     )
@@ -176,13 +178,17 @@ describe('rollbackV42', () => {
     // it still guards on column presence, so this proves that guard still
     // does the right thing against a genuine pre-v71 shape, not just a no-op.
     const db = freshDb()
-    db.exec("ALTER TABLE anchor_activities ADD COLUMN recurrence_level TEXT NOT NULL DEFAULT 'daily'")
+    db.exec("ALTER TABLE fixed_events ADD COLUMN recurrence_level TEXT NOT NULL DEFAULT 'daily'")
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare("INSERT INTO schedule_weeks (id, camp_id, name) VALUES ('wk1', 'camp1', 'Week 1')").run()
     db.prepare(
-      "INSERT INTO anchor_activities (id, camp_id, name, schedule_week_id, recurrence_level) VALUES ('a1', 'camp1', 'Flag Raising', 'wk1', 'weekly')"
+      "INSERT INTO fixed_events (id, camp_id, name, schedule_week_id, recurrence_level) VALUES ('a1', 'camp1', 'Flag Raising', 'wk1', 'weekly')"
     ).run()
 
+    // v75 (T267) renamed anchor_activities -> fixed_events; rollbackV42 operates on the table's
+    // pre-v75 name, so undo the rename first — the real descending-rollback order (highest version
+    // first) — before exercising v42's own rollback in isolation.
+    rollbackV77(db)
     const result = rollbackV42(db)
     expect(result).toEqual({ scheduleWeekId: 1, recurrenceLevel: 1 })
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)

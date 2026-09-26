@@ -62,9 +62,9 @@ function makeBase({ withArcheryExclusion = false, anchorGroupIds = null, exclude
     // group_ids arrives as JSON TEXT — the real DB/IPC shape (see
     // localClient.mock.js's JSON.stringify). useScheduleData normalizes it to a
     // real array before either resolveWeekCatalog or buildSchedule sees it.
-    anchor_activities: anchorGroupIds
+    fixed_events: anchorGroupIds
       ? [{
-          // SYNTHETIC, not the app's row shape: `anchor_activities` has no
+          // SYNTHETIC, not the app's row shape: `fixed_events` has no
           // activity_id column and the app never writes one (a real anchor
           // names its activity — see src/engine/anchorActivityLink.js). Kept
           // here on purpose to exercise the explicit-link path, which the
@@ -360,7 +360,7 @@ describe('M5: generated rebuild respects week location exclusions', () => {
 
 // T69 — the normalizer → resolveWeekCatalog seam.
 //
-// useScheduleData.test.js pins that the hook turns anchor_activities.group_ids
+// useScheduleData.test.js pins that the hook turns fixed_events.group_ids
 // from JSON TEXT into an array; weekCatalog.test.js pins that the engine reads
 // it as an array. Nothing used to join them. Now that the engine has no
 // string tolerance left, a regression at useScheduleData.js's parseIdList would

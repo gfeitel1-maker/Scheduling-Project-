@@ -78,6 +78,8 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'compound_cell_decisions', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity (host-local compound-cell-interpretation memory, never undone)' },
   { table: 'location_word_decisions', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity (host-local not-a-place memory, never undone)' },
   { table: 'device_health_events', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity (host-local device-health diagnostics, T174 — never undone, never replicated)' },
+  { table: 'fixed_event_identity_gaps', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity (host-local, SQLite-only migration worklist, T267 — never undone, never replicated)' },
+  { table: 'fixed_event_identity_gaps', column: 'fixed_event_id', reason: 'a plain TEXT pointer at the fixed_events row the migration backfill could not resolve (T267) — host-local worklist entry, not modeled in PROJECTIONS, never undone' },
   { table: 'import_decisions', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity (host-local import-decision journal, T173 slice 1 — never undone, never replicated)' },
   { table: 'import_decisions', column: 'import_id', reason: 'groups one commit\'s entries, a client-minted correlation id — not an entity pointer' },
   { table: 'import_decisions', column: 'actor_user_id', reason: 'points at users, provenance only, not a U2-deletable entity' },
@@ -89,7 +91,7 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'cohorts', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'days_of_operation', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'time_blocks', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
-  { table: 'anchor_activities', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
+  { table: 'fixed_events', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'schedule_weeks', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'schedule_templates', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'locations', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
@@ -171,12 +173,12 @@ const ACCEPTED_NON_REFERENCES = [
   // T108 Phase 2 review round 3.
   { table: 'day_overrides', column: 'schedule_week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   // v42 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md Slice 1):
-  { table: 'anchor_activities', column: 'schedule_week_id', reason: 'optional binding to schedule_weeks, not a U2-deletable entity — mirrors day_overrides.schedule_week_id' },
+  { table: 'fixed_events', column: 'schedule_week_id', reason: 'optional binding to schedule_weeks, not a U2-deletable entity — mirrors day_overrides.schedule_week_id' },
   // v43 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md
   // Slice 3a).
-  { table: 'elective_sets', column: 'schedule_week_id', reason: 'optional binding to schedule_weeks, not a U2-deletable entity — mirrors anchor_activities.schedule_week_id' },
+  { table: 'elective_sets', column: 'schedule_week_id', reason: 'optional binding to schedule_weeks, not a U2-deletable entity — mirrors fixed_events.schedule_week_id' },
   // is_all_groups is not an *_id/*_ids column so the scanner never flags it;
-  // no entry needed (matches anchor_activities.is_all_groups, likewise unlisted).
+  // no entry needed (matches fixed_events.is_all_groups, likewise unlisted).
   { table: 'audit_events', column: 'actor_user_id', reason: 'points at users, not a U2-deletable entity' },
   { table: 'audit_events', column: 'device_id', reason: 'points at devices, not a U2-deletable entity' },
   { table: 'migration_v24_repoint_log', column: 'row_id', reason: 'historical migration journal row key, not an entity pointer' },
@@ -221,7 +223,7 @@ const ACCEPTED_NON_REFERENCES = [
   // registered because nothing WRITES it (v65 backfills OUT of it, never into it) and no new row
   // can acquire one, so it cannot produce a fresh dangling reference — but the old reason
   // ("never read or written") was false and would have laundered forward as fact.
-  { table: 'anchor_activities', column: 'unit_id', reason: 'legacy single-division column, read-only: resolved by src/engine/anchorScope.js as the pre-v65 fallback, never written by any code path (v65 backfills out of it into unit_ids)' },
+  { table: 'fixed_events', column: 'unit_id', reason: 'legacy single-division column, read-only: resolved by src/engine/anchorScope.js as the pre-v65 fallback, never written by any code path (v65 backfills out of it into unit_ids)' },
 
   // -- recomputed-on-every-device local journal: regenerated wholesale, not
   //    a live reference the undo/schedule layer reads --
@@ -275,24 +277,24 @@ describe('UNDO_REFERENCE_CHECKS — convention (enforced:false) edges name real 
   })
 })
 
-describe('anchor_activities has no incoming references', () => {
-  it('no schema-parsed edge and no registered entry targets anchor_activities', () => {
-    const schemaEdgesIntoAnchors = parseSchemaReferences(schemaSql).filter((e) => e.toEntity === 'anchor_activities')
+describe('fixed_events has no incoming references', () => {
+  it('no schema-parsed edge and no registered entry targets fixed_events', () => {
+    const schemaEdgesIntoAnchors = parseSchemaReferences(schemaSql).filter((e) => e.toEntity === 'fixed_events')
     expect(schemaEdgesIntoAnchors).toEqual([])
-    // The one real convention edge into anchor_activities (template_slots.anchor_id)
+    // The one real convention edge into fixed_events (template_slots.anchor_id)
     // IS registered below — this asserts there are no OTHER, undiscovered ones by
-    // requiring every UNDO_REFERENCE_CHECKS entry targeting anchor_activities to be
+    // requiring every UNDO_REFERENCE_CHECKS entry targeting fixed_events to be
     // exactly that one known edge.
-    const registeredIntoAnchors = UNDO_REFERENCE_CHECKS.filter((c) => c.toEntity === 'anchor_activities')
+    const registeredIntoAnchors = UNDO_REFERENCE_CHECKS.filter((c) => c.toEntity === 'fixed_events')
     expect(registeredIntoAnchors).toEqual([
-      { fromTable: 'template_slots', fromColumn: 'anchor_id', toEntity: 'anchor_activities', kind: 'scalar', enforced: false },
+      { fromTable: 'template_slots', fromColumn: 'anchor_id', toEntity: 'fixed_events', kind: 'scalar', enforced: false },
     ])
   })
 })
 
 describe('U2_DELETABLE_ENTITIES stays in sync with INGESTIBLE_ENTITIES', () => {
-  it('is exactly INGESTIBLE_ENTITIES plus anchor_activities', () => {
-    expect([...U2_DELETABLE_ENTITIES].sort()).toEqual([...INGESTIBLE_ENTITIES, 'anchor_activities'].sort())
+  it('is exactly INGESTIBLE_ENTITIES plus fixed_events', () => {
+    expect([...U2_DELETABLE_ENTITIES].sort()).toEqual([...INGESTIBLE_ENTITIES, 'fixed_events'].sort())
   })
 })
 

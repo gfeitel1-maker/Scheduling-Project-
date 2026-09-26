@@ -82,7 +82,7 @@ function seedActivity(db, campId, name) {
 
 function seedAnchor(db, campId, name) {
   const id = randomUUID()
-  db.prepare('INSERT INTO anchor_activities (id, camp_id, name) VALUES (?, ?, ?)').run(id, campId, name)
+  db.prepare('INSERT INTO fixed_events (id, camp_id, name) VALUES (?, ?, ?)').run(id, campId, name)
   return id
 }
 

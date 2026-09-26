@@ -48,8 +48,8 @@ afterEach(() => {
   if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
 })
 
-const anchorCount = () => db.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE camp_id = ?').get(campId).c
-const anchorRows = () => db.prepare('SELECT * FROM anchor_activities WHERE camp_id = ?').all(campId)
+const anchorCount = () => db.prepare('SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ?').get(campId).c
+const anchorRows = () => db.prepare('SELECT * FROM fixed_events WHERE camp_id = ?').all(campId)
 const commit = (extra) => commitIngest(db, { camp_id: campId, cohort_id: null, author_user_id: 'u1', device_id: deviceId, mode: 'add', ...extra })
 
 // Human-authored move — mirrors AnchorsScreen.jsx's saveAnchor, which mutates
@@ -57,7 +57,7 @@ const commit = (extra) => commitIngest(db, { camp_id: campId, cohort_id: null, a
 const moveAnchor = (anchorId, { day_id, time_block_id }) => {
   for (const [field, value] of Object.entries({ day_id, time_block_id })) {
     appendOp(db, {
-      entity: 'anchor_activities',
+      entity: 'fixed_events',
       entity_id: anchorId,
       field,
       value,
@@ -72,7 +72,7 @@ const moveAnchor = (anchorId, { day_id, time_block_id }) => {
 
 const deleteAnchor = (anchorId) => {
   appendOp(db, {
-    entity: 'anchor_activities',
+    entity: 'fixed_events',
     entity_id: anchorId,
     field: DELETE_FIELD,
     value: 1,

@@ -12,7 +12,7 @@ export const DOMAIN_OF = {
   time_blocks: 'Time',
   locations: 'Facility',
   activities: 'Scheduling',
-  anchor_activities: 'Scheduling',
+  fixed_events: 'Scheduling',
   // Regroup slice (docs/work/specs, owner decision 2026-08-24): Events,
   // Special Days, and Electives are scheduling things and now live under the
   // Scheduling domain alongside Activities/Recurring Events, not a separate
@@ -71,7 +71,7 @@ export const CHILD_OF = {
   time_blocks: 'Time Blocks',
   locations: 'Locations',
   activities: 'Activities',
-  anchor_activities: 'Recurring Events',
+  fixed_events: 'Recurring Events',
   events: 'Events',
   special_days: 'Special Days',
   elective_sets: 'Electives',

@@ -328,8 +328,8 @@ export const PROJECTIONS = {
       getStmt(db, 'INSERT OR IGNORE INTO camp_maps (id, camp_id) VALUES (?, ?)').run(id, camp?.id ?? null)
     },
   },
-  anchor_activities: {
-    table: 'anchor_activities',
+  fixed_events: {
+    table: 'fixed_events',
     key: 'id',
     fields: [
       'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes',
@@ -353,6 +353,12 @@ export const PROJECTIONS = {
       // `unit_id` stays read-only (see the recorded exemption in
       // electron/ops/projectionsCoverage.test.js).
       'unit_ids',
+      // v75 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md) — the soft link to
+      // the catalog activity this fixed/recurring event resolves to, replacing the by-name link.
+      // PR 1 only backfills/writes this column at migration time; no runtime write path sets it
+      // yet (that is PR 2's cutover). Registered here now so the field is never silently dropped by
+      // applyWrite once PR 2 does start writing it.
+      'activity_id',
     ],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers/activities.ensureExists above.
@@ -363,19 +369,19 @@ export const PROJECTIONS = {
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
       getStmt(
         db,
-        "INSERT OR IGNORE INTO anchor_activities (id, camp_id, name, is_all_groups) VALUES (?, ?, '', 1)"
+        "INSERT OR IGNORE INTO fixed_events (id, camp_id, name, is_all_groups) VALUES (?, ?, '', 1)"
       ).run(id, camp?.id ?? null)
     },
   },
   // Special days (T40 slice 1, data shape only,
   // docs/work/specs/2026-08-20-special-days-data-shape-design.md). Camp-scoped
-  // parent, same ensureExists shape as anchor_activities above.
+  // parent, same ensureExists shape as fixed_events above.
   special_days: {
     table: 'special_days',
     key: 'id',
     fields: ['camp_id', 'name', 'sort_order', 'notes'],
     ensureExists: (db, id) => {
-      // Same zero-camps caveat as cohorts/groups/anchor_activities/etc.ensureExists above.
+      // Same zero-camps caveat as cohorts/groups/fixed_events/etc.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
       getStmt(db, "INSERT OR IGNORE INTO special_days (id, camp_id, name) VALUES (?, ?, '')").run(
         id,
@@ -459,7 +465,7 @@ export const PROJECTIONS = {
     // columns).
     // day_id/time_block_id/is_all_groups/group_ids/schedule_week_id
     // (v43, Slice 3a): the recurring-event binding shape,
-    // mirroring anchor_activities' fields entry — a normal renderer write
+    // mirroring fixed_events' fields entry — a normal renderer write
     // once the elective screen wires this up, applied generically via the
     // UPDATE path below like every other field here.
     fields: [
@@ -745,7 +751,7 @@ export const PROJECTIONS = {
       if (field !== 'template_id') return
       // created_at is NOT NULL with no default (schema.sql) — placeholder
       // here, same as every other entity's NOT NULL/no-default column
-      // (e.g. anchor_activities'/special_days' name), always
+      // (e.g. fixed_events'/special_days' name), always
       // overwritten by the subsequent write() for that field.
       getStmt(db,
         "INSERT OR IGNORE INTO schedule_snapshots (id, template_id, created_at) VALUES (?, ?, '')"

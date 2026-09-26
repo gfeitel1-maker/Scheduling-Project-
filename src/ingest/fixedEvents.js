@@ -1,7 +1,7 @@
 // A parsed grid encodes more than a list of activity names. Some activities sit
 // at the SAME period every day for a given group — Mifkad, Lunch, Swim, a
 // staggered Lunch 1/2/3. Reading them back as bare names throws away the
-// pinning; this module recovers it as proposed "Fixed Events" (anchor_activities).
+// pinning; this module recovers it as proposed "Fixed Events" (fixed_events).
 //
 // docs/adr/2026-08-03-ingesting-recurring-fixed-events.md
 // docs/work/specs/2026-08-03-ingest-fixed-events-design.md §3.

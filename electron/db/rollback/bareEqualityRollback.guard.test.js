@@ -34,16 +34,22 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // which there are zero). Assert the count explicitly so a future rollback
     // file changes this number and forces a look, rather than silently
     // enlarging or shrinking what's covered.
-    // 36 as of v76_down.js (T197). Looked, as this tripwire demands, rather than
-    // just re-counting: v76_down.js deletes with `WHERE version >= 76`, so it
-    // satisfies the guard below on its own merits — and the four columns it
-    // drops (cell_kind, choice_id, is_linked_choice, choice_label) are all
+    // 37 as of v77_down.js (T267). Looked, as this tripwire demands, rather than
+    // just re-counting: v77_down.js deletes with `WHERE version >= 77`, so it
+    // satisfies the guard below on its own merits — it reverses the
+    // anchor_activities -> fixed_events rename and drops activity_id/
+    // fixed_event_identity_gaps, losing only a name-match resolution that
+    // re-derives identically from the same catalog state on re-migration.
+    //
+    // 36 was v76_down.js (T197). v76_down.js deletes with `WHERE version >= 76`,
+    // so it satisfies the guard below on its own merits — and the four columns
+    // it drops (cell_kind, choice_id, is_linked_choice, choice_label) are all
     // derivable again by re-finalizing the run, so the rollback loses a
     // denormalized projection rather than any camp data.
     //
     // 35 was v75_down.js (T266): deletes with `WHERE version >= 75`, drops a
     // nullable column only ingest writes, so it loses a classification.
-    expect(files.length).toBe(36)
+    expect(files.length).toBe(37)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

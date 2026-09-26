@@ -179,7 +179,7 @@ describe('T205 schema v70: days_of_operation UNIQUE(camp_id, day_of_week)', () =
       "INSERT INTO template_slots (id, template_id, day_id) VALUES ('ts1', 'tmpl1', 'monday-dupe')"
     ).run()
     db.prepare(
-      "INSERT INTO anchor_activities (id, camp_id, name, day_id) VALUES ('aa1', 'camp1', 'Swim', 'monday-dupe')"
+      "INSERT INTO fixed_events (id, camp_id, name, day_id) VALUES ('aa1', 'camp1', 'Swim', 'monday-dupe')"
     ).run()
     db.prepare(
       "INSERT INTO elective_sets (id, camp_id, name, day_id) VALUES ('es1', 'camp1', 'Set A', 'monday-dupe')"
@@ -198,7 +198,7 @@ describe('T205 schema v70: days_of_operation UNIQUE(camp_id, day_of_week)', () =
     const survivorId = rows[0].id
 
     expect(db.prepare('SELECT day_id FROM template_slots WHERE id = ?').get('ts1').day_id).toBe(survivorId)
-    expect(db.prepare('SELECT day_id FROM anchor_activities WHERE id = ?').get('aa1').day_id).toBe(survivorId)
+    expect(db.prepare('SELECT day_id FROM fixed_events WHERE id = ?').get('aa1').day_id).toBe(survivorId)
     expect(db.prepare('SELECT day_id FROM elective_sets WHERE id = ?').get('es1').day_id).toBe(survivorId)
     expect(db.prepare('SELECT day_id FROM elective_occurrences WHERE id = ?').get('eo1').day_id).toBe(survivorId)
     db.close()

@@ -62,7 +62,7 @@ export async function materializeImportedVersion(db, syncClient, { campId, autho
 
   const maps = {
     activityIdByName: nameMap(db, 'activities', campId),
-    anchorIdByName: nameMap(db, 'anchor_activities', campId),
+    anchorIdByName: nameMap(db, 'fixed_events', campId),
     groupIdByName: nameMap(db, 'groups', campId),
     dayIdByName: nameMap(db, 'days_of_operation', campId, 'label'),
     blockIdByName: nameMap(db, 'time_blocks', campId),

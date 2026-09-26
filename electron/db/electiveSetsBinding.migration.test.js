@@ -2,15 +2,15 @@
 //
 // Migration v43 — recurring-event binding shape on elective_sets (unified-
 // schedule-overlay Slice 3a, docs/work/specs/2026-08-23-unified-schedule-
-// overlay-slices.md). Adds six additive columns mirroring anchor_activities'
+// overlay-slices.md). Adds six additive columns mirroring fixed_events'
 // binding shape exactly: day_id (nullable FK to days_of_operation),
 // time_block_id (nullable, no REFERENCES clause — matches
-// anchor_activities.time_block_id), is_all_groups (nullable INTEGER),
+// fixed_events.time_block_id), is_all_groups (nullable INTEGER),
 // group_ids (nullable TEXT), schedule_week_id (nullable FK to
 // schedule_weeks — NULL = all weeks), recurrence_level (NOT NULL DEFAULT
 // 'daily' — electives are recurring, and the DEFAULT labels every existing
 // hand-filled set concretely with zero backfill logic, same rationale as
-// v42's anchor_activities.recurrence_level). Storage + projection only in
+// v42's fixed_events.recurrence_level). Storage + projection only in
 // this slice: no UI, no engine use. Mirrors
 // electron/db/anchorRecurrence.migration.test.js's fresh-vs-migrated shape.
 import { describe, it, expect, afterEach } from 'vitest'
@@ -81,7 +81,7 @@ describe('migration v43: fresh vs migrated equivalence', () => {
     // A fresh (head) db therefore carries the five survivors only.
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(76)
+    expect(CURRENT_SCHEMA_VERSION).toBe(77)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 43').get().c).toBe(1)
     const cols = db.pragma('table_info(elective_sets)').map((c) => c.name)
     expect(cols).toContain('day_id')

@@ -69,7 +69,7 @@ export const SLOT_OCCUPANT_CASCADES = Object.freeze({
   }),
   anchor_id: Object.freeze({
     policy: 'dangle',
-    deletedEntity: 'anchor_activities',
+    deletedEntity: 'fixed_events',
     implementedIn: null,
     reason:
       'Two delete paths, neither of which can leave a live dangling anchor_id. U2 undo refuses the delete outright while a template_slots row still points at the anchor (undoReferences.js registers template_slots.anchor_id). deleteRecord.js’s day branch deletes a day’s anchors and that same day’s template_slots rows in one transaction, so the pointing rows go with them.',

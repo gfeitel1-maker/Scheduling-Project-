@@ -102,7 +102,7 @@ afterEach(() => {
 // Schema tripwire. A sibling migration lands and silently renumbers, and every
 // assertion below still passes while the column it depends on is gone.
 it('is written against schema v76', () => {
-  expect(CURRENT_SCHEMA_VERSION).toBe(76)
+  expect(CURRENT_SCHEMA_VERSION).toBe(77)
 })
 
 // ── The real ingest path, run once per test ────────────────────────────────
@@ -167,7 +167,7 @@ function runRealIngest({ withholdClaimFor = null, onlyActivities = null, suppres
 const activityRows = () =>
   db.prepare('SELECT id, name, catalog_role, priority, min_per_week, max_per_week, eligible_tier_ids, eligible_group_ids, span_blocks, same_tier_only, max_groups_per_slot FROM activities WHERE camp_id = ?').all(campId)
 const anchorRows = () =>
-  db.prepare('SELECT * FROM anchor_activities WHERE camp_id = ?').all(campId)
+  db.prepare('SELECT * FROM fixed_events WHERE camp_id = ?').all(campId)
 const byName = (rows, name) => rows.filter((r) => r.name === name)
 
 describe('T266 — the real ingest path', () => {

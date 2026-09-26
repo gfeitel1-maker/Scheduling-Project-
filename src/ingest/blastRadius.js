@@ -13,7 +13,7 @@
 // Both travel on `item.fields.<field>.to` for update/clear items, and on
 // `item._rule.location` / `item._rule.eligible_group_names` for create items
 // (buildPlan.js's activities create arm, the side-channel commitCreate
-// already consumes). anchor_activities/week_location_exclusions references
+// already consumes). fixed_events/week_location_exclusions references
 // named in the ADR as a forward example are NOT counted here — they are not
 // INGESTIBLE_ENTITIES and never appear in planItems, so there is nothing to
 // derive them from without a DB read, which this function must not do.

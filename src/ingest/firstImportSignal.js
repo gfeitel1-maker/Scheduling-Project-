@@ -15,7 +15,7 @@ const FIRST_IMPORT_ENTITIES = [
   'days_of_operation',
   'time_blocks',
   'activities',
-  'anchor_activities',
+  'fixed_events',
 ]
 
 export async function fetchFirstImportCollections() {

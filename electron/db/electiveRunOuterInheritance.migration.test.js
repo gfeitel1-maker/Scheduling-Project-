@@ -58,7 +58,7 @@ describe('migration v76: fresh vs migrated equivalence', () => {
   it('declares schema version 76 on a fresh db', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(76)
+    expect(CURRENT_SCHEMA_VERSION).toBe(77)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 76').get().c).toBe(1)
     db.close()
   })

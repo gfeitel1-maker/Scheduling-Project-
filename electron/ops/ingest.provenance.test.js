@@ -125,7 +125,7 @@ describe('the importer writer census (evidence #3, R2/R3)', () => {
       expect(op.source, `${op.entity}.${op.field}`).toBe('import')
     }
     // Anchor writes specifically carried 'import'.
-    const anchorOps = db.prepare(`SELECT source FROM operations WHERE entity = 'anchor_activities'`).all()
+    const anchorOps = db.prepare(`SELECT source FROM operations WHERE entity = 'fixed_events'`).all()
     expect(anchorOps.length).toBeGreaterThan(0)
     for (const op of anchorOps) expect(op.source).toBe('import')
   })

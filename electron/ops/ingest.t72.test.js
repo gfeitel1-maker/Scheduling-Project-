@@ -2,7 +2,7 @@
 // docs/adr/2026-08-08-t72-fixed-event-reimport-idempotency.md
 //
 // The fixed-event loop in commitPlan used to mint a fresh anchor per resolved
-// day UNCONDITIONALLY, duplicating anchor_activities on every re-import. T72
+// day UNCONDITIONALLY, duplicating fixed_events on every re-import. T72
 // makes it recognize-then-skip on slot identity
 // (camp_id, cohort_id, day_id, time_block_id, normalizeName(name)).
 //
@@ -44,8 +44,8 @@ afterEach(() => {
   if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
 })
 
-const anchorCount = () => db.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE camp_id = ?').get(campId).c
-const anchorOpCount = () => db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'anchor_activities'").get().c
+const anchorCount = () => db.prepare('SELECT COUNT(*) c FROM fixed_events WHERE camp_id = ?').get(campId).c
+const anchorOpCount = () => db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'fixed_events'").get().c
 const commit = (extra) => commitIngest(db, { camp_id: campId, cohort_id: null, author_user_id: 'u1', device_id: deviceId, mode: 'add', ...extra })
 
 const BASE = {
@@ -100,10 +100,10 @@ describe('T72 — fixed-event re-import idempotency', () => {
     expect(anchorCount()).toBe(2)
 
     const [{ id: mondayAnchorId }] = db
-      .prepare("SELECT id FROM anchor_activities WHERE camp_id = ? ORDER BY day_id LIMIT 1")
+      .prepare("SELECT id FROM fixed_events WHERE camp_id = ? ORDER BY day_id LIMIT 1")
       .all(campId)
     appendOp(db, {
-      entity: 'anchor_activities',
+      entity: 'fixed_events',
       entity_id: mondayAnchorId,
       field: DELETE_FIELD,
       value: 1,
@@ -153,10 +153,10 @@ describe('T72 — fixed-event re-import idempotency', () => {
 
     // Director explicitly deletes the Monday anchor.
     const [{ id: mondayAnchorId }] = db
-      .prepare("SELECT id FROM anchor_activities WHERE camp_id = ? ORDER BY day_id LIMIT 1")
+      .prepare("SELECT id FROM fixed_events WHERE camp_id = ? ORDER BY day_id LIMIT 1")
       .all(campId)
     appendOp(db, {
-      entity: 'anchor_activities',
+      entity: 'fixed_events',
       entity_id: mondayAnchorId,
       field: DELETE_FIELD,
       value: 1,
@@ -178,10 +178,10 @@ describe('T72 — fixed-event re-import idempotency', () => {
   it('restoring a rejected anchor is an escape hatch: re-import sees it live, not rejected', () => {
     commit({ ...BASE, fixedEvents: [MIFKAD] })
     const [{ id: mondayAnchorId }] = db
-      .prepare("SELECT id FROM anchor_activities WHERE camp_id = ? ORDER BY day_id LIMIT 1")
+      .prepare("SELECT id FROM fixed_events WHERE camp_id = ? ORDER BY day_id LIMIT 1")
       .all(campId)
     appendOp(db, {
-      entity: 'anchor_activities',
+      entity: 'fixed_events',
       entity_id: mondayAnchorId,
       field: DELETE_FIELD,
       value: 1,
@@ -193,7 +193,7 @@ describe('T72 — fixed-event re-import idempotency', () => {
     })
     expect(anchorCount()).toBe(1)
 
-    const restored = restoreEntity(db, { entity: 'anchor_activities', entity_id: mondayAnchorId, author_user_id: 'u1', device_id: deviceId })
+    const restored = restoreEntity(db, { entity: 'fixed_events', entity_id: mondayAnchorId, author_user_id: 'u1', device_id: deviceId })
     expect(restored.ok).toBe(true)
     expect(anchorCount()).toBe(2)
 

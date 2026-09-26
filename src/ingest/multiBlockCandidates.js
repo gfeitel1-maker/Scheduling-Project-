@@ -15,7 +15,7 @@
 // — orientation A pages one per group, so the raw walk below sees it once per
 // (group, day) cell, 14 times for a 14-group camp. Left unaggregated, that is
 // 14 director-facing chips for what is obviously one recurring Friday block,
-// and 14 separate anchor_activities rows at commit instead of one
+// and 14 separate fixed_events rows at commit instead of one
 // is_all_groups row — exactly the "14 anchors instead of one" defect this
 // aggregation exists to prevent.
 //

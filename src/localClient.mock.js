@@ -196,7 +196,7 @@ function seedDemoCamp() {
     time_blocks,
     activities,
     locations: [],
-    anchor_activities: [],
+    fixed_events: [],
     // One week; the generated schedule belongs to it (week_id). The switcher
     // renders it and "+ New Week" adds more, all in localStorage.
     schedule_weeks: [{ id: WEEK, camp_id: CAMP, name: 'Week 1', sort_order: 0, is_archived: 0 }],
@@ -431,10 +431,10 @@ export const MOCK_WRITE_ALLOWLIST = {
   // v50 pair extension adds `kind` (docs/adr/2026-08-26-indoor-outdoor-map-pair-and-sim-seed.md D1).
   camp_maps: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height', 'kind'],
   // kind (v51, docs/adr/2026-08-28-fixed-vs-recurring-events.md §6) — mirror
-  // of PROJECTIONS.anchor_activities.fields, kept honest by
+  // of PROJECTIONS.fixed_events.fields, kept honest by
   // electron/ipcSurfaceParity.test.js's drift check like every other entry
   // in this allowlist.
-  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'location_id', 'span_blocks', 'kind', 'unit_ids'],
+  fixed_events: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'location_id', 'span_blocks', 'kind', 'unit_ids', 'activity_id'],
   week_activity_exclusions: ['week_id', 'activity_id'],
   week_group_exclusions: ['week_id', 'group_id'],
   week_location_exclusions: ['week_id', 'location_id'],
@@ -451,7 +451,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   // elective_set_activities.fields, same discipline as T40 above.
   // day_id/time_block_id/is_all_groups/group_ids/schedule_week_id
   // (v43, Slice 3a) — recurring-event binding shape,
-  // mirroring anchor_activities' allowlist entry.
+  // mirroring fixed_events' allowlist entry.
   elective_sets: [
     'camp_id', 'name', 'sort_order', 'is_reusable',
     'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id',
@@ -817,7 +817,7 @@ export const mockShoresh = {
     const campId = state.camp.id
     const cohortId = cohort_id ?? null
     for (const entity of INGESTIBLE_ENTITIES) if (!Array.isArray(state[entity])) state[entity] = []
-    if (!Array.isArray(state.anchor_activities)) state.anchor_activities = []
+    if (!Array.isArray(state.fixed_events)) state.fixed_events = []
 
     // U1 mock parity. The mock has no op log, so it cannot capture opId/seq
     // the way the real committer does — instead it snapshots every row
@@ -827,7 +827,7 @@ export const mockShoresh = {
     // "creation" (createdEntityIds). Sufficient to drive :5200's undo UI —
     // NOT a substitute for the real seq-gated "touched since" mechanism,
     // which only exists under electron:dev (CLAUDE.md's dev/mock split).
-    const captureEntities = [...INGESTIBLE_ENTITIES, 'anchor_activities', 'events']
+    const captureEntities = [...INGESTIBLE_ENTITIES, 'fixed_events', 'events']
     const beforeSnapshot = captureInverse
       ? Object.fromEntries(captureEntities.map((e) => [e, new Map((state[e] ?? []).map((r) => [r.id, { ...r }]))]))
       : null
@@ -844,7 +844,7 @@ export const mockShoresh = {
       const entityTables = ['activities', 'groups', 'time_blocks', 'days_of_operation', 'tiers']
       const dependentTables = [
         'template_slots', 'week_activity_exclusions',
-        'week_group_exclusions', 'week_location_exclusions', 'anchor_activities',
+        'week_group_exclusions', 'week_location_exclusions', 'fixed_events',
       ]
       replaced = { entities: {}, dependents: {} }
       for (const table of dependentTables) {
@@ -1296,7 +1296,7 @@ export const mockShoresh = {
     for (const u of toUpdate) commitUpdate(u)
 
     // Recurring events (T34) — resolve by name against the rows now in state, then
-    // fan out one anchor_activities row per day. Mirrors commitPlan's fixed-event
+    // fan out one fixed_events row per day. Mirrors commitPlan's fixed-event
     // loop so the whole import flow, recurring events included, works at :5200.
     const norm = (s) => normalizeName(s)
     const targetCohort = cohortId ?? 'main'
@@ -1327,7 +1327,7 @@ export const mockShoresh = {
     // the correct, eviction-proof resolution — reuse it instead of rebuilding.
     const groupIdByName = groupIdByNameRun
 
-    if (!Array.isArray(state.anchor_activities)) state.anchor_activities = []
+    if (!Array.isArray(state.fixed_events)) state.fixed_events = []
     const fixedCreatedIds = []
     const fixedSkipped = []
     const fixedPartial = []
@@ -1355,7 +1355,7 @@ export const mockShoresh = {
       }
       for (const dayId of dayIds) {
         const id = randomId()
-        state.anchor_activities.push({
+        state.fixed_events.push({
           id, camp_id: campId, cohort_id: targetCohort, day_id: dayId, time_block_id: tbId,
           name: String(fe.name ?? '').trim(), is_all_groups: isAll, group_ids: JSON.stringify(isAll ? [] : groupIds),
           kind: kindValue,
@@ -1471,7 +1471,7 @@ export const mockShoresh = {
         }
         const maps = {
           activityIdByName: nameMap('activities'),
-          anchorIdByName: nameMap('anchor_activities'),
+          anchorIdByName: nameMap('fixed_events'),
           groupIdByName: nameMap('groups'),
           dayIdByName: nameMap('days_of_operation'),
           blockIdByName: nameMap('time_blocks'),

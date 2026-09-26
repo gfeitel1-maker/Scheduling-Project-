@@ -59,9 +59,9 @@ describe('the whitelist (ADR §2)', () => {
     expect(count('template_slots')).toBe(0)
   })
 
-  it('refuses anchor_activities, which look like setup but are not', () => {
+  it('refuses fixed_events, which look like setup but are not', () => {
     expect(() => commitIngest(db, {
-      approved: { anchor_activities: ['Flagpole'] }, camp_id: campId, device_id: deviceId,
+      approved: { fixed_events: ['Flagpole'] }, camp_id: campId, device_id: deviceId,
     })).toThrow(/cannot be created by an import/)
   })
 })
@@ -294,9 +294,9 @@ describe('filing imported units and time blocks under the active Program', () =>
 })
 
 // T34 — ingest may propose recurring fixed events, which land as
-// anchor_activities through a dedicated, validated commit branch (never the
+// fixed_events through a dedicated, validated commit branch (never the
 // generic whitelist). docs/adr/2026-08-03-ingesting-recurring-fixed-events.md.
-describe('fixed events land as anchor_activities (T34)', () => {
+describe('fixed events land as fixed_events (T34)', () => {
   const coMain = 'co-fx'
   beforeEach(() => {
     db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(coMain, campId, 'Main')
@@ -325,11 +325,11 @@ describe('fixed events land as anchor_activities (T34)', () => {
     }))
     expect(result.fixedEvents.createdEntries).toHaveLength(2)
     expect(result.fixedEvents.createdEntries.every((e) => e.name === 'Mifkad')).toBe(true)
-    expect(count('anchor_activities')).toBe(2)
+    expect(count('fixed_events')).toBe(2)
 
     const tbId = db.prepare('SELECT id FROM time_blocks').get().id
     const dayIds = db.prepare('SELECT id FROM days_of_operation').all().map((r) => r.id)
-    const rows = db.prepare('SELECT * FROM anchor_activities').all()
+    const rows = db.prepare('SELECT * FROM fixed_events').all()
     for (const r of rows) {
       expect(r.cohort_id).toBe(coMain)
       expect(r.camp_id).toBe(campId)
@@ -355,7 +355,7 @@ describe('fixed events land as anchor_activities (T34)', () => {
       }],
       camp_id: campId, cohort_id: coMain, device_id: deviceId,
     })
-    const row = db.prepare('SELECT is_all_groups, group_ids, kind FROM anchor_activities').get()
+    const row = db.prepare('SELECT is_all_groups, group_ids, kind FROM fixed_events').get()
     expect(row.is_all_groups).toBe(0)
     // Fixed vs Recurring (§6/§8.4) — a group-scoped subset commits as
     // kind='recurring', the same isAll test as the all-groups case above.
@@ -384,7 +384,7 @@ describe('fixed events land as anchor_activities (T34)', () => {
       camp_id: campId, cohort_id: coMain, device_id: deviceId,
     })
     expect(result.fixedEvents.created).toBe(1)
-    expect(count('anchor_activities')).toBe(1)
+    expect(count('fixed_events')).toBe(1)
   })
 
   it('skips and reports an unresolvable event, without aborting the rest of the import', () => {
@@ -399,7 +399,7 @@ describe('fixed events land as anchor_activities (T34)', () => {
     expect(result.fixedEvents.created).toBe(0)
     expect(result.fixedEvents.skipped).toHaveLength(1)
     expect(result.fixedEvents.skipped[0].name).toBe('Mifkad')
-    expect(count('anchor_activities')).toBe(0)
+    expect(count('fixed_events')).toBe(0)
     // The rest of the import still committed.
     expect(count('groups')).toBe(1)
     expect(count('days_of_operation')).toBe(1)
@@ -420,7 +420,7 @@ describe('fixed events land as anchor_activities (T34)', () => {
     })
     // Two days resolved -> two anchor rows (not three); C excluded from group_ids.
     expect(result.fixedEvents.created).toBe(2)
-    expect(count('anchor_activities')).toBe(2)
+    expect(count('fixed_events')).toBe(2)
     expect(result.fixedEvents.skipped).toHaveLength(0)
     // The shortfall is surfaced, not silent.
     expect(result.fixedEvents.partial).toHaveLength(1)
@@ -438,7 +438,7 @@ describe('fixed events land as anchor_activities (T34)', () => {
       }],
       camp_id: campId, cohort_id: coMain, device_id: deviceId,
     })
-    expect(count('anchor_activities')).toBe(1)
+    expect(count('fixed_events')).toBe(1)
     expect(count('template_slots')).toBe(0)  // the standing boundary holds
   })
 
@@ -448,7 +448,7 @@ describe('fixed events land as anchor_activities (T34)', () => {
     // is injected at the anchor write only.
     const realPrepare = db.prepare.bind(db)
     db.prepare = (sql) => {
-      if (/anchor_activities/i.test(sql)) throw new Error('boom: anchor write failed')
+      if (/fixed_events/i.test(sql)) throw new Error('boom: anchor write failed')
       return realPrepare(sql)
     }
     try {
@@ -466,8 +466,8 @@ describe('fixed events land as anchor_activities (T34)', () => {
     expect(count('groups')).toBe(0)
     expect(count('days_of_operation')).toBe(0)
     expect(count('time_blocks')).toBe(0)
-    expect(count('anchor_activities')).toBe(0)
-    expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE entity IN ('groups','anchor_activities')").get().c).toBe(0)
+    expect(count('fixed_events')).toBe(0)
+    expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE entity IN ('groups','fixed_events')").get().c).toBe(0)
   })
 })
 
@@ -587,7 +587,7 @@ describe('activity rules resolved at commit (T35)', () => {
 // without being considered here should make someone read this test.
 const ALL_TABLES = [
   'operations', 'groups', 'tiers', 'activities', 'cohorts', 'days_of_operation',
-  'time_blocks', 'anchor_activities', 'schedule_templates', 'schedule_weeks',
+  'time_blocks', 'fixed_events', 'schedule_templates', 'schedule_weeks',
   'template_slots',
   'schedule_snapshots',
   'week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions',
@@ -627,7 +627,7 @@ function seedCampWithSchedule() {
   db.prepare('INSERT INTO week_location_exclusions (id, week_id, location_id) VALUES (?, ?, ?)')
     .run(id('wlx'), weekId, id('loc'))
 
-  db.prepare('INSERT INTO anchor_activities (id, camp_id, cohort_id, day_id, time_block_id, name) VALUES (?, ?, ?, ?, ?, ?)')
+  db.prepare('INSERT INTO fixed_events (id, camp_id, cohort_id, day_id, time_block_id, name) VALUES (?, ?, ?, ?, ?, ?)')
     .run(id('anc'), campId, cohortId, dayId, blockId, 'Mifkad')
 
   db.prepare('INSERT INTO schedule_snapshots (id, template_id, name, created_at, slots) VALUES (?, ?, ?, ?, ?)')
@@ -651,7 +651,7 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
     expect(count('week_activity_exclusions')).toBe(0)
     expect(count('week_group_exclusions')).toBe(0)
     expect(count('week_location_exclusions')).toBe(0)
-    expect(count('anchor_activities')).toBe(0)
+    expect(count('fixed_events')).toBe(0)
 
     // Entities: exactly the new set, none of the old ids.
     expect(count('groups')).toBe(1)
@@ -682,7 +682,7 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
     })
     expect(result.replaced.dependents).toEqual({
       template_slots: 1, week_activity_exclusions: 1,
-      week_group_exclusions: 1, week_location_exclusions: 1, anchor_activities: 1,
+      week_group_exclusions: 1, week_location_exclusions: 1, fixed_events: 1,
     })
   })
 
@@ -788,7 +788,7 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
 
     const realPrepare = db.prepare.bind(db)
     db.prepare = (sql) => {
-      if (/DELETE FROM anchor_activities/i.test(sql)) throw new Error('boom: teardown failed')
+      if (/DELETE FROM fixed_events/i.test(sql)) throw new Error('boom: teardown failed')
       return realPrepare(sql)
     }
     try {
@@ -836,7 +836,7 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
     expect(result.replaced).toBeUndefined()
     expect(count('activities')).toBe(2)
     expect(count('template_slots')).toBe(1)
-    expect(count('anchor_activities')).toBe(1)
+    expect(count('fixed_events')).toBe(1)
     expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE field = '__deleted__'").get().c).toBe(0)
   })
 
@@ -1076,7 +1076,7 @@ describe('import evidence persistence (B4)', () => {
     })
 
     const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
-    const anchorId = db.prepare('SELECT id FROM anchor_activities WHERE name = ?').get('Mifkad').id
+    const anchorId = db.prepare('SELECT id FROM fixed_events WHERE name = ?').get('Mifkad').id
 
     const activityEvidence = listImportEvidence(db, campId, { entity_type: 'activities', entity_id: activityId })
     // recurrence_truth_status='obligation' (min_per_week rule, Swim is not
@@ -1087,7 +1087,7 @@ describe('import evidence persistence (B4)', () => {
     expect(ruleEvidence[0].confidence).toBe('high')
     expect(ruleEvidence.every((r) => r.support.matched_groups)).toBe(true)
 
-    const anchorEvidence = listImportEvidence(db, campId, { entity_type: 'anchor_activities', entity_id: anchorId })
+    const anchorEvidence = listImportEvidence(db, campId, { entity_type: 'fixed_events', entity_id: anchorId })
     expect(anchorEvidence.map((r) => r.field).sort()).toEqual(['days', 'scope'])
     expect(anchorEvidence[0].confidence).toBe('high')
     expect(anchorEvidence[0].support.groups_in_scope).toEqual(['Yeladim', 'Bogrim'])

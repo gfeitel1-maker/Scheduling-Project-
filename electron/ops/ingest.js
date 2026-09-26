@@ -34,14 +34,14 @@ import { replaceOpenDecisionsForCommit } from './openReconciliationDecisions.js'
 import { recordNotAPlace, isWordDeclinedAsPlace } from './locationWordDecisions.js'
 
 // U2 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, "Finding 4 fix").
-// Delete order: reverse of INGESTIBLE_ENTITIES with anchor_activities first —
+// Delete order: reverse of INGESTIBLE_ENTITIES with fixed_events first —
 // nothing points into anchors (undoReferences.schemaParity.test.js proves
 // this), and cohorts last because everything that can point at a cohort is
 // deleted before it. A row is only deleted after everything else in D that
 // could reference it is already gone, so one upfront referential pass
 // (referencesInto, run once per candidate before any delete) is sufficient.
 const U2_DELETE_ORDER = Object.freeze([
-  'anchor_activities', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
+  'fixed_events', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
 ])
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
@@ -124,11 +124,11 @@ export function replaceScope(db, { camp_id, author_user_id = null, device_id, so
     dependents[entity] = rows.length
   }
 
-  // Step 6 — anchors are camp-scoped directly, and anchor_activities.day_id
+  // Step 6 — anchors are camp-scoped directly, and fixed_events.day_id
   // references days_of_operation, so they must go before step 8.
-  const anchors = db.prepare('SELECT id FROM anchor_activities WHERE camp_id = ?').all(camp_id)
-  for (const row of anchors) remove('anchor_activities', row.id)
-  dependents.anchor_activities = anchors.length
+  const anchors = db.prepare('SELECT id FROM fixed_events WHERE camp_id = ?').all(camp_id)
+  for (const row of anchors) remove('fixed_events', row.id)
+  dependents.fixed_events = anchors.length
 
   // Step 7 — unhook the activity self-reference before deleting activities.
   // schema.sql declares weather_alternative_id plain TEXT, but deleteRecord.js
@@ -332,7 +332,7 @@ export function listCompoundCellDecisions(db, camp_id) {
 // 'groups' joined the set for T114's division-evidence follow-up: a group's
 // tier_id is inferred from its NAME (src/ingest/inferDivisions.js), so it needs
 // the same auditability the activity rule fields have.
-const EVIDENCE_ENTITY_TYPES = new Set(['activities', 'anchor_activities', 'groups'])
+const EVIDENCE_ENTITY_TYPES = new Set(['activities', 'fixed_events', 'groups'])
 const EVIDENCE_TAGS = new Set(['observed', 'inferred', 'unknown'])
 const EVIDENCE_CONFIDENCE = new Set(['high', 'low'])
 
@@ -595,7 +595,7 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
  *
  * `fixedEvents` is a dedicated payload of proposed recurring fixed events
  * (docs/adr/2026-08-03-ingesting-recurring-fixed-events.md), NOT a key in
- * `approved`: the generic whitelist above still rejects `anchor_activities`, and
+ * `approved`: the generic whitelist above still rejects `fixed_events`, and
  * anchors are writable only through commitPlan's validated fixed-event branch.
  *
  * `activityRules` is a dedicated payload (T35), NOT a key in `approved`, keyed
@@ -1266,7 +1266,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const anchorGroupKey = (cohortId, name) => `${cohortId ?? ''}|${normalizeName(name)}`
   const anchorDaySlot = (dayId, tbId) => `${dayId}|${tbId}`
 
-  // Fixed-event reimport tombstone fix: slot keys of anchor_activities whose
+  // Fixed-event reimport tombstone fix: slot keys of fixed_events whose
   // LATEST op is a DELETE_FIELD written with source==='human' — a director's
   // deliberate rejection (local delete or a replicated peer delete, both
   // forced 'human' by syncServer). Import teardown deletes write source=null
@@ -1282,13 +1282,13 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const rejectedSlotKeys = (db, camp_id) => {
     const rejected = new Set()
     const entityIds = db
-      .prepare("SELECT DISTINCT entity_id FROM operations WHERE entity = 'anchor_activities'")
+      .prepare("SELECT DISTINCT entity_id FROM operations WHERE entity = 'fixed_events'")
       .all()
       .map((r) => r.entity_id)
     for (const entity_id of entityIds) {
-      const latest = latestOpForEntity(db, 'anchor_activities', entity_id)
+      const latest = latestOpForEntity(db, 'fixed_events', entity_id)
       if (!latest || latest.field !== DELETE_FIELD || latest.source !== 'human') continue
-      const fields = lastKnownFields(db, 'anchor_activities', entity_id)
+      const fields = lastKnownFields(db, 'fixed_events', entity_id)
       if (fields.get('camp_id') !== camp_id) continue
       const dayId = fields.get('day_id')
       const tbId = fields.get('time_block_id')
@@ -1335,7 +1335,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md §3.2/§4.1).
   // Built once, from data already in scope — no new IPC param. assertedNames
   // is every name this commit is about to fan out as a pinned fixed-event
-  // occurrence (plan.fixedEvents, same array the anchor_activities write
+  // occurrence (plan.fixedEvents, same array the fixed_events write
   // loop below reads), and assertedConfidence carries each name's OWN
   // detection confidence ('high'/'low', fixedEvents.js never emits anything
   // else) through to the evidence row below rather than hardcoding 'high' —
@@ -1758,7 +1758,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // simply that this import doesn't cover their cohort (a different, pre-
       // existing fact this report must not mislabel). `IS` binds null-safely.
       for (const row of db
-        .prepare('SELECT cohort_id, day_id, time_block_id, name, unit_ids FROM anchor_activities WHERE camp_id = ? AND cohort_id IS ?')
+        .prepare('SELECT cohort_id, day_id, time_block_id, name, unit_ids FROM fixed_events WHERE camp_id = ? AND cohort_id IS ?')
         .all(camp_id, cohort_id ?? null)) {
         let unitIds
         try {
@@ -1804,7 +1804,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       .prepare('SELECT id, tier_id FROM groups WHERE camp_id = ?')
       .all(camp_id)
     for (const row of db
-      .prepare('SELECT cohort_id, day_id, time_block_id, name, is_all_groups, group_ids, unit_ids, unit_id FROM anchor_activities WHERE camp_id = ?')
+      .prepare('SELECT cohort_id, day_id, time_block_id, name, is_all_groups, group_ids, unit_ids, unit_id FROM fixed_events WHERE camp_id = ?')
       .all(camp_id)) {
       const slotKey = anchorSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name)
       anchorSlots.add(slotKey)
@@ -2207,7 +2207,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // of creating.
     const liveByGroup = new Map() // groupKey -> Set("dayId|tbId")
     for (const row of db
-      .prepare('SELECT cohort_id, day_id, time_block_id, name FROM anchor_activities WHERE camp_id = ?')
+      .prepare('SELECT cohort_id, day_id, time_block_id, name FROM fixed_events WHERE camp_id = ?')
       .all(camp_id)) {
       const g = anchorGroupKey(row.cohort_id, row.name)
       if (!liveByGroup.has(g)) liveByGroup.set(g, new Set())
@@ -2287,7 +2287,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     }
 
     // Fixed events, after the entity loop and INSIDE the same transaction, so
-    // the whole import stays one atomic unit (ADR §4). anchor_activities is
+    // the whole import stays one atomic unit (ADR §4). fixed_events is
     // written here and nowhere else in ingest; the generic whitelist never lets
     // it through.
     for (const fe of plan.fixedEvents) {
@@ -2456,7 +2456,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         if (fe.support) {
           for (const field of ['days', 'scope']) {
             writeEvidence(db, {
-              camp_id, entity_type: 'anchor_activities', entity_id: anchorId, field,
+              camp_id, entity_type: 'fixed_events', entity_id: anchorId, field,
               tag: 'inferred', confidence: fe.confidence, support: fe.support,
               import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
             })
@@ -2523,7 +2523,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         for (const [field, value] of Object.entries(fields)) {
           if (value === null || value === undefined) continue
           write(db, {
-            entity: 'anchor_activities',
+            entity: 'fixed_events',
             entity_id: anchorId,
             field,
             value,
@@ -2968,7 +2968,7 @@ export function ingestUndo(db, { invertibleOps, createdEntityIds = [], author_us
             client_write_id: rowClientWriteId,
             // Deliberate, per the ADR: a director-attributable delete, not an
             // import teardown and not ambiguous NULL/legacy. On
-            // anchor_activities this engages rejectedSlotKeys' reimport
+            // fixed_events this engages rejectedSlotKeys' reimport
             // suppression — a reimport of the same source file will not
             // silently resurrect what the director just undid.
             source: 'human',

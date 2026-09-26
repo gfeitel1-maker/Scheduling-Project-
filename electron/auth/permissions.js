@@ -25,7 +25,7 @@ export const ENTITIES = [
   'cohorts',
   'days_of_operation',
   'time_blocks',
-  'anchor_activities',
+  'fixed_events',
   'schedule_templates',
   'schedule_weeks',
   'template_slots',

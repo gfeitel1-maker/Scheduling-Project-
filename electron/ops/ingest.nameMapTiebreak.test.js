@@ -178,8 +178,8 @@ describe('T252 — ingest.js seedNameMaps sites resolve duplicates to the lowest
     commitIngest(dbForward, { approved: {}, fixedEvents, camp_id: campForward, device_id: deviceId, author_user_id: 'u1' })
     commitIngest(dbReverse, { approved: {}, fixedEvents, camp_id: campReverse, device_id: deviceId, author_user_id: 'u1' })
 
-    const anchorForward = dbForward.prepare('SELECT * FROM anchor_activities WHERE camp_id = ?').get(campForward)
-    const anchorReverse = dbReverse.prepare('SELECT * FROM anchor_activities WHERE camp_id = ?').get(campReverse)
+    const anchorForward = dbForward.prepare('SELECT * FROM fixed_events WHERE camp_id = ?').get(campForward)
+    const anchorReverse = dbReverse.prepare('SELECT * FROM fixed_events WHERE camp_id = ?').get(campReverse)
 
     expect(anchorForward.time_block_id).toBe(blockLow)
     expect(anchorReverse.time_block_id).toBe(blockLow)
@@ -247,7 +247,7 @@ describe('T252 round 2 — commitCreate must not evict an already-seeded name-ma
     expect(newGroup.id).not.toBe(idLow)
     expect(newGroup.id).not.toBe(idHigh)
 
-    const anchor = db.prepare('SELECT * FROM anchor_activities WHERE camp_id = ?').get(campId)
+    const anchor = db.prepare('SELECT * FROM fixed_events WHERE camp_id = ?').get(campId)
     const anchorGroups = anchor.group_ids ?? anchor.scope_groups ?? ''
     // Established lowest-id row still wins the "bunk 1" slot; the row
     // created this same run must never have claimed it.

@@ -33,7 +33,7 @@ const BENTO_CARDS = [
   { key: 'tiers', label: 'Age Divisions', size: 'small' },
   { key: 'locations', label: 'Locations', size: 'small' },
   { key: 'days_and_blocks', label: 'Days & Blocks', size: 'small' },
-  { key: 'anchor_activities', label: 'Anchors', size: 'wide' },
+  { key: 'fixed_events', label: 'Anchors', size: 'wide' },
 ]
 
 // Explicit start coordinates for the same DOM order / footprint sizes as
@@ -47,7 +47,7 @@ const CARD_GRID = {
   tiers: { gridColumn: '3', gridRow: '1' },
   locations: { gridColumn: '3', gridRow: '2' },
   days_and_blocks: { gridColumn: '3', gridRow: '3' },
-  anchor_activities: { gridColumn: '1 / span 3', gridRow: '5' },
+  fixed_events: { gridColumn: '1 / span 3', gridRow: '5' },
 }
 
 const CHIP_CAP = { large: 4, wide: 6 }

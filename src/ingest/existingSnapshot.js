@@ -67,7 +67,7 @@ export async function buildExistingSnapshot(list, cohortId, mode = 'add') {
 // `Object.keys(snapshot).forEach(...)` over CHILD_OF's own keys, so the two
 // stay in sync by construction, not by a second table someone has to update.
 const CENSUS_ENTITIES = [
-  'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'anchor_activities',
+  'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'fixed_events',
   'events', 'special_days', 'elective_sets',
 ]
 

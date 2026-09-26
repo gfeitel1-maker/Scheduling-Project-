@@ -3,7 +3,7 @@
 // T187 — engine fixture / schema parity guard.
 //
 // THE BUG CLASS. T62 (#443) fixed a defect where the engine read
-// `anchor.activity_id` — a column `anchor_activities` has NEVER had. It stayed
+// `anchor.activity_id` — a column `fixed_events` has NEVER had. It stayed
 // green for a month because the test fixture hand-built the column, so the
 // engine's tests agreed with the engine's imagination rather than with the
 // database. Lunch and Rest Hour were double-booked in production the whole time.
@@ -19,7 +19,7 @@
 //
 // WHAT IT ASSERTS. Every key an anchor fixture or a slot fixture in
 // src/engine/*.test.js carries must correspond to a real column on
-// `anchor_activities` / `template_slots` — per PRAGMA table_info on a fully
+// `fixed_events` / `template_slots` — per PRAGMA table_info on a fully
 // migrated db, because schema.sql self-documents as base-only and is not ground
 // truth — or be listed below as an explicit, reasoned exemption.
 //
@@ -76,13 +76,14 @@ const SELF = path.basename(fileURLToPath(import.meta.url))
 // Exemptions and aliases. Every entry carries its reason.
 // ---------------------------------------------------------------------------
 
-// Anchor fixture keys that are legitimately not columns on anchor_activities.
+// Anchor fixture keys that are legitimately not columns on fixed_events.
+//
+// activity_id was exempted here for T62/T187 (fixed_events had no such column, so a fixture
+// carrying one was fiction). T267 (docs/adr/2026-09-26-fixed-recurring-event-identity-model.md)
+// added the real column, so the exemption is retired — a fixture setting activity_id is no longer
+// fiction, and the guard below (every exemption/alias is still accurate) would fail loudly on a
+// stale exemption if this entry stayed.
 const ANCHOR_EXEMPT = {
-  activity_id:
-    'T62 legacy. `anchor_activities` has no activity_id; anchorActivityLink.js still honors an ' +
-    'explicit link ahead of a name match, buildSchedule.test.js keeps the original T62 fixture ' +
-    '(commented in place as unreal) beside name-linked regression tests, and removing the ' +
-    'short-circuit is an explicit non-goal of T187.',
   _isSpanHead:
     'Engine-internal marker buildSchedule.js writes onto an expanded anchor. Never persisted.',
 }
@@ -484,7 +485,7 @@ function anchorOffenders(fixtures, columns) {
   for (const f of fixtures) {
     for (const key of f.keys) {
       if (columns.has(key) || key in ANCHOR_EXEMPT) continue
-      out.push(`${f.file}:${f.line} carries "${key}", which anchor_activities does not have`)
+      out.push(`${f.file}:${f.line} carries "${key}", which fixed_events does not have`)
     }
   }
   return out
@@ -518,7 +519,7 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
     tmpFiles.push(file)
     const db = openLocalDb(file)
     columns = {
-      anchor_activities: new Set(db.prepare('PRAGMA table_info(anchor_activities)').all().map((c) => c.name)),
+      fixed_events: new Set(db.prepare('PRAGMA table_info(fixed_events)').all().map((c) => c.name)),
       template_slots: new Set(db.prepare('PRAGMA table_info(template_slots)').all().map((c) => c.name)),
     }
     db.close()
@@ -540,7 +541,7 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
   // vacuously green) parity assertions get a chance to look fine.
   describe('anti-vacuity floors', () => {
     it('read a real schema, not an empty one', () => {
-      expect(columns.anchor_activities.size).toBeGreaterThan(10)
+      expect(columns.fixed_events.size).toBeGreaterThan(10)
       expect(columns.template_slots.size).toBeGreaterThan(10)
     })
 
@@ -625,7 +626,7 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
         buildSchedule({ anchors: [makeAnchor()] })
       `)
       expect(s.anchors.some((f) => f.pattern === 'helper')).toBe(true)
-      expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('activity_kind')
+      expect(anchorOffenders(s.anchors, columns.fixed_events).join(' ')).toContain('activity_kind')
     })
 
     it('catches a phantom key in the OVERRIDE object handed to a helper', () => {
@@ -633,15 +634,15 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
         const makeAnchor = (over) => ({ id: 'a1', name: 'Lunch', ...over })
         buildSchedule({ anchors: [makeAnchor({ activity_kind: 'meal' })] })
       `)
-      expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('activity_kind')
+      expect(anchorOffenders(s.anchors, columns.fixed_events).join(' ')).toContain('activity_kind')
     })
 
     it('catches a key that is real on a DIFFERENT table (plausible-looking, wrong table)', () => {
-      // `tier_id` is a real column — on `groups`. anchor_activities scopes by
+      // `tier_id` is a real column — on `groups`. fixed_events scopes by
       // unit_id / unit_ids, never tier_id.
-      expect(columns.anchor_activities.has('tier_id')).toBe(false)
+      expect(columns.fixed_events.has('tier_id')).toBe(false)
       const s = scanSynthetic(`const anchor = { id: 'a1', name: 'Lunch', tier_id: 't1' }`)
-      expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('tier_id')
+      expect(anchorOffenders(s.anchors, columns.fixed_events).join(' ')).toContain('tier_id')
     })
 
     it('catches a slot key that is real on a different table', () => {
@@ -656,12 +657,12 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
         const baseAnchor = { id: 'a1', name: 'Lunch', bogus_col: 1 }
         const anchor = { ...baseAnchor, day_id: 'd2' }
       `)
-      expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('bogus_col')
+      expect(anchorOffenders(s.anchors, columns.fixed_events).join(' ')).toContain('bogus_col')
     })
 
     it('catches a phantom key at a bare call-argument site', () => {
       const s = scanSynthetic(`resolveAnchorGroupIds({ unit_ids: ['t1'], bogus_col: 1 }, groups)`)
-      expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('bogus_col')
+      expect(anchorOffenders(s.anchors, columns.fixed_events).join(' ')).toContain('bogus_col')
     })
 
     it('catches a phantom key in a fixture array built by .map()', () => {
@@ -670,7 +671,7 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
       const s = scanSynthetic(`
         const anchors = RAW.map((x) => ({ ...x, name: 'Lunch', time_block_id: 'b1', phantom_map_col: 1 }))
       `)
-      expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('phantom_map_col')
+      expect(anchorOffenders(s.anchors, columns.fixed_events).join(' ')).toContain('phantom_map_col')
     })
 
     it('catches a phantom key composed in through Object.assign', () => {
@@ -679,7 +680,7 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
         const base = { extra_phantom_via_base: 1 }
         const anchor = Object.assign({}, base, { name: 'Lunch', time_block_id: 'b1' })
       `)
-      expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('extra_phantom_via_base')
+      expect(anchorOffenders(s.anchors, columns.fixed_events).join(' ')).toContain('extra_phantom_via_base')
     })
 
     it('catches a phantom key on a SHADOWED sibling rather than resolving past it', () => {
@@ -696,7 +697,7 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
           return x
         }
       `)
-      expect(anchorOffenders(s.anchors, columns.anchor_activities).join(' ')).toContain('phantom_shadow_col')
+      expect(anchorOffenders(s.anchors, columns.fixed_events).join(' ')).toContain('phantom_shadow_col')
     })
 
     it('reports — rather than silently skips — a fixture built by an IMPORTED helper', () => {
@@ -737,7 +738,7 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
         const anchor = { id: 'a1', name: 'Lunch', unit_ids: ['t1'], is_all_groups: 1, time_block_id: 'b1', span_blocks: 1 }
         const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'x' }]
       `)
-      expect(anchorOffenders(s.anchors, columns.anchor_activities)).toEqual([])
+      expect(anchorOffenders(s.anchors, columns.fixed_events)).toEqual([])
       expect(slotOffenders(s.slots, columns.template_slots)).toEqual([])
       expect(s.anchors.length).toBeGreaterThan(0)
       expect(s.slots.length).toBeGreaterThan(0)
@@ -745,8 +746,8 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
   })
 
   describe('parity', () => {
-    it('every anchor fixture key is a real anchor_activities column (or a listed exemption)', () => {
-      expect(anchorOffenders(anchorFixtures, columns.anchor_activities)).toEqual([])
+    it('every anchor fixture key is a real fixed_events column (or a listed exemption)', () => {
+      expect(anchorOffenders(anchorFixtures, columns.fixed_events)).toEqual([])
     })
 
     it('every slot fixture key maps to a real template_slots column (or a listed exemption)', () => {
@@ -755,7 +756,7 @@ describe('engine fixtures stay in parity with the real schema (T187)', () => {
 
     it('every exemption and alias is still accurate — a stale one is a lie about the schema', () => {
       for (const key of Object.keys(ANCHOR_EXEMPT)) {
-        expect(columns.anchor_activities.has(key), `anchor exemption "${key}" is now a real column`).toBe(false)
+        expect(columns.fixed_events.has(key), `anchor exemption "${key}" is now a real column`).toBe(false)
       }
       for (const key of Object.keys(SLOT_EXEMPT)) {
         expect(columns.template_slots.has(key), `slot exemption "${key}" is now a real column`).toBe(false)

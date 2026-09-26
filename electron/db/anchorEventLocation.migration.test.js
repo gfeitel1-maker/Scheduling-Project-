@@ -3,7 +3,7 @@
 // Migration v45 — Slice 4 engine location-contention prerequisite
 // (docs/work/specs/2026-08-23-slice4-engine-location-contention.md §1/§6).
 // Adds TWO additive, nullable columns in one migration version:
-// anchor_activities.location_id and events.location_id, both FK-by-
+// fixed_events.location_id and events.location_id, both FK-by-
 // convention to locations(id) (no DB-level FOREIGN KEY), matching
 // activities.location_id exactly. NULL = unconstrained, identical to
 // today's behavior. Storage + projection only in this slice — no engine
@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './localDb.js'
 import { rollbackV45 } from './rollback/v45_down.js'
+import { rollbackV77 } from './rollback/v77_down.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const files = []
@@ -41,7 +42,7 @@ function freshDb() {
 }
 
 // A database migrated fully forward, then rolled back to the v44 shape (no
-// anchor_activities.location_id / events.location_id columns), so v45 can
+// fixed_events.location_id / events.location_id columns), so v45 can
 // be exercised against it.
 function preV45Db(tag = 'v45-migrated') {
   const db = new Database(tmpFile(tag))
@@ -49,8 +50,8 @@ function preV45Db(tag = 'v45-migrated') {
   initSchema(db) // fully migrate to current
   db.pragma('foreign_keys = OFF')
 
-  db.exec('ALTER TABLE anchor_activities RENAME TO anchor_activities_tmp')
-  db.exec(`CREATE TABLE anchor_activities (
+  db.exec('ALTER TABLE fixed_events RENAME TO fixed_events_tmp')
+  db.exec(`CREATE TABLE fixed_events (
     id TEXT PRIMARY KEY,
     camp_id TEXT NOT NULL REFERENCES camps(id),
     cohort_id TEXT REFERENCES cohorts(id),
@@ -65,15 +66,15 @@ function preV45Db(tag = 'v45-migrated') {
     schedule_week_id TEXT REFERENCES schedule_weeks(id),
     recurrence_level TEXT NOT NULL DEFAULT 'daily'
   )`)
-  // recurrence_level is intentionally NOT selected from anchor_activities_tmp —
+  // recurrence_level is intentionally NOT selected from fixed_events_tmp —
   // that table came from a fully-migrated (head, v71) db, which no longer has
   // the column (T181 dropped it). It is declared above with its own DEFAULT
   // instead, matching the value it always held anyway (v42's DEFAULT 'daily').
-  db.exec(`INSERT INTO anchor_activities
+  db.exec(`INSERT INTO fixed_events
     (id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks, is_all_groups, group_ids, notes, schedule_week_id)
     SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks, is_all_groups, group_ids, notes, schedule_week_id
-    FROM anchor_activities_tmp`)
-  db.exec('DROP TABLE anchor_activities_tmp')
+    FROM fixed_events_tmp`)
+  db.exec('DROP TABLE fixed_events_tmp')
 
   db.exec('ALTER TABLE events RENAME TO events_tmp')
   db.exec(`CREATE TABLE events (
@@ -102,9 +103,9 @@ describe('migration v45: fresh vs migrated equivalence', () => {
   it('declares schema version 45 on a fresh db and gives both tables the location_id column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(76)
+    expect(CURRENT_SCHEMA_VERSION).toBe(77)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 45').get().c).toBe(1)
-    expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).toContain('location_id')
+    expect(db.pragma('table_info(fixed_events)').map((c) => c.name)).toContain('location_id')
     expect(db.pragma('table_info(events)').map((c) => c.name)).toContain('location_id')
     db.close()
   })
@@ -117,11 +118,11 @@ describe('migration v45: fresh vs migrated equivalence', () => {
     db.close()
   })
 
-  it('gives fresh and migrated identical anchor_activities columns', () => {
+  it('gives fresh and migrated identical fixed_events columns', () => {
     const fresh = freshDb()
     const migrated = preV45Db()
     initSchema(migrated)
-    expect(tableInfo(migrated, 'anchor_activities')).toEqual(tableInfo(fresh, 'anchor_activities'))
+    expect(tableInfo(migrated, 'fixed_events')).toEqual(tableInfo(fresh, 'fixed_events'))
     fresh.close()
     migrated.close()
   }, 30000)
@@ -135,11 +136,12 @@ describe('migration v45: fresh vs migrated equivalence', () => {
     migrated.close()
   }, 30000)
 
-  it('declares anchor_activities columns in order, location_id before v51\'s kind', () => {
+  it('declares fixed_events columns in order, location_id before v51\'s kind', () => {
     const db = freshDb()
-    expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).toEqual([
+    expect(db.pragma('table_info(fixed_events)').map((c) => c.name)).toEqual([
       'id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks',
       'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'location_id', 'kind', 'unit_ids',
+      'activity_id',
     ])
     db.close()
   })
@@ -155,15 +157,15 @@ describe('migration v45: fresh vs migrated equivalence', () => {
   it('no backfill logic — every existing anchor and event stays NULL, and no op is written', () => {
     const db = preV45Db()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
-    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a1', 'camp1', 'Lunch')").run()
+    db.prepare("INSERT INTO fixed_events (id, camp_id, name) VALUES ('a1', 'camp1', 'Lunch')").run()
     db.prepare("INSERT INTO events (id, camp_id, name) VALUES ('ev1', 'camp1', 'Color War')").run()
     initSchema(db)
-    expect(db.prepare('SELECT location_id FROM anchor_activities WHERE id = ?').get('a1').location_id).toBeNull()
+    expect(db.prepare('SELECT location_id FROM fixed_events WHERE id = ?').get('a1').location_id).toBeNull()
     expect(db.prepare('SELECT location_id FROM events WHERE id = ?').get('ev1').location_id).toBeNull()
     // No op was written for the migration — a DDL-only change, matching v33-v44's posture.
     expect(
       db.prepare(
-        "SELECT COUNT(*) c FROM operations WHERE (entity = 'anchor_activities' OR entity = 'events') AND field = 'location_id'"
+        "SELECT COUNT(*) c FROM operations WHERE (entity = 'fixed_events' OR entity = 'events') AND field = 'location_id'"
       ).get().c
     ).toBe(0)
     db.close()
@@ -173,26 +175,26 @@ describe('migration v45: fresh vs migrated equivalence', () => {
     const db = preV45Db()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare("INSERT INTO locations (id, camp_id, name) VALUES ('loc1', 'camp1', 'Dining Hall')").run()
-    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a1', 'camp1', 'Lunch')").run()
+    db.prepare("INSERT INTO fixed_events (id, camp_id, name) VALUES ('a1', 'camp1', 'Lunch')").run()
     db.prepare("INSERT INTO events (id, camp_id, name) VALUES ('ev1', 'camp1', 'Color War')").run()
     initSchema(db) // runs v45
-    db.prepare("UPDATE anchor_activities SET location_id = 'loc1' WHERE id = 'a1'").run()
+    db.prepare("UPDATE fixed_events SET location_id = 'loc1' WHERE id = 'a1'").run()
     db.prepare("UPDATE events SET location_id = 'loc1' WHERE id = 'ev1'").run()
     db.prepare('DELETE FROM schema_migrations WHERE version >= 45').run()
     initSchema(db) // re-run v45
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(db.pragma('table_info(anchor_activities)').filter((c) => c.name === 'location_id')).toHaveLength(1)
+    expect(db.pragma('table_info(fixed_events)').filter((c) => c.name === 'location_id')).toHaveLength(1)
     expect(db.pragma('table_info(events)').filter((c) => c.name === 'location_id')).toHaveLength(1)
     // Re-running the migration must not clobber a value already set.
-    expect(db.prepare("SELECT location_id FROM anchor_activities WHERE id = 'a1'").get().location_id).toBe('loc1')
+    expect(db.prepare("SELECT location_id FROM fixed_events WHERE id = 'a1'").get().location_id).toBe('loc1')
     expect(db.prepare("SELECT location_id FROM events WHERE id = 'ev1'").get().location_id).toBe('loc1')
     db.close()
   })
 
-  it('schema.sql declares location_id last in the anchor_activities CREATE block', () => {
+  it('schema.sql declares location_id last in the fixed_events CREATE block', () => {
     const schemaText = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
-    const match = schemaText.match(/CREATE TABLE IF NOT EXISTS anchor_activities \([\s\S]*?\n\);/)
-    expect(match, 'expected an anchor_activities CREATE TABLE block in schema.sql').toBeTruthy()
+    const match = schemaText.match(/CREATE TABLE IF NOT EXISTS fixed_events \([\s\S]*?\n\);/)
+    expect(match, 'expected an fixed_events CREATE TABLE block in schema.sql').toBeTruthy()
     expect(match[0]).toContain("schedule_week_id TEXT REFERENCES schedule_weeks(id),\n  location_id TEXT,")
   })
 
@@ -210,12 +212,16 @@ describe('rollbackV45', () => {
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare("INSERT INTO locations (id, camp_id, name) VALUES ('loc1', 'camp1', 'Dining Hall')").run()
     db.prepare(
-      "INSERT INTO anchor_activities (id, camp_id, name, location_id) VALUES ('a1', 'camp1', 'Lunch', 'loc1')"
+      "INSERT INTO fixed_events (id, camp_id, name, location_id) VALUES ('a1', 'camp1', 'Lunch', 'loc1')"
     ).run()
     db.prepare(
       "INSERT INTO events (id, camp_id, name, location_id) VALUES ('ev1', 'camp1', 'Color War', 'loc1')"
     ).run()
 
+    // v75 (T267) renamed anchor_activities -> fixed_events; v45_down.js operates on the table's
+    // pre-v75 name, so undo the rename first — the real descending-rollback order (highest version
+    // first) — before exercising v45's own rollback in isolation.
+    rollbackV77(db)
     const result = rollbackV45(db)
     expect(result).toEqual({ anchorLocationId: 1, eventLocationId: 1 })
     expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).not.toContain('location_id')

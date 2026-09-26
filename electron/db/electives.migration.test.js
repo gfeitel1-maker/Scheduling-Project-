@@ -133,7 +133,7 @@ describe('migration v35: fresh vs migrated equivalence', () => {
     // it must expect the column too.
     // day_id..schedule_week_id arrived in v43 (unified-schedule-overlay
     // Slice 3a, docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md)
-    // — five additive binding columns mirroring anchor_activities (a sixth,
+    // — five additive binding columns mirroring fixed_events (a sixth,
     // recurrence_level, arrived alongside them but was dropped in v71/T181 —
     // dead data). This v35 test runs against the CURRENT schema, so it must
     // expect the surviving columns too.

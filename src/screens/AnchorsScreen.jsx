@@ -293,7 +293,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
     setError(null)
     try {
       const [aData, dData, bData, tData, gData, wData, lData] = await Promise.all([
-        localClient.list('anchor_activities'),
+        localClient.list('fixed_events'),
         localClient.list('days_of_operation'),
         localClient.list('time_blocks'),
         localClient.list('tiers'),
@@ -348,7 +348,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
   // Thin wrapper, not a reimplementation: composes Anchors-only serialization
   // then delegates the field-level write loop to the shared repository.
   async function writeFields(id, fields) {
-    await repository.writeFields('anchor_activities', id, serializeFields(fields))
+    await repository.writeFields('fixed_events', id, serializeFields(fields))
   }
 
   // Best-effort rollback of a row from a mid-fan-out failure. Returns
@@ -360,7 +360,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
   async function cleanupPartialRow(id) {
     try {
       const token = localStorage.getItem('shoresh-token')
-      const result = await localClient.deleteEntity(token, 'anchor_activities', id)
+      const result = await localClient.deleteEntity(token, 'fixed_events', id)
       return !!(result && (result.status === 'applied' || result.status === 'queued'))
     } catch {
       return false
@@ -456,7 +456,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
     setDeleting(true)
     try {
       const token = localStorage.getItem('shoresh-token')
-      const result = await localClient.deleteEntity(token, 'anchor_activities', pendingDelete.id)
+      const result = await localClient.deleteEntity(token, 'fixed_events', pendingDelete.id)
       if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
         throw new Error('delete failed')
       }
@@ -486,11 +486,11 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
       // state — a row synced in from another device between page-load and
       // this click must not be silently skipped. The delete loop itself now
       // lives in the shared repository; scoping (camp + cohort) stays here.
-      const freshAnchors = await localClient.list('anchor_activities')
+      const freshAnchors = await localClient.list('fixed_events')
       const ids = (freshAnchors || [])
         .filter(a => a.camp_id === campId && a.cohort_id === activeCohort?.id)
         .map(a => a.id)
-      const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('anchor_activities', ids)
+      const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('fixed_events', ids)
       await load()
       if (failed > 0) {
         setError(

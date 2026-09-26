@@ -118,6 +118,19 @@ describe('every referrer is re-pointed — including the ones with no foreign ke
     expect(db.prepare('SELECT activity_id FROM event_slots WHERE id = ?').get(id).activity_id).toBe(winner)
   })
 
+  it('fixed_events.activity_id (NO foreign key) — a fixed/recurring event resolved to the LOSER', () => {
+    // T267 (v77): the soft link a fixed/recurring event resolves to its catalog activity through.
+    // Merging the loser away without re-pointing this would leave the fixed event silently
+    // pointing at a deleted activity id — orphaned by the very next merge after the migration that
+    // created the link in the first place.
+    const id = randomUUID()
+    db.prepare(
+      "INSERT INTO fixed_events (id, camp_id, name, is_all_groups, activity_id) VALUES (?, ?, 'Musik Block', 1, ?)"
+    ).run(id, campId, loser)
+    merge()
+    expect(db.prepare('SELECT activity_id FROM fixed_events WHERE id = ?').get(id).activity_id).toBe(winner)
+  })
+
   it('activities.weather_alternative_id — an activity pointing at the LOSER', () => {
     // The referrer a grep for `activity_id` does not find.
     const other = mkActivity('Swim')
@@ -255,6 +268,10 @@ describe('the referrer list cannot silently fall behind the schema', () => {
       // referrer; activity_name stays denormalized and untouched (see the
       // dedicated test above).
       'elective_run_outer_snapshots.activity_id',
+      // T267 (v77): a fixed/recurring event's soft link to the catalog activity
+      // it resolves to. Re-pointed like any other soft referrer — see the
+      // dedicated test below.
+      'fixed_events.activity_id',
     ])
     const unhandled = found.filter((f) => !handled.has(f))
     expect(unhandled, `unhandled activity referrer(s): ${unhandled.join(', ')} — add them to mergeActivity.js and give each its own test`).toEqual([])

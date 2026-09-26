@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
 // Migration v71 — DROP the dead `recurrence_level` column (T181) from
-// `anchor_activities` and `elective_sets`. Superseded by `kind`
+// `fixed_events` and `elective_sets`. Superseded by `kind`
 // ('fixed'/'recurring'), `day_id` (NULL = every day), and `schedule_week_id`
 // (NULL = every week) — see the ticket's confirmed sweep: no code path ever
 // reads recurrence_level to branch, and none writes a non-default value.
@@ -41,7 +41,7 @@ function preV71Db(tag = 'v71-migrated') {
   db.pragma('foreign_keys = ON')
   initSchema(db)
   db.prepare('DELETE FROM schema_migrations WHERE version >= 71').run()
-  db.exec("ALTER TABLE anchor_activities ADD COLUMN recurrence_level TEXT NOT NULL DEFAULT 'daily'")
+  db.exec("ALTER TABLE fixed_events ADD COLUMN recurrence_level TEXT NOT NULL DEFAULT 'daily'")
   db.exec("ALTER TABLE elective_sets ADD COLUMN recurrence_level TEXT NOT NULL DEFAULT 'daily'")
   return db
 }
@@ -50,12 +50,12 @@ const columns = (db, table) => db.prepare(`PRAGMA table_info(${table})`).all().m
 
 describe('migration v71: recurrence_level removal', () => {
   it('CURRENT_SCHEMA_VERSION is 71', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(76)
+    expect(CURRENT_SCHEMA_VERSION).toBe(77)
   })
 
   it('is present at v70, before the v71 migration runs (non-vacuity)', () => {
     const db = preV71Db()
-    expect(columns(db, 'anchor_activities')).toContain('recurrence_level')
+    expect(columns(db, 'fixed_events')).toContain('recurrence_level')
     expect(columns(db, 'elective_sets')).toContain('recurrence_level')
     expect(getSchemaVersion(db)).toBe(70)
     db.close()
@@ -66,7 +66,7 @@ describe('migration v71: recurrence_level removal', () => {
 
     initSchema(db)
 
-    expect(columns(db, 'anchor_activities')).not.toContain('recurrence_level')
+    expect(columns(db, 'fixed_events')).not.toContain('recurrence_level')
     expect(columns(db, 'elective_sets')).not.toContain('recurrence_level')
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 71').get().c).toBe(1)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
@@ -78,9 +78,9 @@ describe('migration v71: recurrence_level removal', () => {
     const migrated = preV71Db('v71-parity')
     initSchema(migrated)
 
-    expect(columns(fresh, 'anchor_activities')).not.toContain('recurrence_level')
+    expect(columns(fresh, 'fixed_events')).not.toContain('recurrence_level')
     expect(columns(fresh, 'elective_sets')).not.toContain('recurrence_level')
-    expect(columns(fresh, 'anchor_activities')).toEqual(columns(migrated, 'anchor_activities'))
+    expect(columns(fresh, 'fixed_events')).toEqual(columns(migrated, 'fixed_events'))
     expect(columns(fresh, 'elective_sets')).toEqual(columns(migrated, 'elective_sets'))
     fresh.close()
     migrated.close()
@@ -90,7 +90,7 @@ describe('migration v71: recurrence_level removal', () => {
     const db = preV71Db()
     initSchema(db)
 
-    const anchorCols = columns(db, 'anchor_activities')
+    const anchorCols = columns(db, 'fixed_events')
     expect(anchorCols).toContain('kind')
     expect(anchorCols).toContain('day_id')
     expect(anchorCols).toContain('schedule_week_id')

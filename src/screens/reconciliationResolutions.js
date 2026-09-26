@@ -113,23 +113,23 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents }) 
       // Unresolved -> held back: remove from approved so it does not write
       // unconditionally (the silent-write risk this module exists to guard).
       if (!isDecisionResolved(decision, answer)) {
-        // Fix round 2026-08-17, FIX 1: 'anchor_activities' is never a key in
+        // Fix round 2026-08-17, FIX 1: 'fixed_events' is never a key in
         // `approved` (buildPlan/commitIngest gate it via the fixedEvents[]
         // array, not the approved whitelist — see the comment below). Writing
-        // `nextApproved.anchor_activities = []` here manufactured a STRAY key
+        // `nextApproved.fixed_events = []` here manufactured a STRAY key
         // that commitIngest's INGESTIBLE_ENTITIES whitelist then rejects
-        // outright ("anchor_activities cannot be created by an import"),
+        // outright ("fixed_events cannot be created by an import"),
         // turning a legitimate hold-back into a hard commit failure the
         // moment a fixed-event confirm_value went unresolved end to end.
-        if (decision.entityName && decision.entity !== 'anchor_activities') {
+        if (decision.entityName && decision.entity !== 'fixed_events') {
           nextApproved[decision.entity] = (nextApproved[decision.entity] ?? []).filter((n) => n !== decision.entityName)
         }
-        // Sub-slice 4 — `approved` never gates 'anchor_activities' (buildPlan/
+        // Sub-slice 4 — `approved` never gates 'fixed_events' (buildPlan/
         // commit only whitelist INGESTIBLE_ENTITIES), so a fixed-event
         // confirm_value needs its OWN hold-back: its event is matched by
         // (name, timeBlock, days) and removed from the outgoing fixedEvents[]
         // below, symmetric to the approved-name removal above.
-        if (decision.entity === 'anchor_activities') {
+        if (decision.entity === 'fixed_events') {
           heldFixedEventKeys.add(fixedEventMatchKey(decision.entityName, decision.timeBlock, decision.days))
         }
       }

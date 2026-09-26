@@ -401,7 +401,7 @@ describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
     'cohorts',
     'days_of_operation',
     'time_blocks',
-    'anchor_activities',
+    'fixed_events',
     'schedule_templates',
     'schedule_snapshots',
   ]
@@ -606,7 +606,7 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, name) on cohorts 
     db.close()
   })
 
-  it('GOVERNOR fix (round 2 escalation): repoints time_blocks/anchor_activities FKs off a duplicate cohort before deleting it, instead of crashing on FOREIGN KEY constraint failed', () => {
+  it('GOVERNOR fix (round 2 escalation): repoints time_blocks/fixed_events FKs off a duplicate cohort before deleting it, instead of crashing on FOREIGN KEY constraint failed', () => {
     const db = freshDb()
     db.pragma('foreign_keys = ON')
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
@@ -633,7 +633,7 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, name) on cohorts 
       "INSERT INTO time_blocks (id, camp_id, cohort_id, name) VALUES ('tb1', 'camp1', 'c2', 'Morning')"
     ).run()
     db.prepare(
-      "INSERT INTO anchor_activities (id, camp_id, cohort_id) VALUES ('aa1', 'camp1', 'c2')"
+      "INSERT INTO fixed_events (id, camp_id, cohort_id) VALUES ('aa1', 'camp1', 'c2')"
     ).run()
     db.prepare('DELETE FROM schema_migrations WHERE version >= 11').run()
 
@@ -643,7 +643,7 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, name) on cohorts 
 
     const survivor = db.prepare('SELECT id FROM cohorts WHERE camp_id = ? AND name = ?').get('camp1', 'Main')
     expect(db.prepare('SELECT cohort_id FROM time_blocks WHERE id = ?').get('tb1').cohort_id).toBe(survivor.id)
-    expect(db.prepare('SELECT cohort_id FROM anchor_activities WHERE id = ?').get('aa1').cohort_id).toBe(
+    expect(db.prepare('SELECT cohort_id FROM fixed_events WHERE id = ?').get('aa1').cohort_id).toBe(
       survivor.id
     )
     db.close()

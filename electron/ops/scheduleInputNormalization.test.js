@@ -29,7 +29,7 @@ describe('normalizeScheduleInputs', () => {
           { id: 'g1', camp_id: CAMP, name: 'Bears', tier_id: 'unit-a' },
           { id: 'g2', camp_id: CAMP, name: 'Cubs', tier_id: 'unit-b' },
         ],
-        anchor_activities: [
+        fixed_events: [
           { id: 'anc-1', camp_id: CAMP, group_ids: '["g9"]', unit_ids: '["unit-a"]' },
         ],
       },

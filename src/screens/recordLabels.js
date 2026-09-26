@@ -12,7 +12,7 @@ export const ENTITY_LABEL = {
   activities: 'Activity',
   days_of_operation: 'Day',
   time_blocks: 'Time block',
-  anchor_activities: 'Recurring event',
+  fixed_events: 'Recurring event',
   // W1 (docs/work/specs/2026-08-21-vocabulary-unification-design.md) — "Place"
   // and "Resources" are retired; "Location" is the one canonical word.
   locations: 'Location',

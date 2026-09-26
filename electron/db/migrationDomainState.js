@@ -46,7 +46,7 @@ import { appendOp, DELETE_FIELD, DOCUMENT_OUTCOME } from '../ops/operations.js'
 import { migrationSpanFor } from './localDb.js'
 
 export const DOMAIN_STATE_MIGRATIONS = new Map([
-  [11, 'cohort de-duplication re-points time_blocks.cohort_id and anchor_activities.cohort_id'],
+  [11, 'cohort de-duplication re-points time_blocks.cohort_id and fixed_events.cohort_id'],
   [12, 'group de-duplication re-points template_slots.group_id'],
   [13, 'time_blocks de-duplication DELETEs duplicate rows before adding UNIQUE(camp_id, cohort_id, name)'],
   [14, 'tier de-duplication re-points groups.tier_id'],
@@ -57,7 +57,16 @@ export const DOMAIN_STATE_MIGRATIONS = new Map([
   [26, 'retires orphan template_slots rows'],
   [27, 'backfills schedule_templates.week_id from the camp default week'],
   [32, 'backfillLocations — mints locations rows and sets activities.location_id'],
-  [70, 'days_of_operation de-duplication re-points template_slots/anchor_activities/elective_sets/elective_occurrences.day_id (T205)'],
+  [70, 'days_of_operation de-duplication re-points template_slots/fixed_events/elective_sets/elective_occurrences.day_id (T205)'],
+  // v77 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md). The rename to
+  // fixed_events is table shape, but the backfill sets fixed_events.activity_id — a field this
+  // same PR registers in PROJECTIONS.fixed_events.fields, i.e. a MODELED field — by direct SQL,
+  // outside the document. On a document-bearing camp that value would never reach the document,
+  // and the next projectAll/merge would silently discard it (the exact hazard this classification
+  // mechanism exists to catch). Unreachable today for the same reason v70 was the first REAL
+  // instance (no live camp predates v57's document era yet), but classified honestly rather than
+  // assumed safe.
+  [77, 'backfills fixed_events.activity_id by name-match against activities (T267)'],
 ])
 
 // DELIBERATELY NOT IN THE SET ABOVE, though they do run UPDATE against a table
@@ -105,7 +114,7 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // devices.libp2p_peer_id so every device re-binds its persistent libp2p identity via
   // TOFU. Both touch only fields the document does not carry — see the note above.
   67,
-  // v65 (T180) adds anchor_activities.unit_ids and backfills it from the legacy singular
+  // v65 (T180) adds fixed_events.unit_ids and backfills it from the legacy singular
   // unit_id. Schema-only by the same reading as v51: the backfill RE-EXPRESSES a fact the
   // row already carried (one division, now written as a one-element list) in a new column —
   // it does not change what any camp MEANS. Deliberately, a group_ids snapshot row is NOT
@@ -151,7 +160,7 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // (T205), and durably records that fact via domain_state_migration_pending
   // so a plain restart cannot silently re-enable sync past it.
   //
-  // v71 (T181) DROPs anchor_activities.recurrence_level and
+  // v71 (T181) DROPs fixed_events.recurrence_level and
   // elective_sets.recurrence_level. Schema-only: no application code path has
   // ever written a non-default value to this column on either table (the
   // T181 sweep, docs/work/tickets/T181-recurrence-level-is-dead-data.md,

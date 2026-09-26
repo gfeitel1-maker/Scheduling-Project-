@@ -218,7 +218,7 @@ describe('fixed events are idempotent on re-import (T72)', () => {
     }
     const first = commitIngest(db, payload)
     expect(first.fixedEvents.created).toBe(1)
-    expect(count('anchor_activities')).toBe(1)
+    expect(count('fixed_events')).toBe(1)
 
     const second = commitIngest(db, payload)
     // The six entities recognized (zero) AND the fixed-event loop now recognizes
@@ -226,6 +226,6 @@ describe('fixed events are idempotent on re-import (T72)', () => {
     expect(second.total).toBe(0)
     expect(second.fixedEvents.created).toBe(0)
     expect(second.fixedEvents.unchanged).toBe(1)
-    expect(count('anchor_activities')).toBe(1)
+    expect(count('fixed_events')).toBe(1)
   })
 })

@@ -285,7 +285,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // in the success banner today — after it has already happened. This reads
   // it pre-confirm instead (Red Hat, T61 round 3).
   const [slotCount, setSlotCount] = useState(0)
-  // Recurring Events (anchor_activities) — director-authored content with its own
+  // Recurring Events (fixed_events) — director-authored content with its own
   // nav screen, deleted by replaceScope step 6 because anchors reference
   // days_of_operation, which step 8 also deletes. Recoverable from Trash,
   // same as slots (T68).
@@ -540,7 +540,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       setExistingRecordsAll(existingAll)
       setSnapshotCount((await localClient.list('schedule_snapshots').catch(() => [])).length)
       setSlotCount((await localClient.list('template_slots').catch(() => [])).length)
-      setAnchorCount((await localClient.list('anchor_activities').catch(() => [])).length)
+      setAnchorCount((await localClient.list('fixed_events').catch(() => [])).length)
       setImportMode('add')
       // ADR 2026-08-17-onescreen-reconciliation-merge.md §2 — no more local
       // create/skip/lowConfidence computation (buildPreview deleted): every
@@ -1377,7 +1377,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         // inferMultiBlockCandidates computed (every group/day that showed
         // this merge) — passed straight through, same ProposedFixedEvent
         // shape inferFixedEvents produces, so this rides the identical
-        // anchor_activities commit block.
+        // fixed_events commit block.
         multiBlockRecurring.push({
           name: c.name,
           time_block: c.start_block,

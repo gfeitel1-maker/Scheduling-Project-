@@ -72,10 +72,10 @@ function seedActivity(id, name, location_id, maxGroups = 1) {
 // T122: the four newer no-FK-convention referrers to a location, alongside
 // activities/week_location_exclusions above.
 function seedAnchor(id, name, location_id) {
-  write('anchor_activities', id, 'camp_id', 'camp1')
-  write('anchor_activities', id, 'name', name)
-  write('anchor_activities', id, 'is_all_groups', 1)
-  if (location_id) write('anchor_activities', id, 'location_id', location_id)
+  write('fixed_events', id, 'camp_id', 'camp1')
+  write('fixed_events', id, 'name', name)
+  write('fixed_events', id, 'is_all_groups', 1)
+  if (location_id) write('fixed_events', id, 'location_id', location_id)
   return id
 }
 
@@ -103,7 +103,7 @@ function seedEventSlot(id, event_id, location_id) {
 }
 
 function anchorLocationOf(id) {
-  return db.prepare('SELECT location_id FROM anchor_activities WHERE id = ?').get(id).location_id
+  return db.prepare('SELECT location_id FROM fixed_events WHERE id = ?').get(id).location_id
 }
 
 function eventLocationOf(id) {
@@ -408,7 +408,7 @@ describe('CLEARABLE_ENTITIES includes locations (D2)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// T122 — anchor_activities/events/special_day_slots/event_slots.location_id,
+// T122 — fixed_events/events/special_day_slots/event_slots.location_id,
 // four more no-FK-convention referrers that locationReferenceRows previously
 // never counted, so a merge or delete silently orphaned them.
 // ---------------------------------------------------------------------------
@@ -434,7 +434,7 @@ describe('previewDelete for locations includes the four newer referrer kinds in 
 })
 
 describe('plain delete of a location clears the four newer referrer kinds to null', () => {
-  it('nulls anchor_activities.location_id, events.location_id, special_day_slots.location_id, event_slots.location_id', () => {
+  it('nulls fixed_events.location_id, events.location_id, special_day_slots.location_id, event_slots.location_id', () => {
     seedLocation('loc-flagpole', 'Flagpole', 1)
     seedAnchor('anc1', 'Morning Flag', 'loc-flagpole')
     seedEvent('ev1', 'Sports Day', 'loc-flagpole')
@@ -453,7 +453,7 @@ describe('plain delete of a location clears the four newer referrer kinds to nul
 })
 
 describe('mergeLocation re-points the four newer referrer kinds to the winner', () => {
-  it('re-points anchor_activities, events, special_day_slots and event_slots rather than clearing them', () => {
+  it('re-points fixed_events, events, special_day_slots and event_slots rather than clearing them', () => {
     seedLocation('loc-Pool', 'Pool', 3)
     seedLocation('loc-pool', 'pool', 1)
     seedAnchor('anc1', 'Morning Swim', 'loc-pool')
