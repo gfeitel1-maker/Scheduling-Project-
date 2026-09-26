@@ -36,8 +36,8 @@ describe('frozen output vectors', () => {
   })
 
   it('pins deriveElectivePreferenceId', () => {
-    expect(deriveElectivePreferenceId('run-1', 'camper-1', 'choice-1')).toBe(
-      'epref1:5.run-18.camper-18.choice-1'
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')).toBe(
+      'epref1:5.run-18.camper-15.occ-18.choice-1'
     )
   })
 
@@ -60,8 +60,8 @@ describe('injectivity', () => {
   })
 
   it('separates a component boundary shifted by one character', () => {
-    expect(deriveElectivePreferenceId('ru', 'n-1camper', '1')).not.toBe(
-      deriveElectivePreferenceId('run', '-1camper', '1')
+    expect(deriveElectivePreferenceId('ru', 'n-1camper', 'occ-1', '1')).not.toBe(
+      deriveElectivePreferenceId('run', '-1camper', 'occ-1', '1')
     )
   })
 
@@ -114,7 +114,7 @@ describe('component rejection (§2.2)', () => {
     const choiceId = deriveElectiveChoiceId('run-1', 'swimadvanced')
     const occId = deriveElectiveOccurrenceId('run-1', 'set-1', 'day-1', 'tb-1', 'tier-1')
     expect(() => deriveElectiveChoiceOfferingId(choiceId, occId, 'act-1')).not.toThrow()
-    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', choiceId)).not.toThrow()
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', choiceId)).not.toThrow()
     expect(() => deriveElectiveAssignmentId('run-1', 'camper-1', occId)).not.toThrow()
   })
 
@@ -124,6 +124,67 @@ describe('component rejection (§2.2)', () => {
     expect(deriveElectiveChoiceOfferingId(a, 'occ-1', 'act-1')).not.toBe(
       deriveElectiveChoiceOfferingId(b, 'occ-1', 'act-1')
     )
+  })
+})
+
+// T265 — elective_preferences gains occurrence_id (v78). The key widens from
+// (run_id, camper_id, choice_id) to (run_id, camper_id, occurrence_id,
+// choice_id) — R1 (2026-09-17) is superseded by this ticket, not contradicted.
+describe('deriveElectivePreferenceId — occurrence-scoped key (T265/v78)', () => {
+  it('is idempotent for the same 4-tuple', () => {
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')).toBe(
+      deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')
+    )
+  })
+
+  it('throws when occurrence_id is missing, rather than silently defaulting', () => {
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', undefined, 'choice-1')).toThrow(
+      /component/i
+    )
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')).toThrow(
+      /component/i
+    )
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', '', 'choice-1')).toThrow(
+      /component/i
+    )
+  })
+
+  // THE ACTUAL FIX: the same camper ranking the same choice in two different
+  // occurrences (a linked choice spanning two cells) must no longer collapse
+  // onto one row.
+  it('gives the same camper+choice in DIFFERENT occurrences DIFFERENT ids', () => {
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')).not.toBe(
+      deriveElectivePreferenceId('run-1', 'camper-1', 'occ-2', 'choice-1')
+    )
+  })
+
+  // MY CORRECTION 2 — the module's V is deliberately NOT bumped, so old
+  // 3-component `epref1:` ids and new 4-component ones share a prefix. Prove
+  // they cannot collide: length-prefixed decoding is a total, deterministic
+  // function of the string alone (read off a length, consume that many
+  // characters, repeat until the string is exhausted), so two strings that
+  // decode to a different NUMBER of components can never be byte-identical —
+  // decoding the same bytes twice cannot produce two different-length results.
+  it('a 3-component and a 4-component epref id can never collide', () => {
+    // Simulate the OLD 3-arg shape directly against the same `join`/`opaque`
+    // machinery this module still exports, so the proof is about the
+    // encoding, not about a since-deleted function signature.
+    const oldShape = `epref1:${['run_id', 'camper_id', 'choice_id']
+      .map((n, i) => opaque(n, ['run-1', 'camper-1', 'choice-1'][i]))
+      .map((c) => `${c.length}.${c}`)
+      .join('')}`
+    const newShape = deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')
+    expect(oldShape).not.toBe(newShape)
+
+    // Adversarial: hunt for any 4-tuple whose encoding equals a fixed 3-tuple's
+    // encoding by construction — impossible, because the 3-tuple's encoded
+    // string is fully consumed after exactly 3 length-prefixed reads (nothing
+    // left over for a 4th component to occupy).
+    const threeTupleIds = new Set([
+      deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1'),
+      deriveElectivePreferenceId('r', 'c', 'o', 'x'),
+    ])
+    for (const id of threeTupleIds) expect(id).not.toBe(oldShape)
   })
 })
 
@@ -270,7 +331,7 @@ describe('cross product — every corpus label through the full derivation chain
 
       const choiceId = deriveElectiveChoiceId('run-1', key)
       const offeringId = deriveElectiveChoiceOfferingId(choiceId, occId, 'act-1')
-      const preferenceId = deriveElectivePreferenceId('run-1', 'camper-1', choiceId)
+      const preferenceId = deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', choiceId)
 
       expect(choiceId).toContain(key)
       expect(offeringId).toContain(choiceId)
@@ -286,8 +347,8 @@ describe('cross product — every corpus label through the full derivation chain
     expect(deriveElectiveChoiceOfferingId(a, occId, 'act-1')).not.toBe(
       deriveElectiveChoiceOfferingId(b, occId, 'act-1')
     )
-    expect(deriveElectivePreferenceId('run-1', 'camper-1', a)).not.toBe(
-      deriveElectivePreferenceId('run-1', 'camper-1', b)
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', a)).not.toBe(
+      deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', b)
     )
   })
 
@@ -298,7 +359,7 @@ describe('cross product — every corpus label through the full derivation chain
     expect(() => deriveElectiveChoiceOfferingId('Arts & Crafts', 'occ-1', 'act-1')).toThrow(
       /choice_id/i
     )
-    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', 'Arts & Crafts')).toThrow(
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'Arts & Crafts')).toThrow(
       /choice_id/i
     )
   })

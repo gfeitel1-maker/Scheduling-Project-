@@ -45,6 +45,27 @@ export function describeElectiveRunRefusal(parsed) {
   if (hasContradictoryRanks(parsed)) {
     return 'a camper holds the same preference rank twice — the sheet cannot be read unambiguously.'
   }
+  // T265 (v78, docs/adr/2026-09-26-per-cell-elective-preferences.md) — a
+  // preference is now per (day, period) CELL, not global to a run.
+  // src/ingest/preferenceSheet.js is OUT OF SCOPE for this ticket (the real
+  // ingest format is still unseen — see the ADR's "What this does not
+  // decide" section), so today's parser output names no occurrence_id at
+  // all: every commit of a sheet-imported preference is refused here, with a
+  // reason a director can read, rather than silently collapsing per-cell
+  // ranks the way the old 3-tuple id did. This check can only see the
+  // PARSED shape (no run context), so it catches "missing entirely"; the
+  // in-transaction write below is the backstop that also catches "names an
+  // occurrence not in this run" — the two never disagree because a preview
+  // and a commit both start from calling this same function.
+  const missingCell = (parsed?.preferences ?? []).find(
+    (p) => typeof p.occurrence_id !== 'string' || p.occurrence_id.length === 0
+  )
+  if (missingCell) {
+    return (
+      `a preference for ${missingCell.camper_id ?? 'a camper'} names no (day, period) cell — ` +
+      'every ranked choice must belong to a specific occurrence, not the whole run.'
+    )
+  }
   return null
 }
 
@@ -274,9 +295,20 @@ export function commitElectiveRun(db, {
       for (const p of parsed.preferences ?? []) {
         const choiceId = choiceIdByKey.get(p.labelKey)
         if (!choiceId) throw new Error(`preference names a choice the sheet did not list: ${p.labelKey}`)
-        write('elective_preferences', deriveElectivePreferenceId(runId, p.camper_id, choiceId), {
-          run_id: runId, camper_id: p.camper_id, choice_id: choiceId, rank: p.rank,
-        })
+        // Backstop for describeElectiveRunRefusal's "missing entirely" check
+        // above: this also catches an occurrence_id that names a real string
+        // but not one of THIS run's occurrences — describeElectiveRunRefusal
+        // cannot see that (it has no run context), so this is the one place
+        // that can. deriveElectivePreferenceId's opaque() call is the last
+        // backstop for "missing entirely" reaching this far at all.
+        if (!occurrenceIds.has(p.occurrence_id)) {
+          throw new Error(`preference names an occurrence not in this run: ${p.occurrence_id}`)
+        }
+        write(
+          'elective_preferences',
+          deriveElectivePreferenceId(runId, p.camper_id, p.occurrence_id, choiceId),
+          { run_id: runId, camper_id: p.camper_id, occurrence_id: p.occurrence_id, choice_id: choiceId, rank: p.rank }
+        )
       }
 
       for (const a of assignments) {

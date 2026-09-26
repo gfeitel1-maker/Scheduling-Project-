@@ -190,3 +190,84 @@ camper per activity — becomes one rank per camper per activity **per occurrenc
 preference *by* the old key, and code that depends on the old write *failing*. There is no production
 camp data (pre-production, `feedback_preproduction_bias_bold`), so a clean cutover is preferred to a
 back-compat shim.
+
+## Implementation: v78 schema shape
+
+Realizes Decision 1 (T265). Schema:
+
+```sql
+CREATE TABLE elective_preferences (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  camper_id TEXT,
+  occurrence_id TEXT NOT NULL,
+  choice_id TEXT,
+  rank INTEGER
+);
+CREATE INDEX idx_elective_preferences_run_camper_occurrence
+  ON elective_preferences(run_id, camper_id, occurrence_id);
+```
+
+No `UNIQUE` constraint: the derived id `PRIMARY KEY` **is** the uniqueness invariant, the same
+convention `elective_assignments` uses. The index is non-unique — it exists only to make "this
+camper's ranked choices in this cell" a non-table-scan query for the deferred director-facing
+redistribute-by-preference surface, not for correctness.
+
+**Derivation** (`electron/ops/electiveDerivedIds.js`):
+
+```js
+deriveElectivePreferenceId(runId, camperId, occurrenceId, choiceId)
+```
+
+widens the key from `(run_id, camper_id, choice_id)` to `(run_id, camper_id, occurrence_id,
+choice_id)`. `occurrenceId` is passed through `opaque()` with no null-guard: a preference missing
+its occurrence throws, which `commitElectiveRun`'s whole-transaction rollback turns into a refused
+commit rather than a corrupted one. **Owner ruling R1 (2026-09-17) is superseded, not
+contradicted** — R1 chose the 3-tuple because the row had no occurrence column to key on at the
+time; the row has one now, so R1's own stated condition no longer holds. The derivation's `V` (the
+`epref1:` version tag) is **not** bumped: only this one function's signature changed shape, and
+bumping `V` would re-key offerings/choices/occurrences/assignments that did not change.
+
+**Migration v78** is a table REBUILD (`DROP TABLE` + `CREATE TABLE`), not `ALTER TABLE ADD COLUMN`:
+a `NOT NULL` column has no valid default, and inventing one for an existing row is forbidden
+(pre-production, no live camp data — discard, don't guess). Every existing `elective_preferences`
+row is therefore discarded; the count is logged before the drop. Classified **SCHEMA_ONLY** in
+`electron/db/migrationDomainState.js`: the classification tracks *mechanism* (does the migration
+call `appendOp` to rewrite domain rows through the document?), not *consequence* (does data get
+discarded?) — v78 calls no `appendOp`, only `db.exec` DDL inside its own transaction. Precedent:
+v66, which also destroys `campers`/`elective_preferences`/`elective_assignments` rows outright, is
+itself classified SCHEMA_ONLY for the identical reason.
+
+The named index is created **inside the v78 migration block**, not in `schema.sql`'s unconditional
+`CREATE INDEX IF NOT EXISTS` — `schema.sql` is re-executed on every open, and a `CREATE INDEX`
+naming `occurrence_id` would fail against a not-yet-migrated pre-v78 file whose table has no such
+column (the same reason `idx_schedule_templates_camp_kind` was retired from `schema.sql`, per that
+table's own comment). The migration block runs on fresh databases too, so both paths end up
+identical.
+
+**Known sequencing gap.** The v78 migration guard is `>= 74 && < 78` rather than the file's usual
+one-wide `>= (N-1) && < N` (`>= 77 && < 78`): versions 75–77 are allocated to peer sessions and do
+not exist on this branch. `>= 74` is the actual immediately-preceding migration this branch has, and
+remains correct once 75–77 land (a database that has passed through them will already be at 77 by
+the time this check runs in the same `initSchema` pass, and `74 <= 77 < 78` still holds — the guard
+does not need to change). `migrationDomainState.test.js`'s "covers 1..CURRENT_SCHEMA_VERSION with no
+gaps" assertion fails with `missing: [75, 76, 77]` until those land — left failing deliberately, per
+owner instruction, as a sequencing signal rather than papered over.
+
+**Rollback** (`electron/db/rollback/v78_down.js`) does not simply narrow the key back. Because v78
+*widened* the key, narrowing it can *collapse* two genuinely distinct rows (a linked choice ranked
+differently per occurrence) onto one — exactly the silent-loss defect this ticket eliminates. The
+rollback therefore **refuses**, naming the blocking `(run_id, camper_id, choice_id)` groups, whenever
+any of them spans more than one `occurrence_id`; only when every group is single-occurrence does it
+drop the column.
+
+**Write path.** `commitElectiveRun.js` now requires every parsed preference to carry an
+`occurrence_id` naming one of the run's occurrences — checked twice: `describeElectiveRunRefusal`
+(usable from a preview, before any transaction) reports "names no (day, period) cell" for a missing
+one, and the in-transaction write loop additionally refuses one that names an occurrence outside
+this run (which the preview-only function cannot see, having no run context). `src/ingest/
+preferenceSheet.js` is unchanged — out of scope, per the ADR's own "What this does not decide" — so
+every sheet-imported preference today has no `occurrence_id` and is refused until a per-cell ingest
+format exists. `setElectiveAssignment.js`'s preference-rank lookup is now scoped by `occurrence_id`
+as well, which makes its pre-existing `LIMIT 1` *provably* correct (the 4-tuple is the full key)
+rather than a latent bug waiting for a second occurrence-scoped row to expose it.

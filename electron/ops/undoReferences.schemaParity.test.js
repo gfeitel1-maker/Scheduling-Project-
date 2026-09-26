@@ -150,6 +150,8 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'elective_choice_offerings', column: 'occurrence_id', reason: 'points at elective_occurrences, not a U2-deletable entity' },
   { table: 'elective_preferences', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
   { table: 'elective_preferences', column: 'camper_id', reason: 'points at campers, not a U2-deletable entity' },
+  // occurrence_id added v78 (T265, docs/adr/2026-09-26-per-cell-elective-preferences.md).
+  { table: 'elective_preferences', column: 'occurrence_id', reason: 'points at elective_occurrences, not a U2-deletable entity' },
   { table: 'elective_preferences', column: 'choice_id', reason: 'points at elective_choices, not a U2-deletable entity' },
   { table: 'elective_assignments', column: 'run_id', reason: 'points at elective_assignment_runs, not a U2-deletable entity' },
   { table: 'elective_assignments', column: 'occurrence_id', reason: 'points at elective_occurrences, not a U2-deletable entity' },

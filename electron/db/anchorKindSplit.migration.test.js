@@ -94,7 +94,7 @@ describe('migration v51: fresh vs migrated equivalence', () => {
   it('declares schema version 51 on a fresh db and gives fixed_events the kind column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(77)
+    expect(CURRENT_SCHEMA_VERSION).toBe(78)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 51').get().c).toBe(1)
     const cols = db.pragma('table_info(fixed_events)').map((c) => c.name)
     expect(cols).toContain('kind')
@@ -355,7 +355,7 @@ describe('rollbackV51', () => {
     // column absent) before calling rollbackV51.
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(77)
+    expect(CURRENT_SCHEMA_VERSION).toBe(78)
     expect(db.pragma('table_info(fixed_events)').map((c) => c.name)).not.toContain('recurrence_level')
 
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()

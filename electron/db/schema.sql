@@ -1440,20 +1440,37 @@ CREATE TABLE IF NOT EXISTS elective_choice_offerings (
   activity_id TEXT
 );
 
--- elective_preferences (v66). A camper's ranked choice. PII-adjacent: a row
--- here plus a campers row is "this child wants this activity".
--- Derived id: deriveElectivePreferenceId(run_id, camper_id, choice_id) —
--- owner ruling R1 (2026-09-17). ADR D4 names (run, camper, occurrence,
--- activity), but D12 (written later in the same document) moved preferences to
--- point at a CHOICE and this row has no occurrence_id or activity_id column to
--- key on. A correction note is appended to D4 recording that drafting order.
+-- elective_preferences (v66; occurrence_id added v78, T265). A camper's ranked
+-- choice, now PER (day, period) CELL rather than global to a run.
+-- PII-adjacent: a row here plus a campers row is "this child wants this
+-- activity".
+-- Derived id: deriveElectivePreferenceId(run_id, camper_id, occurrence_id,
+-- choice_id) — v78 widens R1's key (run_id, camper_id, choice_id; owner ruling
+-- 2026-09-17). R1 is SUPERSEDED, not contradicted: it chose the 3-tuple
+-- because the row had no occurrence to key on, and it now has one. See
+-- electron/ops/electiveDerivedIds.js and
+-- docs/adr/2026-09-26-per-cell-elective-preferences.md Decision 1.
+-- No UNIQUE constraint: the derived id PRIMARY KEY IS the uniqueness
+-- invariant, same convention as elective_assignments.
 CREATE TABLE IF NOT EXISTS elective_preferences (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
   camper_id TEXT,
+  occurrence_id TEXT NOT NULL,
   choice_id TEXT,
   rank INTEGER
 );
+
+-- idx_elective_preferences_run_camper_occurrence is NOT declared here,
+-- deliberately — same reason idx_schedule_templates_camp_kind was retired
+-- (see that table's comment above): schema.sql is re-executed on every open,
+-- and a CREATE INDEX naming occurrence_id would fail on a not-yet-migrated
+-- pre-v78 file whose table has no such column. It is created by migration
+-- v78 (localDb.js) instead, which runs on fresh databases too, so both paths
+-- end up identical. Non-unique: makes "this camper's ranked choices in THIS
+-- cell" a non-table-scan query — the query the deferred director-facing
+-- redistribute-by-preference surface (ADR) will need. Not a correctness
+-- constraint.
 
 -- elective_assignments (v66). The output, and the row whose DERIVED ID *IS*
 -- the uniqueness invariant (ADR D4) — the single most important thing in this

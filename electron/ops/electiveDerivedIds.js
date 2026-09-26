@@ -276,17 +276,29 @@ export function deriveElectiveChoiceOfferingId(choiceId, occurrenceId, activityI
   ])}`
 }
 
-// Key: (run_id, camper_id, choice_id).
+// Key: (run_id, camper_id, occurrence_id, choice_id).
 //
-// Owner ruling R1 (2026-09-17): this is the spec's key, NOT ADR D4's
+// Owner ruling R1 (2026-09-17): this was the spec's key, NOT ADR D4's
 // (run_id, camper_id, occurrence_id, activity_id) — D12, written later in the
-// same document, moved preferences to point at a CHOICE, and the row has no
-// occurrence_id or activity_id column to key on. A correction note is appended
-// to D4 recording the drafting order.
-export function deriveElectivePreferenceId(runId, camperId, choiceId) {
+// same document, moved preferences to point at a CHOICE, and at the time the
+// row had no occurrence_id or activity_id column to key on. A correction note
+// is appended to D4 recording the drafting order.
+//
+// SUPERSEDED, NOT CONTRADICTED (T265, v78, docs/adr/2026-09-26-per-cell-
+// elective-preferences.md Decision 1). R1's own stated condition — "the row
+// has no occurrence_id column" — no longer holds: elective_preferences gained
+// occurrence_id at schema v78 because a director's ranking is per (day,
+// period) cell, not global to a run. A linked choice spans multiple
+// occurrences, and a camper can rank it differently per cell; the 3-tuple key
+// collapsed every such row onto one id (T251's fixture measured 177 such
+// collisions across 429 rows). occurrence_id joins the key as a REQUIRED
+// (opaque(), non-null-guarded) component, not an optional one — a preference
+// with no occurrence cannot silently derive an id.
+export function deriveElectivePreferenceId(runId, camperId, occurrenceId, choiceId) {
   return `epref${V}:${join([
     opaque('run_id', runId),
     opaque('camper_id', camperId),
+    opaque('occurrence_id', occurrenceId),
     derivedChoiceId(choiceId),
   ])}`
 }

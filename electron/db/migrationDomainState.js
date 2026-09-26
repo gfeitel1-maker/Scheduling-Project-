@@ -207,6 +207,16 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // construction, since inherited cells did not exist to snapshot). A run
   // finalized before v76 is RE-FINALIZED, not migrated.
   76,
+  // v78 (T265, docs/adr/2026-09-26-per-cell-elective-preferences.md) DROPs and recreates
+  // elective_preferences with occurrence_id TEXT NOT NULL, DISCARDING every existing row (no
+  // valid default; inventing an occurrence is forbidden — pre-production, no live camp data).
+  // That is a real consequence but not the MECHANISM this classification tracks: this file's own
+  // header says so — a migration that edits domain rows THROUGH THE DOCUMENT (appendOp) is
+  // domain-state; one that only reshapes a table via db.exec is schema-only, whatever it
+  // destroys as a result. v78 calls no appendOp. Precedent: v66 above, which also destroys
+  // campers/elective_preferences/elective_assignments rows outright, is itself classified
+  // SCHEMA_ONLY for the identical reason.
+  78,
 ])
 
 /** True if applying `version` can change what the camp means. */

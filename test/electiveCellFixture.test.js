@@ -14,6 +14,7 @@
 // check actually asks, so a later reader does not assume they coincide.
 import { describe, it, expect } from 'vitest'
 import { loadT251Fixture } from './fixtures/elective/loadT251Fixture.js'
+import { deriveElectivePreferenceId } from '../electron/ops/electiveDerivedIds.js'
 
 describe('T251 per-cell elective preference fixture', () => {
   const fixture = loadT251Fixture()
@@ -135,24 +136,20 @@ describe('T251 per-cell elective preference fixture', () => {
     }
   })
 
-  it('demonstrates the derived-id collision this fixture exists to scope: linked-choice preference rows collapse under deriveElectivePreferenceId', () => {
-    // SYSTEM predicate: this is NOT a bug in the fixture — it is the concrete,
-    // quantified demonstration of the exact schema gap deliverable C exists to
+  it('proves the collision this fixture used to demonstrate can no longer occur: deriveElectivePreferenceId now keys on occurrence_id too', () => {
+    // SYSTEM predicate: T265 (v78, docs/adr/2026-09-26-per-cell-elective-
+    // preferences.md) closed the exact schema gap this fixture was built to
     // scope (round-2 review, Red Hat). `deriveElectivePreferenceId(run_id,
-    // camper_id, choice_id)` (electron/ops/electiveDerivedIds.js:286) keys on
-    // exactly those three fields. A linked choice has MULTIPLE member
-    // occurrences (e.g. `choice-coding-tue` spans occ-tue-p6 and occ-tue-p7),
-    // and this generator writes one preference row per member occurrence with
-    // the SAME (camper_id, choice_id) — so both rows derive the SAME id.
-    // Written through `write()` in electron/ops/commitElectiveRun.js:277, the
-    // second silently overwrites the first: no error, no finding, no log
-    // line. These rows CANNOT round-trip through today's write path until
-    // `elective_preferences` gains an occurrence dimension.
-    // CHECK predicate: count distinct (camper_id, choice_id) pairs that name
-    // more than one occurrence_id, and assert that count is non-zero and
-    // confined entirely to linked choices (a collision among NON-linked
-    // choices would mean something else broke, since non-linked choice_ids
-    // are already scoped per cell).
+    // camper_id, occurrence_id, choice_id)` (electron/ops/
+    // electiveDerivedIds.js) now keys on occurrence_id as well, so a linked
+    // choice's multiple member occurrences (e.g. `choice-coding-tue` spans
+    // occ-tue-p6 and occ-tue-p7) each derive a DISTINCT id for the same
+    // camper+choice. CHECK predicate: derive an id for every one of the
+    // fixture's preference rows and assert they are ALL DISTINCT — 177
+    // (run_id, camper_id, choice_id) pairs and 429 rows among them were
+    // measured (round-2 review) to collide under the OLD 3-tuple id; this
+    // re-derives every one of those exact rows and shows none of the 429
+    // collide any more, alongside every other row in the fixture.
     const membersByChoice = new Map()
     for (const co of fixture.choiceOfferings) {
       if (!membersByChoice.has(co.choice_id)) membersByChoice.set(co.choice_id, new Set())
@@ -169,18 +166,48 @@ describe('T251 per-cell elective preference fixture', () => {
       occurrencesByPair.get(key).add(p.occurrence_id)
     }
 
-    let collidingPairs = 0
-    let collidingNonLinkedPairs = 0
+    let previouslyCollidingPairs = 0
+    let previouslyCollidingNonLinkedPairs = 0
+    let previouslyCollidingRows = 0
     for (const [key, occs] of occurrencesByPair) {
       if (occs.size > 1) {
-        collidingPairs++
+        previouslyCollidingPairs++
+        previouslyCollidingRows += occs.size
         const choiceId = key.split('|')[1]
-        if (!linkedChoiceIds.has(choiceId)) collidingNonLinkedPairs++
+        if (!linkedChoiceIds.has(choiceId)) previouslyCollidingNonLinkedPairs++
       }
     }
 
-    expect(collidingPairs).toBe(177)
-    expect(collidingNonLinkedPairs).toBe(0)
+    // The measured, committed evidence this test moves from demonstrating
+    // loss to proving no loss — unchanged from the withdrawn-collision test.
+    expect(previouslyCollidingPairs).toBe(177)
+    expect(previouslyCollidingNonLinkedPairs).toBe(0)
+    // NOTE: the brief that scoped this ticket cited 354 rows spanning the 177
+    // colliding pairs; re-measuring against the committed fixture here finds
+    // 429 (139 pairs spanning 2 occurrences, 1 spanning 3, 37 spanning 4).
+    // Reported rather than forced to match — see the task's final report.
+    expect(previouslyCollidingRows).toBe(429)
+
+    // THE ACTUAL PROOF: every preference row in the fixture — not just the
+    // previously-colliding ones — now derives a distinct id, run-scoped by a
+    // single fixed runId (the fixture carries no run_id of its own; any fixed
+    // value proves the same thing since every derivation below shares it).
+    const RUN_ID = 'run-t251-fixture'
+    const ids = fixture.preferences.map((p) =>
+      deriveElectivePreferenceId(RUN_ID, p.camper_id, p.occurrence_id, p.choice_id)
+    )
+    expect(ids.length).toBe(fixture.preferences.length)
+    expect(new Set(ids).size).toBe(ids.length)
+
+    // Specifically exercise the 429 previously-colliding rows: re-derive just
+    // those and confirm they are ALSO all distinct from one another (a subset
+    // of the whole-fixture distinctness above, called out because it is the
+    // exact defect this fixture exists to scope).
+    const previouslyCollidingIds = fixture.preferences
+      .filter((p) => occurrencesByPair.get(`${p.camper_id}|${p.choice_id}`).size > 1)
+      .map((p) => deriveElectivePreferenceId(RUN_ID, p.camper_id, p.occurrence_id, p.choice_id))
+    expect(previouslyCollidingIds.length).toBe(429)
+    expect(new Set(previouslyCollidingIds).size).toBe(429)
   })
 
   it('regenerates byte-identically (documents the determinism this suite depends on)', async () => {

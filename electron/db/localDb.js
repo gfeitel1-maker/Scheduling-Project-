@@ -31,10 +31,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // (T243, elective run lifecycle: finalized_at/finalized_by + elective_run_outer_snapshots), v75
 // (T266, docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md — activities.
 // catalog_role), v76 (T197, docs/adr/2026-09-26-elective-run-outer-inheritance-and-linked-choice-
-// export.md), and v77 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md —
-// anchor_activities renamed to fixed_events, gains activity_id) all land in this file; 77 is the
-// current version.
-export const CURRENT_SCHEMA_VERSION = 77
+// export.md), v77 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md —
+// anchor_activities renamed to fixed_events, gains activity_id), and v78 (T265,
+// docs/adr/2026-09-26-per-cell-elective-preferences.md — elective_preferences gains
+// occurrence_id) all land in this file; 78 is the current version.
+export const CURRENT_SCHEMA_VERSION = 78
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3598,6 +3599,71 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     }
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (77, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v78 (T265, docs/adr/2026-09-26-per-cell-elective-preferences.md) — elective_preferences
+  // gains occurrence_id TEXT NOT NULL: a director's ranking is per (day, period) cell, not
+  // global to a run (Decision 1). deriveElectivePreferenceId's key widens from (run_id,
+  // camper_id, choice_id) to (run_id, camper_id, occurrence_id, choice_id) — see
+  // electron/ops/electiveDerivedIds.js.
+  //
+  // TABLE REBUILD (DROP + CREATE), not ALTER TABLE ADD COLUMN: a NOT NULL column has no valid
+  // default, and inventing one for an existing row (there is no camp data in this repo, and none
+  // may be added) is exactly the back-compat shim the ADR rejects. Every existing row is
+  // discarded — v66's precedent for destroying elective_preferences rows outright (its own
+  // migration comment: "ROUND-2 SHAPE CHANGE... a development database that ran the ROUND-1 v66
+  // keeps the old hard FKs... and must be discarded, not migrated"). Counted BEFORE dropping, so
+  // the report is honest about what went (v66_down.js's convention).
+  //
+  // No UNIQUE constraint added: the derived id PRIMARY KEY is the uniqueness invariant (same
+  // convention as elective_assignments) — see schema.sql's comment on this table.
+  //
+  // idx_elective_preferences_run_camper_occurrence is created HERE, not in schema.sql's
+  // unconditional exec section: schema.sql is re-executed on every open, and a CREATE INDEX
+  // naming occurrence_id would fail on a not-yet-migrated pre-v78 file whose table has no such
+  // column (same reasoning schema.sql's retired idx_schedule_templates_camp_kind comment
+  // states). This block runs on fresh databases too (guard starts from version 0), so both paths
+  // end up identical.
+  //
+  // Guard is one-wide, NOT a bare `< 78` — see the v50 block's comment (bug #194: a bare `< N`
+  // with no lower bound breaks the continuity chain when an earlier block withholds its stamp).
+  // The lower bound is `>= 74`, not `>= 77`: v75-v77 are allocated to peer sessions and do not
+  // exist on this branch (migrationDomainState.test.js's "covers 1..CURRENT_SCHEMA_VERSION with
+  // no gaps" assertion reports this — deliberately left failing, see the ADR addendum). v74 is
+  // the actual immediately-preceding migration THIS BRANCH has, so `>= 74` is what makes this
+  // block reachable today; once v75-v77 land from peer branches (positioned before this block in
+  // file order, per the numeric convention), a db that has passed through them will already be
+  // at version 77 by the time this check runs in the same initSchema pass, and `>= 74` still
+  // covers it (74 <= 77 < 78) — this guard does not need to change when they land.
+  if (getSchemaVersion(db) >= 74 && getSchemaVersion(db) < 78) {
+    db.transaction(() => {
+      const discarded = tableExists('elective_preferences')
+        ? db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c
+        : 0
+      if (discarded > 0) {
+        process.stdout.write(
+          `v78 migration: discarding ${discarded} elective_preferences row(s) with no occurrence_id — ` +
+            'no valid default exists and none may be invented (pre-production, no live camp data).\n'
+        )
+      }
+      db.exec(`
+        DROP TABLE IF EXISTS elective_preferences;
+        CREATE TABLE elective_preferences (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          camper_id TEXT,
+          occurrence_id TEXT NOT NULL,
+          choice_id TEXT,
+          rank INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_elective_preferences_run_camper_occurrence
+          ON elective_preferences(run_id, camper_id, occurrence_id);
+      `)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (78, ?)').run(
       new Date().toISOString()
     )
   }

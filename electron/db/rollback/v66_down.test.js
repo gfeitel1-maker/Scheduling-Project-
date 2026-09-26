@@ -53,7 +53,7 @@ function seed(db) {
     "INSERT INTO elective_choice_offerings (id, choice_id, occurrence_id) VALUES ('co1','ch1','o1')"
   ).run()
   db.prepare(
-    "INSERT INTO elective_preferences (id, run_id, camper_id, choice_id, rank) VALUES ('p1','r1','c1','ch1',1)"
+    "INSERT INTO elective_preferences (id, run_id, camper_id, occurrence_id, choice_id, rank) VALUES ('p1','r1','c1','o1','ch1',1)"
   ).run()
   db.prepare(
     "INSERT INTO elective_assignments (id, run_id, occurrence_id, camper_id) VALUES ('a1','r1','o1','c1')"

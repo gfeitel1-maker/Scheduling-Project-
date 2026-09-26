@@ -933,17 +933,24 @@ export const PROJECTIONS = {
       ).run(id, value)
     },
   },
+  // T265 (v78): occurrence_id is TEXT NOT NULL on the table, but fields arrive
+  // one at a time over the wire and this stub can only ever know 'run_id' at
+  // creation time. Same convention as ensureRunStub's own name:'' and
+  // elective_choices' label:'' below — a placeholder that satisfies NOT NULL
+  // until the real occurrence_id field lands (which it always will: every
+  // preference commitElectiveRun writes now includes it), never a value this
+  // app treats as meaningful.
   elective_preferences: {
     table: 'elective_preferences',
     key: 'id',
-    fields: ['run_id', 'camper_id', 'choice_id', 'rank'],
+    fields: ['run_id', 'camper_id', 'occurrence_id', 'choice_id', 'rank'],
     ensureExists: (db, id, field, value) => {
       if (field !== 'run_id') return
       ensureRunStub(db, value)
-      getStmt(db, 'INSERT OR IGNORE INTO elective_preferences (id, run_id) VALUES (?, ?)').run(
-        id,
-        value
-      )
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO elective_preferences (id, run_id, occurrence_id) VALUES (?, ?, '')"
+      ).run(id, value)
     },
   },
   // The output row whose DERIVED ID is the uniqueness invariant (ADR D4). Two
