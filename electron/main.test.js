@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { ENTITIES } from './auth/permissions.js'
 
@@ -48,6 +49,16 @@ vi.mock('./sync/localWriteClient.js', async (importOriginal) => {
   }
 })
 
+// T268 round 2 (Finding 2) — the 'host'/'host-not-syncing' derivation branches
+// on isAutomergeEngine(), and that must be independently controllable per
+// test (the "engine off" no-regression case) without touching the module's
+// real env-read-once default. Defaults to true so every other test in this
+// file (which assumes the real default engine) is unaffected.
+vi.mock('./sync/automerge/syncEngineFlag.js', () => ({
+  isAutomergeEngine: vi.fn(() => true),
+  isOpLogEngine: vi.fn(() => false),
+}))
+
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 import { createUser, ensureHostSigningKey } from './auth/localAuth.js'
@@ -55,6 +66,7 @@ import { appendOp, latestOp } from './ops/operations.js'
 import { makeHandlers, sanitizeConflictForIpc, sanitizeOpRejectedForIpc, SESSION_INVALID_REASONS } from './main.js'
 import { isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
+import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 
 let tmpFile
 let db
@@ -2728,5 +2740,202 @@ describe('makeHandlers: getSecurityStatus (T249)', () => {
     expect(handler).toContain('isAtRestEncryptionEnabled()')
     expect(handler).not.toContain('process.env')
     expect(handler).not.toContain('SHORESH_AT_REST_ENCRYPTION')
+  })
+})
+
+// T268 — a refused sync (electron/db/migrationDomainState.js) must be visible
+// via getSyncStatus, not just logged/audited. Before this, a Host read
+// { mode: 'host', connected: true, state: 'host' } UNCONDITIONALLY, so a
+// director whose sync was refused for a domain-state migration saw a healthy
+// "main" label. isAutomergeEngine() defaults to true (no env override in this
+// test env — see electron/sync/automerge/syncEngineFlag.js), so these tests
+// exercise the real default engine, not a flagged-on special case.
+describe('getSyncStatus: a refused sync is visible for a Host, not just logged (T268)', () => {
+  function tmpUserDataPath() {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-t268-fixture-'))
+  }
+
+  // Fabricated bytes — getSyncStatus only checks the file's EXISTENCE, never
+  // its contents, so this never needs to be a real Automerge document.
+  function writeFakeAutomergeDoc(userDataPath, campId) {
+    const dir = path.join(userDataPath, 'automerge')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, `${campId}.automerge`), 'not-a-real-automerge-doc-fixture')
+  }
+
+  function insertPendingMarker(version, { resolved = false } = {}) {
+    db.prepare(
+      'INSERT INTO domain_state_migration_pending (version, detail, created_at, resolved_at) VALUES (?, ?, ?, ?)'
+    ).run(
+      version,
+      JSON.stringify({ note: 'T268 fabricated fixture marker', losers: [] }),
+      new Date().toISOString(),
+      resolved ? new Date().toISOString() : null
+    )
+  }
+
+  it('reports the blocked state for a Host when an unresolved marker exists and the document file is present', async () => {
+    const { campId } = await seedCampAndUser({ name: 'Fixture Director' })
+    const userDataPath = tmpUserDataPath()
+    writeFakeAutomergeDoc(userDataPath, campId)
+    insertPendingMarker(70)
+
+    const handlers = makeHandlers(db, deviceId, { userDataPath })
+    await handlers.chooseMode({ mode: 'host', campName: 'Fixture Camp' })
+
+    expect(handlers.getSyncStatus()).toMatchObject({
+      state: 'sync-blocked',
+      connected: false,
+      syncBlocked: true,
+    })
+  })
+
+  it('reports a normal (non-blocked) state once the marker is resolved', async () => {
+    const { campId } = await seedCampAndUser({ name: 'Fixture Director' })
+    const userDataPath = tmpUserDataPath()
+    writeFakeAutomergeDoc(userDataPath, campId)
+    insertPendingMarker(70, { resolved: true })
+
+    const handlers = makeHandlers(db, deviceId, { userDataPath })
+    await handlers.chooseMode({ mode: 'host', campName: 'Fixture Camp' })
+
+    const status = handlers.getSyncStatus()
+    expect(status.state).not.toBe('sync-blocked')
+    expect(status.syncBlocked).not.toBe(true)
+  })
+
+  // The docExists half of shouldRefuseSyncForDomainMigration: an unresolved
+  // marker alone must NOT block a camp that has never had a document at all
+  // (e.g. this device has not run the risky migration against a
+  // document-bearing camp — docExists is the guard that keeps the refusal
+  // scoped to the actual danger).
+  it('reports a normal state when no document file exists yet, even with an unresolved marker', async () => {
+    const { campId } = await seedCampAndUser({ name: 'Fixture Director' })
+    const userDataPath = tmpUserDataPath()
+    void campId // deliberately never calling writeFakeAutomergeDoc
+    insertPendingMarker(70)
+
+    const handlers = makeHandlers(db, deviceId, { userDataPath })
+    await handlers.chooseMode({ mode: 'host', campName: 'Fixture Camp' })
+
+    const status = handlers.getSyncStatus()
+    expect(status.state).not.toBe('sync-blocked')
+    expect(status.syncBlocked).not.toBe(true)
+  })
+
+  // The mechanical stand-in for "close and reopen the app": a brand-new
+  // handlers object against the SAME db, with nothing carried over from the
+  // first one in process memory. The marker table is what must survive, not
+  // any in-process flag.
+  it('survives a restart: a freshly constructed handlers object against the same db still reports blocked', async () => {
+    const { campId } = await seedCampAndUser({ name: 'Fixture Director' })
+    const userDataPath = tmpUserDataPath()
+    writeFakeAutomergeDoc(userDataPath, campId)
+    insertPendingMarker(70)
+
+    const firstLaunch = makeHandlers(db, deviceId, { userDataPath })
+    await firstLaunch.chooseMode({ mode: 'host', campName: 'Fixture Camp' })
+    expect(firstLaunch.getSyncStatus().state).toBe('sync-blocked')
+
+    const secondLaunch = makeHandlers(db, deviceId, { userDataPath })
+    await secondLaunch.chooseMode({ mode: 'host', campName: 'Fixture Camp' })
+    expect(secondLaunch.getSyncStatus().state).toBe('sync-blocked')
+  })
+})
+
+// T268 round 2, Finding 2 — the 'host'/'host-not-syncing' derivation in
+// getSyncStatus (the actual behavior change from a boot-flicker false-alarm)
+// was previously exercised only at the sidebar label layer, fed a literal
+// `{ state: 'host-not-syncing' }`. These drive the REAL getSyncStatus()
+// through makeHandlers, with isAutomergeEngine and getAutomergeStartupAttempted
+// independently controlled per case.
+describe('getSyncStatus: host/host-not-syncing derivation (T268 round 2, Finding 2)', () => {
+  afterEach(() => {
+    isAutomergeEngine.mockReturnValue(true) // restore the file-wide default
+  })
+
+  function tmpUserDataPath() {
+    return fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-t268-r2-derivation-'))
+  }
+
+  it('reports host-not-syncing when the engine is on, no node is running, and a startup attempt has finished', async () => {
+    await seedCampAndUser()
+    const handlers = makeHandlers(db, deviceId, {
+      userDataPath: tmpUserDataPath(),
+      getAutomergeSyncNode: () => null,
+      getAutomergeStartupAttempted: () => true,
+    })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+
+    expect(handlers.getSyncStatus()).toMatchObject({ state: 'host-not-syncing', connected: false })
+  })
+
+  // The boot-flicker case: Finding 1's actual fix. A no-camp-yet run (fresh
+  // install) never flips automergeStartupAttempted, so it reads exactly like
+  // "the node hasn't started asynchronously yet" — this is what keeps a fresh
+  // Host's first session from showing a false 'host-not-syncing'.
+  it('reports host (not host-not-syncing) when a startup attempt has not finished (boot-flicker / no-camp-yet case)', async () => {
+    await seedCampAndUser()
+    const handlers = makeHandlers(db, deviceId, {
+      userDataPath: tmpUserDataPath(),
+      getAutomergeSyncNode: () => null,
+      getAutomergeStartupAttempted: () => false,
+    })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+
+    expect(handlers.getSyncStatus()).toMatchObject({ state: 'host', connected: true })
+  })
+
+  it('reports host when a node is actually running, regardless of the attempted flag', async () => {
+    await seedCampAndUser()
+    const handlers = makeHandlers(db, deviceId, {
+      userDataPath: tmpUserDataPath(),
+      getAutomergeSyncNode: () => ({ setAuthToken: vi.fn(), getPeers: () => [], isPeerAuthenticated: () => false }),
+      getAutomergeStartupAttempted: () => true,
+    })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+
+    expect(handlers.getSyncStatus()).toMatchObject({ state: 'host', connected: true })
+  })
+
+  // No-regression case: the op-log engine path is untouched by any of this —
+  // a version that checked getAutomergeNode() != null but ignored
+  // isAutomergeEngine() would still pass the naive "node null -> not syncing"
+  // test above while regressing every op-log-engine Host to a false
+  // 'host-not-syncing'. This is the defect this test's description alone
+  // would not suggest planting.
+  it('reports host when the automerge engine is off, regardless of node or attempted state', async () => {
+    isAutomergeEngine.mockReturnValue(false)
+    await seedCampAndUser()
+    const handlers = makeHandlers(db, deviceId, {
+      userDataPath: tmpUserDataPath(),
+      getAutomergeSyncNode: () => null,
+      getAutomergeStartupAttempted: () => true,
+    })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
+
+    expect(handlers.getSyncStatus()).toMatchObject({ state: 'host', connected: true })
+  })
+})
+
+// T268 round 2, Finding 3 — blockedDetail must never cross the IPC boundary:
+// nothing under src/ consumes it, and its fallback can carry raw migration
+// marker JSON (entity ids included) to the renderer.
+describe('getSyncStatus: sync-blocked payload never includes blockedDetail (T268 round 2, Finding 3)', () => {
+  it('omits blockedDetail from the sync-blocked response', async () => {
+    const { campId } = await seedCampAndUser({ name: 'Fixture Director' })
+    const userDataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-t268-r2-fixture-'))
+    fs.mkdirSync(path.join(userDataPath, 'automerge'), { recursive: true })
+    fs.writeFileSync(path.join(userDataPath, 'automerge', `${campId}.automerge`), 'not-a-real-doc')
+    db.prepare(
+      'INSERT INTO domain_state_migration_pending (version, detail, created_at, resolved_at) VALUES (?, ?, ?, ?)'
+    ).run(70, JSON.stringify({ note: 'fixture', losers: [] }), new Date().toISOString(), null)
+
+    const handlers = makeHandlers(db, deviceId, { userDataPath })
+    await handlers.chooseMode({ mode: 'host', campName: 'Fixture Camp' })
+
+    const status = handlers.getSyncStatus()
+    expect(status.state).toBe('sync-blocked')
+    expect(status).not.toHaveProperty('blockedDetail')
   })
 })

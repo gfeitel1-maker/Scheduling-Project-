@@ -53,7 +53,7 @@ import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
-import { DOMAIN_STATE_MIGRATIONS, domainStateMigrationsIn, unresolvedDomainStateMigrations, shouldRefuseSyncForDomainMigration, resolvePendingDomainStateMigrations } from './db/migrationDomainState.js'
+import { resolvePendingDomainStateMigrations, syncRefusalForDomainMigration } from './db/migrationDomainState.js'
 import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
@@ -262,11 +262,18 @@ export function sanitizeOpRejectedForIpc(msg) {
 function ensureDeviceRow(db, deviceId) {
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
 }
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
   const getAutomergeNode = getAutomergeSyncNode || (() => null)
+  // T268 — "has a startup attempt finished" (see startAutomergeSyncNodeIfEnabled
+  // in main.js's top-level app.whenReady() flow). Defaults to false ("not yet
+  // attempted") so a caller that never wires this — every existing test, and
+  // the split-off restore-db/reconciliation handlers below — sees the SAME
+  // 'host' fallback getSyncStatus() always returned, rather than a new
+  // 'host-not-syncing' state nobody asked for.
+  const getAutomergeStartupAttemptedFn = getAutomergeStartupAttempted || (() => false)
   // T228 — requireAuthorized is module-level (not a closure over this call's
   // getMainWindow), so the last makeHandlers call to run wins here. That
   // matches every other caller of getMainWindow in this file, which is
@@ -708,8 +715,55 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       )
       .get(deviceId).n
 
+    // T268 — a refused sync (electron/db/migrationDomainState.js) is checked
+    // BEFORE branching on mode: a refused Client is just as blind as a
+    // refused Host, and this must never read as connected/healthy for
+    // either. `docExists` reuses the exact expression the startup guard uses
+    // (fs.existsSync(automergeDocPath(...))) via syncRefusalForDomainMigration
+    // — one notion of "a document exists", not two. Strictly read-only: this
+    // helper never seeds, resolves, or writes anything (see its own doc
+    // comment in migrationDomainState.js) — getSyncStatus's whole contract is
+    // that a status read cannot change durable state.
+    const campId = db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
+    const docExists = campId ? fs.existsSync(automergeDocPath(handlersUserDataPath, campId)) : false
+    const refusal = syncRefusalForDomainMigration(db, { docExists })
+    if (refusal) {
+      // T268 round 2 (Finding 3): `refusal.detail` is NOT included here — it
+      // can carry raw migration-marker JSON (entity ids included, see
+      // electron/db/localDb.js's domain_state_migration_pending) across a
+      // token-less IPC boundary to the renderer, and nothing under src/
+      // consumes it. The sidebar only needs `syncBlocked`/`state`. The
+      // startup guard's console.error and audit `reason` still read
+      // `refusal.detail` directly (see startAutomergeSyncNodeIfEnabled above)
+      // — this is only about what crosses the IPC boundary.
+      return {
+        mode,
+        connected: false,
+        state: 'sync-blocked',
+        syncBlocked: true,
+        unsharedWrites,
+        lowDisk: disk.low,
+        otherDeviceCount,
+      }
+    }
+
     if (!modeChosen) return { mode: null, connected: false, state: 'standalone', unsharedWrites, lowDisk: disk.low, otherDeviceCount }
-    if (mode === 'host') return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount }
+    if (mode === 'host') {
+      // T268: `connected: true, state: 'host'` used to be unconditional here —
+      // a Host that failed to start its sync node (refusal aside; e.g. the
+      // automerge engine is on but the node genuinely is not running) still
+      // read as healthy. Now derived from whether a node is ACTUALLY running,
+      // not from whether a mode was chosen.
+      if (!isAutomergeEngine() || getAutomergeNode() != null || !getAutomergeStartupAttemptedFn()) {
+        // Either the op-log engine is in use (unaffected, always 'host'), or a
+        // node is running, or a startup attempt has not finished yet — the
+        // last case exists to avoid a boot flicker: the node starts
+        // asynchronously after app.whenReady(), so "not yet attempted" must
+        // read the same as it always has, not as a false alarm.
+        return { mode: 'host', connected: true, state: 'host', unsharedWrites, lowDisk: disk.low, otherDeviceCount }
+      }
+      return { mode: 'host', connected: false, state: 'host-not-syncing', unsharedWrites, lowDisk: disk.low, otherDeviceCount }
+    }
     // Stage 6c: the honest source of "can this device reach the camp" is the
     // libp2p node's peer set, not a socket. `getPeers()` returns every
     // libp2p-connected peer INCLUDING one that merely completed a noise
@@ -2882,6 +2936,15 @@ if (isElectronEntryPoint()) {
   // anything about libp2p/Automerge itself — same "handed a getter, not the
   // implementation" shape as getMainWindow above.
   let automergeSyncNode = null
+  // T268 — has a startAutomergeSyncNodeIfEnabled() attempt finished (success,
+  // refusal, or failure) since this process started? getSyncStatus reads this
+  // to decide between "not yet attempted, so still read as 'host'" (avoids a
+  // boot flicker: the node starts asynchronously after app.whenReady()) and
+  // "attempted and no node is running, so 'host-not-syncing'". Set true on
+  // every exit path of that function, never reset — a single process only
+  // ever attempts startup once (the idempotency guard inside it prevents a
+  // second real attempt).
+  let automergeStartupAttempted = false
   // Set by registerHandlers; see its comment.
   let liveHandlers = null
   // A director approving or denying a pairing request doesn't know or care how
@@ -2896,6 +2959,7 @@ if (isElectronEntryPoint()) {
     dbPath,
     userDataPath,
     getAutomergeSyncNode: () => automergeSyncNode,
+    getAutomergeStartupAttempted: () => automergeStartupAttempted,
   })
   registerHandlers(initialHandlers, db)
 
@@ -3057,12 +3121,30 @@ if (isElectronEntryPoint()) {
   // deny path already writes to (Red Hat finding on 5d-1: a console.error alone is not a
   // sufficiently surfaced signal) — see auditLog usage below.
   async function startAutomergeSyncNodeIfEnabled() {
+    // T268 round 2 (Finding 1): both early returns above are safe to leave
+    // exempt from the `attempted` bookkeeping below, because getSyncStatus's
+    // own condition (`!isAutomergeEngine() || getAutomergeNode() != null ||
+    // !getAutomergeStartupAttemptedFn()`) short-circuits on the first two
+    // clauses before ever consulting the flag — the engine-off and
+    // already-running cases read as healthy regardless of what the flag says.
     if (!isAutomergeEngine()) return
     if (automergeSyncNode) return // idempotency guard: never leak a second libp2p node
+    // `attempted` tracks whether this run reached a point where a start could
+    // actually have happened — distinct from "did this function run". A
+    // fresh install has no camp yet at app.whenReady() (bootstrapCamp itself
+    // requires a mode to already be chosen, so a first run can never have a
+    // camp this early), and that is not a start attempt that could have
+    // failed — it's "there was nothing to start yet". Starts `true`; the
+    // no-camp-yet path below is the only one that flips it to `false`, so
+    // getSyncStatus keeps reading a fresh Host as plain 'host' through its
+    // first session instead of a false 'host-not-syncing' that nothing will
+    // ever clear (nothing calls this function again after bootstrap).
+    let attempted = true
     try {
       const campId = db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
       if (!campId) {
         console.warn('automerge sync: no camp bootstrapped yet — sync node not started this run')
+        attempted = false
         return
       }
 
@@ -3098,8 +3180,10 @@ if (isElectronEntryPoint()) {
       // this refuses on every subsequent launch too, until something resolves
       // it by republishing the reconciled state through the document (no
       // auto-repair — see migrationDomainState.js's header).
+      // migrationSpanFor kept here (not just inside the shared helper) because
+      // the audit event's metadata.from/to wants the raw span, not just the
+      // versions it produced.
       const migrationSpan = migrationSpanFor(db)
-      const riskyThisLaunch = migrationSpan ? domainStateMigrationsIn(migrationSpan.from, migrationSpan.to) : []
       // Checked BEFORE ensureAutomergeDocSeeded below (which creates the file
       // when missing) — this must stay "did a document already exist before
       // this launch touched anything", not "does one exist now".
@@ -3118,18 +3202,17 @@ if (isElectronEntryPoint()) {
       // later one.
       ensureAutomergeDocSeeded(db)
       resolvePendingDomainStateMigrations(db, { device_id: deviceId })
-      const unresolvedMarkers = unresolvedDomainStateMigrations(db)
 
-      if (shouldRefuseSyncForDomainMigration({ docExists, riskyThisLaunch, unresolvedMarkers })) {
-        const versions = [...new Set([...riskyThisLaunch, ...unresolvedMarkers.map((m) => m.version)])].sort(
-          (a, b) => a - b
-        )
-        const detail = versions
-          .map((v) => `v${v} (${DOMAIN_STATE_MIGRATIONS.get(v) ?? unresolvedMarkers.find((m) => m.version === v)?.detail})`)
-          .join('; ')
+      // T268: the assembly (migrationSpanFor + unresolvedDomainStateMigrations +
+      // shouldRefuseSyncForDomainMigration + the detail string) is now ONE
+      // shared helper, also used read-only by getSyncStatus, so the two
+      // readings of "is sync refused right now" cannot drift apart.
+      const refusal = syncRefusalForDomainMigration(db, { docExists })
+
+      if (refusal) {
         console.error(
           `automerge sync: NOT starting. A domain-state migration ran against a camp that already has a ` +
-            `document (or is still unresolved from a prior launch): ${detail}. SQLite now holds camp meaning ` +
+            `document (or is still unresolved from a prior launch): ${refusal.detail}. SQLite now holds camp meaning ` +
             `the document does not, and projecting the document would undo it. See electron/db/migrationDomainState.js.`
         )
         recordAuditEvent(db, {
@@ -3139,8 +3222,8 @@ if (isElectronEntryPoint()) {
           targetType: 'document',
           targetId: campId,
           outcome: 'deny',
-          reason: detail,
-          metadata: { from: migrationSpan?.from ?? null, to: migrationSpan?.to ?? null, versions },
+          reason: refusal.detail,
+          metadata: { from: migrationSpan?.from ?? null, to: migrationSpan?.to ?? null, versions: refusal.versions },
         })
         return
       }
@@ -3284,6 +3367,19 @@ if (isElectronEntryPoint()) {
       // prevent the app from starting — the flag is default-off precisely so this path can fail
       // safely while the op-log path keeps working.
       console.error(`automerge sync: failed to start (non-fatal, app continues on op-log): ${err?.message ?? err}`)
+    } finally {
+      // T268 — every exit from the try above (success, the no-camp-yet
+      // return, the refusal return, the no-doc return, and the catch) lands
+      // here exactly once. This is what lets getSyncStatus distinguish "not
+      // yet attempted" (still reads as plain 'host', avoiding a boot flicker
+      // while the node starts asynchronously) from "attempted and still not
+      // running" ('host-not-syncing'). Skipped when `attempted` was flipped
+      // false above (no camp bootstrapped yet) — see that comment.
+      if (attempted) automergeStartupAttempted = true
+      // A director already looking at the sidebar when this settles should
+      // see it without reloading — wrapped so a UI push can never take sync
+      // startup down with it.
+      try { liveHandlers?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
     }
   }
 
