@@ -46,6 +46,7 @@ import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
 import ManualBuildView from '../components/schedule/ManualBuildView'
 import ActivityPalette from '../components/schedule/ActivityPalette'
 import { isActivityEligibleForGroup } from '../engine/eligibility'
+import { filterFreeChoiceActivities } from '../engine/freeChoiceActivities'
 
 // dnd-kit's own announcer describes droppable IDs, which after T58 are one
 // container rather than 480 cells — it would say "over droppable
@@ -295,7 +296,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   function eligibleActivitiesFor(groupId) {
     const g = groups.find(g => g.id === groupId)
     if (!g) return []
-    return activities.filter(a => isActivityEligibleForGroup(a, g))
+    // T266 (site 3 of 7) — free-choice exclusion is applied ALONGSIDE the
+    // existing group-eligibility filter, deliberately not folded into it. They
+    // are different questions: "pass 1/2 already claimed this name" versus "this
+    // group does this activity". The eligibility filter below is unchanged.
+    return filterFreeChoiceActivities(activities).filter(a => isActivityEligibleForGroup(a, g))
   }
 
   function handleCellPlace(slot, activityId) {
@@ -1186,9 +1191,14 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           ? slots.filter(s => !s.is_anchor)
           : slots.filter(s => s.group_id === selectedGroup && !s.is_anchor)
 
+        // T266 (site 2 of 7) — the drag palette shows free choices only. NOTE: the
+        // palette deliberately does NOT filter by group eligibility and this does
+        // not change that (owner ruling 2026-09-26: a director dragging an
+        // activity onto a group knows whether that group does it; narrowing it
+        // would remove a capability, not a hazard). Only pinned events go.
         const sidebar = (
           <ActivityPalette
-            activities={activities}
+            activities={filterFreeChoiceActivities(activities)}
             slots={paletteSlots}
             showTargets={isManual}
             draggable={view === 'group' || view === 'day'}

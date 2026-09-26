@@ -418,6 +418,8 @@ export const MOCK_WRITE_ALLOWLIST = {
     'span_blocks',
     'location_id',
     'recurrence_truth_status',
+    // v75 (T266) — mirrors PROJECTIONS.activities.fields.
+    'catalog_role',
   ],
   // Mirrors PROJECTIONS.locations.fields (kept honest by ipcSurfaceParity). map_id
   // is the v50 indoor/outdoor pair field; grid_x/grid_y ride along for op-log replay

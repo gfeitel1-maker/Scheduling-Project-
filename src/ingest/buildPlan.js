@@ -376,9 +376,53 @@ export function buildPlan(source, existing = null, resolutions = []) {
   // silently mint into the activity catalog. A name in this set forces
   // tier:'low' regardless of frequency, so it always requires an explicit
   // director resolution instead of reaching tier:'new'.
+  //
+  // T266 — that demotion was never sufficient, and this is the defect the owner
+  // reported twice. Demotion turns the name into a reconciliation card; a
+  // director answering "yes, that looks right" RESOLVES the card, and
+  // src/screens/reconciliationResolutions.js removes a name from `approved` only
+  // when it is UNRESOLVED. So confirming was what wrote the duplicate: the
+  // comment asserted EXCLUSION and the code performed DEMOTION.
+  //
+  // A name in this set now also carries `catalog_role: 'pinned_event'` onto the
+  // activity row (schema v75), which is what actually enforces the owner's rule
+  // ("once something is pulled from the first or second pass it should no longer
+  // be available to be pulled out in the third"). The row is still CREATED — that
+  // is deliberate and load-bearing, not an oversight: an anchor resolves its
+  // activity BY NAME (src/engine/anchorActivityLink.js), so deleting the row
+  // would silently disable the don't-schedule-twice suppression and place the
+  // event twice with no error. A MARKER, NOT A HOLE.
+  //
+  // tier:'low' is KEPT alongside the marker. It is now orthogonal — whichever way
+  // the director answers the card, the row carries the marker and cannot become a
+  // free choice — so it costs nothing and keeps the director informed that ingest
+  // made a classification.
   const pinOnlyActivityNames = new Set(
     Array.isArray(source?.pinOnlyActivityNames) ? source.pinOnlyActivityNames.map((n) => normalizeName(n)) : []
   )
+  // T266 — whether pass 1/2 DETECTION ACTUALLY RAN for this import, which is a
+  // different question from which names it claimed, and conflating the two
+  // re-arms the very bug this ticket fixes.
+  //
+  // Only the ImportScreen path computes a claimed set. Every other caller
+  // reaches commitIngest through `pinOnlyActivityNames ?? []`
+  // (electron/main.js:421 and :510, src/localClient.mock.js:832) — the MCP
+  // ingest server, a workbook re-import, the clipboard/schedule path, and every
+  // fixture that predates this field. They all arrive here as an EMPTY set that
+  // is indistinguishable, by value, from "this import read the sheet and found
+  // nothing pinned".
+  //
+  // The marker may therefore be CLEARED only when the set is non-empty, i.e.
+  // when detection demonstrably ran and did not name this activity. Treating an
+  // empty set as "nothing is claimed" would let any of those callers silently
+  // un-mark a camp's entire event catalogue and re-expose every event as a free
+  // choice — the owner's original symptom, restored with no error.
+  //
+  // The residual, stated rather than hidden: an import whose claimed set drops to
+  // EXACTLY zero (the last remaining event stopped reading as pinned) will not
+  // clear that final marker. That is the safe direction of the ambiguity, and it
+  // is a deliberate choice, not an oversight.
+  const pinOnlyDetectionRan = pinOnlyActivityNames.size > 0
   // ADR 2026-08-09 Decision 2 — which fields on which items are director-
   // authored (not the file's), so commitCreate/commitUpdate stamp
   // source:'human' instead of 'import' on just those. Normalized to STORED
@@ -487,6 +531,44 @@ export function buildPlan(source, existing = null, resolutions = []) {
           fields[field] = { from: live ?? null, to: proposed, source: 'import' }
         }
 
+        // T266 — an activity row that ALREADY EXISTS and is now recognized as
+        // claimed by ingest pass 1/2 must acquire the marker too, or every camp
+        // that already imported before v75 keeps its leaked events in the
+        // catalogue forever (the marker would only ever reach brand-new rows).
+        // Emitted as an ordinary field delta so it travels the same per-field
+        // commit gate as any other update, and only when it actually differs, so
+        // a re-import of an already-marked row stays `unchanged` (zero ops).
+        if (entity === 'activities' && 'catalog_role' in match) {
+          const claimed = pinOnlyActivityNames.has(normalizeName(name))
+          if (claimed && match.catalog_role !== 'pinned_event') {
+            fields.catalog_role = { from: match.catalog_role ?? null, to: 'pinned_event', source: 'import' }
+          } else if (!claimed && pinOnlyDetectionRan && match.catalog_role === 'pinned_event') {
+            // T266, Red Hat finding — the marker is SYMMETRIC, and it has to be.
+            //
+            // Written one way only, a misclassification is a one-way door: the
+            // inference is a majority-of-days heuristic, OQ2 chose "hidden
+            // entirely" rather than "greyed", and there is therefore NO surface
+            // anywhere in the app on which a director could see the marker, let
+            // alone undo it. An activity would simply vanish, with no error, no
+            // flag and no route back short of editing SQLite by hand.
+            //
+            // Clearing it when this import no longer claims the name makes
+            // re-importing a corrected sheet the recovery path, which is the one
+            // the director already has. Narrow by construction: emitRecognized
+            // runs only for names the CURRENT import actually carries, so a name
+            // absent from this sheet is never touched, and a partial import
+            // cannot un-mark the rest of the camp. A name that has become
+            // genuinely dual-use also lands here, which is correct — it is a
+            // free choice again.
+            //
+            // `pinOnlyDetectionRan` is the load-bearing half of this condition —
+            // see its definition above. Without it, every caller that does not
+            // compute a claimed set (all of them except ImportScreen) would clear
+            // every marker in the camp.
+            fields.catalog_role = { from: 'pinned_event', to: null, source: 'import' }
+          }
+        }
+
         // S4b §3: fold the `<clear>` tokens into CLEAR deltas. The delta's `from`
         // is the live value (FK fields diff against their snapshot label form).
         // The commit gate decides per field: a never-set field no-ops, a
@@ -577,9 +659,17 @@ export function buildPlan(source, existing = null, resolutions = []) {
         for (const [field, value] of Object.entries(raw)) {
           fields[field] = { from: null, to: value, source: 'import' }
         }
-        const tier = entity === 'activities' && pinOnlyActivityNames.has(normalizeName(name))
+        const isPinOnly = entity === 'activities' && pinOnlyActivityNames.has(normalizeName(name))
+        const tier = isPinOnly
           ? 'low'
           : createConfidenceTier(entity, name, seenCounts)
+        // T266 — the marker, written at creation. This is the line that turns the
+        // demotion into an exclusion. `fields` is the create payload, so the row
+        // is born already claimed by pass 1/2 and never appears in the
+        // free-choice catalogue for even one render.
+        if (isPinOnly) {
+          fields.catalog_role = { from: null, to: 'pinned_event', source: 'import' }
+        }
         const item = {
           op: 'create',
           entity,

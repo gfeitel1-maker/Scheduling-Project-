@@ -28,6 +28,14 @@ const FIELD_LABELS = {
   // text for this field — same sentinel shape as '__PIN__', a signal to
   // ChoiceBox to render something else, never literal display text.
   'camp_maps.image_data': '__IMAGE__',
+  // T266. Worth a real label rather than the "A change to this record" fallback,
+  // because of WHAT a disagreement here means. An activity's category is a fact
+  // about the camp, not an opinion a device holds — lunch is either one sitting
+  // or several — so two devices can never legitimately differ, and a row here is
+  // evidence that one of them ingested something wrong. Telling the director
+  // that in their own words is the difference between a resolvable question and
+  // a shrug.
+  'activities.catalog_role': 'Whether an activity is a scheduled event or a free choice',
 }
 
 function describeConflict(entity, field) {

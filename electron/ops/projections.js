@@ -262,6 +262,12 @@ export const PROJECTIONS = {
       // (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md §3.2).
       // Storage + projection only in this slice — no writer, no engine use.
       'recurrence_truth_status',
+      // v75 (T266): which ingest pass claimed this name. NULL = ordinary free
+      // choice; 'pinned_event' = claimed by pass 1 (fixed) or pass 2 (recurring),
+      // so excluded from pass 3 and from every free-choice menu. Registered here
+      // because an entity field absent from PROJECTIONS is written to the document
+      // and then silently never materializes in SQLite.
+      'catalog_role',
     ],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers.ensureExists above.

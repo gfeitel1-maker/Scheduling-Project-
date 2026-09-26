@@ -20,6 +20,7 @@ import { inferDivisionEntities, divisionSupportByGroup } from '../ingest/inferDi
 import { inferCoScheduleRules } from '../ingest/coScheduleRules'
 import { detectAllCampOverrides } from '../ingest/allCampOverrides'
 import { inferFixedEvents } from '../ingest/fixedEvents'
+import { derivePinOnlyActivityNames } from '../ingest/pinOnlyActivityNames'
 import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
 import { findNameVariantCandidates } from '../ingest/nearDuplicateNames'
 import { findMovedPlacements } from '../ingest/movedPlacements'
@@ -763,8 +764,11 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
       // tier:'low' on that name so it can never silently mint. Also reused
       // below as `assertedNonDualUseNames`, the same confidence-independent
       // set, so it is computed once.
+      // T266 — the derivation moved to src/ingest/pinOnlyActivityNames.js so the
+      // acceptance test exercises THIS code rather than a re-typed copy of it.
+      // The set is unchanged; only its home is.
       const dualUseSet = new Set(dualUseNamesRaw)
-      const eventNonDualUseNames = new Set(inferred.map((fe) => fe.name).filter((n) => !dualUseSet.has(n)))
+      const eventNonDualUseNames = derivePinOnlyActivityNames(inferred, dualUseSet)
       setPinOnlyActivityNames(eventNonDualUseNames)
 
       // Slice 2b — filter dualUseSet through decline-memory before it ever

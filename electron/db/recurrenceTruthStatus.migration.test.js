@@ -92,7 +92,7 @@ describe('migration v44: fresh vs migrated equivalence', () => {
   it('declares schema version 44 on a fresh db and gives activities the recurrence_truth_status column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(74)
+    expect(CURRENT_SCHEMA_VERSION).toBe(75)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 44').get().c).toBe(1)
     const cols = db.pragma('table_info(activities)').map((c) => c.name)
     expect(cols).toContain('recurrence_truth_status')
@@ -123,6 +123,10 @@ describe('migration v44: fresh vs migrated equivalence', () => {
       'max_groups_per_slot', 'min_per_week', 'max_per_week', 'same_tier_only', 'eligible_tier_ids',
       'eligible_group_ids', 'prefer_before_day', 'prefer_before_day_min', 'weather_alternative_id',
       'notes', 'location_id', 'recurrence_truth_status',
+      // v75 (T266) — appended AFTER recurrence_truth_status, which is the whole
+      // point of this test: the migration ALTER-appends, so the fresh install's
+      // declaration must append too or the two diverge in column order.
+      'catalog_role',
     ])
     db.close()
   })
@@ -163,7 +167,14 @@ describe('migration v44: fresh vs migrated equivalence', () => {
     const schemaText = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
     const match = schemaText.match(/CREATE TABLE IF NOT EXISTS activities \([\s\S]*?\n\);/)
     expect(match, 'expected an activities CREATE TABLE block in schema.sql').toBeTruthy()
-    expect(match[0]).toContain('recurrence_truth_status TEXT\n);')
+    // v75 (T266) appended `catalog_role` after it, so the TRAILING column is now
+    // that one. Both halves still matter and are asserted separately: the two
+    // columns must remain adjacent in this order (so v44's own append point is
+    // unmoved), and the block must END on the newest column — which is the
+    // property this test actually guards, since a fresh install's declaration
+    // has to match what ALTER appends on a migrated one.
+    expect(match[0]).toContain('recurrence_truth_status TEXT,')
+    expect(match[0]).toContain('catalog_role TEXT\n);')
   })
 })
 

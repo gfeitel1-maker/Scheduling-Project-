@@ -303,6 +303,26 @@ function computeDiff(fixture, seed) {
 // no v1 entry exists, and if one ever does, that is why it churns.)
 const ACKNOWLEDGED_UNKNOWNS = new Map([
   [
+    'v73 activities.catalog_role',
+    {
+      blockHash: '94023759a3ed',
+      why:
+        'v75 (T266) ALTER-adds activities.catalog_role. v73 REBUILDS activities from a ' +
+        'hardcoded column list written before that column existed, so on a run that ' +
+        'replays the whole chain the column is created by schema.sql, dropped by the v73 ' +
+        'rebuild, and re-added by v75. The end state is correct and is separately proven: ' +
+        'recurrenceTruthStatus.migration.test.js asserts a migrated database and a fresh ' +
+        'one have byte-identical activities columns. No row VALUE changes and nothing is ' +
+        'lost — a database reaching v73 by a real forward path (<= v72) cannot hold the ' +
+        'column, and a fresh install has no activities rows at all. ' +
+        'WORTH KNOWING FOR THE NEXT PERSON, because it is a standing property rather than ' +
+        'a one-off: the v73 rebuild will transiently drop EVERY column added to activities ' +
+        'after it, and it is only safe while the adding migration is numbered ABOVE 73 so ' +
+        'it re-adds the column afterwards. A future column added below that number, or a ' +
+        'rebuild moved later, would silently lose it.',
+    },
+  ],
+  [
     'v49 locations.tile_type',
     {
       blockHash: 'fda8ef86a23c',

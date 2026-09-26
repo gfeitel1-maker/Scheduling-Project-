@@ -176,6 +176,19 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // the empty elective_run_outer_snapshots table. Schema-only: nothing writes either yet (T244+
   // builds the write path), so no existing camp's domain row value changes.
   74,
+  // v75 (T266) ALTER-adds the nullable `activities.catalog_role`
+  // (docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md). Schema-only, and
+  // deliberately kept so: the column is table shape, and the block runs NO backfill at all.
+  //
+  // The absence of a backfill is the load-bearing part, not an omission. `catalog_role` IS a
+  // document-modeled field (PROJECTIONS.activities.fields), so writing it here would be a
+  // post-v52 domain-state write — exactly what the "nothing above v52 changes domain state"
+  // property forbids, and projectAll's delete-reconcile would quietly undo it. It would also be
+  // wrong on its own terms: a pre-v75 database cannot tell a free choice from a leaked event
+  // without re-running the inference, and CONSTITUTION Art. V forbids a migration deciding that
+  // for a director who never saw it. Every existing row stays NULL and the next import classifies
+  // them. Same reading as v66's capacity columns above, for the same reason.
+  75,
 ])
 
 /** True if applying `version` can change what the camp means. */

@@ -2,6 +2,7 @@ import { assertIdListShape } from './assertIdListShape.js'
 import { indexActivitiesByName, resolveAnchorActivityIds } from './anchorActivityLink.js'
 import { resolveAnchorGroupIds, resolveAnchorDayIds } from './anchorScope.js'
 import { isActivityEligibleForGroup } from './eligibility.js'
+import { isFreeChoiceActivity } from './freeChoiceActivities.js'
 import { resolveElectiveOfferingLocations } from './electiveOccupancy.js'
 import { findRouteConflicts } from './routeConflicts.js'
 import { resolveWeekCatalog } from './weekCatalog.js'
@@ -202,6 +203,20 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // ── Pass 0: resolve eligibility ──────────────────────────────────────────
   const eligibility = new Map() // activityId → Set<groupId>
   for (const act of activities) {
+    // T266 — a pinned event's row stays in `activities` (anchor suppression
+    // resolves to it BY NAME and would silently switch off if it were removed),
+    // but it is eligible for NO group AS A FREE CHOICE: ingest pass 1/2 already
+    // claimed it, so pass 3 may not place it. Recording that as an empty
+    // eligibility set, rather than skipping the row, means every downstream
+    // consumer of `eligibility` — the open-slot pool below, UNDERSERVED, and
+    // prefer_before_day — honours it from one decision.
+    //
+    // This is the free-choice question ONLY. isActivityEligibleForGroup below is
+    // the separate group-eligibility question and is left exactly as it was.
+    if (!isFreeChoiceActivity(act)) {
+      eligibility.set(act.id, new Set())
+      continue
+    }
     // Contract: eligible_tier_ids / eligible_group_ids are arrays of ids.
     // Callers normalize — this engine does not deserialize; see
     // src/utils/normalizeActivityEligibility.js.
@@ -396,7 +411,13 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         }
 
         const anchoredHere = anchoredActivityIdsByGroupDayMap.get(`${group.id}|${day.id}`)
-        const eligibleActs = activities.filter(a => !anchoredHere?.has(a.id) && (eligibility.get(a.id) || new Set()).has(group.id))
+        // T266 — the load-bearing site for predicate clause 2. `isFreeChoiceActivity`
+        // is stated HERE explicitly as well as via the empty eligibility set above:
+        // this is the placement candidate pool, and an unfiltered pool is the
+        // failure that is INVISIBLE (the event is placed a second time with no
+        // error and no finding), so it is worth asserting directly rather than
+        // depending on a derived map three hundred lines away.
+        const eligibleActs = activities.filter(a => isFreeChoiceActivity(a) && !anchoredHere?.has(a.id) && (eligibility.get(a.id) || new Set()).has(group.id))
         openSlots.push({ groupId: group.id, dayId: day.id, blockId: block.id, eligibleActs })
       }
     }
@@ -702,6 +723,14 @@ export function computeFindings({ slots, groups, activities, days, anchors, week
 
   const eligibility = new Map()
   for (const act of activities) {
+    // T266 — same empty-eligibility treatment as scheduleCohort's Pass 0 above,
+    // for the same reason: a pinned event is not a free choice, so it must not
+    // raise UNDERSERVED or prefer_before_day findings about not having been
+    // freely placed. It IS placed — as its event.
+    if (!isFreeChoiceActivity(act)) {
+      eligibility.set(act.id, new Set())
+      continue
+    }
     // Contract: eligible_tier_ids / eligible_group_ids are arrays of ids.
     // Callers normalize — this engine does not deserialize; see
     // src/utils/normalizeActivityEligibility.js.
