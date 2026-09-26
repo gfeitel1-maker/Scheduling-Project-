@@ -101,8 +101,25 @@ is known until everyone is placed. **Owner ruling 2026-09-26:**
 
 1. **Place** every camper from their per-cell preferences.
 2. **Validate** each offering against its minimum.
-3. **Replace** the campers in any offering that did not meet its minimum, into their next available
-   choice in that same cell.
+3. **Surface** every offering that did not meet its minimum to the DIRECTOR, one decision per
+   (activity, period), and execute what they choose.
+
+**Step 3 is a decision surface, not an automatic cascade — owner correction 2026-09-26.** An earlier
+draft of this ADR said the engine moves those campers to their next available choice by itself. That
+is wrong. The owner's words: *"the answer is not asking the kid again, it's asking the user how they
+want to handle each activity in each period what they want to do."* The camper's form is not
+re-consulted as an oracle; the **director** decides what happens to each failed offering, and the
+options are theirs (redistribute by preference, merge it with another offering, run it under its
+minimum anyway, or cancel the period for those campers). The engine's job is to present each failing
+offering with its shortfall and the affected campers, and then to carry out the ruling.
+
+This does not weaken the case for the per-cell preference shape — it sharpens it. The moment a
+director chooses "redistribute these campers by what they asked for," the engine must read *this
+camper's next choice IN THIS CELL*, which the withdrawn global list cannot express.
+
+**Consequence for decision 3 below:** the largest-shortfall ordering governs whatever redistribution
+the director delegates to the engine. It is no longer the whole of step 3, because a director may
+decide offerings in any order they like, or decide them in a way that makes ordering moot.
 
 **The loop terminates, and it is worth recording why, because it looks like it might not.** Campers
 move only OUT of cancelled offerings and INTO surviving ones, so headcounts are monotonically
