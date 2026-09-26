@@ -262,7 +262,7 @@ export function sanitizeOpRejectedForIpc(msg) {
 function ensureDeviceRow(db, deviceId) {
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
 }
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted, onCampBootstrapped } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
@@ -274,6 +274,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // 'host' fallback getSyncStatus() always returned, rather than a new
   // 'host-not-syncing' state nobody asked for.
   const getAutomergeStartupAttemptedFn = getAutomergeStartupAttempted || (() => false)
+  // T273 — invoked once by bootstrapCamp, after the camp exists and this
+  // device has authorized itself. On a first run there is no camp at
+  // app.whenReady(), so startAutomergeSyncNodeIfEnabled returns early and
+  // nothing ever called it again: the device that CREATES a camp — the one
+  // displaying the pairing code — silently never synced until restart.
+  // Defaults to a no-op so every existing caller is unaffected.
+  const onCampBootstrappedFn = onCampBootstrapped || (() => {})
   // T228 — requireAuthorized is module-level (not a closure over this call's
   // getMainWindow), so the last makeHandlers call to run wins here. That
   // matches every other caller of getMainWindow in this file, which is
@@ -988,6 +995,21 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     db.prepare(
       'UPDATE device_identity SET first_sync_completed_at = COALESCE(first_sync_completed_at, ?)'
     ).run(new Date().toISOString())
+
+    // T273 — start syncing now, in this session. Deliberately NOT awaited:
+    // the renderer's bootstrap screen awaits bootstrapCamp, and libp2p
+    // startup takes as long as it takes. The starter already swallows its own
+    // errors and pushes sync status to the renderer from its own `finally`;
+    // this call site is defensive anyway, on both the synchronous throw and
+    // the rejected-promise paths, because a camp that was successfully
+    // created must never be reported as a failed bootstrap.
+    try {
+      Promise.resolve(onCampBootstrappedFn()).catch((err) => {
+        console.error(`sync node start after bootstrap failed (non-fatal): ${err?.message ?? err}`)
+      })
+    } catch (err) {
+      console.error(`sync node start after bootstrap failed (non-fatal): ${err?.message ?? err}`)
+    }
 
     return { campId, userId: user.id }
   }
@@ -2960,6 +2982,10 @@ if (isElectronEntryPoint()) {
     userDataPath,
     getAutomergeSyncNode: () => automergeSyncNode,
     getAutomergeStartupAttempted: () => automergeStartupAttempted,
+    // T273 — the only thing that starts sync on the session that creates the
+    // camp. Its own `if (automergeSyncNode) return` idempotency guard makes a
+    // second invocation (app.whenReady's, already returned by then) harmless.
+    onCampBootstrapped: () => startAutomergeSyncNodeIfEnabled(),
   })
   registerHandlers(initialHandlers, db)
 
