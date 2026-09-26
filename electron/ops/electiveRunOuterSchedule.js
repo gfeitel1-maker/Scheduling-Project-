@@ -51,8 +51,9 @@ function resolveTemplateSlot(row, { activityById, anchorById, eventById }) {
   }
   if (row.is_anchor) {
     const anchor = anchorById.get(row.anchor_id) ?? null
-    // anchor_activities carries no activity_id of its own (schema.sql) — its own `name` is the
-    // only identity available, per the ADR's "else name from anchor_activities" fallback.
+    // fixed_events (T267 — renamed from anchor_activities) carries a real activity_id as of v77,
+    // but this PR (T267 PR1) does not yet cut resolution over to it (that is PR 2) — its own
+    // `name` remains the identity used here, per the ADR's "else name from fixed_events" fallback.
     return { kind: 'anchor', refId: row.anchor_id, activityId: null, activityName: anchor?.name ?? null }
   }
   if (row.activity_id != null) {
@@ -135,7 +136,7 @@ export function deriveElectiveRunOuterRows(db, run) {
 
   const activityById = new Map(db.prepare('SELECT * FROM activities').all().map((a) => [a.id, a]))
   const locationById = new Map(db.prepare('SELECT * FROM locations').all().map((l) => [l.id, l]))
-  const anchorById = new Map(db.prepare('SELECT * FROM anchor_activities').all().map((a) => [a.id, a]))
+  const anchorById = new Map(db.prepare('SELECT * FROM fixed_events').all().map((a) => [a.id, a]))
   const eventById = new Map(db.prepare('SELECT * FROM events').all().map((e) => [e.id, e]))
 
   // --- Elective query (unchanged shape, plus choice_id / is_linked_choice) ---

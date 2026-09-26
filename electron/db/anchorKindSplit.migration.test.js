@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './localDb.js'
 import { rollbackV51 } from './rollback/v51_down.js'
-import { rollbackV75 } from './rollback/v75_down.js'
+import { rollbackV77 } from './rollback/v77_down.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const files = []
@@ -336,7 +336,7 @@ describe('rollbackV51', () => {
     // v75 (T267) renamed anchor_activities -> fixed_events; v51_down.js operates on the table's
     // pre-v75 name, so undo the rename first — the real descending-rollback order (highest version
     // first) — before exercising v51's own rollback in isolation.
-    rollbackV75(db)
+    rollbackV77(db)
     const result = rollbackV51(db)
     expect(result).toEqual({ recurringDiscarded: 1 })
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
@@ -364,7 +364,7 @@ describe('rollbackV51', () => {
     ).run()
 
     // Same descending-rollback-order note as the test above.
-    rollbackV75(db)
+    rollbackV77(db)
     expect(() => rollbackV51(db)).not.toThrow()
 
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
