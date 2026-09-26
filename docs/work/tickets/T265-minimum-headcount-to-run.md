@@ -172,3 +172,50 @@ the whole per-cell change.
 
 **Before real data exists anywhere, this must be replaced.** Inherit the condition, not the
 conclusion.
+
+---
+
+## STANDING RULE — the source format is not ours to choose. Do not ask again.
+
+Owner, 2026-09-26, verbatim, after being asked a third time whether preferences arrive as a
+day × period grid or as one whole-run ranked list:
+
+> "it shouldn't matter. we keep going over this. we are reading someone's data. we are not choosing
+> how they import it. i don't know why we keep going round and round about this"
+
+and earlier the same day:
+
+> "it is filled out anywhere else - google sheet, campminder form, formstack - doesn't matter where.
+> we should be able to take it in."
+
+**This is NOT AN OPEN DECISION and must not be recorded as one.** `docs/adr/2026-09-17-individual-elective-scheduling.md:481`
+observed two formats in the wild and left "which one" open. That was the wrong kind of question: both
+exist because real camps produce both. The importer accommodates whatever arrives.
+
+An open question in a governing doc is an invitation for the next session to ask the owner again.
+Three separate sessions asked him some version of this today. It is closed.
+
+### What follows mechanically
+
+- **Storage is a superset, not a choice.** An `elective_preferences` row naming an `occurrence_id`
+  applies to that cell only; a row with none is a whole-run fallback for any cell with no scoped row.
+  A grid sheet lands as scoped rows, a ranked list lands as fallback rows, one solver path reads both.
+- **`occurrence_id` must therefore be NULLABLE.** It shipped `NOT NULL` at v78, which makes the
+  fallback row unstorable and the engine's fallback path unreachable through the real write path —
+  the T62 shape (a branch alive only in hand-built fixtures). Assigned into the engine ticket.
+  **The non-vacuity bar — write the fallback row through `electron/ops/commitElectiveRun.js`, never
+  construct it in memory — is a repeat offender's guard, not a reviewer's preference.** Three
+  instances in one day: T62 (an exclusion Set empty in production for a month behind a green unit
+  test that hand-built a field real rows never carry), T197 round 1 (export builders fixtured against
+  the shape the ADR *described* rather than what the IPC handlers emit — green tests, blank camper
+  names in production), and this one. A test that builds its own fixture asserts something about the
+  fixture, not about the system.
+- **Synthetic data must emit BOTH shapes.** This is a coverage requirement, not a modelling
+  preference: a generator emitting one shape leaves the importer's other path untested against
+  realistic data, and a green suite then describes half a feature.
+- The owner's separate ruling about run SPAN — *"once per whatever someone decides. a week. two
+  oweeks. doesn't matter for our purposes"* — is about how long a run covers and is configurable. It
+  is not a statement about the shape of the form, and reading it as one is what caused this lap.
+
+Belongs in `docs/adr/2026-09-26-per-cell-elective-preferences.md` as the standing format rule; kept
+here because an agent held that file at the time of writing.
