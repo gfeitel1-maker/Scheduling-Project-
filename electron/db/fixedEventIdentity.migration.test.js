@@ -19,6 +19,7 @@ import {
   unresolvedDomainStateMigrations,
   shouldRefuseSyncForDomainMigration,
   resolvePendingDomainStateMigrations,
+  syncRefusalForDomainMigration,
 } from './migrationDomainState.js'
 
 const files = []
@@ -424,6 +425,38 @@ describe('migration v77: domain-state marker survives a restart (Red Hat HIGH fi
     const marker = db.prepare('SELECT * FROM domain_state_migration_pending WHERE version = 77').get()
     expect(marker).toBeTruthy()
     expect(marker.resolved_at).toBeNull()
+    db.close()
+  })
+
+  // T268 (docs cross-check, round 6): T268 reads sync-refusal through
+  // syncRefusalForDomainMigration — the SAME generic, version-agnostic query
+  // (unresolvedDomainStateMigrations + shouldRefuseSyncForDomainMigration) the
+  // startup guard uses, exposed for getSyncStatus's read-only IPC path. It has
+  // no special knowledge of version 77; it just reads whatever rows exist in
+  // domain_state_migration_pending. This test proves the two sides of that
+  // seam actually agree by exercising the REAL v77 migration (not a hand-
+  // inserted synthetic marker like electron/main.test.js's T268 fixtures use)
+  // and then calling T268's own reader against the result.
+  it('T268 seam: syncRefusalForDomainMigration sees the REAL v77 marker and reports it, on a document-bearing camp', () => {
+    const db = preV77Db()
+    seedCamp(db)
+    db.prepare("INSERT INTO activities (id, camp_id, name) VALUES ('act-swim', 'camp1', 'Swim')").run()
+    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-one', 'camp1', 'Swim')").run()
+
+    initSchema(db) // runs the real v77 migration, arms the real marker
+
+    // docExists: true simulates the case that matters — a camp that has already paired/synced and
+    // therefore has a document the backfilled activity_id never reached. shouldRefuseSyncForDomainMigration
+    // returns false unconditionally when docExists is false (a brand-new, never-synced camp), so this
+    // is the scenario the whole marker exists to protect.
+    const refusal = syncRefusalForDomainMigration(db, { docExists: true })
+    expect(refusal).not.toBeNull()
+    expect(refusal.versions).toContain(77)
+    expect(refusal.detail).toContain('77')
+
+    // The inverse: a camp with no document yet is not refused — T268's reader agrees with the
+    // startup guard's own docExists gate, not just with the marker's existence.
+    expect(syncRefusalForDomainMigration(db, { docExists: false })).toBeNull()
     db.close()
   })
 })
