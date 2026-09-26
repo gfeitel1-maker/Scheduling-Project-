@@ -171,6 +171,26 @@ Concretely:
   `anchor_activities.activity_id` is the *link*; `catalog_role` is the *classification*. They are
   written together, by the same commit path, and nothing should reason about one without the
   other agreeing.
+- **Scope of that claim, stated precisely because it is narrower than it first reads.** "One
+  authority" holds for the **import path** (`src/ingest/buildPlan.js`), which writes both together.
+  It does **not** hold for the **v77 migration backfill**, which matches on name alone and never
+  reads `catalog_role` — deliberately. T266 shipped `catalog_role` with **no backfill**, and that
+  absence is load-bearing rather than an omission (`electron/db/migrationDomainState.js:188-199`):
+  a pre-v75 database cannot tell a free choice from a leaked event without re-running import-time
+  inference, and CONSTITUTION Art. V forbids a migration deciding that for a director who never saw
+  it. So the column is NULL on every row of every camp that has not re-imported since T266, and a
+  backfill consulting it would classify **every** existing row as ambiguous — it carries no signal
+  yet. Consulting `catalog_role` becomes worth revisiting in PR 2, once post-T266 imports have
+  populated it.
+- **Why the v77 backfill is nonetheless legitimate, given T266 refused to write.** The two are not
+  the same act. T266 would have had to *invent classification data that exists nowhere* — "is this
+  activity a leaked pinned-event artifact or a real free choice" is a judgement requiring the full
+  import plan's `dualUseNames`, not derivable from a database snapshot. The v77 backfill restores a
+  **join** the existing data already encodes, and it auto-resolves **only** the unambiguous
+  single-candidate case; zero and two-or-more both refuse to guess and go to
+  `fixed_event_identity_gaps`. A join is not a classification, which is why Art. V's clause does not
+  transfer even though the post-v52 / document-modeled / `projectAll` clauses do — and those are
+  exactly why the migration arms the domain-state marker rather than writing silently.
 
 ## The identity model (the technical core)
 
