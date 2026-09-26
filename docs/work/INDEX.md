@@ -29,6 +29,7 @@ Regenerate with `npm run index:work`.
 | [Multi-device erasure propagation via signed purge tombstones](../../docs/work/tickets/T233-multi-device-erasure-propagation.md) | open | [2026-09-19-multi-device-erasure-propagation](../../docs/adr/2026-09-19-multi-device-erasure-propagation.md) |
 | [T264-cross-device-lock-survival](../../docs/work/tickets/T264-cross-device-lock-survival.md) | open | — |
 | [A refused sync is visible where the devices are](../../docs/work/tickets/T268-a-refused-sync-is-visible-where-the-devices-are.md) | open | — |
+| [A freshly created camp starts syncing without a restart](../../docs/work/tickets/T273-sync-starts-after-camp-bootstrap.md) | open | — |
 
 ### documentation-governance
 

@@ -482,6 +482,71 @@ describe('bootstrapCamp: device trust (docs/adr/2026-07-25-device-trust-revocati
   })
 })
 
+// T273 — the device that creates a camp must begin syncing within that same
+// session. Nothing re-invoked the sync starter after bootstrap, so a first-run
+// Host sat silently not syncing until the app was restarted — which reads to a
+// director as "pairing is broken", because the Host is the device showing the
+// code. The starter itself lives inside main.js's isElectronEntryPoint() block,
+// which never executes under Vitest; this exercises the real bootstrapCamp path
+// against the injected seam, and mainSyncStartupWiring.test.js guards the wiring
+// of the real function into that seam.
+describe('T273: bootstrapCamp starts the sync node in the same session', () => {
+  it('invokes the injected starter exactly once, after the camp row exists and this device is authorized', async () => {
+    const stateAtInvocation = []
+    const startSync = vi.fn(() => {
+      stateAtInvocation.push({
+        camp: db.prepare('SELECT id FROM camps LIMIT 1').get() ?? null,
+        device: db.prepare('SELECT authorized_at, pairing_status FROM devices WHERE id = ?').get(deviceId),
+      })
+    })
+
+    const handlers = makeHandlers(db, deviceId, { onCampBootstrapped: startSync })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
+    expect(startSync).not.toHaveBeenCalled()
+
+    const result = await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '999999' })
+
+    expect(startSync).toHaveBeenCalledTimes(1)
+    // Observable db state AT the moment of the call, not afterwards: the
+    // starter reads `SELECT id FROM camps LIMIT 1` and expects a fully
+    // bootstrapped Host, so being called one statement too early would be
+    // indistinguishable from the bug it fixes.
+    expect(stateAtInvocation[0].camp?.id).toBe(result.campId)
+    expect(stateAtInvocation[0].device.pairing_status).toBe('authorized')
+    expect(stateAtInvocation[0].device.authorized_at).toEqual(expect.any(String))
+  })
+
+  it('does not fail bootstrapCamp when the starter throws', async () => {
+    const handlers = makeHandlers(db, deviceId, {
+      onCampBootstrapped: () => { throw new Error('libp2p refused to listen') },
+    })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
+
+    await expect(
+      handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '999999' })
+    ).resolves.toEqual({ campId: expect.any(String), userId: expect.any(String) })
+  })
+
+  it('does not fail bootstrapCamp when the starter rejects asynchronously', async () => {
+    const handlers = makeHandlers(db, deviceId, {
+      onCampBootstrapped: async () => { throw new Error('async libp2p failure') },
+    })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
+
+    await expect(
+      handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '999999' })
+    ).resolves.toEqual({ campId: expect.any(String), userId: expect.any(String) })
+  })
+
+  it('bootstraps normally when no starter is injected at all', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh' })
+    await expect(
+      handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '999999' })
+    ).resolves.toBeTruthy()
+  })
+})
+
 describe('devAuthorizeDevice (removed in sub-task 2, superseded by approveDevice)', () => {
   it('is no longer exposed on handlers — use approveDevice instead', () => {
     const handlers = makeHandlers(db, deviceId, {})
