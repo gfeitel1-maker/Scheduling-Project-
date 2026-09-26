@@ -28,8 +28,8 @@ const columns = (db, table) => db.prepare(`PRAGMA table_info(${table})`).all().m
 describe('rollbackV71', () => {
   it('re-adds recurrence_level to both tables and reverts the schema_migrations row', () => {
     const db = freshDb()
-    // v75 (T267) renamed anchor_activities -> fixed_events; rollbackV71 operates on the table's
-    // pre-v75 name, so undo the rename first — the real descending-rollback order (highest version
+    // v77 (T267) renamed anchor_activities -> fixed_events; rollbackV71 operates on the table's
+    // pre-v77 name, so undo the rename first — the real descending-rollback order (highest version
     // first) — before exercising v71's own rollback in isolation.
     rollbackV77(db)
     expect(columns(db, 'anchor_activities')).not.toContain('recurrence_level')
