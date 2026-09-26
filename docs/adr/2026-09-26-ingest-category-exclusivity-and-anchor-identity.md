@@ -155,6 +155,11 @@ confirms the preference shape**, and must not be cited as having settled it. Not
 changes under either model: the category leak and the anchor circularity are about identity and
 resolution, not about how preferences are expressed.
 
+What is *not* in doubt, and what Option A below is safe to assume, is that **linkage is declared by
+the offering catalog, not expressed by the camper** — double periods and multi-day activities are
+marked on the offering itself. The parent/member model stands, so giving an event's catalog row a
+role marker does not disturb it.
+
 ---
 
 ## The decision the owner has to make
@@ -291,10 +296,9 @@ assertion 3 above does not exist as a checkable fact under C or D.
 
 - **T264 is ADR-gated and is not addressed here.** No mechanism for it is proposed, designed or
   referenced.
-- **The elective solver is not reopened**, neither its cost function nor its preference model. The
-  owner ruled on scoring on 2026-09-23 and reserved revisiting it for himself after seeing real
-  output; the preference shape is under separate active revision. This ADR proposes no change to
-  either and depends on neither.
+- **The elective solver is not reopened**, neither its scoring nor its preference model. Both are
+  the owner's to rule on separately, and the preference shape is under active revision. This ADR
+  proposes no change to either, depends on neither, and takes no position on either.
 
 ## Open questions for the owner
 
