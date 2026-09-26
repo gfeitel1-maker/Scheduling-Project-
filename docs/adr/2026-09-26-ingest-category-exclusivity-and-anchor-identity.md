@@ -31,6 +31,33 @@ until this is decided T251 cannot write a fixture that would catch it.
 
 ---
 
+## Why this is an ADR and not another patch
+
+**A ticket already closed against this exact symptom, in the owner's own words, three days ago —
+and the symptom survived.**
+
+T234 (`docs/work/tickets/T234-ingest-recurring-event-catalog-exclusivity.md`, **status:
+completed**, 2026-09-23) opens by quoting the owner: *"things that are recurring events are also
+being pulled as activities when they should not."* T234 was correctly diagnosed, correctly scoped,
+and correctly built. It did what it said. The events are still in the catalogue.
+
+The reason is the shape of the guard, and it is worth one sentence of the owner's time because it
+is the whole argument for stopping to decide rather than patching again:
+
+> **The guard's success condition and the system's success condition were not the same condition.**
+
+T234's guard succeeds by ensuring the name **always reaches the director as a question**. The
+system succeeds only if the name **never becomes a free-choice activity**. Those read as the same
+goal and are not. The guard demotes the name into a reconciliation card; the director then ticks
+*"yes, that looks right"*; and the inversion described below turns that tick into the very write
+the guard existed to prevent. A director doing the careful thing is what creates the duplicate.
+
+So the next patch, aimed at the same symptom, has good odds of landing in the same place. And the
+most natural next patch — just stop proposing the name — is the one that quietly breaks schedule
+generation, for the reason in §3. That is why this needs a decision rather than a fix.
+
+---
+
 ## What the owner is seeing
 
 Import a prior-year spreadsheet. Recurring events — the things that happen at a pinned period every
@@ -48,15 +75,11 @@ other. This is Decision 1 of
 `docs/adr/2026-08-09-ingest-fixed-event-routing-and-reviewable-units.md`, which is still
 `status: proposed` and `implementation_state: not-started`.
 
-**2. There IS a guard, and it is a demotion, not an exclusion — so confirming is what writes the
-duplicate.** This correction matters, because the guard's existence is why the symptom survived
-being fixed once already.
+**2. The guard is a demotion, not an exclusion — so confirming is what writes the duplicate.**
 
-T234 (`docs/work/tickets/T234-ingest-recurring-event-catalog-exclusivity.md`, **completed**
-2026-09-23, from the owner's report in the same words) made the guard confidence-independent:
-`src/screens/ImportScreen.jsx:767` computes `eventNonDualUseNames` — every inferred fixed/recurring
-name minus `dualUseNames` — and ships it as `pinOnlyActivityNames`. But read what buildPlan does
-with it (`src/ingest/buildPlan.js:579–581`):
+T234 made the guard confidence-independent: `src/screens/ImportScreen.jsx:767` computes
+`eventNonDualUseNames` — every inferred fixed/recurring name minus `dualUseNames` — and ships it as
+`pinOnlyActivityNames`. But read what buildPlan does with it (`src/ingest/buildPlan.js:579–581`):
 
 ```js
 const tier = entity === 'activities' && pinOnlyActivityNames.has(normalizeName(name))
@@ -114,24 +137,23 @@ row does not carry, so its exclusion Set was empty in production for a month whi
 which hand-built an anchor **with** the field real rows lack — stayed green. A fixture that
 constructs the object the code wishes existed proves nothing about the object the database returns.
 
-**4. Compounding pressure from the elective solver — stated at its verified strength, not higher.**
+**4. The same weakness, one layer over — and a scope boundary.**
 
-`src/engine/buildElectiveAssignments.js:262–268` builds the cost matrix as the camper's raw
-preference rank, fed to `minCostAssign` (a real min-cost max-flow, successive shortest paths, line
-524). There is no cross-period term. Taking a #1 choice five times costs 5; taking #1 through #5
-costs 15. **Variety is strictly more expensive than repetition** — confirmed in code. That is not a
-defect; it is what the owner's 2026-09-23 ruling ("score each occurrence independently, no
-discount") produces, and this ADR does not reopen it.
+The defect in §3 is not local to anchors. It is **identity carried by a name string rather than a
+row id**, and duplicate catalog rows are worse anywhere that shape appears: two rows spelling one
+real activity are two distinct `activity_id`s and two distinct offerings to anything downstream that
+has no notion they are the same thing. That is the general form of the problem this ADR asks the
+owner to rule on.
 
-The honest connection, and it is weaker than it may have been relayed: `buildElectiveAssignments`
-does **not** call `resolveAnchorActivityIds`, so the elective solver is not gated by anchor
-suppression, and deleting a duplicate does not directly unbrake it. What is true, and what matters
-here, is that both are the same structural weakness — **identity carried by a name string rather
-than a row id** — and duplicate catalog rows are worse in a system whose solver pushes hard toward
-concentration, because two rows spelling one real activity are two distinct `activity_id`s and two
-distinct offerings to a solver that has no notion they are the same thing. I am flagging that the
-causal chain "duplicate deletion removes the only brake on elective repetition" is **not** supported
-by the code; the severity argument stands on §3 alone, which is sufficient.
+One boundary, recorded so a later reader does not mistake silence for agreement. The elective
+preference model — whether a camper ranks electives **once globally** or **once per (day, period)
+cell** — is under active revision as of 2026-09-26, following a real filled-in selection sheet the
+owner produced. `src/engine/buildElectiveAssignments.js:7–9` currently states the global model and
+cites D14 as its authority; D14 (`docs/adr/2026-09-17-individual-elective-scheduling.md:481`)
+observed **two** formats and deliberately established neither. **This ADR neither depends on nor
+confirms the preference shape**, and must not be cited as having settled it. Nothing in §1–§3
+changes under either model: the category leak and the anchor circularity are about identity and
+resolution, not about how preferences are expressed.
 
 ---
 
@@ -269,9 +291,10 @@ assertion 3 above does not exist as a checkable fact under C or D.
 
 - **T264 is ADR-gated and is not addressed here.** No mechanism for it is proposed, designed or
   referenced.
-- **The elective cost function is not reopened.** The owner ruled on it on 2026-09-23 and reserved
-  revisiting it for himself after seeing real output. §4 above describes its behaviour as context
-  for identity, and proposes no change to it.
+- **The elective solver is not reopened**, neither its cost function nor its preference model. The
+  owner ruled on scoring on 2026-09-23 and reserved revisiting it for himself after seeing real
+  output; the preference shape is under separate active revision. This ADR proposes no change to
+  either and depends on neither.
 
 ## Open questions for the owner
 
