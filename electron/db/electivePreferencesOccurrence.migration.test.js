@@ -155,10 +155,16 @@ describe('migration v78: elective_preferences gains occurrence_id', () => {
   // have landed.
   it('T265 round-2 tripwire: once v75-v77 exist, the v78 guard must narrow to >= 77 && < 78', () => {
     const rollbackDir = path.join(path.dirname(new URL(import.meta.url).pathname), 'rollback')
-    const landed = [75, 76, 77].filter((v) => fs.existsSync(path.join(rollbackDir, `v${v}_down.js`)))
+    // PARTIAL LANDING is the case the round-2 form of this test did not anticipate. v75 and v76
+    // landed together while v77 stayed with a peer session, and the original message said to
+    // narrow to `>= 77 && < 78` — which would have made the block UNREACHABLE, because nothing
+    // reaches 77 until v77 exists. The guard was therefore narrowed to the HIGHEST LANDED
+    // predecessor (76), not to the highest ALLOCATED one. This test now tracks only what is
+    // still outstanding, so it fires again when v77 actually lands.
+    const landed = [77].filter((v) => fs.existsSync(path.join(rollbackDir, `v${v}_down.js`)))
     expect(
       landed,
-      'v75-77 have landed; narrow the v78 guard at localDb.js:~3348 to `>= 77 && < 78`.'
+      'v77 has landed; narrow the v78 guard in localDb.js from `>= 76 && < 78` to `>= 77 && < 78`.'
     ).toEqual([])
   })
 

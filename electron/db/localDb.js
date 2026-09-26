@@ -3675,7 +3675,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // This paragraph is kept, not deleted, as the record of what round 1 believed and why round 5
   // corrects it — the same "inherit the condition, not the conclusion" discipline round 1 asked
   // of its own successor, now applied to it.
-  if (getSchemaVersion(db) >= 74 && getSchemaVersion(db) < 78) {
+  if (getSchemaVersion(db) >= 76 && getSchemaVersion(db) < 78) {
     db.transaction(() => {
       if (tableExists('elective_preferences')) {
         const cols = db.pragma('table_info(elective_preferences)').map((c) => c.name)
