@@ -262,7 +262,7 @@ export function sanitizeOpRejectedForIpc(msg) {
 function ensureDeviceRow(db, deviceId) {
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
 }
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted, onCampBootstrapped } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted, onCampBootstrapped, onCampJoined } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
@@ -281,6 +281,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // displaying the pairing code — silently never synced until restart.
   // Defaults to a no-op so every existing caller is unaffected.
   const onCampBootstrappedFn = onCampBootstrapped || (() => {})
+  // T274 — the join-path mirror of T273's onCampBootstrapped. Invoked once by
+  // joinAwaitData, after the joined camp's document has actually landed and
+  // the temporary join-session node has been stopped (see joinAwaitData
+  // below for why the stop must happen first: the join node and the
+  // persistent node share this device's libp2p peer identity, keyed by db —
+  // ensureDeviceIdentity — not by which node started it, so running both at
+  // once would be the same peer identity live twice). Defaults to a no-op so
+  // every existing caller is unaffected.
+  const onCampJoinedFn = onCampJoined || (() => {})
   // T228 — requireAuthorized is module-level (not a closure over this call's
   // getMainWindow), so the last makeHandlers call to run wins here. That
   // matches every other caller of getMainWindow in this file, which is
@@ -2266,13 +2275,28 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // written yet at any point before login.
   let activeJoin = null
 
-  async function joinStart({ code, deviceName } = {}) {
+  async function joinStart({
+    code,
+    deviceName,
+    // Test-only seams, forwarded straight to startJoinSession, which already
+    // documents them as such (peer discovery over loopback, no real network
+    // interface). The renderer never sends these — preload's joinStart takes
+    // only { code, deviceName } — so this is inert in production.
+    knownHost,
+    peerDiscovery,
+    discoveryWaitMs,
+    documentWaitMs,
+  } = {}) {
     if (activeJoin) await joinCancel()
     const started = await startJoinSession({
       db,
       deviceId,
       deviceName: deviceName || db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)?.name,
       code,
+      knownHost,
+      peerDiscovery,
+      discoveryWaitMs,
+      documentWaitMs,
     })
     if (started.status !== 'started') return { status: started.status }
     activeJoin = started.session
@@ -2303,10 +2327,50 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // The camp's data, as distinct from its identity — see joinSession's own
   // waitForCamp comment. `timeout` here is a real outcome the screen must
   // show, never a spinner that hides a dead connection.
+  //
+  // T274 — on success this is also where the join handoff completes. The
+  // join module's own header comment calls this out: "the handoff is the
+  // point" — a join session is over the instant the camp exists and the
+  // first document has landed, and from then on this device must behave
+  // like an ordinary Client with a persistent, camp-scoped sync node. Two
+  // things make that NOT a one-line "just start the persistent node" fix:
+  //   1. Nothing did it before this, at all — the device ran the rest of its
+  //      session with no persistent node and never synced until restart.
+  //   2. The join flow already runs its OWN temporary libp2p node, and that
+  //      node shares THIS device's stable peer identity with whatever the
+  //      persistent starter would create (ensureDeviceIdentity is keyed by
+  //      db, not by which node started it) — so starting the persistent node
+  //      while the temporary one is still up would be one peer identity
+  //      live twice, not a harmless second node.
+  // So the temporary session is stopped FIRST, synchronously with this call
+  // (the join UI is already on a "receiving" spinner; a few extra ms to tear
+  // down libp2p is invisible), and only then is onCampJoined fired — mirroring
+  // T273's onCampBootstrapped, deliberately NOT awaited: libp2p startup takes
+  // as long as it takes, and a successful join must never be reported as
+  // failed because sync start-up was slow. startAutomergeSyncNodeIfEnabled's
+  // own idempotency guard (`if (automergeSyncNode) return`) makes any
+  // redundant invocation harmless.
   async function joinAwaitData() {
     if (!activeJoin) throw new Error('no join in progress')
-    const camp = await activeJoin.waitForCamp()
-    return camp ? { status: 'ok', camp } : { status: 'timeout' }
+    const session = activeJoin
+    const camp = await session.waitForCamp()
+    if (!camp) return { status: 'timeout' }
+
+    activeJoin = null
+    try {
+      await session.stop()
+    } catch (err) {
+      console.error(`join: stopping the temporary join node failed (non-fatal): ${err?.message ?? err}`)
+    }
+    try {
+      Promise.resolve(onCampJoinedFn()).catch((err) => {
+        console.error(`sync node start after join failed (non-fatal): ${err?.message ?? err}`)
+      })
+    } catch (err) {
+      console.error(`sync node start after join failed (non-fatal): ${err?.message ?? err}`)
+    }
+
+    return { status: 'ok', camp }
   }
 
   async function joinCancel() {
@@ -2986,6 +3050,12 @@ if (isElectronEntryPoint()) {
     // camp. Its own `if (automergeSyncNode) return` idempotency guard makes a
     // second invocation (app.whenReady's, already returned by then) harmless.
     onCampBootstrapped: () => startAutomergeSyncNodeIfEnabled(),
+    // T274 — the join-path mirror: the only thing that starts sync on the
+    // session that JOINS a camp. joinAwaitData stops the temporary join node
+    // before calling this, so there is never a second live libp2p node with
+    // this device's peer identity; startAutomergeSyncNodeIfEnabled's own
+    // idempotency guard makes any further redundant invocation harmless too.
+    onCampJoined: () => startAutomergeSyncNodeIfEnabled(),
   })
   registerHandlers(initialHandlers, db)
 

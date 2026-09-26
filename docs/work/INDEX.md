@@ -31,6 +31,7 @@ Regenerate with `npm run index:work`.
 | [A refused sync is visible where the devices are](../../docs/work/tickets/T268-a-refused-sync-is-visible-where-the-devices-are.md) | open | — |
 | [Schema-version handshake and a version gate before Automerge merge](../../docs/work/tickets/T271-schema-version-gate-before-merge.md) | in-progress | [2026-09-26-schema-version-gate-before-merge](../../docs/adr/2026-09-26-schema-version-gate-before-merge.md) |
 | [A freshly created camp starts syncing without a restart](../../docs/work/tickets/T273-sync-starts-after-camp-bootstrap.md) | open | — |
+| [A device that joins a camp by code starts syncing without a restart](../../docs/work/tickets/T274-join-by-code-sync-start.md) | in-progress | — |
 
 ### documentation-governance
 

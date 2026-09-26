@@ -3,7 +3,8 @@ import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vites
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { randomUUID, randomBytes } from 'node:crypto'
+import { randomUUID, randomBytes, scryptSync } from 'node:crypto'
+import * as A from '@automerge/automerge'
 import { ENTITIES } from './auth/permissions.js'
 
 vi.mock('electron', () => ({
@@ -67,6 +68,11 @@ import { makeHandlers, sanitizeConflictForIpc, sanitizeOpRejectedForIpc, SESSION
 import { isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
+import { startSyncNode } from './sync/automerge/syncNode.js'
+import { createEmptyDoc } from './automerge/campDocument.js'
+import { seedAllFromSqlite } from './automerge/seed.js'
+import { joinCode } from './sync/joinCode.js'
+import { signAuthFields } from './auth/authSignature.js'
 
 let tmpFile
 let db
@@ -544,6 +550,156 @@ describe('T273: bootstrapCamp starts the sync node in the same session', () => {
     await expect(
       handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '999999' })
     ).resolves.toBeTruthy()
+  })
+})
+
+// T274 — the join-path mirror of T273. A device that joins a camp by code
+// materializes its camp via joinAwaitData -> activeJoin.waitForCamp(), not via
+// bootstrapCamp, and nothing re-invoked the sync starter after that — the
+// joining device ran the rest of its session with no persistent sync node.
+// Unlike T273, the join flow already runs its OWN temporary libp2p node
+// (startJoinSession); this exercises the REAL join path end-to-end (real host
+// node, real joiner node, real pairing/login/document-arrival) against the
+// injected onCampJoined seam, and asserts the temporary join node is actually
+// torn down — not left running double alongside the persistent one — because
+// both share the same libp2p peer identity (ensureDeviceIdentity is keyed by
+// this device's db, not by which node started it).
+describe('T274: joinAwaitData starts the sync node in the same session', () => {
+  it('invokes the injected onCampJoined exactly once, after the camp has materialized, and tears down the temporary join node first', async () => {
+    // A real, separate Host — its own db, its own libp2p node — never the
+    // shared `db`/`deviceId` this file's beforeEach sets up, which must stay
+    // camp-less for the joiner side of this test.
+    const hostFile = path.join(os.tmpdir(), `shoresh-t274-host-${Date.now()}-${Math.random()}.sqlite`)
+    const hostDb = openLocalDb(hostFile)
+    const hostCampId = 'camp-t274'
+    hostDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(hostCampId, 'Camp T274')
+    ensureHostSigningKey(hostDb)
+    const salt = randomBytes(16).toString('hex')
+    const pinHash = scryptSync('1234', salt, 64).toString('hex')
+    const authSig = signAuthFields(hostDb, { id: 'host-user', role: 'admin', pin_hash: pinHash, pin_salt: salt, cred_version: 1 })
+    hostDb.prepare(
+      'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig, cred_version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
+    ).run('host-user', hostCampId, 'Director', pinHash, salt, 'admin', authSig)
+
+    const host = await startSyncNode({
+      deviceId: 'host-device',
+      db: hostDb,
+      doc: seedAllFromSqlite(hostDb, A.clone(createEmptyDoc())),
+      onPairingRequest: () => {},
+    })
+
+    try {
+      const stateAtInvocation = []
+      const onCampJoined = vi.fn(() => {
+        stateAtInvocation.push({
+          camp: db.prepare('SELECT id FROM camps LIMIT 1').get() ?? null,
+        })
+      })
+      const handlers = makeHandlers(db, deviceId, { onCampJoined })
+
+      // knownHost, not mDNS: this sandbox has no multicast (see CLAUDE.md's
+      // "the suite needs no ... multicast" note), so discovery must be given
+      // the Host's address directly, exactly as
+      // test/integration/harnessAutomerge.js's AmClient.join does for the
+      // same reason. This is a test-only seam joinStart forwards straight to
+      // startJoinSession; the renderer never sends it.
+      const started = await handlers.joinStart({
+        code: joinCode(hostCampId),
+        deviceName: 'Joiner',
+        knownHost: host.getMultiaddrs()[0],
+      })
+      expect(started.status).toBe('started')
+      expect(onCampJoined).not.toHaveBeenCalled()
+
+      expect(await handlers.joinFindHost()).toEqual({ status: 'found' })
+
+      const pairing = await handlers.joinRequestPairing()
+      expect(pairing.status).toBe('pending')
+
+      const secret = randomBytes(32).toString('hex')
+      hostDb.prepare(
+        "UPDATE devices SET authorized_at = ?, pairing_status = 'authorized', device_secret_identifier = ? WHERE id = ?"
+      ).run(new Date().toISOString(), secret, deviceId)
+      const decisionPromise = handlers.joinAwaitPairingDecision()
+      expect(await host.sendPairingApproved(deviceId, secret)).toBe(true)
+      expect(await decisionPromise).toEqual({ status: 'approved', deviceSecretIdentifier: secret })
+
+      const login = await handlers.joinLogin({ name: 'Director', pin: '1234', deviceSecretIdentifier: secret })
+      expect(login.status).toBe('ok')
+
+      const data = await handlers.joinAwaitData()
+      expect(data.status).toBe('ok')
+      expect(data.camp.id).toBe(hostCampId)
+
+      expect(onCampJoined).toHaveBeenCalledTimes(1)
+      // Observable db state AT the moment of the call: the camp row must
+      // already exist (mirrors T273's own assertion). A call one statement
+      // too early would be indistinguishable from the bug this fixes.
+      expect(stateAtInvocation[0].camp?.id).toBe(hostCampId)
+
+      // No double node: the temporary join session must be torn down before
+      // (or as part of) firing onCampJoined, not left running alongside
+      // whatever the persistent starter creates. joinCancel reporting 'idle'
+      // proves this module's own session handle was already cleared.
+      expect(await handlers.joinCancel()).toEqual({ status: 'idle' })
+
+      // And the underlying libp2p connection is actually gone, not merely
+      // forgotten by main.js's bookkeeping — the Host no longer sees the
+      // joiner as a connected peer.
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(host.getPeers?.() ?? []).toEqual([])
+    } finally {
+      await host.stop()
+      hostDb.close()
+      if (fs.existsSync(hostFile)) fs.unlinkSync(hostFile)
+    }
+  })
+
+  it('does not fail joinAwaitData when the starter throws', async () => {
+    const hostFile = path.join(os.tmpdir(), `shoresh-t274-host2-${Date.now()}-${Math.random()}.sqlite`)
+    const hostDb = openLocalDb(hostFile)
+    const hostCampId = 'camp-t274-b'
+    hostDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(hostCampId, 'Camp T274b')
+    ensureHostSigningKey(hostDb)
+    const salt = randomBytes(16).toString('hex')
+    const pinHash = scryptSync('1234', salt, 64).toString('hex')
+    const authSig = signAuthFields(hostDb, { id: 'host-user-b', role: 'admin', pin_hash: pinHash, pin_salt: salt, cred_version: 1 })
+    hostDb.prepare(
+      'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig, cred_version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
+    ).run('host-user-b', hostCampId, 'Director', pinHash, salt, 'admin', authSig)
+    const host = await startSyncNode({
+      deviceId: 'host-device-b',
+      db: hostDb,
+      doc: seedAllFromSqlite(hostDb, A.clone(createEmptyDoc())),
+      onPairingRequest: () => {},
+    })
+
+    try {
+      const handlers = makeHandlers(db, deviceId, {
+        onCampJoined: () => { throw new Error('libp2p refused to listen') },
+      })
+      await handlers.joinStart({
+        code: joinCode(hostCampId),
+        deviceName: 'Joiner',
+        knownHost: host.getMultiaddrs()[0],
+      })
+      await handlers.joinFindHost()
+      await handlers.joinRequestPairing()
+      const secret = randomBytes(32).toString('hex')
+      hostDb.prepare(
+        "UPDATE devices SET authorized_at = ?, pairing_status = 'authorized', device_secret_identifier = ? WHERE id = ?"
+      ).run(new Date().toISOString(), secret, deviceId)
+      const decisionPromise = handlers.joinAwaitPairingDecision()
+      await host.sendPairingApproved(deviceId, secret)
+      await decisionPromise
+      await handlers.joinLogin({ name: 'Director', pin: '1234', deviceSecretIdentifier: secret })
+
+      await expect(handlers.joinAwaitData()).resolves.toEqual({ status: 'ok', camp: expect.any(Object) })
+    } finally {
+      await host.stop()
+      hostDb.close()
+      if (fs.existsSync(hostFile)) fs.unlinkSync(hostFile)
+    }
   })
 })
 

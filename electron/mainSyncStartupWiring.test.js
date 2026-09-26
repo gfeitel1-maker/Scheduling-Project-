@@ -43,6 +43,10 @@ const MAIN_JS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'main.js
 const HANDLERS_VAR = 'initialHandlers'
 const OPTION_NAME = 'onCampBootstrapped'
 const STARTER_NAME = 'startAutomergeSyncNodeIfEnabled'
+// T274 — the join-path mirror of onCampBootstrapped. Same starter, same
+// call site, a different hook because a joined camp materializes through
+// joinAwaitData rather than bootstrapCamp.
+const OPTION_NAME_JOINED = 'onCampJoined'
 
 // Every `makeHandlers(...)` call site in main.js, and whether it is expected to
 // hand the sync starter to bootstrapCamp. `newHandlers` (main.js:2677, the
@@ -50,6 +54,15 @@ const STARTER_NAME = 'startAutomergeSyncNodeIfEnabled'
 // are DELIBERATELY unwired — see the header comment; that gap is owner-recorded
 // and belongs to a follow-up ticket, not to T273.
 const EXPECTED_CALL_SITES = {
+  initialHandlers: true,
+  newHandlers: false,
+  restoreHandlers: false,
+}
+// T274 — the same set of call sites, for the join-path hook. Identical
+// expectations to EXPECTED_CALL_SITES: only the one true startup site wires
+// it, and the two db-swap sites stay unwired for the same reason (T274 is
+// explicitly out of scope for the db-swap lifecycle redesign).
+const EXPECTED_CALL_SITES_JOINED = {
   initialHandlers: true,
   newHandlers: false,
   restoreHandlers: false,
@@ -97,13 +110,13 @@ function findMakeHandlersCallSites(ast) {
   return sites
 }
 
-/** The `onCampBootstrapped` property of a makeHandlers call's options object. */
-function onCampBootstrappedProp(call) {
+/** The named property (e.g. `onCampBootstrapped`/`onCampJoined`) of a makeHandlers call's options object. */
+function optionProp(call, optionName) {
   const options = call.arguments[2]
   if (options?.type !== 'ObjectExpression') return null
   return (
     options.properties.find(
-      (p) => p.type === 'Property' && !p.computed && p.key?.name === OPTION_NAME
+      (p) => p.type === 'Property' && !p.computed && p.key?.name === optionName
     ) ?? null
   )
 }
@@ -146,7 +159,7 @@ describe('T273 wiring: the real sync starter reaches bootstrapCamp', () => {
       'ObjectExpression'
     )
 
-    const prop = onCampBootstrappedProp(site.call)
+    const prop = optionProp(site.call, OPTION_NAME)
     expect(
       prop,
       `makeHandlers(${HANDLERS_VAR}) does not pass \`${OPTION_NAME}\` — a camp bootstrapped in this session will not start syncing until restart (T273)`
@@ -175,7 +188,7 @@ describe('T273 wiring: the real sync starter reaches bootstrapCamp', () => {
 
     const actual = Object.fromEntries(
       sites.map((s) => {
-        const prop = onCampBootstrappedProp(s.call)
+        const prop = optionProp(s.call, OPTION_NAME)
         return [s.name, Boolean(prop && invokesStarter(prop.value))]
       })
     )
@@ -193,24 +206,83 @@ describe('T273 wiring: the real sync starter reaches bootstrapCamp', () => {
   })
 
   it('declares onCampBootstrapped in makeHandlers own options destructuring', () => {
-    let params = null
-    walk(parseMain(), (node) => {
-      if (
-        (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
-        node.id?.name === 'makeHandlers'
-      ) {
-        params = node.params
-      }
-    })
-    expect(params, 'makeHandlers declaration not found').toBeTruthy()
+    expect(makeHandlersDeclaresOption(OPTION_NAME), `makeHandlers does not accept \`${OPTION_NAME}\``).toBe(true)
+  })
+})
 
-    const optionsParam = params[2]
-    const pattern = optionsParam?.type === 'AssignmentPattern' ? optionsParam.left : optionsParam
-    expect(pattern?.type, 'makeHandlers third parameter is not destructured').toBe('ObjectPattern')
+/** Whether makeHandlers' own (third parameter) options destructuring declares `optionName`. */
+function makeHandlersDeclaresOption(optionName) {
+  let params = null
+  walk(parseMain(), (node) => {
+    if (
+      (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
+      node.id?.name === 'makeHandlers'
+    ) {
+      params = node.params
+    }
+  })
+  expect(params, 'makeHandlers declaration not found').toBeTruthy()
 
-    const declared = pattern.properties.some(
-      (p) => p.type === 'Property' && !p.computed && p.key?.name === OPTION_NAME
+  const optionsParam = params[2]
+  const pattern = optionsParam?.type === 'AssignmentPattern' ? optionsParam.left : optionsParam
+  expect(pattern?.type, 'makeHandlers third parameter is not destructured').toBe('ObjectPattern')
+
+  return pattern.properties.some(
+    (p) => p.type === 'Property' && !p.computed && p.key?.name === optionName
+  )
+}
+
+// T274 — the join-path mirror of the T273 block above. Same three
+// invariants (exactly one call site wired, the wired set pinned, the option
+// declared on makeHandlers), against `onCampJoined` instead of
+// `onCampBootstrapped`. A joined camp materializes through joinAwaitData, not
+// bootstrapCamp, so it needs its own hook — but the same starter, the same
+// one true call site, and the same db-swap exclusion.
+describe('T274 wiring: the real sync starter reaches joinAwaitData', () => {
+  it(`passes an ${OPTION_NAME_JOINED} that CALLS ${STARTER_NAME}`, () => {
+    const site = findMakeHandlersCallSites(parseMain()).find((s) => s.name === HANDLERS_VAR)
+    expect(site, `no \`const ${HANDLERS_VAR} = makeHandlers(...)\` found in main.js`).toBeTruthy()
+
+    expect(site.call.arguments[2]?.type, 'makeHandlers third argument is not an object literal').toBe(
+      'ObjectExpression'
     )
-    expect(declared, `makeHandlers does not accept \`${OPTION_NAME}\``).toBe(true)
+
+    const prop = optionProp(site.call, OPTION_NAME_JOINED)
+    expect(
+      prop,
+      `makeHandlers(${HANDLERS_VAR}) does not pass \`${OPTION_NAME_JOINED}\` — a device that joins a camp in this session will not start syncing until restart (T274)`
+    ).toBeTruthy()
+
+    expect(
+      invokesStarter(prop.value),
+      `\`${OPTION_NAME_JOINED}\` never CALLS \`${STARTER_NAME}\` — merely naming it leaves sync stopped until restart (T274)`
+    ).toBe(true)
+  })
+
+  it('pins the known set of makeHandlers call sites and which are wired for the join hook', () => {
+    const ast = parseMain()
+    const sites = findMakeHandlersCallSites(ast)
+
+    const actual = Object.fromEntries(
+      sites.map((s) => {
+        const prop = optionProp(s.call, OPTION_NAME_JOINED)
+        return [s.name, Boolean(prop && invokesStarter(prop.value))]
+      })
+    )
+
+    expect(
+      actual,
+      [
+        'The set of makeHandlers(...) call sites in main.js, or which of them start sync on join, has changed.',
+        'Decide deliberately, do not just update this expectation:',
+        `  - A NEW call site: does a camp joined through it need to start syncing? If yes it needs \`${OPTION_NAME_JOINED}\`; if no, say why here.`,
+        `  - \`newHandlers\` (main.js:2677) or \`restoreHandlers\` (main.js:2917) now WIRED: those are db-swap paths, deliberately excluded by T274 too — see the header comment.`,
+        `  - \`${HANDLERS_VAR}\` now UNWIRED: that is the T274 regression this file exists to catch.`,
+      ].join('\n')
+    ).toEqual(EXPECTED_CALL_SITES_JOINED)
+  })
+
+  it('declares onCampJoined in makeHandlers own options destructuring', () => {
+    expect(makeHandlersDeclaresOption(OPTION_NAME_JOINED), `makeHandlers does not accept \`${OPTION_NAME_JOINED}\``).toBe(true)
   })
 })
