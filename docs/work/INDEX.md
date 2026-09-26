@@ -21,7 +21,7 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Phase A — Cloudflare Worker and KV rendezvous bulletin board (source and tests only)](../../docs/work/tickets/T209-rendezvous-worker-phase-a.md) | in-progress | [2026-09-18-rendezvous-record-encoding-and-namespace-rotation](../../docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [A director cannot route an imported group to the second of two same-named divisions](../../docs/work/tickets/T257-import-tier-dropdown-cannot-reach-second-division.md) | open | — |
-| [T267-fixed-recurring-event-identity-model](../../docs/work/tickets/T267-fixed-recurring-event-identity-model.md) | in-progress | — |
+| [T267-fixed-recurring-event-identity-model](../../docs/work/tickets/T267-fixed-recurring-event-identity-model.md) | in-progress | [2026-09-26-fixed-recurring-event-identity-model](../../docs/adr/2026-09-26-fixed-recurring-event-identity-model.md) |
 
 ### database-sync
 
