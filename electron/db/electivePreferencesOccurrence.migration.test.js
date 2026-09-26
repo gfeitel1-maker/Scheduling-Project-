@@ -155,17 +155,29 @@ describe('migration v78: elective_preferences gains occurrence_id', () => {
   // have landed.
   it('T265 round-2 tripwire: once v75-v77 exist, the v78 guard must narrow to >= 77 && < 78', () => {
     const rollbackDir = path.join(path.dirname(new URL(import.meta.url).pathname), 'rollback')
-    // PARTIAL LANDING is the case the round-2 form of this test did not anticipate. v75 and v76
-    // landed together while v77 stayed with a peer session, and the original message said to
-    // narrow to `>= 77 && < 78` — which would have made the block UNREACHABLE, because nothing
-    // reaches 77 until v77 exists. The guard was therefore narrowed to the HIGHEST LANDED
-    // predecessor (76), not to the highest ALLOCATED one. This test now tracks only what is
-    // still outstanding, so it fires again when v77 actually lands.
-    const landed = [77].filter((v) => fs.existsSync(path.join(rollbackDir, `v${v}_down.js`)))
+    // RESOLVED 2026-09-26. All of v75, v76 and v77 have landed and the v78 guard is now the
+    // house form `>= 77 && < 78` (localDb.js), so this tripwire has done its job and is kept
+    // only as a regression pin: if anyone widens that guard again, this fails.
+    //
+    // WHAT THIS TRIPWIRE GOT WRONG, kept because the lesson outlived the bug. Its original
+    // message said to narrow to `>= 77 && < 78` "once v75-v77 exist". They did not land
+    // together: v75 and v76 merged while v77 stayed on a peer branch. Following the instruction
+    // at that moment would have made the migration UNREACHABLE, since nothing reaches version 77
+    // until v77 exists — a silently missing column behind a green gate, which is the exact
+    // failure the wide lower bound existed to prevent. The rule it should have encoded: narrow
+    // to the highest LANDED predecessor, not the highest ALLOCATED one.
+    //
+    // It had been verified non-vacuous by planting a rollback file and watching it go red. That
+    // proved it FIRES. It did not prove its INSTRUCTION was right, and those are separable
+    // properties that red-then-green does not distinguish.
+    const guard = fs.readFileSync(
+      path.join(path.dirname(new URL(import.meta.url).pathname), 'localDb.js'),
+      'utf8'
+    )
     expect(
-      landed,
-      'v77 has landed; narrow the v78 guard in localDb.js from `>= 76 && < 78` to `>= 77 && < 78`.'
-    ).toEqual([])
+      guard.includes('getSchemaVersion(db) >= 77 && getSchemaVersion(db) < 78'),
+      'the v78 migration guard must stay the one-wide house form `>= 77 && < 78` (localDb.js:3089 states the convention)'
+    ).toBe(true)
   })
 
   it('a fresh insert with no occurrence_id succeeds — NULL is the legitimate whole-run shape', () => {
