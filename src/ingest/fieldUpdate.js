@@ -20,6 +20,20 @@ export const INT_FIELDS = new Set(['min_per_week', 'max_per_week', 'sort_order']
 export const DB_FIELD = Object.freeze({ eligible_groups: 'eligible_group_ids', unit: 'tier_id', location: 'location_id' })
 export const dbFieldFor = (field) => DB_FIELD[field] ?? field
 
+// T257 — a group's `unit` value may be a bare string (every pre-existing
+// caller: schedule/clipboard side-channels, older fixtures) OR a discriminated
+// token ImportScreen's dropdown now emits: `{kind:'existing', id, name}` for a
+// picked existing division (id resolves directly, no name lookup, and reaches
+// the SECOND of two same-named divisions — the defect this ticket closes) or
+// `{kind:'proposed', name}` for a proposed/typed one (no id exists yet).
+// `name` is carried on BOTH so display sites never need the id — an id must
+// never reach director-facing copy (reconciliationReport.js/reconciliationCards.jsx/
+// reconciliationTriage.js all read this instead of `to`/`value` directly).
+export function unitDisplayName(value) {
+  if (value && typeof value === 'object') return value.name ?? null
+  return value ?? null
+}
+
 /**
  * S2c §1. Fold the schedule/clipboard side-channels into the per-row record
  * shape buildPlan consumes: a bare string -> `{ name }`; `activityRules[name]`
@@ -171,8 +185,16 @@ export function resolveFieldWrite(field, rawTo, { groupIdByName, tierIdByName, l
     return { ok: true, field: 'eligible_group_ids', value: JSON.stringify([...ids].sort()) }
   }
   if (field === 'unit') {
-    const id = tierIdByName.get(String(rawTo).trim().toLowerCase())
-    if (!id) return { ok: false, reason: 'unit_unresolved', detail: { unresolved: [rawTo] } }
+    // T257 — an existing-tier token carries its id already; use it DIRECTLY
+    // rather than re-resolving by name, which is exactly how the second of two
+    // same-named divisions is reached (a name lookup can only ever find one).
+    if (rawTo && typeof rawTo === 'object' && rawTo.kind === 'existing' && rawTo.id) {
+      return { ok: true, field: 'tier_id', value: rawTo.id }
+    }
+    const displayName = unitDisplayName(rawTo)
+    const id = tierIdByName.get(String(displayName ?? '').trim().toLowerCase())
+    // Never the token/id here — this reaches director-facing copy verbatim.
+    if (!id) return { ok: false, reason: 'unit_unresolved', detail: { unresolved: [displayName] } }
     return { ok: true, field: 'tier_id', value: id }
   }
   // M4 §D1b: a LOOKUP ONLY — this function is pure and cannot mint a row. Not

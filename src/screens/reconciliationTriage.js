@@ -9,6 +9,11 @@ import { applyResolutions } from './reconciliationResolutions.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage.js'
 import { ALIAS_COHORT_SCOPED } from './importAliasScope.js'
 import { normalizeWordKey } from '../utils/normalizeWordKey.js'
+import { unitDisplayName } from '../ingest/fieldUpdate.js'
+
+// T257 — see reconciliationReport.js's displayValue: a held `unit` conflict's
+// `to` may be a discriminated token; never let an id reach the fallback card.
+const displayTo = (field, delta) => (field === 'unit' ? unitDisplayName(delta?.to) : delta?.to) ?? null
 
 // Held is NOT an error (a held return wrote nothing), so it never reaches
 // here — this only maps a real thrown commit failure. The main-process
@@ -68,7 +73,7 @@ export function heldConflictsToDecisions(conflicts) {
           entityName: c._name,
           field: [field],
           confidence: 'conflict',
-          proposedValue: c.fields[field]?.to ?? null,
+          proposedValue: displayTo(field, c.fields[field]),
           evidence: null,
           _held: true,
           _heldKind: 'stale',
@@ -104,7 +109,7 @@ export function heldConflictsToDecisions(conflicts) {
           entityName: c._name,
           field: [field],
           confidence: 'conflict',
-          proposedValue: c.fields[field]?.to ?? null,
+          proposedValue: displayTo(field, c.fields[field]),
           evidence: null,
           _held: true,
           _heldKind: 'generic_fallback',

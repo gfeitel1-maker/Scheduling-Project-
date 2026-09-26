@@ -109,12 +109,17 @@ describe('ImportScreen — reviewable unit column (ADR 2026-08-09 Decision 2)', 
     expect(inputs.humanEditedFields.groups.Chagalls).toBeUndefined()
   })
 
-  it('set: picking an existing tier routes to links.groups AND humanEditedFields', async () => {
+  it('set: picking a PROPOSED tier (no id yet — this fixture has no existing tiers) routes a {kind:"proposed", name} token to links.groups AND humanEditedFields', async () => {
+    // T257 — 'Kfar A' here comes from proposal.entities.tiers (the file's own
+    // parse), not from an existing camp row, so it carries no id at picker
+    // time — the token is {kind:'proposed', name:'Kfar A'}, never a bare
+    // string. See ImportScreen.tierTokenDropdown.test.jsx for the
+    // existing-tier / same-named-duplicate case, which DOES carry an id.
     await uploadFile()
     const select = document.querySelector('select')
     await userEvent.selectOptions(select, 'Kfar A')
     const inputs = await commit()
-    expect(inputs.links.groups.Chagalls).toBe('Kfar A')
+    expect(inputs.links.groups.Chagalls).toEqual({ kind: 'proposed', name: 'Kfar A' })
     expect(inputs.clears.groups.Chagalls).toBeUndefined()
     expect(inputs.humanEditedFields.groups.Chagalls).toEqual(['unit'])
   })
@@ -136,7 +141,7 @@ describe('ImportScreen — reviewable unit column (ADR 2026-08-09 Decision 2)', 
     const textInput = document.querySelector('input[placeholder="Age division name"]')
     await userEvent.type(textInput, 'Brand New Unit')
     const inputs = await commit()
-    expect(inputs.links.groups.Chagalls).toBe('Brand New Unit')
+    expect(inputs.links.groups.Chagalls).toEqual({ kind: 'proposed', name: 'Brand New Unit' })
     expect(inputs.humanEditedFields.groups.Chagalls).toEqual(['unit'])
     expect(inputs.approved.tiers).toContain('Brand New Unit')
   })

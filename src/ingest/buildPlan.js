@@ -516,7 +516,12 @@ export function buildPlan(source, existing = null, resolutions = []) {
           if (field === 'eligible_groups') {
             same = sameNameSet(proposed, live)
           } else if (field === 'unit') {
-            same = normalizeName(String(live ?? '')) === normalizeName(String(proposed))
+            // T257 — `proposed` may be a discriminated token now
+            // ({kind:'existing'|'proposed', id?, name}); `name` is carried on
+            // both variants, so the diff compares against IT rather than
+            // needing an id->name lookup buildPlan (pure, no DB) cannot do.
+            const proposedName = proposed && typeof proposed === 'object' ? proposed.name : proposed
+            same = normalizeName(String(live ?? '')) === normalizeName(String(proposedName ?? ''))
           } else if (field === nameCol) {
             // The identity matched via recognitionKey, so a raw-form difference
             // ('art ' vs 'Art') is the SAME entity, not an update — UNLESS the

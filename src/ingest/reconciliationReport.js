@@ -14,6 +14,15 @@
 
 import { CONFIDENCE } from './confidence.js'
 import { normalizeName } from './preview.js'
+import { unitDisplayName } from './fieldUpdate.js'
+
+// T257 — a group's `unit` delta may carry a discriminated token
+// ({kind, id?, name}) rather than a bare string. Director-facing copy
+// (proposedValue/currentValue below) must never show an id, so every site
+// that surfaces a field's `to`/`from` value resolves it through this first.
+function displayValue(field, value) {
+  return field === 'unit' ? unitDisplayName(value) : value
+}
 
 // C1 has no numeric "strength" to classify (identity tiers are categorical,
 // not scored), so this maps buildPlan's evidence.tier vocabulary onto
@@ -142,8 +151,8 @@ function classifyItem(item, fieldProvenance, activityEvidence) {
       // surface — while the riding-along import refinement isn't itself a
       // judgment call. One row still yields exactly one decision (dedup).
       const proposedValue = humanFields.length === 1
-        ? item.fields[humanFields[0]].to
-        : Object.fromEntries(humanFields.map((f) => [f, item.fields[f].to]))
+        ? displayValue(humanFields[0], item.fields[humanFields[0]].to)
+        : Object.fromEntries(humanFields.map((f) => [f, displayValue(f, item.fields[f].to)]))
       // NOTE: distinct from `evidence.currentValue` in reconciliationCards.jsx,
       // which is evidence-table display data. This one is the raw stored value.
       //
@@ -184,8 +193,8 @@ function classifyItem(item, fieldProvenance, activityEvidence) {
     // decision shape). Multiple fields on one row -> a field->value map, since
     // one scalar can't represent N proposed values on a single decision.
     const proposedValue = fields.length === 1
-      ? item.fields[fields[0]].to
-      : Object.fromEntries(fields.map((f) => [f, item.fields[f].to]))
+      ? displayValue(fields[0], item.fields[fields[0]].to)
+      : Object.fromEntries(fields.map((f) => [f, displayValue(f, item.fields[f].to)]))
     return {
       outcome: 'needsAttention',
       decision: {

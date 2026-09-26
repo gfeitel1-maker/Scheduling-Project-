@@ -1467,8 +1467,18 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     if (entity === 'groups') {
       // The file said which unit this bunk is in; file it there rather than
       // leaving the director to assign 33 bunks by hand.
+      // T257 — `unit` may be a bare string (legacy/non-ImportScreen callers) or
+      // a discriminated token ({kind:'existing', id, name} | {kind:'proposed',
+      // name}). An existing-tier token's id is used DIRECTLY — a name lookup
+      // can only ever resolve to ONE of two same-named tiers (whichever
+      // tierIdByName's first-write-wins already picked), which is precisely
+      // the defect this ticket closes for the second, same-named division.
       const unit = item._link_unit
-      const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
+      const unitToken = unit && typeof unit === 'object' ? unit : null
+      const unitName = unitToken ? unitToken.name : unit
+      const tierId = unitToken?.kind === 'existing' && unitToken.id
+        ? unitToken.id
+        : (unitName ? tierIdByName.get(String(unitName).trim().toLowerCase()) : null)
       if (tierId) fields.tier_id = tierId
       // T114 follow-up — WHY this bunk is in this division.
       //
@@ -1482,7 +1492,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // overrode the division would otherwise get evidence explaining the
       // division they rejected. The update arm already re-verified this against
       // the stored row; the create arm did not, which is the commoner path.
-      if (tierId) writeDivisionEvidence(entityId, item._division_support, unit)
+      // finding 3 (T257) — the 3rd arg is compared by NAME against
+      // support.division; a token/id here would silently stop evidence from
+      // ever matching (writeDivisionEvidence's sameDivision does a string
+      // compare), so the resolved display name is passed, never the token.
+      if (tierId) writeDivisionEvidence(entityId, item._division_support, unitName)
     }
     if (entity === 'activities') {
       // Inferred (or director-edited) rules, keyed by the exact activity name
