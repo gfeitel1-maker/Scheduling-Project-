@@ -1277,17 +1277,23 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
         groupClears[name] = ['unit']
         groupHumanFields[name] = ['unit']
       } else if (override && typeof override === 'object' && override.editing) {
-        // 2b. "+ New unit…" — a typed name not in either tier list.
+        // 2b. "+ New unit…" — a typed name not in either tier list. T257: carries
+        // the same discriminated token as an existing pick (proposed tiers have
+        // no id at picker time — see fieldUpdate.js/buildPlan.js), so every
+        // downstream hop can tell "resolve by id" from "resolve by name" apart
+        // without inspecting typeof.
         const typed = String(override.value ?? '').trim()
         if (typed) {
-          groupUnits[name] = typed
+          groupUnits[name] = { kind: 'proposed', name: typed }
           groupHumanFields[name] = ['unit']
           if (!approved.tiers.some((t) => normalizeName(t) === normalizeName(typed))) {
             approved.tiers.push(typed)
           }
         }
-      } else if (typeof override === 'string' && override) {
-        // 2a. Set to an existing/proposed tier — the director picked it.
+      } else if (override && typeof override === 'object' && override.kind) {
+        // 2a. Set to an existing/proposed tier — the director picked it. T257:
+        // the token IS the value now (see the dropdown above) — carried through
+        // unchanged so an id-bearing pick never has to be re-resolved by name.
         groupUnits[name] = override
         groupHumanFields[name] = ['unit']
       } else if (fileGroupUnitsRef.current?.[name]) {
@@ -2018,13 +2024,32 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                       const override = groupUnitOverrides[name]
                       const isClear = !!(override && typeof override === 'object' && override.clear)
                       const isEditing = !!(override && typeof override === 'object' && override.editing)
-                      const selectValue = isClear ? '__clear__' : isEditing ? '__new__' : (typeof override === 'string' ? override : '')
-                      const tierNames = [...new Set([
-                        ...(proposal.entities.tiers ?? []),
-                        ...(existingRecordsAll.tiers ?? [])
-                          .filter((t) => !activeCohort || t.cohort_id === activeCohort.id)
-                          .map((t) => t.name),
-                      ])]
+                      // T257 — a bare-string `unit` value cannot tell a proposed
+                      // (no id yet) division from an existing one, and a same-named
+                      // existing pair collapsed into one option under a name-only
+                      // Set. The dropdown now carries a discriminated token
+                      // ({kind:'existing', id, name} | {kind:'proposed', name}) so
+                      // both halves of the list — and two same-named existing rows
+                      // — stay reachable and distinguishable end to end.
+                      const selectValue = isClear
+                        ? '__clear__'
+                        : isEditing
+                          ? '__new__'
+                          : override && typeof override === 'object' && override.kind === 'existing'
+                            ? override.id
+                            : override && typeof override === 'object' && override.kind === 'proposed'
+                              ? `__proposed__:${override.name}`
+                              : ''
+                      // Existing tiers keep their id — NOT deduped by name, so two
+                      // same-named divisions render as two options. Proposed tiers
+                      // (from the file, not yet created) have no id and are deduped
+                      // by name as before.
+                      const existingTierOptions = (existingRecordsAll.tiers ?? [])
+                        .filter((t) => !activeCohort || t.cohort_id === activeCohort.id)
+                      const existingTierNames = new Set(existingTierOptions.map((t) => normalizeName(t.name)))
+                      const proposedTierNames = [...new Set(
+                        (proposal.entities.tiers ?? []).filter((n) => !existingTierNames.has(normalizeName(n))),
+                      )]
                       return (
                         <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
                           <span style={{ minWidth: 140, color: 'var(--text-secondary)' }}>{name}</span>
@@ -2037,15 +2062,31 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
                                 if (v === '') delete next[name]
                                 else if (v === '__clear__') next[name] = { clear: true }
                                 else if (v === '__new__') next[name] = { editing: true, value: '' }
-                                else next[name] = v
+                                else if (v.startsWith('__proposed__:')) {
+                                  next[name] = { kind: 'proposed', name: v.slice('__proposed__:'.length) }
+                                } else {
+                                  const existing = existingTierOptions.find((t) => t.id === v)
+                                  next[name] = { kind: 'existing', id: v, name: existing?.name ?? v }
+                                }
                                 return next
                               })
                             }}
                             style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
                           >
                             <option value="">{proposal.groupUnits?.[name] ? `From file: ${proposal.groupUnits[name]}` : 'No age division (from file)'}</option>
-                            {tierNames.map((t) => (
-                              <option key={t} value={t}>{t}</option>
+                            {existingTierOptions.map((t) => {
+                              // Owner-confirmable presentation choice (flagged in the
+                              // PR): when the SAME name appears twice, the label
+                              // grows a group-count so the two options read as
+                              // distinct rather than identical. The stored value is
+                              // always the id — this suffix never reaches it.
+                              const dupCount = existingTierOptions.filter((o) => normalizeName(o.name) === normalizeName(t.name)).length
+                              const groupCount = (existingRecordsAll.groups ?? []).filter((g) => g.tier_id === t.id).length
+                              const label = dupCount > 1 ? `${t.name} — ${groupCount} group${groupCount === 1 ? '' : 's'}` : t.name
+                              return <option key={t.id} value={t.id}>{label}</option>
+                            })}
+                            {proposedTierNames.map((t) => (
+                              <option key={`proposed:${t}`} value={`__proposed__:${t}`}>{t}</option>
                             ))}
                             <option value="__new__">+ New age division…</option>
                             <option value="__clear__">No age division</option>

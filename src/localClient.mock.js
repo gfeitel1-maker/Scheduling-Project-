@@ -1202,8 +1202,15 @@ export const mockShoresh = {
       if (entity === 'groups') {
         const key = normalizeName(name)
         if (!groupIdByNameRun.has(key)) groupIdByNameRun.set(key, id)
+        // T257 — mirrors electron/ops/ingest.js's commitCreate: `unit` may be a
+        // bare string or a discriminated token; an existing-tier token's id is
+        // used directly rather than re-resolved by name.
         const unit = item._link_unit
-        const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
+        const unitToken = unit && typeof unit === 'object' ? unit : null
+        const unitName = unitToken ? unitToken.name : unit
+        const tierId = unitToken?.kind === 'existing' && unitToken.id
+          ? unitToken.id
+          : (unitName ? tierIdByName.get(String(unitName).trim().toLowerCase()) : null)
         if (tierId) fields.tier_id = tierId
       }
       // M4 §D1a/§D2 mirror: registered before any activities create runs.
