@@ -29,7 +29,7 @@ verdict: pass
 completion_evidence:
   - commit 71de2399
   - PR https://github.com/gfeitel1-maker/Scheduling-Project-/pull/552
-  - gate: <<GATE VERDICT>>
+  - gate: CI run 36256960533, conclusion success — "✅ VERIFY PASSED — agents:check + check:governance + licenses:check + build + security + test:integration + lint + test all green"
 archive_when: superseded by a later record for the elective export contract, or when the eligibility/resource exception categories gain a real detection source
 ---
 
@@ -83,7 +83,7 @@ match what shipped.
 
 - commit 71de2399
 - PR https://github.com/gfeitel1-maker/Scheduling-Project-/pull/552
-- gate: <<GATE VERDICT>>
+- gate: CI run 36256960533, conclusion success — "✅ VERIFY PASSED — agents:check + check:governance + licenses:check + build + security + test:integration + lint + test all green"
 - migration chain verified stepping 74 -> 75 -> 76 on a fresh database and on
   one rolled back to 74 and reopened
 - all six new guards independently reproduced as non-vacuous by tester
