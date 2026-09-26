@@ -2,10 +2,10 @@
 title: "Fixed-event catalog routing and reviewable, provenance-protected units"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-09
 supersedes: []
-implementation_state: not-started
+implementation_state: implemented
 affects:
   - src/ingest/extractEntities.js
   - src/ingest/fixedEvents.js
