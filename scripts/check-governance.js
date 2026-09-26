@@ -255,10 +255,23 @@ export function checkIndexFreshness(committed, generated) {
  *   - screens (the surface a director actually touches)
  * Ordinary feature work, tests, and refactors do not trip it.
  *
- * Deliberately a WARNING, not a hard failure. The doc being a day behind must not
- * block a security fix from landing. It appears in the same list as every other
- * finding, which is enough to be unmissable without being coercive — the same
- * reasoning as `index-stale`, which names its own fix command.
+ * BLOCKING, like every other finding here — see this file's header. This comment
+ * used to say the opposite ("deliberately a WARNING, not a hard failure ... the
+ * same reasoning as `index-stale`"), and it was left behind when the warn-only
+ * staging period ended. Both halves were wrong: findings exit non-zero, so
+ * `npm run verify` short-circuits at step 2, and `index-stale` is equally
+ * blocking — it names its fix command, which is not the same as being advisory.
+ *
+ * That stale sentence cost real time on 2026-09-26: three sessions in one day hit
+ * a red local gate they had not caused, and each had to establish independently
+ * that `platform-state-stale` was inherited from `main` rather than theirs — while
+ * a comment three lines from the rule told them it could not block anything.
+ *
+ * The CONCERN the old sentence raised is still legitimate and is not settled here:
+ * a doc a day behind can block an urgent fix, and this check has no severity tier
+ * to express that. Adding one is a policy decision for the owner, not something a
+ * comment can decide. `CHECK_GOVERNANCE_WARN=1` is the existing escape and is
+ * explicitly not for CI or for getting a branch through.
  */
 export const PLATFORM_STATE_PATH = 'docs/current/PLATFORM_STATE.md'
 
