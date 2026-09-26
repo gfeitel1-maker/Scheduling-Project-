@@ -28,6 +28,21 @@ Accepted, 2026-09-18, product-owner. Implementation not started — see "The loa
 this ADR records a product/scope decision, and the decision itself requires no code, but the
 mechanism that makes it *safe in practice* (update-on-open) does not exist yet.
 
+> **Premise removed — 2026-09-26 (owner). This ADR's safety argument no longer holds and is reopened under the relay/sync program.**
+> The mechanism this decision rested on — **update-on-open** — was rejected by the owner and its ticket
+> (`docs/work/tickets/T222-update-on-open.md`) closed, verbatim: *"when someone comes online, they sync."*
+> There is now no mechanism keeping a fleet from settling into two app (and therefore schema) versions.
+> Worse, verified in the tree: the sync handshake carries **no version field** (`electron/sync/automerge/mutualAuth.js`
+> sends `{type:'authenticate', token, device_id}`), and `electron/sync/automerge/syncNode.js:190-200` refuses a
+> document that does not share this camp's genesis but then **merges any same-genesis document unconditionally**,
+> with no schema-version check — even though the adjacent `electron/sync/automerge/rendezvousRecord.js:159-161`
+> version-gates correctly. So mixed-version replication is not merely un-promised; it can happen silently and
+> destructively. This is now a live correctness/security concern folded into the accepted WAN-rendezvous program
+> (`docs/adr/2026-09-17-wan-rendezvous-seam.md`), which extends this transport to internet peers and thereby widens
+> the blast radius. **How to resolve it — amend this ADR's decision, or supersede it with a version-gated-handshake
+> design — is an architecture decision owned by that program's Architect (Security + Red Hat mandatory), not settled
+> here.** Recorded now so the next reader does not take the decision below as still safe.
+
 ## Context
 
 T215 raised a real open question while closing GHSA-vrf4-mx87-p53w by bumping libp2p 2.10.0 →

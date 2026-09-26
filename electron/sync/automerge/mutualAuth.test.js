@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest'
 import { wireMutualAuth } from './mutualAuth.js'
+import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 
 function fakeHandle() {
   const listeners = []
@@ -23,7 +24,7 @@ describe('wireMutualAuth', () => {
     expect(handle.dial).toHaveBeenCalledWith('peer-b', { signal: expect.any(AbortSignal) })
     expect(handle.authenticateWith).toHaveBeenCalledWith(
       'peer-b',
-      { type: 'authenticate', token: 'tok-1', device_id: 'device-a' },
+      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION },
       { signal: expect.any(AbortSignal) }
     )
   })
@@ -163,7 +164,7 @@ describe('wireMutualAuth — local trust filter (T208)', () => {
 
     expect(handle.authenticateWith).toHaveBeenCalledWith(
       'peer-trusted',
-      { type: 'authenticate', token: 'tok-1', device_id: 'device-a' },
+      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION },
       { signal: expect.any(AbortSignal) }
     )
   })
@@ -363,7 +364,7 @@ describe('wireMutualAuth — negative cache for untrusted peers (T208 round 2)',
     await new Promise((r) => setTimeout(r, 5))
     expect(handle.authenticateWith).toHaveBeenCalledWith(
       'peer-b',
-      { type: 'authenticate', token: 'tok-1', device_id: 'device-a' },
+      { type: 'authenticate', token: 'tok-1', device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION },
       { signal: expect.any(AbortSignal) }
     )
   })

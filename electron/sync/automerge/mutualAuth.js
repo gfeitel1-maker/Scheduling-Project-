@@ -20,6 +20,7 @@
 // without a real libp2p node or SQLite (see mutualAuth.test.js).
 //
 import { createConnectivityEmitter, classifyError, EVENTS } from './connectivityEvents.js'
+import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 
 // `getToken()` returns this device's own current, valid session token (a
 // Host self-issues one; a Client uses whatever it was last handed by a
@@ -89,7 +90,13 @@ const DISCOVERY_EMIT_STATE_MAX_SIZE = 500
 // WAN test matrix, run by hand) passes its own emitter with verboseAddrs: true — this module never
 // reads process.env itself.
 
-export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter() } = {}) {
+// `getSchemaVersion` (T271 round 3): defaults to this build's real CURRENT_SCHEMA_VERSION —
+// production callers get today's behavior with zero change. Injectable so syncNode.js's
+// integration-test seam (`handshakeSchemaVersion`) can make a test node ANNOUNCE a version other
+// than this checkout's real constant, to construct a genuine peer-version mismatch without needing
+// a second installed build. Read fresh on every dial/authenticate attempt (a function, not a value
+// captured once at wire time) — see syncNode.js's `getHandshakeSchemaVersion` doc comment.
+export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrusted, onRejected, attemptTimeoutMs = 30_000, now = () => Date.now(), emitter = createConnectivityEmitter(), getSchemaVersion = () => CURRENT_SCHEMA_VERSION } = {}) {
   if (typeof isPeerTrusted !== 'function') {
     throw new TypeError(
       'wireMutualAuth requires an isPeerTrusted(peerId) predicate: this seam decides who receives ' +
@@ -340,7 +347,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
     try {
       let reply
       try {
-        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId }, { signal: controller.signal })
+        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId, schemaVersion: getSchemaVersion() }, { signal: controller.signal })
       } catch (err) {
         // T162 made a device's PeerId STABLE across restarts. That closed a real
         // hole, and opened this one: when a Host restarts, it comes back under
@@ -366,7 +373,7 @@ export function wireMutualAuth(syncNodeHandle, { deviceId, getToken, isPeerTrust
           if (!stalled) emitter.emit(EVENTS.DIAL_FAILED, { peerId, reused: true, errorClass: classifyError(dialErr), attemptId })
           throw dialErr
         }
-        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId }, { signal: controller.signal })
+        reply = await syncNodeHandle.authenticateWith(peerId, { type: 'authenticate', token, device_id: deviceId, schemaVersion: getSchemaVersion() }, { signal: controller.signal })
       }
       release()
       if (!reply || reply.type !== 'auth_ok') {

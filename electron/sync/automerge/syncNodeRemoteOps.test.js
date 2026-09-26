@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import * as A from '@automerge/automerge'
-import { openLocalDb } from '../../db/localDb.js'
+import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import { ensureHostSigningKey, issueCampToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
@@ -94,8 +94,8 @@ async function authenticateAtoB(a, b, dbA, dbB) {
   }
   const tokenA = issueCampToken(dbA, 'user-a', 'device-a')
   const tokenB = issueCampToken(dbA, 'user-b', 'device-b')
-  await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a' })
-  await b.authenticateWith(a.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b' })
+  await a.authenticateWith(b.peerId, { type: 'authenticate', token: tokenA, device_id: 'device-a', schemaVersion: CURRENT_SCHEMA_VERSION })
+  await b.authenticateWith(a.peerId, { type: 'authenticate', token: tokenB, device_id: 'device-b', schemaVersion: CURRENT_SCHEMA_VERSION })
 }
 
 describe('syncNode onRemoteOps — Stage 5c read-path parity', () => {

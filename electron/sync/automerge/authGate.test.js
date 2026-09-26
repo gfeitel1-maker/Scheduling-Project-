@@ -73,6 +73,27 @@ describe('authGate — admission gate mechanics (fake authenticator)', () => {
     expect(Array.from(received[0])).toEqual([1, 2, 3])
   })
 
+  // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md, Verification item 6):
+  // schemaVersion is observability-only AT THE AUTH LAYER — a message omitting it (a hypothetical
+  // pre-T271 peer) must be admitted exactly as before, never rejected here. The gate this field
+  // feeds lives entirely in syncNode.js's peerSchemaVersions/isPeerSyncCompatible, not in authGate.
+  it('an authenticate message WITHOUT schemaVersion is still admitted normally (never rejected at the auth layer)', async () => {
+    const a = await startTransport({ deviceId: 'device-a' })
+    const b = await startTransport({
+      deviceId: 'device-b',
+      onAuthenticate: (msg) => (msg.token === 'good-token' ? { ok: true } : { ok: false, reason: 'invalid_token' }),
+    })
+    handles.push(a, b)
+
+    await a.dial(b.getMultiaddrs()[0])
+    await waitFor(() => a.getPeers().length > 0)
+
+    // Deliberately no `schemaVersion` field at all.
+    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', token: 'good-token', device_id: 'device-a' })
+    expect(resp.type).toBe('auth_ok')
+    expect(b.isPeerAuthenticated(a.peerId)).toBe(true)
+  })
+
   it('a failed authenticate reports auth_failed and does NOT admit the peer', async () => {
     const a = await startTransport({ deviceId: 'device-a' })
     const b = await startTransport({

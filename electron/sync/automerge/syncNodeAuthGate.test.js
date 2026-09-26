@@ -14,7 +14,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomUUID, randomBytes } from 'node:crypto'
 import * as A from '@automerge/automerge'
-import { openLocalDb } from '../../db/localDb.js'
+import { openLocalDb, CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 import { createEmptyDoc, applyWrite } from '../../automerge/campDocument.js'
 import { ensureHostSigningKey, issueCampToken, issueLocalToken } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
@@ -121,8 +121,8 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
     authorizeDeviceOnHost(deviceId)
     const token = issueCampToken(dbB, randomUUID(), deviceId)
 
-    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })
-    expect(resp).toEqual({ type: 'auth_ok' })
+    const resp = await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId, schemaVersion: CURRENT_SCHEMA_VERSION })
+    expect(resp).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
 
     // Reverse direction, required for A's outbound filter to admit B (see
     // authorizeDeviceOnClient's comment): the Host proves membership to the
@@ -130,8 +130,8 @@ describe('syncNode + auth gate — end-to-end (real evaluateAuthenticate, real S
     const hostDeviceId = randomUUID()
     authorizeDeviceOnClient(hostDeviceId)
     const hostToken = issueCampToken(dbB, randomUUID(), hostDeviceId)
-    const reverse = await b.authenticateWith(a.peerId, { type: 'authenticate', token: hostToken, device_id: hostDeviceId })
-    expect(reverse).toEqual({ type: 'auth_ok' })
+    const reverse = await b.authenticateWith(a.peerId, { type: 'authenticate', token: hostToken, device_id: hostDeviceId, schemaVersion: CURRENT_SCHEMA_VERSION })
+    expect(reverse).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
 
     const changed = applyWrite(a.getDoc(), { entity: 'activities', entity_id: 'archery', field: 'name', value: 'Archery' })
     await a.applyLocal(changed)
@@ -293,7 +293,7 @@ describe('syncNode + auth gate — characterized limits (T155), closed by T162',
     await waitFor(() => a.getPeers().length > 0)
     // FIRST authenticate: no peer id is bound yet for `deviceId`, so this
     // binds it via TOFU to `a`'s (now persistent) peer id and admits.
-    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })).toEqual({ type: 'auth_ok' })
+    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
 
     // The SAME token, replayed from a peer the Host has never seen before.
     // `deviceId` is already bound to `a`'s peer id — the impostor's distinct
@@ -321,7 +321,7 @@ describe('syncNode + auth gate — characterized limits (T155), closed by T162',
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
-    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })).toEqual({ type: 'auth_ok' })
+    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
     const peerIdBeforeRestart = a.peerId
 
     await a.stop()
@@ -335,7 +335,7 @@ describe('syncNode + auth gate — characterized limits (T155), closed by T162',
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
     const reconnected = await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })
-    expect(reconnected).toEqual({ type: 'auth_ok' })
+    expect(reconnected).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
   })
 
   it('but revoking the device closes BOTH peers out — the credential follows the device, not the connection', async () => {
@@ -353,7 +353,7 @@ describe('syncNode + auth gate — characterized limits (T155), closed by T162',
 
     await a.dial(b.getMultiaddrs()[0])
     await waitFor(() => a.getPeers().length > 0)
-    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })).toEqual({ type: 'auth_ok' })
+    expect(await a.authenticateWith(b.peerId, { type: 'authenticate', token, device_id: deviceId })).toEqual({ type: 'auth_ok', schemaVersion: CURRENT_SCHEMA_VERSION })
 
     dbB.prepare("UPDATE devices SET revoked_at = ?, pairing_status = 'revoked' WHERE id = ?")
       .run(new Date().toISOString(), deviceId)
