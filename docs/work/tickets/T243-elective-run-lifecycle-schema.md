@@ -1,7 +1,7 @@
 ---
 title: T243-elective-run-lifecycle-schema
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: the lifecycle migration (version claimed at merge time; v73 is contended) ships elective_run_outer_snapshots plus finalized_at/finalized_by, fresh-vs-migrated parity passes, and no code outside this ticket writes those columns
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]

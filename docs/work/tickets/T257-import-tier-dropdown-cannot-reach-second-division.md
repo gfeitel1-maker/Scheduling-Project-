@@ -1,7 +1,7 @@
 ---
 title: "A director cannot route an imported group to the second of two same-named divisions"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-24
 archive_when: the import tier picker can express "the OTHER same-named division" and the value it carries survives every hop to the commit without an id reaching director-facing copy, or the owner records that the capability is not wanted
 task_class: architecture

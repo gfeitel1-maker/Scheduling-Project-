@@ -111,3 +111,19 @@ Clicking an attention row opens the surface where that item is worked through. T
 as many rows as fit without page scroll at 1280x720 **and** at a shorter viewport, pinned by a test
 asserting the no-page-scroll property rather than a hardcoded row count. The overflow affordance
 navigates into the reconciliation flow. Reaching that flow does not require importing a file.
+
+## Status note (2026-09-26, triage) — substantially shipped, deliberately left open
+
+The core of this ticket **shipped and merged in #525**: attention rows are interactive and resolve
+to the reconciliation door (`src/screens/attentionRowDestination.js` → `screenForAttentionRow`,
+`RootsHomeScreen.jsx` `AttentionRow` `onClick → onNavigate`). It was NOT flipped to `completed`
+because two of its own `archive_when` / success-predicate criteria are **not discharged**:
+
+1. **The overflow affordance does not navigate.** The rail's overflow is an inert `<span>`
+   (`RootsHomeScreen.jsx`), with no `onClick`/`onNavigate`. The predicate requires "the overflow
+   affordance navigates into the reconciliation flow."
+2. **No test pins the no-page-scroll property** at more than one viewport height (the suite asserts
+   the rail landmark and wide/narrow DOM order, but not "no page scroll at N rows").
+
+Remaining work to close: wire the overflow chip's `onClick` to `onNavigate('reconciliation')`, and
+add the two-viewport no-page-scroll test. A follow-up slice, not a re-open of the design.

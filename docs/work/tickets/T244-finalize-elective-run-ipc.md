@@ -1,7 +1,7 @@
 ---
 title: T244-finalize-elective-run-ipc
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-23
 archive_when: shoresh:finalize-elective-run is callable, validates STALE_OUTER_SCHEDULE and OUTER_RESOURCE_CONFLICT before flipping status, writes the outer snapshot (including solver_generation) atomically, the shared generation-visibility predicate is extracted and used by getElectiveRunHandler, FINALIZED_AGAINST_STALE_GENERATION is detected and surfaced, and getElectiveRunHandler additionally returns overCapacityOccurrences (post-merge over-capacity detection, residual of Red Hat H3)
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, SECURITY.md]
