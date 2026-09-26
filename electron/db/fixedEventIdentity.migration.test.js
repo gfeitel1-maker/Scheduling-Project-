@@ -309,6 +309,63 @@ describe('migration v77: domain-state marker survives a restart (Red Hat HIGH fi
     db.close()
   })
 
+  // TRIPWIRE (Red Hat round 3): the fix above depends on the v77 marker's `detail` HAPPENING to be
+  // unparseable as JSON — that is what makes resolvePendingDomainStateMigrations fall into its
+  // "left UNRESOLVED forever" branch instead of treating an empty `losers` array as already-
+  // satisfied and clearing resolved_at on the very next call. That property is real today but
+  // ACCIDENTAL: nothing stops a future edit to the message in localDb.js's v77 block from turning
+  // it into valid JSON (quoting it, making it a bare string literal, reformatting it as
+  // `{note: '...'}` `for consistency` with v70) — at which point this exact defect re-arms itself
+  // SILENTLY, because the marker still gets written, still looks present in the table, and no
+  // other test in this file would catch the change. This test asserts BOTH halves of why that
+  // matters: the detail is not JSON-parseable (what makes the failure legible to whoever breaks
+  // it), AND the resolver actually leaves it unresolved (the behavior that actually matters) — the
+  // first alone would pass while the resolver's semantics drifted elsewhere, and the second alone
+  // would leave a future author guessing why an unrelated string edit broke a distant test.
+  it('TRIPWIRE: the v77 marker detail must stay non-JSON, or resolvePendingDomainStateMigrations will silently auto-clear it', () => {
+    const db = preV77Db()
+    seedCamp(db)
+    db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a-zero', 'camp1', 'Mifkad')").run()
+    initSchema(db) // runs v77, writes the marker
+
+    const marker = db.prepare('SELECT detail FROM domain_state_migration_pending WHERE version = 77').get()
+    expect(marker, 'expected a v77 marker row to exist — did the backfill-gated write get removed?').toBeTruthy()
+
+    let parseError = null
+    try {
+      JSON.parse(marker.detail)
+    } catch (e) {
+      parseError = e
+    }
+    expect(
+      parseError,
+      "electron/db/localDb.js's v77 block writes domain_state_migration_pending.detail as a plain " +
+        'string that must NOT parse as JSON. If you just made it parseable (quoting it, reformatting ' +
+        "it as `{note, losers}` to match v70, etc.), STOP: resolvePendingDomainStateMigrations " +
+        '(electron/db/migrationDomainState.js) treats any JSON-parseable detail with no non-empty ' +
+        "`losers` array as already-resolved and clears resolved_at on its very next call — silently " +
+        're-enabling sync one launch later with fixed_events.activity_id values the document never ' +
+        'received (the T62 class defect this marker exists to prevent). There is no losers-shaped ' +
+        'remediation for this migration (no entity to tombstone), so `detail` must keep failing ' +
+        'JSON.parse until a real document-routed resolution exists (PR 2+) — write a plain, ' +
+        'deliberately non-JSON message instead.'
+    ).not.toBeNull()
+
+    const resolvedVersions = resolvePendingDomainStateMigrations(db, { device_id: 'device-1' })
+    expect(
+      resolvedVersions,
+      'resolvePendingDomainStateMigrations resolved the v77 marker, which means sync will silently ' +
+        're-enable on the next launch while the document never received the backfilled activity_id ' +
+        'values — see the comment on this test for why that reproduces the T62 class defect.'
+    ).not.toContain(77)
+    const stillUnresolved = db
+      .prepare('SELECT resolved_at FROM domain_state_migration_pending WHERE version = 77')
+      .get()
+    expect(stillUnresolved.resolved_at).toBeNull()
+
+    db.close()
+  })
+
   it('writes no marker when the backfill resolves nothing (fresh install, or every row already linked)', () => {
     const db = freshDb() // no legacy anchor_activities rows — rows.length === 0 in the migration
     const marker = db.prepare('SELECT * FROM domain_state_migration_pending WHERE version = 77').get()
