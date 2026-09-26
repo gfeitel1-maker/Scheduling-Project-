@@ -88,6 +88,24 @@ describe('JoinByCodeScreen — the whole way through', () => {
     expect(localClient.joinFindHost).not.toHaveBeenCalled()
   })
 
+  // T274 round 3 completion — joinStart refuses to start a new session when
+  // it could not confirm the previous one's temporary node was stopped
+  // (main.js's stop_failed). Falling through to joinFindHost here would
+  // silently drive that STALE session against this new code instead of
+  // reporting the real failure.
+  it('does not proceed against a stale session when the previous one could not be stopped', async () => {
+    localClient.joinStart.mockResolvedValue({ status: 'stop_failed' })
+    const user = userEvent.setup()
+    render(<JoinByCodeScreen />)
+    await enterCode(user)
+    expect(await screen.findByText(/try again/i)).toBeTruthy()
+    // Still on the code step, with the field to fix — never drove the stale
+    // session forward.
+    expect(screen.getByLabelText(/camp code/i)).toBeTruthy()
+    expect(localClient.joinFindHost).not.toHaveBeenCalled()
+    expect(localClient.joinRequestPairing).not.toHaveBeenCalled()
+  })
+
   it('distinguishes "nobody answered" from a bad code', async () => {
     localClient.joinFindHost.mockResolvedValue({ status: 'not_found' })
     const user = userEvent.setup()

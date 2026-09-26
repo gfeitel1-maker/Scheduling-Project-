@@ -53,11 +53,23 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
   const cancel = useCallback(async () => {
     busyRef.current = false
     try {
-      await localClient.joinCancel()
+      const result = await localClient.joinCancel()
+      // T274 round 3 completion — joinCancel no longer THROWS on a failed
+      // stop (main.js now returns {status:'stop_failed'} and deliberately
+      // keeps its session reference alive rather than orphaning it — see
+      // its own comment). Leaving this screen is still best-effort: never
+      // block the director's exit over a teardown failure. But it must not
+      // be silently absorbed as if cleanup had succeeded — logged so it is
+      // at least visible, and the retained session itself remains reachable
+      // by a later joinStart's own stop_failed handling (submitCode above),
+      // which is what actually prevents a next attempt from silently
+      // reusing it.
+      if (result?.status === 'stop_failed') {
+        console.error('join: could not confirm the previous session was stopped when leaving the join screen')
+      }
     } catch {
-      // Cancelling is best-effort: the director is leaving this screen either
-      // way, and a failure to tear down a session they are abandoning is not
-      // something to put in front of them.
+      // Still best-effort against a genuine throw (e.g. no join in
+      // progress) — nothing to surface for that case.
     }
   }, [])
 
@@ -85,6 +97,19 @@ export default function JoinByCodeScreen({ onBack, onJoined }) {
         // A typo, reported as a typo. Deriving a search from nonsense would
         // surface as "no camps found" and send them to check their network.
         setError("That code doesn't look right — it's 8 characters, like K4P7-2MRQ.")
+        setStep(STEP.code)
+        return
+      }
+      if (started.status === 'stop_failed') {
+        // T274 round 3 completion — the PREVIOUS join attempt's temporary
+        // session could not be torn down, so joinStart correctly refused to
+        // start a new one rather than risk two live sessions. Falling
+        // through to joinFindHost here would silently drive that stale
+        // session instead of this new code — a failure reported as
+        // something else. Stay put; a later retry gets another chance to
+        // actually stop it (main.js's joinCancel keeps the reference alive
+        // rather than losing it).
+        setError("Couldn't finish closing the previous attempt yet — wait a moment and try again.")
         setStep(STEP.code)
         return
       }
