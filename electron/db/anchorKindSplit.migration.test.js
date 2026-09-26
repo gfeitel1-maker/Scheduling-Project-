@@ -333,8 +333,8 @@ describe('rollbackV51', () => {
       "INSERT INTO fixed_events (id, camp_id, name, kind, unit_id, is_all_groups) VALUES ('a2', 'camp1', 'Division Swim', 'recurring', 't1', 0)"
     ).run()
 
-    // v75 (T267) renamed anchor_activities -> fixed_events; v51_down.js operates on the table's
-    // pre-v75 name, so undo the rename first — the real descending-rollback order (highest version
+    // v77 (T267) renamed anchor_activities -> fixed_events; v51_down.js operates on the table's
+    // pre-v77 name, so undo the rename first — the real descending-rollback order (highest version
     // first) — before exercising v51's own rollback in isolation.
     rollbackV77(db)
     const result = rollbackV51(db)

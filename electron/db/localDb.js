@@ -46,17 +46,17 @@ export function initSchema(db) {
   // version on an already-fully-migrated (v53) database.
   const tableExists = (name) =>
     !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name)
-  // T267 (v75): `anchor_activities` is renamed to `fixed_events` at v75. Every migration block
-  // BELOW v75 that touches this table's shape (v16, v42, v45, v51, v65, v71) or repoints a
+  // T267 (v77): `anchor_activities` is renamed to `fixed_events` at v77. Every migration block
+  // BELOW v77 that touches this table's shape (v16, v42, v45, v51, v65, v71) or repoints a
   // reference into it (v11, v70) was written against the pre-rename name, and stays that way for a
-  // REAL pre-v75 database — schema.sql's `CREATE TABLE IF NOT EXISTS fixed_events` at the top of
+  // REAL pre-v77 database — schema.sql's `CREATE TABLE IF NOT EXISTS fixed_events` at the top of
   // every initSchema() call means `fixed_events` ALWAYS trivially exists too (even on a genuinely
   // fresh install, before any migration block ran), so "prefer fixed_events when it exists" is not
   // a real discriminator — it would orphan the freshly-created `anchor_activities` scratch table
-  // that v10 through v71 are supposed to build up together, and v75 would then rename that sparse
+  // that v10 through v71 are supposed to build up together, and v77 would then rename that sparse
   // orphan over the real, fully-built `fixed_events`, losing every column those blocks added.
   // `anchor_activities` existing is the true signal: it means a real (or replaying-from-scratch)
-  // pre-v75 table is present and that is what these blocks must keep building. Only when
+  // pre-v77 table is present and that is what these blocks must keep building. Only when
   // `anchor_activities` is genuinely absent — a db that already carries the completed rename from
   // an earlier initSchema() call, e.g. a test that rolls schema_migrations back on OTHER tables
   // only and replays from an earlier version, or a test fixture that constructs an old-shaped table
@@ -417,8 +417,8 @@ export function initSchema(db) {
             keepRow.id,
             dupeId
           )
-          // T267 (v75): the table is `anchor_activities` on a real pre-v75 db, but ALREADY
-          // `fixed_events` on a db that took the v75 rename in an earlier initSchema() call (e.g. a
+          // T267 (v77): the table is `anchor_activities` on a real pre-v77 db, but ALREADY
+          // `fixed_events` on a db that took the v77 rename in an earlier initSchema() call (e.g. a
           // test that rolls schema_migrations back on OTHER tables only, then replays from an
           // earlier version, while this table stays at head shape throughout) — repoint whichever
           // of the two currently exists, never assume the pre-rename name unconditionally.
@@ -698,7 +698,7 @@ export function initSchema(db) {
         if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
       }
 
-      // T267 (v75): resolved through anchorEventsTable() rather than hardcoded, since a caller may
+      // T267 (v77): resolved through anchorEventsTable() rather than hardcoded, since a caller may
       // hand this a db already at the final `fixed_events` name/shape with schema_migrations rolled
       // back to before v16 — see that helper's own comment.
       const anchorTable = anchorEventsTable()
@@ -1755,7 +1755,7 @@ export function initSchema(db) {
   // DDL-time side effect, so this block emits no op, same posture as v33-v41.
   if (getSchemaVersion(db) >= 41 && getSchemaVersion(db) < 42) {
     db.transaction(() => {
-      // T267 (v75): resolved through anchorEventsTable() — see that helper's comment.
+      // T267 (v77): resolved through anchorEventsTable() — see that helper's comment.
       const anchorTable = anchorEventsTable()
       const cols = db.pragma(`table_info(${anchorTable})`).map((c) => c.name)
       if (!cols.includes('schedule_week_id')) {
@@ -1843,7 +1843,7 @@ export function initSchema(db) {
   // posture as v33-v44.
   if (getSchemaVersion(db) >= 44 && getSchemaVersion(db) < 45) {
     db.transaction(() => {
-      // T267 (v75): resolved through anchorEventsTable() — see that helper's comment.
+      // T267 (v77): resolved through anchorEventsTable() — see that helper's comment.
       const anchorTable = anchorEventsTable()
       const anchorCols = db.pragma(`table_info(${anchorTable})`).map((c) => c.name)
       if (!anchorCols.includes('location_id')) {
@@ -2081,7 +2081,7 @@ export function initSchema(db) {
   // comment above for the load-bearing reason (bug #194).
   if (getSchemaVersion(db) >= 50 && getSchemaVersion(db) < 51) {
     db.transaction(() => {
-      // T267 (v75): resolved through anchorEventsTable() — see that helper's comment. The scratch
+      // T267 (v77): resolved through anchorEventsTable() — see that helper's comment. The scratch
       // table name is derived from it too (`${anchorTable}_v51`), so a caller already at the final
       // `fixed_events` name (e.g. a test fixture) gets `fixed_events_v51`, matching what that
       // fixture expects to sabotage/observe.
@@ -2573,7 +2573,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // unit_ids rather than replaced by it — the down path must not lose scope.
   // Guard is `>= 64 && < 65`, NOT a bare `< 65` — see the v50 block's comment.
   if (getSchemaVersion(db) >= 64 && getSchemaVersion(db) < 65) {
-    // T267 (v75): resolved through anchorEventsTable() — see that helper's comment. The scratch
+    // T267 (v77): resolved through anchorEventsTable() — see that helper's comment. The scratch
     // table name is derived from it too (`${anchorTable}_v65`).
     const anchorTable = anchorEventsTable()
     const anchorCols = db.pragma(`table_info(${anchorTable})`)
@@ -2986,7 +2986,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
 
       const repointDayReferencers = (fromId, toId) => {
         db.prepare('UPDATE template_slots SET day_id = ? WHERE day_id = ?').run(toId, fromId)
-        // T267 (v75): repoint whichever of the two names currently exists — see the cohort-dedupe
+        // T267 (v77): repoint whichever of the two names currently exists — see the cohort-dedupe
         // block's identical comment (v11) for why this cannot assume the pre-rename name.
         db.prepare(`UPDATE ${anchorEventsTable()} SET day_id = ? WHERE day_id = ?`).run(toId, fromId)
         db.prepare('UPDATE elective_sets SET day_id = ? WHERE day_id = ?').run(toId, fromId)
@@ -3083,7 +3083,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // rebuilt anchor_activities to grow its CHECK constraint).
   if (getSchemaVersion(db) >= 70 && getSchemaVersion(db) < 71) {
     db.transaction(() => {
-      // T267 (v75): resolved through anchorEventsTable() — see that helper's comment.
+      // T267 (v77): resolved through anchorEventsTable() — see that helper's comment.
       const anchorTable = anchorEventsTable()
       const anchorCols = db.pragma(`table_info(${anchorTable})`).map((c) => c.name)
       if (anchorCols.includes('recurrence_level')) {

@@ -371,7 +371,7 @@ const ACKNOWLEDGED_UNKNOWNS = new Map([
   // COLUMN`, T181, same reasoning as elective_sets.recurrence_level below) until T267 (v75,
   // docs/adr/2026-09-26-fixed-recurring-event-identity-model.md) renamed anchor_activities to
   // fixed_events. This diffing mechanism watches MODELED table names (derived from
-  // campScopedEntities.js, which now says `fixed_events`), and v71 runs long before the v75 rename
+  // campScopedEntities.js, which now says `fixed_events`), and v71 runs long before the v77 rename
   // — so the table it actually alters at v71 is never observed under either watched name, and the
   // acknowledgment stopped being produced. Removed per this describe block's own rule: "An
   // acknowledgement outliving the thing it acknowledged... must fail rather than sit there looking
@@ -380,10 +380,17 @@ const ACKNOWLEDGED_UNKNOWNS = new Map([
   [
     'v71 elective_sets.recurrence_level',
     {
-      // Hash moved when T267 (v75) rewrote this block to resolve `anchor_activities`'s live table
+      // Hash moved when T267 (v77) rewrote this block to resolve `anchor_activities`'s live table
       // name dynamically (anchorEventsTable()) instead of hardcoding it — the elective_sets half of
       // this same block is untouched in behavior, only in the surrounding source text.
-      blockHash: '4a0de2af4108',
+      //
+      // Moved a SECOND time (2026-09-26) for less than that: T267 was renumbered v75 -> v77 late,
+      // and the in-block comment still said "T267 (v75)". Correcting that one comment moved the
+      // hash. Re-read the block rather than just re-stamping the number, as this guard demands: it
+      // repoints day_id across template_slots, the renamed fixed_events table (via
+      // anchorEventsTable()), elective_sets and elective_occurrences, and is unchanged in behavior
+      // — the diff inside this block is exactly `(v75)` -> `(v77)` in a comment and nothing else.
+      blockHash: 'bc98a890610b',
       why:
         'Plain `ALTER TABLE ... DROP COLUMN recurrence_level` (T181) — same shape and same ' +
         'reasoning as anchor_activities.recurrence_level above: no index, no CHECK, no ' +
