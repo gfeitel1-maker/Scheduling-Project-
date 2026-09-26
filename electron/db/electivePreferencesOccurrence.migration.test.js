@@ -1,11 +1,15 @@
 // @vitest-environment node
 //
 // Migration v78 (T265, docs/adr/2026-09-26-per-cell-elective-preferences.md)
-// — elective_preferences gains occurrence_id TEXT NOT NULL, a TABLE REBUILD
-// (DROP + CREATE), not an ALTER TABLE ADD COLUMN: a NOT NULL column has no
-// valid default, and inventing one for existing rows is forbidden (pre-
-// production, no live camp data — discard, don't guess). Modelled on
-// participantSubstrate.migration.test.js's fresh-vs-migrated shape.
+// — elective_preferences gains a NULLABLE occurrence_id, an ALTER TABLE ADD
+// COLUMN (round 5 corrected round 1's NOT NULL + DROP/CREATE, which discarded
+// every existing row — see localDb.js's comment on the v78 block for the
+// full history and the owner ruling that forced the correction: "we are
+// reading someone's data. we are not choosing how they import it"). A row
+// with occurrence_id = NULL is a legitimate whole-run preference, not a
+// defect, so a pre-v78 row (which by definition predates any occurrence
+// concept) carries forward unchanged rather than being discarded. Modelled
+// on participantSubstrate.migration.test.js's fresh-vs-migrated shape.
 import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -34,8 +38,9 @@ function freshDb() {
 }
 
 // A database migrated fully forward, then reverted BY HAND to the pre-v78
-// shape (elective_preferences with no occurrence_id column), carrying rows
-// that must be discarded by the forward migration.
+// shape (elective_preferences with no occurrence_id column), carrying a row
+// that the forward migration must now CARRY FORWARD (occurrence_id = NULL),
+// not discard.
 function preV78Db(tag = 'v78-migrated') {
   const db = new Database(tmpFile(tag))
   db.pragma('foreign_keys = ON')
@@ -80,36 +85,44 @@ describe('migration v78: elective_preferences gains occurrence_id', () => {
     db.close()
   })
 
-  it('fresh install: elective_preferences has occurrence_id TEXT NOT NULL and the named index', () => {
+  it('fresh install: elective_preferences has occurrence_id TEXT (nullable) and the named index', () => {
     const db = freshDb()
     const cols = tableInfo(db, 'elective_preferences')
     const occCol = cols.find((c) => c.name === 'occurrence_id')
     expect(occCol).toBeTruthy()
-    expect(occCol.notnull).toBe(1)
+    expect(occCol.notnull).toBe(0)
     const indexes = db.pragma("index_list(elective_preferences)").map((i) => i.name)
     expect(indexes).toContain('idx_elective_preferences_run_camper_occurrence')
     db.close()
   })
 
-  it('migrates a pre-v78 db forward, discarding existing rows (no valid default) and reports the count', () => {
+  it('migrates a pre-v78 db forward, CARRYING FORWARD the existing row with occurrence_id = NULL', () => {
     const db = preV78Db()
     expect(getSchemaVersion(db)).toBe(74)
     expect(db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c).toBe(1)
     initSchema(db)
     expect(getSchemaVersion(db)).toBe(78)
-    // The row existing before v78 had no occurrence_id and could not be
-    // migrated forward without inventing one — discarded, not carried over.
-    expect(db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c).toBe(0)
+    // The row existing before v78 had no occurrence concept at all — under
+    // the round-5 ruling that IS a legitimate whole-run preference, so it
+    // survives the migration rather than being discarded, and its new
+    // column's value is exactly the fallback semantics: NULL.
+    const rows = db.prepare('SELECT * FROM elective_preferences').all()
+    expect(rows.length).toBe(1)
+    expect(rows[0].id).toBe('pref1')
+    expect(rows[0].occurrence_id).toBeNull()
+    expect(rows[0].camper_id).toBe('cam1')
+    expect(rows[0].choice_id).toBe('choice1')
+    expect(rows[0].rank).toBe(1)
     db.close()
   })
 
-  it('post-v78 (migrated): occurrence_id is NOT NULL and the index exists', () => {
+  it('post-v78 (migrated): occurrence_id is nullable and the index exists', () => {
     const db = preV78Db()
     initSchema(db)
     const cols = tableInfo(db, 'elective_preferences')
     const occCol = cols.find((c) => c.name === 'occurrence_id')
     expect(occCol).toBeTruthy()
-    expect(occCol.notnull).toBe(1)
+    expect(occCol.notnull).toBe(0)
     const indexes = db.pragma("index_list(elective_preferences)").map((i) => i.name)
     expect(indexes).toContain('idx_elective_preferences_run_camper_occurrence')
     db.close()
@@ -149,7 +162,7 @@ describe('migration v78: elective_preferences gains occurrence_id', () => {
     ).toEqual([])
   })
 
-  it('a fresh insert without occurrence_id is refused by the NOT NULL constraint', () => {
+  it('a fresh insert with no occurrence_id succeeds — NULL is the legitimate whole-run shape', () => {
     const db = freshDb()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare(
@@ -159,7 +172,9 @@ describe('migration v78: elective_preferences gains occurrence_id', () => {
       db
         .prepare('INSERT INTO elective_preferences (id, run_id, camper_id, choice_id, rank) VALUES (?, ?, ?, ?, ?)')
         .run('pref1', 'run1', 'cam1', 'choice1', 1)
-    ).toThrow()
+    ).not.toThrow()
+    const row = db.prepare('SELECT * FROM elective_preferences WHERE id = ?').get('pref1')
+    expect(row.occurrence_id).toBeNull()
     db.close()
   })
 })

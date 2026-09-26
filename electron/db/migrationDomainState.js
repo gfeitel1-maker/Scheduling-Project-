@@ -216,6 +216,14 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // destroys as a result. v78 calls no appendOp. Precedent: v66 above, which also destroys
   // campers/elective_preferences/elective_assignments rows outright, is itself classified
   // SCHEMA_ONLY for the identical reason.
+  // v78 (T265, docs/adr/2026-09-26-per-cell-elective-preferences.md) ALTERs
+  // elective_preferences to add a nullable occurrence_id column (round 5 corrected round 1's
+  // NOT NULL + DROP/CREATE, which discarded every existing row — see localDb.js's comment on
+  // this block for the full history). Schema-only regardless of round: this file's own header
+  // says the classification tracks the MECHANISM — a migration that edits domain rows THROUGH
+  // THE DOCUMENT (appendOp) is domain-state; one that only reshapes a table via db.exec is
+  // schema-only, whatever it does or does not preserve as a result. v78 calls no appendOp in
+  // either round.
   78,
 ])
 

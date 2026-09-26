@@ -46,24 +46,30 @@ export function describeElectiveRunRefusal(parsed) {
     return 'a camper holds the same preference rank twice — the sheet cannot be read unambiguously.'
   }
   // T265 (v78, docs/adr/2026-09-26-per-cell-elective-preferences.md) — a
-  // preference is now per (day, period) CELL, not global to a run.
-  // src/ingest/preferenceSheet.js is OUT OF SCOPE for this ticket (the real
-  // ingest format is still unseen — see the ADR's "What this does not
-  // decide" section), so today's parser output names no occurrence_id at
-  // all: every commit of a sheet-imported preference is refused here, with a
-  // reason a director can read, rather than silently collapsing per-cell
-  // ranks the way the old 3-tuple id did. This check can only see the
-  // PARSED shape (no run context), so it catches "missing entirely"; the
-  // in-transaction write below is the backstop that also catches "names an
+  // preference is EITHER per (day, period) CELL or global to the whole run.
+  //
+  // ROUND 5 CORRECTION. Round 1 refused every preference with no
+  // occurrence_id, reasoning that today's parser (src/ingest/preferenceSheet.js,
+  // still out of scope) never emits one, so "absent" could only mean "the
+  // parser couldn't extract it". Owner ruling corrects that premise: "we are
+  // reading someone's data. we are not choosing how they import it" — a real
+  // camp's whole-run ranked list ALSO has no occurrence_id, legitimately, and
+  // this app must accept it rather than refuse it as if it were malformed.
+  // So "absent" (null/undefined) is now accepted as the whole-run fallback
+  // shape; only a MALFORMED occurrence_id — present, but not a non-empty
+  // string — is still refused, because that is not "no occurrence given", it
+  // is "a broken value was given". This check can only see the PARSED shape
+  // (no run context), so it catches "malformed"; the in-transaction write
+  // below is the backstop that also catches "a present occurrence_id names an
   // occurrence not in this run" — the two never disagree because a preview
   // and a commit both start from calling this same function.
-  const missingCell = (parsed?.preferences ?? []).find(
-    (p) => typeof p.occurrence_id !== 'string' || p.occurrence_id.length === 0
+  const malformedCell = (parsed?.preferences ?? []).find(
+    (p) => p.occurrence_id != null && (typeof p.occurrence_id !== 'string' || p.occurrence_id.length === 0)
   )
-  if (missingCell) {
+  if (malformedCell) {
     return (
-      `${missingCell.camper_id ?? 'A camper'}’s ranked choices don’t say which day and period ` +
-      'each one is for. This sheet’s format isn’t supported yet, so there is nothing to fix on it ' +
+      `${malformedCell.camper_id ?? 'A camper'}’s ranked choices name a day/period reference this ` +
+      'app cannot read. This sheet’s format isn’t supported yet, so there is nothing to fix on it ' +
       '— importing it would risk placing a camper on the wrong day, so this run is refused instead.'
     )
   }
@@ -296,19 +302,32 @@ export function commitElectiveRun(db, {
       for (const p of parsed.preferences ?? []) {
         const choiceId = choiceIdByKey.get(p.labelKey)
         if (!choiceId) throw new Error(`preference names a choice the sheet did not list: ${p.labelKey}`)
-        // Backstop for describeElectiveRunRefusal's "missing entirely" check
-        // above: this also catches an occurrence_id that names a real string
-        // but not one of THIS run's occurrences — describeElectiveRunRefusal
-        // cannot see that (it has no run context), so this is the one place
-        // that can. deriveElectivePreferenceId's opaque() call is the last
-        // backstop for "missing entirely" reaching this far at all.
-        if (!occurrenceIds.has(p.occurrence_id)) {
+        // Backstop for describeElectiveRunRefusal's "malformed" check above:
+        // this also catches an occurrence_id that names a real string but not
+        // one of THIS run's occurrences — describeElectiveRunRefusal cannot
+        // see that (it has no run context), so this is the one place that
+        // can. A NULL occurrence_id (the whole-run fallback, round 5) is
+        // deliberately exempt: it names no occurrence to validate against,
+        // and is legitimate regardless of which occurrences this run has.
+        // deriveElectivePreferenceId's opaque() call is the last backstop for
+        // a present-but-malformed occurrence_id reaching this far at all.
+        if (p.occurrence_id != null && !occurrenceIds.has(p.occurrence_id)) {
           throw new Error(`preference names an occurrence not in this run: ${p.occurrence_id}`)
         }
         write(
           'elective_preferences',
-          deriveElectivePreferenceId(runId, p.camper_id, p.occurrence_id, choiceId),
-          { run_id: runId, camper_id: p.camper_id, occurrence_id: p.occurrence_id, choice_id: choiceId, rank: p.rank }
+          deriveElectivePreferenceId(runId, p.camper_id, p.occurrence_id ?? null, choiceId),
+          {
+            run_id: runId,
+            camper_id: p.camper_id,
+            // Explicitly `?? null`, never left `undefined`: `write()` skips an
+            // undefined field entirely (see its own comment), which would
+            // leave a fallback row's occurrence_id at whatever ensureExists's
+            // placeholder inserted rather than actually recording NULL.
+            occurrence_id: p.occurrence_id ?? null,
+            choice_id: choiceId,
+            rank: p.rank,
+          }
         )
       }
 

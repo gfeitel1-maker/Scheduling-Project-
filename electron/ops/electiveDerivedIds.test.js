@@ -35,9 +35,30 @@ describe('frozen output vectors', () => {
     )
   })
 
-  it('pins deriveElectivePreferenceId', () => {
+  // T265 ROUND 5 re-pin, a DELIBERATE ACT per this block's own rule above —
+  // not an edit made to chase a failing test. The scoped arm now emits a
+  // literal 'occ' tag before the occurrence component (see
+  // deriveElectivePreferenceId's own comment for why: two derivation ARMS,
+  // not one arm with a sentinel value, so a fallback row's id can never
+  // collide with a scoped row's regardless of what any occurrence_id string
+  // happens to be). That re-keys every SCOPED epref1: id already derived
+  // under round 1. The shared module-level `V` was deliberately NOT bumped
+  // for this — V re-keys all FIVE derived-id kinds at once (occurrence,
+  // choice, offering, preference, assignment), and this repo has no live
+  // camp data anywhere to re-key (pre-production, bias bold: a clean cutover
+  // is preferred to a back-compat shim — the same tradeoff round 1's own ADR
+  // migration note already made for this exact table). Re-pinning the
+  // narrower preference-id vector alone is proportionate; bumping V is not.
+  it('pins deriveElectivePreferenceId (scoped)', () => {
     expect(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')).toBe(
-      'epref1:5.run-18.camper-15.occ-18.choice-1'
+      'epref1:5.run-18.camper-13.occ5.occ-18.choice-1'
+    )
+  })
+
+  // The fallback arm (null occurrence_id) — a NEW vector, not a re-pin.
+  it('pins deriveElectivePreferenceId (whole-run fallback, null occurrence_id)', () => {
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')).toBe(
+      'epref1:5.run-18.camper-13.all8.choice-1'
     )
   })
 
@@ -137,16 +158,36 @@ describe('deriveElectivePreferenceId — occurrence-scoped key (T265/v78)', () =
     )
   })
 
-  it('throws when occurrence_id is missing, rather than silently defaulting', () => {
-    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', undefined, 'choice-1')).toThrow(
-      /component/i
-    )
-    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')).toThrow(
-      /component/i
-    )
+  // ROUND 5 CORRECTION — occurrence_id ABSENT (null/undefined) is now the
+  // legitimate whole-run fallback shape, not an error: owner ruling, "we are
+  // reading someone's data. we are not choosing how they import it." Only a
+  // PRESENT but malformed occurrence_id (empty string) still throws — that is
+  // "a broken value was given", not "no value was given".
+  it('does not throw when occurrence_id is null or undefined — that is the whole-run fallback', () => {
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', undefined, 'choice-1')).not.toThrow()
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')).not.toThrow()
+  })
+
+  it('still throws when occurrence_id is present but malformed (empty string)', () => {
     expect(() => deriveElectivePreferenceId('run-1', 'camper-1', '', 'choice-1')).toThrow(
       /component/i
     )
+  })
+
+  it('is idempotent for the same (run, camper, choice) fallback (null occurrence_id)', () => {
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')).toBe(
+      deriveElectivePreferenceId('run-1', 'camper-1', undefined, 'choice-1')
+    )
+  })
+
+  it('a fallback (null occurrence_id) id never collides with any scoped id for the same camper+choice', () => {
+    const fallback = deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')
+    expect(fallback).not.toBe(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1'))
+    // Adversarial: an occurrence_id that spells the scoped arm's own literal
+    // tag must still not collide with the fallback arm's id — the arms are
+    // distinguished by TAG CONTENT ('occ' vs 'all'), which differ regardless
+    // of what a real occurrence_id string happens to be.
+    expect(fallback).not.toBe(deriveElectivePreferenceId('run-1', 'camper-1', 'all', 'choice-1'))
   })
 
   // THE ACTUAL FIX: the same camper ranking the same choice in two different

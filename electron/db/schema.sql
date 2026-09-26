@@ -1440,25 +1440,43 @@ CREATE TABLE IF NOT EXISTS elective_choice_offerings (
   activity_id TEXT
 );
 
--- elective_preferences (v66; occurrence_id added v78, T265). A camper's ranked
--- choice, now PER (day, period) CELL rather than global to a run.
+-- elective_preferences (v66; occurrence_id added v78, T265; made NULLABLE
+-- round 5). A camper's ranked choice, EITHER per (day, period) CELL (a
+-- non-null occurrence_id) OR global to the whole run (occurrence_id IS
+-- NULL). Owner ruling: "we are reading someone's data. we are not choosing
+-- how they import it" — a real camp produces both a per-cell grid and a
+-- single whole-run ranked list, and this app must accept either, never
+-- picking one as the only supported shape. occurrence_id NULL is that
+-- whole-run fallback, not a missing/invalid value.
 -- PII-adjacent: a row here plus a campers row is "this child wants this
 -- activity".
 -- Derived id: deriveElectivePreferenceId(run_id, camper_id, occurrence_id,
 -- choice_id) — v78 widens R1's key (run_id, camper_id, choice_id; owner ruling
 -- 2026-09-17). R1 is SUPERSEDED, not contradicted: it chose the 3-tuple
--- because the row had no occurrence to key on, and it now has one. See
--- electron/ops/electiveDerivedIds.js and
--- docs/adr/2026-09-26-per-cell-elective-preferences.md Decision 1.
+-- because the row had no occurrence to key on, and it now optionally has one.
+-- A null occurrence_id derives through a DIFFERENT arm of the same function
+-- (a fixed 'all' tag, no occurrence component) rather than a sentinel value
+-- sharing the scoped arm's slot — see that function's own comment for why.
+-- See electron/ops/electiveDerivedIds.js and
+-- docs/adr/2026-09-26-per-cell-elective-preferences.md Decision 1 and its
+-- round-5 amendment.
 -- No UNIQUE constraint: the derived id PRIMARY KEY IS the uniqueness
 -- invariant, same convention as elective_assignments.
+-- COLUMN ORDER: occurrence_id is declared LAST, not after camper_id, even
+-- though that reads oddly next to the prose above — matching where round 5's
+-- `ALTER TABLE elective_preferences ADD COLUMN occurrence_id` places it on a
+-- migrated pre-v78 db (SQLite always appends an ADD COLUMN). Same convention
+-- as elective_assignment_runs.finalized_at/finalized_by above (added v74,
+-- declared last there too): fresh-install and migrated-forward schemas must
+-- produce the IDENTICAL column array, order included, or
+-- electivePreferencesOccurrence.migration.test.js's cross-check fails.
 CREATE TABLE IF NOT EXISTS elective_preferences (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
   camper_id TEXT,
-  occurrence_id TEXT NOT NULL,
   choice_id TEXT,
-  rank INTEGER
+  rank INTEGER,
+  occurrence_id TEXT
 );
 
 -- idx_elective_preferences_run_camper_occurrence is NOT declared here,

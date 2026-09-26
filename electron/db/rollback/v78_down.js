@@ -12,9 +12,23 @@
 // exact collision T265 exists to eliminate — a linked choice's per-occurrence
 // ranks), collapsing them silently is precisely the silent-loss defect this
 // ticket fixes. So this rollback REFUSES whenever any (run_id, camper_id,
-// choice_id) spans more than one occurrence_id, and NAMES the blocking rows
-// rather than collapsing them. A director who wants to roll back anyway must
-// resolve or remove those rows first.
+// choice_id) has more than one row, and NAMES the blocking rows rather than
+// collapsing them. A director who wants to roll back anyway must resolve or
+// remove those rows first.
+//
+// ROUND 5 FIX to the blocking query itself: it used to be
+// `HAVING COUNT(DISTINCT occurrence_id) > 1`, written when occurrence_id was
+// NOT NULL and every row in a group necessarily had a real value. Round 5
+// made occurrence_id nullable (a whole-run FALLBACK row) — and
+// `COUNT(DISTINCT x)` in SQLite (like every other engine) never counts NULL,
+// so a group holding one fallback row (occurrence_id IS NULL) plus one
+// scoped row (occurrence_id = 'occ-1') evaluated to `COUNT(DISTINCT
+// occurrence_id) = 1`, UNDER-counting by exactly the NULL row and letting a
+// real 2-row collision through undetected. The fix is `COUNT(*) > 1`: ANY
+// second row sharing (run_id, camper_id, choice_id) collapses under the old
+// 3-tuple key regardless of whether either row's occurrence_id is NULL, a
+// real value, or the two differ — the property that matters is row count in
+// the group, not distinct non-null occurrence values.
 //
 // Usage:  node electron/db/rollback/v78_down.js <path-to-shoresh.sqlite>
 
@@ -33,17 +47,20 @@ export function rollbackV78(db) {
     return { ok: true, discarded: { preferences: 0 } }
   }
 
-  // REFUSE, don't collapse. A (run_id, camper_id, choice_id) triple naming
-  // more than one occurrence_id would silently lose the per-cell rank
-  // distinction if the key narrows back to the 3-tuple.
+  // REFUSE, don't collapse. A (run_id, camper_id, choice_id) group with MORE
+  // THAN ONE ROW would silently lose a distinct rank if the key narrows back
+  // to the 3-tuple — `COUNT(*)`, not `COUNT(DISTINCT occurrence_id)`: the
+  // latter drops NULL rows (a whole-run fallback preference, legitimate since
+  // round 5) from the count, which would let a fallback-row-plus-scoped-row
+  // collision through undetected. See this file's header comment.
   const blocking = db
     .prepare(
-      `SELECT run_id, camper_id, choice_id, COUNT(DISTINCT occurrence_id) AS occ_count,
-              GROUP_CONCAT(DISTINCT occurrence_id) AS occurrence_ids
+      `SELECT run_id, camper_id, choice_id, COUNT(*) AS row_count,
+              GROUP_CONCAT(DISTINCT COALESCE(occurrence_id, '(none — whole-run)')) AS occurrence_ids
          FROM elective_preferences
         WHERE camper_id IS NOT NULL AND choice_id IS NOT NULL
         GROUP BY run_id, camper_id, choice_id
-       HAVING COUNT(DISTINCT occurrence_id) > 1`
+       HAVING COUNT(*) > 1`
     )
     .all()
 
@@ -51,16 +68,17 @@ export function rollbackV78(db) {
     return {
       ok: false,
       error:
-        `refused: ${blocking.length} (run_id, camper_id, choice_id) row-group(s) span more than ` +
-        'one occurrence_id — rolling back would silently collapse distinct per-cell preference ' +
-        'ranks onto one row. Resolve or remove these rows before rolling back v78.',
+        `refused: ${blocking.length} (run_id, camper_id, choice_id) row-group(s) hold more than ` +
+        'one row — rolling back would silently collapse distinct preference ranks (per-cell, or a ' +
+        'per-cell row alongside a whole-run fallback) onto one row. Resolve or remove these rows ' +
+        'before rolling back v78.',
       blocking,
     }
   }
 
   // Count BEFORE destroying, so the report is honest about what went — every
-  // group above is already singleton-occurrence, so the column is dropped
-  // with no distinct-rank information lost.
+  // group above is already singleton, so the column is dropped with no
+  // distinct-rank information lost.
   const discarded = { preferences: countIfPresent(db, 'elective_preferences') }
 
   db.transaction(() => {

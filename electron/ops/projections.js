@@ -933,13 +933,13 @@ export const PROJECTIONS = {
       ).run(id, value)
     },
   },
-  // T265 (v78): occurrence_id is TEXT NOT NULL on the table, but fields arrive
-  // one at a time over the wire and this stub can only ever know 'run_id' at
-  // creation time. Same convention as ensureRunStub's own name:'' and
-  // elective_choices' label:'' below — a placeholder that satisfies NOT NULL
-  // until the real occurrence_id field lands (which it always will: every
-  // preference commitElectiveRun writes now includes it), never a value this
-  // app treats as meaningful.
+  // T265 (v78, round 5): occurrence_id is nullable, so this stub no longer needs a NOT-NULL
+  // placeholder — NULL is a legitimate value in its own right (a whole-run fallback
+  // preference), not a state to paper over until the real field arrives. Same shape as every
+  // other entity's ensureExists: insert a bare placeholder row on 'run_id' (the first field
+  // commitElectiveRun's write() always writes), and let the ordinary per-field UPDATE apply
+  // occurrence_id — whether that value ends up NULL (fallback) or a string (scoped) is exactly
+  // what the caller wrote, never coerced here.
   elective_preferences: {
     table: 'elective_preferences',
     key: 'id',
@@ -947,10 +947,10 @@ export const PROJECTIONS = {
     ensureExists: (db, id, field, value) => {
       if (field !== 'run_id') return
       ensureRunStub(db, value)
-      getStmt(
-        db,
-        "INSERT OR IGNORE INTO elective_preferences (id, run_id, occurrence_id) VALUES (?, ?, '')"
-      ).run(id, value)
+      getStmt(db, 'INSERT OR IGNORE INTO elective_preferences (id, run_id) VALUES (?, ?)').run(
+        id,
+        value
+      )
     },
   },
   // The output row whose DERIVED ID is the uniqueness invariant (ADR D4). Two

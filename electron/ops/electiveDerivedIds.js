@@ -287,18 +287,53 @@ export function deriveElectiveChoiceOfferingId(choiceId, occurrenceId, activityI
 // SUPERSEDED, NOT CONTRADICTED (T265, v78, docs/adr/2026-09-26-per-cell-
 // elective-preferences.md Decision 1). R1's own stated condition — "the row
 // has no occurrence_id column" — no longer holds: elective_preferences gained
-// occurrence_id at schema v78 because a director's ranking is per (day,
-// period) cell, not global to a run. A linked choice spans multiple
-// occurrences, and a camper can rank it differently per cell; the 3-tuple key
-// collapsed every such row onto one id (T251's fixture measured 177 such
-// collisions across 429 rows). occurrence_id joins the key as a REQUIRED
-// (opaque(), non-null-guarded) component, not an optional one — a preference
-// with no occurrence cannot silently derive an id.
+// occurrence_id at schema v78 because a director's ranking CAN BE per (day,
+// period) cell. A linked choice spans multiple occurrences, and a camper can
+// rank it differently per cell; the 3-tuple key collapsed every such row onto
+// one id (T251's fixture measured 177 such collisions across 429 rows).
+//
+// ROUND 5 AMENDMENT — occurrence_id is OPTIONAL, not required. Owner ruling,
+// verbatim: "we are reading someone's data. we are not choosing how they
+// import it." A real camp produces both a per-cell grid AND a single
+// whole-run ranked list (docs/adr/2026-09-17-individual-elective-scheduling.md
+// :481), and this app does not get to prefer one. A row naming an
+// occurrence_id is scoped to that cell; a row with none is a WHOLE-RUN
+// FALLBACK, and `occurrenceId` here is `null` for it — never coerced to a
+// placeholder string, which would let a fallback collide with (or be
+// mistaken for) a real occurrence.
+//
+// TWO DERIVATION ARMS, not one arm with a sentinel occurrence value. A
+// sentinel string occupying the SAME component slot as a real occurrence_id
+// can only be guaranteed collision-free by restricting the alphabet real
+// occurrence ids may use — a constraint this module cannot impose on
+// `deriveElectiveOccurrenceId`'s callers. Instead the two arms differ in
+// STRUCTURE: the scoped arm emits a literal 'occ' tag followed by the
+// occurrence component; the fallback arm emits a literal 'all' tag with NO
+// occurrence component at all. `join` is length-prefixed and therefore
+// decodes deterministically component-by-component — two component
+// SEQUENCES that differ in their tag value ('occ' vs 'all', which can never
+// be equal strings) or in their component COUNT (5 vs 4) cannot encode to
+// the same string, regardless of what any occurrence_id, camper_id or run_id
+// value happens to be. This is the same injectivity argument `join`'s own
+// comment makes for length-prefixing in general — it is not a new,
+// unverified property of this function, and does not depend on trusting any
+// particular sentinel value to stay unused.
+//
+// UNIQUENESS (Governor round-5 requirement): exactly one scoped row per (run,
+// camper, occurrence, choice) — the scoped arm includes occurrence_id, so two
+// different occurrences derive two different ids, each a legitimate distinct
+// row. At most one fallback row per (run, camper, choice) — the fallback arm
+// excludes occurrence_id entirely, so every fallback preference for the same
+// (run, camper, choice) derives the SAME id, and a second whole-run ranking
+// of the same choice by the same camper overwrites the first rather than
+// creating a second row (the derived id IS the uniqueness invariant, same
+// convention as every other entity in this module).
 export function deriveElectivePreferenceId(runId, camperId, occurrenceId, choiceId) {
+  const scope = occurrenceId != null ? ['occ', opaque('occurrence_id', occurrenceId)] : ['all']
   return `epref${V}:${join([
     opaque('run_id', runId),
     opaque('camper_id', camperId),
-    opaque('occurrence_id', occurrenceId),
+    ...scope,
     derivedChoiceId(choiceId),
   ])}`
 }

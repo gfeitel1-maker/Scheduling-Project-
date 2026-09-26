@@ -9,7 +9,8 @@ import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from './commitElectiveRun.js'
 import { setElectiveAssignment } from './setElectiveAssignment.js'
-import { deriveElectiveAssignmentId } from './electiveDerivedIds.js'
+import { deriveElectiveAssignmentId, electiveChoiceLabelKey } from './electiveDerivedIds.js'
+import { buildElectiveAssignments } from '../../src/engine/buildElectiveAssignments.js'
 import {
   electiveGenerationVisibleFragment,
   electiveGenerationStaleSolverFragment,
@@ -528,19 +529,121 @@ describe('commitElectiveRun', () => {
   })
 })
 
-describe('describeElectiveRunRefusal — missing occurrence_id (T265 round-3 review finding 6)', () => {
-  it('names the camper, avoids engine jargon, and says the sheet format is not supported', () => {
+// T265 ROUND 5 — owner ruling: "we are reading someone's data. we are not
+// choosing how they import it." A whole-run ranked list (no occurrence_id at
+// all) is exactly as legitimate a source shape as a per-cell grid. The round-3
+// refusal below was WRONG under this ruling — it rejected a real camp's
+// whole-run sheet as if it were malformed. Replaced by two tests: refusal
+// no longer fires for an absent occurrence_id, and still fires for a
+// genuinely malformed one (present but empty/wrong-typed).
+describe('describeElectiveRunRefusal — whole-run fallback preferences are legitimate (T265 round 5)', () => {
+  it('does NOT refuse a preference with no occurrence_id at all (a legitimate whole-run row)', () => {
     const parsed = {
       ...PARSED,
       preferences: [
         { camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 },
       ],
     }
-    const refusal = describeElectiveRunRefusal(parsed)
-    expect(refusal).toContain('cam-1')
-    expect(refusal.toLowerCase()).not.toContain('occurrence')
-    expect(refusal.toLowerCase()).toMatch(/day and period|day, period/)
-    expect(refusal.toLowerCase()).toMatch(/support/)
-    expect(refusal.toLowerCase()).toMatch(/not/)
+    expect(describeElectiveRunRefusal(parsed)).toBeNull()
+  })
+
+  it('still refuses a preference whose occurrence_id is present but malformed (empty string)', () => {
+    const parsed = {
+      ...PARSED,
+      preferences: [
+        { camper_id: 'cam-1', occurrence_id: '', label: 'Archery', labelKey: 'archery', rank: 1 },
+      ],
+    }
+    expect(describeElectiveRunRefusal(parsed)).not.toBeNull()
+  })
+
+  it('still refuses a preference whose occurrence_id is present but not a string', () => {
+    const parsed = {
+      ...PARSED,
+      preferences: [
+        { camper_id: 'cam-1', occurrence_id: 42, label: 'Archery', labelKey: 'archery', rank: 1 },
+      ],
+    }
+    expect(describeElectiveRunRefusal(parsed)).not.toBeNull()
+  })
+})
+
+// NON-VACUITY (T265 round 5). Round 1's fallback path in
+// buildElectiveAssignments.js was only ever exercised by hand-built in-memory
+// fixtures — the exact T62 failure shape this repo has already had once (an
+// exclusion Set that was empty in production for a month behind a green unit
+// test). This test writes a whole-run preference through the REAL write path
+// (commitElectiveRun), reads the row back from SQLite exactly as any real
+// caller would, and solves from what was read — proving a fallback row can
+// actually exist end to end, not just inside a fixture literal.
+//
+// SYSTEM-LEVEL PREDICATE this proves: a whole-run (occurrence_id-less)
+// preference (a) is accepted by the write path, (b) persists in
+// elective_preferences with occurrence_id actually NULL (not discarded, not
+// coerced to some placeholder), and (c) is honoured by the engine as a
+// fallback for EVERY occurrence the camper attends that has no scoped row —
+// the same rank in every one of them, because there is only one row to read.
+describe('whole-run fallback preferences survive the real write path (T265 round 5, non-vacuity)', () => {
+  it('writes a whole-run preference, reads it back, and the engine honours it as a fallback in every occurrence', () => {
+    const { db, campId } = freshDb()
+    const occurrences = [
+      { id: 'occ-1', elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', tier_id: 'tier-1' },
+      { id: 'occ-2', elective_set_id: 'set-1', day_id: 'day-2', time_block_id: 'tb-1', tier_id: 'tier-1' },
+    ]
+    const parsed = {
+      campers: [{ id: 'cam-1', display_name: 'Ari Green', external_id: null }],
+      choices: [{ label: 'Archery', labelKey: 'archery' }],
+      // NO occurrence_id at all — a whole-run ranked list, exactly the shape
+      // a camp's third-party portal export or a paper ranked list produces.
+      preferences: [{ camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 }],
+      sameNameCampers: [],
+      skippedRows: [],
+    }
+
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Whole-run sheet',
+      parsed, assignments: [], occurrences,
+    })
+    expect(out.ok).toBe(true)
+
+    // (a)+(b): the row landed, and occurrence_id is genuinely NULL — not
+    // discarded, not a placeholder string.
+    const rows = db.prepare('SELECT * FROM elective_preferences WHERE run_id = ?').all(out.runId)
+    expect(rows.length).toBe(1)
+    expect(rows[0].occurrence_id).toBeNull()
+    expect(rows[0].camper_id).toBe('cam-1')
+    expect(rows[0].rank).toBe(1)
+
+    // (c): read the row back exactly as a caller would (raw columns, no
+    // special-casing for "this one has no occurrence"), plus the choice it
+    // points at, and solve.
+    const choiceRow = db.prepare('SELECT * FROM elective_choices WHERE run_id = ?').get(out.runId)
+    const readBackPreferences = rows.map((r) => ({
+      camper_id: r.camper_id,
+      choice_id: r.choice_id,
+      occurrence_id: r.occurrence_id,
+      rank: r.rank,
+    }))
+
+    const solved = buildElectiveAssignments({
+      campers: [{ id: 'cam-1' }],
+      occurrences: [{ id: 'occ-1' }, { id: 'occ-2' }],
+      offerings: [
+        { occurrence_id: 'occ-1', labelKey: electiveChoiceLabelKey(choiceRow.label), activity_id: 'act-archery', capacity: 5 },
+        { occurrence_id: 'occ-2', labelKey: electiveChoiceLabelKey(choiceRow.label), activity_id: 'act-archery', capacity: 5 },
+      ],
+      preferences: readBackPreferences,
+      choices: [{ id: choiceRow.id, labelKey: electiveChoiceLabelKey(choiceRow.label) }],
+    })
+
+    const byOcc = Object.fromEntries(solved.assignments.map((a) => [a.occurrence_id, a]))
+    expect(byOcc['occ-1'].activity_id).toBe('act-archery')
+    expect(byOcc['occ-1'].preference_rank).toBe(1)
+    expect(byOcc['occ-2'].activity_id).toBe('act-archery')
+    expect(byOcc['occ-2'].preference_rank).toBe(1)
+    expect(byOcc['occ-1'].flags).toEqual([])
+    expect(byOcc['occ-2'].flags).toEqual([])
+
+    db.close()
   })
 })

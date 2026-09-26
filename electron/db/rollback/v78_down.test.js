@@ -57,4 +57,30 @@ describe('rollbackV78', () => {
     expect(db.pragma('table_info(elective_preferences)').map((c) => c.name)).toContain('occurrence_id')
     db.close()
   })
+
+  // T265 ROUND 5 — occurrence_id is now nullable (a whole-run fallback row).
+  // `COUNT(DISTINCT occurrence_id)` never counts NULL, so a group holding one
+  // fallback row (occurrence_id IS NULL) plus one scoped row for the SAME
+  // (run, camper, choice) evaluated to 1 distinct value under the OLD query —
+  // under-counting by exactly the NULL row — and rollback would have silently
+  // collapsed two genuinely distinct rows into one. This is the case that
+  // query missed; `COUNT(*) > 1` catches it because it counts ROWS, not
+  // distinct non-null values.
+  it('refuses when one (run, camper, choice) holds a whole-run fallback row (NULL occurrence_id) alongside a scoped row', () => {
+    const db = freshDb()
+    db.prepare(
+      "INSERT INTO elective_preferences (id, run_id, camper_id, occurrence_id, choice_id, rank) VALUES ('p1', 'run1', 'cam1', NULL, 'choice1', 1)"
+    ).run()
+    db.prepare(
+      "INSERT INTO elective_preferences (id, run_id, camper_id, occurrence_id, choice_id, rank) VALUES ('p2', 'run1', 'cam1', 'occ-1', 'choice1', 3)"
+    ).run()
+
+    const result = rollbackV78(db)
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/refused/)
+    expect(result.blocking).toHaveLength(1)
+    expect(result.blocking[0]).toMatchObject({ run_id: 'run1', camper_id: 'cam1', choice_id: 'choice1' })
+    expect(db.pragma('table_info(elective_preferences)').map((c) => c.name)).toContain('occurrence_id')
+    db.close()
+  })
 })

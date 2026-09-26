@@ -3,7 +3,7 @@ title: "Elective preferences are per (day, period) cell, and placement is two-ph
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: in-progress (schema v78 + engine per-cell reads/tier-1 min-fold done; two-phase minimum validation and cancellation order, Decisions 2/3, not built)
+implementation_state: in-progress (schema v78 nullable + engine per-cell reads/tier-1 min-fold + write-path (commit/derive-id) accepts both per-cell and whole-run shapes, all done; two-phase minimum validation and cancellation order, Decisions 2/3, not built)
 date: 2026-09-26
 approved: 2026-09-26 (owner — preference shape corrected against a real artifact; cancellation order ruled)
 task_class: scheduling-engine
@@ -228,6 +228,84 @@ all member occurrences), **4** genuinely disagree by 2 ranks or less, and **1** 
 ranks (ranks 1 and 4 for the same linked choice, by one camper) — narrower than this amendment's first
 draft assumed ("none by more than 2 ranks"); the actual fixture has exactly one such case, and the
 min-fold rule handles it the same way regardless of magnitude.
+
+## Amendment 2026-09-26 (round 5): occurrence_id is optional, not required — the write path must accept both source shapes
+
+Round 1 through 4 built the READ side of this ADR (the engine) but left the WRITE side (schema,
+derived id, commit refusal) asserting `occurrence_id TEXT NOT NULL` and refusing any preference that
+lacked one. That was internally consistent with itself but not with the ADR's own opening premise, and
+not with an owner ruling made twice, verbatim, while this ticket was in progress:
+
+> "it shouldn't matter. we keep going over this. we are reading someone's data. we are not choosing
+> how they import it." … "it does not matter what tool someone uses."
+
+`docs/adr/2026-09-17-individual-elective-scheduling.md:481` already observed BOTH a per-cell grid
+sign-up sheet and a single whole-run ranked list in real camp artifacts. The per-cell shape this ADR
+describes is the SPECIFIC case; a whole-run list is the DEGENERATE case where one ranking covers every
+cell. Neither is preferred over the other, and the write path must represent both — a preference row
+naming an `occurrence_id` is scoped to that cell; a row with none is a whole-run fallback, used by the
+engine (already built this way since the round-4 amendment above) for any occurrence with no scoped
+row for that camper+choice.
+
+**What changed to make that true, end to end:**
+
+- **`elective_preferences.occurrence_id` is now `TEXT` (nullable), not `TEXT NOT NULL`.** The v78
+  migration is an `ALTER TABLE ADD COLUMN` (nullable, defaulting every existing row to NULL), not the
+  `DROP TABLE` + `CREATE TABLE` round 1 shipped. Column order in schema.sql's fresh CREATE TABLE moves
+  `occurrence_id` to LAST, matching where `ALTER TABLE ADD COLUMN` places it on a migrated database —
+  the same convention `elective_assignment_runs.finalized_at`/`finalized_by` (v74) already uses, and
+  for the identical reason: fresh-install and migrated-forward schemas must produce byte-identical
+  column arrays, order included.
+- **Existing rows are carried forward, not discarded.** Round 1's migration discarded every pre-v78
+  row on the reasoning that a `NOT NULL` column has no valid default and none may be invented. That
+  reasoning was correct GIVEN `NOT NULL` — but a pre-v78 row (which by definition predates any
+  occurrence concept in this schema) IS exactly a whole-run preference under this ruling, and NULL is
+  its correct value, not a value that has to be invented. Nothing is discarded; nothing is guessed.
+- **`deriveElectivePreferenceId` gains a second derivation arm for a null `occurrence_id`, not a
+  sentinel value sharing the scoped arm's slot.** A sentinel string occupying the same component
+  position as a real `occurrence_id` can only be guaranteed collision-free by constraining what values
+  a real `occurrence_id` may take — a constraint this module does not and cannot enforce on
+  `deriveElectiveOccurrenceId`'s callers. Instead the scoped arm emits a literal `'occ'` tag before the
+  occurrence component, and the fallback arm emits a literal `'all'` tag with no occurrence component
+  at all; `join`'s own length-prefixing makes decoding a component sequence deterministic and total, so
+  two sequences differing in tag content or component count can never encode to the same string,
+  regardless of any occurrence_id, camper_id or run_id value. This also delivers the required
+  uniqueness property directly: exactly one scoped row per (run, camper, occurrence, choice) — the
+  scoped arm's id is a function of occurrence_id, so distinct occurrences derive distinct ids — and at
+  most one fallback row per (run, camper, choice) — the fallback arm's id is independent of
+  occurrence_id, so a second whole-run ranking of the same choice by the same camper overwrites the
+  first rather than creating a duplicate row.
+  - This re-keys every previously-derived SCOPED preference id (the tag is now part of the encoding).
+    The module's shared `V` constant, which re-keys all five derived-id kinds at once (occurrence,
+    choice, offering, preference, assignment) if bumped, was deliberately left unbumped: this repo has
+    no live camp data anywhere to re-key, on any branch, so a full re-key is disproportionate to a
+    change that only touches one function's internal shape — the same pre-production, bias-bold
+    tradeoff this ADR's own migration note (below) already made for this table.
+- **`describeElectiveRunRefusal` no longer refuses an absent `occurrence_id`.** It still refuses a
+  PRESENT but malformed one (empty string, or a non-string value) — that is "a broken value was
+  given," a genuinely different claim from "no value was given," which is now legitimate. The
+  in-transaction backstop in `commitElectiveRun.js` (which also catches a scoped `occurrence_id`
+  naming an occurrence not in the run) is exempted the same way: a null `occurrence_id` names no
+  occurrence to validate against, and is legitimate regardless of which occurrences the run has.
+- **The commit write itself passes `occurrence_id: null` explicitly, never `undefined`.**
+  `commitElectiveRun`'s `write()` helper skips a field whose value is `undefined` entirely (by
+  design, for optional fields on other entities) — passing `undefined` here would leave a fallback
+  row's `occurrence_id` at whatever the projection's placeholder-row insert left it, rather than
+  actually recording NULL through the op log. The projection's `ensureExists` placeholder for this
+  entity no longer needs a NOT-NULL placeholder value either (round 1 used `''`); it now inserts a
+  bare row and lets the ordinary per-field UPDATE apply whatever `occurrence_id` value — NULL or a
+  string — the caller actually wrote.
+
+**Non-vacuity.** Round 1 through 4's fallback path in `buildElectiveAssignments.js` was exercised only
+by hand-built in-memory test fixtures, which proves the engine's LOGIC but nothing about whether a
+fallback row can exist at all through the real system — the same shape of failure this repo has
+already had once (T62: an exclusion Set that was empty in production for a month behind a green unit
+test that hand-built a field real rows never carried). `electron/ops/commitElectiveRun.test.js`'s
+"whole-run fallback preferences survive the real write path" test closes that gap: it commits a
+whole-run preference through `commitElectiveRun`, reads the row back from SQLite by its actual
+columns, and feeds that read-back row into `buildElectiveAssignments`, asserting the engine honours it
+identically in every occurrence — proving the path end to end, not just the engine's own logic in
+isolation.
 
 ## Migration note
 
