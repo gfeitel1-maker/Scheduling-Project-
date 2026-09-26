@@ -1,7 +1,7 @@
 ---
 title: T218-elective-export-third-party-adapter
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-18
 archive_when: a third-party export adapter for elective offerings/preferences is designed or explicitly rejected
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
@@ -58,3 +58,49 @@ Two consequences worth stating plainly, because "de-gated" is not "solved":
 
 Kept OPEN rather than closed: the real export format is still unknown, and the first real import is
 still where that gets learned. It is no longer a prerequisite for building.
+
+## Closed (2026-09-26)
+
+Closed by owner ruling, not by completion. Status is `closed`, not `completed` — the
+`archive_when` above ("a third-party export adapter ... is designed or explicitly rejected") is
+discharged by the **explicit rejection** half, not by a design being delivered. Nothing was built.
+
+The owner's words:
+
+> "it does not matter what tool someone uses."
+
+and, on source data shapes generally:
+
+> "it shouldn't matter. we keep going over this. we are reading someone's data. we are not choosing ho they import it. i don't know why we keep going round and round about this"
+
+**What that decides.** This ticket's premise was a per-third-party adapter — identify the product,
+learn its documented export contract, write a boundary that speaks it. The owner rejects
+tool-specific coupling outright. The source format is the camp's, not ours; we read what arrives
+and normalize it. "Which tool does the camp use" is a mis-typed question, not an open decision, and
+this ticket cannot be reshaped around it.
+
+**What already makes this true in code** (the reason the close is "overtaken", not merely
+"declined"). The preference-sheet ingest path — the surface this ticket's own de-gating section
+narrowed to — is already mapping-driven rather than format-driven:
+
+- `src/ingest/preferenceSheet.js:9-18` states the property directly: a new export format is a
+  mapping, not a code change.
+- `src/ingest/preferenceSheet.js:38` `inferPreferenceMapping(header)` proposes a column layout from
+  whatever header arrived; `:63` carries nullable fields and an `unmapped` remainder.
+- `src/ingest/preferenceSheet.js:77` `parsePreferenceSheet(rows, { campId, mapping })` parses
+  *under* the mapping — the layout is an argument, not a constant.
+- The director corrects the proposal in-app at
+  `src/screens/elective/assignment/MappingCorrector.jsx:41`, wired at
+  `src/screens/elective/assignment/AssignmentPanel.jsx:527`.
+
+That is the adapter boundary this ticket asked for, already built and already tool-agnostic. An
+adapter named after a vendor would be a step backwards from it.
+
+**One gap named honestly, so the close does not read wider than it is.** The *offering-grid* ingest
+path is not mapping-driven the way the preference path is: axis labels are matched to existing
+entities by name with no remap seam
+(`src/ingest/electiveSetPopulate.js:140-161`, refusal at `:103-104`), and orientation is inferred
+heuristically with a refuse-whole-sheet outcome when not confident
+(`src/ingest/parseGridSchedule.js:196-197`, `:344`). That is a real capability gap, but it is not
+this ticket's gap — it is the grid surface, and it is recorded against T219 and handed to the owner
+separately. Closing T218 does not close it.

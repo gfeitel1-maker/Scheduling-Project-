@@ -1,7 +1,7 @@
 ---
 title: "Update-on-open: keep a device current before it is allowed to sync"
 document_type: ticket
-status: open
+status: closed
 created: 2026-09-18
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
@@ -87,3 +87,37 @@ So the only two valid ways to close this ticket are:
 Closing it as "no longer needed" without doing (2) leaves a `status: accepted`, `authority:
 normative` ADR asserting a safety property with nothing behind it. That is worse than never having
 written the decision down, because the next reader will trust it.
+
+## Closed (2026-09-26)
+
+Closed by owner ruling. Status is `closed`, not `completed` — this ticket's own `archive_when` ("a
+device below the minimum supported app version is kept off the sync path ... and the mechanism is
+demonstrated to be unskippable") is **undischarged and will stay undischarged**. Nothing was built.
+`completed` would assert a mechanism exists; it does not, and by this decision it will not.
+
+The owner's words:
+
+> "when someone comes online, they sync."
+
+**What that decides.** The premise is rejected, not deferred. Update-on-open was a gate: keep a
+device current *before* it is allowed onto the sync path. The owner's direction is the opposite
+default — coming online means syncing, full stop. That removes the updater, the version gate, the
+minimum-supported-version record, and the ADR this ticket said it would need. The section above,
+"Before you close or de-scope this ticket", argued that only two closures were valid — build it, or
+take the decision back to the owner. This is the second: the decision went back to the owner and he
+made it directly.
+
+**The ADR obligation named above is not silently dropped.** That section requires
+`docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md` be amended in the same change, on
+the grounds that its "mixed-version replication is out of scope" decision rested on update-on-open
+existing. That ADR is held by another session in this window and was deliberately not touched here;
+the amendment is handed to the owner as an open item rather than assumed done. **A reader of that
+ADR should treat its enforcement story as unsettled until it is amended.**
+
+**The narrower correctness concern this ticket did not actually contain.** A peer session suggested
+T222's real content might be a transport-boundary correctness question — a
+version-incompatible peer malforming a shared Automerge document — rather than the stale-device
+admission policy the owner rejected. Checked: that concern is **not present in this ticket**. The
+scope list above is entirely about admission policy (block / update / prompt, minimum supported
+version, the offline device). The document-shape hazard is real but lives elsewhere and is handed
+to the owner separately; it is not kept alive here, and nothing is to be built from this ticket.
