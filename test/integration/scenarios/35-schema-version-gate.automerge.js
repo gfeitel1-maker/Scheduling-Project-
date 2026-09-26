@@ -51,6 +51,7 @@
  */
 import * as A from '@automerge/automerge'
 import { AmHost, AmClient, makeTmpDir, cleanupDirs, waitFor, configureDualWrite } from '../harnessAutomerge.js'
+import { CURRENT_SCHEMA_VERSION } from '../../../electron/db/localDb.js'
 
 export async function run() {
   const dirs = []
@@ -67,14 +68,14 @@ export async function run() {
     // below) is a REAL restart+reconnect, not a further flip of this variable — see this file's
     // header comment for why a same-connection flip alone does not reconverge a write the sender
     // already believes it delivered.
-    let hostRequiredVersion = 76
+    let hostRequiredVersion = CURRENT_SCHEMA_VERSION
     host = new AmHost(`${tmpDir}/host.db`, { localSchemaVersion: () => hostRequiredVersion })
     await host.start()
     await host.bootstrap()
 
     client = new AmClient(`${tmpDir}/client.db`)
     client.open()
-    // Real handshake, both sides currently at 76 — join must succeed normally; this is also
+    // Real handshake, both sides currently at CURRENT_SCHEMA_VERSION — join must succeed normally; this is also
     // Verification item 4 (pre-existing document, no backfill needed): createEmptyDoc() carries no
     // schemaVersion field of any kind after round 3 (there is no longer a document-root field at
     // all), so THIS ordinary join/seed setup already IS "a document the way a pre-T271 camp's
@@ -90,9 +91,9 @@ export async function run() {
 
     // --- Verification item 2: same-genesis, MISMATCHED versions, real incremental path ------------
     // Bump the Host's own requirement above the Client's real, unchanged, truthfully-announced
-    // version (still 76 — the Client never lied about anything). From here on the Host requires 77;
-    // the Client is still genuinely, honestly at 76.
-    hostRequiredVersion = 77
+    // version (still CURRENT_SCHEMA_VERSION — the Client never lied about anything). From here on
+    // the Host requires one more than that; the Client is still genuinely, honestly at the real value.
+    hostRequiredVersion = CURRENT_SCHEMA_VERSION + 1
 
     const hostSyncStateBefore = host.node.getSyncStateBytesForTest(client.node.peerId)
     const clientSyncStateBefore = client.node.getSyncStateBytesForTest(host.node.peerId)
@@ -184,7 +185,7 @@ export async function run() {
     // state for the Client the instant `isPeerSyncCompatible` flips back to true — no disconnect, no
     // re-authenticate, just the Host's own next trigger (another local write). This is the direction
     // the ADR's "no re-discovery/re-dial needed" language is actually true of.
-    hostRequiredVersion = 76
+    hostRequiredVersion = CURRENT_SCHEMA_VERSION
     await new Promise((r) => setTimeout(r, 500))
     await host.write({ entity: 'activities', entity_id: 'trigger-recovery', field: 'name', value: 'Trigger' })
     await waitFor(() => !!client.domainRow('activities', 'host-side-during-mismatch'), 8000)
@@ -211,6 +212,10 @@ export async function run() {
     // this isolated from the host/client pair above rather than disturbing already-asserted state.
     let secondClient
     try {
+      // 999 is a deliberate, arbitrary override — it must differ from CURRENT_SCHEMA_VERSION for
+      // this check to mean anything (proving reconnect() announces the OVERRIDE, not the real
+      // constant), so it stays a literal rather than becoming version-relative like the rest of
+      // this file's values.
       secondClient = new AmClient(`${tmpDir}/second-client.db`, { handshakeSchemaVersion: 999 })
       secondClient.open()
       await secondClient.join(host)
@@ -220,7 +225,7 @@ export async function run() {
       await waitFor(() => !!host.domainRow('activities', 'override-honored'), 8000)
         .catch(() => { throw new Error('reconnect() did not announce the handshakeSchemaVersion override — it would have silently announced the real CURRENT_SCHEMA_VERSION instead') })
     } finally {
-      hostRequiredVersion = 76
+      hostRequiredVersion = CURRENT_SCHEMA_VERSION
       await secondClient?.close()
     }
 
