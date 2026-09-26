@@ -130,6 +130,25 @@ describe('migration v78: elective_preferences gains occurrence_id', () => {
     migrated.close()
   })
 
+  // Round-2 review finding: the v78 guard's lower bound is `>= 74`, not the
+  // one-wide `>= 77`, because v75-v77 are allocated to peer sessions and do
+  // not exist ON THIS BRANCH yet — see localDb.js's comment on the guard.
+  // That comment states an ASSUMPTION (every intervening migration stamps
+  // unconditionally — see bug #194 at localDb.js:1976-1981 for what happens
+  // when one doesn't), not a proof, and nothing forces anyone to revisit the
+  // guard once v75-v77 actually land from a rebase. This is the mechanical
+  // tripwire: it fails the moment a rollback module for 75, 76, or 77 exists
+  // in this tree, which is the earliest concrete signal that the migrations
+  // have landed.
+  it('T265 round-2 tripwire: once v75-v77 exist, the v78 guard must narrow to >= 77 && < 78', () => {
+    const rollbackDir = path.join(path.dirname(new URL(import.meta.url).pathname), 'rollback')
+    const landed = [75, 76, 77].filter((v) => fs.existsSync(path.join(rollbackDir, `v${v}_down.js`)))
+    expect(
+      landed,
+      'v75-77 have landed; narrow the v78 guard at localDb.js:~3348 to `>= 77 && < 78`.'
+    ).toEqual([])
+  })
+
   it('a fresh insert without occurrence_id is refused by the NOT NULL constraint', () => {
     const db = freshDb()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()

@@ -166,6 +166,19 @@ export function buildElectiveAssignments({
   // so tier 2 costs it exactly as it costs a labelKey preference.
   const rankOf = new Map()            // camperId -> Map(labelKey -> rank)
   const rankByChoice = new Map()      // camperId -> Map(choiceId -> rank)
+  // T265 round-2 review finding 3. rankByChoice above has no occurrence
+  // dimension, so a second occurrence-scoped row for the same (camper, choice)
+  // silently overwrites the first's rank — exactly the collapse the schema's
+  // occurrence_id column exists to prevent, reintroduced here at read time.
+  // This function does not (and per Governor's brief, must not) fix that — the
+  // fix is the per-cell two-phase solver, a separate ticket. It surfaces the
+  // collapse as a finding instead, once per colliding (camper, choice) pair,
+  // so a director can see which ranking was not honoured rather than getting a
+  // silently wrong placement.
+  // camper_id\u0000choice_id -> { labelKey, occurrenceIds: Set }, built alongside
+  // rankByChoice so the finding below can report every occurrence a colliding
+  // pair spans, not just the first two seen.
+  const occurrencesOfChoiceRank = new Map()
   for (const p of preferences) {
     const ch = (p.choice_id != null ? choiceById.get(p.choice_id) : undefined)
       ?? (p.labelKey != null ? choiceByLabelKey.get(p.labelKey) : undefined)
@@ -178,9 +191,28 @@ export function buildElectiveAssignments({
     if (ch) {
       if (!rankByChoice.has(p.camper_id)) rankByChoice.set(p.camper_id, new Map())
       rankByChoice.get(p.camper_id).set(ch.id, p.rank)
+
+      if (p.occurrence_id != null) {
+        const key = `${p.camper_id}\u0000${ch.id}`
+        if (!occurrencesOfChoiceRank.has(key)) {
+          occurrencesOfChoiceRank.set(key, { camperId: p.camper_id, choiceId: ch.id, labelKey: ch.labelKey, occurrenceIds: new Set() })
+        }
+        occurrencesOfChoiceRank.get(key).occurrenceIds.add(p.occurrence_id)
+      }
     }
   }
-
+  for (const { camperId, choiceId, labelKey, occurrenceIds } of occurrencesOfChoiceRank.values()) {
+    if (occurrenceIds.size <= 1) continue
+    findings.push({
+      kind: 'PREFERENCE_OCCURRENCE_COLLAPSED',
+      camper_id: camperId,
+      choice_id: choiceId,
+      occurrence_ids: [...occurrenceIds].sort(),
+      message:
+        `${camperId}\u2019s ranking for ${labelKey} differs by cell, but this pass costs every cell ` +
+        'with whichever rank loaded last \u2014 the other cell\u2019s ranking was not honoured.',
+    })
+  }
   const attends = (camperId, occurrenceId) =>
     attendance ? (attendance[camperId] ?? []).includes(occurrenceId) : true
 

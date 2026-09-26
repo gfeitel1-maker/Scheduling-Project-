@@ -40,8 +40,8 @@ const PARSED = {
   ],
   choices: [{ label: 'Archery', labelKey: 'archery' }, { label: 'Gaga', labelKey: 'gaga' }],
   preferences: [
-    { camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 },
-    { camper_id: 'cam-2', label: 'Gaga', labelKey: 'gaga', rank: 1 },
+    { camper_id: 'cam-1', occurrence_id: OCC, label: 'Archery', labelKey: 'archery', rank: 1 },
+    { camper_id: 'cam-2', occurrence_id: OCC, label: 'Gaga', labelKey: 'gaga', rank: 1 },
   ],
   sameNameCampers: [],
   skippedRows: [],

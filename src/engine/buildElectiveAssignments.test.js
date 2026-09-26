@@ -496,6 +496,45 @@ describe('buildElectiveAssignments', () => {
       .toEqual([['o1', 'a-arch', 1], ['o2', 'a-arch', 1]])
   })
 
+  // T265 round-2 review finding 3. rankByChoice is keyed camperId -> choiceId
+  // -> rank, with no occurrence dimension — the ADR's per-cell model means two
+  // preference rows for the SAME (camper, choice) but DIFFERENT occurrences are
+  // both legitimate (a camper ranks a choice independently in each cell it
+  // appears in), yet the second row silently overwrites the first's rank in
+  // this map. This does not fix that (that is the two-phase per-cell solver,
+  // a separate ticket) — it makes the collapse visible instead of silent.
+  it('reports PREFERENCE_OCCURRENCE_COLLAPSED when one (camper, choice) spans two occurrences', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1'), occ('o2')],
+      offerings: [offering('o1', 'archery', 'a-arch', 5), offering('o2', 'archery', 'a-arch', 5)],
+      preferences: [
+        { camper_id: 'c1', occurrence_id: 'o1', choice_id: 'C', rank: 1 },
+        { camper_id: 'c1', occurrence_id: 'o2', choice_id: 'C', rank: 4 },
+      ],
+      choices: [choice('C', 'archery')],
+    })
+    expect(out.findings).toContainEqual(
+      expect.objectContaining({
+        kind: 'PREFERENCE_OCCURRENCE_COLLAPSED',
+        camper_id: 'c1',
+        choice_id: 'C',
+      })
+    )
+    const finding = out.findings.find((f) => f.kind === 'PREFERENCE_OCCURRENCE_COLLAPSED')
+    expect(finding.occurrence_ids).toEqual(['o1', 'o2'])
+  })
+
+  it('does not report PREFERENCE_OCCURRENCE_COLLAPSED when preference rows carry no occurrence_id', () => {
+    const out = buildElectiveAssignments({
+      campers: [{ id: 'c1' }],
+      occurrences: [occ('o1'), occ('o2')],
+      offerings: [offering('o1', 'archery', 'a-arch', 5), offering('o2', 'archery', 'a-arch', 5)],
+      preferences: [pref('c1', 'archery', 1)],
+    })
+    expect(out.findings.some((f) => f.kind === 'PREFERENCE_OCCURRENCE_COLLAPSED')).toBe(false)
+  })
+
   // Clause 3 — a choice with exactly ONE member offering is not linked, so tier
   // 1 never sees it and the result must be identical to the same fixture run
   // with no choice inputs at all.

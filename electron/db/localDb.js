@@ -3627,16 +3627,24 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // states). This block runs on fresh databases too (guard starts from version 0), so both paths
   // end up identical.
   //
-  // Guard is one-wide, NOT a bare `< 78` — see the v50 block's comment (bug #194: a bare `< N`
-  // with no lower bound breaks the continuity chain when an earlier block withholds its stamp).
-  // The lower bound is `>= 74`, not `>= 77`: v75-v77 are allocated to peer sessions and do not
-  // exist on this branch (migrationDomainState.test.js's "covers 1..CURRENT_SCHEMA_VERSION with
-  // no gaps" assertion reports this — deliberately left failing, see the ADR addendum). v74 is
-  // the actual immediately-preceding migration THIS BRANCH has, so `>= 74` is what makes this
-  // block reachable today; once v75-v77 land from peer branches (positioned before this block in
-  // file order, per the numeric convention), a db that has passed through them will already be
-  // at version 77 by the time this check runs in the same initSchema pass, and `>= 74` still
-  // covers it (74 <= 77 < 78) — this guard does not need to change when they land.
+  // Guard is one-wide in SPIRIT, NOT a bare `< 78` — see the v50 block's comment (bug #194: a
+  // bare `< N` with no lower bound breaks the continuity chain when an earlier block withholds
+  // its stamp). It is FOUR-wide (`>= 74`, not `>= 77`) only because v75-v77 are allocated to peer
+  // sessions and do not exist on this branch yet (migrationDomainState.test.js's "covers
+  // 1..CURRENT_SCHEMA_VERSION with no gaps" assertion reports this — deliberately left failing,
+  // see the ADR addendum). v74 is the actual immediately-preceding migration THIS BRANCH has, so
+  // `>= 74` is what makes this block reachable today.
+  //
+  // THIS IS AN ASSUMPTION, NOT A PROOF, and round-2 review of T265 named the exact way it can
+  // fail. It holds ONLY while v75, v76 and v77 each stamp their version UNCONDITIONALLY. If any
+  // of them withholds its stamp on a failure path (v26's orphan-cleanup at :1976-1981 is the
+  // documented precedent — bug #194's actual mechanism, not just its guard-shape lesson), a db can
+  // land on 74 with v75/v76/v77 each skipped by their own narrow guards, then THIS block's wide
+  // `>= 74` fires anyway and stamps 78 — permanently retiring v75-v77's chance to retry whatever
+  // they withheld, because MAX(version) is now past them. Narrowing to one-wide is not optional
+  // busywork: it is what re-closes that hole. `electivePreferencesOccurrence.migration.test.js`
+  // carries a mechanical tripwire that fails as soon as a v75/v76/v77 rollback module exists in
+  // this tree, so the rebase cannot silently forget to narrow this guard to `>= 77 && < 78`.
   if (getSchemaVersion(db) >= 74 && getSchemaVersion(db) < 78) {
     db.transaction(() => {
       const discarded = tableExists('elective_preferences')

@@ -534,3 +534,49 @@ describe('projector — assertConflictsRecorded is defensive about a pre-v73 con
     expect(() => projectAll(db, doc)).toThrow(/silently discarded/)
   })
 })
+
+// T265 round-2 review finding 4. elective_preferences.ensureExists inserts
+// occurrence_id: '' to satisfy the NOT NULL column when run_id arrives before
+// occurrence_id does (fields land one at a time). opaque() in
+// electiveDerivedIds.js refuses '' as a real component, so a stub carrying it
+// would hold a value the derivation layer would never produce. The question
+// this settles: does a LATER projectAll pass, once occurrence_id actually
+// lands in the document, overwrite the stub — or can '' survive?
+describe('projector — elective_preferences occurrence_id stub (T265 round-2 finding 4)', () => {
+  it('a stub projected before occurrence_id lands is overwritten once occurrence_id lands in the document', () => {
+    let doc = createEmptyDoc()
+    // First pass: only run_id is in the document. ensureExists fires on this
+    // field and inserts the '' stub for the NOT NULL column.
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'run_id', value: 'run-1' })
+    projectAll(db, doc)
+    expect(
+      db.prepare('SELECT occurrence_id FROM elective_preferences WHERE id = ?').get('pref-1').occurrence_id
+    ).toBe('')
+
+    // Second pass: occurrence_id has since landed in the document (a later,
+    // real field write). projectAll re-derives EVERY known field from the
+    // doc's current row, not just what changed — readRecord returns
+    // occurrence_id now, so upsertRow's field loop includes it and issues an
+    // ordinary UPDATE with the real value.
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'occurrence_id', value: 'occ-1' })
+    projectAll(db, doc)
+
+    const row = db.prepare('SELECT occurrence_id FROM elective_preferences WHERE id = ?').get('pref-1')
+    expect(row.occurrence_id).toBe('occ-1')
+    expect(row.occurrence_id).not.toBe('')
+  })
+
+  it('a rebuild from the document (not just projectAll) also does not leave the stub behind', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'run_id', value: 'run-1' })
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'occurrence_id', value: 'occ-1' })
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'camper_id', value: 'cam-1' })
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'choice_id', value: 'choice-1' })
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'rank', value: 1 })
+
+    rebuildFromDoc(db, doc, 'elective_preferences')
+
+    const row = db.prepare('SELECT occurrence_id FROM elective_preferences WHERE id = ?').get('pref-1')
+    expect(row.occurrence_id).toBe('occ-1')
+  })
+})
