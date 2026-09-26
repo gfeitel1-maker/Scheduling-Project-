@@ -2295,7 +2295,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     discoveryWaitMs,
     documentWaitMs,
   } = {}) {
-    if (activeJoin) await joinCancel()
+    if (activeJoin) {
+      const cancelled = await joinCancel()
+      // T274 round 3 — a `stop_failed` here means the OLD temporary node is
+      // still running and joinCancel deliberately kept the reference (see its
+      // own comment) rather than orphan it. Starting a new session anyway
+      // would immediately clobber that reference with a second real node on
+      // this device's same peer identity — the exact bug this round exists
+      // to close. Refuse instead: `activeJoin` is still set, so a follow-up
+      // joinCancel (or joinStart) call gets another chance to actually stop
+      // it before anything new is allowed to start.
+      if (cancelled.status === 'stop_failed') return { status: 'stop_failed' }
+    }
     const testOnly = Boolean(process.env.VITEST)
     const started = await startJoinSession({
       db,
@@ -2363,6 +2374,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!activeJoin) throw new Error('no join in progress')
     const session = activeJoin
     const camp = await session.waitForCamp()
+    // T274 round 3 — deliberately does NOT null `activeJoin` here. The node
+    // is still running (waitForCamp only gave up waiting; it didn't stop
+    // anything), so keeping the reference means a retry's joinStart ->
+    // joinCancel can still find and stop it — the same "never drop the
+    // reference to a possibly-live node" invariant joinCancel now enforces
+    // on its own failure path, already covering this composition.
     if (!camp) return { status: 'timeout' }
 
     activeJoin = null
@@ -2394,15 +2411,27 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { status: 'ok', camp }
   }
 
+  // T274 round 3 (Red Hat, MEDIUM) — the same double-identity hazard fix 1
+  // (joinAwaitData) closed, on the cancel path. This used to null
+  // `activeJoin` BEFORE awaiting stop(), so a rejection left the temporary
+  // node running with NO reference to it anywhere in main.js. A subsequent
+  // joinStart (its own auto-cancel-then-start below, or a manual retry) would
+  // then start a SECOND real libp2p node on this device's db-keyed peer
+  // identity, orphaning the first. `activeJoin` is now cleared ONLY once
+  // stop() is confirmed to have succeeded — mirroring joinAwaitData's own
+  // "gate the next step on the stop actually succeeding" discipline — so a
+  // failed stop keeps the reference alive (retryable, never orphaned) instead
+  // of being silently dropped.
   async function joinCancel() {
     if (!activeJoin) return { status: 'idle' }
     const session = activeJoin
-    activeJoin = null
     try {
       await session.stop()
     } catch (err) {
-      console.error(`join: stopping the join session failed (non-fatal): ${err?.message ?? err}`)
+      console.error(`join: stopping the join session failed — the node is NOT orphaned, its reference is retained so a retry can stop it and nothing starts a second node on this identity in the meantime: ${err?.message ?? err}`)
+      return { status: 'stop_failed' }
     }
+    activeJoin = null
     return { status: 'cancelled' }
   }
 

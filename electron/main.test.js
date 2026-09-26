@@ -91,6 +91,7 @@ import { startSyncNode } from './sync/automerge/syncNode.js'
 import { createEmptyDoc } from './automerge/campDocument.js'
 import { seedAllFromSqlite } from './automerge/seed.js'
 import { joinCode } from './sync/joinCode.js'
+import { startJoinSession } from './sync/automerge/joinSession.js'
 import { signAuthFields } from './auth/authSignature.js'
 
 let tmpFile
@@ -848,6 +849,92 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
       await cleanup()
     }
   }, 25000)
+
+  // T274 round 3 (Red Hat, MEDIUM) — the same double-identity hazard fix 1
+  // closed on joinAwaitData, on the joinCancel path: it used to null
+  // `activeJoin` BEFORE awaiting stop(), so a rejection left the temporary
+  // node running with no reference anywhere, and a subsequent joinStart's
+  // auto-cancel-then-start would clobber that lost reference with a SECOND
+  // node on this device's same peer identity.
+  it('joinCancel does not orphan the node when stop() rejects, and a subsequent joinStart refuses to start a second node on the same identity', async () => {
+    const campId = 'camp-t274-e'
+    const { host, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-e', tag: 't274e' })
+
+    try {
+      const handlers = makeHandlers(db, deviceId, {})
+      await handlers.joinStart({ code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
+      expect(await handlers.joinFindHost()).toEqual({ status: 'found' })
+
+      expect(lastJoinSession).toBeTruthy()
+      const failingSession = lastJoinSession
+      // Fails the next TWO calls: this test's own explicit joinCancel()
+      // below, and then joinStart's internal auto-cancel call one call
+      // later. A spy with no further mocked value falls through to the real
+      // implementation after that, which is what lets the recovery
+      // assertion at the end observe a genuine, working stop().
+      const stopSpy = vi.spyOn(failingSession, 'stop')
+      stopSpy.mockRejectedValueOnce(new Error('transport already closed'))
+      stopSpy.mockRejectedValueOnce(new Error('transport already closed'))
+      const callsBeforeCancel = startJoinSession.mock.calls.length
+
+      const cancelled = await handlers.joinCancel()
+      expect(cancelled.status).toBe('stop_failed')
+
+      // Not orphaned: a subsequent joinStart must REFUSE to start a new
+      // session (never silently drop the retained reference and start a
+      // second node), proven by startJoinSession not having been called
+      // again.
+      const started2 = await handlers.joinStart({
+        code: joinCode(campId), deviceName: 'Joiner2', knownHost: host.getMultiaddrs()[0],
+      })
+      expect(started2.status).toBe('stop_failed')
+      expect(startJoinSession).toHaveBeenCalledTimes(callsBeforeCancel)
+
+      // And recovery: the SAME retained session can still be stopped once
+      // stop() actually works, proving the reference was genuinely kept
+      // alive rather than merely not-yet-garbage-collected.
+      const cancelled2 = await handlers.joinCancel()
+      expect(cancelled2.status).toBe('cancelled')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  // T274 round 3 — the same composition, arriving via the timeout path
+  // instead of an explicit cancel: joinAwaitData's `{status:'timeout'}`
+  // return deliberately does not null `activeJoin` (see its own comment),
+  // so a retry's joinStart -> joinCancel is what has to catch a stop
+  // failure here. This proves that composition actually holds, not just
+  // that joinCancel does in isolation.
+  it('a timed-out join does not orphan the node either: a retry that fails to stop it refuses rather than double-node', async () => {
+    const campId = 'camp-t274-f'
+    const { host, hostDb, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-f', tag: 't274f' })
+
+    try {
+      const handlers = makeHandlers(db, deviceId, {})
+      // documentWaitMs: 0 forces waitForCamp to give up immediately, rather
+      // than racing the real (usually fast) projection after a genuine login.
+      await handlers.joinStart({
+        code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0], documentWaitMs: 0,
+      })
+      await pairAndLogIn(handlers, host, hostDb, { joiningDeviceId: deviceId })
+
+      const data = await handlers.joinAwaitData()
+      expect(data.status).toBe('timeout')
+
+      expect(lastJoinSession).toBeTruthy()
+      vi.spyOn(lastJoinSession, 'stop').mockRejectedValueOnce(new Error('transport already closed'))
+      const callsBeforeRetry = startJoinSession.mock.calls.length
+
+      const retried = await handlers.joinStart({
+        code: joinCode(campId), deviceName: 'Joiner2', knownHost: host.getMultiaddrs()[0],
+      })
+      expect(retried.status).toBe('stop_failed')
+      expect(startJoinSession).toHaveBeenCalledTimes(callsBeforeRetry)
+    } finally {
+      await cleanup()
+    }
+  })
 })
 
 describe('devAuthorizeDevice (removed in sub-task 2, superseded by approveDevice)', () => {
