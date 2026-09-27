@@ -6,21 +6,27 @@ import {
   DOMAIN_PREFIX,
   VERSION,
   CLOCK_SKEW_MS,
+  ADDRESS_KEY_INFO,
   buildSignedBytes,
   signRecord,
   verify,
+  deriveAddressKey,
 } from './rendezvousRecord.js'
 
 let keyA
 let peerIdA
 let keyB
 let peerIdB
+let addressKey
+let otherAddressKey
 
 beforeAll(async () => {
   keyA = await generateKeyPair('Ed25519')
   peerIdA = peerIdFromPrivateKey(keyA).toString()
   keyB = await generateKeyPair('Ed25519')
   peerIdB = peerIdFromPrivateKey(keyB).toString()
+  addressKey = Buffer.alloc(32, 7)
+  otherAddressKey = Buffer.alloc(32, 9)
 })
 
 function baseRecord(overrides = {}) {
@@ -37,36 +43,83 @@ function baseRecord(overrides = {}) {
   }
 }
 
-describe('round trip against real Ed25519 keys', () => {
-  it('signs and verifies successfully with matching signature/freshness/monotonicity', () => {
+describe('deriveAddressKey', () => {
+  it('derives a 32-byte key via HKDF-SHA256 with the fixed versioned info string', () => {
+    const derived = deriveAddressKey(addressKey)
+    expect(Buffer.isBuffer(derived)).toBe(true)
+    expect(derived.length).toBe(32)
+    // Deterministic: same camp key -> same derived key every time.
+    expect(deriveAddressKey(addressKey).equals(derived)).toBe(true)
+  })
+
+  it('a different camp key derives a different address key', () => {
+    expect(deriveAddressKey(addressKey).equals(deriveAddressKey(otherAddressKey))).toBe(false)
+  })
+
+  it('is scoped by a fixed, versioned info string', () => {
+    expect(ADDRESS_KEY_INFO).toBe('shoresh-rendezvous-addr-v2')
+  })
+})
+
+describe('round trip against real Ed25519 keys and the camp address key', () => {
+  it('signs and verifies successfully, decrypting the address body with the right key', () => {
     const record = baseRecord()
-    const wire = signRecord(record, keyA)
-    const verdict = verify(wire, { now: record.issuedAt + 1000, lastEpoch: 0, lastSeq: 0 })
+    const wire = signRecord(record, keyA, addressKey)
+    const verdict = verify(wire, { now: record.issuedAt + 1000, lastEpoch: 0, lastSeq: 0, addressKey })
     expect(verdict.ok).toBe(true)
     expect(verdict.signatureValid).toBe(true)
     expect(verdict.fresh).toBe(true)
     expect(verdict.monotonic).toBe(true)
     expect(verdict.record.namespace).toBe(record.namespace)
     expect(verdict.record.peerId).toBe(peerIdA)
+    expect(verdict.addressBodyDecrypted).toBe(true)
     expect(verdict.record.addresses.slice().sort()).toEqual(record.addresses.slice().sort())
   })
 })
 
-describe('address-order independence', () => {
-  it('produces byte-identical signed material regardless of input address order', () => {
-    const record = baseRecord({ addresses: ['/ip4/9.9.9.9/tcp/1', '/ip4/1.1.1.1/tcp/2', '/ip4/5.5.5.5/tcp/3'] })
-    const shuffled = { ...record, addresses: [...record.addresses].reverse() }
-    expect(buildSignedBytes(record).equals(buildSignedBytes(shuffled))).toBe(true)
+describe('key custody: a namespace-holder without the camp key cannot recover addresses', () => {
+  it('the record is still authentic (signature/freshness/monotonicity pass) with no addressKey supplied', () => {
+    const record = baseRecord()
+    const wire = signRecord(record, keyA, addressKey)
+    const verdict = verify(wire, { now: record.issuedAt + 1000 })
+    expect(verdict.ok).toBe(true)
+    expect(verdict.signatureValid).toBe(true)
+    expect(verdict.addressBodyDecrypted).toBe(false)
+    expect(verdict.record.addresses).toBeUndefined()
+    expect(verdict.record.addressBodyError).toBe('no_key')
+  })
+
+  it('decryption fails cleanly (not a crash, not malformed) with the WRONG camp key', () => {
+    const record = baseRecord()
+    const wire = signRecord(record, keyA, addressKey)
+    const verdict = verify(wire, { now: record.issuedAt + 1000, addressKey: otherAddressKey })
+    expect(verdict.ok).toBe(true) // the record itself is still authentic
+    expect(verdict.signatureValid).toBe(true)
+    expect(verdict.addressBodyDecrypted).toBe(false)
+    expect(verdict.record.addresses).toBeUndefined()
+    expect(verdict.record.addressBodyError).toBe('decrypt_failed')
   })
 })
 
-describe('tamper each field', () => {
+describe('the worker/wire sees only ciphertext for the address body', () => {
+  it('no plaintext address substring appears anywhere in the signed wire bytes', () => {
+    const record = baseRecord({ addresses: ['/ip4/203.0.113.7/tcp/4001', '/ip4/198.51.100.9/tcp/4001'] })
+    const wire = signRecord(record, keyA, addressKey)
+    const asBase64 = wire.toString('base64')
+    for (const addr of record.addresses) {
+      expect(wire.includes(Buffer.from(addr, 'utf8'))).toBe(false)
+      expect(asBase64.includes(addr)).toBe(false)
+    }
+  })
+})
+
+describe('tamper each field (including the encrypted address body)', () => {
   const record = baseRecord()
   let wire
   let sig
 
   beforeAll(() => {
-    wire = signRecord(record, keyA)
+    wire = signRecord(record, keyA, addressKey)
     sig = wire.subarray(wire.length - 64)
   })
 
@@ -77,25 +130,34 @@ describe('tamper each field', () => {
     seq: 999,
     issuedAt: record.issuedAt + 1,
     expiresAt: record.expiresAt + 1,
-    addresses: ['/ip4/255.255.255.255/tcp/9999'],
   }
 
   for (const field of Object.keys(tamperedValues)) {
     it(`fails verification when '${field}' is tampered`, () => {
       const tampered = { ...record, [field]: tamperedValues[field] }
-      const tamperedSignedBytes = buildSignedBytes(tampered)
+      const tamperedSignedBytes = buildSignedBytes(tampered, addressKey)
       const tamperedWire = Buffer.concat([tamperedSignedBytes, sig])
-      const verdict = verify(tamperedWire, { now: record.issuedAt + 1000 })
+      const verdict = verify(tamperedWire, { now: record.issuedAt + 1000, addressKey })
       expect(verdict.signatureValid).toBe(false)
     })
   }
+
+  it('fails verification when the ciphertext bytes of the address body are flipped', () => {
+    const buf = Buffer.from(wire)
+    // Flip a byte inside the encrypted-address-body region (after the fixed header, before the
+    // trailing 64-byte signature) — anywhere in there is ciphertext or its GCM tag.
+    const flipOffset = DOMAIN_PREFIX.length + 1 + 32 + 40 // well past the fixed-width header fields
+    buf[flipOffset] ^= 0xff
+    const verdict = verify(buf, { now: record.issuedAt + 1000, addressKey })
+    expect(verdict.signatureValid).toBe(false)
+  })
 })
 
 describe('peerId/key mismatch', () => {
   it('a record signed by key A but claiming peerId B fails verification', () => {
     const record = baseRecord({ peerId: peerIdB })
-    const wire = signRecord(record, keyA)
-    const verdict = verify(wire, { now: record.issuedAt + 1000 })
+    const wire = signRecord(record, keyA, addressKey)
+    const verdict = verify(wire, { now: record.issuedAt + 1000, addressKey })
     expect(verdict.signatureValid).toBe(false)
   })
 })
@@ -103,31 +165,46 @@ describe('peerId/key mismatch', () => {
 describe('domain separation', () => {
   it('bytes signed under a different domain prefix do not verify as a rendezvous record', () => {
     const record = baseRecord()
-    const normalSigned = buildSignedBytes(record)
+    const normalSigned = buildSignedBytes(record, addressKey)
     const otherPrefix = Buffer.from('OTHERV1\0', 'ascii')
     const foreignSigned = Buffer.concat([otherPrefix, normalSigned.subarray(DOMAIN_PREFIX.length)])
     const signature = keyA.sign(foreignSigned)
     const wire = Buffer.concat([foreignSigned, Buffer.from(signature)])
-    const verdict = verify(wire, { now: record.issuedAt + 1000 })
+    const verdict = verify(wire, { now: record.issuedAt + 1000, addressKey })
     expect(verdict.ok).toBe(false)
     expect(verdict.reason).toBe('malformed')
   })
 })
 
-describe('unknown version byte', () => {
-  it('is rejected outright, without attempting to decode the rest', () => {
+describe('anti-downgrade: version byte is checked first and unconditionally', () => {
+  it('the current (v2) verifier rejects a v1-shaped record outright, without attempting to decrypt', () => {
     const record = baseRecord()
-    const signed = buildSignedBytes(record)
-    // Flip only the version byte; leave everything else — including a byte layout that would
-    // throw if parsed as fixed-width fields (e.g. we do NOT pad it out to a valid length) — so a
-    // clean rejection (not a thrown decode error) proves the version gate runs first.
+    const signed = buildSignedBytes(record, addressKey)
+    const tampered = Buffer.from(signed)
+    tampered[DOMAIN_PREFIX.length] = 1 // a v1 record's version byte
+    const verdict = verify(tampered, { addressKey })
+    expect(verdict.ok).toBe(false)
+    expect(verdict.reason).toBe('unsupported_version')
+  })
+
+  it('an unknown future version byte is rejected outright, without attempting to decode the rest', () => {
+    const record = baseRecord()
+    const signed = buildSignedBytes(record, addressKey)
     const tampered = Buffer.from(signed)
     tampered[DOMAIN_PREFIX.length] = VERSION + 1
-    const truncated = tampered.subarray(0, DOMAIN_PREFIX.length + 2) // nowhere near enough to parse further fields
+    const truncated = tampered.subarray(0, DOMAIN_PREFIX.length + 2)
     expect(() => verify(truncated)).not.toThrow()
     const verdict = verify(truncated)
     expect(verdict.ok).toBe(false)
     expect(verdict.reason).toBe('unsupported_version')
+  })
+
+  it('a hypothetical v1-only verifier (version === 1 check) would reject a real v2 wire record', () => {
+    const record = baseRecord()
+    const wire = signRecord(record, keyA, addressKey)
+    const versionByte = wire[DOMAIN_PREFIX.length]
+    expect(versionByte).toBe(VERSION)
+    expect(versionByte).not.toBe(1)
   })
 })
 
@@ -136,7 +213,7 @@ describe('malformed / truncated / over-long input', () => {
   let wire
 
   beforeAll(() => {
-    wire = signRecord(record, keyA)
+    wire = signRecord(record, keyA, addressKey)
   })
 
   it('rejects a zero-length input', () => {
@@ -158,8 +235,6 @@ describe('malformed / truncated / over-long input', () => {
   })
 
   it('rejects a length prefix claiming more bytes than remain in the buffer', () => {
-    // Domain prefix + version + 32-byte namespace, then a peerId length prefix (varint) claiming
-    // 200 bytes while supplying none.
     const header = Buffer.concat([DOMAIN_PREFIX, Buffer.from([VERSION]), Buffer.alloc(32, 1), Buffer.from([200])])
     const verdict = verify(header)
     expect(verdict.ok).toBe(false)
@@ -178,26 +253,26 @@ describe('clock skew boundaries (injectable clock)', () => {
   let wire
 
   beforeAll(() => {
-    wire = signRecord(record, keyA)
+    wire = signRecord(record, keyA, addressKey)
   })
 
   it('accepts exactly at the early boundary (issuedAt - skew)', () => {
-    const verdict = verify(wire, { now: record.issuedAt - CLOCK_SKEW_MS })
+    const verdict = verify(wire, { now: record.issuedAt - CLOCK_SKEW_MS, addressKey })
     expect(verdict.fresh).toBe(true)
   })
 
   it('rejects just outside the early boundary', () => {
-    const verdict = verify(wire, { now: record.issuedAt - CLOCK_SKEW_MS - 1 })
+    const verdict = verify(wire, { now: record.issuedAt - CLOCK_SKEW_MS - 1, addressKey })
     expect(verdict.fresh).toBe(false)
   })
 
   it('accepts exactly at the late boundary (expiresAt + skew)', () => {
-    const verdict = verify(wire, { now: record.expiresAt + CLOCK_SKEW_MS })
+    const verdict = verify(wire, { now: record.expiresAt + CLOCK_SKEW_MS, addressKey })
     expect(verdict.fresh).toBe(true)
   })
 
   it('rejects just outside the late boundary', () => {
-    const verdict = verify(wire, { now: record.expiresAt + CLOCK_SKEW_MS + 1 })
+    const verdict = verify(wire, { now: record.expiresAt + CLOCK_SKEW_MS + 1, addressKey })
     expect(verdict.fresh).toBe(false)
   })
 })
@@ -207,27 +282,35 @@ describe('monotonicity (epoch-major watermark)', () => {
   let wire
 
   beforeAll(() => {
-    wire = signRecord(record, keyA)
+    wire = signRecord(record, keyA, addressKey)
   })
 
   it('rejects an equal (epoch, seq)', () => {
-    const verdict = verify(wire, { now: record.issuedAt, lastEpoch: 5, lastSeq: 10 })
+    const verdict = verify(wire, { now: record.issuedAt, lastEpoch: 5, lastSeq: 10, addressKey })
     expect(verdict.monotonic).toBe(false)
   })
 
   it('accepts a higher seq at the same epoch', () => {
-    const verdict = verify(wire, { now: record.issuedAt, lastEpoch: 5, lastSeq: 9 })
+    const verdict = verify(wire, { now: record.issuedAt, lastEpoch: 5, lastSeq: 9, addressKey })
     expect(verdict.monotonic).toBe(true)
   })
 
   it('accepts a higher epoch even with a lower seq', () => {
-    const verdict = verify(wire, { now: record.issuedAt, lastEpoch: 4, lastSeq: 999 })
+    const verdict = verify(wire, { now: record.issuedAt, lastEpoch: 4, lastSeq: 999, addressKey })
     expect(verdict.monotonic).toBe(true)
   })
 
   it('rejects a lower epoch even with a higher seq', () => {
-    const verdict = verify(wire, { now: record.issuedAt, lastEpoch: 6, lastSeq: 0 })
+    const verdict = verify(wire, { now: record.issuedAt, lastEpoch: 6, lastSeq: 0, addressKey })
     expect(verdict.monotonic).toBe(false)
+  })
+
+  it('trust-boundary order: monotonicity/freshness/signature are checked before any decryption is attempted', () => {
+    // A record that fails monotonicity must not even attempt to decrypt (and must not crash if
+    // given a garbage addressKey) — decryption is strictly last per the ADR's trust-boundary order.
+    const verdict = verify(wire, { now: record.issuedAt, lastEpoch: 5, lastSeq: 10, addressKey: Buffer.alloc(32) })
+    expect(verdict.ok).toBe(false)
+    expect(verdict.addressBodyDecrypted).toBe(false)
   })
 })
 
@@ -242,17 +325,12 @@ describe('u64 fields reject values above Number.MAX_SAFE_INTEGER (no silent roun
 
   for (const field of ['epoch', 'seq', 'issuedAt', 'expiresAt']) {
     it(`buildSignedBytes refuses to encode an unsafe ${field}`, () => {
-      expect(() => buildSignedBytes(boundaryRecordFor(field))).toThrow()
+      expect(() => buildSignedBytes(boundaryRecordFor(field), addressKey)).toThrow()
     })
 
     it(`verify() rejects a decoded wire record whose ${field} was written unsafely large`, () => {
-      // Bypass buildSignedBytes's own guard to prove the DECODE side also rejects rather than
-      // silently rounding, in case the two ever drift apart.
       const record = baseRecord({ [field]: Number.MAX_SAFE_INTEGER })
-      const wire = signRecord(record, keyA)
-      // Corrupt the field's 8 raw bytes in place to an unsafe u64 value, keeping everything else
-      // (including the signature) as-is — verify() must fail closed as malformed, not throw
-      // uncaught and not silently round.
+      const wire = signRecord(record, keyA, addressKey)
       const buf = Buffer.from(wire)
       const fieldOffsets = { epoch: 0, seq: 8, issuedAt: 16, expiresAt: 24 }
       const namespaceLen = 32
@@ -261,7 +339,7 @@ describe('u64 fields reject values above Number.MAX_SAFE_INTEGER (no silent roun
       const offset = u64Start + fieldOffsets[field]
       buf.writeBigUInt64BE(BigInt(Number.MAX_SAFE_INTEGER) + 2n, offset)
 
-      const verdict = verify(buf, { now: record.issuedAt })
+      const verdict = verify(buf, { now: record.issuedAt, addressKey })
       expect(verdict.ok).toBe(false)
       expect(verdict.reason).toBe('malformed')
     })
@@ -275,8 +353,8 @@ describe('inverted issuedAt/expiresAt window is rejected as malformed', () => {
   it('rejects a record whose expiresAt is before its issuedAt', () => {
     const now = Date.parse('2026-09-18T12:00:00Z')
     const record = baseRecord({ issuedAt: now, expiresAt: now - 1000 })
-    const wire = signRecord(record, keyA)
-    const verdict = verify(wire, { now })
+    const wire = signRecord(record, keyA, addressKey)
+    const verdict = verify(wire, { now, addressKey })
     expect(verdict.ok).toBe(false)
     expect(verdict.reason).toBe('malformed')
   })
@@ -284,8 +362,8 @@ describe('inverted issuedAt/expiresAt window is rejected as malformed', () => {
   it('accepts a record whose expiresAt equals issuedAt (zero-width but not inverted)', () => {
     const now = Date.parse('2026-09-18T12:00:00Z')
     const record = baseRecord({ issuedAt: now, expiresAt: now })
-    const wire = signRecord(record, keyA)
-    const verdict = verify(wire, { now })
+    const wire = signRecord(record, keyA, addressKey)
+    const verdict = verify(wire, { now, addressKey })
     expect(verdict.ok).toBe(true)
   })
 })

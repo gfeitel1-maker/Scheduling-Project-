@@ -215,6 +215,47 @@ describe('GET /v1/peers/<namespace>', () => {
   })
 })
 
+// T287 Slice B: confirm the Worker's opaque-blob contract needs no change for the v2 encrypted
+// rendezvous record — it never decodes `record` at all, so a real v2-encoded (address-body
+// AES-256-GCM-encrypted) record round-trips through register/peers exactly like any other opaque
+// base64 blob, and the Worker/KV never sees a plaintext address anywhere in what it stores.
+describe('v2 encrypted rendezvous record round-trips as an opaque blob', () => {
+  it('register + peers returns the v2 record unchanged, with no plaintext address visible to the worker', async () => {
+    const { generateKeyPair } = await import('@libp2p/crypto/keys')
+    const { peerIdFromPrivateKey } = await import('@libp2p/peer-id')
+    const { signRecord } = await import('../../electron/sync/automerge/rendezvousRecord.js')
+
+    const privateKey = await generateKeyPair('Ed25519')
+    const peerId = peerIdFromPrivateKey(privateKey).toString()
+    const addressKey = Buffer.alloc(32, 3)
+    const now = Date.now()
+    const plaintextAddress = '/ip4/203.0.113.7/tcp/4001'
+    const v2Wire = signRecord(
+      {
+        namespace: VALID_NAMESPACE,
+        peerId,
+        epoch: 1,
+        seq: 1,
+        issuedAt: now,
+        expiresAt: now + 2 * 60 * 60 * 1000,
+        addresses: [plaintextAddress],
+      },
+      privateKey,
+      addressKey
+    )
+    const recordB64 = v2Wire.toString('base64')
+
+    const { env } = makeEnv()
+    const registerRes = await handleRequest(registerRequest({ peerId, record: recordB64 }), env)
+    expect(registerRes.status).toBe(200)
+
+    const peersRes = await handleRequest(peersRequest(VALID_NAMESPACE), env)
+    const body = await peersRes.json()
+    expect(body.peers).toEqual([recordB64])
+    expect(body.peers[0]).not.toContain(plaintextAddress)
+  })
+})
+
 describe('method/route handling', () => {
   it('returns 405 for GET on /v1/register', async () => {
     const { env } = makeEnv()
