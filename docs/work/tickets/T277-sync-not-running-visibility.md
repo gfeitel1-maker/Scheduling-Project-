@@ -1,45 +1,63 @@
 ---
-title: "OWNER DECISION: how prominently should a 'sync isn't running' state be shown?"
+title: "A quiet always-present indicator when sync is not running"
 document_type: ticket
-status: parked
+status: open
 task_class: ui-ux-design
 date: 2026-09-26
 created: 2026-09-26
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md]
 related_tickets: [docs/work/tickets/T275-degraded-sync-retry-surface.md]
 program: relay-sync
-archive_when: "The owner has decided how (and how prominently) a 'sync isn't running' state should surface to a director without a banner, that decision is recorded here, and — if it authorizes build work — a follow-up implementation ticket is opened; until the owner decides, this stays blocked and NOT built"
+archive_when: "A quiet, always-present sync-status indicator low in the sidebar (near the DEV badge / footer) appears ONLY when sync is not running and is ABSENT when sync is healthy, activating it reaches T275's retry / devices surface, the copy reads as 'sync isn't running / try again' never 'device blocked', it is not a banner and adds no explainer, and a non-vacuous test proves it is present for a not-running state and absent for a healthy one"
 ---
 
-# T277 — OWNER DECISION, not authorized to build
+# T277 — a quiet always-present "sync isn't running" indicator
 
-**Status: parked on an owner decision. Do NOT implement anything from this ticket until the owner rules. This is a decision record, not a work item.**
+## Owner ruling (buildable)
 
-## The finding (T275 director's-eye test, verbatim)
+Owner accepted the recommended direction, verbatim: **"recommendation is fine with me."** T277 is now BUILDABLE, scoped to option (a) below. The decision history that led here is preserved under "Background."
 
-T275 added a `try again` retry affordance to the `host-not-syncing` sync state. The copy and interaction passed review (Security 5, Code Reviewer ready, and the director's-eye copy check confirmed it reads as retryable, not blocked). But the director's-eye test scored UX 2/5 for one reason — **discoverability**:
+**Build:** a quiet, always-present sync-status indicator low in the sidebar (near the DEV badge / footer area) that appears **only when sync is not running** and is **hidden when sync is healthy**.
 
-> "The copy is clear and makes sense once I see it. But I wouldn't find this on my own if sync broke. I'd think something was stuck and call for help, not dig through a Settings menu. Hide the retry somewhere important — either in a banner or at the top of the Devices screen itself, not buried in a popup."
+## Constraints (owner-locked — the review MUST check the built surface against these)
 
-The `host-not-syncing` (and `sync-blocked`) sync state, and now the retry, live only inside the **Settings-gear popup** (the devices row moved there in the Roots-as-Hub refactor, PR #141, well before T275). A director hitting a silent sync stall must open Settings to discover that sharing isn't running.
+- NOT a banner, NOT interruptive — a quiet persistent status affordance, using the existing flag vocabulary (`src/components/layout/sidebarState.js`), consistent with the standing no-banners / no-explainer rules.
+- Driven by the SAME not-running state T268's `getSyncStatus` already exposes — the `host-not-syncing` state T275's retry keys on (and, where appropriate, `sync-blocked`; see the scope note). Shows ONLY for the stopped/not-running states — MUST NOT appear when sync is fine.
+- Tie into T275's existing retry path where natural: activating the indicator should reach the retry affordance / devices surface, so noticing and recovering are one flow — but keep it quiet, not an alert.
+- "when someone comes online, they sync" still governs the copy — it must read as "sync isn't running / try again," never "this device is blocked."
 
-This is **pre-existing** (T268's not-running label was already gear-menu-only; T275 added retry to where the label already was) and was correctly out of T275's scope. But it is a real gap in the underlying goal — that a director *notices* a degraded-sync state and acts — which is why it is surfaced here for the owner rather than silently accepted.
+## Scope note (carry the T275 distinction)
 
-## The constraint (why this is genuinely the owner's call, not an engineering default)
+- `host-not-syncing` → the node isn't running; retry genuinely attempts a start (T275). The indicator should offer/reach that retry.
+- `sync-blocked` → a domain-state migration refusal; restarting the node does NOT fix it. The indicator may surface that sync isn't running, but MUST NOT offer a dead "retry" for this state (mirror T275's boundary — retry only where retrying helps). Designer to decide whether the footer indicator shows for `sync-blocked` at all or only for `host-not-syncing`.
 
-- **No banners.** The owner's standing rule ("banners are SaaS nonsense") forbids the Tester's first suggestion. State that needs surfacing goes in the existing per-slot / flag vocabulary, not chrome.
-- **No explainer copy.**
-- **"when someone comes online, they sync."** Whatever the surface, it must read as retryable/transient, never as "this device is blocked."
+## Success predicate
 
-The tension: the owner wants a degraded-sync state *noticed*, but also forbids the usual attention-grabbing mechanism (a banner). Resolving that tension — how much prominence, in what vocabulary — is an information-architecture judgment that is the owner's, and bigger than T275.
+- A quiet indicator near the sidebar footer/DEV badge is PRESENT when `getSyncStatus` reports a not-running state and ABSENT when sync is healthy.
+- Activating it reaches T275's retry (for `host-not-syncing`) / the devices surface.
+- Copy reads as retryable/transient, never "blocked." No banner, no explainer, no new chrome beyond a quiet persistent indicator in the existing vocabulary.
 
-## Candidate directions (options for the owner — NOT a recommendation, do not pick or build)
+## Does NOT count as done
 
-1. **A presence at the top of the Devices screen** — surface the not-running state (and retry) where a director goes when they suspect a sharing problem, rather than only in the gear popup.
-2. **Elevate the sync indicator out of the gear popup** — give the sync/devices status a persistent, always-visible slot in the sidebar rail (as it had before PR #141), so a degraded state is visible without opening Settings.
-3. **Leave it in the gear popup** (accept the current discoverability level) — valid if the owner judges that a director will learn to check Settings, or that the rarity of the state makes gear-popup visibility acceptable.
-4. Something else in the existing flag vocabulary the owner prefers.
+- A banner, modal, toast, or interruptive alert.
+- An indicator shown when sync is healthy.
+- A dead "retry" on `sync-blocked`.
+- Explainer/help copy, or copy that reads as "device blocked."
 
-## Also noted (trivial, fold in if this neighborhood is touched)
+## Evidence required
 
-- LOW pre-existing dead code: `src/components/layout/Sidebar.jsx:132` computes a `lan` sync label in the `renderItem` path for `item.key === 'devices'`, which is unreachable since the devices item is gear-menu-only. Safe to delete when this area is next edited; not worth its own change.
+- Non-vacuity: a test proving the indicator is PRESENT for a not-running state and ABSENT for a healthy one (fails if it always renders or never renders).
+- Director's-eye check on prominence + copy (this ticket exists BECAUSE the gear-popup placement failed that check for T275).
+- `node scripts/check-governance.js` clean.
+
+## Background (decision history — how this became buildable)
+
+Surfaced by T275's director's-eye test (UX 2/5): the `host-not-syncing` state and its retry lived only inside the Settings-gear popup (pre-existing since the Roots-as-Hub refactor, PR #141), so a director hitting a silent sync stall would not find it. Director's verbatim finding:
+
+> "The copy is clear and makes sense once I see it. But I wouldn't find this on my own if sync broke. I'd think something was stuck and call for help, not dig through a Settings menu."
+
+Framed to the owner as an owner decision (the owner wants a degraded-sync state noticed but forbids a banner). Options offered: (a) a presence near the sidebar footer / elevate the indicator out of the gear popup; (b) a presence at the top of the Devices screen; (c) accept gear-popup visibility. Owner accepted (a).
+
+## Also noted (trivial, fold in while in this neighborhood)
+
+- LOW pre-existing dead code: `src/components/layout/Sidebar.jsx:132` computes a `lan` sync label in the `renderItem` path for `item.key === 'devices'`, unreachable since the devices item is gear-menu-only (moved in PR #141). Safe to delete while building T277 in this same file.
