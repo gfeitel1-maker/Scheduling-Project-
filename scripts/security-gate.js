@@ -265,6 +265,9 @@ const CAMP_NAME_ALLOWED = new Set([
   'lunch', 'window', 'scheduling', 'signing', 'all', 'code', 'name', 'data', 'identity',
   'bootstrap', 'map', 'schedule', 'season', 'seasons', 'staff', 'wide', 'level', 'record',
   'records', 'id', 'ids', 'the', 'director', 'tuesday', 'tue', 'wi-fi', 'camps',
+  'office', 'day', 'week', 'year', 'list', 'lists', 'file', 'files', 'grid', 'grids',
+  // Software VENDOR product names that begin with "Camp" — a vendor is not a camp identity.
+  'intouch', 'minder', 'brain', 'doc', 'site', 'works', 'wise', 'spot',
   // Generic Hebrew / Jewish-camp vocabulary — cohort and program words, not identities.
   'maccabiah', 'yeladim', 'tzofim', 'chalutzim', 'alonim', 'shorashim', 'tavor', 'gilad', 'chai',
 ])
