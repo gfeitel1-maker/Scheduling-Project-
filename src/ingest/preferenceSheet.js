@@ -526,9 +526,11 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
         'UNREAD_TABLE_ABOVE_HEADER',
         `Rows 1-${headerIndex} hold what looks like a second TABLE — ${structuredRows.length} rows of ` +
           'three or more filled cells, which is a grid, not a title. Only the table starting at row ' +
-          `${headerIndex + 1} was read. If that grid is a planner showing which activity each camper ` +
-          'chose per period, this page carries TWO kinds of preference and only one of them has been ' +
-          'imported \u2014 nothing above row ' + `${headerIndex + 1} was read.`,
+          `${headerIndex + 1} was read, and the reason the grid was not is that it carries no camper `+
+          'name column: a preference is something a NAMED child asked for, and nothing on that grid ' +
+          'says whose week it is. If those cells are the choices of the campers listed below, this ' +
+          'page holds two kinds of preference and only one has been imported \u2014 attributing the ' +
+          'grid to them would be a guess this import will not make.',
         { rows: preambleRows, headerRow: headerIndex + 1, structuredRows: structuredRows.length }
       )
     } else {

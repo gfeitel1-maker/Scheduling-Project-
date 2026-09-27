@@ -1169,14 +1169,24 @@ describe('T285 slice C — tidy/long and inverted layouts', () => {
   it('P32 non-vacuity: an empty catalog cannot invent an inverted layout', () => {
     // The layout is recognised BY the catalog. With nothing to match, the headers
     // are not activities as far as this app knows, so the sheet must NOT be read
-    // as an inverted matrix — it has no rank columns at all, and saying otherwise
-    // would be a shape guess dressed as a resolution.
+    // as an inverted matrix — saying otherwise would be a shape guess dressed as a
+    // resolution.
+    //
+    // It is ACCEPTED and writes nothing (ADR §14.1 — a readable file is never
+    // refused), and the residue names the ACTUAL miss: this sheet HAS a camper
+    // name column, so reporting "no camper name" would be a lie about it. Two
+    // different misses, two different sentences.
     const result = commitBytes(
       'inverted-no-catalog.csv',
       'Camper Name,Swim,Archery\nDalia Tuff,1,2\n'
     )
-    expect(result.ok).toBe(false)
-    expect(result.error).toMatch(/could not find/)
+    expect(result.ok).toBe(true)
+    expect(withDb((db) => db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c)).toBe(0)
+
+    const miss = residueOf(result, 'NO_READABLE_CHOICES')
+    expect(miss).toHaveLength(1)
+    expect(miss[0].message).toMatch(/names campers but holds no ranked choices/)
+    expect(residueOf(result, 'NO_CAMPER_NAMES')).toHaveLength(0)
   })
 })
 
@@ -1246,5 +1256,110 @@ describe('T285 slice D — the multi-sheet workbook', () => {
     const result = commitProbe('P01-kind3-canonical.csv')
     expect(result.ok).toBe(true)
     expect(residueOf(result, 'UNREAD_SHEET')).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T285 SLICES E & F — the grids, closed by ONE rule that does not classify the
+// document's kind, because classifying it is not possible and not necessary.
+//
+// P22 is an offerings MENU (what is offered) and P19 is a filled PLANNER (what
+// was chosen). ADR §3.3: they "have the same geometry and opposite meaning; only
+// the declared kind separates them, and no amount of shape inference can."
+// Inventing a shape heuristic to tell them apart is exactly constraint 1's
+// failure — an adapter reading a document of one kind as another.
+//
+// THE DECISIVE FACT IS KIND-AGNOSTIC: neither page NAMES A CAMPER. A preference
+// is a statement BY a named child, so a page carrying no camper identity cannot
+// produce one, whatever kind it is. So both are READ, both write NOTHING, and
+// both are reported as a table that named no campers — without this app claiming
+// to know which kind it was looking at.
+// ---------------------------------------------------------------------------
+describe('T285 slices E & F — a grid with no camper names', () => {
+  const expectNoPreferencesWritten = (result) => {
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+    expect(
+      withDb((db) => ({
+        campers: db.prepare('SELECT COUNT(*) c FROM campers').get().c,
+        preferences: db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c,
+        choices: db.prepare('SELECT COUNT(*) c FROM elective_choices').get().c,
+      }))
+    ).toEqual({ campers: 0, preferences: 0, choices: 0 })
+  }
+
+  it('P22: an offerings menu is READ, not refused, and names no camper preferences', () => {
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P22-offerings-menu-pref.csv')
+    expectNoPreferencesWritten(result)
+
+    const grid = residueOf(result, 'NO_CAMPER_NAMES')
+    expect(grid).toHaveLength(1)
+    expect(grid[0].message).toMatch(/no camper name/i)
+    // It must NOT claim to know this is a menu. Only a declared kind could say
+    // that, and guessing is constraint 1's failure.
+    expect(grid[0].message).not.toMatch(/offerings menu|this is a menu/i)
+  })
+
+  it('P22 constraint 1: not one activity name from the menu becomes a choice', () => {
+    // T224's actual failure was a selection workbook committing its column
+    // headers as 33 groups and again as 33 tiers. The equivalent here would be
+    // the menu's activities becoming camper choices.
+    seedActivities(CORPUS_ACTIVITIES)
+    seedGroups(['Upper Division'])
+    const before = withDb((db) => ({
+      groups: db.prepare('SELECT COUNT(*) c FROM groups').get().c,
+      tiers: db.prepare('SELECT COUNT(*) c FROM tiers').get().c,
+      activities: db.prepare('SELECT COUNT(*) c FROM activities').get().c,
+    }))
+
+    const result = commitProbe('P22-offerings-menu-pref.csv')
+    expect(result.ok).toBe(true)
+
+    expect(
+      withDb((db) => ({
+        groups: db.prepare('SELECT COUNT(*) c FROM groups').get().c,
+        tiers: db.prepare('SELECT COUNT(*) c FROM tiers').get().c,
+        activities: db.prepare('SELECT COUNT(*) c FROM activities').get().c,
+      }))
+    ).toEqual(before)
+  })
+
+  it('P19: a planner grid is READ, not refused, and also names no camper preferences', () => {
+    // SAME rule, SAME outcome, and that is the point: this app cannot tell P19
+    // from P22 and does not pretend to. What it can say is true of both.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P19-planner-grid.csv')
+    expectNoPreferencesWritten(result)
+    expect(residueOf(result, 'NO_CAMPER_NAMES')).toHaveLength(1)
+  })
+
+  it('P23: the ranked block still commits, and the grid is reported as nameless', () => {
+    // The one page carrying BOTH. The ranked block names campers and is read; the
+    // grid above it does not, so its cells cannot be attributed to any child.
+    // Attributing them to the campers named below would be a guess about whose
+    // week it is.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P23-grid-plus-ranked-fallback.csv')
+    expect(result.ok).toBe(true)
+    expect(result.counts.preferences).toBe(20)
+    expect(result.counts.campers).toBe(4)
+
+    const unread = residueOf(result, 'UNREAD_TABLE_ABOVE_HEADER')
+    expect(unread).toHaveLength(1)
+    // The message must say WHY the grid was not read as preferences.
+    expect(unread[0].message).toMatch(/no camper name/i)
+  })
+
+  it('non-vacuity: a sheet that DOES name campers is still read normally', () => {
+    // The nameless-grid path must not swallow an ordinary sheet.
+    seedActivities(CORPUS_ACTIVITIES)
+    const result = commitProbe('P01-kind3-canonical.csv')
+    expect(result.ok).toBe(true)
+    expect(result.counts.campers).toBeGreaterThan(0)
+    expect(residueOf(result, 'NO_CAMPER_NAMES')).toHaveLength(0)
   })
 })

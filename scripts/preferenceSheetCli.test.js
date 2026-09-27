@@ -294,16 +294,36 @@ describe('runPreferenceSheetCli', () => {
     expect(counts(dbPath)).toEqual(before)
   })
 
-  it('refuses a file whose header has no ranked columns, naming what was not found', () => {
+  // T285 SLICE E/F INVERTED THIS DELIBERATELY. It used to assert that a SCHEDULE
+  // file fed to the preference reader is REFUSED for having no ranked columns.
+  //
+  // ADR §14.1 rules that the machine seam never refuses a file it can read: the
+  // CLI and MCP tools exist so an agent can drive this software, and a refusal
+  // there is the bridge failing rather than a safety property. So the file is now
+  // ACCEPTED, and the safety property that actually mattered is asserted directly
+  // instead of being inferred from the refusal: NOTHING IS WRITTEN. The reader
+  // says what it could not resolve rather than declining to look.
+  //
+  // This is also the case that keeps constraint 1 honest. A schedule grid and a
+  // filled planner are the same geometry (ADR §3.3), so nothing here decides which
+  // it is; it states the one thing true of both — the page names no camper, so it
+  // holds no camper preferences.
+  it('accepts a schedule file, writes nothing, and says what it could not resolve', () => {
     const dir = makeTmpDir()
     dirs.push(dir)
     const { dbPath } = bootstrapDb(dir)
 
     const result = runPreferenceSheetCli({ file: SCHEDULE_SAMPLE, dbPath, action: 'preview' })
 
-    expect(result.ok).toBe(false)
-    expect(result.error).toMatch(/ranks/)
+    expect(result.ok).toBe(true)
+    expect(result.counts).toEqual({ campers: 0, choices: 0, preferences: 0 })
+    // The whole point: read, not written.
     expect(counts(dbPath).operations).toBe(0)
+    expect(counts(dbPath).campers).toBe(0)
+
+    const misses = result.residue.filter((r) => r.kind === 'NO_CAMPER_NAMES' || r.kind === 'NO_READABLE_CHOICES')
+    expect(misses.length).toBeGreaterThan(0)
+    for (const m of misses) expect(m.message.length).toBeGreaterThan(40)
   })
 
   it('refuses a missing file, a missing db, a camp-less db and a device-less db', () => {

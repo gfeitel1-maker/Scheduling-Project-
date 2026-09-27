@@ -183,7 +183,23 @@ function classify(probe, obs) {
   const wroteNothing = Object.keys(obs.dbDelta).filter((t) => t !== 'operations').length === 0
   if (obs.ok === false) return 'BREAKS LOUDLY'
   if (obs.blocked) return 'BREAKS LOUDLY'
-  if (wroteNothing) return 'BREAKS SILENTLY'   // reported success and wrote nothing
+  if (wroteNothing) {
+    // T285 slices E/F — 'BREAKS SILENTLY' became a FALSE SIGNAL and is split.
+    //
+    // This bucket predates residue. It meant "reported success and wrote
+    // nothing", which was silent BECAUSE nothing else was reported. Now a page
+    // that names no camper is accepted deliberately (ADR §14.1 — the machine seam
+    // never refuses a readable file), writes nothing CORRECTLY, and says so in
+    // residue. Labelling that 'BREAKS SILENTLY' would be this harness telling the
+    // same kind of lie the ticket exists to remove: a confident wrong
+    // characterization of a correct outcome.
+    //
+    // The distinction is exactly the one that matters everywhere else in this
+    // program — was the operator TOLD?
+    return (obs.residue ?? []).length > 0 || (obs.skippedRows ?? []).length > 0
+      ? 'READ, WROTE NOTHING'
+      : 'BREAKS SILENTLY'
+  }
   return 'COMMITTED'                            // needs a correctness read, below
 }
 

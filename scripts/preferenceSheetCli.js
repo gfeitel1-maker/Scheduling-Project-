@@ -183,14 +183,55 @@ export function runPreferenceSheetCli({
     const chosen = candidates.find((c) => c.sheet.rows.length >= 2 && c.mapping.unmapped.length === 0)
 
     if (!chosen) {
-      // Nothing readable anywhere. Report against the FIRST sheet, which is what
-      // a single-sheet file has always reported and keeps that message identical.
-      const first = candidates[0]
-      return errorResult(
-        base,
-        `that file does not look like a camper preference sheet — could not find: ${first.mapping.unmapped.join(', ')}. ` +
-          'Expected a camper-name column and columns headed #1, #2, … for the ranked choices.'
-      )
+      // NO SHEET NAMES A CAMPER, so no sheet can carry a camper preference — and
+      // that is a RESOLUTION fact, not a shape verdict. ADR §14.1: a readable file
+      // is never refused, so this is ACCEPTED, writes nothing, and says what it
+      // found.
+      //
+      // THIS IS WHERE CONSTRAINT 1 WOULD HAVE BROKEN, and the way it is avoided
+      // matters more than the outcome. An offerings MENU (what is offered) and a
+      // filled PLANNER (what was chosen) are the same day x period grid with
+      // opposite meanings — ADR §3.3: "only the declared kind separates them, and
+      // no amount of shape inference can." Any heuristic here that decided which
+      // one it was looking at would be an adapter reading a document of one kind
+      // as another, which is precisely the T224 incident.
+      //
+      // So this does not classify the kind at all. It states the one thing true of
+      // BOTH: the page names no camper, therefore it holds no camper preferences.
+      // That is checkable, kind-agnostic, and enough.
+      // THE MESSAGE MUST NAME THE ACTUAL MISS, not the most likely one. A first
+      // draft said "no camper name column" for every unreadable sheet, which is a
+      // lie about a sheet that has a name column and only lacks readable ranks —
+      // the same confident-wrong-characterization defect slice A had to fix for
+      // the preamble. Two different misses, two different sentences.
+      const noNames = candidates.map((c) => {
+        const where = candidates.length > 1 ? `The tab \u201c${c.sheet.name}\u201d` : 'This file'
+        const lacksName = c.mapping.unmapped.includes('name')
+        return {
+          kind: lacksName ? 'NO_CAMPER_NAMES' : 'NO_READABLE_CHOICES',
+          sheet: c.sheet.name,
+          rows: c.sheet.rows.length,
+          unmapped: c.mapping.unmapped,
+          message: lacksName
+            ? `${where} has no camper name column, so nothing on it could be recorded as a ` +
+              'camper\u2019s preference \u2014 a preference is something a NAMED child asked for. Nothing ' +
+              'was imported and nothing was changed. If this is a grid of what each group does, or a ' +
+              'menu of what is on offer, it belongs to the schedule rather than to camper choices.'
+            : `${where} names campers but holds no ranked choices this import could read, so nothing ` +
+              'was imported and nothing was changed. Ranked choices are recognised from headers like ' +
+              '\u201c#1\u201d or \u201cFirst Choice\u201d, from a rank column beside an activity column, or ' +
+              'from one column per activity when those activities already exist in this camp.',
+        }
+      })
+      return {
+        ...base,
+        mapping: candidates[0].mapping,
+        counts: { campers: 0, choices: 0, preferences: 0 },
+        residue: noNames,
+        coverage: { measurable: false, unmeasuredCampers: 0, campers: 0 },
+        ok: true,
+        exitCode: 0,
+      }
     }
 
     const { sheet, mapping } = chosen
