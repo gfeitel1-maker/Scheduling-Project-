@@ -113,18 +113,6 @@ export function runPreferenceSheetCli({
   // NEVER GUESS. D14's whole point is that the column arrangement of a
   // third-party export is unknown, so a field the header does not name is
   // reported back by name rather than assumed into a position.
-  // The header is LOCATED, not assumed to be row 1 (T285 slice A): a title and a
-  // season line above the table are ordinary, and assuming row 1 made such a
-  // sheet "not a camper preference sheet".
-  const mapping = inferPreferenceLayout(rows)
-  if (mapping.unmapped.length > 0) {
-    return errorResult(
-      base,
-      `that file does not look like a camper preference sheet — could not find: ${mapping.unmapped.join(', ')}. ` +
-        'Expected a camper-name column and columns headed #1, #2, … for the ranked choices.'
-    )
-  }
-
   // THE DUPLICATE-RANK REFUSAL IS GONE (T285 slice A, ADR §14.1). It used to
   // refuse a header listing '#1' twice. Two columns claiming one rank is not a
   // file this app cannot read — it is an UNORDERED SET (ADR §4.1), a tie among
@@ -161,6 +149,26 @@ export function runPreferenceSheetCli({
       activities: db.prepare('SELECT name FROM activities WHERE camp_id = ?').all(camp.id).map((r) => r.name),
       groups: db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(camp.id),
       tiers: db.prepare('SELECT id, name FROM tiers WHERE camp_id = ?').all(camp.id),
+    }
+
+    // THE LAYOUT IS INFERRED AFTER THE CATALOG IS READ, and the order is
+    // load-bearing (T285 slice C). An INVERTED MATRIX — one column per activity,
+    // the cell holding its rank — is recognisable only by matching its headers
+    // against the camp's own activities, so the mapping cannot be computed before
+    // the db is open. That is RESOLVE doing the work rather than a shape
+    // heuristic, and it is what keeps an unseeded camp from having a layout
+    // guessed at.
+    //
+    // The header ROW is located here too (slice A): a title and a season line
+    // above the table are ordinary, and assuming row 1 made such a sheet "not a
+    // camper preference sheet".
+    const mapping = inferPreferenceLayout(rows, { catalog })
+    if (mapping.unmapped.length > 0) {
+      return errorResult(
+        base,
+        `that file does not look like a camper preference sheet — could not find: ${mapping.unmapped.join(', ')}. ` +
+          'Expected a camper-name column and columns headed #1, #2, … for the ranked choices.'
+      )
     }
 
     const parsed = parsePreferenceSheet(rows, { campId: camp.id, mapping, catalog })

@@ -130,6 +130,10 @@ const NAME_HEADER = /(camper|student|child).*name|^name$|^(camper|student|child)
 // canonicalized display name when there is no external id: the wrong order, or a
 // "Last, First" rendering, would derive a DIFFERENT id for the same child and
 // silently fail to match them on every later import.
+// T285 slice C — LONG FORMAT. The rank and the activity are CELL values, one row
+// per (camper, rank, activity), which is what a normalised form backend emits.
+const RANK_VALUE_HEADER = /^(choice\s*rank|rank|priority|preference\s*(number|rank))$/i
+const ACTIVITY_VALUE_HEADER = /^(activity|activity\s*name|choice|choice\s*name|elective)$/i
 const FIRST_NAME_HEADER = /^(first|given)\s*name$/i
 const LAST_NAME_HEADER = /^(last|family|sur)\s*name$/i
 const EXTERNAL_ID_HEADER = /(camper|student|child)\s*(id|number|#)$|^id$/i
@@ -191,7 +195,7 @@ export function columnLabel(index) {
  * dropped rank 3 for every camper, with ok=true and nothing said. The rename
  * is still not UNDERSTOOD; it is no longer invisible.
  */
-export function inferPreferenceMapping(header = []) {
+export function inferPreferenceMapping(header = [], { catalog } = {}) {
   const cells = header.map((h) => String(h ?? '').trim())
   const findIndex = (re) => {
     const i = cells.findIndex((h) => re.test(h))
@@ -262,6 +266,40 @@ export function inferPreferenceMapping(header = []) {
   const dayIndex = findIndex(DAY_HEADER)
   const periodIndex = findIndex(PERIOD_HEADER)
   const unorderedSetIndex = findIndex(UNORDERED_SET_HEADER)
+  const rankValueIndex = findIndex(RANK_VALUE_HEADER)
+  const activityValueIndex = findIndex(ACTIVITY_VALUE_HEADER)
+  // LONG FORMAT needs both halves: a rank column and an activity column, each
+  // holding a value rather than naming a position.
+  const longFormat =
+    rankValueIndex !== null && activityValueIndex !== null
+      ? { rankValueIndex, activityValueIndex }
+      : null
+
+  // INVERTED MATRIX — one column per ACTIVITY, the cell holding the rank.
+  //
+  // Recognised BY THE CAMP'S OWN CATALOG, which is RESOLVE doing the work rather
+  // than a shape heuristic: these headers name entities the camp already has. That
+  // matters for constraint 1 (format-agnostic must not become kind-agnostic) —
+  // without a catalog there is nothing to recognise, so an unseeded camp does NOT
+  // get this layout guessed at, and the sheet is reported unreadable instead of
+  // read wrongly.
+  //
+  // Gated on finding NO ordinary rank columns and at least TWO activity-named
+  // headers, so it can never steal a normal sheet that happens to carry one
+  // column named after an activity (a swim opt-out flag, say).
+  const knownActivities = new Set(
+    (catalog?.activities ?? [])
+      .map((a) => (typeof a === 'string' ? a : a?.name))
+      .filter(Boolean)
+      .map((n) => recognitionKey('activities', n))
+  )
+  const activityColumns =
+    ranked.length === 0 && longFormat === null && knownActivities.size > 0
+      ? cells
+          .map((h, index) => ({ header: h, index }))
+          .filter((c) => c.header !== '' && knownActivities.has(recognitionKey('activities', c.header)))
+      : []
+  const invertedMatrix = activityColumns.length >= 2 ? activityColumns : null
 
   // Every column that got a role. Anything else with a non-empty header is
   // unrecognised — and a BLANK header is not reported, because a trailing empty
@@ -270,10 +308,12 @@ export function inferPreferenceMapping(header = []) {
     [
       nameIndex, externalIdIndex, divisionIndex, dayIndex, periodIndex, unorderedSetIndex,
       splitName?.firstNameIndex ?? null, splitName?.lastNameIndex ?? null,
+      longFormat?.rankValueIndex ?? null, longFormat?.activityValueIndex ?? null,
     ]
       .filter((i) => i != null)
       .concat(rankColumns.map((r) => r.index))
       .concat(tiedColumns)
+      .concat((invertedMatrix ?? []).map((c) => c.index))
   )
   const unrecognisedColumns = cells
     .map((header, index) => ({ header, index, column: columnLabel(index) }))
@@ -281,7 +321,13 @@ export function inferPreferenceMapping(header = []) {
 
   const unmapped = []
   if (nameIndex === null && splitName === null) unmapped.push('name')
-  if (rankColumns.length === 0 && tiedColumns.length === 0 && unorderedSetIndex === null) {
+  if (
+    rankColumns.length === 0 &&
+    tiedColumns.length === 0 &&
+    unorderedSetIndex === null &&
+    longFormat === null &&
+    invertedMatrix === null
+  ) {
     unmapped.push('ranks')
   }
 
@@ -293,6 +339,8 @@ export function inferPreferenceMapping(header = []) {
     periodIndex,
     unorderedSetIndex,
     splitName,
+    longFormat,
+    invertedMatrix,
     rankColumns,
     tiedColumns,
     duplicatedRanks,
@@ -316,13 +364,13 @@ export function inferPreferenceMapping(header = []) {
  * `unmapped` list is then reported exactly as before rather than being masked by
  * this search.
  */
-export function inferPreferenceLayout(rows = [], { maxScan = 10 } = {}) {
+export function inferPreferenceLayout(rows = [], { maxScan = 10, catalog } = {}) {
   const limit = Math.min(rows.length, maxScan)
   for (let i = 0; i < limit; i += 1) {
-    const candidate = inferPreferenceMapping(rows[i])
+    const candidate = inferPreferenceMapping(rows[i], { catalog })
     if (candidate.unmapped.length === 0) return { ...candidate, headerIndex: i }
   }
-  return inferPreferenceMapping(rows[0] ?? [])
+  return inferPreferenceMapping(rows[0] ?? [], { catalog })
 }
 
 /**
@@ -590,6 +638,40 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
         coordinate: cellCoordinate,
       })
     }
+    // LONG FORMAT — this row IS one preference: the rank and the activity are
+    // both cell values.
+    if (mapping?.longFormat) {
+      const raw = cell(row, mapping.longFormat.activityValueIndex)
+      const rankRaw = cell(row, mapping.longFormat.rankValueIndex)
+      const rank = /^\d+$/.test(rankRaw) ? Number(rankRaw) : null
+      if (raw) {
+        cells.push({
+          raw,
+          rank,
+          // An explicit rank column makes this an ordered statement; a row whose
+          // rank cell is not a number states no order, so it stays a tie among
+          // equals rather than being given a position it does not claim.
+          rankKind: rank == null ? UNORDERED_SET : ORDERED_FALLBACK,
+          index: mapping.longFormat.activityValueIndex,
+          coordinate,
+        })
+      }
+    }
+
+    // INVERTED MATRIX — the HEADER names the activity, the CELL holds its rank.
+    for (const col of mapping?.invertedMatrix ?? []) {
+      const rankRaw = cell(row, col.index)
+      if (!rankRaw) continue // A blank means this camper did not rank that activity.
+      if (!/^\d+$/.test(rankRaw)) continue // Not a rank; nothing to read.
+      cells.push({
+        raw: col.header,
+        rank: Number(rankRaw),
+        rankKind: ORDERED_FALLBACK,
+        index: col.index,
+        coordinate,
+      })
+    }
+
     // Columns that shared a rank (ADR §4.1's tie among equals). Rank NULL, never
     // an order invented from column position.
     for (const index of mapping?.tiedColumns ?? []) {
@@ -729,7 +811,19 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
         camperId: id,
         hasExternalId: Boolean(externalId),
         divisionLabel,
-        coordinateKey: coordinateKey(coordinate),
+        // THE SLOTS THIS ROW FILLS — see the identity resolver below. Computed
+        // from the row's own resolved cells, so it describes what the row
+        // actually says rather than what its layout implies.
+        slots: new Set(
+          resolved.map((c) =>
+            // An unranked cell is distinguished by WHAT it names, since its rank
+            // cannot distinguish it: two rows naming the same activity unranked in
+            // one cell really do collide, two naming different ones do not.
+            c.rank == null
+              ? `${coordinateKey(c.coordinate)}\u0000null\u0000${electiveChoiceLabelKey(c.raw)}`
+              : `${coordinateKey(c.coordinate)}\u0000${c.rank}`
+          )
+        ),
       })
     }
 
@@ -914,22 +1008,49 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
       continue
     }
 
-    // One derived id. A collision only where the rows share a coordinate.
-    const byCoordinate = new Map()
+    // One derived id, several rows. A COLLISION IS AN OVERLAP OF SLOTS, and this
+    // is the general form of the rule T279 introduced for coordinates — the third
+    // layout to force it, so it is stated once here rather than per layout:
+    //
+    //   A row occupies the (coordinate, rank) SLOTS it fills. Two rows for one
+    //   name collide only if their slot sets INTERSECT.
+    //
+    // A WIDE row fills every rank, so two wide rows always collide at rank 1 —
+    // T226's original case, preserved exactly. A PER-CELL row fills one rank in
+    // one coordinate, so a planner's 18 rows never collide. A LONG-FORMAT row
+    // fills exactly one rank, so one child's three ranked rows never collide,
+    // while two rows claiming their FIRST choice still do.
+    //
+    // Keyed on what the rows SAY, not on what their layout is, which is why one
+    // rule covers all three instead of a flag per shape.
+    const seenSlots = new Map()
+    const collidingRows = new Map()
     for (const r of entry.rows) {
-      if (!byCoordinate.has(r.coordinateKey)) byCoordinate.set(r.coordinateKey, [])
-      byCoordinate.get(r.coordinateKey).push(r)
+      for (const slot of r.slots) {
+        const holder = seenSlots.get(slot)
+        if (holder) {
+          collidingRows.set(holder.rowNumber, holder)
+          collidingRows.set(r.rowNumber, r)
+        } else {
+          seenSlots.set(slot, r)
+        }
+      }
     }
-    const colliding = [...byCoordinate.values()].filter((rs) => rs.length > 1)
-    if (colliding.length === 0) continue
+    // Rows that carry NO resolved cells cannot be told apart by slot, so they
+    // fall back to the original rule: several rows for one name is a collision.
+    const emptyRows = entry.rows.filter((r) => r.slots.size === 0)
+    if (emptyRows.length > 1) for (const r of emptyRows) collidingRows.set(r.rowNumber, r)
+
+    if (collidingRows.size === 0) continue
+    const colliding = [...collidingRows.values()].sort((a, b) => a.rowNumber - b.rowNumber)
 
     sameNameCampers.push({
       display_name: entry.display_name,
-      rowNumbers: colliding.flat().map((r) => r.rowNumber).sort((a, b) => a - b),
+      rowNumbers: colliding.map((r) => r.rowNumber),
       // §12.2a's consequence: the refusal sentence must name each row's
       // division alongside its row number, because the division is exactly
       // what lets a director say "those are two different kids".
-      divisionLabels: colliding.flat().map((r) => r.divisionLabel),
+      divisionLabels: colliding.map((r) => r.divisionLabel),
     })
   }
 

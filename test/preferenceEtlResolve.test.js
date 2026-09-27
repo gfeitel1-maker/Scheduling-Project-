@@ -1061,3 +1061,121 @@ describe('T285 slice B — compound and per-period headers', () => {
     expect(days).toEqual(['Monday', 'Wednesday'])
   })
 })
+
+// ---------------------------------------------------------------------------
+// T285 SLICE C — normalised exports. Neither of these has a rank in its HEADER:
+// P31 puts the rank in a CELL (one row per (camper, rank, activity)), and P32
+// puts the ACTIVITY in the header with the rank in the cell.
+// ---------------------------------------------------------------------------
+describe('T285 slice C — tidy/long and inverted layouts', () => {
+  it('P31: a tidy/long export reads one preference per row', () => {
+    // What a normalised form backend emits. Columns are name, "Choice Rank",
+    // "Activity Name", and the rank and the label are both CELL values.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P31-tidy-long-format.csv')
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
+    expect(result.counts.campers).toBe(8)
+    expect(result.counts.preferences).toBe(24) // 8 campers x 3 ranks
+    expect(result.counts.preferences).toBe(
+      withDb((db) => db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c)
+    )
+
+    const ari = withDb((db) =>
+      db
+        .prepare(
+          `SELECT p.rank, ch.label FROM elective_preferences p
+             JOIN campers c ON c.id = p.camper_id
+             JOIN elective_choices ch ON ch.id = p.choice_id
+            WHERE c.display_name = 'Ari Feldspar' ORDER BY p.rank`
+        )
+        .all()
+    )
+    expect(ari).toEqual([
+      { rank: 1, label: 'Archery' },
+      { rank: 2, label: 'Ceramics' },
+      { rank: 3, label: 'Woodworking' },
+    ])
+  })
+
+  it('P31: one name on many rows at DISTINCT ranks is one camper, not a collision', () => {
+    // THE MULTIPLICITY QUESTION AGAIN, in its third costume. A long-format sheet
+    // gives one child three rows BY DESIGN. The pre-slice-C rule refused any name
+    // on several rows that shared a scope, and a long row has no coordinate, so
+    // all three shared the empty one.
+    //
+    // The general rule this forced: a row occupies the (coordinate, rank) SLOTS it
+    // fills, and two rows for one name collide only if their slot sets INTERSECT.
+    // A wide row fills every rank, so two wide rows always collide at rank 1; a
+    // long row fills exactly one, so rows at different ranks never do.
+    seedActivities(CORPUS_ACTIVITIES)
+    const result = commitProbe('P31-tidy-long-format.csv')
+    expect(result.ok).toBe(true)
+    expect(result.sameNameCampers).toEqual([])
+    // One camper record per name, holding all three of their choices.
+    expect(withDb((db) => db.prepare('SELECT COUNT(*) c FROM campers').get().c)).toBe(8)
+  })
+
+  it('P31 non-vacuity: the SAME name at the SAME rank twice is still refused', () => {
+    // The widening must stay a widening. Two rows claiming one child's first
+    // choice is genuinely unreadable, long format or not.
+    seedActivities(['Swim', 'Archery'])
+    const result = commitBytes(
+      'long-same-rank.csv',
+      'Camper Name,Choice Rank,Activity Name\nDalia Tuff,1,Swim\nDalia Tuff,1,Archery\n'
+    )
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/more than one row/)
+  })
+
+  it('P32: an inverted matrix reads the HEADER as the activity and the CELL as the rank', () => {
+    // One column per ACTIVITY, the cell holds the rank number. Recognising this
+    // needs the camp's own catalog — the header names entities the camp already
+    // has, which is RESOLVE doing the work rather than a shape heuristic.
+    seedActivities(CORPUS_ACTIVITIES)
+    seedGroups(['Upper Division'])
+
+    const result = commitProbe('P32-activities-as-columns.csv')
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
+    const ari = withDb((db) =>
+      db
+        .prepare(
+          `SELECT p.rank, ch.label FROM elective_preferences p
+             JOIN campers c ON c.id = p.camper_id
+             JOIN elective_choices ch ON ch.id = p.choice_id
+            WHERE c.display_name = 'Ari Feldspar' ORDER BY p.rank`
+        )
+        .all()
+    )
+    // Ari's row reads Swim=1, Archery=2, Ceramics=3, the rest blank.
+    expect(ari).toEqual([
+      { rank: 1, label: 'Swim' },
+      { rank: 2, label: 'Archery' },
+      { rank: 3, label: 'Ceramics' },
+    ])
+    expect(result.counts.campers).toBe(8)
+    expect(result.counts.preferences).toBe(24) // 8 campers x 3 ranks each
+
+    // The division is still resolved — the layout changed, not the resolvers.
+    expect(
+      withDb((db) => db.prepare("SELECT group_id FROM campers WHERE display_name = 'Ari Feldspar'").get().group_id)
+    ).not.toBeNull()
+  })
+
+  it('P32 non-vacuity: an empty catalog cannot invent an inverted layout', () => {
+    // The layout is recognised BY the catalog. With nothing to match, the headers
+    // are not activities as far as this app knows, so the sheet must NOT be read
+    // as an inverted matrix — it has no rank columns at all, and saying otherwise
+    // would be a shape guess dressed as a resolution.
+    const result = commitBytes(
+      'inverted-no-catalog.csv',
+      'Camper Name,Swim,Archery\nDalia Tuff,1,2\n'
+    )
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/could not find/)
+  })
+})
