@@ -17,6 +17,7 @@ import { buildElectiveAssignments } from '../../../engine/buildElectiveAssignmen
 import { SyncIcon } from '../../../components/icons/index.jsx'
 import { deriveOccurrences } from './deriveOccurrences.js'
 import { buildOfferings, findMismatches } from './buildOfferings.js'
+import { resolvePreferenceCoordinates } from './resolvePreferenceCoordinates.js'
 import { buildAttendance } from './buildAttendance.js'
 import { exportElectiveRunExcel, buildElectiveRunExport } from './exportElectiveRun.js'
 import MappingCorrector from './MappingCorrector.jsx'
@@ -290,15 +291,40 @@ export default function AssignmentPanel({
     setRunId(newRunId)
     setTemplateId(chosenTemplateId)
     setOccurrences(occs)
-    solve(occs)
+    // The chosen id is passed EXPLICITLY rather than read from state: setTemplateId
+    // above has not applied by the time solve's timeout runs, so resolution would
+    // otherwise name the PREVIOUS template in its residue.
+    solve(occs, [], chosenTemplateId)
   }
 
-  function solve(occs, lockedAssignments = []) {
+  function solve(occs, lockedAssignments = [], chosenTemplateId = null) {
     setPhase('solving')
     // Deliberately async-shaped so the busy phase actually paints before the
     // (synchronous, potentially heavy) solve runs.
     setTimeout(() => {
       const offerings = buildOfferings({ occurrences: occs, setActivities, activities })
+      // RESOLVER 5's SECOND HALF, and THIS IS THE SEAM IT BELONGS AT (ADR §13.2:
+      // resolution is solve-time and template-scoped, because the coordinate set
+      // is per-template and the two candidate routes may bind one coordinate
+      // differently — neither is canonical).
+      //
+      // Without this call the coordinate columns had NO READERS at all: a
+      // per-cell sheet reached the engine with `occurrence_id` absent on every
+      // row, every cell collapsed onto the engine's single whole-run scalar, and
+      // campers were placed in activities they had not chosen for that cell while
+      // `preference_rank` reported a first choice that was not honoured. A
+      // confident wrong answer, where before the branch the sheet had simply been
+      // refused.
+      //
+      // Nothing is written back: the stored rows keep their coordinates, and the
+      // resolved occurrence lives only for this solve against this template.
+      const resolvedPreferences = resolvePreferenceCoordinates({
+        preferences: parsed.preferences,
+        occurrences: occs,
+        days,
+        timeBlocks,
+        templateId: chosenTemplateId ?? templateId,
+      })
       // H4 — occurrences are tier-scoped but campers are not; without this a
       // set placed on both a Juniors cell and a Seniors cell at the same
       // day/block seats the SAME campers in both. attendance is null (skip
@@ -306,7 +332,7 @@ export default function AssignmentPanel({
       // where there is nothing to disambiguate.
       const { attendance, unmatched, ambiguous } = buildAttendance({ campers: parsed.campers, occurrences: occs, tiers })
       const { assignments, findings } = buildElectiveAssignments({
-        campers: parsed.campers, occurrences: occs, offerings, preferences: parsed.preferences, attendance,
+        campers: parsed.campers, occurrences: occs, offerings, preferences: resolvedPreferences.preferences, attendance,
         // T250/T246 — seats the director locked by hand on the Draft screen.
         // Empty on a first solve; non-empty only on a regenerate, which is the
         // only path that has a persisted run to read locks from.
@@ -341,7 +367,19 @@ export default function AssignmentPanel({
         division: a.division,
         message: `${a.camperCount} camper(s) list the division “${a.division}”, which matches more than one division on this schedule — rename one of them to tell them apart. They were considered for every occurrence.`,
       }))
-      setResult({ assignments, findings: [...findings, ...mismatchFindings, ...attendanceFindings, ...ambiguousFindings] })
+      // A coordinate that bound to NOTHING is the director's business, not a
+      // silent drop: either the sheet names a day or period this camp does not
+      // have (provably wrong, ADR §11.2's domain check), or it names a real cell
+      // that THIS schedule puts no elective in — and the other candidate route
+      // may well have it, which is why the residue names the template.
+      const coordinateFindings = resolvedPreferences.residue
+      setResult({
+        assignments,
+        findings: [
+          ...findings, ...mismatchFindings, ...attendanceFindings, ...ambiguousFindings,
+          ...coordinateFindings,
+        ],
+      })
       setPhase('preview')
       setAnnouncement(
         assignments.length === 0
