@@ -30,7 +30,7 @@ import * as XLSX from 'xlsx'
 import { openLocalDb } from '../electron/db/localDb.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from '../electron/ops/commitElectiveRun.js'
 import { deriveImportedElectiveRunId } from '../electron/ops/electiveDerivedIds.js'
-import { columnLabel, inferPreferenceMapping, parsePreferenceSheet } from '../src/ingest/preferenceSheet.js'
+import { inferPreferenceLayout, parsePreferenceSheet } from '../src/ingest/preferenceSheet.js'
 import { readWorkbookSafely, unescapeRow } from '../src/utils/exportSanitize.js'
 
 function baseResult({ file, dbPath, action }) {
@@ -74,18 +74,6 @@ function readRows(buf) {
     .map(unescapeRow)
 }
 
-function findDuplicateRankColumns(rankColumns = []) {
-  const byRank = new Map()
-  for (const { rank, index } of rankColumns) {
-    if (!byRank.has(rank)) byRank.set(rank, [])
-    byRank.get(rank).push(index)
-  }
-  for (const [rank, indexes] of byRank) {
-    if (indexes.length > 1) return { rank, columns: indexes.map(columnLabel) }
-  }
-  return null
-}
-
 /**
  * PURE-ish orchestration core: read -> map -> parse -> (preview | commit).
  * No stdout/argv here, and never throws past this boundary.
@@ -125,7 +113,10 @@ export function runPreferenceSheetCli({
   // NEVER GUESS. D14's whole point is that the column arrangement of a
   // third-party export is unknown, so a field the header does not name is
   // reported back by name rather than assumed into a position.
-  const mapping = inferPreferenceMapping(rows[0])
+  // The header is LOCATED, not assumed to be row 1 (T285 slice A): a title and a
+  // season line above the table are ordinary, and assuming row 1 made such a
+  // sheet "not a camper preference sheet".
+  const mapping = inferPreferenceLayout(rows)
   if (mapping.unmapped.length > 0) {
     return errorResult(
       base,
@@ -134,19 +125,16 @@ export function runPreferenceSheetCli({
     )
   }
 
-  // A HEADER defect, refused before parsing so it is never reported as a data
-  // one. Two columns headed '#1' otherwise reach the parser as one camper
-  // holding rank 1 twice, and the contradictory-ranks refusal then sends a
-  // director hunting through rows for a problem that is in row 1.
-  const duplicateRank = findDuplicateRankColumns(mapping.rankColumns)
-  if (duplicateRank) {
-    return errorResult(
-      base,
-      `that file's header lists rank #${duplicateRank.rank} more than once — columns ` +
-        `${duplicateRank.columns.join(' and ')}. Give each ranked choice its own rank number ` +
-        '(#1, #2, …) and import again.'
-    )
-  }
+  // THE DUPLICATE-RANK REFUSAL IS GONE (T285 slice A, ADR §14.1). It used to
+  // refuse a header listing '#1' twice. Two columns claiming one rank is not a
+  // file this app cannot read — it is an UNORDERED SET (ADR §4.1), a tie among
+  // equals — so `inferPreferenceMapping` now routes those columns to rank NULL
+  // with a `DUPLICATED_RANK_HEADER` residue item, and the reader states what it
+  // did instead of refusing. The original worry behind the refusal is answered
+  // rather than ignored: two '#1' columns no longer reach the parser as one
+  // camper holding rank 1 twice, because an unranked preference is exempt from
+  // the contradictory-ranks check, so no director is sent hunting through rows
+  // for a problem that is in row 1.
 
   if (!fs.existsSync(dbPath)) return errorResult(base, `db not found: ${dbPath}`)
 

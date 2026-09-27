@@ -50,8 +50,47 @@
 import { deriveCamperId, electiveChoiceLabelKey } from '../../electron/ops/electiveDerivedIds.js'
 import { recognitionKey } from './preview.js'
 
+// T285 slice A — RANK HEADER RECOGNITION.
+//
+// `#1` was the only form recognised, and ADR §4.2 measured what that costs: a
+// real vendor export writes "First Choice" or "Choice 1", so the bare-`#N` anchor
+// "matches essentially nothing". A file whose ranks are unreadable was refused at
+// the header, which ADR §14.1 rules is the wrong side of the pipeline.
+//
+// Three forms, all ORDINAL statements of the same fact, kept as a short explicit
+// list rather than a clever parser: a wrong guess about which column is rank 1 is
+// a wrong statement about a child's first choice.
 const RANK_HEADER = /^#\s*(\d+)$/
-const NAME_HEADER = /(camper|student|child).*name|^name$/i
+const RANK_CHOICE_NUMBER = /^choice\s*#?\s*(\d+)$|^(\d+)\s*(?:st|nd|rd|th)?\s+choice$/i
+const ORDINAL_WORDS = [
+  'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth',
+  'ninth', 'tenth', 'eleventh', 'twelfth',
+]
+const RANK_ORDINAL_WORD = new RegExp(`^(${ORDINAL_WORDS.join('|')})\\s+choice$`, 'i')
+
+/** The rank a header names, or null. */
+function rankFromHeader(header) {
+  const hash = RANK_HEADER.exec(header)
+  if (hash) return Number(hash[1])
+  const numbered = RANK_CHOICE_NUMBER.exec(header)
+  if (numbered) return Number(numbered[1] ?? numbered[2])
+  const word = RANK_ORDINAL_WORD.exec(header)
+  if (word) return ORDINAL_WORDS.indexOf(word[1].toLowerCase()) + 1
+  return null
+}
+
+// `Student` / `Camper` / `Child` alone, not only `Student Name`. The old pattern
+// required the literal word "name" somewhere, so a bare `Student` header made the
+// whole file "not a camper preference sheet".
+const NAME_HEADER = /(camper|student|child).*name|^name$|^(camper|student|child)$/i
+// A name SPLIT ACROSS TWO COLUMNS — the default output of most form tools, and so
+// probably the most common real file this app rejected outright. Joined
+// FIRST-then-LAST with a single space, because `deriveCamperId` keys on the
+// canonicalized display name when there is no external id: the wrong order, or a
+// "Last, First" rendering, would derive a DIFFERENT id for the same child and
+// silently fail to match them on every later import.
+const FIRST_NAME_HEADER = /^(first|given)\s*name$/i
+const LAST_NAME_HEADER = /^(last|family|sur)\s*name$/i
 const EXTERNAL_ID_HEADER = /(camper|student|child)\s*(id|number|#)$|^id$/i
 const DIVISION_HEADER = /division|bunk|group|unit|edah/i
 // A per-row coordinate (T279). A sheet that scopes each choice to a cell says
@@ -112,18 +151,51 @@ export function inferPreferenceMapping(header = []) {
     return i === -1 ? null : i
   }
 
-  const rankColumns = []
+  const ranked = []
   cells.forEach((h, index) => {
-    const m = RANK_HEADER.exec(h)
-    if (m) rankColumns.push({ rank: Number(m[1]), index })
+    const rank = rankFromHeader(h)
+    if (rank != null) ranked.push({ rank, index })
   })
+
+  // TWO COLUMNS CLAIMING ONE RANK are not a defect to refuse — they are an
+  // UNORDERED SET (ADR §4.1): two equally acceptable choices, a tie among equals.
+  // This used to be refused at the header, which both blocked a readable file and
+  // stated the wrong thing about it. Coercing cell order into a ranking is the
+  // one thing §4.1 forbids, so the duplicated rank's columns lose their rank
+  // rather than being ordered arbitrarily; ranks that appear once are untouched.
+  const byRank = new Map()
+  for (const r of ranked) {
+    if (!byRank.has(r.rank)) byRank.set(r.rank, [])
+    byRank.get(r.rank).push(r.index)
+  }
+  const duplicatedRanks = []
+  const rankColumns = []
+  const tiedColumns = []
+  for (const [rank, indexes] of byRank) {
+    if (indexes.length > 1) {
+      duplicatedRanks.push({ rank, columns: indexes.map(columnLabel), indexes })
+      tiedColumns.push(...indexes)
+    } else {
+      rankColumns.push({ rank, index: indexes[0] })
+    }
+  }
   rankColumns.sort((a, b) => a.rank - b.rank)
+  tiedColumns.sort((a, b) => a - b)
 
   const externalIdIndex = findIndex(EXTERNAL_ID_HEADER)
   let nameIndex = findIndex(NAME_HEADER)
   // 'Camper ID' matches the name pattern's 'camper' branch only if the name
   // pattern is loosened; keep them disjoint so an id column is never the name.
   if (nameIndex !== null && nameIndex === externalIdIndex) nameIndex = null
+
+  // A split name is used ONLY when there is no single name column, so a sheet
+  // carrying both keeps the single column as authoritative.
+  const firstNameIndex = findIndex(FIRST_NAME_HEADER)
+  const lastNameIndex = findIndex(LAST_NAME_HEADER)
+  const splitName =
+    nameIndex === null && firstNameIndex !== null && lastNameIndex !== null
+      ? { firstNameIndex, lastNameIndex }
+      : null
 
   const divisionIndex = findIndex(DIVISION_HEADER)
   const dayIndex = findIndex(DAY_HEADER)
@@ -134,17 +206,23 @@ export function inferPreferenceMapping(header = []) {
   // unrecognised — and a BLANK header is not reported, because a trailing empty
   // column is a spreadsheet artefact rather than a field the camp asked about.
   const claimed = new Set(
-    [nameIndex, externalIdIndex, divisionIndex, dayIndex, periodIndex, unorderedSetIndex]
+    [
+      nameIndex, externalIdIndex, divisionIndex, dayIndex, periodIndex, unorderedSetIndex,
+      splitName?.firstNameIndex ?? null, splitName?.lastNameIndex ?? null,
+    ]
       .filter((i) => i != null)
       .concat(rankColumns.map((r) => r.index))
+      .concat(tiedColumns)
   )
   const unrecognisedColumns = cells
     .map((header, index) => ({ header, index, column: columnLabel(index) }))
     .filter((c) => c.header !== '' && !claimed.has(c.index))
 
   const unmapped = []
-  if (nameIndex === null) unmapped.push('name')
-  if (rankColumns.length === 0 && unorderedSetIndex === null) unmapped.push('ranks')
+  if (nameIndex === null && splitName === null) unmapped.push('name')
+  if (rankColumns.length === 0 && tiedColumns.length === 0 && unorderedSetIndex === null) {
+    unmapped.push('ranks')
+  }
 
   return {
     nameIndex,
@@ -153,10 +231,37 @@ export function inferPreferenceMapping(header = []) {
     dayIndex,
     periodIndex,
     unorderedSetIndex,
+    splitName,
     rankColumns,
+    tiedColumns,
+    duplicatedRanks,
     unrecognisedColumns,
     unmapped,
+    headerIndex: 0,
   }
+}
+
+/**
+ * Find the header ROW, then map it. T285 slice A.
+ *
+ * A real export often carries a title and a season line above the table, and the
+ * reader assumed row 1 unconditionally — so a perfectly ordinary sheet was
+ * "not a camper preference sheet". This is not a new shape: it is locating the
+ * shape that was already there.
+ *
+ * The chosen row is the FIRST that maps with nothing unmapped, which is a
+ * verifiable property rather than a guess — a title row has no rank columns and
+ * cannot win. Falling back to row 0 keeps the previous behaviour, and its
+ * `unmapped` list is then reported exactly as before rather than being masked by
+ * this search.
+ */
+export function inferPreferenceLayout(rows = [], { maxScan = 10 } = {}) {
+  const limit = Math.min(rows.length, maxScan)
+  for (let i = 0; i < limit; i += 1) {
+    const candidate = inferPreferenceMapping(rows[i])
+    if (candidate.unmapped.length === 0) return { ...candidate, headerIndex: i }
+  }
+  return inferPreferenceMapping(rows[0] ?? [])
 }
 
 /**
@@ -279,7 +384,8 @@ const coordinateKey = (coordinate) =>
  *   claimed or waived.
  */
 export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {}) {
-  const body = rows.slice(1)
+  const headerIndex = mapping?.headerIndex ?? 0
+  const body = rows.slice(headerIndex + 1)
   const campers = []
   const byId = new Map()
   const rowsByName = new Map()
@@ -290,6 +396,58 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
   const resolveDivision = makeDivisionResolver(catalog ?? {})
 
   const add = (kind, message, extra = {}) => residue.push({ kind, message, ...extra })
+
+  // The rows ABOVE the header, which were read past rather than read. Skipping
+  // them is right; not saying so is the same silence §12.0 forbids everywhere
+  // else.
+  if (headerIndex > 0) {
+    const preambleRows = Array.from({ length: headerIndex }, (_, i) => i + 1)
+
+    // A TITLE LINE AND AN UNREAD TABLE ARE NOT THE SAME FINDING, and calling the
+    // second one the first is worse than saying nothing. Found by measuring slice
+    // A: on P23 (a planner grid AND a ranked block on one page) the locator found
+    // the ranked block's header, committed it correctly, and described the 8-row
+    // x 5-day grid above it as "usually a title or a season line" — a confident
+    // wrong characterization of half the document.
+    //
+    // The discriminator is structure, not content: two or more rows each carrying
+    // three or more populated cells is a TABLE, whatever it holds. A title and a
+    // season line cannot meet that bar, which is why P12 still gets the calm
+    // message and is pinned so this does not cry wolf on every ordinary export.
+    const structuredRows = rows
+      .slice(0, headerIndex)
+      .filter((r) => (r ?? []).filter((v) => String(v ?? '').trim() !== '').length >= 3)
+
+    if (structuredRows.length >= 2) {
+      add(
+        'UNREAD_TABLE_ABOVE_HEADER',
+        `Rows 1-${headerIndex} hold what looks like a second TABLE — ${structuredRows.length} rows of ` +
+          'three or more filled cells, which is a grid, not a title. Only the table starting at row ' +
+          `${headerIndex + 1} was read. If that grid is a planner showing which activity each camper ` +
+          'chose per period, this page carries TWO kinds of preference and only one of them has been ' +
+          'imported \u2014 nothing above row ' + `${headerIndex + 1} was read.`,
+        { rows: preambleRows, headerRow: headerIndex + 1, structuredRows: structuredRows.length }
+      )
+    } else {
+      add(
+        'SKIPPED_PREAMBLE',
+        `The table starts at row ${headerIndex + 1}, so row(s) ${preambleRows.join(', ')} above it ` +
+          'were not read. That is usually a title or a season line — check nothing on them was meant ' +
+          'to be imported.',
+        { rows: preambleRows, headerRow: headerIndex + 1 }
+      )
+    }
+  }
+
+  for (const d of mapping?.duplicatedRanks ?? []) {
+    add(
+      'DUPLICATED_RANK_HEADER',
+      `Rank #${d.rank} is the header of ${d.columns.length} columns (${d.columns.join(', ')}), so ` +
+        'those choices have been kept as equally acceptable rather than put in an order the file ' +
+        'does not state. Give each ranked choice its own number if you meant them to be ranked.',
+      { rank: d.rank, columns: d.columns }
+    )
+  }
 
   // RESOLVER 1's output, reported once for the sheet rather than once per row.
   for (const c of mapping?.unrecognisedColumns ?? []) {
@@ -310,8 +468,18 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
   let unmeasuredCampers = 0
 
   body.forEach((row, i) => {
-    const rowNumber = i + 2 // 1-based, and the header is row 1 — what a director sees.
-    const displayName = cell(row, mapping?.nameIndex)
+    // 1-based, counting the preamble above the header — what a director sees in
+    // their own spreadsheet, which is the only row number worth reporting.
+    const rowNumber = headerIndex + i + 2
+    // A split First/Last name joins FIRST-then-LAST with one space. Order is
+    // load-bearing, not cosmetic: `deriveCamperId` keys on the canonicalized
+    // display name when there is no external id, so reversing it derives a
+    // different id for the same child and silently fails every later match.
+    const displayName = mapping?.splitName
+      ? [cell(row, mapping.splitName.firstNameIndex), cell(row, mapping.splitName.lastNameIndex)]
+          .filter(Boolean)
+          .join(' ')
+      : cell(row, mapping?.nameIndex)
     const externalId = cell(row, mapping?.externalIdIndex)
     if (!displayName && !externalId) {
       skippedRows.push({ rowNumber, reason: 'no camper name' })
@@ -347,6 +515,13 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
       if (!raw) continue // A blank rank is a rank the camper left empty, not a shift.
       // The explicit rank is ALWAYS preserved. It is the camper's own statement.
       cells.push({ raw, rank, rankKind: rankKindForRanks, index })
+    }
+    // Columns that shared a rank (ADR §4.1's tie among equals). Rank NULL, never
+    // an order invented from column position.
+    for (const index of mapping?.tiedColumns ?? []) {
+      const raw = cell(row, index)
+      if (!raw) continue
+      cells.push({ raw, rank: null, rankKind: UNORDERED_SET, index })
     }
     if (mapping?.unorderedSetIndex != null) {
       const raw = cell(row, mapping.unorderedSetIndex)

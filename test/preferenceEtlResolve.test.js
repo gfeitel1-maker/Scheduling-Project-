@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url'
 
 import { openLocalDb } from '../electron/db/localDb.js'
 import { runPreferenceSheetCli } from '../scripts/preferenceSheetCli.js'
+import { deriveCamperId } from '../electron/ops/electiveDerivedIds.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PROBES = path.join(ROOT, 'test/fixtures/preference-corpus/probes')
@@ -496,17 +497,34 @@ describe('the COLUMN resolver (ADR §12.0)', () => {
     expect(labels).not.toContain('Please keep with a friend')
   })
 
-  it('P38: a rank column renamed out of recognition is REPORTED, not silently dropped', () => {
-    // P37 -> P38 renamed '#3' to 'Third Choice'. Today that silently drops rank
-    // 3 for every camper with ok=true and no residue. The loud half (T279) is
-    // that the unassignable column is named.
+  it('P38: a rank column renamed to prose is READ as rank 3, not dropped and not merely reported', () => {
+    // THE HISTORY MATTERS HERE, so it is recorded rather than quietly replaced.
+    //
+    // P37 -> P38 renames '#3' to 'Third Choice'. Originally that silently dropped
+    // rank 3 for all 13 campers with ok=true and no residue at all. T279 made it
+    // LOUD: the column became an `UNRECOGNISED_COLUMN` residue item, which is a
+    // strictly better failure but still a failure — the rank was still not read.
+    //
+    // T285 slice A closes it properly: prose rank headers are now recognised, so
+    // rank 3 is READ. This test therefore asserts the STRONGER outcome, and the
+    // absence of the residue item is the evidence of the upgrade rather than a
+    // regression. ADR §14.1's point exactly — shape was never a reason to refuse
+    // or to drop.
     seedActivities(CORPUS_ACTIVITIES)
 
     const result = commitProbe('P38-kind3-reimport-drifted.csv')
     expect(result.ok).toBe(true)
 
-    const unrecognised = residueOf(result, 'UNRECOGNISED_COLUMN')
-    expect(unrecognised.map((r) => r.header)).toContain('Third Choice')
+    // Rank 3 exists, for every camper on the sheet.
+    const rank3 = withDb((db) =>
+      db.prepare('SELECT COUNT(*) c FROM elective_preferences WHERE rank = 3').get().c
+    )
+    const campers = withDb((db) => db.prepare('SELECT COUNT(*) c FROM campers').get().c)
+    expect(rank3).toBe(campers)
+    expect(rank3).toBeGreaterThan(0)
+
+    // And it is no longer reported as a column nobody could place.
+    expect(residueOf(result, 'UNRECOGNISED_COLUMN').map((r) => r.header)).not.toContain('Third Choice')
   })
 })
 
@@ -746,5 +764,210 @@ describe('residue (ADR §3.4)', () => {
       expect(typeof item.kind).toBe('string')
       expect(item.message.length).toBeGreaterThan(20)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// T285 SLICE A — header and identity resolution. ADR §14.1: shape is not a
+// reason to refuse ingest, and a refusal belongs AFTER the transform if
+// anywhere. Every one of these was refused at the HEADER, before any transform
+// ran, which is the wrong side of the pipeline.
+//
+// A bucket change from BREAKS LOUDLY to COMMITTED is NOT evidence on its own, so
+// every test here asserts the RIGHT data landed. A probe that commits wrong data
+// is worse than one that refuses, because the refusal at least tells the truth.
+// ---------------------------------------------------------------------------
+describe('T285 slice A — header and identity resolution', () => {
+  it('P03: prose rank headers are read as the ranks they name', () => {
+    // "First Choice", "Second Choice", "Third Choice". ADR §4.2 already recorded
+    // that /^#\s*(\d+)$/ "matches essentially nothing" against real vendor
+    // exports, which is what made this the common case rather than an edge one.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P03-kind3-prose-rank-headers.csv')
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
+    // The RIGHT ranks, not merely three of them: Ari's sheet row reads
+    // Swim, Archery, Ceramics across first/second/third.
+    const ari = withDb((db) =>
+      db
+        .prepare(
+          `SELECT p.rank, ch.label FROM elective_preferences p
+             JOIN campers c ON c.id = p.camper_id
+             JOIN elective_choices ch ON ch.id = p.choice_id
+            WHERE c.display_name = 'Ari Feldspar' ORDER BY p.rank`
+        )
+        .all()
+    )
+    expect(ari).toEqual([
+      { rank: 1, label: 'Swim' },
+      { rank: 2, label: 'Archery' },
+      { rank: 3, label: 'Ceramics' },
+    ])
+    expect(result.counts.preferences).toBe(
+      withDb((db) => db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c)
+    )
+  })
+
+  it('P04: a name column headed just `Student` is the name column', () => {
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P04-kind3-bare-student-header.csv')
+    expect(result.ok).toBe(true)
+
+    const names = withDb((db) =>
+      db.prepare('SELECT display_name FROM campers ORDER BY display_name').all().map((r) => r.display_name)
+    )
+    // Real names, and NOT the header word committed as a camper.
+    expect(names).toContain('Ari Feldspar')
+    expect(names).not.toContain('Student')
+    expect(names).toHaveLength(6)
+  })
+
+  it('P34: a split First/Last name joins in the RIGHT order and derives the RIGHT id', () => {
+    // THE HIGHEST-VALUE FIX IN THE LIST: split name columns are the default
+    // output of most form tools, so this is likely the most common real file the
+    // app currently rejects outright.
+    //
+    // AND THE MOST DANGEROUS TO GET HALF-RIGHT. `deriveCamperId` keys on the
+    // canonicalized display name when there is no external id, so joining in the
+    // wrong order — or emitting "Feldspar, Ari" — would pass a bucket check,
+    // pass a "did it commit?" check, and then silently fail to match the SAME
+    // child on every future import and every downstream name lookup. So this
+    // asserts the derived id against the canonical derivation, not just the
+    // string.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P34-split-name-columns.csv')
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
+    const campers = withDb((db) =>
+      db.prepare('SELECT id, display_name FROM campers ORDER BY display_name').all()
+    )
+    expect(campers).toHaveLength(8)
+
+    const names = campers.map((c) => c.display_name)
+    // FIRST then LAST, one space, nothing else.
+    expect(names).toContain('Ari Feldspar')
+    expect(names).toContain('Shira Pyrite')
+    for (const n of names) {
+      expect(n).not.toMatch(/,/)
+      expect(n).not.toMatch(/^[A-Z][a-z]+ (Ari|Noa|Eli|Tamar|Yonah|Maya|Dov|Shira)$/)
+    }
+
+    // The identity contract: the stored id IS what deriveCamperId produces for
+    // that display name. If the join order were reversed this fails, even though
+    // the row count and the commit would both look fine.
+    const ari = campers.find((c) => c.display_name === 'Ari Feldspar')
+    expect(ari.id).toBe(deriveCamperId(campId, { externalId: null, displayName: 'Ari Feldspar' }))
+  })
+
+  it('P12: a header that is not row 1 is located, and the preamble is reported', () => {
+    // Two title/junk rows sit above the real header. Locating it is not a new
+    // shape, it is finding the shape that is already there.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P12-header-not-first-row.csv')
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
+    const names = withDb((db) =>
+      db.prepare('SELECT display_name FROM campers').all().map((r) => r.display_name)
+    )
+    expect(names).toHaveLength(8)
+    // The junk above the header must not become campers.
+    expect(names).not.toContain('Activity Selection')
+    expect(names).not.toContain('Upper Division')
+
+    // And the rows we skipped are SAID, not silently discarded — §12.0.
+    const preamble = residueOf(result, 'SKIPPED_PREAMBLE')
+    expect(preamble).toHaveLength(1)
+    expect(preamble[0].rows).toEqual([1, 2])
+  })
+
+  it('P23: a structured TABLE above the header is not called a title line', () => {
+    // FOUND BY MEASURING SLICE A, not by design, and it is the exact failure the
+    // adapter program was warned about: a newly-readable shape is a new
+    // opportunity to read it WRONGLY.
+    //
+    // P23 is a planner grid AND a "Next Five Choices" ranked block on one page.
+    // Slice A's header locator found the ranked block's header at row 10 and
+    // committed it correctly — and then described the 8-row x 5-day grid above it
+    // as "usually a title or a season line". That is worse than silence: it is a
+    // confident wrong characterization of half the document.
+    //
+    // Reading the grid is slice F's job (P23 is deliberately last). Slice A's
+    // obligation is that the loss is LOUD and ACCURATE, and that the second
+    // reading is NAMED — ADR §14.1 constraint 2: an ambiguity is read one way
+    // loudly with the alternative stated, never resolved by silence.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P23-grid-plus-ranked-fallback.csv')
+    expect(result.ok).toBe(true)
+
+    // The ranked block IS read correctly — 4 campers x 5 ranks.
+    expect(result.counts.preferences).toBe(20)
+    expect(result.counts.campers).toBe(4)
+
+    // And the grid above it is reported as an UNREAD TABLE, not as a title line.
+    const unread = residueOf(result, 'UNREAD_TABLE_ABOVE_HEADER')
+    expect(unread).toHaveLength(1)
+    expect(unread[0].rows.length).toBeGreaterThan(2)
+    // The message must name the second reading, so a director is not told a grid
+    // is decoration.
+    expect(unread[0].message).toMatch(/grid|table/i)
+    expect(unread[0].message).not.toMatch(/title or a season line/)
+    // The calm preamble message must NOT also fire for this page.
+    expect(residueOf(result, 'SKIPPED_PREAMBLE')).toHaveLength(0)
+  })
+
+  it('P12: a genuinely thin preamble still gets the calm message, not the alarm', () => {
+    // Non-vacuity for the row above. 'Activity Selection' and
+    // 'Upper Division,Summer' really are a title and a season line, and calling
+    // them an unread table would cry wolf on every ordinary export.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P12-header-not-first-row.csv')
+    expect(result.ok).toBe(true)
+    expect(residueOf(result, 'SKIPPED_PREAMBLE')).toHaveLength(1)
+    expect(residueOf(result, 'UNREAD_TABLE_ABOVE_HEADER')).toHaveLength(0)
+  })
+
+  it('P11: two columns headed #1 are an UNORDERED SET, not a refusal', () => {
+    // A correctness fix rather than a new shape. ADR §4.1: an unordered set is a
+    // TIE AMONG EQUALS and must never be coerced into a ranking — so two columns
+    // claiming rank 1 are two equally-acceptable choices, which is readable. It
+    // was refused at the header instead.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P11-kind3-duplicate-rank-header.csv')
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
+    const ari = withDb((db) =>
+      db
+        .prepare(
+          `SELECT p.rank, p.rank_kind, ch.label FROM elective_preferences p
+             JOIN campers c ON c.id = p.camper_id
+             JOIN elective_choices ch ON ch.id = p.choice_id
+            WHERE c.display_name = 'Ari Feldspar' ORDER BY ch.label`
+        )
+        .all()
+    )
+    // Swim and Archery both sat under a '#1' header: equally acceptable, so rank
+    // NULL and 'unordered-set'. Ceramics sat under '#3' and keeps its rank.
+    expect(ari).toEqual([
+      { rank: null, rank_kind: 'unordered-set', label: 'Archery' },
+      { rank: 3, rank_kind: 'ordered-fallback', label: 'Ceramics' },
+      { rank: null, rank_kind: 'unordered-set', label: 'Swim' },
+    ])
+
+    // Loud: the director is told which rank was duplicated and what we did.
+    const dup = residueOf(result, 'DUPLICATED_RANK_HEADER')
+    expect(dup).toHaveLength(1)
+    expect(dup[0].rank).toBe(1)
+    expect(dup[0].columns).toEqual(['C', 'D'])
   })
 })

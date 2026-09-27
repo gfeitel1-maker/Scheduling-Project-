@@ -236,24 +236,43 @@ describe('runPreferenceSheetCli', () => {
     expect(counts(dbPath)).toEqual(before)
   })
 
-  // Red Hat F3. Two columns headed '#1' is a HEADER defect; blaming the camper
-  // sends a director hunting through rows for a data problem that is not there.
-  it('refuses duplicate rank columns by naming the header, not the campers', () => {
+  // T285 SLICE A INVERTED THIS TEST DELIBERATELY, and the history is worth
+  // keeping rather than overwriting.
+  //
+  // It used to assert that two columns headed '#1' are REFUSED, naming the header
+  // rather than the camper (Red Hat F3 — blaming the camper sent a director
+  // hunting through rows for a data problem that is not there). The half about
+  // WHO to blame was right and still holds. The refusal was wrong: ADR §14.1
+  // rules that shape is not a reason to refuse ingest, and ADR §4.1 says two
+  // columns claiming one rank is an UNORDERED SET — a tie among equals — which is
+  // perfectly readable. So the file now imports, those choices carry rank NULL
+  // rather than an order invented from column position, and a
+  // DUPLICATED_RANK_HEADER residue item names the rank and the columns.
+  //
+  // The original worry is ANSWERED, not dropped: an unranked preference is exempt
+  // from the contradictory-ranks check, so no director is sent hunting rows for a
+  // row-1 problem. That assertion is kept below.
+  it('reads duplicate rank columns as an unordered set, naming the header not the campers', () => {
     const dir = makeTmpDir()
     dirs.push(dir)
     const { dbPath } = bootstrapDb(dir)
-    const before = counts(dbPath)
 
     const file = path.join(dir, 'dup-rank-header.csv')
     fs.writeFileSync(file, 'Camper Name,Division,#1,#1\nAri Green,Aleph,Swim,Archery\n')
 
     const result = runPreferenceSheetCli({ file, dbPath, action: 'preview' })
 
-    expect(result.ok).toBe(false)
-    expect(result.error).toMatch(/rank #1/)
-    expect(result.error).toMatch(/column/i)
-    expect(result.error).not.toMatch(/camper holds the same preference rank/)
-    expect(counts(dbPath)).toEqual(before)
+    expect(result.ok).toBe(true)
+    expect(result.blocked).toBeNull()
+    // Never blamed on a camper — the surviving half of Red Hat F3. There is no
+    // error at all now, which is the strongest form of "not blamed on a camper".
+    expect(result.error).toBeNull()
+
+    const dup = result.residue.filter((r) => r.kind === 'DUPLICATED_RANK_HEADER')
+    expect(dup).toHaveLength(1)
+    expect(dup[0].rank).toBe(1)
+    expect(dup[0].columns).toEqual(['C', 'D'])
+    expect(dup[0].message).toMatch(/equally acceptable/)
   })
 
   it('previews a same-name sheet as blocked, and commit refuses it, writing nothing', () => {
