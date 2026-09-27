@@ -332,6 +332,12 @@ export function commitElectiveRun(db, {
           //  import recorded.
           group_id: c.group_id ?? undefined,
           division_label: c.division_label ?? (c.division_observed ? null : undefined),
+          // T285 slice G — a subject whose NAME is not known, from a planner grid
+          // that carries no name column because the identity comes from the
+          // SUBMISSION rather than the page. `undefined` when absent, so an
+          // ordinary named camper is never asserted as attributed-or-not and a
+          // later import that DOES name them does not have to clear a flag.
+          is_unattributed: c.is_unattributed ?? undefined,
         })
       }
 

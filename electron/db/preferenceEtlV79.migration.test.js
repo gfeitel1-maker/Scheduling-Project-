@@ -110,8 +110,8 @@ describe('migration v79 — campers.division_label and elective_preferences.rank
     const db = openLocalDb(tmpFile('v79-fresh'))
     try {
       const camperCols = columns(db, 'campers')
-      expect(camperCols).toContain('division_label')
-      expect(camperCols[camperCols.length - 1]).toBe('division_label')
+      // Both v79 camper columns, in ALTER order, appended last.
+      expect(camperCols.slice(-2)).toEqual(['division_label', 'is_unattributed'])
 
       const prefCols = columns(db, 'elective_preferences')
       // All three v79 columns, in ALTER order, appended last.
@@ -125,9 +125,11 @@ describe('migration v79 — campers.division_label and elective_preferences.rank
     const db = preV79Db()
     try {
       expect(columns(db, 'campers')).not.toContain('division_label')
+      expect(columns(db, 'campers')).not.toContain('is_unattributed')
       initSchema(db)
 
       expect(columns(db, 'campers')).toContain('division_label')
+      expect(columns(db, 'campers')).toContain('is_unattributed')
       expect(columns(db, 'elective_preferences')).toContain('rank_kind')
       expect(columns(db, 'elective_preferences')).toContain('coordinate_day_label')
       expect(columns(db, 'elective_preferences')).toContain('coordinate_period_label')
@@ -138,6 +140,7 @@ describe('migration v79 — campers.division_label and elective_preferences.rank
       const camper = db.prepare("SELECT * FROM campers WHERE id = 'cam1'").get()
       expect(camper.display_name).toBe('A Camper')
       expect(camper.division_label).toBeNull()
+      expect(camper.is_unattributed).toBeNull()
       const pref = db.prepare("SELECT * FROM elective_preferences WHERE id = 'pref1'").get()
       expect(pref.rank).toBe(1)
       expect(pref.rank_kind).toBeNull()
@@ -164,6 +167,7 @@ describe('migration v79 — campers.division_label and elective_preferences.rank
   it('the projection allowlists carry both fields, or every write is silently discarded', () => {
     // §13.4 — this is the assertion that makes the ALTER load-bearing.
     expect(PROJECTIONS.campers.fields).toContain('division_label')
+    expect(PROJECTIONS.campers.fields).toContain('is_unattributed')
     expect(PROJECTIONS.elective_preferences.fields).toContain('rank_kind')
     expect(PROJECTIONS.elective_preferences.fields).toContain('coordinate_day_label')
     expect(PROJECTIONS.elective_preferences.fields).toContain('coordinate_period_label')

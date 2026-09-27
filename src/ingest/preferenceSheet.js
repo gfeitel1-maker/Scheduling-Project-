@@ -182,6 +182,73 @@ export function columnLabel(index) {
 }
 
 /**
+ * A DAY x PERIOD GRID, detected from a header row and the rows under it.
+ *
+ * T285 slice G, OWNER RULING: *"the grid is the camper's own sheet, they fill it
+ * out and turn it into campminder… our job is not to question what shape the data
+ * comes in. we are a lake, the warehouse, and the pipeline."*
+ *
+ * A planner grid has no camper-name column because IT DOES NOT NEED ONE — the
+ * identity comes from the SUBMISSION, not the page. So such a page is ONE
+ * SUBJECT, not zero, and every filled cell is that child's answer for that
+ * coordinate. Slices E/F read only the named tables and reported the grid as
+ * unattributable, which was this program's own defect for the third time: the
+ * importer discarding a child's answer because it could not place it.
+ *
+ * `optionsPerCoordinate` is how a MENU is told from a filled PLANNER, and it is
+ * deliberately a statement about ARITY rather than about meaning. A menu offers
+ * SEVERAL activities per (day, period); a filled planner records ONE choice. ADR
+ * §3.3 is right that no shape inference can tell what a grid MEANS — so nothing
+ * here tries. Counting cells per coordinate is checkable, and it is the only
+ * separator left once "no camper is named" is known to be what a camper's own
+ * sheet looks like.
+ *
+ * @returns {{periodIndex, dayColumns, optionsPerCoordinate}|null}
+ */
+export function detectGridLayout(rows = [], headerIndex = 0) {
+  const header = (rows[headerIndex] ?? []).map((h) => String(h ?? '').trim())
+  // Days name the columns. Two or more, because one column is not a week and a
+  // single "Monday" column is far more likely to be an ordinary field.
+  const dayColumns = []
+  header.forEach((h, index) => {
+    const day = DAY_IN_HEADER.exec(h)
+    if (day && index > 0) dayColumns.push({ index, dayName: day[0] })
+  })
+  if (dayColumns.length < 2) return null
+
+  // A day may span SEVERAL columns (an A/B options sub-header), and SheetJS gives
+  // the spanned cells an empty header. Those belong to the day on their left.
+  const spans = new Map()
+  let current = null
+  header.forEach((h, index) => {
+    if (index === 0) return
+    const day = DAY_IN_HEADER.exec(h)
+    if (day) current = day[0]
+    else if (h !== '') current = null
+    if (current) {
+      if (!spans.has(current)) spans.set(current, [])
+      spans.get(current).push(index)
+    }
+  })
+  const widths = [...spans.values()].map((c) => c.length)
+  const optionsPerCoordinate = widths.length > 0 ? Math.max(...widths) : 1
+
+  // The first column must label the periods on at least one row under the header,
+  // or this is not a grid keyed by period and nothing here should claim it is.
+  const body = rows.slice(headerIndex + 1)
+  const labelled = body.filter((r) => PERIOD_IN_HEADER.test(String(r?.[0] ?? '').trim()))
+  if (labelled.length === 0) return null
+
+  return {
+    periodIndex: 0,
+    dayColumns: [...spans.entries()].flatMap(([dayName, indexes]) =>
+      indexes.map((index) => ({ index, dayName }))
+    ),
+    optionsPerCoordinate,
+  }
+}
+
+/**
  * Propose which column is which, from the header row.
  *
  * Every field is nullable and `unmapped` names what was not found — the caller
@@ -486,7 +553,7 @@ function makeDivisionResolver({ groups = [], tiers = [] } = {}) {
  *   `residue` is the loud half (§3.4): non-empty by default until each item is
  *   claimed or waived.
  */
-export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {}) {
+export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid, subject } = {}) {
   const headerIndex = mapping?.headerIndex ?? 0
   const body = rows.slice(headerIndex + 1)
   const campers = []
@@ -503,7 +570,11 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
   // The rows ABOVE the header, which were read past rather than read. Skipping
   // them is right; not saying so is the same silence §12.0 forbids everywhere
   // else.
-  if (headerIndex > 0) {
+  // Nothing is reported as unread if the preamble was READ as a grid (T285 slice
+  // G). The whole point of that slice is that those rows are a camper's answers,
+  // so calling them skipped would be false — and a residue item that is false is
+  // worse than one that is missing.
+  if (headerIndex > 0 && !grid?.layout) {
     const preambleRows = Array.from({ length: headerIndex }, (_, i) => i + 1)
 
     // A TITLE LINE AND AN UNREAD TABLE ARE NOT THE SAME FINDING, and calling the
@@ -856,6 +927,109 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
         'and guessing from the order they were typed in would invent a preference nobody stated.',
       { column, index: mapping.unorderedSetIndex, rows: unorderedSetRows }
     )
+  }
+
+  // THE GRID, read as ONE SUBJECT (T285 slice G). Deliberately inside this same
+  // function rather than a sibling transform: a second transform is a second T224
+  // (`src/ingest/scheduleShape.js:14-21` — that incident happened because a path
+  // reached extraction without calling the gate the other path called). The grid's
+  // cells go through the SAME label resolver, the SAME collision pass and the SAME
+  // residue ledger as every other shape.
+  if (grid?.layout) {
+    const { layout, rows: gridRows, headerIndex: gridHeader } = grid
+    if (layout.optionsPerCoordinate > 1) {
+      // SEVERAL activities per (day, period) is a menu of OPTIONS, not one
+      // camper's choices, and writing them as a child's preferences is T224's
+      // incident with better manners. Nothing is written and the ALTERNATIVE
+      // reading is named — this does not assert what the document IS.
+      add(
+        'MULTIPLE_OPTIONS_PER_PERIOD',
+        `That grid gives more than one activity for each period (${layout.optionsPerCoordinate} ` +
+          'columns per day), so it reads as a list of what is ON OFFER rather than one camper\u2019s ' +
+          'choices \u2014 nobody chooses two things for one period. Nothing from it was imported. If it ' +
+          'is really one camper\u2019s filled-in sheet, give each period a single column and import again.',
+        { optionsPerCoordinate: layout.optionsPerCoordinate, rows: gridRows.length }
+      )
+    } else {
+      const subjectName = subject?.displayName || null
+      const subjectId = deriveCamperId(campId, {
+        externalId: subject?.externalId || null,
+        displayName: subjectName,
+      })
+      if (!byId.has(subjectId)) {
+        const record = {
+          id: subjectId,
+          display_name: subjectName ?? '',
+          external_id: subject?.externalId || null,
+          division_label: null,
+          group_id: null,
+          division_observed: false,
+        }
+        // Marked so the subject is findable LATER WITHOUT RE-IMPORT. Residue says
+        // so at import time, but residue is not persisted, and "land it, then
+        // resolve it" is only true if the thing to resolve can be found.
+        if (subject?.attributed !== true) record.is_unattributed = 1
+        byId.set(subjectId, record)
+        campers.push(record)
+      }
+
+      if (subject?.attributed !== true) {
+        add(
+          'UNATTRIBUTED_SUBJECT',
+          `That grid is one camper\u2019s own sheet, but nothing on it and nothing about the import ` +
+            `said WHOSE \u2014 so its ${gridRows.length} period rows have been stored against a subject ` +
+            `provisionally called \u201c${subjectName ?? 'unnamed'}\u201d. The choices are saved with the ` +
+            'day and period they sit in; name the camper when you know them, and nothing needs ' +
+            're-importing.',
+          { subject: subjectName, source: subject?.source ?? 'none' }
+        )
+      }
+
+      gridRows.forEach((row, i) => {
+        const rowNumber = gridHeader + i + 2
+        const periodLabel = cell(row, layout.periodIndex) || null
+        for (const col of layout.dayColumns) {
+          const raw = cell(row, col.index)
+          if (!raw) continue
+          const verdict = resolveLabel(raw)
+          const coordinate = { dayName: col.dayName, periodLabel }
+          if (verdict.status === 'matched' || verdict.status === 'abstained') {
+            if (verdict.status === 'abstained') unverifiedLabels.add(raw)
+            const labelKey = electiveChoiceLabelKey(raw)
+            if (!choicesByKey.has(labelKey)) choicesByKey.set(labelKey, { label: raw, labelKey })
+            candidates.push({
+              camper_id: subjectId,
+              label: choicesByKey.get(labelKey).label,
+              labelKey,
+              // One cell, one coordinate: CHOSEN, rank 1 by construction (§4.2).
+              rank: 1,
+              rank_kind: CELL_CHOICE,
+              coordinate,
+              rowNumber,
+            })
+            continue
+          }
+          const column = columnLabel(col.index)
+          if (verdict.status === 'packed') {
+            add(
+              'AMBIGUOUS_PACKED_CELL',
+              `Row ${rowNumber}, column ${column} holds \u201c${raw}\u201d, which is not an activity this ` +
+                `camp has \u2014 but split up it names ${verdict.parts.length} that it does, so nothing was ` +
+                'read from that cell.',
+              { rowNumber, column, label: raw, parts: verdict.parts }
+            )
+            continue
+          }
+          add(
+            'UNRESOLVED_CHOICE_LABEL',
+            `${col.dayName} ${periodLabel ?? ''} holds \u201c${raw}\u201d, which is not an activity this ` +
+              'camp has, so it was not imported as a choice. A fixed event like lunch or ' +
+              'instructional swim is expected here \u2014 those are not electives.',
+            { rowNumber, column, label: raw, coordinate }
+          )
+        }
+      })
+    }
   }
 
   for (const label of unverifiedLabels) {

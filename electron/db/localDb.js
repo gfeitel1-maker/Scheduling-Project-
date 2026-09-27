@@ -3713,7 +3713,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
 
   // v79 (T279, docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-
   // learned-axis-binding.md §12.6 + §13.3, extended by round 2's owner ruling) —
-  // FOUR nullable columns the elective preference ETL needs in order to STORE
+  // FIVE nullable columns the elective preference ETL needs in order to STORE
   // what it reads instead of reporting it and dropping it:
   //
   //   campers.division_label          — the division exactly as written on the
@@ -3764,6 +3764,13 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         const cols = db.pragma('table_info(campers)').map((c) => c.name)
         if (!cols.includes('division_label')) {
           db.exec('ALTER TABLE campers ADD COLUMN division_label TEXT')
+        }
+        // T285 slice G — a subject whose NAME we do not know. See schema.sql's
+        // comment: residue reports it at import time but residue is not
+        // persisted, and "land it, then resolve it" only works if the thing to
+        // resolve can be found afterwards.
+        if (!cols.includes('is_unattributed')) {
+          db.exec('ALTER TABLE campers ADD COLUMN is_unattributed INTEGER')
         }
       }
       if (tableExists('elective_preferences')) {

@@ -844,7 +844,10 @@ export const PROJECTIONS = {
     // imported file. It MUST be listed: applyProjection returns silently for a
     // field absent from this array, so omitting it leaves the column empty
     // everywhere with no error and no log.
-    fields: ['camp_id', 'display_name', 'group_id', 'external_id', 'is_active', 'division_label'],
+    fields: [
+      'camp_id', 'display_name', 'group_id', 'external_id', 'is_active', 'division_label',
+      'is_unattributed',
+    ],
     ensureExists: (db, id) => {
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
       getStmt(db, "INSERT OR IGNORE INTO campers (id, camp_id, display_name) VALUES (?, ?, '')").run(

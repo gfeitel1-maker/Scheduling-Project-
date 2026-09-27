@@ -498,7 +498,10 @@ export const MOCK_WRITE_ALLOWLIST = {
   // an unregistered entity or field and electron/ipcSurfaceParity.test.js fails
   // on any drift from PROJECTIONS. This is a PARITY MIRROR, not a UI list — the
   // absence of a screen in this slice is not a reason to skip it.
-  campers: ['camp_id', 'display_name', 'group_id', 'external_id', 'is_active', 'division_label'],
+  campers: [
+    'camp_id', 'display_name', 'group_id', 'external_id', 'is_active', 'division_label',
+    'is_unattributed',
+  ],
   elective_assignment_runs: [
     'camp_id', 'schedule_week_id', 'schedule_template_id', 'tier_id', 'name', 'status',
     'source_filename', 'source_sha256', 'solver_version', 'solver_generation',

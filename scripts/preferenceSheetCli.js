@@ -30,7 +30,7 @@ import * as XLSX from 'xlsx'
 import { openLocalDb } from '../electron/db/localDb.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from '../electron/ops/commitElectiveRun.js'
 import { deriveImportedElectiveRunId } from '../electron/ops/electiveDerivedIds.js'
-import { inferPreferenceLayout, parsePreferenceSheet } from '../src/ingest/preferenceSheet.js'
+import { detectGridLayout, inferPreferenceLayout, parsePreferenceSheet } from '../src/ingest/preferenceSheet.js'
 import { readWorkbookSafely, unescapeRow } from '../src/utils/exportSanitize.js'
 
 function baseResult({ file, dbPath, action }) {
@@ -95,6 +95,11 @@ export function runPreferenceSheetCli({
   runName = null,
   authorUserId = null,
   dbKey = null,
+  // T285 slice G. WHOSE sheet this is, when the caller knows — the portal, the
+  // import screen's selection, or an agent driving the CLI. A planner grid has no
+  // name column because the identity comes from the SUBMISSION, not the page, so
+  // this is the first and best source in the identity order.
+  camperName = null,
 }) {
   const base = baseResult({ file, dbPath, action })
 
@@ -182,6 +187,113 @@ export function runPreferenceSheetCli({
     }))
     const chosen = candidates.find((c) => c.sheet.rows.length >= 2 && c.mapping.unmapped.length === 0)
 
+    // ONE COMPLETION PATH for every shape (T285 slice G). The grid branch and the
+    // row-per-camper branch both end here, so preview/commit semantics, the
+    // refusal check, the author check and the derived run id cannot drift between
+    // them — a second completion path is how T224 happened.
+    const finishRun = ({ parsed, mapping, extraResidue = [] }) => {
+      const report = {
+        ...base,
+        mapping,
+        counts: {
+          campers: parsed.campers.length,
+          choices: parsed.choices.length,
+          // POST-RESOLUTION, and that is the whole point (ADR section 12.2b).
+          // `parsed.preferences` is already collision-resolved, so this number,
+          // commitElectiveRun's `counts.preferences`, and the number of rows
+          // written are the SAME number by construction. P02's 200-vs-160
+          // disagreement cannot recur, because there is only one number.
+          preferences: parsed.preferences.length,
+        },
+        sameNameCampers: parsed.sameNameCampers,
+        skippedRows: parsed.skippedRows,
+        // The workbook-level residue is the CLI's own: the parser is pure and
+        // takes one table, so it cannot know a second tab existed.
+        residue: [...extraResidue, ...parsed.residue],
+        coverage: parsed.coverage,
+      }
+
+      if (action !== 'commit') {
+        // A preview must be able to say "this would be refused, and why" without
+        // touching the db — so it asks the commit path's own refusal check rather
+        // than re-deciding, which is how the two stay in agreement.
+        return { ...report, ok: true, blocked: describeElectiveRunRefusal(parsed), exitCode: 0 }
+      }
+
+      // One device per db on this path for the same structural reason as the
+      // camp lookup above: the CLI operates on a single device's database file,
+      // so "the device" is unambiguous and needs no selector.
+      const device = db.prepare('SELECT id FROM devices LIMIT 1').get()
+      if (!device) return { ...report, ok: false, error: 'db has no device registered yet', exitCode: 1 }
+
+      // Checked here rather than left to the FOREIGN KEY, which rolls back
+      // correctly but reports 'FOREIGN KEY constraint failed' — true, and
+      // useless to whoever passed the id.
+      if (authorUserId != null) {
+        const author = db.prepare('SELECT id FROM users WHERE id = ?').get(authorUserId)
+        if (!author) {
+          return {
+            ...report,
+            ok: false,
+            error: `author_user_id ${authorUserId} is not a user in this camp's database`,
+            exitCode: 1,
+          }
+        }
+      }
+
+      // Identifies the exact bytes this run came from, so a director looking at a
+      // run later can tell whether a resent sheet is the same document.
+      const sourceSha256 = createHash('sha256').update(buf).digest('hex')
+
+      let outcome
+      try {
+        // T250: no `lockedAssignments` here, and that is correct rather than an
+        // omission — this CLI runs no solve at all (it commits with
+        // `assignments: []`), so there are no locked seats to carry through.
+        // The caller that DOES solve, and that must pass them, is
+        // src/screens/elective/assignment/AssignmentPanel.jsx.
+        outcome = commitElectiveRun(db, {
+          campId: camp.id,
+          deviceId: device.id,
+          authorUserId,
+          // Derived, NOT minted — see deriveImportedElectiveRunId. Re-sending the
+          // same bytes converges onto one run (an idempotent retry); a corrected
+          // sheet is different bytes and so a new run. Only this caller can make
+          // that choice: the renderer's solve path has no document to key on and
+          // must keep minting its own.
+          runId: deriveImportedElectiveRunId(camp.id, sourceSha256),
+          name: runName ?? path.basename(file),
+          sourceFilename: path.basename(file),
+          sourceSha256,
+          parsed,
+          assignments: [],
+          occurrences: [],
+        })
+      } catch (e) {
+        return { ...report, ok: false, error: `commit failed: ${e.message}`, exitCode: 1 }
+      }
+
+      if (!outcome.ok) return { ...report, ok: false, error: outcome.error, exitCode: 1 }
+      return { ...report, ok: true, runId: outcome.runId, exitCode: 0 }
+    }
+
+    // THE SUBJECT OF A GRID, resolved in the owner's order, and NEVER blocking the
+    // data from landing (T285 slice G):
+    //   1. a camper the caller supplied     -> attributed
+    //   2. a camper named on the page       -> attributed
+    //   3. the filename                     -> provisional, flagged
+    //   4. nothing                          -> provisional, flagged
+    // An unattributed subject is a first-class outcome, not a failure: the
+    // preferences are stored with their coordinates and a human or an agent names
+    // the child later, without re-importing. Landing the data unattributed is
+    // strictly better than dropping it.
+    const resolveSubject = (pageName) => {
+      if (camperName) return { displayName: camperName, source: 'caller', attributed: true }
+      if (pageName) return { displayName: pageName, source: 'page', attributed: true }
+      const stem = path.basename(file).replace(/\.[^.]+$/, '')
+      return { displayName: stem || null, source: stem ? 'filename' : 'none', attributed: false }
+    }
+
     if (!chosen) {
       // NO SHEET NAMES A CAMPER, so no sheet can carry a camper preference — and
       // that is a RESOLUTION fact, not a shape verdict. ADR §14.1: a readable file
@@ -204,6 +316,37 @@ export function runPreferenceSheetCli({
       // lie about a sheet that has a name column and only lacks readable ranks —
       // the same confident-wrong-characterization defect slice A had to fix for
       // the preamble. Two different misses, two different sentences.
+      // A GRID IS NOT AN UNREADABLE SHEET. Before reporting that nothing could be
+      // read, ask whether this is a day x period grid — a camper's own planner —
+      // and read it as one subject if so.
+      const gridSheet = candidates.find((c) => detectGridLayout(c.sheet.rows, 0) != null)
+      if (gridSheet) {
+        const layout = detectGridLayout(gridSheet.sheet.rows, 0)
+        const parsedGrid = parsePreferenceSheet([], {
+          campId: camp.id,
+          mapping: { unmapped: [], unrecognisedColumns: [], rankColumns: [], headerIndex: 0 },
+          catalog,
+          grid: { layout, rows: gridSheet.sheet.rows.slice(1), headerIndex: 0 },
+          subject: resolveSubject(null),
+        })
+        const unreadOther = sheets
+          .filter((sh) => sh.name !== gridSheet.sheet.name)
+          .map((sh) => ({
+            kind: 'UNREAD_SHEET',
+            sheet: sh.name,
+            rows: sh.rows.length,
+            message:
+              `The tab \u201c${sh.name}\u201d (${sh.rows.length} row(s)) was not read \u2014 the grid on ` +
+              `\u201c${gridSheet.sheet.name}\u201d was. Tabs are never combined.`,
+          }))
+        return finishRun({
+          parsed: parsedGrid,
+          mapping: gridSheet.mapping,
+          extraResidue: unreadOther,
+          sourceSheet: gridSheet.sheet.name,
+        })
+      }
+
       const noNames = candidates.map((c) => {
         const where = candidates.length > 1 ? `The tab \u201c${c.sheet.name}\u201d` : 'This file'
         const lacksName = c.mapping.unmapped.includes('name')
@@ -250,90 +393,26 @@ export function runPreferenceSheetCli({
           'if that tab holds a second set of submissions it has NOT been imported.',
       }))
 
-    const parsed = parsePreferenceSheet(rows, { campId: camp.id, mapping, catalog })
-    const report = {
-      ...base,
+    // A SECOND TABLE ABOVE THE HEADER IS READ TOO, not reported as unread
+    // (T285 slice G). P23 carries a planner grid AND a ranked block on one page,
+    // and reading only the block was this program's own defect: the grid is a
+    // camper's own sheet and its cells are that child's answers. Both halves land.
+    const preambleGrid = mapping.headerIndex > 0 ? detectGridLayout(rows, 0) : null
+
+    const parsed = parsePreferenceSheet(rows, {
+      campId: camp.id,
       mapping,
-      counts: {
-        campers: parsed.campers.length,
-        choices: parsed.choices.length,
-        // POST-RESOLUTION, and that is the whole point (ADR section 12.2b).
-        // `parsed.preferences` is already collision-resolved, so this number,
-        // commitElectiveRun's `counts.preferences`, and the number of rows
-        // written are the SAME number by construction. P02's 200-vs-160
-        // disagreement cannot recur, because there is only one number.
-        preferences: parsed.preferences.length,
-      },
-      sameNameCampers: parsed.sameNameCampers,
-      skippedRows: parsed.skippedRows,
-      // The workbook-level residue is the CLI's own: the parser is pure and takes
-      // one table, so it cannot know a second tab existed.
-      residue: [...unreadSheets, ...parsed.residue],
-      coverage: parsed.coverage,
-    }
+      catalog,
+      grid: preambleGrid
+        ? { layout: preambleGrid, rows: rows.slice(1, mapping.headerIndex), headerIndex: 0 }
+        : undefined,
+      // The grid's subject is resolved WITHOUT looking at the named campers in the
+      // table below it: this page names four of them, so picking one would be a
+      // guess about whose week the grid describes.
+      subject: preambleGrid ? resolveSubject(null) : undefined,
+    })
 
-    if (action !== 'commit') {
-      // A preview must be able to say "this would be refused, and why" without
-      // touching the db — so it asks the commit path's own refusal check rather
-      // than re-deciding, which is how the two stay in agreement.
-      return { ...report, ok: true, blocked: describeElectiveRunRefusal(parsed), exitCode: 0 }
-    }
-
-    // One device per db on this path for the same structural reason as the
-    // camp lookup above: the CLI operates on a single device's database file,
-    // so "the device" is unambiguous and needs no selector.
-    const device = db.prepare('SELECT id FROM devices LIMIT 1').get()
-    if (!device) return { ...report, ok: false, error: 'db has no device registered yet', exitCode: 1 }
-
-    // Checked here rather than left to the FOREIGN KEY, which rolls back
-    // correctly but reports 'FOREIGN KEY constraint failed' — true, and
-    // useless to whoever passed the id.
-    if (authorUserId != null) {
-      const author = db.prepare('SELECT id FROM users WHERE id = ?').get(authorUserId)
-      if (!author) {
-        return {
-          ...report,
-          ok: false,
-          error: `author_user_id ${authorUserId} is not a user in this camp's database`,
-          exitCode: 1,
-        }
-      }
-    }
-
-    // Identifies the exact bytes this run came from, so a director looking at a
-    // run later can tell whether a resent sheet is the same document.
-    const sourceSha256 = createHash('sha256').update(buf).digest('hex')
-
-    let outcome
-    try {
-      // T250: no `lockedAssignments` here, and that is correct rather than an
-      // omission — this CLI runs no solve at all (it commits with
-      // `assignments: []`), so there are no locked seats to carry through.
-      // The caller that DOES solve, and that must pass them, is
-      // src/screens/elective/assignment/AssignmentPanel.jsx.
-      outcome = commitElectiveRun(db, {
-        campId: camp.id,
-        deviceId: device.id,
-        authorUserId,
-        // Derived, NOT minted — see deriveImportedElectiveRunId. Re-sending the
-        // same bytes converges onto one run (an idempotent retry); a corrected
-        // sheet is different bytes and so a new run. Only this caller can make
-        // that choice: the renderer's solve path has no document to key on and
-        // must keep minting its own.
-        runId: deriveImportedElectiveRunId(camp.id, sourceSha256),
-        name: runName ?? path.basename(file),
-        sourceFilename: path.basename(file),
-        sourceSha256,
-        parsed,
-        assignments: [],
-        occurrences: [],
-      })
-    } catch (e) {
-      return { ...report, ok: false, error: `commit failed: ${e.message}`, exitCode: 1 }
-    }
-
-    if (!outcome.ok) return { ...report, ok: false, error: outcome.error, exitCode: 1 }
-    return { ...report, ok: true, runId: outcome.runId, exitCode: 0 }
+    return finishRun({ parsed, mapping, extraResidue: unreadSheets })
   } finally {
     db.close()
   }

@@ -1899,6 +1899,69 @@ on refusing it**, which is the sharpest lesson of the program and belongs beside
 
 
 
+### 14.1a STANDING RULE — we do not question the shape data arrives in. We LAND it, then RESOLVE it.
+
+Owner, 2026-09-27, after T285 escalated a shape question that should never have reached him:
+
+> *"the grid is the camper's own sheet, they fill it out and turn it into campminder. again, this does
+> not fucking matter. our job is not to question what shape the data comes in. we are a lake, the
+> warehouse, and the pipeline."*
+
+**Ruling: a question about what a document's shape MEANS is answered by LANDING THE DATA and REPORTING
+THE UNCERTAINTY — never by refusing, never by dropping the unreadable half, and never by escalating the
+shape question to the owner.** The only legitimate refusal remains the one that would merge two real
+children (P07).
+
+This is §14.1 (never refuse at the machine seam) carried one step further, and the step matters: §14.1
+stopped us saying *no*, and this stops us saying *nothing*. Accepting a file and then declining to read
+half of it is the same loss as refusing it, with better manners.
+
+**The product fact that resolved it, which no prior round had.** A planner grid has no camper-name
+column because **it does not need one** — it is ONE CAMPER'S OWN SHEET, filled in and submitted, and
+the identity comes from the **submission**, not the page. So "no camper is named" means **one subject,
+not zero**.
+
+**What that overturns, named plainly because it was my own reasoning.** Slices E and F concluded that
+"neither page names a camper, so neither can hold a camper preference." That sentence is true of an
+offerings menu and false of a camper's planner, and it cannot tell them apart — so it read only P23's
+ranked block and reported its grid as unattributable. **That is this ADR's own defect for the third
+time in a new costume: the importer discarding a child's answer because it could not place it.** The
+pattern is worth naming as a pattern, since it has now recurred three times: §12.2b's key scoped a
+child's statement to a schedule's identity; round 2 residued the resulting loss instead of storing the
+coordinate; slice F reported a loss instead of landing the subject. **Every time, the tell was the same
+— reporting something instead of storing it.** §12.7 diagnosed exactly this and it still recurred
+twice more after the diagnosis.
+
+**The design this forces.**
+
+1. **A page with no camper-name column is ONE SUBJECT.** Every filled cell becomes a per-cell
+   preference carrying its coordinate, exactly as a named per-cell sheet would.
+2. **Identity resolves in order, and NEVER blocks the data landing:** an explicit camper from the
+   caller (CLI/MCP argument, or the import screen's selection) → a camper named on the page → the
+   filename → otherwise an **unattributed subject**. An unattributed subject is a **first-class
+   outcome, not a failure**.
+3. **Attribution is residue, not refusal**, and resolvable later without re-import — the same shape as
+   the coordinate-before-template case in §14.2.
+4. **`campers.is_unattributed` joins v79** (its fifth column). The flag is not decoration: residue
+   reports the missing identity at import time, but **residue is not persisted**, and "land it, then
+   resolve it" is only true if the thing to resolve can be FOUND afterwards.
+
+**Constraint 1 survives, and had to be re-founded.** An offerings menu must still write zero
+preferences (T224: a selection workbook once committed its column headers as 33 groups and again as 33
+tiers). But it can no longer be separated by "no camper is named", because that is precisely what a
+camper's own sheet looks like. **It is separated on ARITY instead: a menu supplies SEVERAL activities
+per (day, period); a filled planner records ONE choice.** That is a statement about the data's arity,
+which is checkable, rather than about what the document means, which §3.3 rightly says no shape
+inference can reach. Measured on the corpus: P22 has 2 columns per day (an A/B sub-header), P19 and
+P23 have 1.
+
+**And a second obligation that came out of this program, stated here because it is the sharpest thing
+learned:** the first draft of every new adapter described what it skipped WRONGLY — a planner grid
+called "a title or a season line", an unreadable sheet called "no camper name column" when it had
+one, an unread-table residue left firing over rows that were in fact read. **Accepting a file and then
+describing it wrongly is not an improvement on refusing it.** "Never refuse" and "never mischaracterise"
+are one rule with two halves.
+
 ### 14.2 The coordinate is STORED, and §12.2b's key was wrong about which fact it was scoping
 
 **The report that triggered this.** Round 1 implemented §12.2b's collision key literally, as

@@ -50,8 +50,10 @@ export function rollbackV79(db) {
   }
 
   db.transaction(() => {
-    if (hasColumn(db, 'campers', 'division_label')) {
-      db.exec('ALTER TABLE campers DROP COLUMN division_label')
+    for (const column of ['division_label', 'is_unattributed']) {
+      if (hasColumn(db, 'campers', column)) {
+        db.exec(`ALTER TABLE campers DROP COLUMN ${column}`)
+      }
     }
     if (hasColumn(db, 'elective_preferences', 'rank_kind')) {
       db.exec('ALTER TABLE elective_preferences DROP COLUMN rank_kind')

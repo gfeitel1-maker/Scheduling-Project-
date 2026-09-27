@@ -1371,6 +1371,16 @@ CREATE TABLE IF NOT EXISTS event_slots (
 -- migrated-forward db must produce the IDENTICAL column array, order included,
 -- or preferenceEtlV79.migration.test.js's cross-check fails.
 --
+-- is_unattributed (v79, T285 slice G) marks a subject whose NAME this app does
+-- not know. A camper's own planner grid has no name column because it does not
+-- need one -- the identity comes from the SUBMISSION, not the page -- so such a
+-- sheet is ONE subject rather than zero, and its cells are stored rather than
+-- dropped. The flag exists so that subject is findable LATER WITHOUT RE-IMPORT:
+-- the import's residue says so at the time, but residue is not persisted, and
+-- "land it, then resolve it" is only true if the thing to resolve can be found.
+-- NULL means an ordinary named camper; 1 means the display_name is provisional
+-- (taken from the filename) and a human or an agent should name them.
+--
 -- division_label (v79, ADR 2026-09-27 section 12.2a) is PROVENANCE: the
 -- division exactly as written on an imported source file, never an entity
 -- reference. `group_id` answers "which camp group is this child in";
@@ -1387,7 +1397,8 @@ CREATE TABLE IF NOT EXISTS campers (
   group_id TEXT,
   external_id TEXT,
   is_active INTEGER NOT NULL DEFAULT 1,
-  division_label TEXT
+  division_label TEXT,
+  is_unattributed INTEGER
 );
 
 -- elective_assignment_runs (v66). One director-initiated assignment attempt.

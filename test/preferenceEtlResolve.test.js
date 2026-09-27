@@ -887,40 +887,27 @@ describe('T285 slice A — header and identity resolution', () => {
     expect(preamble[0].rows).toEqual([1, 2])
   })
 
-  it('P23: a structured TABLE above the header is not called a title line', () => {
-    // FOUND BY MEASURING SLICE A, not by design, and it is the exact failure the
-    // adapter program was warned about: a newly-readable shape is a new
-    // opportunity to read it WRONGLY.
+  it('P23: a structured TABLE above the header is READ, not called a title line', () => {
+    // THE HISTORY OF THIS ONE TEST IS THE HISTORY OF THE PROGRAM'S OWN MISTAKE,
+    // so it is recorded rather than replaced silently.
     //
-    // P23 is a planner grid AND a "Next Five Choices" ranked block on one page.
-    // Slice A's header locator found the ranked block's header at row 10 and
-    // committed it correctly — and then described the 8-row x 5-day grid above it
-    // as "usually a title or a season line". That is worse than silence: it is a
-    // confident wrong characterization of half the document.
+    // Slice A's header locator found P23's ranked block at row 10 and described
+    // the 8-row x 5-day grid above it as "usually a title or a season line" — a
+    // confident wrong characterization of half the document. Slice A fixed the
+    // DESCRIPTION: the grid was reported as an unread table instead.
     //
-    // Reading the grid is slice F's job (P23 is deliberately last). Slice A's
-    // obligation is that the loss is LOUD and ACCURATE, and that the second
-    // reading is NAMED — ADR §14.1 constraint 2: an ambiguity is read one way
-    // loudly with the alternative stated, never resolved by silence.
+    // Slice G fixed the BEHAVIOUR, on an owner ruling: the grid is one camper's
+    // own sheet, so it is READ. Reporting it accurately was better than lying
+    // about it, and reading it is better than both. The unread-table residue is
+    // therefore gone — not regressed, discharged.
     seedActivities(CORPUS_ACTIVITIES)
 
     const result = commitProbe('P23-grid-plus-ranked-fallback.csv')
     expect(result.ok).toBe(true)
 
-    // The ranked block IS read correctly — 4 campers x 5 ranks.
-    expect(result.counts.preferences).toBe(20)
-    expect(result.counts.campers).toBe(4)
-
-    // And the grid above it is reported as an UNREAD TABLE, not as a title line.
-    const unread = residueOf(result, 'UNREAD_TABLE_ABOVE_HEADER')
-    expect(unread).toHaveLength(1)
-    expect(unread[0].rows.length).toBeGreaterThan(2)
-    // The message must name the second reading, so a director is not told a grid
-    // is decoration.
-    expect(unread[0].message).toMatch(/grid|table/i)
-    expect(unread[0].message).not.toMatch(/title or a season line/)
-    // The calm preamble message must NOT also fire for this page.
-    expect(residueOf(result, 'SKIPPED_PREAMBLE')).toHaveLength(0)
+    // The ranked block, 4 campers x 5 ranks, PLUS the grid's 18 elective cells.
+    expect(result.counts.preferences).toBe(38)
+    expect(residueOf(result, 'UNREAD_TABLE_ABOVE_HEADER')).toHaveLength(0)
   })
 
   it('P12: a genuinely thin preamble still gets the calm message, not the alarm', () => {
@@ -1275,91 +1262,202 @@ describe('T285 slice D — the multi-sheet workbook', () => {
 // both are reported as a table that named no campers — without this app claiming
 // to know which kind it was looking at.
 // ---------------------------------------------------------------------------
-describe('T285 slices E & F — a grid with no camper names', () => {
-  const expectNoPreferencesWritten = (result) => {
+// T285 SLICES E & F WERE OVERTURNED BY AN OWNER RULING, and the tests that
+// asserted their behaviour are replaced rather than deleted quietly — the reason
+// they were wrong is worth more than the assertions were.
+//
+// They asserted that a page with no camper-name column holds NO camper
+// preferences: "neither page names a camper, so neither can hold a preference."
+// That reasoning was wrong on a product fact I did not have. A planner grid has
+// no name column because IT DOES NOT NEED ONE — it is one camper's own sheet, and
+// the identity comes from the SUBMISSION. So such a page is ONE SUBJECT, not
+// zero, and writing nothing for it was the importer discarding a child's answers
+// for the third time in this program.
+//
+// The surviving half is constraint 1: an offerings MENU must still write zero.
+// It is now separated on ARITY (several activities per period) rather than on
+// "no camper is named", which is exactly what a camper's own sheet looks like.
+// Both live in the slice G block below.
+
+// ---------------------------------------------------------------------------
+// T285 SLICE G — OWNER RULING: a planner grid is ONE CAMPER'S OWN SHEET.
+//
+// "the grid is the camper's own sheet, they fill it out and turn it into
+//  campminder. again, this does not fucking matter. our job is not to question
+//  what shape the data comes in. we are a lake, the warehouse, and the pipeline."
+//
+// This overturns slices E/F's reasoning, which I had wrong. A grid has no camper
+// name column because it DOES NOT NEED ONE — the identity comes from the
+// SUBMISSION, not the page. So "no camper is named" means ONE SUBJECT, not zero,
+// and reading only P23's ranked block while calling its grid unattributable was
+// the importer discarding a child's answer for the third time in a new costume.
+//
+// STANDING RULE (ADR §14.1a): we do not question the shape data arrives in. We
+// LAND it, then RESOLVE it.
+// ---------------------------------------------------------------------------
+describe('T285 slice G — a grid is one camper\u2019s sheet', () => {
+  it('P19: every elective cell lands, with its coordinate, for ONE subject', () => {
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P19-planner-grid.csv')
     expect(result.error).toBeNull()
     expect(result.ok).toBe(true)
+
+    // ONE subject, not zero.
+    expect(withDb((db) => db.prepare('SELECT COUNT(*) c FROM campers').get().c)).toBe(1)
+
+    // 18 of the 35 cells are electives. The other 17 are FIXED EVENTS
+    // (Lunch, Instructional Swim, Free Swim, Bunk Unity, Shabbat) which §11.3
+    // says can never be electives, and which the label resolver holds back
+    // BECAUSE they are not in the camp's activity catalog — not because anything
+    // here knows what a fixed event is.
+    const rows = withDb((db) =>
+      db
+        .prepare(
+          `SELECT p.coordinate_day_label AS day, p.coordinate_period_label AS period,
+                  p.rank, p.rank_kind, ch.label
+             FROM elective_preferences p
+             JOIN elective_choices ch ON ch.id = p.choice_id
+            ORDER BY p.coordinate_period_label, p.coordinate_day_label`
+        )
+        .all()
+    )
+    expect(rows).toHaveLength(18)
+    expect(result.counts.preferences).toBe(18)
+
+    // THE CELLS ACTUALLY LANDED WHERE THEY SIT ON THE SHEET. A test that merely
+    // stops asserting "refused" proves nothing.
+    const at = (day, period) => rows.find((r) => r.day === day && r.period === period)
+    expect(at('Monday', 'Period 4').label).toBe('Swim')
+    expect(at('Friday', 'Period 3').label).toBe('Music')
+    expect(at('Wednesday', 'Period 1').label).toBe('Photography')
+    expect(at('Thursday', 'Period 6').label).toBe('Tennis')
+
+    // One cell per coordinate, so each is a CHOICE — rank 1 by construction.
+    for (const r of rows) {
+      expect(r.rank_kind).toBe('cell-choice')
+      expect(r.rank).toBe(1)
+      expect(r.day).not.toBeNull()
+      expect(r.period).not.toBeNull()
+    }
+
+    // The fixed events are REPORTED, not silently skipped.
+    const unresolved = residueOf(result, 'UNRESOLVED_CHOICE_LABEL').map((r) => r.label)
+    expect(unresolved).toContain('Lunch')
+    expect(unresolved).toContain('Instructional Swim')
+  })
+
+  it('P19: the subject is flagged unattributed and says so, resolvable later', () => {
+    seedActivities(CORPUS_ACTIVITIES)
+    const result = commitProbe('P19-planner-grid.csv')
+    expect(result.ok).toBe(true)
+
+    const camper = withDb((db) => db.prepare('SELECT display_name, is_unattributed FROM campers').get())
+    // Step 3 of the identity order: the filename, since nothing named a camper.
+    expect(camper.display_name).toBe('P19-planner-grid')
+    // AND marked, so a director or an agent can find it later WITHOUT re-import.
+    // The residue alone would not survive the import.
+    expect(camper.is_unattributed).toBe(1)
+
+    const item = residueOf(result, 'UNATTRIBUTED_SUBJECT')
+    expect(item).toHaveLength(1)
+    // The sentence must say the identity is missing, in words a director reads.
+    expect(item[0].message).toMatch(/said WHOSE/i)
+    expect(item[0].message).toMatch(/provisionally called/i)
+  })
+
+  it('an explicitly supplied camper name attributes the sheet, and is NOT flagged', () => {
+    // Step 1 of the identity order, and the normal case through the portal or an
+    // agent: the caller knows whose submission this is.
+    seedActivities(CORPUS_ACTIVITIES)
+    const result = runPreferenceSheetCli({
+      file: path.join(PROBES, 'P19-planner-grid.csv'),
+      dbPath,
+      action: 'commit',
+      camperName: 'Dalia Tuff',
+    })
+    expect(result.ok).toBe(true)
+
+    const camper = withDb((db) => db.prepare('SELECT id, display_name, is_unattributed FROM campers').get())
+    expect(camper.display_name).toBe('Dalia Tuff')
+    expect(camper.is_unattributed).toBeNull()
+    // The identity contract, as for split names: the id IS the canonical
+    // derivation, so this child matches on every later import.
+    expect(camper.id).toBe(deriveCamperId(campId, { externalId: null, displayName: 'Dalia Tuff' }))
+    expect(residueOf(result, 'UNATTRIBUTED_SUBJECT')).toHaveLength(0)
+    // And the cells still land.
+    expect(result.counts.preferences).toBe(18)
+  })
+
+  it('P23: BOTH halves land — the ranked block AND the grid', () => {
+    // The page the owner cares about. Reading only the ranked block was the
+    // defect; the grid is a camper's sheet and its cells are answers.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P23-grid-plus-ranked-fallback.csv')
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
+    // 4 named campers x 5 ranks, PLUS the grid's 18 elective cells.
+    expect(result.counts.preferences).toBe(38)
+    expect(withDb((db) => db.prepare('SELECT COUNT(*) c FROM campers').get().c)).toBe(5)
+
+    const gridRows = withDb((db) =>
+      db.prepare('SELECT COUNT(*) c FROM elective_preferences WHERE coordinate_day_label IS NOT NULL').get().c
+    )
+    expect(gridRows).toBe(18)
+    const rankedRows = withDb((db) =>
+      db.prepare('SELECT COUNT(*) c FROM elective_preferences WHERE coordinate_day_label IS NULL').get().c
+    )
+    expect(rankedRows).toBe(20)
+
+    // The grid's subject could not be attributed — the page names FOUR campers,
+    // so picking one would be a guess — and that is reported, not refused.
+    expect(residueOf(result, 'UNATTRIBUTED_SUBJECT')).toHaveLength(1)
+    // The old "we could not read this" residue is gone: it IS read now.
+    expect(residueOf(result, 'UNREAD_TABLE_ABOVE_HEADER')).toHaveLength(0)
+  })
+
+  it('P22: an offerings MENU still writes ZERO preferences (constraint 1 holds)', () => {
+    // Separated on ARITY, not on "no camper is named" — that reasoning is dead,
+    // because it is exactly what a camper's own planner looks like.
+    //
+    // A menu supplies SEVERAL options per (day, period); a filled planner supplies
+    // ONE choice per (day, period). P22 has an A/B sub-header giving two cells per
+    // coordinate. That is a statement about the data's ARITY, which is checkable,
+    // rather than about what the document MEANS, which is not.
+    seedActivities(CORPUS_ACTIVITIES)
+    seedGroups(['Upper Division'])
+
+    const result = commitProbe('P22-offerings-menu-pref.csv')
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
     expect(
       withDb((db) => ({
         campers: db.prepare('SELECT COUNT(*) c FROM campers').get().c,
         preferences: db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c,
-        choices: db.prepare('SELECT COUNT(*) c FROM elective_choices').get().c,
-      }))
-    ).toEqual({ campers: 0, preferences: 0, choices: 0 })
-  }
-
-  it('P22: an offerings menu is READ, not refused, and names no camper preferences', () => {
-    seedActivities(CORPUS_ACTIVITIES)
-
-    const result = commitProbe('P22-offerings-menu-pref.csv')
-    expectNoPreferencesWritten(result)
-
-    const grid = residueOf(result, 'NO_CAMPER_NAMES')
-    expect(grid).toHaveLength(1)
-    expect(grid[0].message).toMatch(/no camper name/i)
-    // It must NOT claim to know this is a menu. Only a declared kind could say
-    // that, and guessing is constraint 1's failure.
-    expect(grid[0].message).not.toMatch(/offerings menu|this is a menu/i)
-  })
-
-  it('P22 constraint 1: not one activity name from the menu becomes a choice', () => {
-    // T224's actual failure was a selection workbook committing its column
-    // headers as 33 groups and again as 33 tiers. The equivalent here would be
-    // the menu's activities becoming camper choices.
-    seedActivities(CORPUS_ACTIVITIES)
-    seedGroups(['Upper Division'])
-    const before = withDb((db) => ({
-      groups: db.prepare('SELECT COUNT(*) c FROM groups').get().c,
-      tiers: db.prepare('SELECT COUNT(*) c FROM tiers').get().c,
-      activities: db.prepare('SELECT COUNT(*) c FROM activities').get().c,
-    }))
-
-    const result = commitProbe('P22-offerings-menu-pref.csv')
-    expect(result.ok).toBe(true)
-
-    expect(
-      withDb((db) => ({
         groups: db.prepare('SELECT COUNT(*) c FROM groups').get().c,
         tiers: db.prepare('SELECT COUNT(*) c FROM tiers').get().c,
-        activities: db.prepare('SELECT COUNT(*) c FROM activities').get().c,
       }))
-    ).toEqual(before)
+    ).toEqual({ campers: 0, preferences: 0, groups: 1, tiers: 0 })
+
+    const item = residueOf(result, 'MULTIPLE_OPTIONS_PER_PERIOD')
+    expect(item).toHaveLength(1)
+    // It must name the ALTERNATIVE reading rather than assert a kind.
+    expect(item[0].message).toMatch(/more than one/i)
+    expect(item[0].optionsPerCoordinate).toBe(2)
   })
 
-  it('P19: a planner grid is READ, not refused, and also names no camper preferences', () => {
-    // SAME rule, SAME outcome, and that is the point: this app cannot tell P19
-    // from P22 and does not pretend to. What it can say is true of both.
-    seedActivities(CORPUS_ACTIVITIES)
-
-    const result = commitProbe('P19-planner-grid.csv')
-    expectNoPreferencesWritten(result)
-    expect(residueOf(result, 'NO_CAMPER_NAMES')).toHaveLength(1)
-  })
-
-  it('P23: the ranked block still commits, and the grid is reported as nameless', () => {
-    // The one page carrying BOTH. The ranked block names campers and is read; the
-    // grid above it does not, so its cells cannot be attributed to any child.
-    // Attributing them to the campers named below would be a guess about whose
-    // week it is.
-    seedActivities(CORPUS_ACTIVITIES)
-
-    const result = commitProbe('P23-grid-plus-ranked-fallback.csv')
+  it('non-vacuity: a one-option-per-period grid is NOT treated as a menu', () => {
+    // If the arity test were inverted or absent, P19 would write zero too.
+    seedActivities(['Swim', 'Archery'])
+    const result = commitBytes(
+      'tiny-planner.csv',
+      'Period,Monday,Tuesday\nPeriod 1,Swim,Archery\n'
+    )
     expect(result.ok).toBe(true)
-    expect(result.counts.preferences).toBe(20)
-    expect(result.counts.campers).toBe(4)
-
-    const unread = residueOf(result, 'UNREAD_TABLE_ABOVE_HEADER')
-    expect(unread).toHaveLength(1)
-    // The message must say WHY the grid was not read as preferences.
-    expect(unread[0].message).toMatch(/no camper name/i)
-  })
-
-  it('non-vacuity: a sheet that DOES name campers is still read normally', () => {
-    // The nameless-grid path must not swallow an ordinary sheet.
-    seedActivities(CORPUS_ACTIVITIES)
-    const result = commitProbe('P01-kind3-canonical.csv')
-    expect(result.ok).toBe(true)
-    expect(result.counts.campers).toBeGreaterThan(0)
-    expect(residueOf(result, 'NO_CAMPER_NAMES')).toHaveLength(0)
+    expect(result.counts.preferences).toBe(2)
+    expect(residueOf(result, 'MULTIPLE_OPTIONS_PER_PERIOD')).toHaveLength(0)
   })
 })
