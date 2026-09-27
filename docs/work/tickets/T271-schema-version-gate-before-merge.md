@@ -1,7 +1,7 @@
 ---
 title: "Schema-version handshake and a version gate before Automerge merge"
 document_type: ticket
-status: in-progress
+status: completed
 task_class: database-sync
 date: 2026-09-26
 created: 2026-09-26

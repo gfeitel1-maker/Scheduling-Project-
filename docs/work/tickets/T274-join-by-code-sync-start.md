@@ -1,7 +1,7 @@
 ---
 title: "A device that joins a camp by code starts syncing without a restart"
 document_type: ticket
-status: in-progress
+status: completed
 task_class: database-sync
 date: 2026-09-26
 created: 2026-09-26

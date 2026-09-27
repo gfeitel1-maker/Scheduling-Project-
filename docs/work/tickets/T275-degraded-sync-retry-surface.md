@@ -1,7 +1,7 @@
 ---
 title: "Surface the safe-degraded 'sync needs retry' state to the director"
 document_type: ticket
-status: open
+status: completed
 task_class: ui-ux-design
 date: 2026-09-26
 created: 2026-09-26

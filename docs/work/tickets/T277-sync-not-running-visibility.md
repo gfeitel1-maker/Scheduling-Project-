@@ -1,7 +1,7 @@
 ---
 title: "A quiet always-present indicator when sync is not running"
 document_type: ticket
-status: open
+status: completed
 task_class: ui-ux-design
 date: 2026-09-26
 created: 2026-09-26
