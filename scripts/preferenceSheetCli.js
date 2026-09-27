@@ -44,6 +44,11 @@ function baseResult({ file, dbPath, action }) {
     counts: null,
     sameNameCampers: [],
     skippedRows: [],
+    // Non-empty by DEFAULT (ADR section 3.4) — the loud half. Present on every
+    // result shape, preview and commit alike, so a caller never has to ask
+    // whether this import had a residue ledger.
+    residue: [],
+    coverage: { measurable: false, unmeasuredCampers: 0, campers: 0 },
     blocked: null,
     runId: null,
     exitCode: 1,
@@ -170,17 +175,36 @@ export function runPreferenceSheetCli({
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) return errorResult(base, 'db has no camp bootstrapped yet')
 
-    const parsed = parsePreferenceSheet(rows, { campId: camp.id, mapping })
+    // THE CAMP'S OWN ENTITIES, read here and passed in as plain arrays so the
+    // transform stays pure. This is what RESOLVE resolves AGAINST (ADR section
+    // 12.0): a choice label against the activity catalog, a division label
+    // against groups and then tiers. Read-only — this path never creates a
+    // group, a tier or an activity from an imported file, which is T224's
+    // lesson stated as a rule.
+    const catalog = {
+      activities: db.prepare('SELECT name FROM activities WHERE camp_id = ?').all(camp.id).map((r) => r.name),
+      groups: db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(camp.id),
+      tiers: db.prepare('SELECT id, name FROM tiers WHERE camp_id = ?').all(camp.id),
+    }
+
+    const parsed = parsePreferenceSheet(rows, { campId: camp.id, mapping, catalog })
     const report = {
       ...base,
       mapping,
       counts: {
         campers: parsed.campers.length,
         choices: parsed.choices.length,
+        // POST-RESOLUTION, and that is the whole point (ADR section 12.2b).
+        // `parsed.preferences` is already collision-resolved, so this number,
+        // commitElectiveRun's `counts.preferences`, and the number of rows
+        // written are the SAME number by construction. P02's 200-vs-160
+        // disagreement cannot recur, because there is only one number.
         preferences: parsed.preferences.length,
       },
       sameNameCampers: parsed.sameNameCampers,
       skippedRows: parsed.skippedRows,
+      residue: parsed.residue,
+      coverage: parsed.coverage,
     }
 
     if (action !== 'commit') {

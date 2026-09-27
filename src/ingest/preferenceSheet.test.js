@@ -61,8 +61,12 @@ describe('parsePreferenceSheet', () => {
   it('flags two campers with the same name instead of merging them', () => {
     const rows = [HEADER, ROWS[1], ['Ari Green', 'Bogrim', 'N', 'Gaga', 'Archery', 'Sailing', '']]
     const out = parsePreferenceSheet(rows, { campId: 'camp-1', mapping })
+    // T279: `divisionLabels` joins the entry, in row order. The refusal sentence
+    // has to name each row's division — it is the disambiguation evidence that
+    // lets a director say "those are two different kids", and the message
+    // carried nothing of the kind before (ADR 2026-09-27 §12.2a).
     expect(out.sameNameCampers).toEqual([
-      { display_name: 'Ari Green', rowNumbers: [2, 3] },
+      { display_name: 'Ari Green', rowNumbers: [2, 3], divisionLabels: ['Arad', 'Bogrim'] },
     ])
     // Not merged, not silently split: one id, and a decision handed back.
     expect(new Set(out.campers.map((c) => c.id)).size).toBe(1)

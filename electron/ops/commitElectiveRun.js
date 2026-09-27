@@ -35,7 +35,18 @@ const SOLVER_VERSION = 'buildElectiveAssignments@1'
 export function describeElectiveRunRefusal(parsed) {
   const sameName = parsed?.sameNameCampers ?? []
   if (sameName.length > 0) {
-    const who = sameName.map((c) => `${c.display_name} (rows ${c.rowNumbers.join(', ')})`).join('; ')
+    // T279 / ADR section 12.2a: the sentence must name each row's DIVISION
+    // alongside its row number. The division is exactly what lets a director
+    // say "those are two different kids" — the disambiguation evidence the
+    // identity ruling rests on — and this message did not carry it, so a
+    // director was told two rows collide and given nothing to tell them apart.
+    const who = sameName
+      .map((c) => {
+        const divisions = (c.divisionLabels ?? []).filter(Boolean)
+        const where = divisions.length > 0 ? `rows ${c.rowNumbers.join(', ')}: ${divisions.join(', ')}` : `rows ${c.rowNumbers.join(', ')}`
+        return `${c.display_name} (${where})`
+      })
+      .join('; ')
     const noun = sameName.length === 1 ? 'camper name appears' : 'camper names appear'
     return (
       `${sameName.length} ${noun} on more than one row with no camper id to tell them apart: ${who}. ` +
@@ -290,6 +301,20 @@ export function commitElectiveRun(db, {
           display_name: c.display_name,
           external_id: c.external_id ?? null,
           is_active: 1,
+          // T279 / ADR section 12.2a — the deliberate PAIR. `group_id` is the
+          // RESOLVED reference (null when the file's label matched no group of
+          // this camp's, never a group invented from the file); `division_label`
+          // is what the file actually said, verbatim. This function used to
+          // write four fields and drop the division entirely, which is how 15 of
+          // 33 probes lost it — and worse than a lost field, because the owner's
+          // stable-identity ruling rests on a unit being attached, so discarding
+          // it removed the evidence that ruling depends on.
+          //
+          // Both are explicitly `?? null` rather than left undefined: `write`
+          // SKIPS an undefined field, which would leave the column at whatever
+          // ensureExists' placeholder inserted instead of recording NULL.
+          group_id: c.group_id ?? null,
+          division_label: c.division_label ?? null,
         })
       }
 
@@ -327,6 +352,14 @@ export function commitElectiveRun(db, {
             occurrence_id: p.occurrence_id ?? null,
             choice_id: choiceId,
             rank: p.rank,
+            // T279 (v79) / ADR section 4.2 — `rank` stays an integer; rank_kind
+            // says what COMPARING two of them means. A grid cell is CHOSEN
+            // ('cell-choice', rank 1 by construction), a "next 5 choices" list
+            // is a ranked FALLBACK subordinate to the cells
+            // ('ordered-fallback'), and a packed multi-value cell is an
+            // 'unordered-set' with no ranking at all — a tie among equals, never
+            // a ranking invented from cell order.
+            rank_kind: p.rank_kind ?? null,
           }
         )
       }
