@@ -17,10 +17,13 @@ import { seedAllFromSqlite } from '../../automerge/seed.js'
 import { ensureHostSigningKey } from '../../auth/localAuth.js'
 import { startSyncNode } from './syncNode.js'
 import { startJoinSession } from './joinSession.js'
-import { joinCode } from '../joinCode.js'
+import { mintJoinSecret } from '../joinCode.js'
 
 const CAMP_ID = 'camp-window-test'
-const CODE = joinCode(CAMP_ID)
+// T286 — no longer derived from CAMP_ID (see joinCode.js's module comment);
+// minted once for this whole file, mirroring how main.js mints one per
+// Add-a-device window and hands it to syncNode.js via getJoinSecret.
+const CODE = mintJoinSecret()
 
 let files = []
 function freshDb(tag) {
@@ -61,6 +64,7 @@ async function hostWithWindow(open, onPairingRequest) {
     doc: seedAllFromSqlite(hostDb, A.clone(createEmptyDoc())),
     onPairingRequest,
     isJoinWindowOpen: () => open(),
+    getJoinSecret: () => CODE,
     now: () => clock,
   })
   nodes.push(host)
@@ -129,6 +133,12 @@ describe('the Add-a-device window', () => {
       db: hostDb,
       doc: seedAllFromSqlite(hostDb, A.clone(createEmptyDoc())),
       onPairingRequest: () => {},
+      // The window gate (isJoinWindowOpen) is what this test is about — absent
+      // by default, per the test's own name. getJoinSecret is unrelated to
+      // that gate but must still be supplied, or the (separate, fail-CLOSED)
+      // join-proof check would reject this request for a different reason
+      // than the one this test exists to pin.
+      getJoinSecret: () => CODE,
     })
     nodes.push(host)
     const session = await joinerFor(host)

@@ -46,8 +46,12 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
   async function toggleJoinWindow(next) {
     setJoinError(null)
     try {
+      // T286 — the code is now minted fresh per window-open, so the reply
+      // must be merged in full (not just `open`) or the screen would keep
+      // showing whatever code was fetched at mount (stale, and no longer the
+      // one the Host is actually advertising).
       const result = await localClient.setJoinWindow(next)
-      setJoinInfo((info) => (info ? { ...info, open: result.open } : info))
+      setJoinInfo((info) => (info ? { ...info, ...result } : info))
     } catch (err) {
       setJoinError(err?.message || "Couldn't change whether new devices can join.")
     }

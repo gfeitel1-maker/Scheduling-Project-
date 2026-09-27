@@ -61,7 +61,7 @@ import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled } from './db/
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
 import { codeForAuthRejectedReason } from './authRejectedSender.js'
-import { joinCode as joinCodeForCamp, formatJoinCode } from './sync/joinCode.js'
+import { mintJoinSecret, formatJoinCode } from './sync/joinCode.js'
 import { startJoinSession } from './sync/automerge/joinSession.js'
 import {
   getCurrentProjectPath,
@@ -2253,6 +2253,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // closed on every app start by virtue of being process state.
   let joinWindowOpen = false
 
+  // T286 — the random, Host-minted, window-scoped join secret (never derived
+  // from the campId; see joinCode.js's module comment). Minted the moment the
+  // window opens, discarded the moment it closes (or the app restarts, by
+  // virtue of being process state, same as joinWindowOpen above). THIS is the
+  // actual security boundary syncNode.js's getJoinSecret reads — a leaked or
+  // brute-forced secret dies with its window rather than living forever the
+  // way the old campId-derived code did.
+  let joinSecret = null
+
   // Which join flow the Join screen should present. Pre-auth by construction:
   // a device deciding how to join has no session yet. Returns only the engine
   // name — no camp, no device, nothing about this machine's contents.
@@ -2266,6 +2275,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { engine: isAutomergeEngine() ? 'automerge' : 'oplog' }
   }
 
+  // T286 — while the window is closed there is no secret to show (it hasn't
+  // been minted, or was discarded when the window last closed): `code`/
+  // `formatted` come back null and the renderer's own gating (it only ever
+  // renders the code when `open` is true — DeviceManagerScreen.jsx) never
+  // shows a stale or absent value as if it were real.
   function getJoinCode({ token } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'devices.approve' })
@@ -2274,8 +2288,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     }
     const camp = db.prepare('SELECT id, name FROM camps LIMIT 1').get()
     if (!camp) throw new Error('no camp on this device yet')
-    const code = joinCodeForCamp(camp.id)
-    return { code, formatted: formatJoinCode(code), campName: camp.name, open: joinWindowOpen }
+    return {
+      code: joinSecret,
+      formatted: joinSecret ? formatJoinCode(joinSecret) : null,
+      campName: camp.name,
+      open: joinWindowOpen,
+    }
   }
 
   function setJoinWindow({ token, open } = {}) {
@@ -2285,7 +2303,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       throw new Error('Adding a device can only be done on the main computer.')
     }
     joinWindowOpen = Boolean(open)
-    return { open: joinWindowOpen }
+    // A fresh secret every time the window opens — including re-opening after
+    // a close — so a leaked or previously-brute-forced-in-vain secret is never
+    // reused. Discarded (not just left stale) on close: nothing should still
+    // verify against it once the Host has stopped advertising the tag.
+    joinSecret = joinWindowOpen ? mintJoinSecret() : null
+    return {
+      open: joinWindowOpen,
+      code: joinSecret,
+      formatted: joinSecret ? formatJoinCode(joinSecret) : null,
+    }
   }
 
   // The joining device's live session, for this process only. Never persisted:
@@ -2544,6 +2571,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // be started underneath.
     hasRetainedJoinSession: () => activeJoin !== null,
     isJoinWindowOpen: () => joinWindowOpen,
+    // T286 — the live secret, read by syncStarter.js's getJoinSecret forward,
+    // the same wiring `isJoinWindowOpen` already uses.
+    getJoinSecret: () => joinSecret,
     getSyncClient: () => syncClient,
   }
 }

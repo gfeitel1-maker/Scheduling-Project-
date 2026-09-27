@@ -320,6 +320,13 @@ export function createAutomergeSyncStarter({
         // Only consulted for a first-join pairing_request; an already-paired
         // device reconnecting never carries a join nonce and is unaffected.
         isJoinWindowOpen: () => getLiveHandlers()?.isJoinWindowOpen?.() ?? false,
+        // T286 — the current window-scoped join secret, mirroring
+        // isJoinWindowOpen's own injection immediately above. Unlike that
+        // gate, no secret ever fails CLOSED (see syncNode.js's own comment on
+        // this option) rather than open — there is no "no join layer wired at
+        // all, so let everything through" case for the value that IS the
+        // security boundary.
+        getJoinSecret: () => getLiveHandlers()?.getJoinSecret?.() ?? null,
         // A merged document that will not project leaves SQLite silently BEHIND
         // the authoritative document — the exact mirror of a document write that
         // fails after SQLite committed, and until now the only one of the pair

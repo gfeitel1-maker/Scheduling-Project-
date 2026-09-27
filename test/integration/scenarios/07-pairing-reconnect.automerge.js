@@ -18,7 +18,6 @@
  */
 import { AmHost, AmClient, makeTmpDir, cleanupDirs, waitFor } from '../harnessAutomerge.js'
 import { startJoinSession } from '../../../electron/sync/automerge/joinSession.js'
-import { joinCode } from '../../../electron/sync/joinCode.js'
 
 export async function run() {
   const dirs = []
@@ -47,7 +46,7 @@ export async function run() {
       db: b.db,
       deviceId: b.deviceId,
       deviceName: 'Denied Laptop',
-      code: joinCode(host.campId),
+      code: host.joinSecret,
       knownHost: host.node.getMultiaddrs()[0],
     })
     if (denied.status !== 'started') throw new Error('7b: join refused before it began')

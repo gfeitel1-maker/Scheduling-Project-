@@ -1,77 +1,68 @@
 // @vitest-environment node
+//
+// T286 (Slice A) rewrite: the code is no longer deterministic (mintJoinSecret
+// draws from crypto.randomBytes), so the old fixed-vector tests
+// ("produces its frozen value for a known input") no longer apply — pinning a
+// fixed vector for a function that must never return the same thing twice
+// would be pinning a bug. These are property tests instead: random/unique,
+// round-trips through the scrypt tag, and the proof/normalize invariants
+// carried over unchanged from the pre-T286 suite.
 import { describe, it, expect } from 'vitest'
 import {
-  joinCode,
+  mintJoinSecret,
   formatJoinCode,
   normalizeJoinCode,
   joinDiscoveryTag,
-  joinDiscoveryTagForCamp,
+  joinProof,
+  verifyJoinProof,
+  newJoinNonce,
+  JOIN_TAG_SCRYPT_PARAMS,
 } from './joinCode.js'
-import { campIdHash } from './campIdHash.js'
 
-describe('joinCode', () => {
-  // Wire-compatibility tripwire, the same kind campIdHash.test.js carries and
-  // for the same reason: a Host advertising a tag derived one way and a Client
-  // searching for a tag derived another way fail SILENTLY — the director just
-  // sees "no camps found" and is told their correctly-typed code is wrong.
-  // These vectors are frozen. If one fails, the change under review breaks
-  // joining against every already-installed copy of the app, and updating the
-  // expectation hides that rather than fixing it.
-  it('produces its frozen value for a known input', () => {
-    expect(joinCode('shoresh-fixed-test-vector')).toBe('GGGH4XX6')
-    expect(joinCode('camp-1')).toBe('H7KB9WCE')
-  })
-
-  it('produces its frozen discovery tag for a known input', () => {
-    expect(joinDiscoveryTagForCamp('camp-1')).toBe('_shoresh-join-3d15b9f7e241bc22._udp.local')
-  })
-
-  it('is deterministic', () => {
-    expect(joinCode('camp-1')).toBe(joinCode('camp-1'))
-  })
-
-  it('separates camps', () => {
-    expect(joinCode('camp-1')).not.toBe(joinCode('camp-2'))
-    expect(joinDiscoveryTagForCamp('camp-1')).not.toBe(joinDiscoveryTagForCamp('camp-2'))
-  })
-
-  it('is 8 characters of Crockford base32', () => {
-    expect(joinCode('camp-1')).toMatch(/^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{8}$/)
-  })
-
-  // The alphabet's whole purpose. A code containing I, L, O or U cannot be
-  // generated, so a reader who sees one of those has misread a 1 or a 0 — which
-  // normalizeJoinCode then corrects rather than rejecting.
-  it('never emits the ambiguous letters I, L, O or U', () => {
-    for (let i = 0; i < 500; i++) {
-      expect(joinCode(`camp-${i}`)).not.toMatch(/[ILOU]/)
+describe('mintJoinSecret', () => {
+  it('is 10 characters of Crockford base32', () => {
+    for (let i = 0; i < 200; i++) {
+      expect(mintJoinSecret()).toMatch(/^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{10}$/)
     }
   })
 
-  it('does not leak the input', () => {
-    expect(joinCode('camp-kinneret-2026')).not.toContain('KINNERET')
+  // The alphabet's whole purpose. A code containing I, L, O or U cannot be
+  // generated, so a reader who sees one of those has misread a 1 or a 0.
+  it('never emits the ambiguous letters I, L, O or U', () => {
+    for (let i = 0; i < 500; i++) {
+      expect(mintJoinSecret()).not.toMatch(/[ILOU]/)
+    }
   })
 
-  // The camp id must not be recoverable from what goes on the LAN, and the two
-  // LAN identifiers must not be the same string — a device searching the join
-  // tag must not match a Host's ordinary camp tag or vice versa.
-  it('is unrelated to the camp tag campIdHash produces', () => {
-    expect(joinDiscoveryTagForCamp('camp-1')).not.toContain(campIdHash('camp-1'))
-    expect(joinCode('camp-1').toLowerCase()).not.toBe(campIdHash('camp-1').slice(0, 8))
+  // The whole point of T286: this must be random, not derived from anything.
+  // 500 draws colliding would be astronomically unlikely (50 bits of entropy)
+  // and would mean the RNG path was broken, not unlucky.
+  it('is random and effectively unique across draws', () => {
+    const seen = new Set()
+    for (let i = 0; i < 500; i++) seen.add(mintJoinSecret())
+    expect(seen.size).toBe(500)
   })
 
-  it('refuses a missing or non-string camp id', () => {
-    expect(() => joinCode('')).toThrow()
-    expect(() => joinCode(undefined)).toThrow()
-    expect(() => joinCode(null)).toThrow()
-    expect(() => joinCode(123)).toThrow()
+  it('is not deterministic — two mints never produce the same secret twice in a row', () => {
+    // Not a hard guarantee (50 bits could theoretically repeat), but a repeat
+    // in two draws would mean something is badly wrong (e.g. an unseeded or
+    // reused source), which is exactly what this catches in CI over many runs.
+    const a = mintJoinSecret()
+    const b = mintJoinSecret()
+    expect(a).not.toBe(b)
   })
 })
 
 describe('formatJoinCode', () => {
-  it('groups the code for display', () => {
-    expect(formatJoinCode('H7KB9WCE')).toBe('H7KB-9WCE')
-    expect(formatJoinCode(joinCode('camp-1'))).toBe('H7KB-9WCE')
+  it('groups a 10-char code 5-5 for display', () => {
+    expect(formatJoinCode('K4P72MRQ7B')).toBe('K4P72-MRQ7B')
+  })
+
+  it('round-trips a freshly minted secret', () => {
+    const secret = mintJoinSecret()
+    const formatted = formatJoinCode(secret)
+    expect(formatted).toBe(`${secret.slice(0, 5)}-${secret.slice(5)}`)
+    expect(normalizeJoinCode(formatted)).toBe(secret)
   })
 
   it('returns null rather than a malformed display string', () => {
@@ -81,64 +72,126 @@ describe('formatJoinCode', () => {
 })
 
 describe('normalizeJoinCode', () => {
-  // Forgiving in exactly the ways a person copying eight characters off a
-  // screen is wrong.
   it('accepts the forms a director will actually type', () => {
-    const canonical = 'H7KB9WCE'
+    const canonical = 'K4P72MRQ7B'
     for (const typed of [
-      'H7KB9WCE',
-      'h7kb9wce',
-      'H7KB-9WCE',
-      'h7kb-9wce',
-      ' H7KB 9WCE ',
-      'H7KB — 9WCE'.replace('—', '-'),
+      'K4P72MRQ7B',
+      'k4p72mrq7b',
+      'K4P72-MRQ7B',
+      'k4p72-mrq7b',
+      ' K4P72 MRQ7B ',
     ]) {
       expect(normalizeJoinCode(typed)).toBe(canonical)
     }
   })
 
   it('corrects the substitutions a reader makes for 1 and 0', () => {
-    // 'I', 'l' and 'O' cannot appear in a real code, so seeing one means the
-    // reader mistook a 1 or a 0. Telling them their code is wrong would be the
-    // app's fault, not theirs.
-    expect(normalizeJoinCode('H7KBIWCE')).toBe('H7KB1WCE')
-    expect(normalizeJoinCode('h7kblwce')).toBe('H7KB1WCE')
-    expect(normalizeJoinCode('H7KBOWCE')).toBe('H7KB0WCE')
+    expect(normalizeJoinCode('K4P72MRQIB')).toBe('K4P72MRQ1B')
+    expect(normalizeJoinCode('k4p72mrqlb')).toBe('K4P72MRQ1B')
+    expect(normalizeJoinCode('K4P72MRQOB')).toBe('K4P72MRQ0B')
   })
 
-  // The other half of that bargain: a genuine typo must be reported as a typo.
-  // Deriving a tag from nonsense would surface to the director as "no camps
-  // found" — sending them to check their Wi-Fi over a mistyped character.
   it('rejects input that is not a code', () => {
-    expect(normalizeJoinCode('H7KB9WC')).toBeNull() // too short
-    expect(normalizeJoinCode('H7KB9WCEE')).toBeNull() // too long
-    expect(normalizeJoinCode('H7KB9WC!')).toBeNull() // outside the alphabet
-    expect(normalizeJoinCode('H7KB9WCU')).toBeNull() // U is not in the alphabet
+    expect(normalizeJoinCode('K4P72MRQ7')).toBeNull() // too short (9)
+    expect(normalizeJoinCode('K4P72MRQ7BB')).toBeNull() // too long (11)
+    expect(normalizeJoinCode('K4P72MRQ7!')).toBeNull() // outside the alphabet
+    expect(normalizeJoinCode('K4P72MRQ7U')).toBeNull() // U is not in the alphabet
     expect(normalizeJoinCode('')).toBeNull()
     expect(normalizeJoinCode(null)).toBeNull()
-    expect(normalizeJoinCode(12345678)).toBeNull()
+    expect(normalizeJoinCode(1234567890)).toBeNull()
   })
 })
 
 describe('joinDiscoveryTag', () => {
   it('is a single DNS label well inside the 63-character limit', () => {
-    const tag = joinDiscoveryTagForCamp('camp-1')
+    const tag = joinDiscoveryTag(mintJoinSecret())
     expect(tag.split('.')[0].length).toBeLessThan(63)
   })
 
-  // The Host derives its tag from a campId and the Client derives its tag from
-  // a typed string. If those two ever disagree, joining silently never works —
-  // which is why joinDiscoveryTagForCamp routes through joinCode rather than
-  // hashing the campId itself.
-  it('agrees whichever side derives it, in any form the code was typed', () => {
-    const hostTag = joinDiscoveryTagForCamp('camp-1')
-    for (const typed of ['H7KB9WCE', 'h7kb-9wce', ' H7KB 9WCE ', 'h7kbgwce'.replace('g', '9')]) {
+  // The KDF round-trip: the same secret always yields the same tag, however
+  // it was typed — otherwise a director's own device and the joiner's would
+  // silently disagree.
+  it('round-trips: the same secret always yields the same tag, in any form it was typed', () => {
+    const secret = mintJoinSecret()
+    const hostTag = joinDiscoveryTag(secret)
+    for (const typed of [secret, secret.toLowerCase(), formatJoinCode(secret), ` ${secret} `]) {
       expect(joinDiscoveryTag(typed)).toBe(hostTag)
     }
+  })
+
+  it('is unique per secret (different secrets do not collide in practice)', () => {
+    const tags = new Set()
+    for (let i = 0; i < 50; i++) tags.add(joinDiscoveryTag(mintJoinSecret()))
+    expect(tags.size).toBe(50)
+  })
+
+  it('does not leak the secret', () => {
+    const secret = mintJoinSecret()
+    expect(joinDiscoveryTag(secret)).not.toContain(secret)
   })
 
   it('refuses input that is not a code', () => {
     expect(() => joinDiscoveryTag('nope')).toThrow()
     expect(() => joinDiscoveryTag(null)).toThrow()
+  })
+})
+
+// The offline-brute-force argument (2026-09-27 ADR §4 attack 1) only holds if
+// the KDF's REAL cost is in the intended band — this is the "measured, not
+// assumed" verification the ADR requires as part of this ticket's own
+// done-definition. A regression that silently made scrypt cheap (a params
+// typo, a Node/libuv change) would erode the whole margin without this test
+// ever noticing via any other means.
+describe('join-tag KDF cost — measured, not assumed', () => {
+  it('costs a bounded, non-trivial amount of time per derivation (defends the offline-brute-force argument)', () => {
+    const secret = mintJoinSecret()
+    const t0 = process.hrtime.bigint()
+    joinDiscoveryTag(secret)
+    const elapsedMs = Number(process.hrtime.bigint() - t0) / 1e6
+    // Measured on the reference dev machine (see joinCode.js's own comment):
+    // mean 112.7ms over 7 runs (range 103.6-128.8ms) for N=32768/r=8/p=1. This
+    // asserts a wide band (50-600ms) rather than pinning the exact figure —
+    // CI hardware varies — while still catching an order-of-magnitude
+    // regression (a params change that made this ~1ms, which would gut the
+    // 2^50-guesses/~3.5M-CPU-year argument entirely).
+    expect(elapsedMs).toBeGreaterThan(50)
+    expect(elapsedMs).toBeLessThan(600)
+  })
+
+  it('the chosen parameters are recorded, not silently changeable', () => {
+    expect(JOIN_TAG_SCRYPT_PARAMS).toEqual({ N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 })
+  })
+})
+
+describe('joinProof / verifyJoinProof', () => {
+  it('verifies a genuine proof and separates the joiner/host roles', () => {
+    const secret = mintJoinSecret()
+    const nonce = newJoinNonce()
+    const joinerProof = joinProof(secret, nonce, 'joiner')
+    const hostProofValue = joinProof(secret, nonce, 'host')
+    expect(joinerProof).not.toBe(hostProofValue)
+    expect(verifyJoinProof(secret, nonce, 'joiner', joinerProof)).toBe(true)
+    expect(verifyJoinProof(secret, nonce, 'host', hostProofValue)).toBe(true)
+    // A proof for one role must never verify against the other — the
+    // reflection attack the role labels exist to close.
+    expect(verifyJoinProof(secret, nonce, 'joiner', hostProofValue)).toBe(false)
+    expect(verifyJoinProof(secret, nonce, 'host', joinerProof)).toBe(false)
+  })
+
+  it('an expired/rotated secret no longer verifies', () => {
+    const secretA = mintJoinSecret()
+    const secretB = mintJoinSecret()
+    const nonce = newJoinNonce()
+    const proof = joinProof(secretA, nonce, 'joiner')
+    // The window closed and a new one opened (or the same window minted a
+    // fresh secret) — the old proof must not verify against the new secret.
+    expect(verifyJoinProof(secretB, nonce, 'joiner', proof)).toBe(false)
+  })
+
+  it('newJoinNonce produces distinct 128-bit nonces', () => {
+    const nonces = new Set()
+    for (let i = 0; i < 100; i++) nonces.add(newJoinNonce())
+    expect(nonces.size).toBe(100)
+    expect(newJoinNonce()).toMatch(/^[0-9a-f]{32}$/)
   })
 })

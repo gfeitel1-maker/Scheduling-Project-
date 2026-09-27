@@ -22,7 +22,7 @@ import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { createBoundPeerTrust } from './peerIdentity.js'
 import { getCurrentDoc, setCurrentDoc } from './liveDoc.js'
 import { sharesGenesis } from '../../automerge/campDocument.js'
-import { joinCode as joinCodeFor, joinProof, verifyJoinProof } from '../joinCode.js'
+import { joinProof, verifyJoinProof } from '../joinCode.js'
 import { CURRENT_SCHEMA_VERSION } from '../../db/localDb.js'
 
 // T271 round 3 (docs/adr/2026-09-26-schema-version-gate-before-merge.md): pure, directly-testable
@@ -77,7 +77,7 @@ export function isSyncCompatible(incomingVersion, localVersion) {
 // installed builds in one process: overriding this alone lets a test node ANNOUNCE a version other
 // than this checkout's real CURRENT_SCHEMA_VERSION, to construct a genuine peer-version mismatch
 // without needing a second codebase.
-export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion } = {}) {
+export async function startSyncNode({ deviceId, db, doc, onProjected, onProjectionError, onRemoteOps, onPairingRequest, onPairingDecision, isJoinWindowOpen, getJoinSecret, peerDiscovery, onAuthRejected, isPeerTrusted, listen, now, localSchemaVersion = CURRENT_SCHEMA_VERSION, handshakeSchemaVersion = localSchemaVersion } = {}) {
   const getLocalSchemaVersion = () =>
     typeof localSchemaVersion === 'function' ? localSchemaVersion() : localSchemaVersion
   const getHandshakeSchemaVersion = () =>
@@ -519,8 +519,16 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
       if (isJoinWindowOpen && !isJoinWindowOpen()) {
         return { ok: false, reason: 'join_window_closed' }
       }
-      const campId = db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
-      const code = campId ? joinCodeFor(campId) : null
+      // T286 — the join secret is Host-minted and window-scoped (never derived
+      // from campId; see joinCode.js's module comment), so this module has no
+      // way to compute it itself. `getJoinSecret` is the seam main.js's
+      // getJoinCode/setJoinWindow lifecycle feeds through (mirrors
+      // isJoinWindowOpen's own injection immediately above). No secret
+      // available — window never opened, already closed, or the caller simply
+      // doesn't wire one — means no proof can ever verify, which is the
+      // correct fail-closed default for a value that IS the security boundary
+      // (unlike isJoinWindowOpen, which is consent-only and fails open).
+      const code = getJoinSecret ? getJoinSecret() : null
       if (!code || !verifyJoinProof(code, msg.join_nonce, 'joiner', msg.join_proof)) {
         return { ok: false, reason: 'bad_join_proof' }
       }

@@ -36,7 +36,7 @@ import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION } from '../../
 import { createEmptyDoc, applyWrite } from '../../electron/automerge/campDocument.js'
 import { startSyncNode } from '../../electron/sync/automerge/syncNode.js'
 import { startJoinSession } from '../../electron/sync/automerge/joinSession.js'
-import { joinCode } from '../../electron/sync/joinCode.js'
+import { mintJoinSecret } from '../../electron/sync/joinCode.js'
 import { seedAllFromSqlite } from '../../electron/automerge/seed.js'
 import { signAuthFields } from '../../electron/auth/authSignature.js'
 import { ensureHostSigningKey, issueDeviceToken } from '../../electron/auth/localAuth.js'
@@ -168,6 +168,10 @@ export class AmHost {
     this.adminUserId = null
     this.adminToken = null
     this.addingDevices = false
+    // T286 — no longer derivable from campId (see joinCode.js's module
+    // comment); minted when bootstrap() opens the Add-a-device window,
+    // mirroring main.js's setJoinWindow.
+    this.joinSecret = null
     const baseStartSyncNode = startSyncNodeOverride || startSyncNode
     const extraOpts = {
       ...(localSchemaVersion !== undefined ? { localSchemaVersion } : {}),
@@ -208,6 +212,7 @@ export class AmHost {
       // bootstrap() opens it, because every scenario models a director who is
       // standing at the machine.
       isJoinWindowOpen: () => this.addingDevices,
+      getJoinSecret: () => this.joinSecret,
       onPairingRequest: (deviceId, deviceName) => {
         const waiter = this._pairingWaiters?.shift()
         if (waiter) waiter({ deviceId, deviceName })
@@ -270,7 +275,8 @@ export class AmHost {
     await this.node.applyLocal(seedAllFromSqlite(this.db, this.node.getDoc()))
 
     this.addingDevices = true
-    return { campId, userId: user.id, token: this.adminToken, joinCode: joinCode(campId) }
+    this.joinSecret = mintJoinSecret()
+    return { campId, userId: user.id, token: this.adminToken, joinCode: this.joinSecret }
   }
 
   waitForPairingRequest(timeoutMs = 6000) {
@@ -422,7 +428,7 @@ export class AmClient {
    * (docs/adr/2026-09-08-libp2p-join-flow.md), and a scenario that starts from
    * a device with nothing tests the product instead of the harness.
    */
-  async join(host, { name = 'admin', pin = '1234', code = joinCode(host.campId) } = {}) {
+  async join(host, { name = 'admin', pin = '1234', code = host.joinSecret } = {}) {
     // A join starts its OWN node (pre-identity, unscoped discovery), so a
     // scenario that called start() first would leak the one it made. Joining
     // is the first thing a new device does; start() is for a returning one.
