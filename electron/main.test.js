@@ -573,6 +573,29 @@ describe('T273: bootstrapCamp starts the sync node in the same session', () => {
   })
 })
 
+// T275 — the retry affordance's IPC handler. This is a thin wrapper: it must
+// re-invoke whatever starter it was given and nothing else. The starter's own
+// guards (idempotency, the join funnel guard, the TOCTOU latch) are proven
+// against the real implementation in syncStarter.test.js, not re-asserted
+// here — this file only proves the wrapper wiring, same division of labour
+// as T273/T274's onCampBootstrapped/onCampJoined tests above.
+describe('T275: retrySync re-invokes the injected starter', () => {
+  it('invokes the injected starter exactly once and returns an ack', async () => {
+    const startSync = vi.fn()
+    const handlers = makeHandlers(db, deviceId, { retrySync: startSync })
+
+    const result = await handlers.retrySync()
+
+    expect(startSync).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ ok: true })
+  })
+
+  it('is a safe no-op ack when no starter was injected (matches onCampBootstrapped/onCampJoined precedent)', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(handlers.retrySync()).toEqual({ ok: true })
+  })
+})
+
 // T274 — the join-path mirror of T273. A device that joins a camp by code
 // materializes its camp via joinAwaitData -> activeJoin.waitForCamp(), not via
 // bootstrapCamp, and nothing re-invoked the sync starter after that — the

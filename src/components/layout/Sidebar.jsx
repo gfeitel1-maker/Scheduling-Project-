@@ -56,6 +56,30 @@ export default function Sidebar({
   const gearBtnRef = useRef(null)
   const gearMenuRef = useRef(null)
 
+  // T275 — host-not-syncing retry affordance. `retrying` is local, UI-only
+  // state: it never reflects ground truth by itself, only the optimistic
+  // instant of a click. It never needs resetting when ground truth moves
+  // past host-not-syncing — the render below only ever consults `retrying`
+  // while `isHostNotSyncing` is also true, so a stale `true` left over from
+  // an earlier degraded episode is inert the moment sync is healthy again;
+  // the cap below is what resets it for the case that matters (still
+  // host-not-syncing after the timeout).
+  const [retrying, setRetrying] = useState(false)
+  const retryCapRef = useRef(null)
+  useEffect(() => () => { if (retryCapRef.current) clearTimeout(retryCapRef.current) }, [])
+  function handleRetrySync() {
+    setRetrying(true)
+    window.shoresh?.retrySync?.()
+    if (retryCapRef.current) clearTimeout(retryCapRef.current)
+    // There is no periodic sync-status poll to bound this on: a push
+    // (shoresh:sync-status-changed) fires when the starter settles or peers
+    // change (electron/sync/automerge/syncStarter.js), but its own guard
+    // early-returns (a node already running, a join session still retained)
+    // never push at all — so without a cap, a retry into one of those never
+    // clears "trying…". 5s is a plain safety net, not a measured cadence.
+    retryCapRef.current = setTimeout(() => setRetrying(false), 5000)
+  }
+
   const gaps = counts ? countGaps(counts) : []
   const gapAreas = new Set(gaps.map((g) => g.key))
   const offerOpen = offerShown && !sidebar.offered
@@ -359,6 +383,9 @@ export default function Sidebar({
             badges={badges}
             onSelect={navigateFromGear}
             onClose={closeGearMenu}
+            syncStatus={syncStatus}
+            retrying={retrying}
+            onRetrySync={handleRetrySync}
           />
         )}
       </div>
@@ -439,7 +466,7 @@ export default function Sidebar({
 // click outside, and never designates one item as more important than the
 // others (same "no visual difference" instinct as the two schedule rows,
 // applied here to admin destinations instead).
-const GearMenu = forwardRef(function GearMenu({ items, current, badges, onSelect, onClose }, ref) {
+const GearMenu = forwardRef(function GearMenu({ items, current, badges, onSelect, onClose, syncStatus, retrying, onRetrySync }, ref) {
   const transition = useEnterTransition('popFade', { transformOrigin: 'bottom left' })
   const firstItemRef = useRef(null)
 
@@ -469,6 +496,13 @@ const GearMenu = forwardRef(function GearMenu({ items, current, badges, onSelect
     >
       {items.map((item, idx) => {
         const count = item.badgeKey ? Number(badges[item.badgeKey]) || 0 : 0
+        // T275 — the devices row's sync label. Gated STRICTLY on the raw
+        // state, never on the derived tone/text `lan` carries: sync-blocked
+        // is also tone:'danger' and must stay a fully inert span (owner
+        // ruling: a retry affordance is fine, anything that reads as "this
+        // device is blocked" is not).
+        const lan = item.key === 'devices' && syncStatus ? syncStatusLabel(syncStatus) : null
+        const isHostNotSyncing = item.key === 'devices' && syncStatus?.state === 'host-not-syncing'
         return (
           <button
             key={item.key}
@@ -488,6 +522,32 @@ const GearMenu = forwardRef(function GearMenu({ items, current, badges, onSelect
             onMouseLeave={e => { e.currentTarget.style.background = current === item.key ? 'var(--bg)' : 'none' }}
           >
             <span style={{ flex: 1 }}>{item.label}</span>
+            {lan && (isHostNotSyncing ? (
+              <button
+                type="button"
+                title={retrying
+                  ? 'Trying to start sharing…'
+                  : "Sharing with the other computers hasn't started on this computer yet. Click to try again."}
+                disabled={retrying}
+                onClick={(e) => { e.stopPropagation(); if (!retrying) onRetrySync() }}
+                style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0, marginLeft: 6,
+                  color: TONE_COLOR[retrying ? 'secondary' : 'danger'],
+                  background: 'none', border: 'none', padding: 0,
+                  cursor: retrying ? 'default' : 'pointer',
+                  pointerEvents: retrying ? 'none' : 'auto',
+                  textUnderlineOffset: 2,
+                  transition: 'text-decoration-color 0.12s ease',
+                }}
+                onMouseEnter={e => { if (!retrying) e.currentTarget.style.textDecoration = 'underline' }}
+                onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none' }}
+              >{retrying ? 'trying…' : 'try again'}</button>
+            ) : (
+              <span title={lan.title} style={{
+                fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0, marginLeft: 6,
+                color: TONE_COLOR[lan.tone],
+              }}>{lan.text}</span>
+            ))}
             {count > 0 && (
               <span style={{ ...BADGE_PILL, marginLeft: 6 }}>{count}</span>
             )}

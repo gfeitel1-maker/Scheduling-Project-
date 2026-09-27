@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent, within, act } from '@testing-library/react'
 
 import Sidebar from './Sidebar'
 
@@ -25,8 +25,8 @@ beforeEach(() => {
   })
 })
 
-function renderSidebar(props = {}) {
-  return render(
+function sidebarElement(props = {}) {
+  return (
     <Sidebar
       current="groups"
       onNavigate={() => {}}
@@ -46,6 +46,10 @@ function renderSidebar(props = {}) {
       {...props}
     />
   )
+}
+
+function renderSidebar(props = {}) {
+  return render(sidebarElement(props))
 }
 
 describe('Sidebar: Roots — fixed, chevron-less top row (ADR Decision 3)', () => {
@@ -353,5 +357,99 @@ describe('Sidebar: scale', () => {
     renderSidebar({ counts: { ...DEFAULT_COUNTS, groups: 100 } })
     expect(screen.getByText('Groups')).toBeTruthy()
     expect(screen.getAllByRole('button').length).toBe(few)
+  })
+})
+
+// T275 — the safe-degraded host-not-syncing retry affordance. Owner ruling
+// (verbatim, T275): "when someone comes online, they sync" — this must read
+// as "tap to retry", never as a blocked state, and the gate is on
+// status.state ONLY, never on tone or text: sync-blocked shares
+// tone:'danger' with host-not-syncing but must stay a fully inert span.
+describe('Sidebar: host-not-syncing retry affordance (T275)', () => {
+  const HOST_NOT_SYNCING = {
+    mode: 'host', connected: false, state: 'host-not-syncing',
+    unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1,
+  }
+  const SYNC_BLOCKED = {
+    mode: 'host', connected: false, state: 'sync-blocked', syncBlocked: true,
+    unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1,
+  }
+  const HOST_SYNCED = { mode: 'host', connected: true, state: 'host', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1 }
+
+  let retrySync
+  beforeEach(() => {
+    retrySync = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('shoresh', { retrySync })
+  })
+
+  // The devices row lives in the Settings gear popup (Roots-as-Hub Slice B),
+  // not the always-visible nav — open it before looking for the row.
+  function openGear() {
+    fireEvent.click(screen.getByTitle('Settings'))
+  }
+
+  it('renders "try again" as a real clickable control for host-not-syncing', () => {
+    renderSidebar({ syncStatus: HOST_NOT_SYNCING })
+    openGear()
+    const btn = screen.getByRole('button', { name: 'try again' })
+    expect(btn.tagName).toBe('BUTTON')
+    expect(btn.title).toMatch(/Click to try again/)
+  })
+
+  it('clicking calls window.shoresh.retrySync and switches immediately to "trying…"', () => {
+    renderSidebar({ syncStatus: HOST_NOT_SYNCING })
+    openGear()
+    fireEvent.click(screen.getByRole('button', { name: 'try again' }))
+
+    expect(retrySync).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('trying…')).toBeTruthy()
+    expect(screen.queryByText('try again')).toBeNull()
+  })
+
+  it('sync-blocked stays a fully inert span — no button, no click handler, copy unchanged (non-vacuity: this fails if the gate were keyed on tone instead of state)', () => {
+    renderSidebar({ syncStatus: SYNC_BLOCKED })
+    openGear()
+
+    expect(screen.queryByRole('button', { name: /not syncing/ })).toBeNull()
+    const label = screen.getByText('not syncing')
+    expect(label.tagName).toBe('SPAN')
+
+    // The span itself carries no click handler of its own (unlike the
+    // button branch, which stops propagation) — a click bubbles to the
+    // existing menu-item row exactly as it always did, navigating to
+    // Devices. The point of this test is that retrySync is never reached.
+    fireEvent.click(label)
+    expect(retrySync).not.toHaveBeenCalled()
+  })
+
+  it('clears the affordance once a subsequent status push reports sync running', () => {
+    const { rerender } = renderSidebar({ syncStatus: HOST_NOT_SYNCING })
+    openGear()
+    expect(screen.getByRole('button', { name: 'try again' })).toBeTruthy()
+
+    rerender(sidebarElement({ syncStatus: HOST_SYNCED }))
+
+    expect(screen.queryByText('try again')).toBeNull()
+    expect(screen.queryByText('trying…')).toBeNull()
+    expect(screen.getByText('main')).toBeTruthy()
+  })
+
+  it('caps "trying…" and falls back to "try again" if a later push still reports host-not-syncing', () => {
+    vi.useFakeTimers()
+    try {
+      const { rerender } = renderSidebar({ syncStatus: HOST_NOT_SYNCING })
+      openGear()
+      fireEvent.click(screen.getByRole('button', { name: 'try again' }))
+      expect(screen.getByText('trying…')).toBeTruthy()
+
+      // A later push settles, but is still host-not-syncing (the retry failed again).
+      rerender(sidebarElement({ syncStatus: HOST_NOT_SYNCING }))
+      act(() => { vi.advanceTimersByTime(5000) })
+
+      expect(screen.getByRole('button', { name: 'try again' })).toBeTruthy()
+      expect(screen.queryByText('trying…')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
