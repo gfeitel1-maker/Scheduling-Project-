@@ -26,6 +26,7 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
+| [Multi-device erasure propagation via signed purge tombstones](../../docs/work/tickets/T233-multi-device-erasure-propagation.md) | open | [2026-09-19-multi-device-erasure-propagation](../../docs/adr/2026-09-19-multi-device-erasure-propagation.md) |
 | [T264-cross-device-lock-survival](../../docs/work/tickets/T264-cross-device-lock-survival.md) | open | — |
 | [Derived-id stability cannot be inferred from the shared V constant](../../docs/work/tickets/T272-derived-id-stability-cannot-be-inferred-from-v.md) | open | — |
 
