@@ -17,12 +17,19 @@
 //     requires stopping and nulling `automergeSyncNode` across the swap, which
 //     is the sync-lifecycle redesign T273 explicitly rules out; it is a
 //     separate ticket.
-//   - That the starter works, or runs at all. `startAutomergeSyncNodeIfEnabled`
-//     and this call site both live inside main.js's `isElectronEntryPoint()`
-//     block (main.js:2385), which opens with `!process.env.VITEST` — under
-//     Vitest it is dead code. Nothing here executes it. main.test.js's
-//     behavioural T273 test can only prove bootstrapCamp calls whatever starter
-//     it was GIVEN; this file is what proves the real one is given.
+//   - That the starter works, or runs at all — from THIS file. The
+//     `startAutomergeSyncNodeIfEnabled` name in main.js is now a one-line
+//     wrapper (`() => syncStarter.start()`) still declared inside
+//     `isElectronEntryPoint()`'s `!process.env.VITEST`-gated block, so main.js
+//     itself is never imported under Vitest and this file's own AST parsing
+//     still cannot execute it. T276 discharged the actual behavioural gap:
+//     the wrapper's real logic was extracted to
+//     electron/sync/automerge/syncStarter.js's `createAutomergeSyncStarter`,
+//     which IS executed under Vitest — see syncStarter.test.js for the
+//     concurrency (TOCTOU latch) and funnel-guard proofs that used to be
+//     AST-only, further down in this file. main.test.js's behavioural T273
+//     test can only prove bootstrapCamp calls whatever starter it was GIVEN;
+//     this file is what proves the real one is given.
 //
 // Parsed, not string-matched, for the reason T228's authorize.js drift guard
 // parses: a match on a literal snippet is satisfied by any text that happens to
@@ -287,170 +294,22 @@ describe('T274 wiring: the real sync starter reaches joinAwaitData', () => {
   })
 })
 
-// T274 round 2 (Red Hat, MEDIUM) — startAutomergeSyncNodeIfEnabled itself
-// cannot be executed under Vitest at all (it is declared inside
-// isElectronEntryPoint()'s `!process.env.VITEST`-gated block — see this
-// file's own header comment), so a real "call it twice concurrently" test is
-// structurally impossible without restructuring the function out of that
-// block, which is a bigger change than this fix. This is the same
-// AST-parsing approach the rest of this file already uses for exactly that
-// reason, aimed at the TOCTOU class of bug instead of the wiring class: it
-// proves the synchronous in-flight latch (`automergeSyncNodeStarting`) is
-// set BEFORE the function's first `await` (so a concurrent call arriving
-// before that await sees it) and cleared in a `finally` (so a failed
-// attempt can be retried) — the precise shape that closes the race, checked
-// and set synchronously before either call could have reached the
-// `startSyncNode` await that the raw `if (automergeSyncNode) return` guard
-// alone could not protect.
-/** The `startAutomergeSyncNodeIfEnabled` function declaration/expression node itself. */
-function findStarterFunction(ast) {
-  let fn = null
-  walk(ast, (node) => {
-    if (
-      (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
-      node.id?.name === STARTER_NAME
-    ) {
-      fn = node
-    }
-  })
-  return fn
-}
+// T276 — the synchronous in-flight latch and the funnel-guard EXECUTION
+// ORDER (both formerly asserted here on AST shape, because
+// startAutomergeSyncNodeIfEnabled lived inside main.js's
+// `!process.env.VITEST`-gated block and could not be executed under Vitest
+// at all) are now proven as EXECUTED behaviour in
+// electron/sync/automerge/syncStarter.test.js, against the extracted
+// `createAutomergeSyncStarter`'s real `start()` — a real concurrent-call
+// test for the latch, and a real "guard refuses / non-vacuity guard admits"
+// pair for the funnel guard. Those two AST-only describe blocks are retired
+// here rather than kept redundant. `makeHandlers` itself, and its
+// `hasRetainedJoinSession` predicate, still live in main.js (never imported
+// under Vitest — see this file's header comment), so the structural check
+// that makeHandlers exposes that predicate remains below.
+const RETAINED_JOIN_PREDICATE = 'hasRetainedJoinSession'
 
-describe('T274 round 2: startAutomergeSyncNodeIfEnabled has a synchronous in-flight latch', () => {
-  const STARTING_FLAG = 'automergeSyncNodeStarting'
-
-  it(`sets \`${STARTING_FLAG} = true\` before the function's first await`, () => {
-    const fn = findStarterFunction(parseMain())
-    expect(fn, `${STARTER_NAME} not found in main.js`).toBeTruthy()
-
-    let setLine = null
-    let firstAwaitLine = null
-    walk(fn.body, (node) => {
-      if (
-        setLine === null &&
-        node.type === 'AssignmentExpression' &&
-        node.operator === '=' &&
-        node.left?.type === 'Identifier' &&
-        node.left.name === STARTING_FLAG &&
-        node.right?.type === 'Literal' &&
-        node.right.value === true
-      ) {
-        setLine = node.loc.start.line
-      }
-      if (firstAwaitLine === null && node.type === 'AwaitExpression') {
-        firstAwaitLine = node.loc.start.line
-      }
-    })
-
-    expect(setLine, `${STARTER_NAME} never sets \`${STARTING_FLAG} = true\` — the TOCTOU latch is missing`).not.toBeNull()
-    expect(firstAwaitLine, `${STARTER_NAME} has no await — the race this latch guards against cannot exist, so this guard is stale`).not.toBeNull()
-    expect(
-      setLine,
-      `\`${STARTING_FLAG} = true\` (line ${setLine}) must be set BEFORE the function's first await (line ${firstAwaitLine}) — set any later and a concurrent call arriving in the gap would not see it, recreating the double-node race`
-    ).toBeLessThan(firstAwaitLine)
-  })
-
-  it(`clears \`${STARTING_FLAG}\` in a finally block, on every exit`, () => {
-    const fn = findStarterFunction(parseMain())
-    expect(fn, `${STARTER_NAME} not found in main.js`).toBeTruthy()
-
-    let clearedInFinally = false
-    walk(fn.body, (node) => {
-      if (node.type !== 'TryStatement' || !node.finalizer) return
-      walk(node.finalizer, (n) => {
-        if (
-          n.type === 'AssignmentExpression' &&
-          n.operator === '=' &&
-          n.left?.type === 'Identifier' &&
-          n.left.name === STARTING_FLAG &&
-          n.right?.type === 'Literal' &&
-          n.right.value === false
-        ) {
-          clearedInFinally = true
-        }
-      })
-    })
-
-    expect(
-      clearedInFinally,
-      `${STARTER_NAME} never clears \`${STARTING_FLAG} = false\` inside a finally block — a failed attempt would latch "starting" forever and every later call would be silently refused`
-    ).toBe(true)
-  })
-})
-
-// T274 final (Red Hat, HIGH) — three rounds each closed the double-identity
-// class one CALLER at a time (joinAwaitData, joinCancel, joinStart's
-// auto-cancel). Red Hat found a fourth: a temp join node retained after a
-// failed stop, left live by a director backing out of the join screen, then
-// bootstrapCamp firing onCampBootstrapped unconditionally — bootstrapCamp
-// never checked join state, because it had no way to. The fix moves the
-// invariant to the one funnel every current AND future starter of the
-// PERSISTENT node goes through: startAutomergeSyncNodeIfEnabled itself.
-//
-// Same testability wall as the round-2 latch: this function cannot be
-// executed under Vitest at all (declared inside main.js's
-// `!process.env.VITEST`-gated isElectronEntryPoint() block). The predicate
-// this guard reads (`hasRetainedJoinSession`) IS real and executable —
-// electron/main.test.js's own describe('hasRetainedJoinSession — the funnel
-// guard predicate', ...) drives it against a real makeHandlers instance
-// across every path that must and must not be blocked. What THIS file proves
-// by parsing main.js is the shape that test cannot reach: that the funnel
-// actually CALLS that predicate via `liveHandlers`, and returns before any
-// node-starting code runs.
-describe('T274 final: startAutomergeSyncNodeIfEnabled refuses while a join session is retained', () => {
-  const RETAINED_JOIN_PREDICATE = 'hasRetainedJoinSession'
-
-  it(`checks liveHandlers.${RETAINED_JOIN_PREDICATE}() and returns before starting a node`, () => {
-    const fn = findStarterFunction(parseMain())
-    expect(fn, `${STARTER_NAME} not found in main.js`).toBeTruthy()
-
-    // Find the `if (...) { ...; return }` (or `if (...) return`) statement
-    // whose test calls liveHandlers.hasRetainedJoinSession(), and the
-    // `startSyncNode(` call that actually starts the persistent node —
-    // both inside the SAME function, in source order.
-    let guardLine = null
-    let startCallLine = null
-    walk(fn.body, (node) => {
-      if (
-        guardLine === null &&
-        node.type === 'IfStatement' &&
-        (() => {
-          let callsPredicate = false
-          walk(node.test, (n) => {
-            if (
-              n.type === 'CallExpression' &&
-              n.callee?.type === 'MemberExpression' &&
-              n.callee.property?.name === RETAINED_JOIN_PREDICATE
-            ) {
-              callsPredicate = true
-            }
-          })
-          return callsPredicate
-        })()
-      ) {
-        guardLine = node.loc.start.line
-      }
-      if (
-        startCallLine === null &&
-        node.type === 'CallExpression' &&
-        node.callee?.type === 'Identifier' &&
-        node.callee.name === 'startSyncNode'
-      ) {
-        startCallLine = node.loc.start.line
-      }
-    })
-
-    expect(
-      guardLine,
-      `${STARTER_NAME} never checks \`liveHandlers.${RETAINED_JOIN_PREDICATE}()\` — a join session retained after a failed stop (or still in flight) would not block a second, PERSISTENT node from starting on this device's same peer identity`
-    ).not.toBeNull()
-    expect(startCallLine, `no startSyncNode(...) call found inside ${STARTER_NAME} — this guard is stale`).not.toBeNull()
-    expect(
-      guardLine,
-      `the \`${RETAINED_JOIN_PREDICATE}\` guard (line ${guardLine}) must run BEFORE startSyncNode is called (line ${startCallLine}) — checked any later and the persistent node could already be starting`
-    ).toBeLessThan(startCallLine)
-  })
-
+describe('T274 final: makeHandlers still exposes the funnel guard predicate', () => {
   it(`makeHandlers exposes ${RETAINED_JOIN_PREDICATE} on its returned handlers object`, () => {
     let returnObj = null
     walk(parseMain(), (node) => {

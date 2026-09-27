@@ -4,7 +4,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion, migrationSpanFor } from './db/localDb.js'
+import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
 import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey, issueDeviceToken } from './auth/localAuth.js'
 import { promoteToAdmin } from './ops/promoteToAdmin.js'
 import { createLocalWriteClient } from './sync/localWriteClient.js'
@@ -52,16 +52,14 @@ import { campHasSetupData } from './ops/campHasSetupData.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
+import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
-import { resolvePendingDomainStateMigrations, syncRefusalForDomainMigration } from './db/migrationDomainState.js'
-import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, setLocalWriteBroadcaster as setAutomergeLocalWriteBroadcaster, ensureSeeded as ensureAutomergeDocSeeded, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
-import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './sync/automerge/docStore.js'
+import { syncRefusalForDomainMigration } from './db/migrationDomainState.js'
+import { getDocIfLoaded, setUserDataDirGetter as setAutomergeUserDataDirGetter, setDocCipher as setAutomergeDocCipher, flushPendingWrites as flushAutomergeDoc } from './sync/automerge/liveDoc.js'
+import { docPath as automergeDocPath } from './sync/automerge/docStore.js'
 import { acquireDocCipher, acquireDbKey, isAtRestEncryptionEnabled } from './db/atRestEncryption.js'
 import { unsharedWriteCount } from './ops/documentWriteFailures.js'
-import { recordDeviceHealthEvent, DEVICE_HEALTH } from './ops/deviceHealthEvents.js'
 import { createDiskSpaceMonitor } from './db/diskSpace.js'
-import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './sync/automerge/startupGuard.js'
-import { createMdnsDiscovery } from './sync/automerge/discovery.js'
 import { codeForAuthRejectedReason } from './authRejectedSender.js'
 import { joinCode as joinCodeForCamp, formatJoinCode } from './sync/joinCode.js'
 import { startJoinSession } from './sync/automerge/joinSession.js'
@@ -3083,43 +3081,30 @@ if (isElectronEntryPoint()) {
   // running by the time THEY run, without makeHandlers needing to know
   // anything about libp2p/Automerge itself — same "handed a getter, not the
   // implementation" shape as getMainWindow above.
-  let automergeSyncNode = null
-  // T274 round 2 (Red Hat, MEDIUM): `if (automergeSyncNode) return` alone is
-  // a TOCTOU race — it is checked synchronously, but `automergeSyncNode` is
-  // not assigned until AFTER `await startSyncNode(...)` resolves, several
-  // awaits later in the same function. Two concurrent calls (a join
-  // completing while app.whenReady()'s own call is still in flight, an IPC
-  // retry, a re-render) can both read `automergeSyncNode` as null and both
-  // reach `startSyncNode`, producing two real libp2p nodes on this device's
-  // one peer identity. This latch is set synchronously, before the first
-  // await, so the second call's guard sees it immediately; cleared in
-  // `finally` so a failed attempt can be retried. Also hardens the merged
-  // T273 bootstrap path, which calls this same function.
-  let automergeSyncNodeStarting = false
-  // T268 — has a startAutomergeSyncNodeIfEnabled() attempt finished (success,
-  // refusal, or failure) since this process started? getSyncStatus reads this
-  // to decide between "not yet attempted, so still read as 'host'" (avoids a
-  // boot flicker: the node starts asynchronously after app.whenReady()) and
-  // "attempted and no node is running, so 'host-not-syncing'". Set true on
-  // every exit path of that function, never reset — a single process only
-  // ever attempts startup once (the idempotency guard inside it prevents a
-  // second real attempt).
-  let automergeStartupAttempted = false
   // Set by registerHandlers; see its comment.
   let liveHandlers = null
-  // A director approving or denying a pairing request doesn't know or care how
-  // the request arrived. startSyncNode's onPairingRequest
-  // (startAutomergeSyncNodeIfEnabled, above) forwards to this one renderer IPC
-  // event.
-  function notifyPairingRequest(deviceId_req, deviceName_req) {
-    if (mainWindow) mainWindow.webContents.send('shoresh:pairing-request', { deviceId: deviceId_req, deviceName: deviceName_req })
-  }
+  // T276 — the starter (extracted to electron/sync/automerge/syncStarter.js
+  // so its behaviour is executed under Vitest, not just asserted on AST
+  // shape) holds its own closure state: the persistent node handle, the
+  // TOCTOU in-flight latch, and the startup-attempted flag. `getLiveHandlers`
+  // must stay a getter, not a captured value — `liveHandlers` above is
+  // reassigned by registerHandlers after this factory is constructed, so a
+  // captured value would be stale/null forever.
+  const syncStarter = createAutomergeSyncStarter({
+    deviceId,
+    db,
+    userDataPath,
+    docCipher,
+    getMainWindow: () => mainWindow,
+    getLiveHandlers: () => liveHandlers,
+  })
+  const startAutomergeSyncNodeIfEnabled = () => syncStarter.start()
   const initialHandlers = makeHandlers(db, deviceId, {
     getMainWindow: () => mainWindow,
     dbPath,
     userDataPath,
-    getAutomergeSyncNode: () => automergeSyncNode,
-    getAutomergeStartupAttempted: () => automergeStartupAttempted,
+    getAutomergeSyncNode: () => syncStarter.getNode(),
+    getAutomergeStartupAttempted: () => syncStarter.getStartupAttempted(),
     // T273 — the only thing that starts sync on the session that creates the
     // camp. Its own `if (automergeSyncNode) return` idempotency guard makes a
     // second invocation (app.whenReady's, already returned by then) harmless.
@@ -3264,334 +3249,6 @@ if (isElectronEntryPoint()) {
     })
   }
 
-  // Stage 5c (docs/work/plans/2026-09-06-stage5-live-wiring-design.md § 2, § 3, § 5): read/receive-
-  // path wiring for the flagged (SHORESH_SYNC_ENGINE=automerge) sync engine. Entirely inert when the
-  // flag is off (isAutomergeEngine() is the ONLY gate — no branch below runs a single line of
-  // libp2p/Automerge work otherwise). `startSyncNode` (electron/sync/automerge/syncNode.js) is
-  // reached via a dynamic import() rather than a static one: it's the one module in this chain that
-  // pulls in transport.js's libp2p dependency graph, which is all-ESM and heavy — a static import
-  // would load it into every process regardless of the flag, defeating the point of gating.
-  //
-  // Stage 5e (docs/work/plans/2026-09-06-stage5-live-wiring-design.md § 5): seed-on-first-enable.
-  // ensureAutomergeDocSeeded (liveDoc.js) seeds a fresh doc from this camp's CURRENT SQLite rows
-  // and persists it immediately when no doc file exists yet, or loads the persisted one otherwise —
-  // never a bare empty doc. It is order-independent with any write the renderer might already have
-  // triggered before this function runs on THIS launch: liveDoc's seed-on-first-touch (its own
-  // getDoc) is idempotent per camp per process, so whichever of "a write arrives" or "startup calls
-  // this" happens first is the one that seeds, and the other sees the already-cached/persisted doc.
-  //
-
-  // Stage 5d-2b (docs/adr/2026-09-06-libp2p-membership-mapping.md §3): `peerDiscovery`
-  // (camp-scoped mDNS, Stage 5d-2a's createMdnsDiscovery) and `onPairingRequest` (the SAME
-  // director-approval IPC forwarder chooseMode's host branch already wires into the WS
-  // transport's startSyncServer) are threaded through so the node actually authenticates on a
-  // real LAN, instead of sitting there with authenticateWith wired up but nothing ever calling
-  // it — the exact silent-failure gap this slice closes. `onAuthRejected` routes a legitimately-
-  // paired device's rejected authenticate onto the SAME audit log evaluateAuthenticate's own
-  // deny path already writes to (Red Hat finding on 5d-1: a console.error alone is not a
-  // sufficiently surfaced signal) — see auditLog usage below.
-  async function startAutomergeSyncNodeIfEnabled() {
-    // T268 round 2 (Finding 1): both early returns above are safe to leave
-    // exempt from the `attempted` bookkeeping below, because getSyncStatus's
-    // own condition (`!isAutomergeEngine() || getAutomergeNode() != null ||
-    // !getAutomergeStartupAttemptedFn()`) short-circuits on the first two
-    // clauses before ever consulting the flag — the engine-off and
-    // already-running cases read as healthy regardless of what the flag says.
-    if (!isAutomergeEngine()) return
-    if (automergeSyncNode) return // idempotency guard: never leak a second libp2p node
-    // T274 final — the one-funnel guard. Three rounds each closed the
-    // double-identity class one CALLER at a time (joinAwaitData, joinCancel,
-    // the joinStart auto-cancel), and Red Hat found a fourth: a temp join
-    // node retained after a failed stop (joinCancel's own comment), left
-    // live by a director backing out of the join screen, then bootstrapCamp
-    // firing onCampBootstrapped UNCONDITIONALLY — bootstrapCamp never checked
-    // activeJoin, because it has no way to see it. Rather than teach a
-    // fourth (and every future) caller about join state, the invariant now
-    // lives at the one place every caller already funnels through: every
-    // path that starts the PERSISTENT node — onCampBootstrapped,
-    // onCampJoined, app.whenReady() — calls this function and nothing else
-    // ever calls startSyncNode for it (verified: the only other
-    // `startSyncNode(` call site in this file is joinSession's OWN temporary
-    // node, a different function entirely). `liveHandlers` is the same
-    // main-process-scope handle `isJoinWindowOpen` below already reads this
-    // way — no getter needed beyond the one added to makeHandlers' return
-    // object. Null on every path that must NOT be blocked (before any join;
-    // after a successful join, which nulls `activeJoin` before firing
-    // onCampJoined — see joinAwaitData); non-null only while a join is
-    // genuinely still live or stuck-retained, which is exactly when a
-    // second, persistent node on this device's same peer identity must not
-    // start. Accepted trade: a stuck-retained session means the persistent
-    // node stays off until restart (safe-degraded, same posture as every
-    // other guard in this function) rather than risk the double node.
-    if (liveHandlers?.hasRetainedJoinSession?.()) {
-      console.warn('automerge sync: a join session is still live or retained — sync node not started this run (resolves once it is stopped, or on restart)')
-      return
-    }
-    // T274 round 2: the TOCTOU latch (see its declaration above). Checked and
-    // set synchronously, in the same tick as the guard above — no await has
-    // happened yet, so a concurrent call arriving before this one reaches its
-    // own `await startSyncNode(...)` is guaranteed to see it set.
-    if (automergeSyncNodeStarting) return
-    automergeSyncNodeStarting = true
-    // `attempted` tracks whether this run reached a point where a start could
-    // actually have happened — distinct from "did this function run". A
-    // fresh install has no camp yet at app.whenReady() (bootstrapCamp itself
-    // requires a mode to already be chosen, so a first run can never have a
-    // camp this early), and that is not a start attempt that could have
-    // failed — it's "there was nothing to start yet". Starts `true`; the
-    // no-camp-yet path below is the only one that flips it to `false`, so
-    // getSyncStatus keeps reading a fresh Host as plain 'host' through its
-    // first session instead of a false 'host-not-syncing' that nothing will
-    // ever clear (nothing calls this function again after bootstrap).
-    let attempted = true
-    try {
-      const campId = db.prepare('SELECT id FROM camps LIMIT 1').get()?.id ?? null
-      if (!campId) {
-        console.warn('automerge sync: no camp bootstrapped yet — sync node not started this run')
-        attempted = false
-        return
-      }
-
-      // Finding 1 (review round on Stage 5c, CRITICAL — data destruction): projectAll's
-      // delete-reconcile treats the doc as an authoritative superset of SQLite (projector.js's own
-      // CAUTION comment). ensureAutomergeDocSeeded (liveDoc.js) closes that gap: no doc file yet
-      // for this camp means it seeds one from SQLite right now, synchronously, and persists it
-      // before returning — so by the time resolveStartupDoc runs, a doc that is safe to project
-      // against always exists for a bootstrapped camp. resolveStartupDoc (startupGuard.js) still
-      // NEVER fabricates a doc itself (that contract is unchanged and unrelaxed) — it only resolves
-      // between liveDoc's in-memory copy and the persisted file, both of which are now guaranteed
-      // to exist because of the ensureSeeded call directly above it.
-      // A DOMAIN-STATE MIGRATION RAN ON A LAUNCH WHERE A DOCUMENT ALREADY
-      // EXISTS (migrationDomainState.js). SQLite now holds camp meaning the
-      // document does not, and the document is the authority — so the next
-      // merge's delete-reconcile would quietly undo the migration.
-      //
-      // Refuse to sync rather than replicate into that. The device keeps
-      // working on its own, which is the whole point of local-first; what it
-      // will not do is exchange state it is about to lose. Auto-repair is
-      // deliberately not attempted: re-seeding the document from SQLite would
-      // resurrect every tombstone the document holds and SQLite does not.
-      //
-      // Unreachable today by construction — every domain-state migration is
-      // below v52, and a database with a document is already at v57+ — which is
-      // exactly why it is cheap to put the guard in before it is needed.
-      // T205 part D: TWO signals, not one. migrationSpanFor only reports the
-      // launch that actually RAN a migration (its WeakMap is per-process, so
-      // the next launch has from===to and reports nothing risky) — that was
-      // the one-launch-only defect: a plain restart silently re-enabled sync
-      // against a document that still held the rows a migration deleted.
-      // unresolvedDomainStateMigrations reads a DURABLE marker instead, so
-      // this refuses on every subsequent launch too, until something resolves
-      // it by republishing the reconciled state through the document (no
-      // auto-repair — see migrationDomainState.js's header).
-      // migrationSpanFor kept here (not just inside the shared helper) because
-      // the audit event's metadata.from/to wants the raw span, not just the
-      // versions it produced.
-      const migrationSpan = migrationSpanFor(db)
-      // Checked BEFORE ensureAutomergeDocSeeded below (which creates the file
-      // when missing) — this must stay "did a document already exist before
-      // this launch touched anything", not "does one exist now".
-      const docExists = fs.existsSync(automergeDocPath(userDataPath, campId))
-
-      // T205 round 2, FIX 2: resolve BEFORE deciding to refuse, not after —
-      // ensureAutomergeDocSeeded guarantees a document is available (seeded
-      // fresh from current, already-migrated SQLite when none existed yet, or
-      // loaded from disk otherwise), which is what resolvePendingDomainStateMigrations
-      // needs to author a document-routed tombstone for each recorded loser id
-      // (electron/db/migrationDomainState.js). Idempotent and safe to call on
-      // every launch: a no-op when nothing is pending, and a retry (not a
-      // permanent no-op) when a prior launch's resolve attempt didn't complete.
-      // This is what turns "refuses forever" into "refuses until it can
-      // reconcile, then resumes" — the SAME launch that resolves it, or a
-      // later one.
-      ensureAutomergeDocSeeded(db)
-      resolvePendingDomainStateMigrations(db, { device_id: deviceId })
-
-      // T268: the assembly (migrationSpanFor + unresolvedDomainStateMigrations +
-      // shouldRefuseSyncForDomainMigration + the detail string) is now ONE
-      // shared helper, also used read-only by getSyncStatus, so the two
-      // readings of "is sync refused right now" cannot drift apart.
-      const refusal = syncRefusalForDomainMigration(db, { docExists })
-
-      if (refusal) {
-        console.error(
-          `automerge sync: NOT starting. A domain-state migration ran against a camp that already has a ` +
-            `document (or is still unresolved from a prior launch): ${refusal.detail}. SQLite now holds camp meaning ` +
-            `the document does not, and projecting the document would undo it. See electron/db/migrationDomainState.js.`
-        )
-        recordAuditEvent(db, {
-          actorUserId: null,
-          deviceId: null,
-          action: 'sync.blocked_by_domain_migration',
-          targetType: 'document',
-          targetId: campId,
-          outcome: 'deny',
-          reason: refusal.detail,
-          metadata: { from: migrationSpan?.from ?? null, to: migrationSpan?.to ?? null, versions: refusal.versions },
-        })
-        return
-      }
-
-      const doc = resolveStartupDoc({
-        liveDoc: getDocIfLoaded(db),
-        // Same cipher liveDoc was given above — this direct read is the second of the three
-        // .automerge readers (assessment finding B), and all three must agree or an encrypted file
-        // fails to load. docCipher is null when encryption is off (plaintext, unchanged).
-        persistedDoc: loadAutomergeDoc(userDataPath, campId, docCipher),
-      })
-      if (!doc) {
-        // Defense in depth, not the expected path: ensureAutomergeDocSeeded only returns null when
-        // userDataDir isn't configured (can't happen here — set unconditionally above) or campId is
-        // null (already checked above). Kept as a refusal, never a fallback to createEmptyDoc().
-        console.warn(
-          'automerge sync: no persisted document exists yet for this camp — sync node not started ' +
-            'this run. Seeding (electron/sync/automerge/liveDoc.js ensureSeeded) did not produce a ' +
-            'doc; starting anyway would risk deleting live data via projectAll\'s delete-reconcile.'
-        )
-        return
-      }
-
-      // Stage 5f: NO initial projection here (removed — was `projectAutomergeDoc(db, doc)`, see
-      // docs/work/plans/2026-09-06-stage5-live-wiring-design.md §5's revision). At startup, SQLite
-      // is ALREADY correct: it was built by this device's own committed writes (appendOp writes
-      // SQLite and the document together) and, for any camp that has already synced, by prior
-      // remote-merge projections that already landed via syncNode.handleReceived. Projecting `doc`
-      // over an already-correct SQLite can only ever be a no-op (doc and SQLite agree) or
-      // destructive (delete-reconcile removes a row SQLite has that `doc` is missing — exactly the
-      // confirmed (c) defect: a persisted doc that lagged a remote merge by up to
-      // SAVE_DEBOUNCE_MS, or across a whole prior session before Stage 5f's unification, silently
-      // deleted live data on the next restart). It can never ADD correct information that SQLite
-      // doesn't already have. Projection is genuinely needed only when a REMOTE merge brings new
-      // state — handleReceived already does that, every time, going forward. So this call was pure
-      // downside risk with no corresponding benefit, and is removed rather than guarded.
-      const { startSyncNode } = await import('./sync/automerge/syncNode.js')
-      automergeSyncNode = await startSyncNode({
-        deviceId,
-        db,
-        doc,
-        // Stage 5f, found on a real two-machine run: transport.js's DEFAULT_LISTEN is
-        // '/ip4/127.0.0.1/tcp/0' — LOOPBACK ONLY. That default is correct for the in-process tests
-        // it was written for (Stage 4 dialed over loopback deliberately), but it means a production
-        // node can never accept a connection from another device: mDNS discovery succeeds, the peer
-        // dials, and nothing can connect. Production must bind all interfaces. This is the single
-        // line that makes LAN sync possible at all, and no in-process test could ever have caught
-        // its absence, because loopback is exactly what those tests want.
-        listen: ['/ip4/0.0.0.0/tcp/0'],
-        onRemoteOps: (events) => {
-          if (!mainWindow) return
-          dispatchRemoteOps(events, {
-            send: (channel, payload) => mainWindow.webContents.send(channel, payload),
-            sanitizeOpForIpc,
-            threshold: REMOTE_OPS_COALESCE_THRESHOLD,
-          })
-        },
-        // Camp-scoped mDNS (Stage 5d-2a) — a peer advertising a different
-        // camp's tag is structurally never surfaced by @libp2p/mdns at all
-        // (see discovery.js's own module comment), so it is never dialed.
-        peerDiscovery: [createMdnsDiscovery({ campId })],
-        // The SAME director-approval forwarder the WS transport already
-        // uses (defined in chooseMode's host branch, threaded here via the
-        // module-scoped `notifyPairingRequest` below) — approving/denying a
-        // device is transport-independent, so one callback serves both.
-        onPairingRequest: notifyPairingRequest,
-        // The director's Add-a-device window (see getJoinCode/setJoinWindow).
-        // Only consulted for a first-join pairing_request; an already-paired
-        // device reconnecting never carries a join nonce and is unaffected.
-        isJoinWindowOpen: () => liveHandlers?.isJoinWindowOpen?.() ?? false,
-        // A merged document that will not project leaves SQLite silently BEHIND
-        // the authoritative document — the exact mirror of a document write that
-        // fails after SQLite committed, and until now the only one of the pair
-        // with no durable trace: syncNode logs it and calls this, and nothing was
-        // ever wired to it (it existed only in syncNode.test.js). The doc stays
-        // as CRDT truth and sync continues, by design; what was missing was any
-        // way to find out afterwards that this device's tables are not what the
-        // camp agreed on. `projection_failures` cannot hold it — its primary key
-        // is an op id and a merge has no op — so it goes to the device's own
-        // durable event log, which is where support reads from.
-        onProjectionError: (err, _mergedDoc, fromPeerId) => {
-          // T174: was recordAuditEvent with outcome:'error', which audit_events'
-          // CHECK constraint rejects — the trace never landed. Its own table now.
-          recordDeviceHealthEvent(db, {
-            campId,
-            kind: DEVICE_HEALTH.PROJECTION_FAILED,
-            detail: JSON.stringify({ fromPeerId: fromPeerId ?? null, error: String(err?.message ?? err) }),
-          })
-        },
-        onAuthRejected: (peerId, reply) => {
-          console.error(`automerge sync: peer ${peerId} rejected our authenticate: ${JSON.stringify(reply)}`)
-          recordAuditEvent(db, {
-            actorUserId: null,
-            deviceId: null,
-            action: 'automerge.authenticate_rejected',
-            outcome: 'deny',
-            reason: reply?.reason ?? 'unknown',
-            metadata: { peerId },
-          })
-          // Reconnects the renderer half of T87's onAuthRejected path (preload.js's onAuthRejected,
-          // useDeviceMode.js's reasonForAuthRejectedCode), which had no sender at all from the Stage
-          // 6 WS-layer deletion onward — the Host authoritatively rejecting THIS device's authenticate
-          // was silently invisible to the director, sync just went dead. `reply` on the wire is
-          // `{ type: 'auth_failed', reason }` (authGate.js's auth_failed frame) — there is no numeric
-          // code on the wire, confirmed by reading authGate.js/mutualAuth.js directly — so it is
-          // mapped to the close-code convention here via codeForAuthRejectedReason, mirroring
-          // evaluateAuthenticate's own code choices (electron/auth/connectionAuth.js).
-          if (mainWindow) mainWindow.webContents.send('shoresh:auth-rejected', { code: codeForAuthRejectedReason(reply?.reason) })
-        },
-      })
-
-      // Stage 5f item 2: a local edit (appendOp -> liveDoc.recordLocalWrite) must reach connected
-      // peers. liveDoc debounces its own field-write bursts (same timer as the doc save) and, for
-      // any window that included a local write, calls whatever broadcaster is wired here — never a
-      // per-field-op broadcast, and never a projectAll (recordLocalWrite only ever updates the
-      // shared in-memory doc; the write already reached this device's own SQLite via appendOp).
-      setAutomergeLocalWriteBroadcaster(db, automergeSyncNode.broadcastLocalDoc)
-
-      // Stage 6c: the sidebar's connection copy now follows the libp2p peer
-      // set. Pushed on change rather than polled, matching what the WebSocket
-      // client's onConnectionChange used to do.
-      automergeSyncNode.onPeersChanged?.(() => {
-        try { liveHandlers?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
-      })
-
-      // Host case: a device holding host_signing_key can self-issue its own
-      // device-admission token on demand (same fact issueDeviceToken itself
-      // relies on) — no login step needed, mirroring chooseMode's existing
-      // Host auto-authorize precedent. A Client has no signing key and gets
-      // its (camp) token instead from login()/chooseMode's client branch
-      // below. Finding 2 fix: issueDeviceToken, not issueCampToken(db, null,
-      // deviceId) — see the doc comment at the chooseMode call site above.
-      try {
-        automergeSyncNode.setAuthToken(issueDeviceToken(db, deviceId))
-      } catch {
-        // Not the Host — no host_signing_key row. Expected for a Client;
-        // its token arrives later via login()/chooseMode.
-      }
-    } catch (err) {
-      // A transport/libp2p startup failure (port in use, WASM/ESM load failure, etc.) must never
-      // prevent the app from starting — the flag is default-off precisely so this path can fail
-      // safely while the op-log path keeps working.
-      console.error(`automerge sync: failed to start (non-fatal, app continues on op-log): ${err?.message ?? err}`)
-    } finally {
-      // T268 — every exit from the try above (success, the no-camp-yet
-      // return, the refusal return, the no-doc return, and the catch) lands
-      // here exactly once. This is what lets getSyncStatus distinguish "not
-      // yet attempted" (still reads as plain 'host', avoiding a boot flicker
-      // while the node starts asynchronously) from "attempted and still not
-      // running" ('host-not-syncing'). Skipped when `attempted` was flipped
-      // false above (no camp bootstrapped yet) — see that comment.
-      if (attempted) automergeStartupAttempted = true
-      // Cleared unconditionally (success or failure) so a failed attempt —
-      // this run's own catch above, or the no-camp/refusal/no-doc returns —
-      // can be retried by a later call rather than latching "starting"
-      // forever.
-      automergeSyncNodeStarting = false
-      // A director already looking at the sidebar when this settles should
-      // see it without reloading — wrapped so a UI push can never take sync
-      // startup down with it.
-      try { liveHandlers?.pushSyncStatus?.() } catch { /* never break sync over a UI notice */ }
-    }
-  }
-
   app.whenReady().then(() => {
     try {
       installAppMenuAndAboutPanel()
@@ -3620,6 +3277,7 @@ if (isElectronEntryPoint()) {
     } catch (err) {
       console.error('automerge sync: flush on quit failed (non-fatal):', err?.message ?? err)
     }
+    const automergeSyncNode = syncStarter.getNode()
     if (automergeSyncNode) {
       try {
         await automergeSyncNode.stop()
