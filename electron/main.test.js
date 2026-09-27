@@ -935,6 +935,83 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
       await cleanup()
     }
   })
+
+  // T274 final — the one-funnel guard's PREDICATE. startAutomergeSyncNodeIfEnabled
+  // itself cannot be executed under Vitest (declared inside main.js's
+  // `!process.env.VITEST`-gated isElectronEntryPoint() block — same
+  // constraint documented for the T274 round 2 TOCTOU latch), so this
+  // exercises the REAL, executable half: `hasRetainedJoinSession()` against
+  // a real makeHandlers instance, across every path the funnel must and must
+  // not block. mainSyncStartupWiring.test.js's new T274-final block proves
+  // (by parsing main.js) that the funnel actually CALLS this predicate and
+  // early-returns on it, before any node-starting code — the shape half
+  // this test cannot reach.
+  describe('hasRetainedJoinSession — the funnel guard predicate', () => {
+    it('is false before any join has started', () => {
+      const handlers = makeHandlers(db, deviceId, {})
+      expect(handlers.hasRetainedJoinSession()).toBe(false)
+    })
+
+    it('is true while a join is genuinely in flight (must block a start)', async () => {
+      const campId = 'camp-t274-g'
+      const { host, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-g', tag: 't274g' })
+      try {
+        const handlers = makeHandlers(db, deviceId, {})
+        await handlers.joinStart({ code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
+        expect(handlers.hasRetainedJoinSession()).toBe(true)
+      } finally {
+        await cleanup()
+      }
+    })
+
+    it('stays true when a join session is retained after a failed stop (must block a start — this is the exact scenario Red Hat traced)', async () => {
+      const campId = 'camp-t274-h'
+      const { host, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-h', tag: 't274h' })
+      try {
+        const handlers = makeHandlers(db, deviceId, {})
+        await handlers.joinStart({ code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
+        expect(await handlers.joinFindHost()).toEqual({ status: 'found' })
+
+        expect(lastJoinSession).toBeTruthy()
+        vi.spyOn(lastJoinSession, 'stop').mockRejectedValueOnce(new Error('transport already closed'))
+        // The director backing out of the join screen: cancel() is
+        // best-effort in the renderer and does not retry, so this is the
+        // exact state a "click Back, then start a new camp" sequence leaves
+        // main.js in.
+        const cancelled = await handlers.joinCancel()
+        expect(cancelled.status).toBe('stop_failed')
+
+        expect(handlers.hasRetainedJoinSession()).toBe(true)
+      } finally {
+        await cleanup()
+      }
+    })
+
+    it('is false again once a join succeeds — joinAwaitData nulls activeJoin BEFORE firing onCampJoined (must NOT block the next legitimate start)', async () => {
+      const campId = 'camp-t274-i'
+      const { host, hostDb, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-i', tag: 't274i' })
+      try {
+        const stateAtInvocation = []
+        const onCampJoined = vi.fn(() => {
+          stateAtInvocation.push(handlers.hasRetainedJoinSession())
+        })
+        const handlers = makeHandlers(db, deviceId, { onCampJoined })
+        await handlers.joinStart({ code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
+        await pairAndLogIn(handlers, host, hostDb, { joiningDeviceId: deviceId })
+        expect(handlers.hasRetainedJoinSession()).toBe(true)
+
+        const data = await handlers.joinAwaitData()
+        expect(data.status).toBe('ok')
+
+        // Observed AT the moment onCampJoined fired, not after — the whole
+        // point is that the funnel must see `false` at exactly that call.
+        expect(stateAtInvocation[0]).toBe(false)
+        expect(handlers.hasRetainedJoinSession()).toBe(false)
+      } finally {
+        await cleanup()
+      }
+    })
+  })
 })
 
 describe('devAuthorizeDevice (removed in sub-task 2, superseded by approveDevice)', () => {

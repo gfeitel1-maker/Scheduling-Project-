@@ -2512,6 +2512,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     joinLogin,
     joinAwaitData,
     joinCancel,
+    // T274 final — the one-funnel guard: `startAutomergeSyncNodeIfEnabled`
+    // reads this (via `liveHandlers`, same as `isJoinWindowOpen` below) to
+    // refuse starting the PERSISTENT node while a join session is still
+    // retained (in-flight, or kept alive after a failed stop — see
+    // joinCancel's own comment). `activeJoin` is null on every path that
+    // should NOT block a start: before any join, and after
+    // joinAwaitData's successful camp materialization (which nulls it
+    // before firing onCampJoined). It is non-null only while a join is
+    // genuinely still live or stuck-retained, which is exactly the case a
+    // second, PERSISTENT node on this device's same peer identity must not
+    // be started underneath.
+    hasRetainedJoinSession: () => activeJoin !== null,
     isJoinWindowOpen: () => joinWindowOpen,
     getSyncClient: () => syncClient,
   }
@@ -3287,6 +3299,34 @@ if (isElectronEntryPoint()) {
     // already-running cases read as healthy regardless of what the flag says.
     if (!isAutomergeEngine()) return
     if (automergeSyncNode) return // idempotency guard: never leak a second libp2p node
+    // T274 final — the one-funnel guard. Three rounds each closed the
+    // double-identity class one CALLER at a time (joinAwaitData, joinCancel,
+    // the joinStart auto-cancel), and Red Hat found a fourth: a temp join
+    // node retained after a failed stop (joinCancel's own comment), left
+    // live by a director backing out of the join screen, then bootstrapCamp
+    // firing onCampBootstrapped UNCONDITIONALLY — bootstrapCamp never checked
+    // activeJoin, because it has no way to see it. Rather than teach a
+    // fourth (and every future) caller about join state, the invariant now
+    // lives at the one place every caller already funnels through: every
+    // path that starts the PERSISTENT node — onCampBootstrapped,
+    // onCampJoined, app.whenReady() — calls this function and nothing else
+    // ever calls startSyncNode for it (verified: the only other
+    // `startSyncNode(` call site in this file is joinSession's OWN temporary
+    // node, a different function entirely). `liveHandlers` is the same
+    // main-process-scope handle `isJoinWindowOpen` below already reads this
+    // way — no getter needed beyond the one added to makeHandlers' return
+    // object. Null on every path that must NOT be blocked (before any join;
+    // after a successful join, which nulls `activeJoin` before firing
+    // onCampJoined — see joinAwaitData); non-null only while a join is
+    // genuinely still live or stuck-retained, which is exactly when a
+    // second, persistent node on this device's same peer identity must not
+    // start. Accepted trade: a stuck-retained session means the persistent
+    // node stays off until restart (safe-degraded, same posture as every
+    // other guard in this function) rather than risk the double node.
+    if (liveHandlers?.hasRetainedJoinSession?.()) {
+      console.warn('automerge sync: a join session is still live or retained — sync node not started this run (resolves once it is stopped, or on restart)')
+      return
+    }
     // T274 round 2: the TOCTOU latch (see its declaration above). Checked and
     // set synchronously, in the same tick as the guard above — no await has
     // happened yet, so a concurrent call arriving before this one reaches its

@@ -302,21 +302,22 @@ describe('T274 wiring: the real sync starter reaches joinAwaitData', () => {
 // and set synchronously before either call could have reached the
 // `startSyncNode` await that the raw `if (automergeSyncNode) return` guard
 // alone could not protect.
+/** The `startAutomergeSyncNodeIfEnabled` function declaration/expression node itself. */
+function findStarterFunction(ast) {
+  let fn = null
+  walk(ast, (node) => {
+    if (
+      (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
+      node.id?.name === STARTER_NAME
+    ) {
+      fn = node
+    }
+  })
+  return fn
+}
+
 describe('T274 round 2: startAutomergeSyncNodeIfEnabled has a synchronous in-flight latch', () => {
   const STARTING_FLAG = 'automergeSyncNodeStarting'
-
-  function findStarterFunction(ast) {
-    let fn = null
-    walk(ast, (node) => {
-      if (
-        (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
-        node.id?.name === STARTER_NAME
-      ) {
-        fn = node
-      }
-    })
-    return fn
-  }
 
   it(`sets \`${STARTING_FLAG} = true\` before the function's first await`, () => {
     const fn = findStarterFunction(parseMain())
@@ -374,5 +375,100 @@ describe('T274 round 2: startAutomergeSyncNodeIfEnabled has a synchronous in-fli
       clearedInFinally,
       `${STARTER_NAME} never clears \`${STARTING_FLAG} = false\` inside a finally block — a failed attempt would latch "starting" forever and every later call would be silently refused`
     ).toBe(true)
+  })
+})
+
+// T274 final (Red Hat, HIGH) — three rounds each closed the double-identity
+// class one CALLER at a time (joinAwaitData, joinCancel, joinStart's
+// auto-cancel). Red Hat found a fourth: a temp join node retained after a
+// failed stop, left live by a director backing out of the join screen, then
+// bootstrapCamp firing onCampBootstrapped unconditionally — bootstrapCamp
+// never checked join state, because it had no way to. The fix moves the
+// invariant to the one funnel every current AND future starter of the
+// PERSISTENT node goes through: startAutomergeSyncNodeIfEnabled itself.
+//
+// Same testability wall as the round-2 latch: this function cannot be
+// executed under Vitest at all (declared inside main.js's
+// `!process.env.VITEST`-gated isElectronEntryPoint() block). The predicate
+// this guard reads (`hasRetainedJoinSession`) IS real and executable —
+// electron/main.test.js's own describe('hasRetainedJoinSession — the funnel
+// guard predicate', ...) drives it against a real makeHandlers instance
+// across every path that must and must not be blocked. What THIS file proves
+// by parsing main.js is the shape that test cannot reach: that the funnel
+// actually CALLS that predicate via `liveHandlers`, and returns before any
+// node-starting code runs.
+describe('T274 final: startAutomergeSyncNodeIfEnabled refuses while a join session is retained', () => {
+  const RETAINED_JOIN_PREDICATE = 'hasRetainedJoinSession'
+
+  it(`checks liveHandlers.${RETAINED_JOIN_PREDICATE}() and returns before starting a node`, () => {
+    const fn = findStarterFunction(parseMain())
+    expect(fn, `${STARTER_NAME} not found in main.js`).toBeTruthy()
+
+    // Find the `if (...) { ...; return }` (or `if (...) return`) statement
+    // whose test calls liveHandlers.hasRetainedJoinSession(), and the
+    // `startSyncNode(` call that actually starts the persistent node —
+    // both inside the SAME function, in source order.
+    let guardLine = null
+    let startCallLine = null
+    walk(fn.body, (node) => {
+      if (
+        guardLine === null &&
+        node.type === 'IfStatement' &&
+        (() => {
+          let callsPredicate = false
+          walk(node.test, (n) => {
+            if (
+              n.type === 'CallExpression' &&
+              n.callee?.type === 'MemberExpression' &&
+              n.callee.property?.name === RETAINED_JOIN_PREDICATE
+            ) {
+              callsPredicate = true
+            }
+          })
+          return callsPredicate
+        })()
+      ) {
+        guardLine = node.loc.start.line
+      }
+      if (
+        startCallLine === null &&
+        node.type === 'CallExpression' &&
+        node.callee?.type === 'Identifier' &&
+        node.callee.name === 'startSyncNode'
+      ) {
+        startCallLine = node.loc.start.line
+      }
+    })
+
+    expect(
+      guardLine,
+      `${STARTER_NAME} never checks \`liveHandlers.${RETAINED_JOIN_PREDICATE}()\` — a join session retained after a failed stop (or still in flight) would not block a second, PERSISTENT node from starting on this device's same peer identity`
+    ).not.toBeNull()
+    expect(startCallLine, `no startSyncNode(...) call found inside ${STARTER_NAME} — this guard is stale`).not.toBeNull()
+    expect(
+      guardLine,
+      `the \`${RETAINED_JOIN_PREDICATE}\` guard (line ${guardLine}) must run BEFORE startSyncNode is called (line ${startCallLine}) — checked any later and the persistent node could already be starting`
+    ).toBeLessThan(startCallLine)
+  })
+
+  it(`makeHandlers exposes ${RETAINED_JOIN_PREDICATE} on its returned handlers object`, () => {
+    let returnObj = null
+    walk(parseMain(), (node) => {
+      if (
+        (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
+        node.id?.name === 'makeHandlers'
+      ) {
+        walk(node.body, (n) => {
+          if (n.type === 'ReturnStatement' && n.argument?.type === 'ObjectExpression') {
+            returnObj = n.argument
+          }
+        })
+      }
+    })
+    expect(returnObj, 'makeHandlers return object not found').toBeTruthy()
+    const declared = returnObj.properties.some(
+      (p) => p.type === 'Property' && !p.computed && p.key?.name === RETAINED_JOIN_PREDICATE
+    )
+    expect(declared, `makeHandlers' return object does not expose \`${RETAINED_JOIN_PREDICATE}\``).toBe(true)
   })
 })
