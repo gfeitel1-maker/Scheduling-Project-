@@ -4,7 +4,7 @@ document_type: ticket
 status: open
 created: 2026-09-27
 task_class: database-sync
-archive_when: "a preference file of any of the observed kinds enters through one pure transform called identically from the import screen, the CLI and the MCP tools and lands as canonical preference records; a day x period page read without per-cell scope produces a residue finding the director sees rather than a silent whole-run flatten; a page declared as an offerings menu yields zero preference rows and no groups or tiers; a whole-run ranked list with no cells still commits; the instructional-swim opt-out and the free-text comments box are preserved and surfaced without entering elective_preferences; a director-confirmed axis binding is remembered per camp, re-proposed on a matching re-import, and NOT auto-applied to a drifted file; a shape-parameterised corpus generator covers every observed shape class with a test that fails if a class is uncovered; and the correct-binding and silent-miss rates are reported from tests that enter at file bytes and assert at the database, never from a hand-built parsed fixture"
+archive_when: "all four stage tickets T279, T280, T281 and T282 are completed, and the owner has ruled on every open question in docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-learned-axis-binding.md section 9"
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]
 related_adrs: [docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-learned-axis-binding.md, docs/adr/2026-09-26-general-ingest-for-campers-and-per-cell-preferences.md, docs/adr/2026-09-26-per-cell-elective-preferences.md, docs/adr/2026-09-17-individual-elective-scheduling.md]
 ---
@@ -59,7 +59,7 @@ review, plus this ticket.
 
 ## Blocked on owner decisions before any implementation
 
-The ADR's §9 lists six. The two that gate everything else:
+The ADR’s §9 lists seven. The two that gate everything else:
 
 1. **One real Camp InTouch (CampMinder) export from the owner's camp.** Every artifact examined so far
    is a blank planning form; the file that carries campers' actual answers has never been seen by
@@ -67,23 +67,39 @@ The ADR's §9 lists six. The two that gate everything else:
    cheapest thing that would de-risk the design.
 2. **Whether the per-camp axis binding is persisted at all, and whether it replicates** across the
    camp's devices rather than following the host-local precedent of the five decision tables
-   `src/ingest/decisionJournal.js:4-8` names. This is the one schema-bearing decision and it is the
+   `src/ingest/decisionJournal.js:3-5` names. This is the one schema-bearing decision and it is the
    owner's to take.
 
-## Sequencing once unblocked
+## Stages — this is a program, and each stage is its own ticket
 
-Per `src/ingest/decisionJournal.js:10-16` — *"You cannot learn from decisions you never recorded as
-decisions, which is why this ships BEFORE any learning does"* — the stages are: (1) the canonical
-record, the single transform seam and the residue ledger; (2) the decision journal recording
-axis-binding questions and outcomes; (3) the persisted, versioned axis binding; (4) the corpus and
-the two acceptance numbers. Stage 3 is the only stage that needs a schema version, and it must not
-start before decision 2 above.
+Per `src/ingest/decisionJournal.js` — *"You cannot learn from decisions you never recorded as
+decisions, which is why this ships BEFORE any learning does"* — the order is not negotiable.
+
+| Stage | Ticket | What it delivers | State |
+|---|---|---|---|
+| 1 | **T279** | canonical record, one transform seam, the RESOLVE stage, the residue ledger | ready — **this is the stage that fixes the defect** |
+| 2 | **T280** | the decision journal records axis-binding questions and outcomes | ready, after T279 |
+| 3 | **T281** | the remembered, versioned, revocable per-camp axis binding | **BLOCKED** — owner rulings, and the matcher is not designed |
+| 4 | **T282** | the synthetic corpus and the two acceptance numbers | blocked on T279; class H blocked on a real export |
+
+Stage 3 is the only stage that needs a schema version. **No version is claimed by this program and
+none may be picked before the owner rules.**
 
 ## Non-goals
 
 - Choosing or privileging any vendor's export format.
 - A trained model. The ADR §6 rules the learning layer is infer → show → confirm → remember, on the
   T118 compound-cell precedent, and states what evidence would be needed to revisit that.
-- Building the corpus generator this round (designed in ADR §8, not built).
+- Building the corpus generator this round (designed in ADR §8, built in T282).
 - Giving the instructional-swim opt-out or the free-text comments box a home in
-  `elective_preferences`. The ADR §4.3 rules both out and §9 Q5 asks where the opt-out belongs.
+  `elective_preferences`. The ADR §4.3 rules both out and §9 Q5 asks where the opt-out belongs. The
+  comments box is **host-local, never replicated, never exported** — it is the field most likely to
+  carry a medical or custody disclosure about a child.
+- **Committing any file derived from a real camp's filled-in responses, in any format.** The corpus
+  is synthetic-only (ADR §8.0): generated identities from a committed seeded name list, never a name
+  taken from a real file, never a "redacted" copy. A real export obtained under ADR §9 Q1 is held
+  **outside the repository** and only its structural shape is transcribed. **No gate enforces this** —
+  `scanPrivacy` cannot match an unstructured personal name, and binary files are path-scanned only,
+  contents never read — so T282 builds the name-list assertion that does.
+- Reopening the "reshape your file to our template" ruling. ADR §9 Q7 asks about one narrow
+  last-resort hatch and takes no decision.
