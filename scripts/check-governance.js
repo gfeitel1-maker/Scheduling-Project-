@@ -98,6 +98,21 @@ const REQUIRED_BY_TYPE = {
 
 const finding = (code, message) => ({ code, message })
 
+// Codes that REPORT but do not fail the run. Owner ruling, 2026-09-26: "stale doc
+// cannot block." Everything not listed here is blocking, per this file's header.
+//
+// Deliberately a named list of ONE, not a severity field on every rule. A severity
+// argument on `finding()` invites each new rule's author to pick their own, and the
+// blocking default is the property worth protecting. Adding a code here is a visible,
+// reviewable act.
+//
+// `index-stale` is NOT here and stays blocking: `npm run index:work` regenerates it
+// in seconds, so blocking costs nothing and keeps a generated file honest. This rule
+// is different in kind — it asks for PROSE describing a structural change, which no
+// script can produce on demand, and which is exactly why it stranded three sessions
+// on 2026-09-26 behind a red none of them had caused.
+export const ADVISORY_CODES = new Set(['platform-state-stale'])
+
 /**
  * @param doc    {{path, data, error}} as produced by readDocs
  * @param exists (path) => boolean — injected so tests never touch the filesystem
@@ -267,11 +282,9 @@ export function checkIndexFreshness(committed, generated) {
  * that `platform-state-stale` was inherited from `main` rather than theirs — while
  * a comment three lines from the rule told them it could not block anything.
  *
- * The CONCERN the old sentence raised is still legitimate and is not settled here:
- * a doc a day behind can block an urgent fix, and this check has no severity tier
- * to express that. Adding one is a policy decision for the owner, not something a
- * comment can decide. `CHECK_GOVERNANCE_WARN=1` is the existing escape and is
- * explicitly not for CI or for getting a branch through.
+ * SETTLED 2026-09-26 by owner ruling — "stale doc cannot block" — so this rule is
+ * now ADVISORY: it reports, loudly and by name, and does not fail the run. See
+ * ADVISORY_CODES. It is the only advisory code; everything else still blocks.
  */
 export const PLATFORM_STATE_PATH = 'docs/current/PLATFORM_STATE.md'
 
@@ -937,17 +950,33 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(0)
   }
 
-  const byCode = new Map()
-  for (const f of findings) {
-    if (!byCode.has(f.code)) byCode.set(f.code, [])
-    byCode.get(f.code).push(f.message)
+  const blocking = findings.filter((f) => !ADVISORY_CODES.has(f.code))
+  const advisory = findings.filter((f) => ADVISORY_CODES.has(f.code))
+
+  const report = (label, list) => {
+    if (!list.length) return
+    const byCode = new Map()
+    for (const f of list) {
+      if (!byCode.has(f.code)) byCode.set(f.code, [])
+      byCode.get(f.code).push(f.message)
+    }
+    console.log(`${label} — ${list.length} finding(s)\n`)
+    for (const code of [...byCode.keys()].sort()) {
+      console.log(`  ${code} (${byCode.get(code).length})`)
+      for (const m of byCode.get(code)) console.log(`    - ${m}`)
+      console.log('')
+    }
   }
 
-  console.log(`check:governance — ${findings.length} finding(s)\n`)
-  for (const code of [...byCode.keys()].sort()) {
-    console.log(`  ${code} (${byCode.get(code).length})`)
-    for (const m of byCode.get(code)) console.log(`    - ${m}`)
-    console.log('')
+  // Advisories print FIRST and say plainly they are not the reason for any failure.
+  // The cost of the old behaviour was never the red itself — it was three sessions
+  // each having to work out whose red it was.
+  report('check:governance — advisory (does NOT fail the run)', advisory)
+  report('check:governance — blocking', blocking)
+
+  if (!blocking.length) {
+    console.log('No blocking findings. Advisory items above are worth fixing and do not fail the run.')
+    process.exit(0)
   }
 
   if (warnOnly) {
