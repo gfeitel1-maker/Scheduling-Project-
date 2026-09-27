@@ -408,6 +408,43 @@ const PREFERENCE_V = 2
 // The arms cannot collide with each other: 'occ', 'at' and 'all' are distinct
 // length-prefixed literals.
 export function deriveElectivePreferenceId(runId, camperId, occurrenceId, choiceId, coordinate = null) {
+  // STRICT AT THE INSIDE, permissive at the outside.
+  //
+  // ADR §14.1 rules that the CLI and the MCP tools must never refuse a file they
+  // can read. That governs what this software does with a DIRECTOR'S or an
+  // AGENT'S FILE; it says nothing about a malformed INTERNAL CALL, and reading it
+  // as though it did would be expensive here. A coordinate object whose
+  // properties are misspelled or renamed is a programming error, not camp data.
+  //
+  // What this guard closes, confirmed by execution rather than inspection:
+  // `{ wrongKey: 'Monday', other: 'Period 3' }` and
+  // `{ wrongKey: 'Friday', other: 'Period 6' }` both fell through to the 'all'
+  // arm and derived the IDENTICAL id, indistinguishable from passing no
+  // coordinate at all. A caller with a typo therefore got whole-run FALLBACK
+  // rows while believing it had passed a coordinate — silently re-merging exactly
+  // what the 'at' arm was added to keep apart. That is this ticket's own defect
+  // class (writing a value we could not resolve, without saying so) reappearing
+  // at our own API boundary, so it throws in the style of `opaque()` rejecting a
+  // malformed component rather than quietly encoding it.
+  //
+  // PRESENCE OF THE KEY, NOT ITS VALUE, is what is required. A single-day sheet
+  // (periods only, no day axis) legitimately passes `dayName: null`, and that
+  // must keep working — it is pinned in the frozen vectors precisely so nobody
+  // "fixes" this throw by rejecting null legs and breaks every real single-day
+  // sheet. A coordinate with both keys present and both null says "this row has
+  // no cell", which is the whole-run fallback, and is allowed through.
+  if (coordinate != null) {
+    const shaped =
+      typeof coordinate === 'object' && ('dayName' in coordinate || 'periodLabel' in coordinate)
+    if (!shaped) {
+      throw new Error(
+        'electiveDerivedIds: coordinate must be an object carrying dayName and/or periodLabel ' +
+          '(ADR 2026-09-27 §3.1\u2019s canonical record) — pass null for no coordinate rather than ' +
+          'an object this function cannot read, which would silently derive a whole-run fallback id'
+      )
+    }
+  }
+
   const hasCoordinate = coordinate != null && (coordinate.dayName != null || coordinate.periodLabel != null)
   const scope = occurrenceId != null
     ? ['occ', opaque('occurrence_id', occurrenceId)]

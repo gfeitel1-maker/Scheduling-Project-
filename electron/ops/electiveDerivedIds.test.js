@@ -154,6 +154,36 @@ describe('frozen output vectors', () => {
     ).toBe('epref2:5.run-18.camper-13.occ5.occ-18.choice-1')
   })
 
+  // TWO DIFFERENT DAYS, SAME PERIOD — the case a wrong-shape coordinate would
+  // silently merge, pinned as a pair. Hand-derived: identical but for the day
+  // component, 6.monday vs 7.tuesday.
+  it('pins two different DAYS at one period → two distinct ids', () => {
+    const on = (dayName) =>
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', { dayName, periodLabel: 'Period 3' })
+
+    expect(on('Monday')).toBe('epref2:5.run-18.camper-12.at6.monday7.period38.choice-1')
+    expect(on('Tuesday')).toBe('epref2:5.run-18.camper-12.at7.tuesday7.period38.choice-1')
+    expect(on('Monday')).not.toBe(on('Tuesday'))
+  })
+
+  // A SINGLE-DAY SHEET is legitimate and must keep working: periods only, no day
+  // axis, so `dayName` is genuinely null. Pinned FIRST and deliberately, because
+  // the throw added below is otherwise "fixed" by rejecting null legs, which
+  // would break every real single-day sheet. The empty day leg is a 0-length
+  // component (`0.`), which the length prefix keeps unambiguous.
+  it('pins a single-day coordinate (null day, real period) as a VALID distinct id', () => {
+    const singleDay = deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', {
+      dayName: null,
+      periodLabel: 'Period 3',
+    })
+    expect(singleDay).toBe('epref2:5.run-18.camper-12.at0.7.period38.choice-1')
+    // Still the 'at' arm, so two periods on a day-less sheet stay two rows.
+    expect(singleDay).not.toBe(deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1'))
+    expect(singleDay).not.toBe(
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', { dayName: null, periodLabel: 'Period 6' })
+    )
+  })
+
   it('the two coordinate halves cannot collide across the split', () => {
     // Passed as SEPARATE length-prefixed components, so ('Monday 1', '') and
     // ('Monday', '1') are different ids rather than one. Hand-derived:
@@ -170,6 +200,72 @@ describe('frozen output vectors', () => {
     expect(deriveElectiveAssignmentId('run-1', 'camper-1', 'occ-1')).toBe(
       'easgn1:5.run-18.camper-15.occ-1'
     )
+  })
+})
+
+// STRICT AT THE INSIDE, permissive at the outside (ADR §14.1's own boundary).
+//
+// §14.1 rules that the CLI and MCP tools must never refuse a file they can read.
+// That governs what this software does with a DIRECTOR'S or an AGENT'S FILE. It
+// says nothing about a malformed INTERNAL CALL, and conflating the two would be a
+// misreading with real cost: a coordinate object whose properties are misspelled
+// is a programming error, not camp data, and the caller BELIEVES it passed a
+// coordinate.
+//
+// Before this guard, `{ wrongKey: 'Monday', other: 'Period 3' }` and
+// `{ wrongKey: 'Friday', other: 'Period 6' }` derived the IDENTICAL id on the
+// 'all' arm — indistinguishable from passing no coordinate at all. So a caller
+// with a typo got whole-run fallback rows, silently re-merging exactly what the
+// 'at' arm was added to keep apart. Same class of defect as the one this ticket
+// exists to remove, applied to our own API boundary, which is why it THROWS in
+// the style of `opaque()` rejecting a malformed component rather than hashing it.
+describe('coordinate shape is validated, not silently degraded', () => {
+  it('throws when a coordinate object carries NEITHER expected key', () => {
+    expect(() =>
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', {
+        wrongKey: 'Monday',
+        other: 'Period 3',
+      })
+    ).toThrow(/dayName|periodLabel/)
+  })
+
+  it('names the expected shape, so the caller can fix it without reading this file', () => {
+    let message = ''
+    try {
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', { dayLabel: 'Monday' })
+    } catch (e) {
+      message = e.message
+    }
+    expect(message).toContain('dayName')
+    expect(message).toContain('periodLabel')
+  })
+
+  it('throws when the coordinate is not an object at all', () => {
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', 'Monday')).toThrow(
+      /dayName|periodLabel/
+    )
+  })
+
+  it('does NOT throw for a legitimately null leg, or for an explicitly empty coordinate', () => {
+    // Both keys PRESENT is the contract being honoured; their values may be null.
+    expect(() =>
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', { dayName: null, periodLabel: 'Period 3' })
+    ).not.toThrow()
+    expect(() =>
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', { dayName: null, periodLabel: null })
+    ).not.toThrow()
+    // A coordinate whose every leg is null says "this row has no cell", which is
+    // the whole-run fallback — stated as a pinned equality rather than left to
+    // inference, since it is the one case that legitimately reaches 'all'.
+    expect(
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', { dayName: null, periodLabel: null })
+    ).toBe(deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1'))
+  })
+
+  it('omitting the coordinate entirely stays the whole-run fallback', () => {
+    // The permissive half: absent is not malformed.
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')).not.toThrow()
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', null)).not.toThrow()
   })
 })
 
