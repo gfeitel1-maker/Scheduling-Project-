@@ -69,22 +69,27 @@ describe('Tier-4 internet-transport boundary guard', () => {
     if (INTERNET_TRANSPORT_SIGNOFF) return
     // CORRECTION (2026-09-15 WAN assessment, finding 1): the earlier version of this test asserted
     // transport.js's DEFAULT_LISTEN stays loopback — but that constant is DEAD in production. The
-    // real node (electron/main.js) binds `/ip4/0.0.0.0/tcp/0` (all interfaces — necessary for LAN
-    // sync; loopback would let nothing connect). So "loopback" was never the boundary. The boundary
-    // that actually keeps this off the internet is DISCOVERY: the production node is wired with
-    // `createMdnsDiscovery` (link-local multicast) and NOTHING that performs internet rendezvous
-    // (DHT/bootstrap/relay). This test asserts that real wiring, so the guard can no longer be
-    // satisfied while the actual bind/discovery has already widened.
-    const mainSrc = readFileSync(join(repoRoot, 'electron', 'main.js'), 'utf8')
-    expect(/peerDiscovery:\s*\[\s*createMdnsDiscovery\(/.test(mainSrc),
-      'electron/main.js no longer wires mDNS-only discovery (createMdnsDiscovery) into startSyncNode — ' +
-      'if internet discovery (DHT/bootstrap/relay rendezvous) was added, the trusted-LAN boundary is gone; ' +
-      'complete docs/adr/2026-09-14-internet-transport-security-gate.md and set INTERNET_TRANSPORT_SIGNOFF=true.'
+    // real node (electron/main.js, via syncStarter.js — see below) binds `/ip4/0.0.0.0/tcp/0` (all
+    // interfaces — necessary for LAN sync; loopback would let nothing connect). So "loopback" was
+    // never the boundary. The boundary that actually keeps this off the internet is DISCOVERY: the
+    // production node is wired with `createMdnsDiscovery` (link-local multicast) and NOTHING that
+    // performs internet rendezvous (DHT/bootstrap/relay). This test asserts that real wiring, so the
+    // guard can no longer be satisfied while the actual bind/discovery has already widened.
+    //
+    // T276: the startSyncNode() call site (and this mDNS wiring) moved out of main.js's
+    // `!process.env.VITEST`-gated block into electron/sync/automerge/syncStarter.js, so this
+    // wiring assertion now reads THAT file — a pure extraction, not a boundary change.
+    const starterSrc = readFileSync(join(__dirname, 'syncStarter.js'), 'utf8')
+    expect(/peerDiscovery:\s*\[\s*createMdnsDiscovery\(/.test(starterSrc),
+      'electron/sync/automerge/syncStarter.js no longer wires mDNS-only discovery (createMdnsDiscovery) ' +
+      'into startSyncNode — if internet discovery (DHT/bootstrap/relay rendezvous) was added, the ' +
+      'trusted-LAN boundary is gone; complete docs/adr/2026-09-14-internet-transport-security-gate.md ' +
+      'and set INTERNET_TRANSPORT_SIGNOFF=true.'
     ).toBe(true)
     for (const marker of ['kadDHT', 'circuitRelay', 'bootstrap(', 'dcutr', 'autonat', 'webRTC']) {
-      expect(mainSrc.includes(marker),
-        `electron/main.js references '${marker}' — an internet rendezvous/transport was wired into the ` +
-        `production node. That is the boundary change this gate exists to catch.`
+      expect(starterSrc.includes(marker),
+        `electron/sync/automerge/syncStarter.js references '${marker}' — an internet rendezvous/transport ` +
+        `was wired into the production node. That is the boundary change this gate exists to catch.`
       ).toBe(false)
     }
   })
