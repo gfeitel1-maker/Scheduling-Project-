@@ -72,7 +72,9 @@ A human-typed code trades length against entropy; the KDF widens the safe range 
 the choice.
 
 - **Recommended: 10 Crockford chars (50 bits) + scrypt tag.** Grouped `XXXXX-XXXXX`. With a
-  ~100ms-per-guess KDF, `2^50` offline guesses is ~3.5 million CPU-hours — infeasible for a code
+  ~100ms-per-guess KDF, `2^50` offline guesses is ~3.5 million CPU-years (2^50 × 100ms ≈ 3.6e6
+  years; corrected from "CPU-hours" per ADR 2026-09-27's decision-challenge — the conclusion was and
+  remains correct, only the unit was wrong) — infeasible for a code
   that also rotates and is only live for minutes. Two extra characters over today, still easily read
   across a room and typed without losing your place.
 - Alternatives: 8 chars/40 bits (today's length; relies more heavily on the KDF + rotation + window
