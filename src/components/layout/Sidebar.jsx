@@ -129,7 +129,6 @@ export default function Sidebar({
   // green ✓ / count / "optional" affordances must read identically at
   // either depth.
   function renderItem(item, { indent = false } = {}) {
-    const lan = item.key === 'devices' && syncStatus ? syncStatusLabel(syncStatus) : null
     const count = item.area ? counts?.[item.area] : undefined
     const isBlocking = item.area ? gapAreas.has(item.area) : false
     // Two marks, not three. `✓` and `!` are universal — nobody has to be told
@@ -194,12 +193,6 @@ export default function Sidebar({
         <span style={{ flex: 1, minWidth: 0, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {item.label}
         </span>
-        {lan && (
-          <span title={lan.title} style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
-            color: TONE_COLOR[lan.tone],
-          }}>{lan.text}</span>
-        )}
         {meta && (
           <span style={{
             fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
@@ -394,6 +387,14 @@ export default function Sidebar({
         padding: '10px 20px', borderTop: '1px solid var(--border)',
         fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)',
       }}>
+        {(syncStatus?.state === 'host-not-syncing' || syncStatus?.state === 'sync-blocked') && (
+          <SyncNotRunningRow
+            syncStatus={syncStatus}
+            retrying={retrying}
+            onRetrySync={handleRetrySync}
+            onNavigate={onNavigate}
+          />
+        )}
         {projectPath && (
           <div
             title={isDevDb ? `Development database — not the installed app's data\n${projectPath}` : projectPath}
@@ -458,6 +459,74 @@ export default function Sidebar({
         v0.1.0
       </div>
     </aside>
+  )
+}
+
+// T277 — a quiet, always-present footer indicator for the two not-running
+// sync states. Gated by the caller on `state` alone (never on `lan.tone`,
+// same discipline as T275's GearMenu affordance), so it stays absent —
+// actually unmounted, not merely hidden — for every healthy state.
+//
+// One motion: the whole row is a single button, no nested button, so
+// noticing and recovering happen in the same click. host-not-syncing reuses
+// Sidebar's own handleRetrySync/retrying (no second retry timer, no second
+// window.shoresh.retrySync call site). sync-blocked navigates straight to
+// Devices via the same `onNavigate` prop App.jsx already threads through —
+// restarting the node does not fix a domain-state refusal, so it must never
+// offer a dead retry (T275's boundary, carried over here).
+function SyncNotRunningRow({ syncStatus, retrying, onRetrySync, onNavigate }) {
+  const transition = useEnterTransition('slideFade', {})
+  const isHostNotSyncing = syncStatus.state === 'host-not-syncing'
+  const title = syncStatusLabel(syncStatus).title
+
+  function handleClick() {
+    if (isHostNotSyncing) {
+      if (!retrying) onRetrySync()
+    } else {
+      onNavigate('devices')
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={handleClick}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+        padding: '4px 0 8px', border: 'none', background: 'none', cursor: 'pointer',
+        textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        ...transition,
+      }}
+    >
+      <span style={{ flexShrink: 0, fontSize: 8, color: 'var(--danger)' }}>●</span>
+      <span style={{
+        fontFamily: 'var(--font-mono)', fontSize: 11, overflow: 'hidden',
+        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
+        {/* Deliberately NOT syncStatusLabel(syncStatus).text — that yields the gear-menu's
+            'not sharing'/'not syncing' wording. This footer's visible copy is the owner-mandated
+            'sync not running' phrasing (T277); only the .title tooltip is shared with the gear menu.
+            Do not "unify" this into lan.text — the divergence is intentional. */}
+        <span style={{ color: 'var(--danger)' }}>sync not running</span>
+        {isHostNotSyncing && (
+          <>
+            {' · '}
+            <span
+              style={{
+                display: 'inline-block', minWidth: '4.2em',
+                color: 'var(--text-secondary)',
+                pointerEvents: retrying ? 'none' : 'auto',
+                textUnderlineOffset: 2,
+                transition: 'text-decoration-color 0.12s ease',
+              }}
+              onMouseEnter={e => { if (!retrying) e.currentTarget.style.textDecoration = 'underline' }}
+              onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none' }}
+            >{retrying ? 'trying…' : 'try again'}</span>
+          </>
+        )}
+      </span>
+    </button>
   )
 }
 
