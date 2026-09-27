@@ -1,7 +1,7 @@
 ---
 title: "Multi-device erasure propagation via signed purge tombstones"
 document_type: ticket
-status: completed
+status: open
 created: 2026-09-19
 archive_when: a stale peer's reintroduction of a purged record is refused fleet-wide (the inverted purgeSupportCommand.js "known gap" test passes) and per-peer erasure state is observable
 task_class: database-sync
