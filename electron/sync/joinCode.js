@@ -62,10 +62,10 @@ const TAG_SUFFIX = '._udp.local'
 // cost is in the ~100ms/guess band, not whatever N/r/p happens to look right
 // on paper. Measured on this dev machine (node -e microbenchmark, 7 runs,
 // Node v25.8.1, darwin/x64): N=32768, r=8, p=1 -> mean 112.7ms/guess (range
-// 103.6-128.8ms). scryptJoinCost.bench.test.js re-measures this and asserts
-// the real cost stays in a defensible band (50-400ms) so a future Node/libuv
-// change that silently made scrypt faster would fail loud rather than quietly
-// erode the margin.
+// 103.6-128.8ms). joinCode.test.js re-measures this and asserts the real cost
+// stays in a defensible band (50-600ms) so a future Node/libuv change that
+// silently made scrypt faster would fail loud rather than quietly erode the
+// margin.
 //
 // Memory: scrypt needs ~128*N*r bytes = 128*32768*8 = 32 MiB. maxmem is set
 // above that (not left at Node's 32 MiB default, which is exactly the memory
