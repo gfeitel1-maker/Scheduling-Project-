@@ -296,6 +296,7 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
   // that resolves to nothing; it becomes residue instead.
   const candidates = []
   const unverifiedLabels = new Set()
+  const unorderedSetRows = []
   let unmeasuredCampers = 0
 
   body.forEach((row, i) => {
@@ -310,9 +311,23 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
     const dayName = cell(row, mapping?.dayIndex) || null
     const periodLabel = cell(row, mapping?.periodIndex) || null
     const coordinate = dayName || periodLabel ? { dayName, periodLabel } : null
-    // A per-cell sheet's choices are CHOSEN, not ranked — rank 1 by
-    // construction (§4.2) — while a flat 1..N list is an ordered fallback.
-    const rankKindForRanks = coordinate ? CELL_CHOICE : ORDERED_FALLBACK
+    // §4.2's three meanings, and the discriminator is the NUMBER of rank
+    // columns rather than merely whether a coordinate exists.
+    //
+    // A planner grid gives one camper ONE activity per cell — that cell is
+    // CHOSEN, rank 1 by construction. But a per-cell sheet can also rank WITHIN
+    // a cell ("for Monday period 3: first Archery, then Ceramics"), and that is
+    // an ordered fallback that happens to be cell-scoped. A coordinate changes
+    // the SCOPE of a preference; it does not change what its rank MEANS.
+    //
+    // Getting this wrong is not cosmetic: an earlier draft forced `rank: 1` for
+    // every ranked column whenever a coordinate was present, which collapsed
+    // #1/#2/#3 onto one rank inside one cell and refused the sheet with "a
+    // camper holds the same preference rank twice" — a refusal that is both
+    // wrong and misleading about why. Caught by running the corpus (P33), not by
+    // re-reading the code.
+    const cellIsASingleChoice = coordinate != null && (mapping?.rankColumns ?? []).length === 1
+    const rankKindForRanks = cellIsASingleChoice ? CELL_CHOICE : ORDERED_FALLBACK
 
     // Every preference cell this row offers, ranked columns and the unordered
     // set column alike, before any of them is known to resolve.
@@ -320,16 +335,27 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
     for (const { rank, index } of mapping?.rankColumns ?? []) {
       const raw = cell(row, index)
       if (!raw) continue // A blank rank is a rank the camper left empty, not a shift.
-      cells.push({ raw, rank: coordinate ? 1 : rank, rankKind: rankKindForRanks, index })
+      // The explicit rank is ALWAYS preserved. It is the camper's own statement.
+      cells.push({ raw, rank, rankKind: rankKindForRanks, index })
     }
     if (mapping?.unorderedSetIndex != null) {
       const raw = cell(row, mapping.unorderedSetIndex)
       // §4.1 — a packed cell with no ordering evidence produces bindings with
       // rank: null, NEVER a rank invented from cell order. An unordered set of
-      // acceptable activities is a different fact from a ranking.
-      for (const part of raw.split(/\s*[,;/]\s*/).map((p) => p.trim()).filter(Boolean)) {
+      // acceptable activities is a different fact from a ranking, and cell order
+      // is not ordering evidence: reading "Swim, Archery, Ceramics" as a top
+      // three would fabricate a preference the child never stated. A tie among
+      // equals stays a tie.
+      const parts = raw.split(/\s*[,;/]\s*/).map((p) => p.trim()).filter(Boolean)
+      for (const part of parts) {
         cells.push({ raw: part, rank: null, rankKind: UNORDERED_SET, index: mapping.unorderedSetIndex })
       }
+      // §4.1 requires the residue item as well as the null rank, and the two do
+      // different jobs: the null is what the solver reads, the residue is what
+      // tells a HUMAN that this camper stated no order. Without it, a sheet that
+      // ranks nothing looks identical in the ledger to one that ranks
+      // everything.
+      if (parts.length > 1) unorderedSetRows.push({ rowNumber, count: parts.length })
     }
 
     const resolved = []
@@ -453,6 +479,18 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
       })
     }
   })
+
+  if (unorderedSetRows.length > 0) {
+    const column = columnLabel(mapping.unorderedSetIndex)
+    add(
+      'UNORDERED_SET',
+      `Column ${column} lists several activities per camper with no order between them, on ` +
+        `${unorderedSetRows.length} row(s). They have been kept as equally acceptable rather than ` +
+        'turned into a first, second and third choice \u2014 the file does not say which came first, ' +
+        'and guessing from the order they were typed in would invent a preference nobody stated.',
+      { column, index: mapping.unorderedSetIndex, rows: unorderedSetRows }
+    )
+  }
 
   for (const label of unverifiedLabels) {
     add(
@@ -687,6 +725,16 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
 export function hasContradictoryRanks({ preferences = [] } = {}) {
   const seen = new Set()
   for (const p of preferences) {
+    // An UNRANKED preference cannot contradict anything, and T279 had to learn
+    // this from the corpus (P10). An unordered set is a TIE AMONG EQUALS (§4.1)
+    // — "Swim, Archery, Ceramics" is one camper naming three acceptable
+    // activities with no ordering evidence — so several rank-null entries for
+    // one camper is the CORRECT reading of that sheet, not a contradiction. The
+    // pre-fix key treated every null as the same rank and refused the file with
+    // "a camper holds the same preference rank twice", about a sheet that states
+    // no ranks at all. Two unranked rows for one derived id are identical and
+    // are already a no-op in the collision pass.
+    if (p.rank == null) continue
     const scope = p.occurrence_id ?? coordinateKey(p.coordinate)
     const key = `${p.camper_id}\u0000${scope}\u0000${p.rank}`
     if (seen.has(key)) return true

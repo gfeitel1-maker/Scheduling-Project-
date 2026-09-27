@@ -384,6 +384,47 @@ describe('the LABEL resolver, against the camp activity catalog (ADR §12.3)', (
 })
 
 // ---------------------------------------------------------------------------
+// P10 — an unordered set is not a rank. ADR §4.1.
+// ---------------------------------------------------------------------------
+describe('an unordered SET is never coerced into a ranking (ADR §4.1)', () => {
+  it('P10: a packed set column yields rank NULL for every member, and says so', () => {
+    // "Swim, Archery, Ceramics" in one column headed 'Activities Chosen' is one
+    // camper naming three ACCEPTABLE activities. An unordered set of acceptable
+    // activities is a different FACT from a ranking, and cell order is not
+    // ordering evidence — inventing a rank from it would fabricate a
+    // preference the child never stated.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P10-unordered-set-no-rank.csv')
+    expect(result.ok).toBe(true)
+
+    const rows = withDb((db) => db.prepare('SELECT rank, rank_kind FROM elective_preferences').all())
+    expect(rows.length).toBeGreaterThan(0)
+    for (const r of rows) {
+      expect(r.rank).toBeNull()
+      expect(r.rank_kind).toBe('unordered-set')
+    }
+
+    // §4.1 requires the residue item, not just the null rank: the director has
+    // to know the app is holding a tie among equals rather than a ranking,
+    // because the solver cannot consume it the same way.
+    const sets = residueOf(result, 'UNORDERED_SET')
+    expect(sets.length).toBeGreaterThan(0)
+    expect(sets[0].column).toMatch(/^[A-Z]+$/)
+  })
+
+  it('P10 is NOT refused for holding the same (absent) rank many times', () => {
+    // An unranked preference cannot contradict anything. Keying every null onto
+    // one rank refused this sheet with "a camper holds the same preference rank
+    // twice" — about a file that states no ranks at all.
+    seedActivities(CORPUS_ACTIVITIES)
+    const result = commitProbe('P10-unordered-set-no-rank.csv')
+    expect(result.error).toBeNull()
+    expect(withDb((db) => db.prepare('SELECT COUNT(*) c FROM campers').get().c)).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // P18 / P38 — the column resolver. ADR §12.0, §12.3.
 // ---------------------------------------------------------------------------
 describe('the COLUMN resolver (ADR §12.0)', () => {
