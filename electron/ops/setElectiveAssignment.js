@@ -115,11 +115,23 @@ export function setElectiveAssignment(db, {
   const choiceId = activityName
     ? choiceIdByKey.get(electiveChoiceLabelKey(activityName)) ?? null
     : null
+  // T265 (v78): elective_preferences is now keyed per (day, period) cell, so
+  // this lookup is scoped to THIS occurrence too. `LIMIT 1` stays — the
+  // derived id's 4-tuple (run_id, camper_id, occurrence_id, choice_id) is the
+  // full key, so at most one row can ever match this WHERE clause. That is
+  // now PROVABLY safe rather than a latent bug: before occurrence_id existed
+  // on this table, two per-cell preference rows for the same camper+choice
+  // (a linked choice ranked differently per occurrence) would both match,
+  // and LIMIT 1 would silently pick whichever SQLite returned first —
+  // possibly the WRONG occurrence's rank. Scoping the WHERE clause is what
+  // makes LIMIT 1 correct instead of merely convenient.
   const preferenceRank = choiceId == null
     ? null
     : db
-      .prepare('SELECT rank FROM elective_preferences WHERE run_id = ? AND camper_id = ? AND choice_id = ? LIMIT 1')
-      .get(runId, camperId, choiceId)?.rank ?? null
+      .prepare(
+        'SELECT rank FROM elective_preferences WHERE run_id = ? AND camper_id = ? AND occurrence_id = ? AND choice_id = ? LIMIT 1'
+      )
+      .get(runId, camperId, occurrenceId, choiceId)?.rank ?? null
 
   // Capacity, resolved by the ONE helper the engine's offering builder uses
   // (electiveOfferingCapacity.js). An 'unlimited' offering is never checked.

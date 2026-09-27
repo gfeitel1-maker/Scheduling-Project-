@@ -496,6 +496,171 @@ describe('buildElectiveAssignments', () => {
       .toEqual([['o1', 'a-arch', 1], ['o2', 'a-arch', 1]])
   })
 
+  // T265 round-4 (this change) — PER-CELL preference honoring.
+  //
+  // SYSTEM-LEVEL PREDICATE this whole block verifies: for every (camper,
+  // occurrence) the solver places, the rank it costs against is the rank that
+  // camper gave for THAT occurrence if one exists, else their whole-run
+  // fallback (an unscoped preference row), else none — never a rank borrowed
+  // from, or overwritten by, a different cell. Each test below checks a
+  // narrower slice of that predicate (stated per test); none of them alone
+  // is the full claim, and that is called out explicitly rather than implied.
+  describe('per-cell preferences (T265 round 4)', () => {
+    // Narrower predicate checked here: a camper's rank in occurrence A is
+    // independent of their rank in occurrence B for the SAME activity, and
+    // the difference is observable in the PLACEMENT, not only in the label.
+    // A wrong implementation (best-rank-wins / first-seen-wins / last-seen-wins)
+    // feeds ONE constant rank into both cost matrices and still places
+    // correctly by accident when capacity is generous — so capacity here is
+    // tight enough that only the correct rank produces the correct placement.
+    it('costs a camper differently in two occurrences for the same activity, and the difference decides placement', () => {
+      const out = buildElectiveAssignments({
+        campers: [{ id: 'c1' }, { id: 'c2' }],
+        occurrences: [occ('oA'), occ('oB')],
+        offerings: [
+          offering('oA', 'archery', 'a-arch', 1), offering('oA', 'gaga', 'a-gaga', 1),
+          offering('oB', 'archery', 'a-arch', 1), offering('oB', 'gaga', 'a-gaga', 1),
+        ],
+        preferences: [
+          // c1 ranks archery #1 in oA, #4 in oB. c2 ranks archery #2 in both
+          // (an unscoped fallback would also give c1 rank #1 in oB, which
+          // would make c1 win oB over c2 — the wrong outcome this pins).
+          { camper_id: 'c1', occurrence_id: 'oA', labelKey: 'archery', rank: 1 },
+          { camper_id: 'c1', occurrence_id: 'oB', labelKey: 'archery', rank: 4 },
+          pref('c2', 'archery', 2),
+          pref('c1', 'gaga', 3),
+          pref('c2', 'gaga', 3),
+        ],
+      })
+      // With capacity 1 each and c1 costing 4 (worse than c2's 2) in oB, the
+      // solver's own optimum gives oB's archery seat to c2, not c1 — a wrong
+      // rank (shared, or borrowed from oA) would instead seat c1 in both.
+      const byOcc = Object.fromEntries(out.assignments.map((a) => [`${a.occurrence_id}:${a.camper_id}`, a]))
+      expect(byOcc['oA:c1'].activity_id).toBe('a-arch')
+      expect(byOcc['oA:c1'].preference_rank).toBe(1)
+      expect(byOcc['oB:c2'].activity_id).toBe('a-arch')
+      expect(byOcc['oB:c1'].activity_id).toBe('a-gaga')
+      expect(byOcc['oB:c1'].preference_rank).toBe(3)
+    })
+
+    // Narrower predicate: an occurrence-scoped row must never leak into a
+    // DIFFERENT cell as a fallback. c1 ranks archery only in oA; in oB they
+    // must show NO rank for archery (NOT_REQUESTED if placed there).
+    it('never lets an occurrence-scoped rank leak into a different cell', () => {
+      const out = buildElectiveAssignments({
+        campers: [{ id: 'c1' }],
+        occurrences: [occ('oA'), occ('oB')],
+        offerings: [offering('oA', 'archery', 'a-arch', 5), offering('oB', 'archery', 'a-arch', 5)],
+        preferences: [
+          { camper_id: 'c1', occurrence_id: 'oA', labelKey: 'archery', rank: 1 },
+        ],
+      })
+      const oA = out.assignments.find((a) => a.occurrence_id === 'oA')
+      const oB = out.assignments.find((a) => a.occurrence_id === 'oB')
+      expect(oA.preference_rank).toBe(1)
+      expect(oB.preference_rank).toBeNull()
+      expect(oB.flags).toContain('NOT_REQUESTED')
+    })
+
+    // Back-compat: an entirely unscoped preference set (no occurrence_id
+    // anywhere, exactly what every pre-T265 caller passes) must produce the
+    // SAME assignments as before this change — pinned against a captured run.
+    it('produces the same assignments for an entirely unscoped preference set (back-compat)', () => {
+      const input = {
+        campers: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
+        occurrences: [occ('o1'), occ('o2')],
+        offerings: [
+          offering('o1', 'archery', 'a-arch', 1), offering('o1', 'gaga', 'a-gaga', 2),
+          offering('o2', 'archery', 'a-arch', 1), offering('o2', 'gaga', 'a-gaga', 2),
+        ],
+        preferences: [
+          pref('c1', 'archery', 1), pref('c1', 'gaga', 2),
+          pref('c2', 'archery', 1), pref('c2', 'gaga', 2),
+          pref('c3', 'gaga', 1),
+        ],
+      }
+      const out = buildElectiveAssignments(input)
+      // Captured from a run of this exact fixture before the per-cell change.
+      expect(out.assignments.map((a) => [a.occurrence_id, a.camper_id, a.activity_id, a.preference_rank]))
+        .toEqual([
+          ['o1', 'c1', 'a-arch', 1],
+          ['o1', 'c2', 'a-gaga', 2],
+          ['o1', 'c3', 'a-gaga', 1],
+          ['o2', 'c1', 'a-arch', 1],
+          ['o2', 'c2', 'a-gaga', 2],
+          ['o2', 'c3', 'a-gaga', 1],
+        ])
+      expect(out.findings).toEqual([])
+    })
+
+    // Mixed mode: a scoped row for cell A plus an unscoped fallback. A must
+    // use the scoped rank; every OTHER cell must use the fallback.
+    it('uses the scoped rank in its cell and the unscoped fallback everywhere else', () => {
+      const out = buildElectiveAssignments({
+        campers: [{ id: 'c1' }],
+        occurrences: [occ('oA'), occ('oB'), occ('oC')],
+        offerings: [
+          offering('oA', 'archery', 'a-arch', 5), offering('oB', 'archery', 'a-arch', 5), offering('oC', 'archery', 'a-arch', 5),
+        ],
+        preferences: [
+          pref('c1', 'archery', 3), // unscoped fallback
+          { camper_id: 'c1', occurrence_id: 'oA', labelKey: 'archery', rank: 1 }, // scoped override for oA only
+        ],
+      })
+      const byOcc = Object.fromEntries(out.assignments.map((a) => [a.occurrence_id, a]))
+      expect(byOcc.oA.preference_rank).toBe(1)
+      expect(byOcc.oB.preference_rank).toBe(3)
+      expect(byOcc.oC.preference_rank).toBe(3)
+    })
+
+    // Tier 1 (linked choices): a member occurrence with no rank is silent —
+    // not a vote against, not UNRANKED_COST, not an exclusion. Partial
+    // coverage must keep the camper a wants() candidate.
+    it('keeps a camper eligible for a linked choice when only one of its member occurrences is ranked', () => {
+      const out = buildElectiveAssignments({
+        campers: [{ id: 'c1' }],
+        occurrences: [occ('o1'), occ('o2')],
+        offerings: [offering('o1', 'coding', 'a-code', 5), offering('o2', 'coding', 'a-code', 5)],
+        preferences: [
+          { camper_id: 'c1', occurrence_id: 'o1', choice_id: 'C', rank: 2 },
+          // no row at all for (c1, o2, C)
+        ],
+        choices: [choice('C', 'coding')],
+        choiceOfferings: [member('C', 'o1', 'a-code'), member('C', 'o2', 'a-code')],
+      })
+      expect(out.assignments.map((a) => [a.occurrence_id, a.activity_id, a.preference_rank]))
+        .toEqual([['o1', 'a-code', 2], ['o2', 'a-code', 2]])
+      expect(out.findings.some((f) => f.kind === 'UNSUPPORTED_LINKED_CHOICE')).toBe(false)
+    })
+
+    // Tier 1 min-rule: ranked #1 in one member cell, #5 in another — the
+    // MINIMUM (best) rank is used, never the mean (3) and never the
+    // last-seen value (whichever rank happens to appear last in the input
+    // array). Run BOTH input orderings and require the SAME result, so a
+    // last-write-wins implementation (which would flip with order) fails.
+    it('uses the minimum (best) rank across a linked choice\'s member occurrences, regardless of input order', () => {
+      const base = {
+        campers: [{ id: 'c1' }],
+        occurrences: [occ('o1'), occ('o2')],
+        offerings: [offering('o1', 'coding', 'a-code', 5), offering('o2', 'coding', 'a-code', 5)],
+        choices: [choice('C', 'coding')],
+        choiceOfferings: [member('C', 'o1', 'a-code'), member('C', 'o2', 'a-code')],
+      }
+      const rowHigh = { camper_id: 'c1', occurrence_id: 'o1', choice_id: 'C', rank: 5 }
+      const rowLow = { camper_id: 'c1', occurrence_id: 'o2', choice_id: 'C', rank: 1 }
+
+      const forward = buildElectiveAssignments({ ...base, preferences: [rowHigh, rowLow] })
+      const reversed = buildElectiveAssignments({ ...base, preferences: [rowLow, rowHigh] })
+
+      for (const out of [forward, reversed]) {
+        const row = out.assignments.find((a) => a.occurrence_id === 'o1')
+        expect(row.preference_rank).toBe(1)
+        expect(row.preference_rank).not.toBe(5)
+        expect(row.preference_rank).not.toBe(3)
+      }
+    })
+  })
+
   // Clause 3 — a choice with exactly ONE member offering is not linked, so tier
   // 1 never sees it and the result must be identical to the same fixture run
   // with no choice inputs at all.

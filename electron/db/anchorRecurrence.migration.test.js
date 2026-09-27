@@ -88,7 +88,7 @@ describe('migration v42: fresh vs migrated equivalence', () => {
     // fresh (head) db therefore carries schedule_week_id only.
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(77)
+    expect(CURRENT_SCHEMA_VERSION).toBe(78)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 42').get().c).toBe(1)
     const cols = db.pragma('table_info(fixed_events)').map((c) => c.name)
     expect(cols).toContain('schedule_week_id')

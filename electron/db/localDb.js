@@ -31,10 +31,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // (T243, elective run lifecycle: finalized_at/finalized_by + elective_run_outer_snapshots), v75
 // (T266, docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md — activities.
 // catalog_role), v76 (T197, docs/adr/2026-09-26-elective-run-outer-inheritance-and-linked-choice-
-// export.md), and v77 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md —
-// anchor_activities renamed to fixed_events, gains activity_id) all land in this file; 77 is the
-// current version.
-export const CURRENT_SCHEMA_VERSION = 77
+// export.md), v77 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md —
+// anchor_activities renamed to fixed_events, gains activity_id), and v78 (T265,
+// docs/adr/2026-09-26-per-cell-elective-preferences.md — elective_preferences gains
+// occurrence_id) all land in this file; 78 is the current version.
+export const CURRENT_SCHEMA_VERSION = 78
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3598,6 +3599,114 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     }
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (77, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v78 (T265, docs/adr/2026-09-26-per-cell-elective-preferences.md) — elective_preferences
+  // gains occurrence_id: a director's ranking CAN BE per (day, period) cell (Decision 1).
+  // deriveElectivePreferenceId's key widens from (run_id, camper_id, choice_id) to (run_id,
+  // camper_id, occurrence_id, choice_id) — see electron/ops/electiveDerivedIds.js.
+  //
+  // ROUND 5 CORRECTION — occurrence_id is NULLABLE, not NOT NULL, and this block is an ALTER
+  // TABLE ADD COLUMN, not the DROP+CREATE round 1 shipped. Owner ruling, verbatim: "we are
+  // reading someone's data. we are not choosing how they import it." A real camp produces both
+  // a per-cell grid AND a single whole-run ranked list; a row with no occurrence_id is that
+  // whole-run shape, not a defect. Under round 1's NOT NULL column that shape was
+  // UNREPRESENTABLE — every existing pre-v78 row (which, by definition, predates any occurrence
+  // concept at all) was exactly this whole-run shape, and round 1 DISCARDED all of it rather than
+  // recognizing it as legitimate. That was wrong once the column is nullable: a pre-v78 row
+  // carries forward as an ordinary row with occurrence_id = NULL, which is now its correct,
+  // meaningful value — not a placeholder, not a loss. ALTER TABLE ADD COLUMN's own default (NULL,
+  // unstated) IS that value, so no explicit UPDATE or backfill is needed.
+  //
+  // No UNIQUE constraint added: the derived id PRIMARY KEY is the uniqueness invariant (same
+  // convention as elective_assignments) — see schema.sql's comment on this table. That invariant
+  // still holds with occurrence_id nullable: deriveElectivePreferenceId derives a scoped row's id
+  // FROM its occurrence_id (so two occurrences never collide) and a fallback row's id from a
+  // separate derivation arm that omits occurrence_id entirely (so re-writing the same whole-run
+  // preference lands on the SAME id, an overwrite, not a duplicate) — see that function's comment.
+  //
+  // idx_elective_preferences_run_camper_occurrence is created HERE, not in schema.sql's
+  // unconditional exec section: schema.sql is re-executed on every open, and a CREATE INDEX
+  // naming occurrence_id would fail on a not-yet-migrated pre-v78 file whose table has no such
+  // column at all (same reasoning schema.sql's retired idx_schedule_templates_camp_kind comment
+  // states — this reasoning is about the COLUMN'S EXISTENCE, not its nullability, so it is
+  // unaffected by the NOT NULL -> nullable correction). This block runs on fresh databases too
+  // (guard starts from version 0), so both paths end up identical.
+  //
+  // Guard is one-wide in SPIRIT, NOT a bare `< 78` — see the v50 block's comment (bug #194: a
+  // bare `< N` with no lower bound breaks the continuity chain when an earlier block withholds
+  // its stamp). It is FOUR-wide (`>= 74`, not `>= 77`) only because v75-v77 are allocated to peer
+  // sessions and do not exist on this branch yet (migrationDomainState.test.js's "covers
+  // 1..CURRENT_SCHEMA_VERSION with no gaps" assertion reports this — deliberately left failing,
+  // see the ADR addendum). v74 is the actual immediately-preceding migration THIS BRANCH has, so
+  // `>= 74` is what makes this block reachable today.
+  //
+  // THIS IS AN ASSUMPTION, NOT A PROOF, and round-2 review of T265 named the exact way it can
+  // fail. It holds ONLY while v75, v76 and v77 each stamp their version UNCONDITIONALLY. If any
+  // of them withholds its stamp on a failure path (v26's orphan-cleanup at :1976-1981 is the
+  // documented precedent — bug #194's actual mechanism, not just its guard-shape lesson), a db can
+  // land on 74 with v75/v76/v77 each skipped by their own narrow guards, then THIS block's wide
+  // `>= 74` fires anyway and stamps 78 — permanently retiring v75-v77's chance to retry whatever
+  // they withheld, because MAX(version) is now past them. Narrowing to one-wide is not optional
+  // busywork: it is what re-closes that hole. `electivePreferencesOccurrence.migration.test.js`
+  // carries a mechanical tripwire that fails as soon as a v75/v76/v77 rollback module exists in
+  // this tree, so the rebase cannot silently forget to narrow this guard to `>= 77 && < 78`.
+  //
+  // Re-application is impossible rather than merely unlikely, and the UPPER bound is what makes
+  // that true: a database already at 78 fails `< 78` and never re-enters. A wide LOWER bound
+  // cannot cause a re-apply. The lower bound is wide (74, not 77) only because v75-77 do not
+  // exist on this branch yet, so `>= 77` would never fire and the column would be silently
+  // missing — a worse failure than the one it trades against. That deviation from the house
+  // `>= N-1 && < N` form (localDb.js:3089) EXPIRES: see the tripwire in
+  // electron/db/electivePreferencesOccurrence.migration.test.js, which fails once v75-77 land and
+  // names this line. The tripwire was verified non-vacuous by planting a rollback file and
+  // observing it go red — but it detects a landed version by rollback-file PRESENCE, which is a
+  // proxy, and v72 shipped with no rollback module at all. Confirm v77 by version number, not by
+  // file.
+  //
+  // THIS MIGRATION USED TO BE DESTRUCTIVE BY DESIGN (round 1's commit 95177cf1); IT NO LONGER IS.
+  // Round 1 reasoned that a NOT NULL column has no valid default, so an existing pre-v78 row
+  // (whole-run format, no occurrence concept) had to be discarded rather than invented an
+  // occurrence for. That reasoning was correct GIVEN NOT NULL — but the premise "occurrence_id
+  // must be NOT NULL" was itself wrong (see the ROUND 5 CORRECTION above), and once it is
+  // nullable there is no default to invent: NULL already IS the row's correct, meaningful value.
+  // This paragraph is kept, not deleted, as the record of what round 1 believed and why round 5
+  // corrects it — the same "inherit the condition, not the conclusion" discipline round 1 asked
+  // of its own successor, now applied to it.
+  if (getSchemaVersion(db) >= 77 && getSchemaVersion(db) < 78) {
+    db.transaction(() => {
+      if (tableExists('elective_preferences')) {
+        const cols = db.pragma('table_info(elective_preferences)').map((c) => c.name)
+        if (!cols.includes('occurrence_id')) {
+          // Nullable, no DEFAULT clause: SQLite backfills every existing row's new
+          // column with NULL, which is exactly the whole-run fallback semantics —
+          // no data is lost, and nothing is invented.
+          db.exec('ALTER TABLE elective_preferences ADD COLUMN occurrence_id TEXT')
+        }
+      } else {
+        // Column order matches schema.sql's fresh CREATE TABLE — occurrence_id
+        // LAST, matching where the ALTER TABLE branch above places it on a
+        // migrated db (see schema.sql's comment on this table).
+        db.exec(`
+          CREATE TABLE elective_preferences (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            camper_id TEXT,
+            choice_id TEXT,
+            rank INTEGER,
+            occurrence_id TEXT
+          );
+        `)
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_elective_preferences_run_camper_occurrence
+          ON elective_preferences(run_id, camper_id, occurrence_id);
+      `)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (78, ?)').run(
       new Date().toISOString()
     )
   }

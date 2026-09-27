@@ -534,3 +534,113 @@ describe('projector — assertConflictsRecorded is defensive about a pre-v73 con
     expect(() => projectAll(db, doc)).toThrow(/silently discarded/)
   })
 })
+
+// T265 round-2 review finding 4. elective_preferences.ensureExists inserts
+// occurrence_id: '' to satisfy the NOT NULL column when run_id arrives before
+// occurrence_id does (fields land one at a time). opaque() in
+// electiveDerivedIds.js refuses '' as a real component, so a stub carrying it
+// would hold a value the derivation layer would never produce. The question
+// this settles: does a LATER projectAll pass, once occurrence_id actually
+// lands in the document, overwrite the stub — or can '' survive?
+// T265 round 5 corrected occurrence_id to NULLABLE (a whole-run fallback
+// preference is a real, meaningful value, not an error), which removed the
+// NOT-NULL '' placeholder ensureExists used to need — see projections.js's
+// comment on this entity. This test's ORIGINAL claim (round-2 finding 4) was
+// that a stub value gets overwritten by a later real one; that claim still
+// holds, only the stub's value changed from '' to NULL (the ordinary,
+// no-special-casing default for an unset nullable column).
+describe('projector — elective_preferences occurrence_id stub (T265 round-2 finding 4, updated round 5)', () => {
+  it('a stub projected before occurrence_id lands is overwritten once occurrence_id lands in the document', () => {
+    let doc = createEmptyDoc()
+    // First pass: only run_id is in the document. ensureExists fires on this
+    // field and inserts a bare placeholder row — occurrence_id is nullable
+    // now, so no special stub value is needed; the column is simply NULL
+    // until a real field write arrives.
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'run_id', value: 'run-1' })
+    projectAll(db, doc)
+    expect(
+      db.prepare('SELECT occurrence_id FROM elective_preferences WHERE id = ?').get('pref-1').occurrence_id
+    ).toBeNull()
+
+    // Second pass: occurrence_id has since landed in the document (a later,
+    // real field write). projectAll re-derives EVERY known field from the
+    // doc's current row, not just what changed — readRecord returns
+    // occurrence_id now, so upsertRow's field loop includes it and issues an
+    // ordinary UPDATE with the real value.
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'occurrence_id', value: 'occ-1' })
+    projectAll(db, doc)
+
+    const row = db.prepare('SELECT occurrence_id FROM elective_preferences WHERE id = ?').get('pref-1')
+    expect(row.occurrence_id).toBe('occ-1')
+    expect(row.occurrence_id).not.toBeNull()
+  })
+
+  it('a rebuild from the document (not just projectAll) also does not leave the stub behind', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'run_id', value: 'run-1' })
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'occurrence_id', value: 'occ-1' })
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'camper_id', value: 'cam-1' })
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'choice_id', value: 'choice-1' })
+    doc = applyWrite(doc, { entity: 'elective_preferences', entity_id: 'pref-1', field: 'rank', value: 1 })
+
+    rebuildFromDoc(db, doc, 'elective_preferences')
+
+    const row = db.prepare('SELECT occurrence_id FROM elective_preferences WHERE id = ?').get('pref-1')
+    expect(row.occurrence_id).toBe('occ-1')
+  })
+})
+
+// T265 round 4 — a GENERIC projector invariant, discovered while tracing
+// cross-device replication of a null occurrence_id, but not specific to
+// elective_preferences or to v78. Three choke points jointly decide whether
+// an EXPLICIT null written into the document reaches the SQL column as NULL,
+// or is silently treated as "field not present" and skipped:
+//   - campDocument.js: coerceOpValue(null) stores null in the doc's flat key
+//     (only DELETE_FIELD removes the key outright).
+//   - upsertRow (THIS FILE, above): `if (!(field in row)) continue` — an
+//     `in`-check, which is true for an explicit null and false only for a
+//     genuinely absent key. A truthiness or `!= null` guard here would be
+//     true for neither and silently drop every explicit-null field write,
+//     for every entity, with no test failing.
+//   - projections.js: applyProjection's `UPDATE ... SET field = ?` binds
+//     `op.value` with no null guard at all — SQLite accepts NULL fine.
+// Nothing anywhere asserted this invariant before this test. It is deliberately
+// NOT written as an elective_preferences test — the point is the PROJECTOR's
+// behaviour, not electives — so `days_of_operation.sort_order` (a genuinely
+// nullable INTEGER column, unlike `activities.name` at projector.test.js:239,
+// which is NOT NULL and would be skipped by the row-level savepoint instead of
+// exercising this path) is the fixture.
+//
+// WHAT THIS TEST CANNOT DISTINGUISH, stated rather than implied: in SQLite, a
+// column that has NEVER been written and a column EXPLICITLY set to null are
+// BOTH simply NULL — there is no way to tell them apart by reading the column
+// value alone. So this test does not (and cannot) prove "this NULL came from
+// an explicit write, not from absence" by inspecting the final value in
+// isolation. What it CAN and DOES prove: sort_order is first written to a
+// REAL, non-null value, then explicitly overwritten to null, and projectAll
+// is re-run — if the explicit-null write reached the UPDATE statement, the
+// column CHANGES from its real value to NULL; if the projector's `in`-check
+// (or campDocument's storage, or projections.js's bind) silently dropped or
+// skipped that field, the column would still read the STALE real value. The
+// change itself, not the final NULL alone, is what proves the explicit-null
+// path was exercised.
+describe('projector — an explicit null field write reaches the SQL column as NULL (T265 round 4, generic)', () => {
+  it('overwrites a real value with SQL NULL when the document explicitly sets the field to null', () => {
+    let doc = createEmptyDoc()
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-1', field: 'camp_id', value: 'camp-1' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-1', field: 'label', value: 'Monday' })
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-1', field: 'sort_order', value: 3 })
+    projectAll(db, doc)
+    expect(
+      db.prepare('SELECT sort_order FROM days_of_operation WHERE id = ?').get('day-1').sort_order
+    ).toBe(3)
+
+    // The explicit-null write. Not a missing field, not an undefined value —
+    // a real op whose value is exactly `null`.
+    doc = applyWrite(doc, { entity: 'days_of_operation', entity_id: 'day-1', field: 'sort_order', value: null })
+    projectAll(db, doc)
+
+    const row = db.prepare('SELECT sort_order FROM days_of_operation WHERE id = ?').get('day-1')
+    expect(row.sort_order).toBeNull()
+  })
+})

@@ -139,8 +139,8 @@ describe('projector — tombstone admission gate (T233)', () => {
     // SQLite already holds the FULL row, as a genuine local write would produce (an app screen
     // writes an entity's fields to SQLite via applyProjection's per-field hot path, which does
     // NOT consult the tombstone denylist at all — only projectAll's upsertEntity does).
-    db.prepare('INSERT INTO elective_preferences (id, run_id, camper_id, rank) VALUES (?, ?, ?, ?)')
-      .run(prefId, 'run-x', camperId, 1)
+    db.prepare('INSERT INTO elective_preferences (id, run_id, camper_id, occurrence_id, rank) VALUES (?, ?, ?, ?, ?)')
+      .run(prefId, 'run-x', camperId, 'occ-x', 1)
 
     let doc = createEmptyDoc()
     doc = putCamper(doc, camperId)

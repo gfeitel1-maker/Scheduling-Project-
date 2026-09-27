@@ -35,9 +35,30 @@ describe('frozen output vectors', () => {
     )
   })
 
-  it('pins deriveElectivePreferenceId', () => {
-    expect(deriveElectivePreferenceId('run-1', 'camper-1', 'choice-1')).toBe(
-      'epref1:5.run-18.camper-18.choice-1'
+  // T265 ROUND 5 re-pin, a DELIBERATE ACT per this block's own rule above —
+  // not an edit made to chase a failing test. The scoped arm now emits a
+  // literal 'occ' tag before the occurrence component (see
+  // deriveElectivePreferenceId's own comment for why: two derivation ARMS,
+  // not one arm with a sentinel value, so a fallback row's id can never
+  // collide with a scoped row's regardless of what any occurrence_id string
+  // happens to be). That re-keys every SCOPED epref1: id already derived
+  // under round 1. The shared module-level `V` was deliberately NOT bumped
+  // for this — V re-keys all FIVE derived-id kinds at once (occurrence,
+  // choice, offering, preference, assignment), and this repo has no live
+  // camp data anywhere to re-key (pre-production, bias bold: a clean cutover
+  // is preferred to a back-compat shim — the same tradeoff round 1's own ADR
+  // migration note already made for this exact table). Re-pinning the
+  // narrower preference-id vector alone is proportionate; bumping V is not.
+  it('pins deriveElectivePreferenceId (scoped)', () => {
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')).toBe(
+      'epref1:5.run-18.camper-13.occ5.occ-18.choice-1'
+    )
+  })
+
+  // The fallback arm (null occurrence_id) — a NEW vector, not a re-pin.
+  it('pins deriveElectivePreferenceId (whole-run fallback, null occurrence_id)', () => {
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')).toBe(
+      'epref1:5.run-18.camper-13.all8.choice-1'
     )
   })
 
@@ -60,8 +81,8 @@ describe('injectivity', () => {
   })
 
   it('separates a component boundary shifted by one character', () => {
-    expect(deriveElectivePreferenceId('ru', 'n-1camper', '1')).not.toBe(
-      deriveElectivePreferenceId('run', '-1camper', '1')
+    expect(deriveElectivePreferenceId('ru', 'n-1camper', 'occ-1', '1')).not.toBe(
+      deriveElectivePreferenceId('run', '-1camper', 'occ-1', '1')
     )
   })
 
@@ -114,7 +135,7 @@ describe('component rejection (§2.2)', () => {
     const choiceId = deriveElectiveChoiceId('run-1', 'swimadvanced')
     const occId = deriveElectiveOccurrenceId('run-1', 'set-1', 'day-1', 'tb-1', 'tier-1')
     expect(() => deriveElectiveChoiceOfferingId(choiceId, occId, 'act-1')).not.toThrow()
-    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', choiceId)).not.toThrow()
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', choiceId)).not.toThrow()
     expect(() => deriveElectiveAssignmentId('run-1', 'camper-1', occId)).not.toThrow()
   })
 
@@ -124,6 +145,87 @@ describe('component rejection (§2.2)', () => {
     expect(deriveElectiveChoiceOfferingId(a, 'occ-1', 'act-1')).not.toBe(
       deriveElectiveChoiceOfferingId(b, 'occ-1', 'act-1')
     )
+  })
+})
+
+// T265 — elective_preferences gains occurrence_id (v78). The key widens from
+// (run_id, camper_id, choice_id) to (run_id, camper_id, occurrence_id,
+// choice_id) — R1 (2026-09-17) is superseded by this ticket, not contradicted.
+describe('deriveElectivePreferenceId — occurrence-scoped key (T265/v78)', () => {
+  it('is idempotent for the same 4-tuple', () => {
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')).toBe(
+      deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')
+    )
+  })
+
+  // ROUND 5 CORRECTION — occurrence_id ABSENT (null/undefined) is now the
+  // legitimate whole-run fallback shape, not an error: owner ruling, "we are
+  // reading someone's data. we are not choosing how they import it." Only a
+  // PRESENT but malformed occurrence_id (empty string) still throws — that is
+  // "a broken value was given", not "no value was given".
+  it('does not throw when occurrence_id is null or undefined — that is the whole-run fallback', () => {
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', undefined, 'choice-1')).not.toThrow()
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')).not.toThrow()
+  })
+
+  it('still throws when occurrence_id is present but malformed (empty string)', () => {
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', '', 'choice-1')).toThrow(
+      /component/i
+    )
+  })
+
+  it('is idempotent for the same (run, camper, choice) fallback (null occurrence_id)', () => {
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')).toBe(
+      deriveElectivePreferenceId('run-1', 'camper-1', undefined, 'choice-1')
+    )
+  })
+
+  it('a fallback (null occurrence_id) id never collides with any scoped id for the same camper+choice', () => {
+    const fallback = deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')
+    expect(fallback).not.toBe(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1'))
+    // Adversarial: an occurrence_id that spells the scoped arm's own literal
+    // tag must still not collide with the fallback arm's id — the arms are
+    // distinguished by TAG CONTENT ('occ' vs 'all'), which differ regardless
+    // of what a real occurrence_id string happens to be.
+    expect(fallback).not.toBe(deriveElectivePreferenceId('run-1', 'camper-1', 'all', 'choice-1'))
+  })
+
+  // THE ACTUAL FIX: the same camper ranking the same choice in two different
+  // occurrences (a linked choice spanning two cells) must no longer collapse
+  // onto one row.
+  it('gives the same camper+choice in DIFFERENT occurrences DIFFERENT ids', () => {
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')).not.toBe(
+      deriveElectivePreferenceId('run-1', 'camper-1', 'occ-2', 'choice-1')
+    )
+  })
+
+  // MY CORRECTION 2 — the module's V is deliberately NOT bumped, so old
+  // 3-component `epref1:` ids and new 4-component ones share a prefix. Prove
+  // they cannot collide: length-prefixed decoding is a total, deterministic
+  // function of the string alone (read off a length, consume that many
+  // characters, repeat until the string is exhausted), so two strings that
+  // decode to a different NUMBER of components can never be byte-identical —
+  // decoding the same bytes twice cannot produce two different-length results.
+  it('a 3-component and a 4-component epref id can never collide', () => {
+    // Simulate the OLD 3-arg shape directly against the same `join`/`opaque`
+    // machinery this module still exports, so the proof is about the
+    // encoding, not about a since-deleted function signature.
+    const oldShape = `epref1:${['run_id', 'camper_id', 'choice_id']
+      .map((n, i) => opaque(n, ['run-1', 'camper-1', 'choice-1'][i]))
+      .map((c) => `${c.length}.${c}`)
+      .join('')}`
+    const newShape = deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')
+    expect(oldShape).not.toBe(newShape)
+
+    // Adversarial: hunt for any 4-tuple whose encoding equals a fixed 3-tuple's
+    // encoding by construction — impossible, because the 3-tuple's encoded
+    // string is fully consumed after exactly 3 length-prefixed reads (nothing
+    // left over for a 4th component to occupy).
+    const threeTupleIds = new Set([
+      deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1'),
+      deriveElectivePreferenceId('r', 'c', 'o', 'x'),
+    ])
+    for (const id of threeTupleIds) expect(id).not.toBe(oldShape)
   })
 })
 
@@ -270,7 +372,7 @@ describe('cross product — every corpus label through the full derivation chain
 
       const choiceId = deriveElectiveChoiceId('run-1', key)
       const offeringId = deriveElectiveChoiceOfferingId(choiceId, occId, 'act-1')
-      const preferenceId = deriveElectivePreferenceId('run-1', 'camper-1', choiceId)
+      const preferenceId = deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', choiceId)
 
       expect(choiceId).toContain(key)
       expect(offeringId).toContain(choiceId)
@@ -286,8 +388,8 @@ describe('cross product — every corpus label through the full derivation chain
     expect(deriveElectiveChoiceOfferingId(a, occId, 'act-1')).not.toBe(
       deriveElectiveChoiceOfferingId(b, occId, 'act-1')
     )
-    expect(deriveElectivePreferenceId('run-1', 'camper-1', a)).not.toBe(
-      deriveElectivePreferenceId('run-1', 'camper-1', b)
+    expect(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', a)).not.toBe(
+      deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', b)
     )
   })
 
@@ -298,7 +400,7 @@ describe('cross product — every corpus label through the full derivation chain
     expect(() => deriveElectiveChoiceOfferingId('Arts & Crafts', 'occ-1', 'act-1')).toThrow(
       /choice_id/i
     )
-    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', 'Arts & Crafts')).toThrow(
+    expect(() => deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'Arts & Crafts')).toThrow(
       /choice_id/i
     )
   })

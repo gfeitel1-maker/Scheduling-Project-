@@ -32,7 +32,7 @@ const CAMPER = 'camper-1'
 const OCC = deriveElectiveOccurrenceId(RUN, 'set-1', 'day-1', 'tb-1', 'tier-1')
 const CHOICE = deriveElectiveChoiceId(RUN, electiveChoiceLabelKey('Swim Advanced'))
 const OFFERING = deriveElectiveChoiceOfferingId(CHOICE, OCC, 'act-1')
-const PREF = deriveElectivePreferenceId(RUN, CAMPER, CHOICE)
+const PREF = deriveElectivePreferenceId(RUN, CAMPER, OCC, CHOICE)
 const ASSIGN = deriveElectiveAssignmentId(RUN, CAMPER, OCC)
 
 // id + the one field that proves the row is not just a stub created by
@@ -90,6 +90,7 @@ export async function run() {
 
     await host.write({ entity: 'elective_preferences', entity_id: PREF, field: 'run_id', value: RUN })
     await host.write({ entity: 'elective_preferences', entity_id: PREF, field: 'camper_id', value: CAMPER })
+    await host.write({ entity: 'elective_preferences', entity_id: PREF, field: 'occurrence_id', value: OCC })
     await host.write({ entity: 'elective_preferences', entity_id: PREF, field: 'choice_id', value: CHOICE })
     await host.write({ entity: 'elective_preferences', entity_id: PREF, field: 'rank', value: 1 })
 

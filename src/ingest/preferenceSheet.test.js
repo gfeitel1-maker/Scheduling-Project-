@@ -90,6 +90,48 @@ describe('parsePreferenceSheet', () => {
     expect(hasContradictoryRanks(parsePreferenceSheet(ROWS, { campId: 'camp-1', mapping }))).toBe(false)
   })
 
+  // T265 ROUND 3 (round-1's "preferenceSheet.js is out of scope" ruling was
+  // WRONG and is retracted). Two independent rank-1s in two DIFFERENT
+  // occurrences are the NORMAL shape of a per-cell grid (ADR Decision 1) —
+  // not a contradiction. Before this fix, the key had no occurrence
+  // dimension, so this legitimate sheet was refused with a false claim
+  // ("holds the same preference rank twice") that gave a director nothing
+  // to fix.
+  describe('occurrence-aware contradiction key (T265 round 3)', () => {
+    it('does not flag rank 1 in two different occurrences as a contradiction', () => {
+      expect(hasContradictoryRanks({
+        preferences: [
+          { camper_id: 'cam-1', occurrence_id: 'occ-mon-p3', rank: 1 },
+          { camper_id: 'cam-1', occurrence_id: 'occ-mon-p6', rank: 1 },
+        ],
+      })).toBe(false)
+    })
+
+    // The real contradiction WITHIN a cell must still refuse — two rank-1s
+    // for the same camper in the SAME occurrence is genuinely unreadable.
+    it('still flags rank 1 twice within the SAME occurrence', () => {
+      expect(hasContradictoryRanks({
+        preferences: [
+          { camper_id: 'cam-1', occurrence_id: 'occ-mon-p3', rank: 1, labelKey: 'archery' },
+          { camper_id: 'cam-1', occurrence_id: 'occ-mon-p3', rank: 1, labelKey: 'gaga' },
+        ],
+      })).toBe(true)
+    })
+
+    // T226's ORIGINAL case, unweakened: a whole-run sheet (no occurrence_id
+    // at all, exactly what today's parser produces) with a duplicate rank
+    // must still refuse — every row shares the same empty occurrence
+    // component, so this collapses to the pre-fix key exactly.
+    it('still flags a duplicate rank on a whole-run sheet with no occurrence_id', () => {
+      expect(hasContradictoryRanks({
+        preferences: [
+          { camper_id: 'cam-1', rank: 1, labelKey: 'archery' },
+          { camper_id: 'cam-1', rank: 1, labelKey: 'ceramics' },
+        ],
+      })).toBe(true)
+    })
+  })
+
   it('does not flag same-name campers who carry distinct external ids', () => {
     const header = ['Camper ID', 'Camper Name', '#1']
     const m = inferPreferenceMapping(header)

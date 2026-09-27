@@ -34,9 +34,14 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // which there are zero). Assert the count explicitly so a future rollback
     // file changes this number and forces a look, rather than silently
     // enlarging or shrinking what's covered.
-    // 37 as of v77_down.js (T267). Looked, as this tripwire demands, rather than
-    // just re-counting: v77_down.js deletes with `WHERE version >= 77`, so it
-    // satisfies the guard below on its own merits — it reverses the
+    // 38 as of v78_down.js (T265). Looked, as this tripwire demands, rather than
+    // just re-counting: v78_down.js deletes with `WHERE version >= 78`, so it
+    // satisfies the guard below on its own merits — and it REFUSES rather than
+    // collapsing when a (run_id, camper_id, choice_id) spans more than one
+    // occurrence, naming the blocking rows.
+    //
+    // 37 was v77_down.js (T267). Deletes with `WHERE version >= 77`, so it
+    // satisfies the guard on its own merits — it reverses the
     // anchor_activities -> fixed_events rename and drops activity_id/
     // fixed_event_identity_gaps, losing only a name-match resolution that
     // re-derives identically from the same catalog state on re-migration.
@@ -49,7 +54,7 @@ describe('rollback bare-equality schema_migrations guard', () => {
     //
     // 35 was v75_down.js (T266): deletes with `WHERE version >= 75`, drops a
     // nullable column only ingest writes, so it loses a classification.
-    expect(files.length).toBe(37)
+    expect(files.length).toBe(38)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

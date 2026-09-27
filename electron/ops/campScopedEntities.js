@@ -210,7 +210,7 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'elective_occurrences', // references elective_assignment_runs.id NOT NULL
   'elective_choices', // references elective_assignment_runs.id NOT NULL
   'elective_choice_offerings', // references elective_choices.id NOT NULL
-  'elective_preferences', // references elective_assignment_runs.id NOT NULL; camper_id/choice_id are soft
+  'elective_preferences', // references elective_assignment_runs.id NOT NULL; camper_id/occurrence_id/choice_id are soft (occurrence_id added v78, T265)
   'elective_assignments', // references elective_assignment_runs.id NOT NULL; the rest are soft
   'elective_run_outer_snapshots', // T243 (v74); run_id is NOT NULL but no DB-level FK (schema.sql), same soft-reference posture as its five siblings above — positioned after elective_assignment_runs
 ]

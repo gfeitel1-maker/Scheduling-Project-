@@ -39,6 +39,23 @@ import { whitespaceInsensitiveName } from '../../src/ingest/preview.js'
 
 // Derivation version. Bumping it is a deliberate, visible re-keying of every
 // row of that kind — it is not a free change.
+//
+// WHAT THIS DOES NOT GUARANTEE (Red Hat, T265 round 3). An unbumped V does
+// NOT mean "this encoding has been stable." deriveElectivePreferenceId's own
+// shape changed TWICE on this branch under this same V = 1: the 3-component
+// form inherited from `main`, to a 4-component occurrence-required form
+// (T265 round 1), to the 5-component two-arm form (round 5, this file's own
+// comment on that function). Each change was judged, on this branch, as
+// acceptable without a bump because this repo has no LIVE camp data
+// anywhere to re-key. That defence covers a fresh production database. It
+// does NOT cover a developer's own local `shoresh-dev` database that already
+// ran an elective commit on an earlier round of this branch, or a paired
+// device holding an Automerge document with an earlier round's ids already
+// written — those ids are now stale and will not match a freshly-derived id
+// for the same logical row. A reader must not infer stability from an
+// unbumped V on this branch; check the git history of this function's own
+// body, not just this constant, before assuming two ids from different
+// points in this branch's history are comparable.
 const V = 1
 
 // Length-prefixed concatenation, NOT a hash.
@@ -276,17 +293,64 @@ export function deriveElectiveChoiceOfferingId(choiceId, occurrenceId, activityI
   ])}`
 }
 
-// Key: (run_id, camper_id, choice_id).
+// Key: (run_id, camper_id, occurrence_id, choice_id).
 //
-// Owner ruling R1 (2026-09-17): this is the spec's key, NOT ADR D4's
+// Owner ruling R1 (2026-09-17): this was the spec's key, NOT ADR D4's
 // (run_id, camper_id, occurrence_id, activity_id) — D12, written later in the
-// same document, moved preferences to point at a CHOICE, and the row has no
-// occurrence_id or activity_id column to key on. A correction note is appended
-// to D4 recording the drafting order.
-export function deriveElectivePreferenceId(runId, camperId, choiceId) {
+// same document, moved preferences to point at a CHOICE, and at the time the
+// row had no occurrence_id or activity_id column to key on. A correction note
+// is appended to D4 recording the drafting order.
+//
+// SUPERSEDED, NOT CONTRADICTED (T265, v78, docs/adr/2026-09-26-per-cell-
+// elective-preferences.md Decision 1). R1's own stated condition — "the row
+// has no occurrence_id column" — no longer holds: elective_preferences gained
+// occurrence_id at schema v78 because a director's ranking CAN BE per (day,
+// period) cell. A linked choice spans multiple occurrences, and a camper can
+// rank it differently per cell; the 3-tuple key collapsed every such row onto
+// one id (T251's fixture measured 177 such collisions across 429 rows).
+//
+// ROUND 5 AMENDMENT — occurrence_id is OPTIONAL, not required. Owner ruling,
+// verbatim: "we are reading someone's data. we are not choosing how they
+// import it." A real camp produces both a per-cell grid AND a single
+// whole-run ranked list (docs/adr/2026-09-17-individual-elective-scheduling.md
+// :481), and this app does not get to prefer one. A row naming an
+// occurrence_id is scoped to that cell; a row with none is a WHOLE-RUN
+// FALLBACK, and `occurrenceId` here is `null` for it — never coerced to a
+// placeholder string, which would let a fallback collide with (or be
+// mistaken for) a real occurrence.
+//
+// TWO DERIVATION ARMS, not one arm with a sentinel occurrence value. A
+// sentinel string occupying the SAME component slot as a real occurrence_id
+// can only be guaranteed collision-free by restricting the alphabet real
+// occurrence ids may use — a constraint this module cannot impose on
+// `deriveElectiveOccurrenceId`'s callers. Instead the two arms differ in
+// STRUCTURE: the scoped arm emits a literal 'occ' tag followed by the
+// occurrence component; the fallback arm emits a literal 'all' tag with NO
+// occurrence component at all. `join` is length-prefixed and therefore
+// decodes deterministically component-by-component — two component
+// SEQUENCES that differ in their tag value ('occ' vs 'all', which can never
+// be equal strings) or in their component COUNT (5 vs 4) cannot encode to
+// the same string, regardless of what any occurrence_id, camper_id or run_id
+// value happens to be. This is the same injectivity argument `join`'s own
+// comment makes for length-prefixing in general — it is not a new,
+// unverified property of this function, and does not depend on trusting any
+// particular sentinel value to stay unused.
+//
+// UNIQUENESS (Governor round-5 requirement): exactly one scoped row per (run,
+// camper, occurrence, choice) — the scoped arm includes occurrence_id, so two
+// different occurrences derive two different ids, each a legitimate distinct
+// row. At most one fallback row per (run, camper, choice) — the fallback arm
+// excludes occurrence_id entirely, so every fallback preference for the same
+// (run, camper, choice) derives the SAME id, and a second whole-run ranking
+// of the same choice by the same camper overwrites the first rather than
+// creating a second row (the derived id IS the uniqueness invariant, same
+// convention as every other entity in this module).
+export function deriveElectivePreferenceId(runId, camperId, occurrenceId, choiceId) {
+  const scope = occurrenceId != null ? ['occ', opaque('occurrence_id', occurrenceId)] : ['all']
   return `epref${V}:${join([
     opaque('run_id', runId),
     opaque('camper_id', camperId),
+    ...scope,
     derivedChoiceId(choiceId),
   ])}`
 }

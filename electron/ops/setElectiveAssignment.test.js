@@ -34,9 +34,9 @@ const PARSED = {
   ],
   choices: [{ label: 'Archery', labelKey: 'archery' }, { label: 'Gaga', labelKey: 'gaga' }],
   preferences: [
-    { camper_id: 'cam-1', label: 'Gaga', labelKey: 'gaga', rank: 1 },
-    { camper_id: 'cam-2', label: 'Archery', labelKey: 'archery', rank: 1 },
-    { camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 2 },
+    { camper_id: 'cam-1', occurrence_id: 'occ-1', label: 'Gaga', labelKey: 'gaga', rank: 1 },
+    { camper_id: 'cam-2', occurrence_id: 'occ-1', label: 'Archery', labelKey: 'archery', rank: 1 },
+    { camper_id: 'cam-1', occurrence_id: 'occ-1', label: 'Archery', labelKey: 'archery', rank: 2 },
   ],
   sameNameCampers: [],
   skippedRows: [],
@@ -74,6 +74,38 @@ const move = (db, runId, over = {}) =>
   })
 
 describe('setElectiveAssignment', () => {
+  // T265 (v78) — the bug the fixture's collision count could only demonstrate
+  // indirectly: the SAME camper ranking the SAME choice differently in two
+  // occurrences (a linked choice spanning two cells) must resolve to the
+  // rank for the occurrence being placed into, not whichever row the old
+  // 3-tuple id's LIMIT 1 happened to keep.
+  it('picks the rank for the occurrence being placed into, not the other one', () => {
+    const { db, campId } = freshDb()
+    const runId = seedRun(db, campId)
+
+    // A second occurrence of the same elective set, so 'act-archery' is a
+    // confirmed offering there too.
+    db.prepare(
+      'INSERT INTO elective_occurrences (id, run_id, elective_set_id, day_id, time_block_id, tier_id) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run('occ-2', runId, 'set-1', 'day-2', 'tb-1', 'tier-1')
+
+    // cam-1 ranks Archery differently per cell: 1st choice in occ-1, 3rd in
+    // occ-2. commitElectiveRun's seedRun already wrote the occ-1 row (rank 2,
+    // via PARSED above); add the occ-2 row directly.
+    db.prepare(
+      "INSERT INTO elective_preferences (id, run_id, camper_id, occurrence_id, choice_id, rank) VALUES (?, ?, 'cam-1', 'occ-2', (SELECT id FROM elective_choices WHERE run_id = ? AND label = 'Archery'), 3)"
+    ).run(randomUUID(), runId, runId)
+
+    const inOcc1 = move(db, runId, { occurrenceId: 'occ-1' })
+    expect(inOcc1.ok).toBe(true)
+    expect(db.prepare('SELECT preference_rank FROM elective_assignments WHERE id = ?').get(inOcc1.assignmentId).preference_rank).toBe(2)
+
+    const inOcc2 = move(db, runId, { occurrenceId: 'occ-2' })
+    expect(inOcc2.ok).toBe(true)
+    expect(db.prepare('SELECT preference_rank FROM elective_assignments WHERE id = ?').get(inOcc2.assignmentId).preference_rank).toBe(3)
+    db.close()
+  })
+
   it('writes the derived row with source=manual, is_locked and the run marker', () => {
     const { db, campId } = freshDb()
     const runId = seedRun(db, campId)
@@ -246,8 +278,8 @@ describe('setElectiveAssignment', () => {
     // A participant row for a camper id carrying a space, so the handler
     // reaches the derivation rather than refusing earlier.
     const camperId = 'cam 1'
-    db.prepare('INSERT INTO elective_preferences (id, run_id, camper_id, choice_id, rank) VALUES (?, ?, ?, ?, ?)')
-      .run(randomUUID(), runId, camperId, null, 1)
+    db.prepare('INSERT INTO elective_preferences (id, run_id, camper_id, occurrence_id, choice_id, rank) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(randomUUID(), runId, camperId, 'occ-1', null, 1)
 
     let out
     expect(() => { out = move(db, runId, { camperId }) }).not.toThrow()
