@@ -338,6 +338,13 @@ convenience. Same seam, local execution.
 
 ### 3.3 Declared kind is per-page; axis binding is proposed and confirmed
 
+**ROUND 4 — READ §11.2 FIRST. This section's central premise is WRONG.** It designs a reader that
+*infers* an axis structure from an unknown grid. Electives are a NESTED schedule inside an
+already-defined day: the days and periods, and which coordinates are elective at all, ALREADY EXIST
+in the projection when the elective import runs. Axis binding is therefore a **matching** problem
+against a known set, with three mechanical checks, not an inference problem with a confirmation
+step. Everything below is superseded by §11.2 where the two disagree.
+
 **Decision: carried forward unchanged from the general-ingest ADR §5.1 — the declared kind is
 per-PAGE**, because T223 was a per-page defect and a per-import kind reintroduces the whole-file
 granularity that `docs/adr/2026-09-18-schedule-shape-gate-per-page-granularity.md` removed.
@@ -563,6 +570,10 @@ Its §12 open questions Q1 and Q3–Q6 are **unresolved and carried into §9** �
 answered because it was never approved.
 
 ## 6. The learning layer — inference, confirmation, memory. Not a model.
+
+**ROUND 4 — READ §11.2 FIRST.** What is learned is a **permutation over existing day/period ids**,
+not a discovered geometry, and most of what this section asks a director to confirm is mechanically
+verifiable instead. §6.1's and §6.3's rulings survive; their load drops.
 
 **Decision: "machine/software learning" here means a director-confirmed, per-camp-remembered axis
 binding, in the style of T118's compound-cell patterns. No trained model.** I considered arguing for
@@ -866,16 +877,26 @@ the baseline is a baseline.
 (`scripts/ingestCli.js`), which drives the same `partitionSchedulePages` → `extractEntities` →
 `commitIngest` chain `ImportScreen.jsx` drives. No probe constructs a `parsed` object.
 
-**The counts.**
+**The counts. CORRECTED IN ROUND 4 — see §11.1.** The owner has ruled this ticket is the **elective**
+importer only. The seven probes that entered through `runIngestCli`, the **camp-schedule** path, are
+out of scope and are excluded from T278's totals: P20, P21, P24, P25, P27, P28, P40. Their evidence
+stands and is spun out separately.
 
-| | count | probes |
+| | in scope (33) | out of scope (7) |
 |---|---|---|
-| **(a) WORKS** — read correctly today | **11** | P01 P05 P08 P14 P15 P16 P17 P25 P28 P36 P37 |
-| **(b) BREAKS LOUDLY** — refused or errored | **20** | P03 P04 P07 P10 P11 P12 P19 P21 P22 P23 P24 P26 P27 P29 P30 P31 P32 P33 P34 P39 |
-| **(c) BREAKS SILENTLY** — committed, exit 0, data wrong or lost | **9** | P02 P06 P09 P13 P18 P20 P35 P38 P40 |
-| THREW | 0 | — |
+| **(a) WORKS** — read correctly today | **9** — P01 P05 P08 P14 P15 P16 P17 P36 P37 | P25 P28 |
+| **(b) BREAKS LOUDLY** — refused or errored | **17** — P03 P04 P07 P10 P11 P12 P19 P22 P23 P26 P29 P30 P31 P32 P33 P34 P39 | P21 P24 P27 |
+| **(c) BREAKS SILENTLY** — committed, exit 0, data wrong or lost | **7** — P02 P06 P09 P13 P18 P35 P38 | P20 P40 |
+| THREW | 0 | 0 |
 
-**The ticket exists because of one instance of (c). There are nine more, plus one cross-cutting loss.**
+**The ticket exists because of one instance of (c). There are seven in the elective path, plus one
+cross-cutting loss affecting 15 of the 33.** Round 3's superseded totals were 11 / 20 / 9 over 40.
+
+**Eight of the seventeen in-scope refusals blame the sheet for our own limitation** (P33, P12, P23,
+P26, P19, P10, and two of the accurate-but-narrow ones). The three sharpest misleading messages —
+P21, P24, P27 — turned out to be on the out-of-scope path; the *shapes* they measured (merged two-row
+day header, transposed grid) remain live for an elective file and are re-pointed, not dropped
+(§11.1).
 
 #### (c) The silent misses, in full
 
@@ -886,12 +907,12 @@ the baseline is a baseline.
 | **P06** | partial id: one child on two rows, one row with an id | **two camper records for one child** (7 from 6), preferences split 3/3, nothing reported. `sameNameCampers` excludes it by design (§4.4) and nothing replaces it | `src/ingest/preferenceSheet.js:135-147` |
 | **P09** | packed cell `"Archery, Ceramics, Woodworking"` | committed as **one** `elective_choices` label naming no real activity | `src/ingest/preferenceSheet.js:126-132` |
 | **P13** | footer rows below the data | **3 phantom campers** — `Total Campers`, `Please Return`, `Camp Office Use Only` — each with preferences (`8`, `by June 1`). `skippedRows` empty | `src/ingest/preferenceSheet.js:83-91` |
-| **P18** | swim opt-out checkbox + comments box | both columns committed nothing and **reported nothing**. §1 finding 4: the opt-out changes how many cells that camper must fill | `src/ingest/preferenceSheet.js:38-63`; §4.3 has no home for it yet |
-| **P20** | a **camper's planner grid** through the schedule importer | committed `ok=true`: 23 activities including `Lunch`, `Free Swim`, `Shabbat`, `Bunk Unity`, and **one group named after the filename** (`P20-planner-grid-sched.xlsx`) | `src/ingest/scheduleShape.js` `partitionSchedulePages`; group naming in `src/ingest/extractEntities.js` |
+| **P18** | swim opt-out checkbox + comments box | both columns committed nothing and **reported nothing**. **ROUND 4 sharpens this (§11.3):** the opt-out is not a homeless extra field — it is the **per-camper override of the fixed-event set**, and therefore an input to the coverage check. Dropping it silently makes the expected-cell count wrong for exactly the campers whose count differs from their division's | `src/ingest/preferenceSheet.js:38-63`; §11.3 |
+| ~~**P20**~~ | ~~a camper's planner grid through the schedule importer~~ | **ROUND 4: SPUN OUT, NOT THIS TICKET (§11.1).** The evidence stands — it committed `ok=true` with 23 activities including `Lunch`, `Free Swim`, `Shabbat`, `Bunk Unity`, and one group named after the filename — but the defect lives in the camp-schedule import path | `src/ingest/scheduleShape.js`, `src/ingest/extractEntities.js` — raised separately |
 | **P35** | a column headed `Group` holding an activity **track** | `divisionIndex` bound to it and `Sports Track` read as a division — then dropped (below) | `src/ingest/preferenceSheet.js:28` `DIVISION_HEADER` matches `/group/` |
-| **P40** | the planner as a plain-text grid | committed 23 malformed activities (`Hockey Music`, `Lunch Lunch`, `Period 3 Sailing`, `Rock Climbing Gaga`, `Tennis Shabbat`) and a group named after the joined header line | `src/ingest/textGrid.js` `parseTextGrid`. **Caveat:** the probe's tab-delimited dialect may not be the one this reader expects — but it committed garbage rather than refusing, which is the finding either way |
+| ~~**P40**~~ | ~~the planner as a plain-text grid~~ | **ROUND 4: SPUN OUT, NOT THIS TICKET (§11.1).** Evidence stands: it committed 23 malformed activities (`Hockey Music`, `Lunch Lunch`, `Period 3 Sailing`, `Rock Climbing Gaga`, `Tennis Shabbat`) and a group named after the joined header line, rather than refusing. Caveat noted in round 3: the probe's tab dialect may not be the one this reader expects | `src/ingest/textGrid.js` — raised separately |
 
-**Cross-cutting, affecting 15 of the 40 probes: the division is parsed, previewed, and then
+**Cross-cutting, affecting 15 of the 33 in-scope probes: the division is parsed, previewed, and then
 discarded.** `campers` has no `division` column (`electron/db/localDb.js:2677-2684`);
 `parsePreferenceSheet` emits one per camper and the CLI reports it;
 `commitElectiveRun.js:287-293` writes `camp_id`, `display_name`, `external_id`, `is_active` and
@@ -900,15 +921,16 @@ getting `no such column: division`.
 
 #### (b) Loud, but is the message ACCURATE?
 
-**Nine of the twenty refusals blame the sheet for our own limitation.** Listed because a misleading
-refusal sends a director to edit a file that is not wrong:
+**Misleading refusals, listed because one sends a director to edit a file that is not wrong.** Rows
+marked OUT OF SCOPE are on the camp-schedule path (§11.1) and are shown for the record only — their
+*shapes* remain live for an elective file.
 
 | Probe | Message | Why it misleads |
 |---|---|---|
 | **P33** | *"5 camper names appear on more than one row with no camper id to tell them apart… two children sharing a name would be merged"* | It is **one child with six legitimate per-cell blocks**. The message diagnoses an identity problem that does not exist and asks the director to fix it. **Round 2's widening of `hasContradictoryRanks` to carry `occurrence_id` does not help here**, because `describeElectiveRunRefusal` tests `sameNameCampers` *first* (`electron/ops/commitElectiveRun.js:37`) and `sameNameCampers` has no occurrence dimension at all |
-| **P27** | *"expected either day-name columns or clock-time row labels, and found neither"* | The file has **both** — day names on header row 1, clock times on row 2. The message enumerates two accepted forms and refuses a file containing each |
-| **P21** | same | `Monday`…`Friday` are in row 1, under a merged two-row header |
-| **P24** | same | the days are present, as row labels — this is the transposed orientation |
+| **P27** *(OUT OF SCOPE §11.1)* | *"expected either day-name columns or clock-time row labels, and found neither"* | The file has **both** — day names on header row 1, clock times on row 2. The message enumerates two accepted forms and refuses a file containing each |
+| **P21** *(OUT OF SCOPE §11.1)* | same | `Monday`…`Friday` are in row 1, under a merged two-row header |
+| **P24** *(OUT OF SCOPE §11.1)* | same | the days are present, as row labels — this is the transposed orientation |
 | **P12** | *"does not look like a camper preference sheet — could not find: name, ranks"* | the header is in the file, on row 3. `rows[0]` is taken as the header unconditionally (`scripts/preferenceSheetCli.js:135`) |
 | **P23** | same | the ranked fallback block, headed `#1`…`#5`, is in the file below the grid — only row 1 was read |
 | **P26** | same | sheet 2 **is** a valid preference sheet. The reader is first-sheet-only by design (`scripts/preferenceSheetCli.js:63-71`) and never says so |
@@ -931,8 +953,9 @@ the exact rows or columns; P22 correctly declines an offerings menu.
    behind P03, P29, P30, P31, P32 and the P38 silent miss: 6 probes.
 3. Header-row location — `scripts/preferenceSheetCli.js:135` / `preferenceSheet.js:78` both assume
    row 1: P12, P13, P23.
-4. Two-row / merged / transposed headers on the schedule path — P21, P24, P27, and the accuracy of
-   `scripts/ingestCli.js:119-122`'s message.
+4. ~~Two-row / merged / transposed headers on the schedule path — P21, P24, P27~~ — **ROUND 4: OUT OF
+   SCOPE** (§11.1). The camp-schedule reader is not this ticket. The three shapes return to this list
+   the moment the elective adapter can be handed a grid.
 5. `electron/ops/electiveDerivedIds.js` `deriveElectivePreferenceId` — P02; one probe, but it loses
    data on a sheet that otherwise reads correctly, and the reported count disagrees with the database.
 6. `electron/ops/commitElectiveRun.js:287-293` + the `campers` schema — the division, 15 probes.
@@ -942,12 +965,13 @@ the exact rows or columns; P22 correctly declines an offerings menu.
 
 Five, stated rather than quietly absorbed.
 
-1. **§8's shape table guards the wrong direction.** It lists class D as the danger — *"offerings menu
-   (must be declined by the preference reader)"* — and P22 shows that is already handled. The
-   unguarded direction is the opposite one: **class A, a camper's own planner grid, is ACCEPTED by the
-   schedule importer and committed as camp structure** (P20). The T224 gate exists to keep a
-   *preference sheet* out of extraction; nothing keeps a *planner grid* out, because a planner grid
-   genuinely is grid-shaped. That hole is not named anywhere in this ADR before now.
+1. **§8's shape table guards a direction that is already safe, and the hole it misses is not this
+   ticket's.** It lists class D as the danger — *"offerings menu (must be declined by the preference
+   reader)"* — and P22 shows that is already handled. The unguarded direction is the opposite one: a
+   camper's own planner grid is **accepted by the schedule importer** and committed as camp structure
+   (P20). **ROUND 4: that hole is real and is spun out (§11.1)** — it lives in the camp-schedule path,
+   which the owner has ruled out of T278. What survives for *this* ticket is the narrower point that
+   §8's table pointed the guard at the direction that was already covered.
 2. **The residue mechanism (§3.4) sits in the wrong half of the pipeline to catch four of the nine
    silent misses.** P02, P06, P18 and the division loss all happen **at or after commit**, inside
    `commitElectiveRun`, which this ADR treats as settled. A residue design that lives only in the
@@ -1063,3 +1087,140 @@ premise-advocacy branches, each argued without sight of the others (`adhd`).
 - **Refusing a grid-shaped sheet read as flat.** Rejected: `commitElectiveRun.js:53-57` records the
   owner's ruling that a whole-run list with no cells is legitimate data. A refusal would reject real
   camps' real files. Residue, not refusal (§3.4).
+
+## 11. ROUND 4 — owner scope correction, and the premise it overturns
+
+### 11.1 Scope: this ticket is the ELECTIVE importer only
+
+Owner ruling, close to verbatim: *"we are only touching electives. this is a schedule within a
+schedule. it is nested… we are not touching 'import your camp schedule'. we are touching only
+'import your elective schedule' here."*
+
+**Consequence for §8.1.** Seven of the forty probes entered through `runIngestCli`
+(`scripts/ingestCli.js`) — the **camp-schedule** import path — and are therefore **out of this
+ticket's scope**: P20, P21, P24, P25, P27, P28, P40. They are removed from T278's totals. The
+corrected counts over the **33 in-scope probes** are in §8.1.
+
+**Removed, and where it went.** My round-3 report *led* with P20 — a camper's planner grid accepted
+by the schedule importer and committed as camp structure, 23 activities including `Lunch` and
+`Shabbat`, one group named after the filename. **The evidence stands and the defect is real; it is
+simply not this ticket.** It is spun out separately, together with P40 (the text-grid path committing
+malformed activity names) and the three misleading schedule-path refusals (P21, P24, P27).
+
+**What must NOT be discarded with them.** P21, P24 and P27 were measuring *shapes* — a merged
+two-row day header, a transposed grid, a two-row header carrying day names and clock times — and
+those shapes are still live for an **elective** file. The probes measured them through the wrong
+reader. They are re-pointed at the elective adapter when one exists, not deleted: `entry: 'sched'`
+made them evidence about the camp-schedule reader by accident of harness wiring.
+
+### 11.2 The premise that changes: the axes are a KNOWN SET, so binding is MATCHING, not inference
+
+This ADR's §3.3 and §6 design a reader that **infers** an axis structure from an unknown grid and has
+a director **confirm** it. **That premise is wrong, and the schema says so.** Verified by reading:
+
+- `electron/db/schema.sql:1410-1417` — `elective_occurrences` carries `day_id` and `time_block_id`:
+  references to **existing camp-schedule entities**, not values parsed from an elective file. Its own
+  comment states the cells are *"re-derived from live template_slots on every generation (D6)"*.
+- `electron/ops/commitElectiveRun.js:91-93` — the commit path already **takes** `occurrences`,
+  `scheduleWeekId` and `scheduleTemplateId` from its caller.
+- **And the decisive one, stronger than the correction I was handed.**
+  `electron/db/schema.sql:574-584`: `template_slots.elective_set_id` set means *that cell is an
+  elective cell*; `event_id` set means *that cell is an opaque event cell*; `activity_id` means an
+  ordinary en-masse activity. The three are mutually exclusive and precedence-ordered
+  (`MUTUALLY_EXCLUSIVE_FIELDS`, `electron/ops/projections.js`).
+
+So the system does not merely know that this camp has Monday–Friday and periods 1–7. **It already
+knows, per (day, block, group), which cells are elective, which are fixed events, and which are
+en-masse activities** — the exact three-way distinction the owner's correction describes. §3.3's
+free-form inference does not merely oversize the problem; it **reinvents a classification the
+projection already holds.**
+
+**What the binding actually is.** An injective map from the file's axis labels onto the camp's
+existing `days` × `time_blocks`, restricted to the coordinates where
+`template_slots.elective_set_id IS NOT NULL`. Not a discovered structure — a permutation over ids the
+app already has.
+
+**Three checks that are VERIFIABLE without asking the director.** This is the part that changes the
+design's character, because a check is evidence and a confirmation is only a signature:
+
+1. **Domain check.** A binding naming a day or a period this camp does not have is **provably wrong**.
+   Refuse it; do not offer it.
+2. **Elective-eligibility cross-check.** A cell bound to a coordinate that is **not** an elective cell
+   is provably wrong — and the two possible causes are *distinguishable*, because the fixed event at
+   that coordinate is known: if the cell's content matches the known fixed event there, the binding is
+   right and the cell simply is not a preference (§11.3); if it names something else, the binding is
+   wrong. **This is the check that converts a confident wrong reading into a caught one**, which is
+   the entire defect this ADR was opened for.
+3. **Coverage check.** The number of selectable cells is computable per camper from eligibility
+   (§1 finding 4). A binding yielding a count that is not that camper's expected selectable count is
+   suspect. **This is the numeric signal §8's metric 2 needs**, and it did not exist under the
+   inference premise because there was nothing to compare against.
+
+**The residual that still needs a human, and it is much smaller.** A binding that is a *valid*
+permutation of real elective coordinates but the *wrong* one — Monday and Tuesday transposed where
+both are elective in that period and both cells name plausible activities. Checks 1–3 all pass. That
+case, and only that case, is what the director is asked about. Everything else is refusable or
+verifiable.
+
+**What this does to §6.** The "learning layer" loses most of its interesting surface on the axis
+question, and that is a gain. It becomes: **match → verify mechanically → ask only about the residual
+ambiguity → remember the confirmed permutation.** Two further consequences:
+
+- **§6.1's confirmed-wrong-binding failure mode shrinks.** A remembered binding is re-run through
+  checks 1–3 on every import, so a confirmed-wrong binding that becomes *invalid* (the camp changed
+  its periods) is caught mechanically rather than silently re-applied. Only a confirmed-wrong binding
+  that stays a valid permutation needs §6.1's read-back sentence and revoke act. Those stay; their
+  load drops.
+- **§1 finding 3 is answered outright.** Two divisions of one camp with 18 selectable cells by
+  *different* geometries broke a reader keyed to a remembered geometry. A permutation over stable
+  day/period **ids** is geometry-independent, so the finding stops being a hazard and becomes a
+  property of the representation.
+
+**Confidence, worked through rather than asserted.** It rises, but not uniformly, and the split
+matters more than the direction:
+
+- Confidence in the **axis-binding sub-design**: was low-to-medium, now **medium-high**. The reason is
+  not optimism — it is that the problem changed class, from open-ended inference (unfalsifiable until
+  a director looks) to constrained matching with three mechanical checks (falsifiable before anyone
+  looks).
+- Confidence that this design **covers the measured defects**: **unchanged.** Five of the seven
+  in-scope silent misses — P02, P06, P13, P18, P35 — are **not axis-binding failures at all**, and
+  knowing the axes does nothing for any of them. Neither does it help the reader *locate* the grid in
+  the file (P12, P23: header-row position and first-sheet-only). Round 3's ranked fix list is
+  therefore not superseded by this correction; it sits beside it.
+
+I am stating that split deliberately, because the easy version of this report is "the premise changed
+and confidence went up", and that would let a real gap ride on a true sentence.
+
+### 11.3 Fixed and recurring events can never be electives — and the opt-out is the exception that proves it
+
+Owner, close to verbatim: fixed and recurring events — Lunch, Instructional Swim, Free Swim, Shabbat,
+Bunk Unity — are *"same time, every day, for either every group or some groups"* and can **never** be
+an elective. **So a cell holding one is not a camper choice, and not an unreadable cell: it is a known
+fixed event occupying that coordinate, and the app already knows which coordinates those are**
+(`template_slots.event_id`, §11.2).
+
+**Did this reclassify any probe?** I checked all 33 in-scope probes. **No.** Stated plainly rather
+than dressed up: the probes whose fixed-event cells were misread (P20, P40) are exactly the two that
+§11.1's scope ruling already removed, and the two in-scope grids carrying fixed-event cells (P19, P23)
+are refused at the **header**, before any cell is read. The two rulings overlap almost completely in
+their effect on the counts. What the ruling does change is what a *correct* read of P19 would be: **18
+selectable cells of 35, not 35** — the other 17 were never asking to be read, so a reader that
+reports them as unread residue would be crying wolf.
+
+**One in-scope probe it sharpens rather than reclassifies: P18.** §1 finding 4 records that the swim
+opt-out swaps a **fixed** row into a **selectable** one for that camper. So the opt-out column is not
+a stray field this ADR has no home for — it is **the per-camper override of the fixed-event set**, and
+therefore an input to check 3 (coverage). Dropping it silently is worse than §8.1 said: it does not
+just lose a permission fact, it makes the coverage count wrong for exactly the campers whose count
+differs from their division's.
+
+### 11.4 Modelling note: electives may be almost the whole day
+
+Owner: electives *"may also, however, be a camper's whole day with the exception of fixed and
+recurring events."* **Any design that assumes electives are a small minority of cells is wrong.** The
+concrete constraint: check 3's expected selectable count ranges from 1 to (all cells − fixed cells),
+and must be **derived from the camp's elective-cell set**, never from a heuristic such as "a grid is
+mostly fixed" or "electives are one or two periods". A same-number-different-geometry camp (§1
+findings 2–3) is the mild case of this; a whole-day-elective division is the severe one.
+

@@ -35,8 +35,20 @@ in `docs/work/evidence/T282-preference-corpus-baseline.json`. Shipped this round
 - `test/preferenceCorpusNames.test.js` — the §8.0 clause 4 synthetic-name control, which is the
   `archive_when` clause about a committed name list, now satisfied
 
+**ROUND 4 SCOPE CORRECTION.** The owner has ruled T278 is the **elective** importer only — electives
+are a nested schedule inside an already-defined day. The seven probes that entered through
+`runIngestCli` (the camp-schedule path) are out of scope and excluded from the totals: P20, P21, P24,
+P25, P27, P28, P40. Corrected in-scope counts over 33 probes: **9 WORK / 17 BREAK LOUDLY / 7 BREAK
+SILENTLY**. The silent-miss baseline to beat is therefore **7 of 33**, not 9 of 40. See ADR §11.
+
+**A consequence for this ticket's own design.** Because the days, periods, and *which coordinates are
+elective at all* already exist in the projection (`template_slots.elective_set_id` /`event_id`), the
+corpus can assert the three mechanical checks in ADR §11.2 — domain, elective-eligibility, coverage —
+rather than only a director's confirmation. That is what makes the silent-miss metric computable
+without a human in the loop.
+
 **Still open for this ticket:** the shape-parameterised coverage test that FAILS when a class is
 uncovered; scaling to a ~500-camper realistic camp with per-division geometries; and both acceptance
 numbers (correct-binding rate, silent-miss rate) reported from tests rather than from a harness. The
-silent-miss baseline to beat is **9 of 40**, and P38 is the drifted-re-import instance §8's metric 2
+silent-miss baseline to beat is **7 of 33** (see the round-4 correction above), and P38 is the drifted-re-import instance §8's metric 2
 says must be zero.
