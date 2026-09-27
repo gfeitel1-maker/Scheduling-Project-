@@ -241,6 +241,10 @@ replaceable adapter.** Concretely, four stages with three named contracts betwee
 
 ### 3.1 The canonical record
 
+**ROUND 5 — THIS RECORD CHANGED SHAPE. READ §12.1 AND §12.2a.** It carried a `division` with nowhere
+to go, and its preference count was the number parsed rather than the number written. Both are
+corrected in §12; `campers` gains `division_label` at schema **v79**.
+
 **Decision: the canonical unit is the `PreferenceBinding` designed in
 `docs/adr/2026-09-26-general-ingest-for-campers-and-per-cell-preferences.md` §4.1, with the
 nullability of its two cell legs NEWLY ADDED here.** It is:
@@ -275,6 +279,10 @@ Two properties make it the right canonical record and both are load-bearing:
   to an occurrence would be a statement about a schedule rather than about a child.
 
 ### 3.1a The RESOLVE stage, and the error round 1 of this ADR made
+
+**ROUND 5 — THIS SECTION UNDER-SPECIFIED THE STAGE THAT MATTERS. READ §12.0.** RESOLVE is not only
+coordinate→occurrence binding: it is **five** resolvers under one rule, and it is what closes every
+one of the seven measured silent misses.
 
 **Round 1 said `commitElectiveRun` "stays exactly as it is … this ADR changes none of it". The
 clause about the code is true; the premise underneath it — that the refusal gate is neutral about the
@@ -1223,4 +1231,317 @@ concrete constraint: check 3's expected selectable count ranges from 1 to (all c
 and must be **derived from the camp's elective-cell set**, never from a heuristic such as "a grid is
 mostly fixed" or "electives are one or two periods". A same-number-different-geometry camp (§1
 findings 2–3) is the mild case of this; a whole-day-elective division is the severe one.
+
+## 12. ROUND 5 — the measured defects folded into the design, and the canonical record changed shape
+
+Owner: *"why would we not be fixing this design now so that the 5 separate problems which arose are
+folded in?"* He is right, and the framing that produced the gap was mine to own: §8.1 reported seven
+in-scope silent misses and then left five of them outside the design, as if a design could be complete
+while the evidence against it sat in a follow-up queue. A design written **before** the measurement
+that is not revised **after** it is not a design, it is a hypothesis with a table attached.
+
+**Second owner correction, applied throughout this section:** *"there is no one using this. stop
+assuming that."* Pre-production — no live users, no real camp data, no paired device holding rows that
+must keep matching. Every choice below is the shape I would pick building this today with nothing to
+preserve. Where rounds 1–4 bent around data that does not exist, §12.7 names it.
+
+### 12.0 The headline finding: RESOLVE is not one stage of four. It is the stage that closes all seven.
+
+Working the seven silent misses individually produced one answer seven times. **Every one of them is
+the elective importer accepting a value it could not resolve against something the app already
+knows:**
+
+| Silent miss | The unresolved thing |
+|---|---|
+| P38, P18 (comments) | an unrecognised **column** |
+| P09, P13 | a choice **label** matching no activity in the camp's catalog |
+| P35, division | a group/division **label** matching no camp group |
+| P06 | an identity **fork** — one name, two derived ids |
+| P02 | a **rank collision** — two ranks on one (camper, occurrence, choice) |
+
+And §11.2's axis binding is the same shape a sixth time: a coordinate resolved against the camp's
+existing elective cells. **So §3.1a under-specified the thing that matters.** It describes RESOLVE as
+binding a (day, period) coordinate to an `occurrence_id`. The correct statement is broader and is now
+normative:
+
+> **RESOLVE is the stage where every value read out of a file is either matched to an entity the camp
+> already has, or becomes residue. The elective importer never writes a value it could not resolve
+> without saying so.** Five resolvers, one rule: columns → roles, labels → activities, division
+> labels → groups, rows → camper identities, coordinates → elective cells.
+
+That single sentence is what closes the seven. It is also why this is a *unified* design and not five
+patches: one stage, one rule, five resolvers, and a Maker can check coverage by asking of any value
+"which resolver owns this, and what happens when it misses?"
+
+### 12.1 The canonical record CHANGED SHAPE — stated prominently, as instructed
+
+**It did, in two places, and a schema version is now required (§12.6).**
+
+1. **The camper gains `division_label` and a resolved `group_id`.** Round 1's record carried
+   `division` as a parsed-and-displayed string with no storage. That was not a record, it was a
+   preview field.
+2. **The preference set gains a resolution step before it is counted.** Round 1's record was "what the
+   file said". It is now "what the file said, after collision resolution" — because a record whose
+   count disagrees with what gets written is not canonical (P02 reported 200, wrote 160).
+
+Nothing else moves: no new table, no change to `elective_preferences`, no change to
+`deriveElectivePreferenceId`'s key (§12.2b argues that on the merits).
+
+### 12.2a CORRECTION TO MY OWN DESIGN — division had nowhere to live
+
+**§3.1 specified a canonical record carrying a division and specified nowhere for it to go. That is a
+design defect, not an incidental bug.** Verified: `campers` has `id, camp_id, display_name, group_id,
+external_id, is_active` (`electron/db/schema.sql:1367-1374`) and no division.
+`src/ingest/preferenceSheet.js:102` parses it, the CLI reports it, and
+`electron/ops/commitElectiveRun.js:287-293` writes four fields and drops it. Fifteen of the 33
+in-scope probes lose it.
+
+**It is worse than a lost field, and this is the part that makes it a correction rather than a
+ticket.** The owner has ruled that a stable camper identity is possible *precisely because* a
+group/unit is attached. A design that discards the unit silently removes the evidence the identity
+ruling rests on — so the same ADR both depends on the unit and throws it away.
+
+**Decision.** Both halves, because they answer different questions:
+
+- **`campers.group_id`** — resolved against the camp's **existing** `groups` by
+  `recognitionKey('groups', label)`. This is the referential fact exports and the solver need. **A
+  group is NEVER created from an elective file.** That is T224's lesson stated as a rule: a
+  preference sheet's column headers once became camp groups. An unmatched label is residue, never a
+  new row.
+- **`campers.division_label TEXT`** (nullable, new) — the label **as written on the source file**.
+  PROVENANCE, never an entity reference. It exists so that an unresolved label is *kept and shown*
+  rather than lost, and so the director can see what we failed to match against what.
+
+The pair is deliberate: `group_id` answers *which camp group is this child in*, `division_label`
+answers *what did their file say*. Collapsing them into one field is how the unresolved case becomes
+invisible again.
+
+**Reconciled with §4.4, both plainly, because a Maker will otherwise conflate them:**
+
+- **Division IS STORED** — on `campers`, as `division_label` plus a resolved `group_id`.
+- **Division is NOT part of the identity key** — `deriveCamperId` keys on `(externalId ?? displayName)`
+  and nothing else. Unchanged.
+- **The way these fit together** is that the unit is *disambiguation evidence shown to a human*, not a
+  key component. A child's division is renamed, respelled and outgrown between seasons, so keying on
+  it makes the id unstable — §4.4's ruling stands for that reason. But when two rows name one child,
+  the unit is exactly what lets the director say "those are two different kids." **So §4.4's ruling
+  and the owner's identity ruling agree once the unit is stored and surfaced; they only appeared to
+  conflict while it was being dropped.** Consequence: P07's refusal sentence must name each row's
+  division alongside its row number. It does not today.
+
+**D8 is satisfied deliberately, not bypassed.** `schema.sql:1361-1366` states `campers` is the whole
+participant footprint and *"a future column here is an ADR-level change, not a field addition."* This
+is that ADR-level change, and it is made on the record: `division_label` is not contact, medical,
+date-of-birth, household or parent data, and adds no new category of personal information — it is the
+camp's own grouping label, which `group_id` already implies.
+
+### 12.2b CORRECTION TO MY OWN DESIGN — the preference identity loses data by construction
+
+**Verified, and the finding is sharper than "rank is missing from the key."**
+`deriveElectivePreferenceId(runId, camperId, occurrenceId, choiceId)`
+(`electron/ops/electiveDerivedIds.js:348-356`) omits `rank`, and the function's own comment at
+:344-351 **states the overwrite as an intended invariant**: *"a second whole-run ranking of the same
+choice by the same camper overwrites the first rather than creating a second row."* So this is not an
+oversight in the key. It is a documented invariant whose **consequence was never designed** — the
+overwrite happens, nobody is told, and the number we print is the number we parsed rather than the
+number we wrote. P02 printed 200 and stored 160.
+
+**Decision: `rank` does NOT join the key. The collision becomes a resolved, reported event.** The
+owner's correction removes every back-compat reason to leave the key alone, so I re-derived this from
+scratch on solver semantics, and it lands in the same place for a different and better reason:
+
+- If `rank` joined the key, a camper who names Swim at #1 and again at #14 yields **two rows with two
+  priorities for the same (camper, occurrence, choice)**, and the solver must pick one. That is an
+  arbitrary invisible decision about a real child's week — the exact failure class this ADR exists to
+  eliminate. Putting rank in the key does not fix the loss; it converts a silent overwrite into a
+  silent tiebreak.
+- I could not construct a shape where two ranks for one choice within one occurrence is meaningful.
+  Across occurrences it already works, because `occurrence_id` is in the key. Linked multi-period
+  choices are ONE choice by `is_linked` (`schema.sql:1419-1428`), so they are not this case either.
+
+**The rule, stated so it is not re-litigated:** the two collisions are asymmetric and get opposite
+treatment.
+
+| Collision | Resolvable by a rule? | Treatment |
+|---|---|---|
+| **same rank, two different choices** | No — nothing distinguishes them | **REFUSE** (today's `hasContradictoryRanks`, unchanged) |
+| **same choice, two different ranks** | Yes — the better rank is unambiguously the camper's stronger statement | **ACCEPT: best (lowest) rank wins, and the dropped rank is RESIDUE** |
+
+Refusal is not extended to the second case on purpose: refusing a 500-camper sheet because one child
+listed an activity twice is the refuse-everything failure §3.1a already had to correct once.
+
+**And the count is now defined as post-resolution.** The canonical record's `preferences` count, the
+CLI's `counts.preferences`, and the number of rows written are **the same number by construction**.
+P02's 200-vs-160 disagreement cannot recur, because there is only one number.
+
+### 12.3 The remaining three, and the drift
+
+**P06 — the identity fork.** One child on two rows, one row carrying an external id and one not:
+two derived ids, two camper records, nothing reported. `sameNameCampers` **explicitly excludes this**
+(`src/ingest/preferenceSheet.js:141-147` keeps only `ids.size === 1`), so the case §4.4 added as
+residue has no reporter. **Design element:** the identity resolver reports **two** classes, not one.
+(i) *Collapsed* — one name, one derived id, several rows → REFUSE, as today. (ii) *Forked* — one name,
+several derived ids, at least one row lacking an external id → **RESIDUE**, listing each row's
+`division_label` as the disambiguation evidence §12.2a just made available. Not a refusal: two
+children who really do share a name and are distinguished by id are the *correct* reading of that
+shape, and refusing it would punish the camps that export ids.
+
+**P09 — the packed rank cell.** `"Archery, Ceramics, Woodworking"` committed as one choice label
+naming no real activity. §4.1 ruled on an unordered *set in its own column* and said nothing about a
+multi-value cell inside a *ranked* column. **Design element: the label resolver, against the camp's
+activity catalog.** Whole cell matches a known activity → one choice. Whole cell matches nothing, but
+splitting on a delimiter yields ≥2 tokens that each match a known activity → **residue, ask** (it is
+genuinely ambiguous: a camp may have packed three alternatives into one rank, and an activity name may
+legitimately contain a comma). Neither → **residue**. **Never mint a choice whose label matches no
+activity in the catalog without saying so.**
+*Degenerate case, stated because it is the common one on a first import:* a camp with an empty
+activity catalog cannot match anything, so the resolver degrades to emitting **every distinct label as
+unverified residue** for the director to read — loud and useless-looking, which is correct, rather than
+quiet and wrong.
+
+**P13 — phantom campers from footer rows.** `Total Campers`, `Please Return`,
+`Camp Office Use Only` became campers holding preferences `8` and `by June 1`. **Closed by the same
+label resolver:** a row whose rank cells resolve to **no** known activity is not a camper row; it
+becomes a `skippedRows` entry naming the row number and what was on it. No new element — this is why
+§12.0 calls RESOLVE the answer rather than five answers.
+
+**P35 — `Group` column holding an activity track.** `DIVISION_HEADER` matches `/group/`, so
+`Sports Track` was read as a division. **Closed by the group resolver (§12.2a):** `Sports Track`
+matches no camp group, so it is stored verbatim in `division_label`, `group_id` stays null, and the
+unmatched label is residue. The mis-binding is still made; it is no longer invisible.
+
+**P38 — the drifted re-import.** Renaming `#3` → `Third Choice` silently dropped rank 3 for all 13
+campers, `ok=true`, no residue. **Closed by the column resolver plus §11.2's checks:** (a) a column the
+reader cannot assign a role to is reported — round 3's highest-leverage fix, and the reason it stays
+first; (b) a **remembered** binding is re-run through the domain and coverage checks on every import,
+so a binding that no longer matches the file is a binding-invalidation event that **re-asks** rather
+than silently narrowing. A rank column present at confirmation time and absent now is exactly that.
+
+### 12.4 TRACEABILITY — every in-scope silent miss, the design element, the test
+
+Tests enter at **file bytes** and assert at the **database**. A test that constructs a `parsed` object
+is not acceptable evidence for any row (T62, T197 round 1, the v78 fallback row).
+
+| # | Silent miss | Design element that closes it | Test (file bytes → db) | Slice |
+|---|---|---|---|---|
+| 1 | **P02** two ranks, one choice: printed 200, wrote 160 | §12.2b — key unchanged; best-rank-wins; dropped rank is residue; **count defined as post-resolution** | import P02; assert `counts.preferences` **equals** `SELECT COUNT(*) FROM elective_preferences`, that the surviving row carries the **better** rank, and that a residue item names the dropped one | **T279** |
+| 2 | **P06** identity fork: 2 records, 1 child, silent | §12.3 — identity resolver reports *forked* as well as *collapsed*; `division_label` is the evidence | import P06; assert 2 camper rows **and** a residue item naming both rows with their division labels; assert the run is **not** refused | **T279** |
+| 3 | **P09** packed cell → one nonexistent choice | §12.3 — label resolver against the activity catalog; never mint an unmatched label silently | seed the catalog, import P09; assert **no** `elective_choices` row whose label matches no activity, and a residue item per ambiguous cell. Second case: empty catalog → every label listed as unverified | **T279** |
+| 4 | **P13** 3 phantom campers from footer rows | §12.3 — same label resolver: a row resolving to no activity is not a camper row | import P13; assert exactly **8** camper rows and 3 `skippedRows` naming row numbers and contents | **T279** |
+| 5 | **P18** opt-out + comments dropped silently | §12.0 column resolver (makes both **loud**) + §11.3 (the opt-out is the per-camper override of the fixed-event set, an input to the coverage check) | import P18; assert a residue item per unrecognised column, naming it. **Storage of the opt-out is a RESIDUAL — see §12.5** | **T279** (loud) / residual (stored) |
+| 6 | **P35** `Group` column read as a division | §12.2a — group resolver; unmatched label → `division_label` verbatim, `group_id` null, residue | import P35; assert `group_id IS NULL`, `division_label = 'Sports Track'`, and a residue item naming the unmatched label | **T279** |
+| 7 | **P38** drift silently dropped rank 3 for 13 campers | §12.3 — column resolver **+** remembered-binding re-verification (§11.2 checks 1 and 3) | import P37, confirm the binding, import P38; assert the run is **not** committed on the stale binding — the director is re-asked, or a residue item names the column that vanished | **T281** (memory) / **T279** (the loud half) |
+| — | **cross-cutting:** division parsed, previewed, dropped (15/33) | §12.2a — `campers.division_label` + resolved `group_id`, schema **v79** (§12.6) | import P01; assert `division_label` non-null for every camper and `group_id` resolved where a matching group exists | **T279** |
+
+**Two axis-binding rows carried over from §8, restated here so the table is the single place to check
+coverage:** a correctly-read grid writes N rows with distinct non-null `occurrence_id`s and is **not**
+refused (**T279**); a confirmed-wrong binding is caught on read-back and is revocable (**T281**).
+
+### 12.5 EXPLICIT RESIDUALS — silent misses NOT fully closed, and why
+
+Listed rather than omitted, per the deliverable.
+
+1. **P18's opt-out has no storage.** The design makes it **loud** (an unrecognised column is reported)
+   and gives it a **role** (§11.3: the per-camper override of the fixed-event set, feeding the coverage
+   check). It does **not** say where the fact is stored, because that is **§9 Q5, an open owner
+   question**, and inventing a home for a parent-permission-bearing eligibility fact is exactly the
+   wrong-model risk §4.3 refused. **So: closed as a silent miss, open as a modelled fact.** The
+   distinction is real and I am not blurring it — a director will see that the column exists and was
+   not read, which is a strictly better failure than today, and is not the same as supporting it.
+2. **P09's ambiguous-cell resolution needs a director.** The resolver detects the ambiguity; it cannot
+   settle it. A camp that packs alternatives into one rank cell must answer once. Not a defect —
+   §4.1's ruling that a set must not be coerced into a rank means somebody has to say which it is.
+3. **The three misleading schedule-path refusals (P21, P24, P27) are out of scope, and their SHAPES
+   are not closed by anything here.** A merged two-row day header and a transposed grid are live
+   shapes for an elective file. They are re-pointed at the elective adapter (§11.1), and until that
+   adapter exists no design element in this ADR reads them. Stated so nobody reads §12.4 as covering
+   grid *geometry* when it covers grid *resolution*.
+
+### 12.6 Schema version: v79 is REQUIRED, taken, and announced
+
+`campers.division_label TEXT` is a new nullable column, so this design needs a schema version. Per
+the owner's correction, this is a design statement, not a request for permission to increment an
+integer on an unused database.
+
+**Taken: v79.** Coordination, by the method `feedback_authoritative_state_in_unpushed_worktrees`
+requires — remote-only checks report false clean:
+
+- `origin/main` and this worktree: `CURRENT_SCHEMA_VERSION = 78` (`electron/db/localDb.js:38`).
+- **All 30+ local worktrees scanned**: the maximum is 78; none holds 79.
+- No ticket or ADR reserves 79. `docs/adr/2026-09-26-schema-version-gate-before-merge.md:494`
+  mentions v79 only to say that ADR does **not** need one. A peer session independently reported 79
+  as next free, which agrees.
+
+**What it costs: nothing to migrate.** A nullable `ALTER TABLE campers ADD COLUMN division_label TEXT`
+on a pre-production database with no rows anywhere that must keep matching. Obligations that come with
+the number, stated so a Maker inherits them: the migration is **ALTER ADD COLUMN, appended last**
+(`campers` is the same column-order trap `special_days`/`elective_sets.is_reusable` hit —
+`schema.sql:1036-1041`); `rollbackV79(db)` is written alongside it, per
+`docs/adr/2026-09-26-schema-version-gate-before-merge.md`; the migration guard is
+`>= 78 && < 79`, not a bare `< 79`; and the version constant must be **re-checked immediately before
+merge**, because the check-to-merge window stays open while other sessions run.
+
+**No other schema change.** `elective_preferences` is untouched; `deriveElectivePreferenceId` keeps its
+shape; no index is relaxed, so `detectUniqueFieldCollision` gains nothing to register.
+
+### 12.7 Where rounds 1–4 were bent around data that does not exist
+
+Asked for, and there is a real pattern rather than a single slip.
+
+**The pattern: rounds 1–4 reached for "report it as residue" wherever "store it" would have needed a
+schema change.** Division is the clearest instance — the round-1 record carried it as a parsed field
+with no home, and rather than saying "this needs a column" the design let it be a display value. That
+is defensive shaping against a phantom: there is no data to protect and no migration to fear, so the
+correct move was always to add the column. **Residue-instead-of-storage is the tell**, and it is worth
+watching for elsewhere in this ADR.
+
+Two specific instances, now reversed: §3.1's division field (§12.2a) and §8's implicit assumption that
+this design needs no schema version, which was never argued — it was simply never questioned.
+
+**Two things I checked and am NOT reversing**, because their reasoning is not back-compat:
+
+- **§4.4's ruling that division must not join the derived id.** That is about identity *stability
+  across seasons* — a division is renamed and outgrown — not about preserving existing ids. It stands
+  on its own merits and §12.2a shows it was never in conflict with the owner's identity ruling.
+- **§12.2b's decision to leave `deriveElectivePreferenceId` alone.** With the staleness caution
+  removed I re-derived it from solver semantics and reached the same conclusion for a stronger reason.
+  Had the only argument been "re-keying is expensive", it would have gone.
+
+### 12.8 Confidence, and which round-2 rulings this falsifies
+
+**Confidence in coverage of the measured defects rises from *unchanged* (round 4) to *high*.** The
+reason is structural rather than optimistic: after §12.0, coverage is checkable without re-deriving
+anything — every value has a named resolver and a named miss behaviour, so a gap shows up as a value
+with no resolver. That is what §12.4 is for. **The axis-binding sub-design stays medium-high** (§11.2);
+nothing this round touched it.
+
+**What this round falsifies in my own earlier rulings:**
+
+1. **Round 2's split of the program into stages 1–4 with the defects as later work is falsified.** The
+   defects are not sequencing; they are coverage. §12.9 re-cuts the slices around them.
+2. **Round 3's §8.1 framing of P02 as "one probe, low leverage" is falsified.** It is one probe and a
+   *design defect in the canonical record's own accounting* — the printed count and the written count
+   were different numbers. Probe counts were the wrong severity metric for it.
+3. **Round 1's §3.1 is falsified as a canonical record.** A record with a field that has nowhere to go
+   is a preview shape. §12.1 corrects it.
+4. **§4.3's refusal to give the opt-out a home is NOT falsified**, and I want that on the record next
+   to §12.5 residual 1, because the tempting move now is to invent one to make the table look complete.
+
+### 12.9 Re-cut slices — one design, four observable predicates
+
+Unified design, sliced implementation. Each slice keeps its own success predicate; §12.4's last column
+says which slice closes which silent miss.
+
+- **T279 — the ETL spine and ALL FIVE RESOLVERS, including schema v79.** Grows to carry six of the
+  seven silent misses (P02, P06, P09, P13, P18-loud, P35) plus the cross-cutting division loss and
+  P38's loud half. This is deliberately the big slice: the resolvers are one rule with five
+  applications, and splitting them would ship a stage where some values are resolved and others are
+  silently accepted — the current state, half-fixed, which is harder to reason about than either end.
+- **T280 — the decision journal.** Unchanged in substance; it now records resolver misses and their
+  outcomes, not only axis-binding questions, so §8's metrics are computable from it.
+- **T281 — remembered binding.** Unchanged, plus the **re-verification on every import** that closes
+  P38's remembered half (§11.2 checks 1 and 3 applied to a recalled binding, not only a fresh one).
+- **T282 — corpus and metrics.** Unchanged in scope; the silent-miss baseline to beat is **7 of 33**,
+  and the corpus already exists and is committed, so each slice above can be measured against the same
+  33 probes rather than against new fixtures written to it.
 
