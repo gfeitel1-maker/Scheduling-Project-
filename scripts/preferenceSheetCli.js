@@ -62,16 +62,24 @@ const errorResult = (base, message) => ({ ...base, ok: false, error: message, ex
 // that exports a workbook take the identical path — and both get the import
 // size/complexity limits readWorkbookSafely enforces.
 //
-// FIRST SHEET ONLY. A preference sheet is one table; there is no
-// workbookToPages equivalent here, and silently concatenating tabs would merge
-// two different submissions into one run.
-function readRows(buf) {
+// EVERY SHEET, read separately and never concatenated (T285 slice D).
+//
+// This used to be FIRST SHEET ONLY, and the reason recorded here was real:
+// "silently concatenating tabs would merge two different submissions into one
+// run." That hazard is ANSWERED rather than removed. The rule is per-sheet
+// CLASSIFICATION: each tab is mapped on its own, exactly ONE is chosen as the
+// preference sheet, and every other is reported by name. Nothing is ever
+// concatenated, so two submissions still cannot merge — while a workbook whose
+// preferences are not on tab 1 stops being "not a camper preference sheet",
+// which is what ADR §14.1 rules is not a reason to refuse.
+function readSheets(buf) {
   const workbook = readWorkbookSafely(buf, { type: 'buffer', byteLength: buf.length })
-  const name = workbook.SheetNames[0]
-  if (!name) return []
-  return XLSX.utils
-    .sheet_to_json(workbook.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false })
-    .map(unescapeRow)
+  return workbook.SheetNames.map((name) => ({
+    name,
+    rows: XLSX.utils
+      .sheet_to_json(workbook.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false })
+      .map(unescapeRow),
+  }))
 }
 
 /**
@@ -100,13 +108,13 @@ export function runPreferenceSheetCli({
     return errorResult(base, `cannot read file: ${file} (${e.message})`)
   }
 
-  let rows
+  let sheets
   try {
-    rows = readRows(buf)
+    sheets = readSheets(buf)
   } catch (e) {
     return errorResult(base, `parse error: ${e.message}`)
   }
-  if (rows.length < 2) {
+  if (sheets.length === 0 || sheets.every((s) => s.rows.length < 2)) {
     return errorResult(base, 'that file has no rows under its header — nothing to import')
   }
 
@@ -162,14 +170,44 @@ export function runPreferenceSheetCli({
     // The header ROW is located here too (slice A): a title and a season line
     // above the table are ordinary, and assuming row 1 made such a sheet "not a
     // camper preference sheet".
-    const mapping = inferPreferenceLayout(rows, { catalog })
-    if (mapping.unmapped.length > 0) {
+    // EXACTLY ONE SHEET is chosen: the first that maps with nothing unmapped.
+    // A menu tab and a planner tab have no camper-name column, so they cannot be
+    // chosen — which is how constraint 1 (format-agnostic must not become
+    // kind-agnostic) is satisfied structurally rather than by a name check on the
+    // tab. If several tabs map cleanly, the first wins and the rest are reported;
+    // that is accept-and-report, not a merge.
+    const candidates = sheets.map((sheet) => ({
+      sheet,
+      mapping: inferPreferenceLayout(sheet.rows, { catalog }),
+    }))
+    const chosen = candidates.find((c) => c.sheet.rows.length >= 2 && c.mapping.unmapped.length === 0)
+
+    if (!chosen) {
+      // Nothing readable anywhere. Report against the FIRST sheet, which is what
+      // a single-sheet file has always reported and keeps that message identical.
+      const first = candidates[0]
       return errorResult(
         base,
-        `that file does not look like a camper preference sheet — could not find: ${mapping.unmapped.join(', ')}. ` +
+        `that file does not look like a camper preference sheet — could not find: ${first.mapping.unmapped.join(', ')}. ` +
           'Expected a camper-name column and columns headed #1, #2, … for the ranked choices.'
       )
     }
+
+    const { sheet, mapping } = chosen
+    const rows = sheet.rows
+    // Every tab we did NOT read, named. A workbook silently reduced to one tab is
+    // the same silence §12.0 forbids everywhere else.
+    const unreadSheets = sheets
+      .filter((s) => s.name !== sheet.name)
+      .map((s) => ({
+        kind: 'UNREAD_SHEET',
+        sheet: s.name,
+        rows: s.rows.length,
+        message:
+          `The tab \u201c${s.name}\u201d (${s.rows.length} row(s)) was not read \u2014 the camper ` +
+          `preferences were taken from \u201c${sheet.name}\u201d instead. Tabs are never combined, so ` +
+          'if that tab holds a second set of submissions it has NOT been imported.',
+      }))
 
     const parsed = parsePreferenceSheet(rows, { campId: camp.id, mapping, catalog })
     const report = {
@@ -187,7 +225,9 @@ export function runPreferenceSheetCli({
       },
       sameNameCampers: parsed.sameNameCampers,
       skippedRows: parsed.skippedRows,
-      residue: parsed.residue,
+      // The workbook-level residue is the CLI's own: the parser is pure and takes
+      // one table, so it cannot know a second tab existed.
+      residue: [...unreadSheets, ...parsed.residue],
       coverage: parsed.coverage,
     }
 

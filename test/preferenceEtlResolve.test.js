@@ -1179,3 +1179,72 @@ describe('T285 slice C — tidy/long and inverted layouts', () => {
     expect(result.error).toMatch(/could not find/)
   })
 })
+
+// ---------------------------------------------------------------------------
+// T285 SLICE D — the workbook reader. `readRows` was FIRST SHEET ONLY by a
+// deliberate decision, and the reason recorded there is real: "silently
+// concatenating tabs would merge two different submissions into one run."
+//
+// That hazard is ANSWERED rather than ignored. The fix is per-sheet
+// CLASSIFICATION, never concatenation: pick the one sheet that maps as a
+// preference sheet, and report every other by name.
+// ---------------------------------------------------------------------------
+describe('T285 slice D — the multi-sheet workbook', () => {
+  it('P26: reads the SELECTIONS sheet, not the first one, and names the sheets it skipped', () => {
+    seedActivities(CORPUS_ACTIVITIES)
+    seedGroups(['Upper Division', 'Middle Division', 'Lower Division'])
+
+    const result = commitProbe('P26-mixed-workbook-pref.xlsx')
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
+    // Exactly the Selections sheet: 10 campers x 3 ranks.
+    expect(result.counts.campers).toBe(10)
+    expect(result.counts.preferences).toBe(30)
+    expect(result.counts.preferences).toBe(
+      withDb((db) => db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c)
+    )
+
+    const names = withDb((db) =>
+      db.prepare('SELECT display_name FROM campers ORDER BY display_name').all().map((r) => r.display_name)
+    )
+    expect(names).toHaveLength(10)
+    expect(names).toContain('Adin Chertwood')
+    // Nothing from the menu or the planner became a camper.
+    expect(names).not.toContain('Period 1')
+    expect(names).not.toContain('Period')
+
+    // The two unread sheets are NAMED. A workbook silently reduced to one tab is
+    // the same silence §12.0 forbids everywhere else.
+    const unread = residueOf(result, 'UNREAD_SHEET')
+    expect(unread.map((r) => r.sheet).sort()).toEqual(['Offerings Menu', 'Planner'])
+    for (const u of unread) expect(u.message).toContain(u.sheet)
+  })
+
+  it('P26 constraint 1: the OFFERINGS MENU is not read as preferences', () => {
+    // The menu tab is a day x period grid of what is OFFERED. Committing its
+    // contents as camper choices is T224 verbatim — a selection workbook once
+    // committed its column headers as 33 camp groups and again as 33 tiers.
+    seedActivities(CORPUS_ACTIVITIES)
+    seedGroups(['Upper Division', 'Middle Division', 'Lower Division'])
+
+    const result = commitProbe('P26-mixed-workbook-pref.xlsx')
+    expect(result.ok).toBe(true)
+
+    // The menu packs two activities into a cell ("Photography, Rock Climbing").
+    // If it had been read, that string would exist as a choice label.
+    const labels = withDb((db) => db.prepare('SELECT label FROM elective_choices').all().map((r) => r.label))
+    for (const l of labels) expect(l).not.toMatch(/,/)
+    // And no group or tier was created from any sheet.
+    expect(withDb((db) => db.prepare('SELECT COUNT(*) c FROM groups').get().c)).toBe(3)
+    expect(withDb((db) => db.prepare('SELECT COUNT(*) c FROM tiers').get().c)).toBe(0)
+  })
+
+  it('a single-sheet file reports no unread sheets', () => {
+    // Non-vacuity: the residue must describe this workbook, not fire always.
+    seedActivities(CORPUS_ACTIVITIES)
+    const result = commitProbe('P01-kind3-canonical.csv')
+    expect(result.ok).toBe(true)
+    expect(residueOf(result, 'UNREAD_SHEET')).toHaveLength(0)
+  })
+})
