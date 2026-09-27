@@ -190,6 +190,49 @@ describe('the DIVISION resolver (ADR §12.2a, §13.5)', () => {
     expect(result.coverage.measurable).toBe(false)
   })
 
+  it('never CLEARS a group it merely failed to resolve (roster-owned field)', () => {
+    // REGRESSION, caught by the full gate rather than by this file. An earlier
+    // draft wrote `group_id: c.group_id ?? null` unconditionally, so a camper
+    // already in Bunk Alpha whose sheet division matched no group had their
+    // group silently cleared — an ordinary per-field LWW op clobbering real
+    // group membership campwide. A preference sheet may SET a group it resolved;
+    // it may never clear one it did not.
+    seedActivities(['Swim', 'Archery', 'Ceramics'])
+    seedGroups(['Bunk Alpha'])
+    const groupId = withDb((db) => db.prepare("SELECT id FROM groups WHERE name = 'Bunk Alpha'").get().id)
+
+    // Put the camper on the roster in a group FIRST, which is the real order of
+    // events: a camp builds its roster, then imports preference sheets.
+    commitBytes('roster-first.csv', 'Camper Name,#1\nDalia Tuff,Swim\n')
+    withDb((db) => db.prepare('UPDATE campers SET group_id = ?').run(groupId))
+
+    // Now import a sheet whose division matches nothing.
+    const result = commitBytes(
+      'unmatched-division-later.csv',
+      'Camper Name,Division,#1,#2\nDalia Tuff,A Division Nobody Has,Swim,Archery\n'
+    )
+    expect(result.ok).toBe(true)
+    expect(residueKinds(result)).toContain('UNMATCHED_DIVISION')
+
+    const camper = withDb((db) => db.prepare('SELECT group_id, division_label FROM campers').get())
+    // The group SURVIVES.
+    expect(camper.group_id).toBe(groupId)
+    // And the unresolved label is still recorded beside it.
+    expect(camper.division_label).toBe('A Division Nobody Has')
+  })
+
+  it('a sheet with NO division column does not erase a division already recorded', () => {
+    seedActivities(['Swim', 'Archery'])
+    commitBytes('with-division.csv', 'Camper Name,Division,#1\nDalia Tuff,Grades 7-8,Swim\n')
+    expect(withDb((db) => db.prepare('SELECT division_label FROM campers').get().division_label)).toBe('Grades 7-8')
+
+    // A later sheet that says nothing about divisions says nothing — it does
+    // not assert emptiness.
+    const result = commitBytes('no-division-column.csv', 'Camper Name,#1,#2\nDalia Tuff,Swim,Archery\n')
+    expect(result.ok).toBe(true)
+    expect(withDb((db) => db.prepare('SELECT division_label FROM campers').get().division_label)).toBe('Grades 7-8')
+  })
+
   it('NEVER creates a group or a tier from a file (T224 as a rule)', () => {
     seedActivities(['Swim', 'Archery', 'Ceramics'])
     const before = withDb((db) => ({

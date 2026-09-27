@@ -425,6 +425,12 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
         // invisible again.
         division_label: divisionLabel,
         group_id: division.groupId,
+        // Whether this SHEET carries a division column at all, which is a
+        // different question from whether this ROW filled it in. The commit
+        // needs the distinction: an empty cell in a division column is a fact
+        // to record, while a sheet with no such column must not erase a
+        // division an earlier import recorded.
+        division_observed: mapping?.divisionIndex != null,
       }
       byId.set(id, camper)
       campers.push(camper)

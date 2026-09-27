@@ -310,11 +310,28 @@ export function commitElectiveRun(db, {
           // stable-identity ruling rests on a unit being attached, so discarding
           // it removed the evidence that ruling depends on.
           //
-          // Both are explicitly `?? null` rather than left undefined: `write`
-          // SKIPS an undefined field, which would leave the column at whatever
-          // ensureExists' placeholder inserted instead of recording NULL.
-          group_id: c.group_id ?? null,
-          division_label: c.division_label ?? null,
+          // NEITHER IS WRITTEN UNCONDITIONALLY, and the reason is a regression
+          // this ticket caused and the gate caught. `write` SKIPS an undefined
+          // field, so `undefined` means "this import has nothing to say about
+          // that column" while `null` means "assert emptiness" — and asserting
+          // emptiness here is destructive:
+          //
+          //  group_id is ROSTER-OWNED. A camper already in Bunk Alpha, imported
+          //  from a preference sheet whose division matched no group, had their
+          //  group silently cleared by an unconditional `?? null` — an ordinary
+          //  per-field LWW op that clobbers real group membership campwide.
+          //  electiveRunOuterInheritance.integration.test.js caught it: the
+          //  camper lost their group, so the inherited group-template cell could
+          //  no longer be derived. A preference sheet may SET a group it
+          //  resolved; it may never clear one it simply failed to resolve.
+          //
+          //  division_label is this import's own PROVENANCE, so an empty cell in
+          //  a division column IS a fact worth recording — but only when the
+          //  sheet HAS such a column. A sheet with no division column at all
+          //  says nothing about the division, and must not erase what an earlier
+          //  import recorded.
+          group_id: c.group_id ?? undefined,
+          division_label: c.division_label ?? (c.division_observed ? null : undefined),
         })
       }
 
