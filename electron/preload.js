@@ -90,6 +90,11 @@ contextBridge.exposeInMainWorld('shoresh', {
   // T27 — read-only status, plus a push so it does not go stale. A value read
   // once at mount is wrong within minutes: a laptop closes, wifi drops.
   getSyncStatus: () => ipcRenderer.invoke('shoresh:get-sync-status'),
+  // T275 — the sidebar's host-not-syncing retry affordance. A bare
+  // re-invocation of the same guarded starter getSyncStatus's state already
+  // comes from; the real outcome surfaces via the next getSyncStatus poll /
+  // shoresh:sync-status-changed push, never via this call's return value.
+  retrySync: () => ipcRenderer.invoke('shoresh:retry-sync'),
   ingestCommit: (args) => ipcRenderer.invoke('shoresh:ingest-commit', args),
   ingestReconcile: (args) => ipcRenderer.invoke('shoresh:ingest-reconcile', args),
   ingestUndo: (args) => ipcRenderer.invoke('shoresh:ingest-undo', args),

@@ -260,7 +260,7 @@ export function sanitizeOpRejectedForIpc(msg) {
 function ensureDeviceRow(db, deviceId) {
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
 }
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted, onCampBootstrapped, onCampJoined } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted, onCampBootstrapped, onCampJoined, retrySync } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
@@ -288,6 +288,14 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // once would be the same peer identity live twice). Defaults to a no-op so
   // every existing caller is unaffected.
   const onCampJoinedFn = onCampJoined || (() => {})
+  // T275 — the retry affordance's handler. A thin re-invocation of the same
+  // starter onCampBootstrapped/onCampJoined already call: the starter's own
+  // idempotency guard, join funnel guard and TOCTOU latch (T274/T276) make a
+  // spammed or concurrent retry safe without any new logic here. Defaults to
+  // a no-op so every existing caller (every test, plus the reinitialize/
+  // restore-db call sites that don't wire sync) is unaffected. The real
+  // outcome surfaces via the next pushSyncStatus, never via this ack.
+  const retrySyncFn = retrySync || (() => {})
   // T228 — requireAuthorized is module-level (not a closure over this call's
   // getMainWindow), so the last makeHandlers call to run wins here. That
   // matches every other caller of getMainWindow in this file, which is
@@ -686,6 +694,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // 'standalone' is not the same as 'client, disconnected'. A device that never
   // joined anything is working correctly; a client that cannot see the Host is
   // not, and the director needs to be able to tell those apart.
+  //
+  // T275 — the retry affordance's handler (sidebarState.js's host-not-syncing
+  // "try again"). Deliberately a bare re-invocation, not awaited: the ack is
+  // a formality (the renderer never reads its fields), and the real outcome
+  // is the next pushSyncStatus the starter's own finally block already fires
+  // on settle. Nothing here decides success/failure — reflecting that from
+  // this return value would risk telling the director something the next
+  // real getSyncStatus push contradicts.
+  function retrySyncHandler() {
+    retrySyncFn()
+    return { ok: true }
+  }
   function getSyncStatus() {
     // The disk filling up, noticed while there is still room to act (T160).
     // Throttled inside the monitor — getSyncStatus is called on mount and on
@@ -2483,6 +2503,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     bulkReplace,
     getDeviceId,
     getSyncStatus,
+    retrySync: retrySyncHandler,
     ingestCommit,
     ingestReconcile,
     ingestUndo: ingestUndoHandler,
@@ -2647,6 +2668,7 @@ if (isElectronEntryPoint()) {
     'shoresh:list-by-scope',
     'shoresh:get-device-id',
     'shoresh:get-sync-status',
+    'shoresh:retry-sync',
     'shoresh:ingest-commit',
     'shoresh:ingest-reconcile',
     'shoresh:ingest-undo',
@@ -2729,6 +2751,7 @@ if (isElectronEntryPoint()) {
     })
     ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
     ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
+    ipcMain.handle('shoresh:retry-sync', () => handlers.retrySync())
     ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
     ipcMain.handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
     ipcMain.handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
@@ -3115,6 +3138,10 @@ if (isElectronEntryPoint()) {
     // this device's peer identity; startAutomergeSyncNodeIfEnabled's own
     // idempotency guard makes any further redundant invocation harmless too.
     onCampJoined: () => startAutomergeSyncNodeIfEnabled(),
+    // T275 — the sidebar's retry affordance for host-not-syncing. Same
+    // starter, same guards; a director tapping "try again" is no different
+    // from any other caller of startAutomergeSyncNodeIfEnabled.
+    retrySync: () => startAutomergeSyncNodeIfEnabled(),
   })
   registerHandlers(initialHandlers, db)
 

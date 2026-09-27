@@ -1675,6 +1675,12 @@ export const mockShoresh = {
   async getSyncStatus() {
     return { mode: null, connected: false, state: 'standalone' }
   },
+  // T275 — mock stand-in for the retry affordance. The mock's getSyncStatus
+  // above is a fixed 'standalone' with no starter to re-invoke, so this is a
+  // no-op ack, matching the real handler's shape when no starter is wired.
+  async retrySync() {
+    return { ok: true }
+  },
   onSyncStatusChanged() {
     return () => {}
   },
