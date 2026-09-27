@@ -79,8 +79,10 @@ const tableInfo = (db, table) =>
 describe('migration v78: elective_preferences gains occurrence_id', () => {
   it('declares schema version 78 on a fresh db', () => {
     const db = freshDb()
-    expect(CURRENT_SCHEMA_VERSION).toBe(78)
-    expect(getSchemaVersion(db)).toBe(78)
+    expect(CURRENT_SCHEMA_VERSION).toBe(79)
+    // >= 78, not === 78: v78 is no longer the newest migration (v79 landed in T279),
+    // so what this test owns is 'v78 has been applied', not 'v78 is the top version'.
+    expect(getSchemaVersion(db)).toBeGreaterThanOrEqual(78)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 78').get().c).toBe(1)
     db.close()
   })
@@ -101,7 +103,9 @@ describe('migration v78: elective_preferences gains occurrence_id', () => {
     expect(getSchemaVersion(db)).toBe(74)
     expect(db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c).toBe(1)
     initSchema(db)
-    expect(getSchemaVersion(db)).toBe(78)
+    // >= 78, not === 78: v78 is no longer the newest migration (v79 landed in T279),
+    // so what this test owns is 'v78 has been applied', not 'v78 is the top version'.
+    expect(getSchemaVersion(db)).toBeGreaterThanOrEqual(78)
     // The row existing before v78 had no occurrence concept at all — under
     // the round-5 ruling that IS a legitimate whole-run preference, so it
     // survives the migration rather than being discarded, and its new

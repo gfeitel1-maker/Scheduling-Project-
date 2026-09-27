@@ -35,7 +35,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // anchor_activities renamed to fixed_events, gains activity_id), and v78 (T265,
 // docs/adr/2026-09-26-per-cell-elective-preferences.md — elective_preferences gains
 // occurrence_id) all land in this file; 78 is the current version.
-export const CURRENT_SCHEMA_VERSION = 78
+export const CURRENT_SCHEMA_VERSION = 79
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3707,6 +3707,67 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (78, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v79 (T279, docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-
+  // learned-axis-binding.md §12.6 + §13.3) — TWO nullable columns the elective
+  // preference ETL needs in order to STORE what it reads instead of reporting
+  // it and dropping it:
+  //
+  //   campers.division_label          — the division exactly as written on the
+  //     source file. PROVENANCE, never an entity reference: `group_id` answers
+  //     "which camp group is this child in", division_label answers "what did
+  //     their file say". Collapsing the two is how an UNRESOLVED label becomes
+  //     invisible again, which is the defect §12.2a corrects. A group is NEVER
+  //     created from an elective file (T224's lesson as a rule), so an
+  //     unmatched label lands here and in residue, and nowhere else.
+  //   elective_preferences.rank_kind  — one of 'cell-choice', 'ordered-fallback'
+  //     or 'unordered-set'. `rank` stays an integer; rank_kind says what
+  //     COMPARING two of them means, which one integer column cannot carry
+  //     across the three observed sheet kinds (§4.2).
+  //
+  // Guard is the house `>= N-1 && < N` form (`>= 78 && < 79`), not a bare
+  // `< 79`: the bare form is a known bug in this repo — it re-fires on every
+  // database below 79 regardless of which migrations actually ran.
+  //
+  // BOTH ALTERs APPEND THE COLUMN LAST, and that is load-bearing rather than
+  // incidental. SQLite always appends an ADD COLUMN, so schema.sql's fresh
+  // CREATE TABLE must declare these columns last too, or a fresh install and a
+  // migrated-forward db produce DIFFERENT column arrays — the
+  // special_days/elective_sets.is_reusable trap (schema.sql:1036-1041).
+  // preferenceEtlV79.migration.test.js cross-checks the two arrays.
+  //
+  // Nothing to migrate: pre-production, no rows anywhere that must keep
+  // matching, and NULL is already the correct value for a row that predates
+  // either concept — so there is no default to invent and no backfill.
+  //
+  // THE PROJECTION ALLOWLISTS ARE PART OF THIS CHANGE, NOT A FOLLOW-UP.
+  // `applyProjection` does `if (!projection.fields.includes(op.field)) return`
+  // (electron/ops/projections.js) — silently, no error, no log. Shipping these
+  // ALTERs and a writer WITHOUT adding `division_label` to
+  // PROJECTIONS.campers.fields and `rank_kind` to
+  // PROJECTIONS.elective_preferences.fields populates nothing, anywhere, with a
+  // green gate. Both entries landed with this block; the migration test asserts
+  // them so they cannot drift back out.
+  if (getSchemaVersion(db) >= 78 && getSchemaVersion(db) < 79) {
+    db.transaction(() => {
+      if (tableExists('campers')) {
+        const cols = db.pragma('table_info(campers)').map((c) => c.name)
+        if (!cols.includes('division_label')) {
+          db.exec('ALTER TABLE campers ADD COLUMN division_label TEXT')
+        }
+      }
+      if (tableExists('elective_preferences')) {
+        const cols = db.pragma('table_info(elective_preferences)').map((c) => c.name)
+        if (!cols.includes('rank_kind')) {
+          db.exec('ALTER TABLE elective_preferences ADD COLUMN rank_kind TEXT')
+        }
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (79, ?)').run(
       new Date().toISOString()
     )
   }

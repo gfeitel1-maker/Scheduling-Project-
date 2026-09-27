@@ -1364,13 +1364,30 @@ CREATE TABLE IF NOT EXISTS event_slots (
 -- constraint, so a future column here is an ADR-level change, not a field
 -- addition. external_id is an opaque string from the camp's OWN roster system
 -- — it matches the *_id glob only by spelling and references no Shoresh entity.
+-- COLUMN ORDER: division_label is declared LAST (added v79), matching where
+-- `ALTER TABLE campers ADD COLUMN division_label` places it on a migrated
+-- pre-v79 db — SQLite always appends an ADD COLUMN. Same convention as
+-- elective_preferences.occurrence_id below. A fresh install and a
+-- migrated-forward db must produce the IDENTICAL column array, order included,
+-- or preferenceEtlV79.migration.test.js's cross-check fails.
+--
+-- division_label (v79, ADR 2026-09-27 section 12.2a) is PROVENANCE: the
+-- division exactly as written on an imported source file, never an entity
+-- reference. `group_id` answers "which camp group is this child in";
+-- division_label answers "what did their file say". Both exist because
+-- collapsing them is how an UNRESOLVED label becomes invisible — and a group is
+-- NEVER created from an imported file (T224), so an unmatched label lands here
+-- and in the import's residue, nowhere else. D8 above is satisfied
+-- deliberately, on the record: this is the camp's own grouping label, which
+-- group_id already implies, and adds no new category of personal information.
 CREATE TABLE IF NOT EXISTS campers (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   display_name TEXT NOT NULL,
   group_id TEXT,
   external_id TEXT,
-  is_active INTEGER NOT NULL DEFAULT 1
+  is_active INTEGER NOT NULL DEFAULT 1,
+  division_label TEXT
 );
 
 -- elective_assignment_runs (v66). One director-initiated assignment attempt.
@@ -1470,13 +1487,22 @@ CREATE TABLE IF NOT EXISTS elective_choice_offerings (
 -- declared last there too): fresh-install and migrated-forward schemas must
 -- produce the IDENTICAL column array, order included, or
 -- electivePreferencesOccurrence.migration.test.js's cross-check fails.
+-- rank_kind (v79, ADR 2026-09-27 section 4.2) is declared LAST for the same
+-- ALTER-appends reason as occurrence_id: one of 'cell-choice',
+-- 'ordered-fallback' or 'unordered-set'. `rank` stays an integer; rank_kind
+-- says what COMPARING two of them means, which one integer column cannot carry
+-- across the three observed sheet kinds — a grid cell is CHOSEN (rank 1 by
+-- construction), a "next 5 choices" list is a ranked FALLBACK subordinate to
+-- the cells, and a packed multi-value cell is an unordered SET with no ranking
+-- at all.
 CREATE TABLE IF NOT EXISTS elective_preferences (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
   camper_id TEXT,
   choice_id TEXT,
   rank INTEGER,
-  occurrence_id TEXT
+  occurrence_id TEXT,
+  rank_kind TEXT
 );
 
 -- idx_elective_preferences_run_camper_occurrence is NOT declared here,
