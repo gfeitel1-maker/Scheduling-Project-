@@ -71,11 +71,17 @@ const CELL_CHOICE = 'cell-choice'
 const ORDERED_FALLBACK = 'ordered-fallback'
 const UNORDERED_SET = 'unordered-set'
 
+// A packed multi-value cell's delimiters. One definition, used by both the
+// label resolver's split-detection and the unordered-set column.
+const PACKED_CELL_SPLIT = /\s*[,;/]\s*/
+
 const cell = (row, index) => (index == null ? '' : String(row?.[index] ?? '').trim())
 
 // Spreadsheet column letters, because that is what a director sees in the
-// header row — not the zero-based index the mapping carries.
-function columnLabel(index) {
+// header row — not the zero-based index the mapping carries. Exported because
+// the CLI reports the same letters and already imports from this module; two
+// copies of a base-26 conversion is one too many.
+export function columnLabel(index) {
   let n = index
   let out = ''
   do {
@@ -180,7 +186,7 @@ function makeLabelResolver(activities = []) {
   }
   const empty = known.size === 0
 
-  return (raw) => {
+  const resolve = (raw) => {
     if (empty) return { status: 'abstained' }
     if (known.has(recognitionKey('activities', raw))) return { status: 'matched' }
     // A packed multi-value cell inside a RANKED column — which §4.1 ruled on
@@ -188,12 +194,17 @@ function makeLabelResolver(activities = []) {
     // resolution: a camp may have packed three alternatives into one rank, and
     // an activity name may legitimately contain a comma. Both readings are
     // live, so a human answers once.
-    const parts = raw.split(/\s*[,;/]\s*|\s+\/\s+/).map((p) => p.trim()).filter(Boolean)
+    const parts = raw.split(PACKED_CELL_SPLIT).map((p) => p.trim()).filter(Boolean)
     if (parts.length >= 2 && parts.every((p) => known.has(recognitionKey('activities', p)))) {
       return { status: 'packed', parts }
     }
     return { status: 'unresolved' }
   }
+
+  // `empty` travels WITH the resolver rather than being recomputed by the
+  // caller: the 'abstained' contract depends on the two agreeing, and two
+  // definitions derived from different inputs is how they stop agreeing.
+  return { resolve, empty }
 }
 
 /**
@@ -275,9 +286,8 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
   const choicesByKey = new Map()
   const skippedRows = []
   const residue = []
-  const resolveLabel = makeLabelResolver(catalog?.activities ?? [])
+  const { resolve: resolveLabel, empty: catalogAbsent } = makeLabelResolver(catalog?.activities ?? [])
   const resolveDivision = makeDivisionResolver(catalog ?? {})
-  const catalogAbsent = (catalog?.activities ?? []).length === 0
 
   const add = (kind, message, extra = {}) => residue.push({ kind, message, ...extra })
 
@@ -346,7 +356,7 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
       // is not ordering evidence: reading "Swim, Archery, Ceramics" as a top
       // three would fabricate a preference the child never stated. A tie among
       // equals stays a tie.
-      const parts = raw.split(/\s*[,;/]\s*/).map((p) => p.trim()).filter(Boolean)
+      const parts = raw.split(PACKED_CELL_SPLIT).map((p) => p.trim()).filter(Boolean)
       for (const part of parts) {
         cells.push({ raw: part, rank: null, rankKind: UNORDERED_SET, index: mapping.unorderedSetIndex })
       }
@@ -366,23 +376,24 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
         resolved.push(c)
         continue
       }
+      const column = columnLabel(c.index)
       if (verdict.status === 'packed') {
         add(
           'AMBIGUOUS_PACKED_CELL',
-          `Row ${rowNumber}, column ${columnLabel(c.index)} holds “${c.raw}”, which is not an ` +
+          `Row ${rowNumber}, column ${column} holds “${c.raw}”, which is not an ` +
             `activity this camp has — but split up it names ${verdict.parts.length} that it does. ` +
             'That could be several alternatives packed into one choice, or one activity whose name ' +
             'contains a comma, and only you can say which, so nothing was read from this cell.',
-          { rowNumber, column: columnLabel(c.index), label: c.raw, parts: verdict.parts }
+          { rowNumber, column, label: c.raw, parts: verdict.parts }
         )
         continue
       }
       add(
         'UNRESOLVED_CHOICE_LABEL',
-        `Row ${rowNumber}, column ${columnLabel(c.index)} names “${c.raw}”, which is not an ` +
+        `Row ${rowNumber}, column ${column} names “${c.raw}”, which is not an ` +
           'activity this camp has. It was not imported as a choice, because inventing one would ' +
           'put an activity on a schedule that does not exist.',
-        { rowNumber, column: columnLabel(c.index), label: c.raw }
+        { rowNumber, column, label: c.raw }
       )
     }
 
@@ -435,6 +446,13 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
       byId.set(id, camper)
       campers.push(camper)
 
+      // The coverage check is available ONLY for a camper resolved to a GROUP:
+      // deriveOccurrences keys occurrences on group.tier_id, and groups are the
+      // single path from a camper to a tier. Stated once here rather than as an
+      // increment inside each branch below, so the rule is readable without
+      // scanning the chain.
+      if (division.status !== 'group') unmeasuredCampers += 1
+
       if (division.status === 'tier') {
         add(
           'DIVISION_MATCHED_TIER',
@@ -443,7 +461,6 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
             'which bunk. Assign them to a group to finish the picture.',
           { label: divisionLabel, camperId: id, tier: division.tierName }
         )
-        unmeasuredCampers += 1
       } else if (division.status === 'unmatched') {
         add(
           'UNMATCHED_DIVISION',
@@ -452,9 +469,6 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
             'is not linked to anything — no group was created from it.',
           { label: divisionLabel, camperId: id }
         )
-        unmeasuredCampers += 1
-      } else if (division.status === 'absent') {
-        unmeasuredCampers += 1
       }
     }
 
@@ -531,30 +545,31 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
   //                                       the same thing twice in two different
   //                                       languages is telling us something
   //                                       about itself
-  const preferences = []
+  // ONE container. A Map keeps first-seen insertion order and keeps it across a
+  // re-set of an existing key, so the resolved set is `[...byKey.values()]` and
+  // a winner swap is a single write. Holding a parallel array as well meant
+  // writing every swap twice and paying an indexOf scan per collision.
   const byKey = new Map()
   for (const c of candidates) {
     const key = `${c.camper_id}\u0000${c.occurrence_id ?? ''}\u0000${c.labelKey}`
     const held = byKey.get(key)
     if (!held) {
       byKey.set(key, c)
-      preferences.push(c)
       continue
     }
     const heldRank = held.rank
     const incoming = c.rank
+    // Two unranked mentions of one choice are identical, and saying so twice is
+    // not a collision worth reporting.
+    if (heldRank == null && incoming == null) continue
+
     // An explicit rank is strictly more information than its absence.
     const incomingWins =
       heldRank == null ? incoming != null : incoming != null && incoming < heldRank
     const loser = incomingWins ? held : c
     const winner = incomingWins ? c : held
 
-    if (heldRank == null && incoming == null) continue // Identical, and a no-op.
-
-    if (incomingWins) {
-      preferences[preferences.indexOf(held)] = c
-      byKey.set(key, c)
-    }
+    if (incomingWins) byKey.set(key, c)
 
     add(
       'DROPPED_DUPLICATE_RANK',
@@ -672,7 +687,7 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
   return {
     campers,
     choices: [...choicesByKey.values()],
-    preferences,
+    preferences: [...byKey.values()],
     sameNameCampers,
     skippedRows,
     residue,

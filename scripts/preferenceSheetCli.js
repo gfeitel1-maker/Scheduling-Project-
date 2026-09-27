@@ -30,7 +30,7 @@ import * as XLSX from 'xlsx'
 import { openLocalDb } from '../electron/db/localDb.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from '../electron/ops/commitElectiveRun.js'
 import { deriveImportedElectiveRunId } from '../electron/ops/electiveDerivedIds.js'
-import { inferPreferenceMapping, parsePreferenceSheet } from '../src/ingest/preferenceSheet.js'
+import { columnLabel, inferPreferenceMapping, parsePreferenceSheet } from '../src/ingest/preferenceSheet.js'
 import { readWorkbookSafely, unescapeRow } from '../src/utils/exportSanitize.js'
 
 function baseResult({ file, dbPath, action }) {
@@ -72,18 +72,6 @@ function readRows(buf) {
   return XLSX.utils
     .sheet_to_json(workbook.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false })
     .map(unescapeRow)
-}
-
-// Spreadsheet column letters, because that is what the director sees in the
-// header row — not the zero-based index the mapping carries.
-function columnLabel(index) {
-  let n = index
-  let out = ''
-  do {
-    out = String.fromCharCode(65 + (n % 26)) + out
-    n = Math.floor(n / 26) - 1
-  } while (n >= 0)
-  return out
 }
 
 function findDuplicateRankColumns(rankColumns = []) {
