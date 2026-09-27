@@ -18,7 +18,16 @@ describe('inferPreferenceMapping', () => {
     const m = inferPreferenceMapping(HEADER)
     expect(m.nameIndex).toBe(0)
     expect(m.divisionIndex).toBe(1)
-    expect(m.rankColumns).toEqual([{ rank: 1, index: 3 }, { rank: 2, index: 4 }, { rank: 3, index: 5 }])
+    // `coordinate: null` joins each entry in T285 slice B — a rank column may now
+    // name its own cell ("Monday Period 3 - First Choice"), and a plain `#N`
+    // header names none. Asserted explicitly rather than loosened away, because
+    // which coordinate a rank column carries decides which period a child's
+    // first choice lands in.
+    expect(m.rankColumns).toEqual([
+      { rank: 1, index: 3, coordinate: null },
+      { rank: 2, index: 4, coordinate: null },
+      { rank: 3, index: 5, coordinate: null },
+    ])
     expect(m.externalIdIndex).toBeNull()
   })
 

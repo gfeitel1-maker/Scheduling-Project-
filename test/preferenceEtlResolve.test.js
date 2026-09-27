@@ -971,3 +971,93 @@ describe('T285 slice A — header and identity resolution', () => {
     expect(dup[0].columns).toEqual(['C', 'D'])
   })
 })
+
+// ---------------------------------------------------------------------------
+// T285 SLICE B — compound and per-period headers. The coordinate is carried by
+// the COLUMN HEADER rather than by a per-row Day/Period column, which is a new
+// dimension: one row per camper, and each rank column names its own cell.
+// ---------------------------------------------------------------------------
+describe('T285 slice B — compound and per-period headers', () => {
+  it('P29: a compound header names a day, a period AND a rank, and all three land', () => {
+    // "Monday Period 3 - First Choice". Three facts in one string, and getting any
+    // of them wrong puts a child in the wrong period.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P29-compound-period-headers.csv')
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
+    const ari = withDb((db) =>
+      db
+        .prepare(
+          `SELECT p.rank, p.coordinate_day_label AS day, p.coordinate_period_label AS period, ch.label
+             FROM elective_preferences p
+             JOIN campers c ON c.id = p.camper_id
+             JOIN elective_choices ch ON ch.id = p.choice_id
+            WHERE c.display_name = 'Ari Feldspar'
+            ORDER BY p.coordinate_day_label, p.rank`
+        )
+        .all()
+    )
+    // Three coordinates x two ranks, and the sheet row reads
+    // Swim, Archery, Ceramics, Woodworking, Basketball, Drama across
+    // Monday/Wednesday/Friday.
+    expect(ari).toEqual([
+      { rank: 1, day: 'Friday', period: 'Period 3', label: 'Basketball' },
+      { rank: 2, day: 'Friday', period: 'Period 3', label: 'Drama' },
+      { rank: 1, day: 'Monday', period: 'Period 3', label: 'Swim' },
+      { rank: 2, day: 'Monday', period: 'Period 3', label: 'Archery' },
+      { rank: 1, day: 'Wednesday', period: 'Period 3', label: 'Ceramics' },
+      { rank: 2, day: 'Wednesday', period: 'Period 3', label: 'Woodworking' },
+    ])
+    expect(result.counts.preferences).toBe(
+      withDb((db) => db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c)
+    )
+  })
+
+  it('P30: a day-scoped hash rank keeps the day and leaves the period unstated', () => {
+    // "Monday #1", "Monday #2" name a DAY and a rank, and say nothing about a
+    // period. A period must not be invented — an unstated coordinate leg is null,
+    // which v79 stores and the 'at' arm keys on.
+    seedActivities(CORPUS_ACTIVITIES)
+
+    const result = commitProbe('P30-per-cell-hash-headers.csv')
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
+    const ari = withDb((db) =>
+      db
+        .prepare(
+          `SELECT p.rank, p.coordinate_day_label AS day, p.coordinate_period_label AS period, ch.label
+             FROM elective_preferences p
+             JOIN campers c ON c.id = p.camper_id
+             JOIN elective_choices ch ON ch.id = p.choice_id
+            WHERE c.display_name = 'Ari Feldspar'
+            ORDER BY p.coordinate_day_label, p.rank`
+        )
+        .all()
+    )
+    expect(ari).toEqual([
+      { rank: 1, day: 'Monday', period: null, label: 'Swim' },
+      { rank: 2, day: 'Monday', period: null, label: 'Archery' },
+      { rank: 1, day: 'Wednesday', period: null, label: 'Ceramics' },
+      { rank: 2, day: 'Wednesday', period: null, label: 'Woodworking' },
+    ])
+
+    // Two DIFFERENT days are two distinct scopes, so rank 1 twice is not a
+    // contradiction and the sheet is not refused. Eight campers x 4 cells.
+    expect(result.counts.preferences).toBe(32)
+    expect(result.counts.campers).toBe(8)
+  })
+
+  it('P30 non-vacuity: the coordinate really is per-COLUMN, not copied from the row', () => {
+    // If the reader fell back to a row-level coordinate, every cell on Ari's row
+    // would share one day and rank 1 would collide with itself.
+    seedActivities(CORPUS_ACTIVITIES)
+    commitProbe('P30-per-cell-hash-headers.csv')
+    const days = withDb((db) =>
+      db.prepare('SELECT DISTINCT coordinate_day_label d FROM elective_preferences ORDER BY d').all().map((r) => r.d)
+    )
+    expect(days).toEqual(['Monday', 'Wednesday'])
+  })
+})

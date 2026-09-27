@@ -68,6 +68,47 @@ const ORDINAL_WORDS = [
 ]
 const RANK_ORDINAL_WORD = new RegExp(`^(${ORDINAL_WORDS.join('|')})\\s+choice$`, 'i')
 
+// T285 slice B — a COLUMN-SCOPED coordinate. "Monday Period 3 - First Choice"
+// and "Monday #1" carry the cell in the HEADER, one row per camper, which is a
+// different dimension from the per-row Day/Period columns: every rank column
+// names its own coordinate.
+//
+// Deliberately conservative. A day or a period is recognised only as a whole
+// word, and a column becomes coordinate-scoped ONLY when a rank is also found —
+// so a bare "Monday" column (a grid, which is slice F's problem) stays
+// unrecognised and is reported rather than half-read. An activity that happens to
+// contain a day name ("Monday Night Live") has no rank and so cannot be mistaken
+// for a coordinate either.
+const DAY_IN_HEADER = /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i
+const PERIOD_IN_HEADER = /\b(?:period|block)\s*(\d+)\b/i
+
+/**
+ * The coordinate and rank a column header names, or null.
+ *
+ * Labels come back AS WRITTEN (the matched substring), never normalised, because
+ * they are stored as provenance — a director has to recognise their own header.
+ */
+function scopedRankFromHeader(header) {
+  const day = DAY_IN_HEADER.exec(header)
+  const period = PERIOD_IN_HEADER.exec(header)
+  if (!day && !period) return null
+
+  // Whatever is left once the coordinate is removed should name the rank.
+  const remainder = header
+    .replace(day?.[0] ?? '', ' ')
+    .replace(period?.[0] ?? '', ' ')
+    .replace(/[-–—:,()]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const rank = rankFromHeader(remainder)
+  if (rank == null) return null
+
+  return {
+    rank,
+    coordinate: { dayName: day ? day[0] : null, periodLabel: period ? period[0] : null },
+  }
+}
+
 /** The rank a header names, or null. */
 function rankFromHeader(header) {
   const hash = RANK_HEADER.exec(header)
@@ -114,6 +155,12 @@ const UNORDERED_SET = 'unordered-set'
 // label resolver's split-detection and the unordered-set column.
 const PACKED_CELL_SPLIT = /\s*[,;/]\s*/
 
+// The coordinate a row scopes its choices to, as LABELS. Two rows share a
+// coordinate when this string matches; a row with no coordinate columns yields
+// '', which is the single implicit whole-run "cell" every such row shares.
+const coordinateKey = (coordinate) =>
+  coordinate ? `${coordinate.dayName ?? ''}\u0000${coordinate.periodLabel ?? ''}` : ''
+
 const cell = (row, index) => (index == null ? '' : String(row?.[index] ?? '').trim())
 
 // Spreadsheet column letters, because that is what a director sees in the
@@ -153,6 +200,14 @@ export function inferPreferenceMapping(header = []) {
 
   const ranked = []
   cells.forEach((h, index) => {
+    // A column-scoped coordinate wins over a bare rank read: "Monday #1" is rank
+    // 1 IN MONDAY, and reading it as a plain rank 1 would merge it with every
+    // other day's first choice.
+    const scoped = scopedRankFromHeader(h)
+    if (scoped) {
+      ranked.push({ rank: scoped.rank, index, coordinate: scoped.coordinate })
+      return
+    }
     const rank = rankFromHeader(h)
     if (rank != null) ranked.push({ rank, index })
   })
@@ -163,20 +218,26 @@ export function inferPreferenceMapping(header = []) {
   // stated the wrong thing about it. Coercing cell order into a ranking is the
   // one thing §4.1 forbids, so the duplicated rank's columns lose their rank
   // rather than being ordered arbitrarily; ranks that appear once are untouched.
+  // Grouped by (COORDINATE, rank), not by rank alone — two columns both reading
+  // rank 1 are a tie only if they name the SAME cell. "Monday #1" and
+  // "Wednesday #1" are two different first choices, which is the normal shape of
+  // a per-period sheet, and treating them as a duplicated rank would strip both
+  // of their rank.
   const byRank = new Map()
   for (const r of ranked) {
-    if (!byRank.has(r.rank)) byRank.set(r.rank, [])
-    byRank.get(r.rank).push(r.index)
+    const key = `${coordinateKey(r.coordinate)}\u0000${r.rank}`
+    if (!byRank.has(key)) byRank.set(key, { rank: r.rank, coordinate: r.coordinate ?? null, indexes: [] })
+    byRank.get(key).indexes.push(r.index)
   }
   const duplicatedRanks = []
   const rankColumns = []
   const tiedColumns = []
-  for (const [rank, indexes] of byRank) {
+  for (const { rank, coordinate, indexes } of byRank.values()) {
     if (indexes.length > 1) {
       duplicatedRanks.push({ rank, columns: indexes.map(columnLabel), indexes })
       tiedColumns.push(...indexes)
     } else {
-      rankColumns.push({ rank, index: indexes[0] })
+      rankColumns.push({ rank, index: indexes[0], coordinate })
     }
   }
   rankColumns.sort((a, b) => a.rank - b.rank)
@@ -347,12 +408,6 @@ function makeDivisionResolver({ groups = [], tiers = [] } = {}) {
   }
 }
 
-// The coordinate a row scopes its choices to, as LABELS. Two rows share a
-// coordinate when this string matches; a row with no coordinate columns yields
-// '', which is the single implicit whole-run "cell" every such row shares.
-const coordinateKey = (coordinate) =>
-  coordinate ? `${coordinate.dayName ?? ''}\u0000${coordinate.periodLabel ?? ''}` : ''
-
 /**
  * Read the sheet under a mapping, resolving every value against the camp.
  *
@@ -504,24 +559,43 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
     // camper holds the same preference rank twice" — a refusal that is both
     // wrong and misleading about why. Caught by running the corpus (P33), not by
     // re-reading the code.
-    const cellIsASingleChoice = coordinate != null && (mapping?.rankColumns ?? []).length === 1
-    const rankKindForRanks = cellIsASingleChoice ? CELL_CHOICE : ORDERED_FALLBACK
+    // Counted PER COORDINATE, not over the whole sheet (T285 slice B). A sheet
+    // with "Monday #1" and "Wednesday #1" gives each cell exactly one choice —
+    // those are CELL CHOICES — while "Monday #1" and "Monday #2" rank two options
+    // within one cell, which is an ordered fallback that happens to be
+    // cell-scoped.
+    const rankColumnsPerCoordinate = new Map()
+    for (const rc of mapping?.rankColumns ?? []) {
+      const key = coordinateKey(rc.coordinate ?? coordinate)
+      rankColumnsPerCoordinate.set(key, (rankColumnsPerCoordinate.get(key) ?? 0) + 1)
+    }
 
     // Every preference cell this row offers, ranked columns and the unordered
     // set column alike, before any of them is known to resolve.
     const cells = []
-    for (const { rank, index } of mapping?.rankColumns ?? []) {
-      const raw = cell(row, index)
+    for (const rc of mapping?.rankColumns ?? []) {
+      const raw = cell(row, rc.index)
       if (!raw) continue // A blank rank is a rank the camper left empty, not a shift.
+      // A COLUMN-scoped coordinate wins over the row's. A header that names its
+      // own cell ("Monday Period 3 - First Choice") is more specific than a
+      // per-row Day column, and a sheet never carries both for one value.
+      const cellCoordinate = rc.coordinate ?? coordinate
+      const single = cellCoordinate != null && rankColumnsPerCoordinate.get(coordinateKey(cellCoordinate)) === 1
       // The explicit rank is ALWAYS preserved. It is the camper's own statement.
-      cells.push({ raw, rank, rankKind: rankKindForRanks, index })
+      cells.push({
+        raw,
+        rank: rc.rank,
+        rankKind: single ? CELL_CHOICE : ORDERED_FALLBACK,
+        index: rc.index,
+        coordinate: cellCoordinate,
+      })
     }
     // Columns that shared a rank (ADR §4.1's tie among equals). Rank NULL, never
     // an order invented from column position.
     for (const index of mapping?.tiedColumns ?? []) {
       const raw = cell(row, index)
       if (!raw) continue
-      cells.push({ raw, rank: null, rankKind: UNORDERED_SET, index })
+      cells.push({ raw, rank: null, rankKind: UNORDERED_SET, index, coordinate })
     }
     if (mapping?.unorderedSetIndex != null) {
       const raw = cell(row, mapping.unorderedSetIndex)
@@ -533,7 +607,7 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
       // equals stays a tie.
       const parts = raw.split(PACKED_CELL_SPLIT).map((p) => p.trim()).filter(Boolean)
       for (const part of parts) {
-        cells.push({ raw: part, rank: null, rankKind: UNORDERED_SET, index: mapping.unorderedSetIndex })
+        cells.push({ raw: part, rank: null, rankKind: UNORDERED_SET, index: mapping.unorderedSetIndex, coordinate })
       }
       // §4.1 requires the residue item as well as the null rank, and the two do
       // different jobs: the null is what the solver reads, the residue is what
@@ -669,7 +743,8 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
         labelKey,
         rank: c.rank,
         rank_kind: c.rankKind,
-        coordinate,
+        // The CELL's coordinate — a column header may name one the row does not.
+        coordinate: c.coordinate ?? null,
         rowNumber,
       })
     }
