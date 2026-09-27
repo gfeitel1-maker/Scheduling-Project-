@@ -1,0 +1,582 @@
+---
+title: "Elective preferences enter through an ETL spine: a canonical preference record, replaceable readers, and a director-confirmed axis binding the camp keeps"
+document_type: adr
+status: proposed
+authority: normative
+implementation_state: not-started
+date: 2026-09-27
+task_class: database-sync
+governing_docs:
+  - docs/governance/constitution/CONSTITUTION.md
+  - docs/governance/standards/ARCHITECTURE_STANDARD.md
+  - docs/governance/standards/TESTING_STANDARD.md
+  - docs/governance/standards/DESIGN_STANDARD.md
+related_adrs:
+  - docs/adr/2026-09-26-general-ingest-for-campers-and-per-cell-preferences.md
+  - docs/adr/2026-09-26-per-cell-elective-preferences.md
+  - docs/adr/2026-09-17-individual-elective-scheduling.md
+  - docs/adr/2026-09-18-schedule-shape-gate-per-page-granularity.md
+  - docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md
+  - docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md
+related_tickets:
+  - docs/work/tickets/T278-import-agnostic-elective-preferences.md
+  - docs/work/tickets/T265-minimum-headcount-to-run.md
+  - docs/work/tickets/T226-camper-preference-import.md
+---
+
+# Elective preferences enter through an ETL spine: a canonical preference record, replaceable readers, and a director-confirmed axis binding the camp keeps
+
+## 0. For the owner — the premises, in plain language, before any decision
+
+You asked to see the different premises, not a finished answer. Here they are. Each one is a
+different belief about where the problem actually is. I recommend one at the end and say how
+confident I am.
+
+**The thing that is broken today, in one sentence.** If a camp hands us a planner grid — days
+across the top, periods down the side, one activity written in each box — the app reads it, reports
+success, and throws away *which box each choice came from*. "Archery on Monday in period 3" becomes
+"archery, sometime." No error, no warning, nothing on screen. The camp's schedule is then built from
+preferences that lost the only thing that made them specific.
+
+**Premise 1 — "Stop guessing. Make the director tell us what the document is."**
+The app's two worst import incidents both came from it guessing. The fix is to stop: the director
+states what the file is and how it is laid out before we open it, and if the file does not match,
+we refuse. *What has to be true for this to win:* directors can accurately describe a file they may
+not have made. *What it costs them:* a form to fill in before every import, and a refusal they may
+not know how to satisfy — at which point they retype the schedule by hand and we have lost.
+*Verdict:* **half of it wins.** The document's *kind* ("this is a preferences form, not a
+menu of what's offered") is something a director always knows and a computer keeps getting wrong, so
+they should state it. The *layout* is something they often cannot describe but can instantly
+recognise, so we should propose it and let them correct it. Declaring what they know, proposing what
+they don't.
+
+**Premise 2 — "Don't learn anything. Just make the loss impossible to miss, and easy to fix."**
+Every import ends with a plain accounting: here is what we read, here is what we did not read, here
+is what we could not place in a period. We keep the original file, so a wrong reading can be re-read
+without re-uploading. No memory, no profiles, no cleverness — and we record every correction so that
+later we know what is actually worth remembering. This repo already did exactly this once before,
+shipping a record of directors' decisions *before* anything that learned from them, on the reasoning
+that you cannot learn from decisions you never wrote down. *Verdict:* **this is the first half of
+the answer and it is not optional — but on its own it is only half the ask.** You asked for the
+software to get better; a design that asks the same question every June is not getting better. I am
+folding it in as stage one rather than treating it as the whole plan.
+
+**Premise 3 — "Give them our template and have them fill it in."**
+The app already does this on several setup screens: download a spreadsheet in our shape, fill it,
+import it. *Verdict:* **your ruling kills it as an import path, and the real files confirm the
+ruling was right.** You said we are reading someone's data, not choosing how they import it. The
+difference with those setup screens is that there the director is *authoring* data that does not
+exist yet. Here the data already exists, in a file, in their hand — and for this camp it exists
+inside a family portal we do not control at all. Asking them to reshape it moves our work into their
+morning. The only thing that survives is a last-resort escape hatch for a file we genuinely cannot
+open, offered *after* we have tried and said so plainly, never as a menu option beside "import" —
+because a fallback that is easy to reach becomes the product, and the reader then stops improving.
+
+**Premise 4 — "What should the software actually remember?"** Four candidates.
+*(a)* Which column is which — easy, but it is the thing we already do, and it has no way to
+represent a grid at all, so it would keep flattening confidently. *(b)* A classifier that guesses
+what kind of document this is — a trap: it answers a question the director already answered by
+clicking "import preferences", and it would score beautifully while fixing nothing. *(c)* A saved,
+named import profile — real, but it is a *container*, not a thing learned; ship it and you have
+storage with nothing worth storing in it yet. *(d)* **Where the axes live** — that this camp's
+preferences are per day-and-period, that the days are the columns and the periods are the rows.
+*Verdict:* **(d) is the unit.** The bug you are asking me to fix *is* an axis-binding failure, in
+its entirety. It is also the most stable thing about a spreadsheet: a camp that thinks in
+day-by-period still thinks that way next year after someone inserts two columns. (c) is how we store
+and version (d). (a) falls out of (d). (b) is dropped.
+
+**Premise 5 — "Run the transform as a service / MCP step rather than inside the app screen."**
+You raised this and it deserves a real answer rather than a dismissal. *Verdict:* **yes as a seam,
+no as a deployment.** The transform must be one pure module that the import screen, the command
+line, and the existing MCP tools all call — because the app's worst incident happened precisely when
+one path reached the data *without* passing through the gate the other path used. But that module
+should run locally, in the app, not behind a network service: the data is children's names, the app
+is deliberately local-first with no account server, and a hosted transform would be the first thing
+in this product to send camper data off the device. Same seam, same code, no server.
+
+**Premise 6 — "Pick the one preference model that camps really use."** **Falsified by your own
+files, and I want to be blunt about it because it is the most decision-relevant thing I found.** I
+read the Medford sheets. One camp, one season: the 5th-grade planner asks for a choice *in each
+box* **and** a ranked top-5 fallback on the same page, while the Camp Aaron form asks for a flat
+ranked list of 25 with no days or periods anywhere. Any design that picks one model is already
+wrong. The nullable per-cell field decided in the September per-cell ADR is now evidence-backed
+rather than a guess.
+
+**What I recommend.** Build the *middle* of the pipeline first, not the reader. Define one canonical
+preference record that everything downstream consumes, make each file-reader a small replaceable
+adapter that produces it, make everything the adapter could not read visible and correctable, and
+let the camp keep a confirmed, versioned statement of where its axes live so the second import is
+one glance instead of a fresh interrogation. Learning here means *infer, show, confirm, remember* —
+not a trained model, and I am not smuggling one in. "Iterating" means a number that goes up against
+a corpus of generated files, plus a second number — silent wrong readings — that must go to zero.
+
+**Confidence: high on the canonical record and the ETL spine; medium on the learned axis binding.**
+The first rests on things I verified in the code and in your own files. The second rests on an
+assumption I could not test: that a director shown their own grid with the axes drawn on it will
+recognise a wrong reading in one glance. If that confirmation cannot be made obvious, premise 4(d)
+degrades toward premise 2 and we should say so rather than ship a yes-button nobody understands.
+
+---
+
+## 1. Evidence — what was read, and by whom
+
+**Read directly for this ADR** (rendered page images, at
+`/Users/gregfeitel/Desktop/camp schedules/JCC Camps at Medford Activity Sheets for Older Campers/`;
+not committed, and never to be committed):
+
+- `Activity Selection Sheet - Grades 7-8 (JCC Camps at Medford, 2024).pdf`, pages 1–2
+- `Gilad 2025 Schedule Planner - 5th grade.pdf`, page 1
+- `Camp_Aaron_Top_25_Activity_List_Fillable.pdf`, page 1
+
+**Three document kinds, one camp, one season.** This is the T224 lesson made concrete: three
+documents that all look like "elective spreadsheets" and mean entirely different things.
+
+| Kind | Artifact | What it is | What it is NOT |
+|---|---|---|---|
+| 1 — offerings menu | Tavor 2024 Activity Selection Sheet | day × period grid whose cells list the activities **offered** there | nobody's preferences |
+| 2 — planner | Gilad 2025 Schedule Planner | blank day × period grid the camper fills, **plus** a ranked "NEXT 5 CHOICES" column | not authoritative — see footer |
+| 3 — global ranked list | Camp Aaron Top 25 | flat 1..25 ranking, no period dimension at all | carries no cell structure |
+
+**Verified details that bear on the design, with what I saw:**
+
+1. **Both grids put periods in the ROWS and days in the COLUMNS.** Gilad: `PERIOD` column, rows
+   1–7, columns MONDAY..FRIDAY. Tavor: same orientation. Today's reader
+   (`src/ingest/preferenceSheet.js:38-63`) only ever reads a header row and maps columns to roles;
+   it has no concept of a row axis at all.
+2. **Gilad's selectable-cell count is 18 of 35**, which I counted from the page: 7 periods × 5 days,
+   minus INSTRUCTIONAL SWIM (5), FREE SWIM (5), LUNCH (5), BUNK UNITY (Mon P2) and SHABBAT (Fri P2).
+   That independently confirms the "18 of 35" figure
+   `docs/adr/2026-09-26-per-cell-elective-preferences.md` already records.
+3. **Tavor's selectable-cell count is also 18**, by a *different* arrangement (P2/P4/P5 fixed
+   camp-wide rows, Mon P1 "BUNK UNITY (no selection needed)", Fri P6 SHABBAT). Same number, different
+   geometry — a reader keyed to a remembered geometry rather than a remembered *axis structure* would
+   get this wrong between divisions of one camp.
+4. **The Swim Alternative page changes the selectable-cell count per CAMPER, not per division.** It
+   is headed *"Arad & Tavor Campers Only - entering 6th - 8th grades"*, applies to **period 2 only**,
+   and instructs *"You must make selections for all 5 days"*. So an opted-out Tavor camper has 23
+   selectable cells where an opted-in one has 18. **This corrects a framing in my brief**, which
+   described the opt-out as swapping to "a different offerings set": it swaps *one fixed row into a
+   selectable one* and supplies that row's own offerings. The consequence is sharper than the
+   original framing — **the set of cells a camper must fill is a function of that camper's
+   eligibility, so it cannot be computed once per division and reused.**
+5. **The glyph legend is printed on the sheet**, verbatim: *"Remember to fill in double periods as
+   they are indicated by ↓ and ↑"* and *"Remember: multiple day activities are indicated by ► or ♫♫
+   or *** or → or ← or ⇒ and ⇐"*. These map onto concepts this repo already has — spans
+   (`project_arbitrary_length_span`, PR #145) and multi-day linkage (D14 records linkage as a catalog
+   property). They are **offerings metadata on a Kind 1 document**, not preference data.
+6. **Kind 1 cells are packed multi-value lists**, laid out as two sub-columns per day. A Kind 1 cell
+   is a *set of what is available*; a Kind 2 cell is *one chosen activity*. Identical geometry,
+   opposite meaning. Nothing but the declared kind separates them.
+7. **Kind 3's ranks are a priority gradient**, labelled on the page *"starting from #1 (must have)
+   to #25 (would like to have)"*, with a division-gated opt-out checkbox and a free-text
+   "Additional Comments" box.
+8. **Kind 2's footer** says *"This document should only be used as a planning tool. Final schedule
+   requests must be made electronically through your Camp InTouch portal."*
+
+**Relayed to me from a parallel research pass, and treated as stated** — verified vendor mechanics
+for Google Forms, Typeform, Microsoft Forms, Jotform, and partial for Formstack; and the important
+**negative result that no camp-management platform publishes a column-level spec for an
+elective-selection export, and no sample was found for any of them.** I have not independently
+verified the vendor mechanics and do not restate them as design premises beyond §3.4. Camp InTouch is
+CampMinder's family portal, so **the file that carries this camp's actual answers is an export nobody
+involved has seen.**
+
+**Prior evidence in the repo, verified by reading:**
+`docs/adr/2026-09-17-individual-elective-scheduling.md` **D14** (lines 481–560) recorded both the
+globally-ranked list and the planner-plus-alternates shapes from real artifacts, withdrew the
+ranked-per-occurrence premise, and stated the limit that still governs this ADR: *"The artifacts seen
+were blank forms and catalog sheets, not filled-in responses… the format this app would actually
+ingest is an export nobody involved has seen… No design should treat either observed format as
+confirmed input."* Everything in §1 above is **blank forms again**. D14's limit is not lifted by this
+ADR; it is re-stated in §9 Q1.
+
+## 2. The contradiction I was briefed on, and what the code actually says
+
+My brief cited `docs/adr/2026-09-17-individual-elective-scheduling.md` "decision 4" for *"Nothing is
+inferred"* and flagged it as a hypothesis. **It is real but narrower than the brief implies.** It is
+**D2 item 4** (line 96–97): *"The **director** chooses week, schedule route, division, offerings,
+mapping resolutions, manual changes, and finalization. Nothing is inferred."*
+
+The scope matters. It enumerates *the director's decisions* — and **`mapping resolutions` is on that
+list**, which is exactly the clause this ADR needs. But it is not a blanket prohibition on the
+importer *proposing*. The ingest path's documented bias is the opposite and is deliberate
+(`src/ingest/extractEntities.js:11-13`: *"Over-inclusion is the deliberate bias. A wrong row the
+director deletes costs them a moment; a missing row they never notice costs them the retyping this
+feature exists to remove."*). **Ruling: D2.4 governs the RESOLUTION, not the PROPOSAL.** The app may
+propose an axis binding; it may never *resolve* one without the director. That is the reading this
+ADR builds on, and it is stated here because a brief that read D2.4 as "no inference at all" would
+have produced premise 1 in its maximal, losing form.
+
+## 3. Decision — the ETL spine
+
+**Decision. The design's centre is the canonical record and the transform into it. The reader is a
+replaceable adapter.** Concretely, four stages with three named contracts between them:
+
+```
+  EXTRACT            TRANSFORM                     LOAD                 USE
+  (adapter)          (pure, one module)            (existing writer)    (solver)
+  file bytes  ──▶  RawTable + DeclaredKind  ──▶  PreferenceBinding[]  ──▶  elective_preferences
+                          + AxisBinding          + Residue[]            + elective_assignments
+```
+
+### 3.1 The canonical record
+
+**Decision: the canonical unit is the `PreferenceBinding` already designed in
+`docs/adr/2026-09-26-general-ingest-for-campers-and-per-cell-preferences.md` §4.1, carried forward
+unchanged in shape and amended only as §4 of this ADR states.** It is:
+
+```
+{ camperName, camperExternalId|null, dayName|null, periodLabel|null,
+  choiceLabel, rank, source: { page, row, column } }
+```
+
+Two properties make it the right canonical record and both are load-bearing:
+
+- **`dayName`/`periodLabel` are nullable, and that is what lets one record carry all three observed
+  kinds.** A Kind 2 grid cell binds with both legs present; a Kind 3 row binds with both absent; a
+  Kind 2 "NEXT 5 CHOICES" entry binds with both absent *on the same document as* cell-scoped
+  bindings. **This is §1's finding 6 in data form, and it is why premise 6 is dead.** It lands on
+  `elective_preferences.occurrence_id`, which is nullable by
+  `docs/adr/2026-09-26-per-cell-elective-preferences.md` and which I verified in the schema at
+  `electron/db/localDb.js:3693-3700`: `occurrence_id TEXT`, no NOT NULL.
+- **It is template-agnostic.** A binding names a coordinate (day, period), never an
+  `occurrence_id`; the caller resolves the coordinate against `deriveOccurrences` at solve time. The
+  general-ingest ADR §5 establishes why — the two candidate schedule routes yield two different
+  `occurrence_id`s for one coordinate and neither route is canonical (CLAUDE.md), so a binding keyed
+  to an occurrence would be a statement about a schedule rather than about a child.
+
+**`commitElectiveRun` is the enforcer, not the binder, and it stays exactly as it is.** Verified at
+`electron/ops/commitElectiveRun.js:66-75`: it refuses only a *malformed* `occurrence_id` and accepts
+an absent one as the whole-run fallback, with the owner's ruling quoted in the comment at lines
+55-57. **That is correct and this ADR changes none of it.**
+
+### 3.2 The adapters, and where they run
+
+**Decision: one pure transform module, called from every entry point; adapters are per-shape and
+small.** The transform (declared kind + raw table + axis binding → bindings + residue) is pure, takes
+no db and no IPC, and lives in `src/ingest/` beside its siblings. The renderer's import screen,
+`scripts/ingestCli.js`, and the MCP tools (`scripts/mcp/tools.js`, whose `ingest_preview` /
+`ingest_commit` are recorded at `src/ingest/scheduleShape.js:16-18`) all call the same function.
+
+**This is premise 5 resolved: the MCP/CLI seam is required, a network service is refused.** The
+requirement is not stylistic — T224 happened *because a path reached extraction without calling the
+gate the other path called* (`src/ingest/scheduleShape.js:14-21`). A second transform is a second
+T224. The refusal of a hosted service is on the local-first boundary: the payload is children's
+names and there is no account server (CLAUDE.md, `SECURITY.md`); a hosted transform would be the
+first camper data to leave the device, and that is an owner decision, not an architectural
+convenience. Same seam, local execution.
+
+### 3.3 Declared kind is per-page; axis binding is proposed and confirmed
+
+**Decision: carried forward unchanged from the general-ingest ADR §5.1 — the declared kind is
+per-PAGE**, because T223 was a per-page defect and a per-import kind reintroduces the whole-file
+granularity that `docs/adr/2026-09-18-schedule-shape-gate-per-page-granularity.md` removed.
+
+**Amendment (new here): the kind vocabulary must include `offerings-menu` as a first-class value.**
+The general-ingest ADR's per-page kinds were schedule / preference-sheet / neither. §1's Kind 1 is
+none of those: it is a day × period grid of *what is offered*, structurally indistinguishable from a
+filled planner, and feeding it to a preference reader is T224 verbatim with better manners. The
+Tavor sheet and the Gilad planner have the same geometry and opposite meaning; **only the declared
+kind separates them, and no amount of shape inference can.**
+
+**The axis binding is proposed with a stated confidence and confirmed by the director** — never
+resolved silently (§2). It states, for a page: which axis carries days, which carries periods, where
+each label lives, and whether the page also carries an unscoped ranked list. The confirmation surface
+is the director's own grid with the axes drawn on it, not prose (DESIGN_STANDARD §5/§8 apply; see §7).
+
+### 3.4 Residue — the loud half
+
+**Decision: every import produces a `Residue[]` alongside the bindings, and it is non-empty by
+default until each item is claimed or waived.** Residue items name: cells read but not bound, columns
+unconsumed, an axis the reader could not bind, and — **the item this whole ticket exists for** — *a
+page whose geometry suggests a day/period grid that was bound as unscoped*.
+
+**This is the fix to the stated defect, and it is deliberately not a refusal.** A whole-run ranked
+list legitimately has no cells (`commitElectiveRun.js:53-57` quotes the owner on exactly this), so a
+grid-shaped page read flat cannot be refused — it must be *reported*. The finding is the one thing
+that must exist for the owner's hard requirement 1 to be satisfied.
+
+**A grid read as flat is never written as a whole-run fallback without an acknowledged residue
+item.** That is the invariant. Absent per-cell scope remains legal; absent per-cell scope *from a
+page the reader believed was a grid* is legal only once the director has seen that sentence.
+
+## 4. Four rulings the real artifacts force, which no prior ADR covers
+
+### 4.1 An unordered set is not a rank, and must not be coerced into one
+
+The research relay reports packed multi-value cells as the default for form exports (one cell holding
+`"Swim, Archery, Ceramics"`). **Ruling: a packed cell with no ordering evidence produces bindings
+with `rank: null` and a residue item, never a rank invented from cell order.** An unordered set of
+acceptable activities is a different fact from a ranking and the model has no column for it today.
+
+**This is flagged as a schema question, not answered here.** `elective_preferences.rank` is
+`INTEGER` and nullable (`electron/db/localDb.js:3698`), so a null rank is *storable* — but whether
+the solver can consume an unranked preference is a scheduling-engine question this ADR does not
+decide. See §9 Q4. **Per my brief I do not pick a schema version and do not propose a migration.**
+
+### 4.2 Rank means three different things across the three kinds
+
+Kind 3's 1..25 is an explicit gradient (*"must have"* → *"would like to have"*). Kind 2's grid cells
+are not ranked at all — they are *chosen* — while its "NEXT 5 CHOICES" is a ranked **fallback**,
+subordinate to the cells. Today's reader recognises only `RANK_HEADER = /^#\s*(\d+)$/`
+(`src/ingest/preferenceSheet.js:25`), a bare `#1`.
+
+**Ruling: one integer column cannot carry all three meanings, and the binding needs a companion
+`rankKind`** — one of `cell-choice` (the camper's selection for that cell, rank 1 by construction),
+`ordered-fallback` (Kind 2's next-5, and Kind 3's list), or `unordered-set` (§4.1). A binding's
+`rank` remains an integer; `rankKind` says what comparing two of them means. Whether the solver must
+weight `cell-choice` above `ordered-fallback` is §9 Q4.
+
+**And a correction to my brief, which understated this.** The brief called the header regex an
+inference the arrangement was "already flexible" around. Against the relayed vendor mechanics —
+headers carrying question prose like `Period 1 (9:00–10:15) — pick your top choice` or
+`Availability [Monday]` — **`/^#\s*(\d+)$/` matches essentially nothing.** It is anchored at both
+ends against a bare `#N`. The existing mapping inference is not a flexible foundation that needs
+extending; against real exports it is close to a null result. Stated plainly because the design's
+sizing depends on it.
+
+### 4.3 The swim opt-out and the comments box are not preferences
+
+**Ruling: neither may enter `elective_preferences`.**
+
+- The **opt-out** is a per-camper *eligibility* fact, division-gated (§1 finding 4), requiring parent
+  permission — the sheet states *"the decision not to participate must involve parents"*. It changes
+  **which cells are selectable for that camper**, which is upstream of preference at all. It is
+  residue-with-a-name until a home for it is decided; **importing it as a preference would make a
+  permission-bearing fact invisible.**
+- The **free-text comments box** is unmodelable and must be **preserved verbatim and shown to the
+  director, never parsed into structure.** A parser that extracts activity names from a parent's
+  sentence is the compound-cell trap at a larger scale, and `src/ingest/compoundCellPatterns.js:6-10`
+  is the precedent for the discipline: *"A 3+-part split is silently dropped rather than guessed
+  at."* Drop, surface, do not guess.
+
+### 4.4 Same-name campers — not a second defect, and division must not join the id
+
+My brief asked whether `describeElectiveRunRefusal`'s same-name refusal
+(`electron/ops/commitElectiveRun.js:36-44`) is correct behaviour or a second defect, given that most
+form exports carry no stable person id.
+
+**Verified:** `deriveCamperId` (`electron/ops/electiveDerivedIds.js:234-247`) already takes
+`externalId` and prefers it, falling back to a canonicalized name only when absent. And
+`parsePreferenceSheet`'s `sameNameCampers` (`src/ingest/preferenceSheet.js:126-137`) already filters
+to rows that collapse onto **one** derived id — rows distinguished by an external id are excluded.
+**So the refusal fires only where there is genuinely no id.** The plumbing the owner's identity
+ruling needs exists.
+
+**Ruling: correct behaviour, not a defect — and division must NOT be folded into the derivation.**
+Two children sharing a name in one division is exactly the case the refusal protects, so division
+narrows the collision without eliminating it while silently re-keying every existing camper id
+(`electiveDerivedIds.js:41-59` is explicit about what an unbumped derivation version does and does
+not guarantee). Division belongs in the **refusal message**, to help the director tell the two rows
+apart. The real dissolution of this class is the portal export's person id — §9 Q1.
+
+## 5. What this means for the proposed general-ingest ADR — it does not survive alongside this one
+
+`docs/adr/2026-09-26-general-ingest-for-campers-and-per-cell-preferences.md` is `status: proposed`,
+`implementation_state: not-started`, never owner-approved, and claims the same territory.
+
+**Decision: it is ABSORBED. On owner approval of this ADR it is withdrawn — its status flips to
+`superseded` pointing here — and the rulings listed below are carried forward as part of this
+document.** It is not left standing as a second proposal, and it is not simply deleted, because its
+verified content is the best part of this design and re-deriving it would be waste.
+
+**Carried forward unchanged** (each verified by reading that document):
+§2.1 `elective_preferences` is run-scoped and cannot be an `INGESTIBLE_ENTITIES` member; §4.1
+bindings travel beside `approved`, not inside it, on the `fixedEvents[]` precedent; §4.2 the
+confirmable units are the vocabulary and the layout, not one card per binding (~7,200 is not
+reviewable); §4.3 (a)–(d) the four rank-contradiction rulings, including that identical duplicate
+rows deduplicate silently and only conflicting ones refuse; §5's three layout shapes and the
+correction that `isDayName` cannot be called on a compound header; §5.1 per-page declared kind; §8
+no schema version required; §9's traps; §10's consumer inventory and retirement path.
+
+**Amended by this ADR:**
+1. **Its spine.** It is organised around the reader; this one is organised around the canonical
+   record, per the owner's reframing. Its reader design becomes §3.2's adapters.
+2. **§5's "the layout is confirmed per import and not persisted", with its own §12 Q2 recommending
+   "not yet".** This ADR reverses that recommendation — the persisted axis binding is the unit of
+   learning (§6) and is the substance of the owner's ask. Its Trap 6 already priced the cost of not
+   persisting; that cost is now being paid down. **It remains schema-bearing and therefore an owner
+   question, not a decision I may take (§9 Q3).**
+3. **Its per-page kind vocabulary**, extended with `offerings-menu` (§3.3).
+4. **New material it does not contain at all:** §4.1 unordered sets, §4.2 `rankKind`, §4.3 opt-out
+   and comments, §4.4 identity, §6 the learning layer, §7 the corpus and the acceptance metric.
+
+Its §12 open questions Q1 and Q3–Q6 are **unresolved and carried into §9** — they were never
+answered because it was never approved.
+
+## 6. The learning layer — inference, confirmation, memory. Not a model.
+
+**Decision: "machine/software learning" here means a director-confirmed, per-camp-remembered axis
+binding, in the style of T118's compound-cell patterns. No trained model.** I considered arguing for
+one and am recording why not: a model needs labelled examples, and §1's evidence is *blank forms
+from one camp*; D14's limit still stands; and a model's wrong answer is unexplainable to a director
+where a stated axis binding's wrong answer is a sentence they can read and flip. **If a corpus ever
+makes a model justifiable, that is a later ADR with its own evidence, not a quiet extension of this
+one.**
+
+**The unit is the axis binding, held in a versioned per-camp import profile** (premise 4(d) inside
+4(c)). What is remembered is *where the axes live and what the page's kind is* — not column indices,
+which shift the moment anyone inserts a column and shift *silently*.
+
+**How it relates to what already exists**, as my brief requires:
+
+- **`src/ingest/compoundCellPatterns.js` + T118** is the direct model: detect candidates, never apply
+  them to real data without confirmation, remember the confirmation per camp. Its self-imposed limit
+  (lines 6–10 — two-part compounds only, 3+ dropped rather than guessed) is the discipline this layer
+  inherits: **an axis binding the reader cannot state confidently is residue, not a guess.**
+- **`src/ingest/decisionJournal.js:1-20` is the load-bearing precedent and it sequences this work.**
+  Its argument — *"Five tables of yes-answers is a cache, not a signal. You cannot learn from
+  decisions you never recorded as decisions, which is why this ships BEFORE any learning does"* —
+  applies here with full force. **Ruling: the journal records axis-binding questions and their
+  outcomes BEFORE any profile is persisted.** Stage 1 of §8 is therefore premise 2's design, in full,
+  and the profile is stage 3. This is the repo's own sequencing, not a compromise.
+- **`src/ingest/confidence.js`** supplies the vocabulary; the axis binding carries a `CONFIDENCE`
+  tier. **Note for whoever implements: `MEDIUM` is currently unreachable** — `mediumThreshold`
+  defaults to `highThreshold` (lines 12–14) — so a design wanting three tiers must pass an explicit
+  `mediumThreshold`, which is a behaviour change at that call site and needs saying out loud.
+- **`src/ingest/attentionList.js`** is where an unconfirmed binding and an unacknowledged residue
+  item surface to the director, rather than a new notification surface.
+
+**The trap my brief asked me to name, and it needs an owner ruling.** The five decision tables
+`decisionJournal.js` names are **host-local**, while the camp's data is a replicated Automerge
+document. If the axis binding follows that precedent, the concrete failure is: *the office laptop
+learned the shape in June; in August the director imports the updated sheet from her own laptop,
+gets the naive reading, and the grid flattens — the exact defect, reintroduced by storage placement.*
+Worse, two devices then hold different readings of the same file and the merge preserves both
+faithfully.
+
+**My recommendation is that the axis binding REPLICATES, against the host-local precedent** — it is a
+fact about the camp's own form, no more device-specific than the camp's period names, and its failure
+mode under replication (two directors confirm conflicting readings → a `conflicts` row a human
+resolves) is the mechanism this app already uses for that class of disagreement. **But this is a
+schema-bearing, sync-semantics decision and it is §9 Q3, not a ruling I take here.** The host-local
+tables are local for their own defensible reasons and departing from them deserves the owner's nod.
+
+## 7. Design-standard obligations (UI-touching)
+
+Two new surfaces make this UI-significant, so `docs/governance/standards/DESIGN_STANDARD.md` is a
+hard constraint on the implementing brief, not a review-time discovery:
+
+- **The axis-binding confirmation** — the director's own grid with the axes drawn on it (§3.3). It
+  has loading, error and confirm states; §5 (motion/feedback) and §8 (transitions) apply, including
+  the reduced-motion equivalent, which is *never no feedback*.
+- **The residue ledger** — per the standing owner rule, this is **not a banner**
+  (`feedback_no_banners_flags_instead`): unacknowledged residue joins the existing per-item flag and
+  attention vocabulary (`attentionList.js`), it does not get chrome of its own.
+
+## 8. Test corpus and the acceptance metric — designed here, built later
+
+**Per my brief the corpus is designed, not built, this round.**
+
+**Generator precedent:** `scripts/fixtures/make-elective-cell-fixture.mjs` and
+`test/fixtures/elective/t251-per-cell-preferences.json`. **The named hazard is that a generator
+emitting ONE shape leaves the other paths untested and a green suite then describes half a feature**
+— so the generator is parameterised over shape, and a test asserting coverage of all shape classes is
+part of the corpus, not an afterthought.
+
+**Shape classes, from §1 plus the research relay's negative result:**
+
+| Class | Basis | Status |
+|---|---|---|
+| A — planner grid, periods in rows | Gilad / Tavor | **observed** |
+| B — global ranked list, no cells | Camp Aaron Top 25 | **observed** |
+| C — both on one page (grid + ranked fallback) | Gilad | **observed** |
+| D — offerings menu (must be declined by the preference reader) | Tavor | **observed** |
+| E — compound header, one row per camper (`Monday Period 3 - 1st choice`) | relayed vendor mechanics | plausible |
+| F — packed multi-value cells, unordered | relayed vendor mechanics | plausible |
+| G — grid question + packed cells simultaneously | relayed (Google Forms grid) | plausible |
+| H — camp-platform portal export | **unknown shape class** | **unseen — must be modelled as unknown, never fabricated** |
+
+**Class H must not be invented.** The research pass established that no camp platform publishes a
+column-level spec and no sample was found. A fabricated CampMinder layout in the corpus would be a
+green suite describing a format nobody has seen.
+
+**Scale.** The owner has sanctioned generation at scale (*"we could fill out 500 of these to model a
+huge camp"*). Size the corpus to one realistic camp: ~500 campers across divisions with different
+geometries (Gilad's 18-of-35 and Tavor's 18-of-35-differently, §1 findings 2–3), including opted-out
+campers whose selectable-cell count differs (finding 4).
+
+**Non-vacuity — the bar my brief sets, and which path each test enters through.** Three instances of
+hand-built-`parsed`-fixture tests asserting on the fixture rather than the system are on record (T62,
+T197 round 1, the v78 fallback row). Therefore:
+
+| Test | Enters through | Asserts |
+|---|---|---|
+| grid-read-flat produces a residue finding | file bytes → adapter → transform → `describeElectiveRunRefusal` → `commitElectiveRun` | a residue item exists and the commit is NOT refused |
+| declared `offerings-menu` yields zero preference bindings | the same full path | no `elective_preferences` rows, and the menu's activity names never reach `groups`/`tiers` (T224 regression) |
+| Kind 3 (no cells) still commits | the same full path | rows written with `occurrence_id IS NULL` |
+| a confirmed axis binding is reused on re-import | two sequential imports of the same bytes | second import proposes the binding pre-confirmed; **and re-import is idempotent** |
+| the binding does NOT auto-apply to a drifted file | import of a mutated file | the match fails and the director is asked again |
+
+**Every one of these enters at file bytes and exits at the database.** A test that constructs a
+`parsed` object by hand and asserts on it is explicitly not acceptable evidence for any row above.
+
+**The acceptance metric, because otherwise this is not learning, it is more code.** Two numbers over
+the corpus:
+
+1. **Correct-binding rate** — share of pages where the proposed axis binding matches the known truth.
+   Goes up.
+2. **Silent-miss rate** — share of pages bound *wrongly* with **no** residue item and **no** low
+   confidence. **Must be zero, and it dominates.** A design that raises (1) while raising (2) is worse
+   than today, because today's defect is exactly a confident wrong reading.
+
+Neither number may be reported from a hand-built fixture.
+
+## 9. Open questions for the owner
+
+1. **Can we get one real Camp InTouch export from your camp?** *(Top question — the cheapest single
+   thing that would de-risk this whole design.)* Everything in §1 is a blank planning form. The file
+   that actually carries campers' answers comes out of the Camp InTouch portal, and nobody on this
+   project has ever seen one. No published spec exists for any camp platform's elective export. One
+   real export — even with the names removed — would turn shape class H from a guess into a fact, and
+   would tell us immediately whether it carries a stable camper id (§4.4) or forces name matching.
+2. **Is "infer, show, confirm, remember" what you meant by learning?** §6 rules it is, and rules out a
+   trained model on the evidence available. If you meant something closer to a model that reads
+   unfamiliar files on its own, say so — it is a different ADR with a different evidence bar, and I
+   have deliberately not smuggled it in.
+3. **Persisting the axis binding needs a table, and replicating it is a sync decision.** §5 amendment
+   2 and §6. Two nods needed: that a per-camp remembered reading is wanted at all (the prior ADR
+   recommended "not yet"), and that it **replicates** across the camp's devices rather than following
+   the host-local precedent. **Per my brief I have not picked a schema version and must not.** For
+   your information only: a peer session reports v79 as the next free version at the time of writing,
+   which this ADR neither claims nor reserves — allocation is yours after the coordination the
+   absorbed ADR's §10.1 describes.
+4. **Can the solver consume a preference with no rank, and must a cell choice outrank a fallback?**
+   §4.1 and §4.2. This is a scheduling-engine product question — what the camp *means* — not a
+   technical one.
+5. **Where does the instructional-swim opt-out live?** §4.3. It is a parent-permission-bearing
+   eligibility fact that changes which cells a camper must fill. It has no home in the model today and
+   this ADR refuses to give it a wrong one.
+6. **Carried over unanswered from the absorbed ADR** (§5): its §12 Q1 (`campers` and the
+   `permissions.js` ENTITIES entry), Q3 (a camper in no group), Q4 (prevention-only for a
+   false-positive camper row), Q5 (per-page declared kind granularity), Q6 (who allocates a schema
+   version).
+
+## 10. Candidate premises rejected
+
+Generated under two divergence passes — five isolated cognitive frames, then four isolated
+premise-advocacy branches, each argued without sight of the others (`adhd`).
+
+- **"Stop inferring entirely; the director declares kind AND layout."** Rejected in its maximal form:
+  both past incidents ran through the *silent commit*, not the guess, so a refusal-on-mismatch design
+  buys nothing the confirmation buys and costs an import the director cannot satisfy. Its load-bearing
+  half is adopted (§3.3): kind declared, layout proposed.
+- **"Learn nothing; make the loss loud and correction cheap."** Not rejected — **absorbed as stage 1**
+  (§6, §8), on `decisionJournal.js`'s own sequencing argument. Rejected only as the *whole* answer,
+  because a design that re-asks every June is not the improvement that was asked for.
+- **"Hand the director our template and have them reshape their file."** Rejected as an import path by
+  the owner's standing ruling, and independently by §1: the real answers live in a portal export the
+  director does not author. Survives only as a last-resort hatch reachable *after* a stated reader
+  failure, never as a menu option beside import.
+- **A learned document-kind classifier.** Rejected as a trap: it answers a question the director
+  already answered by choosing the import, it would score well on an easy task, and a perfect
+  classifier moves the flattening defect by zero.
+- **A per-camp column mapping as the unit of learning.** Rejected: it cannot represent a grid at all,
+  and a column insertion re-keys it *silently*. It falls out of a resolved axis binding rather than
+  being learned.
+- **Running the transform as a hosted service.** Rejected on the local-first boundary (§3.2). The MCP/
+  CLI *seam* is adopted; the network is not.
+- **Picking one preference model.** Falsified by §1 — one camp, one season, two models.
+- **Refusing a grid-shaped sheet read as flat.** Rejected: `commitElectiveRun.js:53-57` records the
+  owner's ruling that a whole-run list with no cells is legitimate data. A refusal would reject real
+  camps' real files. Residue, not refusal (§3.4).
