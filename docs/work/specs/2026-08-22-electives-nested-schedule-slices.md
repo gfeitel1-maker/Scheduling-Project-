@@ -109,7 +109,7 @@ eligibility prose stays a manual field — no NLP promise. Tracked in
   reconciliation raises a **nudge** ("this looks like an elective period — open the
   elective space?"), never a silent auto-create.
 - **Recognize offerings:** pull candidate offerings from an activity catalog
-  (Camp Aaron/JCC-style lists) and parse embedded rules (eligibility by
+  (activity-catalog-style lists) and parse embedded rules (eligibility by
   division/grade, double-period → multi-block span, "limited availability"/counts →
   capacity) using the Slice D inferred-rule machinery (`import_evidence`,
   `CONFIDENCE_COPY`, `plainEvidenceSentence`) — surfaced as reconciliation decisions

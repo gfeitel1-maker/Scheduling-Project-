@@ -167,7 +167,7 @@ Research splits this cleanly into **two features, not one**:
   is not schedulable data at all** (team rosters, spirit points, station staffing, trip times, meal
   changes) — the tool should let the director **record and print** those, not try to *solve* them.
 
-(Sources: Camp Stone Color War sheet, Peacock Powder planning guide, CampMinder rainy-day, Community Rec
+(Sources: a published Color War sheet, Peacock Powder planning guide, CampMinder rainy-day, Community Rec
 scheduling templates.)
 
 ### Friction / mismatch

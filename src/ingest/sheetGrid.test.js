@@ -196,9 +196,9 @@ describe('workbookToPages', () => {
 describe('the group name comes from the filename', () => {
   it('strips what every file has in common, keeping what differs', () => {
     const names = [
-      'Camp Larkspur Schedule 2025 - 1A.xlsx',
-      'Camp Larkspur Schedule 2025 - 2-3A.xlsx',
-      'Camp Larkspur Schedule 2025 - K1.xlsx',
+      'Camp B Schedule 2025 - 1A.xlsx',
+      'Camp B Schedule 2025 - 2-3A.xlsx',
+      'Camp B Schedule 2025 - K1.xlsx',
     ]
     const prefix = sharedFilenamePrefix(names)
     expect(names.map((n) => groupNameFromFilename(n, prefix))).toEqual(['1A', '2-3A', 'K1'])
@@ -213,7 +213,7 @@ describe('the group name comes from the filename', () => {
   })
 
   it('strips nothing from a lone file, because there is nothing to compare', () => {
-    expect(sharedFilenamePrefix(['Camp Larkspur Schedule 2025 - 1A.xlsx'])).toBe('')
+    expect(sharedFilenamePrefix(['Camp B Schedule 2025 - 1A.xlsx'])).toBe('')
   })
 })
 

@@ -30,7 +30,7 @@ describe('campIdHash', () => {
   })
 
   it('does not leak the input', () => {
-    expect(campIdHash('camp-ohalo-2026')).not.toContain('ohalo')
+    expect(campIdHash('camp-kinneret-2026')).not.toContain('kinneret')
   })
 
   it('refuses a missing or non-string camp id', () => {

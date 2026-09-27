@@ -38,7 +38,7 @@ describe('useDeviceMode.bootstrapCamp', () => {
     mockLocalClient.chooseMode.mockResolvedValue({ ok: true })
     mockLocalClient.bootstrapCamp.mockResolvedValue({ ok: true })
     mockLocalClient.login.mockResolvedValue({ token: 'tok-1', role: 'admin' })
-    mockLocalClient.getCamp.mockResolvedValue({ id: 'camp-1', name: 'Camp Ramah Tikvah' })
+    mockLocalClient.getCamp.mockResolvedValue({ id: 'camp-1', name: 'Camp Kinneret' })
     mockLocalClient.campHasSetupData.mockResolvedValue(false)
     mockLocalClient.onAuthRejected.mockReturnValue(() => {})
   })
@@ -49,7 +49,7 @@ describe('useDeviceMode.bootstrapCamp', () => {
     const { result } = renderHook(() => useDeviceMode())
     await act(async () => {
       await result.current.bootstrapCamp({
-        campName: 'Camp Ramah Tikvah', adminName: 'Dana Feldman', adminPin: '4827',
+        campName: 'Camp Kinneret', adminName: 'Dana Feldman', adminPin: '4827',
       })
     })
 

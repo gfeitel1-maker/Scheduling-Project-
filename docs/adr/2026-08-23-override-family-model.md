@@ -69,7 +69,7 @@ This is exactly the "override-and-replace" side of D2 in the prior ADR (`special
 Two real artifacts bear directly on this:
 
 - **Owner's 2 per-group xlsx**: "All Camp Activity" (Tue) reads as a **recurring event** (contend-and-coexist, handled by `anchor_activities`/`events`-as-cell) — no special day involved. Confirms the contend-family already covers the common "everyone does one big thing at once" case without needing the override-and-replace family at all.
-- **Camp Aaron bunk-schedule PDF, Friday "Special Event and Mitzvah Project"**: takes over the **afternoon only** (morning is a normal grid), spanning **multiple blocks × all groups**. Pressure-testing this against today's four mechanisms:
+- **A real camp's bunk-schedule PDF, Friday "Special Event and Mitzvah Project"**: takes over the **afternoon only** (morning is a normal grid), spanning **multiple blocks × all groups**. Pressure-testing this against today's four mechanisms:
   - Not `special_days` — that's whole-day-only by construction (no partial-day binding exists), and this is an afternoon, not a day.
   - Not a single `day_overrides` row — that's one `(group, day, block)` cell; this is many groups × many blocks, and there is no first-class grouping that says "these N override rows are one thing."
   - Not `template_overlays` — that's a caption with no activity/structure; a mitzvah project plausibly needs its own interior (who's doing what, at least at the free-text level).

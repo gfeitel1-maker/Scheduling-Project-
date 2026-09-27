@@ -49,7 +49,7 @@ describe('joinCode', () => {
   })
 
   it('does not leak the input', () => {
-    expect(joinCode('camp-ohalo-2026')).not.toContain('OHALO')
+    expect(joinCode('camp-kinneret-2026')).not.toContain('KINNERET')
   })
 
   // The camp id must not be recoverable from what goes on the LAN, and the two

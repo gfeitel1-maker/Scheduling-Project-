@@ -102,6 +102,51 @@ describe('scanDangerous', () => {
   })
 })
 
+describe('scanPrivacy — camp identity (Rule 4)', () => {
+  // NON-VACUITY: the defect these plant is the SHAPE the guard claims to catch, using names
+  // that are NOT in CAMP_NAME_ALLOWED and are not the real ones — so a pass here cannot come
+  // from the allowlist, and the test does not itself commit a real camp's name.
+  it('fires on `Camp <Name>` with a name it has never seen', () => {
+    const files = [{ path: 'docs/adr/x.md', content: 'Source: Camp Thistledown 2024 grid.' }]
+    expect(scanPrivacy(files).some((f) => f.pattern === 'camp-identity')).toBe(true)
+  })
+
+  it('fires on the JCC forms, including `JCC Camps at <Name>`', () => {
+    for (const line of ['a JCC Brightwater catalog', 'MJCC Brightwater grid', 'JCC Camps at Brightwater, 2024']) {
+      const findings = scanPrivacy([{ path: 'docs/adr/x.md', content: line }])
+      expect(findings.some((f) => f.pattern === 'camp-identity'), line).toBe(true)
+    }
+  })
+
+  it('fires on a name in a FILE PATH as well as in content', () => {
+    // Guards the case the earlier scrub missed entirely: the camp name was in a filename.
+    const files = [{ path: 'docs/samples/Camp Thistledown Schedule 2025.md', content: 'nothing here' }]
+    expect(scanPrivacy(files).some((f) => f.pattern === 'camp-identity')).toBe(true)
+  })
+
+  it('does NOT fire on the repo domain vocabulary, the anonymised stand-ins, or a possessive of them', () => {
+    const files = [{ path: 'docs/adr/x.md', content: 'Camp Setup, Camp Locations, Camp Shoresh,\nCamp A, Camp B, Camp B\u2019s export, Camp Setup\u2019s counts, JCC Wi-Fi' }]
+    expect(scanPrivacy(files).filter((f) => f.pattern === 'camp-identity')).toEqual([])
+  })
+
+  it('an allowlisted synthetic name is still allowed when possessive or plural-cased', () => {
+    const files = [{ path: 'docs/adr/x.md', content: "Camp Kinneret's grid and Camp Willowbrook's email" }]
+    expect(scanPrivacy(files).filter((f) => f.pattern === 'camp-identity')).toEqual([])
+  })
+
+  it('the allowlist is not a blanket pass — an unknown name next to an allowed one still fires', () => {
+    const files = [{ path: 'docs/adr/x.md', content: 'Camp Setup for Camp Thistledown' }]
+    const hits = scanPrivacy(files).filter((f) => f.pattern === 'camp-identity')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].detail).toContain('Camp Thistledown')
+  })
+
+  it('honours the allow marker for a deliberate fixture', () => {
+    const files = [{ path: 'docs/adr/x.md', content: 'Camp Thistledown // security-gate:allow' }]
+    expect(scanPrivacy(files).filter((f) => f.pattern === 'camp-identity')).toEqual([])
+  })
+})
+
 describe('scanPrivacy', () => {
   it('flags an absolute home path in a doc file', () => {
     const files = [{ path: 'docs/x.md', content: 'Run it from /Users/realname/dev/shoresh first.' }]

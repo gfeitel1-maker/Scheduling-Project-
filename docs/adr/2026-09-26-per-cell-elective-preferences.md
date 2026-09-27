@@ -45,8 +45,8 @@ whichever candidate was listed first, when the document explicitly declined to c
 
 ## The evidence
 
-A real artifact, supplied by the owner 2026-09-26: **JCC Camps at Medford, GILAD (grade 5), 2024
-Activity Selection Sheet.** A real camp, a real season, a real blank form of the kind this app must
+A real artifact, supplied by the owner 2026-09-26: **a real camp's grade-5 2024 Activity
+Selection Sheet.** A real camp, a real season, a real blank form of the kind this app must
 ingest. It is **not committed to this repository and must not be** — only its structure is described
 below, in the same discipline D14 used.
 

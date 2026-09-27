@@ -77,10 +77,10 @@ describe('campDiscoveryTag — pure, no real mDNS involved', () => {
   })
 
   it('never contains the camp id itself, or anything resembling it, in the tag', () => {
-    const campId = 'ohalo-summer-camp-2026'
+    const campId = 'kinneret-summer-camp-2026'
     const tag = campDiscoveryTag(campId)
     expect(tag).not.toContain(campId)
-    expect(tag.toLowerCase()).not.toContain('ohalo')
+    expect(tag.toLowerCase()).not.toContain('kinneret')
   })
 
   it('produces a tag shaped like a valid mDNS service tag, within DNS label limits', () => {

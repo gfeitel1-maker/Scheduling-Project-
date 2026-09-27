@@ -29,7 +29,7 @@ each isolated by a different artifact in the set:
 
 1. **A schedule layer** — grid cells, a rotation rule, a station→location map,
    its own timing that may replace or splice the normal day. The standalone
-   event-grid artifacts (Camp Chai xlsx, MJCC Memphis) are this object. It is
+   event-grid artifacts (a camp xlsx, a JCC grid) are this object. It is
    **mostly already built**: `special_days` (a full replacement grid,
    `electron/db/schema.sql` ~L678) and `day_overrides` (a partial splice,
    ~L796) both shipped under T40/T106/T108.
