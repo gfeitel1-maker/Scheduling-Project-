@@ -24,11 +24,14 @@ import { ensureHostSigningKey } from '../../auth/localAuth.js'
 import { signAuthFields } from '../../auth/authSignature.js'
 import { startSyncNode } from './syncNode.js'
 import { startJoinSession } from './joinSession.js'
-import { joinCode } from '../joinCode.js'
+import { mintJoinSecret } from '../joinCode.js'
 
 const HOST_CAMP_ID = 'camp-join-test'
-// The code the director would read off the Host's Add-a-device screen.
-const HOST_JOIN_CODE = joinCode(HOST_CAMP_ID)
+// T286 — the code the director would read off the Host's Add-a-device screen.
+// No longer derived from HOST_CAMP_ID (see joinCode.js's module comment):
+// minted once for this file, and handed to every real Host started below via
+// getJoinSecret, exactly as main.js mints one per Add-a-device window.
+const HOST_JOIN_CODE = mintJoinSecret()
 
 function insertUser(db, { camp_id, name, pin, role }) {
   const id = randomUUID()
@@ -84,6 +87,7 @@ async function startHost({ onPairingRequest } = {}) {
     // nothing — the document is what carries identity now.
     doc: seedAllFromSqlite(hostDb, A.clone(createEmptyDoc())),
     onPairingRequest,
+    getJoinSecret: () => HOST_JOIN_CODE,
   })
   nodes.push(host)
   return host
@@ -275,7 +279,7 @@ describe('startJoinSession — a peer that did not get the code from the directo
 
     // A joiner with the WRONG code stands in for the reverse case with the same
     // mechanism: neither side can produce the other's HMAC.
-    const { session } = await startJoiner(host, { code: joinCode('some-other-camp') })
+    const { session } = await startJoiner(host, { code: mintJoinSecret() })
     await session.findHost()
     expect((await session.requestPairing()).status).toBe('denied')
     expect(sawDirectorPrompt).toBe(false)
@@ -284,7 +288,7 @@ describe('startJoinSession — a peer that did not get the code from the directo
   it('refuses to send the PIN to a host that has not proved the code', async () => {
     insertUser(hostDb, { camp_id: HOST_CAMP_ID, name: 'Director', pin: '1234', role: 'admin' })
     const host = await startHost({ onPairingRequest: () => {} })
-    const { session } = await startJoiner(host, { code: joinCode('some-other-camp') })
+    const { session } = await startJoiner(host, { code: mintJoinSecret() })
     await session.findHost()
     await session.requestPairing()
 

@@ -6,7 +6,7 @@
 // covering the shape space systematically.
 import { describe, it, expect } from 'vitest'
 import { receiveFramed, sendFramed, MAX_FRAME_BYTES } from '../../electron/sync/automerge/wireProtocol.js'
-import { normalizeJoinCode, joinProof, verifyJoinProof, joinDiscoveryTag, joinCode } from '../../electron/sync/joinCode.js'
+import { normalizeJoinCode, joinProof, verifyJoinProof, joinDiscoveryTag, mintJoinSecret } from '../../electron/sync/joinCode.js'
 
 // Deterministic PRNG — seed is fixed so CI reproduces any failure exactly.
 function mulberry32(seed) {
@@ -96,7 +96,7 @@ describe('joinCode crypto surface — junk-input robustness & constant-time veri
   })
 
   it('verifyJoinProof never throws and never returns true for a wrong/junk proof', () => {
-    const code = joinCode('camp-under-test')
+    const code = mintJoinSecret()
     const nonce = 'deadbeefdeadbeefdeadbeefdeadbeef'
     const good = joinProof(code, nonce, 'joiner')
     // the genuine proof verifies

@@ -90,7 +90,7 @@ import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { startSyncNode } from './sync/automerge/syncNode.js'
 import { createEmptyDoc } from './automerge/campDocument.js'
 import { seedAllFromSqlite } from './automerge/seed.js'
-import { joinCode } from './sync/joinCode.js'
+import { mintJoinSecret } from './sync/joinCode.js'
 import { startJoinSession } from './sync/automerge/joinSession.js'
 import { signAuthFields } from './auth/authSignature.js'
 
@@ -622,15 +622,22 @@ async function startRealHostWithUser({ campId, hostDeviceId, tag }) {
   hostDb.prepare(
     'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig, cred_version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
   ).run(`${tag}-user`, campId, 'Director', pinHash, salt, 'admin', authSig)
+  // T286 — no longer derivable from campId (see joinCode.js's module
+  // comment); minted once per test host, exactly as main.js's setJoinWindow
+  // mints one per Add-a-device window, and returned so callers can hand the
+  // SAME value to joinStart as the code the joiner types.
+  const joinSecret = mintJoinSecret()
   const host = await startSyncNode({
     deviceId: hostDeviceId,
     db: hostDb,
     doc: seedAllFromSqlite(hostDb, A.clone(createEmptyDoc())),
     onPairingRequest: () => {},
+    getJoinSecret: () => joinSecret,
   })
   return {
     host,
     hostDb,
+    joinSecret,
     async cleanup() {
       await host.stop()
       hostDb.close()
@@ -672,11 +679,13 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
       'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig, cred_version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
     ).run('host-user', hostCampId, 'Director', pinHash, salt, 'admin', authSig)
 
+    const joinSecret = mintJoinSecret()
     const host = await startSyncNode({
       deviceId: 'host-device',
       db: hostDb,
       doc: seedAllFromSqlite(hostDb, A.clone(createEmptyDoc())),
       onPairingRequest: () => {},
+      getJoinSecret: () => joinSecret,
     })
 
     try {
@@ -697,7 +706,7 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
       // same reason. This is a test-only seam joinStart forwards straight to
       // startJoinSession; the renderer never sends it.
       const started = await handlers.joinStart({
-        code: joinCode(hostCampId),
+        code: joinSecret,
         deviceName: 'Joiner',
         knownHost: host.getMultiaddrs()[0],
       })
@@ -772,11 +781,13 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
     hostDb.prepare(
       'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role, auth_sig, cred_version) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
     ).run('host-user-b', hostCampId, 'Director', pinHash, salt, 'admin', authSig)
+    const joinSecret = mintJoinSecret()
     const host = await startSyncNode({
       deviceId: 'host-device-b',
       db: hostDb,
       doc: seedAllFromSqlite(hostDb, A.clone(createEmptyDoc())),
       onPairingRequest: () => {},
+      getJoinSecret: () => joinSecret,
     })
 
     try {
@@ -784,7 +795,7 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
         onCampJoined: () => { throw new Error('libp2p refused to listen') },
       })
       await handlers.joinStart({
-        code: joinCode(hostCampId),
+        code: joinSecret,
         deviceName: 'Joiner',
         knownHost: host.getMultiaddrs()[0],
       })
@@ -816,12 +827,12 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
   // session (see the `joinSession.js` mock above `describe('T274...')`).
   it('does not start the persistent sync node when the temporary join node fails to stop (no double identity)', async () => {
     const campId = 'camp-t274-c'
-    const { host, hostDb, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-c', tag: 't274c' })
+    const { host, hostDb, joinSecret, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-c', tag: 't274c' })
 
     try {
       const onCampJoined = vi.fn()
       const handlers = makeHandlers(db, deviceId, { onCampJoined })
-      await handlers.joinStart({ code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
+      await handlers.joinStart({ code: joinSecret, deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
       await pairAndLogIn(handlers, host, hostDb, { joiningDeviceId: deviceId })
 
       expect(lastJoinSession).toBeTruthy()
@@ -847,13 +858,13 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
   // be inert outside Vitest.
   it('ignores knownHost/discoveryWaitMs/documentWaitMs outside Vitest (renderer-reachable seam must not be honored in production)', async () => {
     const campId = 'camp-t274-d'
-    const { host, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-d', tag: 't274d' })
+    const { host, joinSecret, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-d', tag: 't274d' })
     const originalVitest = process.env.VITEST
     try {
       delete process.env.VITEST
       const handlers = makeHandlers(db, deviceId, {})
       const started = await handlers.joinStart({
-        code: joinCode(campId),
+        code: joinSecret,
         deviceName: 'Joiner',
         knownHost: host.getMultiaddrs()[0],
         discoveryWaitMs: 50,
@@ -881,11 +892,11 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
   // node on this device's same peer identity.
   it('joinCancel does not orphan the node when stop() rejects, and a subsequent joinStart refuses to start a second node on the same identity', async () => {
     const campId = 'camp-t274-e'
-    const { host, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-e', tag: 't274e' })
+    const { host, joinSecret, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-e', tag: 't274e' })
 
     try {
       const handlers = makeHandlers(db, deviceId, {})
-      await handlers.joinStart({ code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
+      await handlers.joinStart({ code: joinSecret, deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
       expect(await handlers.joinFindHost()).toEqual({ status: 'found' })
 
       expect(lastJoinSession).toBeTruthy()
@@ -908,7 +919,7 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
       // second node), proven by startJoinSession not having been called
       // again.
       const started2 = await handlers.joinStart({
-        code: joinCode(campId), deviceName: 'Joiner2', knownHost: host.getMultiaddrs()[0],
+        code: joinSecret, deviceName: 'Joiner2', knownHost: host.getMultiaddrs()[0],
       })
       expect(started2.status).toBe('stop_failed')
       expect(startJoinSession).toHaveBeenCalledTimes(callsBeforeCancel)
@@ -931,14 +942,14 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
   // that joinCancel does in isolation.
   it('a timed-out join does not orphan the node either: a retry that fails to stop it refuses rather than double-node', async () => {
     const campId = 'camp-t274-f'
-    const { host, hostDb, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-f', tag: 't274f' })
+    const { host, hostDb, joinSecret, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-f', tag: 't274f' })
 
     try {
       const handlers = makeHandlers(db, deviceId, {})
       // documentWaitMs: 0 forces waitForCamp to give up immediately, rather
       // than racing the real (usually fast) projection after a genuine login.
       await handlers.joinStart({
-        code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0], documentWaitMs: 0,
+        code: joinSecret, deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0], documentWaitMs: 0,
       })
       await pairAndLogIn(handlers, host, hostDb, { joiningDeviceId: deviceId })
 
@@ -950,7 +961,7 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
       const callsBeforeRetry = startJoinSession.mock.calls.length
 
       const retried = await handlers.joinStart({
-        code: joinCode(campId), deviceName: 'Joiner2', knownHost: host.getMultiaddrs()[0],
+        code: joinSecret, deviceName: 'Joiner2', knownHost: host.getMultiaddrs()[0],
       })
       expect(retried.status).toBe('stop_failed')
       expect(startJoinSession).toHaveBeenCalledTimes(callsBeforeRetry)
@@ -977,10 +988,10 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
 
     it('is true while a join is genuinely in flight (must block a start)', async () => {
       const campId = 'camp-t274-g'
-      const { host, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-g', tag: 't274g' })
+      const { host, joinSecret, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-g', tag: 't274g' })
       try {
         const handlers = makeHandlers(db, deviceId, {})
-        await handlers.joinStart({ code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
+        await handlers.joinStart({ code: joinSecret, deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
         expect(handlers.hasRetainedJoinSession()).toBe(true)
       } finally {
         await cleanup()
@@ -989,10 +1000,10 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
 
     it('stays true when a join session is retained after a failed stop (must block a start — this is the exact scenario Red Hat traced)', async () => {
       const campId = 'camp-t274-h'
-      const { host, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-h', tag: 't274h' })
+      const { host, joinSecret, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-h', tag: 't274h' })
       try {
         const handlers = makeHandlers(db, deviceId, {})
-        await handlers.joinStart({ code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
+        await handlers.joinStart({ code: joinSecret, deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
         expect(await handlers.joinFindHost()).toEqual({ status: 'found' })
 
         expect(lastJoinSession).toBeTruthy()
@@ -1012,14 +1023,14 @@ describe('T274: joinAwaitData starts the sync node in the same session', () => {
 
     it('is false again once a join succeeds — joinAwaitData nulls activeJoin BEFORE firing onCampJoined (must NOT block the next legitimate start)', async () => {
       const campId = 'camp-t274-i'
-      const { host, hostDb, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-i', tag: 't274i' })
+      const { host, hostDb, joinSecret, cleanup } = await startRealHostWithUser({ campId, hostDeviceId: 'host-device-i', tag: 't274i' })
       try {
         const stateAtInvocation = []
         const onCampJoined = vi.fn(() => {
           stateAtInvocation.push(handlers.hasRetainedJoinSession())
         })
         const handlers = makeHandlers(db, deviceId, { onCampJoined })
-        await handlers.joinStart({ code: joinCode(campId), deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
+        await handlers.joinStart({ code: joinSecret, deviceName: 'Joiner', knownHost: host.getMultiaddrs()[0] })
         await pairAndLogIn(handlers, host, hostDb, { joiningDeviceId: deviceId })
         expect(handlers.hasRetainedJoinSession()).toBe(true)
 

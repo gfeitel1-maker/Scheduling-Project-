@@ -24,7 +24,6 @@ import { multiaddr } from '@multiformats/multiaddr'
 
 import { openLocalDb, getOrCreateDeviceId } from '../../electron/db/localDb.js'
 import { startJoinSession } from '../../electron/sync/automerge/joinSession.js'
-import { joinCode as joinCodeFor } from '../../electron/sync/joinCode.js'
 import { applyWrite } from '../../electron/automerge/campDocument.js'
 import { AmHost, makeTmpDir, cleanupDirs, waitFor, configureDualWrite } from './harnessAutomerge.js'
 
@@ -55,10 +54,13 @@ async function runHost() {
   configureDualWrite(tmpDir)
   const host = new AmHost(`${tmpDir}/host.db`)
   await host.start()
-  const { campId } = await host.bootstrap({ campName: 'XVer', adminName: 'admin', adminPin: '1234' })
+  const { campId, joinCode } = await host.bootstrap({ campName: 'XVer', adminName: 'admin', adminPin: '1234' })
 
   const addr = host.node.getMultiaddrs()[0].toString()
-  fs.writeFileSync(handoffPath, JSON.stringify({ addr, campId }))
+  // T286 — the join code is a random Host-minted secret, not derivable from
+  // campId (see electron/sync/joinCode.js), so it must be handed across the
+  // handoff file exactly like addr/campId rather than recomputed client-side.
+  fs.writeFileSync(handoffPath, JSON.stringify({ addr, campId, joinCode }))
 
   // A real director clicks approve; this automates that click, since the
   // point of this test is the transport underneath, not the UI.
@@ -110,7 +112,7 @@ async function runClient() {
   const deviceId = getOrCreateDeviceId(db)
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'XVerClient')
 
-  const code = joinCodeFor(handoff.campId)
+  const code = handoff.joinCode
   const knownHost = multiaddr(handoff.addr)
 
   console.error('[client] starting join session, code=', code, 'knownHost=', handoff.addr)
