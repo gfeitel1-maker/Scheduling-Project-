@@ -1,7 +1,7 @@
 ---
 title: "A rollback module that is not the rollback it names"
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-26
 archive_when: Every file matching electron/db/rollback/vN_down.js is checked by an automated gate that its exported function name, its CLI self-guard filename literal, its Usage line, and the version in its schema_migrations DELETE all agree with N in its own filename - and the gate is shown red by each of four planted defects - a wrong export name, a CLI guard naming a different file, a correct export name whose DELETE targets a different version, and a new module using the retired down(dbPath) convention - with electron/db/rollback/v67_down.js corrected to export rollbackV67 and guard on v67_down.js
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]

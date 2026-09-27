@@ -1,7 +1,7 @@
 ---
 title: "Extract startAutomergeSyncNodeIfEnabled so its behaviour is executed under test"
 document_type: ticket
-status: open
+status: completed
 task_class: test-infrastructure
 date: 2026-09-26
 created: 2026-09-26

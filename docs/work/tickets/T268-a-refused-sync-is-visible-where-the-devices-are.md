@@ -1,7 +1,7 @@
 ---
 title: "A refused sync is visible where the devices are"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-26
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]

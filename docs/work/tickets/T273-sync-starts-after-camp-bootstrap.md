@@ -1,7 +1,7 @@
 ---
 title: "A freshly created camp starts syncing without a restart"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-26
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
@@ -71,3 +71,6 @@ startup function directly.
   the owner as a separate ticket; `electron/mainSyncStartupWiring.test.js` pins
   both sites as deliberately unwired so the gap cannot be quietly certified as
   covered.
+
+## Known limit at close
+The starter's decision logic is executed under Vitest as of T276 (`electron/sync/automerge/syncStarter.test.js`), which discharges what this ticket could not prove at merge. What remains unobserved is the real `app.whenReady()` composition in a packaged run: no unit test starts Electron. **Creating a camp on one machine and pairing a second without restarting has still not been done.** T274 closes the join-side half of the same defect.

@@ -26,13 +26,8 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Multi-device erasure propagation via signed purge tombstones](../../docs/work/tickets/T233-multi-device-erasure-propagation.md) | open | [2026-09-19-multi-device-erasure-propagation](../../docs/adr/2026-09-19-multi-device-erasure-propagation.md) |
 | [T264-cross-device-lock-survival](../../docs/work/tickets/T264-cross-device-lock-survival.md) | open | — |
-| [A refused sync is visible where the devices are](../../docs/work/tickets/T268-a-refused-sync-is-visible-where-the-devices-are.md) | open | — |
-| [Schema-version handshake and a version gate before Automerge merge](../../docs/work/tickets/T271-schema-version-gate-before-merge.md) | in-progress | [2026-09-26-schema-version-gate-before-merge](../../docs/adr/2026-09-26-schema-version-gate-before-merge.md) |
 | [Derived-id stability cannot be inferred from the shared V constant](../../docs/work/tickets/T272-derived-id-stability-cannot-be-inferred-from-v.md) | open | — |
-| [A freshly created camp starts syncing without a restart](../../docs/work/tickets/T273-sync-starts-after-camp-bootstrap.md) | open | — |
-| [A device that joins a camp by code starts syncing without a restart](../../docs/work/tickets/T274-join-by-code-sync-start.md) | in-progress | [T275-degraded-sync-retry-surface](../../docs/work/tickets/T275-degraded-sync-retry-surface.md) · [T276-extract-sync-starter-for-executed-tests](../../docs/work/tickets/T276-extract-sync-starter-for-executed-tests.md) |
 
 ### documentation-governance
 
@@ -52,7 +47,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [At-rest encryption activation — flip on document + SQLite encryption, safely](../../docs/work/tickets/T175-at-rest-encryption-activation.md) | in-progress | [T179-headless-db-key-access-for-mcp-cli](../../docs/work/tickets/T179-headless-db-key-access-for-mcp-cli.md) · [T260-name-key-acquisition-failure](../../docs/work/tickets/T260-name-key-acquisition-failure.md) |
 | [Name the at-rest key-acquisition failure at the openLocalDb seam](../../docs/work/tickets/T260-name-key-acquisition-failure.md) | in-progress | — |
-| [Privacy guard: fail the gate on home paths, camp identity and PII entering tracked files](../../docs/work/tickets/T263-privacy-guard-before-public.md) | open | — |
 
 ### test-infrastructure
 
@@ -60,14 +54,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Phase E — measure whether WAN failure is discovery or direct dial](../../docs/work/tickets/T212-wan-connectivity-measurement.md) | open | [2026-09-18-connectivity-observability-event-vocabulary](../../docs/adr/2026-09-18-connectivity-observability-event-vocabulary.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [CI minutes: stop re-verifying a tree that already went green](../../docs/work/tickets/T261-ci-minutes-duplicate-main-runs.md) | open | — |
-| [Extract startAutomergeSyncNodeIfEnabled so its behaviour is executed under test](../../docs/work/tickets/T276-extract-sync-starter-for-executed-tests.md) | open | [T275-degraded-sync-retry-surface](../../docs/work/tickets/T275-degraded-sync-retry-surface.md) |
-
-### ui-ux-design
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Surface the safe-degraded 'sync needs retry' state to the director](../../docs/work/tickets/T275-degraded-sync-retry-surface.md) | open | [T277-sync-not-running-visibility](../../docs/work/tickets/T277-sync-not-running-visibility.md) |
-| [A quiet always-present indicator when sync is not running](../../docs/work/tickets/T277-sync-not-running-visibility.md) | open | — |
 
 ### unclassified
 
@@ -78,7 +64,6 @@ Regenerate with `npm run index:work`.
 | [T219-multi-day-catalog-linkage](../../docs/work/tickets/T219-multi-day-catalog-linkage.md) | open | [2026-09-23-elective-run-lifecycle-and-remaining-slices](../../docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) · [2026-09-18-elective-followups-t218-t219-handoff](../../docs/work/handoffs/2026-09-18-elective-followups-t218-t219-handoff.md) · [2026-09-26-docs-closes-t218-closes-t222-on-owner-ruling-reshape-t219-to](../../docs/work/runs/2026-09-26-docs-closes-t218-closes-t222-on-owner-ruling-reshape-t219-to.md) · [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) |
 | [T237-attention-rows-open-the-reconciliation-flow](../../docs/work/tickets/T237-attention-rows-open-the-reconciliation-flow.md) | open | [T240-collapse-duplicate-ingest-layer](../../docs/work/tickets/T240-collapse-duplicate-ingest-layer.md) |
 | [T251-t199-acceptance-fixture](../../docs/work/tickets/T251-t199-acceptance-fixture.md) | open | [2026-09-23-elective-run-lifecycle-and-remaining-slices](../../docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) · [2026-09-26-ingest-category-exclusivity-and-anchor-identity](../../docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md) |
-| [A rollback module that is not the rollback it names](../../docs/work/tickets/T269-rollback-module-identity-guard.md) | in-progress | — |
 
 ## Decisions
 

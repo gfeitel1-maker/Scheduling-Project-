@@ -1,7 +1,7 @@
 ---
 title: "Privacy guard: fail the gate on home paths, camp identity and PII entering tracked files"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-25
 task_class: security-auth
 archive_when: "scanPrivacy ships as a fourth check in scripts/security-gate.js covering file CONTENTS and PATHS, the 11 files currently carrying the developer home path at HEAD are clean, and a non-vacuity test proves each pattern class goes red when planted — including one planted in a filename rather than in content"
