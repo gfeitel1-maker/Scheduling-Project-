@@ -184,3 +184,100 @@ not scanned (they expire on their own retention schedule).
 [T263](T263-privacy-guard-before-public.md) builds the forward-looking guard, which is the
 precondition for going public. The rewrite remains an open owner decision, and the evidence above
 argues against it.
+
+---
+
+## 2026-09-27 — the tip re-accumulated real camp identity, and a shape rule now blocks it
+
+Found during T278 review, out of that ticket's scope, folded in here rather than spun into a
+competing ticket.
+
+### The correction this section exists to make
+
+The 2026-09-25 re-scope above states **"Camp name: 0 files at tip"** and concludes **"no real-camp
+material ships at the tip."** Both were wrong as written. The sweep measured **one** camp name — the
+one whose digest the guard holds — and the conclusion was drawn about the whole class. A day later
+`docs/adr/2026-09-26-per-cell-elective-preferences.md` cited a real JCC camp, division and season at
+the tip; two August ADRs had been carrying a different real camp all along.
+
+This is the same failure mode twice: #248's "verified 0 occurrences remain" regressed to 11 files,
+and #285's sweep answered a question adjacent to the one asked. **Both gates were green on that
+tree** (`security-gate.js` exit 0, `check-governance.js` exit 0) while seven files named real camps.
+
+### What was actually present, and what was scrubbed
+
+A shape-based sweep found **more than the targeted grep did** — including real camps nobody had
+looked for:
+
+| what it was | where | disposition |
+|---|---|---|
+| a day camp's name, paired with a JCC's | 2 ADRs + 1 spec | → "a day camp's", "a real camp's activity-list pdf" |
+| a JCC's name + its division + season | 2 ADRs + **`src/engine/buildElectiveAssignments.js`** | → "a real camp's grade-5 2024 selection sheet" |
+| a second JCC's name | 2 ADRs | → "a JCC grid" |
+| a second camp's name | 3 docs + **5 `src/` files incl. test fixtures** | → `Camp B` (this repo's existing anonymisation) |
+| a real camp's name inside a test-fixture camp name | 3 test fixtures | → `Camp Kinneret` (already-synthetic demo name) |
+| three published-glossary citations | field-voice research | → "four movement-affiliated camps (Conservative and Reform)" |
+| a published Color War sheet's camp | facility-audit sources | → "a published Color War sheet" |
+| a camp used as an illustrative example | `electron/sync/automerge/discovery.js` comment | → `Camp Kinneret` |
+
+The names themselves are deliberately **not** written here. This table was drafted with them in it and
+the new Rule 4 went red on this very file — which is the rule working, and is why it reads this way.
+
+**Deletion was rejected in favour of re-description.** These names are *evidence provenance* — an
+argument rests on them — so a straight deletion damages the ADR. The `_Prior:` /
+`doc-refs:historical` convention was also rejected: it exists so a doc naming a repo path *in order
+to say it is gone* stays traceable, and it works by **preserving the name**, which is the one thing
+this must not do. Nothing here is being said to be gone.
+
+**Cleared, not scrubbed:** `Camp Willowbrook` is the product's own fabricated placeholder
+(`src/screens/CampBootstrapScreen.jsx`); `Shemesh` is confirmed fabricated above; `Chai`,
+`Maccabiah` and `TAVOR` are generic Hebrew / Jewish-camp vocabulary. The one committed binary that
+could have carried identity — `docs/work/handoffs/assets/2026-09-17-individual-elective-scheduling-handoff.docx`
+— was unzipped and scanned (41 KB of extracted text, **zero hits**); the two camper-preference CSVs
+are `fabricated-*` and are.
+
+### The guard: a shape rule, not more digests
+
+The brief for this work assumed the guard missed this because `IDENTITY_TOKEN_LENGTHS` is
+`{5, 10}`. That is only half right and the difference matters: two of the four tokens involved are
+length 5, so they **were** hashed and tested — they simply were not in the digest set. Only the
+7-letter place name and the 3-letter organisation acronym are untestable at any digest.
+
+**Adding camp-name digests was considered and rejected.** It is a denylist against an **open set**:
+every new artifact arrives before its digest does, so it would not have caught either ADR that
+prompted this. And because SHA-256 of a short lowercase word is trivially brute-forced — the guard's
+own comment concedes this — such a list is itself an enumerable roster of the camps this developer
+holds data from.
+
+**What shipped instead is `camp-identity`, Rule 4 in `scanPrivacy`:** a *shape* rule over
+`Camp <Name>`, `JCC <Name>`, `<X>JCC <Name>` and `JCC Camps at <Name>`, holding **no camp names at
+all**, with a plaintext allowlist of the repo's own domain vocabulary and its verified-synthetic
+fixture names. Same architecture as the existing home-path rule (shape-generic + placeholder
+allowlist). Because it holds no names, it fires on the **first** commit citing a new camp. It runs
+over file **paths** as well as contents — the earlier scrub's own miss was a camp name in a
+filename. A new word after `Camp` surfaces as a finding for a human to classify, which is the
+intended failure direction.
+
+### Residual control, stated because a green reads as permission
+
+Rule 4 does **not** cover, and no guard here can:
+
+- an unstructured proper noun with no `Camp`/`JCC`/path/email shape around it — a camp referred to
+  by a bare name, a director's name, a bunk name;
+- the **contents** of binary or opaque files (`.xlsx`, `.docx`, `.pdf`, images) — only their paths
+  are checked.
+
+For those the only control is **human review**. The gate's pass line now says so on every green run,
+because the green line is what gets quoted as clearance to publish.
+
+### What this does to the rewrite decision
+
+It strengthens the 2026-09-25 recommendation and adds a fact the owner should weigh: the tip
+re-accumulated real camp identity **nine days** after a sweep concluded it was clean, and did so
+through ordinary ADR authorship rather than carelessness. A one-time history rewrite would not have
+prevented any of it. The forward guard remains the valuable work; **the rewrite is still an open
+owner decision** and the measured case against it is unchanged.
+
+Ticket allocation note: the highest allocated ticket is **T282** (T279–T282 are held unpushed in the
+`peaceful-keller-404ba9` worktree). Next free is T283 — deliberately unused, per the instruction to
+fold this into T120 rather than open a competing ticket.

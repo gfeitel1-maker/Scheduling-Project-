@@ -235,6 +235,40 @@ const EMAIL_ALLOW_LOCALPARTS = /^(?:noreply|no-reply|git)@/i
 
 // Finds email-shaped substrings in `line` without backtracking: '@' can only be preceded/
 // followed by bounded character-class runs, so total work is linear in line length.
+// Rule 4 — camp identity by SHAPE, not by a denylist of names. `Camp <Name>`, `JCC <Name>`,
+// `<X>JCC <Name>` and `JCC Camps at <Name>` are how a real camp or sponsoring organisation gets
+// named in prose, and the shape is what is checkable: the guard holds NO camp names, so it works
+// on the FIRST commit that cites a new camp rather than lagging behind a digest nobody added yet.
+//
+// WHY NOT DIGESTS (asked and answered, 2026-09-27): a digest list of camp names is a denylist
+// against an OPEN set — every new artifact arrives before its digest does, so it would not have
+// caught either of the two ADRs that prompted this rule. Worse, because SHA-256 of a short
+// lowercase word is trivially brute-forced (see IDENTITY_TOKEN_DIGESTS above), such a list is
+// itself an enumerable roster of the camps this developer holds data from.
+//
+// The allowlist below is PLAINTEXT on purpose and is not a leak: every entry is a name the owner
+// FABRICATED, or generic Hebrew / Jewish-camp vocabulary that identifies nobody. Adding a real
+// camp's name here would defeat the rule — describe the artifact non-identifyingly instead
+// ("a real camp's grade-5 activity-selection sheet, 2024").
+const CAMP_NAME_RE = /\b(?:[A-Z]{1,2}JCC|JCC|Camp)\s+(?:Camps\s+at\s+)?([A-Z][A-Za-z'’-]{2,})\b/g
+const CAMP_NAME_ALLOWED = new Set([
+  // Synthetic names used as test fixtures, mockup data and prototype chrome. Verified synthetic
+  // (they exist only in test/mockup files); safe in plaintext because they identify nobody.
+  'kinneret', 'arazim', 'winnepesaukee', 'testwood', 'willowbrook', 'shemesh', 'probe',
+  'renamed', 'demo', 'sample', 'example', 'placeholder', 'fabricated', 'test',
+  // The anonymised stand-ins the earlier scrub introduced — these ARE the anonymisation.
+  'a', 'b', 'x', 'y', 'one', 'two', 'three', 'four', 'alpha', 'beta',
+  // The product's own name, and domain/structural words that follow "Camp" in ordinary prose
+  // ("Camp Setup", "Camp Locations"). Not an open-ended English wordlist: these are the words
+  // this repository actually uses, and a new one surfaces as a finding for a human to classify.
+  'shoresh', 'app', 'set', 'setup', 'activity', 'model', 'locations', 'spatial', 'network',
+  'lunch', 'window', 'scheduling', 'signing', 'all', 'code', 'name', 'data', 'identity',
+  'bootstrap', 'map', 'schedule', 'season', 'seasons', 'staff', 'wide', 'level', 'record',
+  'records', 'id', 'ids', 'the', 'director', 'tuesday', 'tue', 'wi-fi', 'camps',
+  // Generic Hebrew / Jewish-camp vocabulary — cohort and program words, not identities.
+  'maccabiah', 'yeladim', 'tzofim', 'chalutzim', 'alonim', 'shorashim', 'tavor', 'gilad', 'chai',
+])
+
 function findEmailCandidates(line) {
   const matches = []
   for (let i = 0; i < line.length; i++) {
@@ -292,6 +326,18 @@ export function scanPrivacy(files, digests = IDENTITY_TOKEN_DIGESTS) {
       }
     }
 
+    // Rule 4, path — the earlier scrub's own miss was a camp name in the FILENAME
+    // (`campB-<camp-name>-by-day.txt`), so the shape rule must run over paths too. Like the
+    // digest path check, there is deliberately no allow-marker escape: a path has no line to
+    // append a comment to. Rename the file instead.
+    CAMP_NAME_RE.lastIndex = 0
+    let cp
+    while ((cp = CAMP_NAME_RE.exec(path))) {
+      if (CAMP_NAME_ALLOWED.has(cp[1].toLowerCase().replace(/[’']s$/, ''))) continue
+      findings.push({ kind: 'privacy', pattern: 'camp-identity', path, line: null,
+        detail: `${path} — filename names a camp or sponsoring organisation ("${cp[0]}"). Rename the file; there is no allow-marker escape for path findings.` })
+    }
+
     // RESIDUAL BLIND SPOT (Fix 2): a binary/opaque format (.xlsx, .docx, .pdf, images,
     // .sqlite) has content: null here — only its PATH was checked above. Its CONTENTS are
     // never scanned; extracting text from those formats is explicitly out of scope.
@@ -345,6 +391,19 @@ export function scanPrivacy(files, digests = IDENTITY_TOKEN_DIGESTS) {
       if (PHONE_RES.some((re) => re.test(line))) {
         findings.push({ kind: 'privacy', pattern: 'phone', path, line: i + 1,
           detail: `${path}:${i + 1} — possible phone number. If intentional (a test fixture), append \`// ${ALLOW}\` to the line.` })
+      }
+
+      // Rule 4 — camp identity
+      CAMP_NAME_RE.lastIndex = 0
+      let cm
+      while ((cm = CAMP_NAME_RE.exec(line))) {
+        // Normalise a possessive ("Kinneret's", "Setup's") to its bare word before the
+        // allowlist lookup, so an allowed word is not re-flagged purely for carrying an
+        // apostrophe-s. A genuine name is still caught in either form.
+        const campWord = cm[1].toLowerCase().replace(/[’']s$/, '')
+        if (CAMP_NAME_ALLOWED.has(campWord)) continue
+        findings.push({ kind: 'privacy', pattern: 'camp-identity', path, line: i + 1,
+          detail: `${path}:${i + 1} — names a camp or sponsoring organisation ("${cm[0]}"). Describe the artifact without identifying it ("a real camp's grade-5 activity-selection sheet, 2024"). If the name is fabricated, add it to CAMP_NAME_ALLOWED; if intentional, append \`// ${ALLOW}\` to the line.` })
       }
     }
   }
@@ -417,6 +476,11 @@ if (invokedDirectly) {
   if (findings.length === 0) {
     // eslint-disable-next-line no-console
     console.log(`✅ security-gate: 0 findings (deps + secrets + dangerous patterns + privacy)${unreadableNote}`)
+    // A pass is NARROWER than it reads. Say so here, next to the green, because the green is
+    // what gets quoted as permission to publish (T263/T120, 2026-09-27).
+    console.log('   NOT covered: contents of binary/opaque files (.xlsx/.docx/.pdf/images — path only);')
+    console.log('   an unstructured proper noun with no camp/JCC/path/email shape around it. Human review remains')
+    console.log('   the only control for those. This is not a clearance to publish.')
     process.exit(0)
   }
   // eslint-disable-next-line no-console

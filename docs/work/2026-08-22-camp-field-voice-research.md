@@ -58,6 +58,6 @@ Recommendation: (a) + (c) together.
 ## Sources
 FJC: jewishcamp.org (Assistant Director posting; Professional Development; "From Tefillah to the
 Chadar Ochel" Hebrew-use study). JCamp180: jcamp180.org, hgf.org. Jewish Day Camp Network:
-jdcnetwork.org. Field vernacular/glossaries: Ramah Boston daily program, Ramah Day Camp Sha'ar,
-Camp Coleman glossary, Camp Moshava tzevet. (Reform Judaism master glossary returned 403; substituted.)
+jdcnetwork.org. Field vernacular/glossaries: published daily programs and glossaries from four
+movement-affiliated camps (Conservative and Reform). (Reform Judaism master glossary returned 403; substituted.)
 </content>

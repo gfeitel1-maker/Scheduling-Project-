@@ -6,7 +6,7 @@
 //
 // PER-CELL PREFERENCES (T265, 2026-09-26) — see
 // docs/adr/2026-09-26-per-cell-elective-preferences.md. A real camp artifact
-// (JCC Medford GILAD 2024 selection sheet) shows preferences are chosen PER
+// (a real camp's grade-5 2024 selection sheet) shows preferences are chosen PER
 // (day, period) CELL, each cell carrying its own offering list: one activity
 // appears in ~15 of 18 selectable cells, so a single global "rank 1" names no
 // occurrence. A camper's rank for an activity in one cell is INDEPENDENT of

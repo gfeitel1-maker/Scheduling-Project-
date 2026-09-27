@@ -17,7 +17,7 @@ const rows = [
 vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn(async (table) => (table === 'fixed_events' ? rows : [])),
-    getCamp: vi.fn(async () => ({ name: 'Camp Ramah Tikvah' })),
+    getCamp: vi.fn(async () => ({ name: 'Camp Kinneret' })),
     onOpApplied: () => () => {},
     onLocalWrite: () => () => {},
   },

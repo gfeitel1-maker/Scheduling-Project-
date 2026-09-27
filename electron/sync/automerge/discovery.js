@@ -32,7 +32,7 @@
 // including a stranger's laptop in a shared building. This module derives
 // the serviceTag from a one-way hash of the camp id, never the camp's
 // human-readable name — an observer on the LAN sees an opaque,
-// non-reversible tag, never "Camp Ohalo" or similar. The Bonjour path
+// non-reversible tag, never "Camp Kinneret" or similar. The Bonjour path
 // (electron/sync/discovery.js) used to broadcast `campName` verbatim; that
 // leak is fixed, and both paths now derive from the same shared campIdHash.
 import { mdns } from '@libp2p/mdns'

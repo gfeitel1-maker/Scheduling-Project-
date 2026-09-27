@@ -10,7 +10,7 @@ vi.mock('../localClient', () => {
     localClient: {
       __listeners: listeners,
       list: vi.fn(async () => []),
-      getCamp: vi.fn(async () => ({ name: 'Camp Ramah Tikvah' })),
+      getCamp: vi.fn(async () => ({ name: 'Camp Kinneret' })),
       onOpApplied: (cb) => { listeners.opApplied.push(cb); return () => {} },
       onLocalWrite: (cb) => { listeners.localWrite.push(cb); return () => {} },
     },
