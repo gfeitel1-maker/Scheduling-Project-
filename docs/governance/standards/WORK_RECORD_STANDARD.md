@@ -195,6 +195,44 @@ finding-free pass stays distinguishable from a run where the check did not execu
 
 That CI skip is one member of a broader pattern — a check that answers a narrower question than the reader assumes. A green CI run is positive evidence status-drift was **not** checked, not evidence it passed. See [`TESTING_STANDARD.md`](TESTING_STANDARD.md), "What a green (or red) verdict actually claims," when triaging a confusing gate result.
 
+## 3.3 The drift gate is a keyword check, not a board-truth guarantee
+
+`checkStatusDrift` (§3.2) answers exactly one question: *did a commit that wrote `closes T##` /
+`Merge S##` also flip that document's status?* It does not, and cannot, answer *"did every ticket
+whose work merged get flipped?"* Two structural reasons, both verified:
+
+- It matches only the `closes`/`Merge` keyword, deliberately (§3.2). This repository's merge
+  subjects are overwhelmingly `T<n>: title (#pr)` — a topic marker, not a completion claim (a
+  work-in-progress commit carries it too). Measured 2026-09-26: of the last 40 merges to `main`,
+  2 carried the keyword. Widening the regex to treat the `T<n>:` prefix as a closure would demand
+  `completed` on every in-progress commit that names its ticket — over-firing, which §3.2 names as
+  how a gate stops meaning anything.
+- It runs pre-merge over `git log origin/main..HEAD` (`scripts/check-governance.js`). The
+  squash-merge subject does not exist when it runs, and once merged it is in `origin/main`, outside
+  that diff. A commit that lands a ticket's code without the keyword never enters the gate's field
+  of view.
+
+**Therefore board-truth is not gated.** A ticket's `status` reaching `completed` when its work ships
+is a discipline, not something a check enforces:
+
+- **Flip the ticket's `status` as part of the work** — in the branch that lands it, so the board is
+  current at merge. Do not rely on the drift gate to remind you; for a `T<n>:`-style merge it will
+  not fire.
+- **Flip only when the full `archive_when` is discharged.** If a clause is undischarged — a partial
+  (PR 1 of N), a criterion that needs elapsed time, or one unproven on real hardware — leave the
+  ticket open and record a `## Known limit at close` section stating precisely what remains, rather
+  than flipping. This is §2's "never delete reasoning to satisfy a field" applied to closure: a
+  residual is legible; a premature `completed` is a false claim the next reader inherits.
+- The board (`docs/work/INDEX.md`) is generated from these `status` values by
+  `scripts/build-work-index.js`; regenerate with `npm run index:work` and never hand-edit it. Where
+  it disagrees with the tickets, `GOVERNANCE_INDEX.md` §9 applies — they are right and it is stale,
+  which is only ever a prompt to regenerate.
+
+Whether this discipline should additionally be backed by a going-forward, main-side audit gate (one
+that flags a merged `T<n>:` commit whose ticket is not yet `completed`) is tracked as its own
+ticket; such a gate would surface the pre-existing backlog on its first run, which is the gate
+working, not a regression.
+
 ---
 
 ## 4. `task_class`
