@@ -1495,6 +1495,22 @@ CREATE TABLE IF NOT EXISTS elective_choice_offerings (
 -- construction), a "next 5 choices" list is a ranked FALLBACK subordinate to
 -- the cells, and a packed multi-value cell is an unordered SET with no ranking
 -- at all.
+-- coordinate_day_label / coordinate_period_label (v79, T279 round 2, owner
+-- ruling) declared LAST for the same ALTER-appends reason, in ALTER order after
+-- rank_kind.
+--
+-- THE COORDINATE AND THE OCCURRENCE ARE FACTS ABOUT DIFFERENT THINGS, and
+-- storing only the second is what made this table lossy. The COORDINATE
+-- ("Monday", "Period 3") is what the CHILD asked for, as written on their sheet,
+-- and it is true the moment the sheet is read. The OCCURRENCE is a cell of ONE
+-- particular candidate schedule, and neither candidate route is canonical, so it
+-- does not exist until a template does. A sheet imported in spring therefore has
+-- occurrence_id NULL on every row -- and before v79 that meant two cells naming
+-- one activity collapsed onto one row, discarding a child's answer because the
+-- app could not yet express it. Both are nullable and both are kept: the
+-- coordinate round-trips intact and the caller resolves it to an occurrence at
+-- solve time. deriveElectivePreferenceId's 'at' arm keys on the coordinate, so
+-- the two cells are two rows with no template in sight.
 CREATE TABLE IF NOT EXISTS elective_preferences (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
@@ -1502,7 +1518,9 @@ CREATE TABLE IF NOT EXISTS elective_preferences (
   choice_id TEXT,
   rank INTEGER,
   occurrence_id TEXT,
-  rank_kind TEXT
+  rank_kind TEXT,
+  coordinate_day_label TEXT,
+  coordinate_period_label TEXT
 );
 
 -- idx_elective_preferences_run_camper_occurrence is NOT declared here,

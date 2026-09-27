@@ -527,14 +527,23 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
   // preferences and wrote 160, because `deriveElectivePreferenceId` omits rank
   // from its key and overwrites silently.
   //
-  // THE KEY HERE IS DELIBERATELY `deriveElectivePreferenceId`'s OWN KEY —
-  // (camper_id, occurrence_id, choice_id) — and not the coordinate. That is the
-  // key two rows actually collide on in STORAGE, and resolving against any
-  // other key would report a count that storage then disagrees with, which is
-  // the very defect this pass exists to close. Consequence worth naming: until
-  // a caller resolves a coordinate to an occurrence_id, two DIFFERENT cells
-  // naming the SAME activity collapse onto one row. The drop is residued rather
-  // than silent, which is the honest behaviour available at this layer.
+  // THE KEY HERE IS DELIBERATELY `deriveElectivePreferenceId`'s OWN KEY, because
+  // that is the key two rows actually collide on in STORAGE — resolving against
+  // any other key would report a count that storage then disagrees with, which
+  // is the very defect this pass exists to close.
+  //
+  // ROUND 2 (owner ruling): that key now includes the COORDINATE, so this one
+  // does too, and the consequence this comment used to name is GONE rather than
+  // merely reported. It used to say: "until a caller resolves a coordinate to an
+  // occurrence_id, two DIFFERENT cells naming the SAME activity collapse onto
+  // one row. The drop is residued rather than silent, which is the honest
+  // behaviour available at this layer." That was honest about the symptom and
+  // wrong about the cause. Discarding a child's second answer is not a layer
+  // limitation — it was storage keying on a schedule fact (the occurrence) to
+  // hold a child fact (the coordinate). Two cells are two distinct SCOPES with
+  // no template in sight, so they are two rows and there is no collision to
+  // resolve. A repeated choice inside ONE scope is still a collision, and is
+  // still resolved best-rank-wins below.
   //
   // The three collisions get three treatments, and the asymmetry is the ruling:
   //   same rank, two different choices  → REFUSED (hasContradictoryRanks, below)
@@ -551,7 +560,11 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
   // writing every swap twice and paying an indexOf scan per collision.
   const byKey = new Map()
   for (const c of candidates) {
-    const key = `${c.camper_id}\u0000${c.occurrence_id ?? ''}\u0000${c.labelKey}`
+    // Mirrors deriveElectivePreferenceId's three arms: an occurrence outranks a
+    // coordinate, a coordinate outranks nothing, and a whole-run row keys on the
+    // same empty scope every other whole-run row does.
+    const scope = c.occurrence_id ?? coordinateKey(c.coordinate)
+    const key = `${c.camper_id}\u0000${scope}\u0000${c.labelKey}`
     const held = byKey.get(key)
     if (!held) {
       byKey.set(key, c)
@@ -573,7 +586,7 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog } = {
 
     add(
       'DROPPED_DUPLICATE_RANK',
-      `${winner.label} is named more than once for the same camper and the same period. The ` +
+      `${winner.label} is named more than once by the same camper for the same period. The ` +
         `stronger statement was kept (${winner.rank == null ? 'no rank' : `#${winner.rank}`}) and ` +
         `${loser.rank == null ? 'the unranked mention' : `#${loser.rank}`} on row ${loser.rowNumber} ` +
         'was dropped, so the count you see is the number of preferences actually stored.',

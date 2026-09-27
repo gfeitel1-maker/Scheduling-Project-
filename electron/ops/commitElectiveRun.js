@@ -358,7 +358,12 @@ export function commitElectiveRun(db, {
         }
         write(
           'elective_preferences',
-          deriveElectivePreferenceId(runId, p.camper_id, p.occurrence_id ?? null, choiceId),
+          // The COORDINATE joins the key (T279 round 2). Without it, a per-cell
+          // sheet imported before any template exists has occurrence_id NULL on
+          // every row, so two cells naming one activity derive ONE id and the
+          // second silently overwrites the first — the importer discarding a
+          // child's answer because it could not yet express it as a row.
+          deriveElectivePreferenceId(runId, p.camper_id, p.occurrence_id ?? null, choiceId, p.coordinate ?? null),
           {
             run_id: runId,
             camper_id: p.camper_id,
@@ -377,6 +382,12 @@ export function commitElectiveRun(db, {
             // 'unordered-set' with no ranking at all — a tie among equals, never
             // a ranking invented from cell order.
             rank_kind: p.rank_kind ?? null,
+            // Stored as the file WROTE them, never canonicalized: the derived id
+            // canonicalizes for keying, but these columns are provenance and a
+            // director has to recognise their own sheet in them. NULL on a
+            // whole-run row, which legitimately has no cell.
+            coordinate_day_label: p.coordinate?.dayName ?? null,
+            coordinate_period_label: p.coordinate?.periodLabel ?? null,
           }
         )
       }

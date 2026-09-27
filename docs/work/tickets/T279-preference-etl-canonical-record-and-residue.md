@@ -4,7 +4,7 @@ document_type: ticket
 status: open
 created: 2026-09-27
 task_class: database-sync
-archive_when: "a preference file of any observed kind enters through ONE pure transform module called identically from the import screen, the CLI and the MCP tools; ALL FIVE RESOLVERS are implemented under one rule (columns to roles, labels to catalog activities, division labels to existing groups, rows to camper identities, coordinates to elective cells) and every value that resolves to nothing becomes residue rather than a silent write; a correctly-read 18-cell planner for ONE camper writes 18 rows with distinct non-null occurrence_ids and is NOT refused, proven by a test entering at file bytes — which REQUIRES sameNameCampers to gain the coordinate dimension, since today one name on many rows collapsing to one derived id is refused before hasContradictoryRanks is even reached (verified by execution, ADR 13.1), while the same name twice at the SAME coordinate stays refused; campers.division_label AND elective_preferences.rank_kind exist at schema v79 with rollbackV79 and a >= 78 AND < 79 guard AND with division_label added to PROJECTIONS.campers.fields and rank_kind to PROJECTIONS.elective_preferences.fields (an unlisted field is SILENTLY discarded by applyProjection, so omitting this populates nothing with a green gate), a matching division resolves to group_id and an unmatched one is stored verbatim with a residue item and NEVER creates a group; the reported preference count EQUALS the number of rows written, with two ranks on one (camper, occurrence, choice) resolved best-rank-wins and the dropped rank residued while two choices at one rank stay refused; a forked identity (one name, several derived ids, a row lacking an external id) produces a residue item naming each row division; a row whose rank cells resolve to no known activity is skipped rather than made a camper; the false comment at src/ingest/preferenceSheet.js:19-21 claiming ranking is GLOBAL is corrected; and no test in the set asserts on a hand-built parsed fixture"
+archive_when: "a preference file of any observed kind enters through ONE pure transform module called identically from the import screen, the CLI and the MCP tools; ALL FIVE RESOLVERS are implemented under one rule (columns to roles, labels to catalog activities, division labels to existing groups, rows to camper identities, coordinates to elective cells) and every value that resolves to nothing becomes residue rather than a silent write; a correctly-read per-cell planner for ONE camper writes ONE ROW PER CELL, each carrying the coordinate as written on the sheet, with NO two cells merged and NO dropped-duplicate residue, and is NOT refused, proven by a test entering at file bytes (occurrence_id may legitimately be NULL at import time: no template exists then, and the caller resolves the coordinate at solve time - the earlier wording demanded distinct NON-NULL occurrence_ids, which was proven unachievable on this path and is corrected here rather than left standing) — which REQUIRES sameNameCampers to gain the coordinate dimension, since today one name on many rows collapsing to one derived id is refused before hasContradictoryRanks is even reached (verified by execution, ADR 13.1), while the same name twice at the SAME coordinate stays refused; campers.division_label, elective_preferences.rank_kind AND elective_preferences.coordinate_day_label/coordinate_period_label exist at schema v79 with rollbackV79 and a >= 78 AND < 79 guard AND with division_label added to PROJECTIONS.campers.fields and rank_kind plus both coordinate columns to PROJECTIONS.elective_preferences.fields (an unlisted field is SILENTLY discarded by applyProjection, so omitting this populates nothing with a green gate), a matching division resolves to group_id and an unmatched one is stored verbatim with a residue item and NEVER creates a group; the reported preference count EQUALS the number of rows written, with two ranks on one (camper, occurrence, choice) resolved best-rank-wins and the dropped rank residued while two choices at one rank stay refused; a forked identity (one name, several derived ids, a row lacking an external id) produces a residue item naming each row division; a row whose rank cells resolve to no known activity is skipped rather than made a camper; the false comment at src/ingest/preferenceSheet.js:19-21 claiming ranking is GLOBAL is corrected; and no test in the set asserts on a hand-built parsed fixture"
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_adrs: [docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-learned-axis-binding.md]
 related_tickets: [docs/work/tickets/T278-import-agnostic-elective-preferences.md]
@@ -48,3 +48,37 @@ reading them. The predicate above was unachievable until the identity resolver o
 unimplementable. (3) **Both projection allowlists are part of this change, not a follow-up** — a field
 absent from `PROJECTIONS.<entity>.fields` is discarded silently by `applyProjection`, so the failure
 mode is a green gate over an empty column.
+
+
+## ROUND 2 — owner ruling: the machine seam never refuses, and the coordinate is STORED
+
+Two rulings, and the second is a real fix rather than a policy tweak.
+
+**1. The CLI and the MCP tools must never refuse a readable file.** Owner: *"imagine that
+someone is using the cli or the mcp — the point would be to have your AI talk to the software. that
+bridge makes everything about our life easier. how could we write software that says no to someone?"*
+A refusal at the machine seam is not a safety property, it is the bridge failing. This generalises
+the standing ruling *"we are reading someone's data. we are not choosing how they import it"*: at the
+machine seam, **ACCEPT AND REPORT** is the only acceptable shape. Recorded in the ADR as a standing
+design rule (§14.1) because it governs every future adapter and every future gate on that path, not
+just this ticket.
+
+**2. Storage must carry the COORDINATE, not only the resolved occurrence.** The round-1
+implementation keyed `elective_preferences` on `(camper, occurrence_id, choice)`, and `occurrence_id`
+is NULL until a template exists — so a per-cell sheet imported before any schedule was built had two
+cells naming one activity **merge into one row**, with the loss reported as a dropped duplicate. Read
+as a product statement: the importer was discarding a camper's answer because it could not yet
+express it. That is T278's own defect happening inside the fix for it.
+
+The coordinate (day label, period label, as written) is a fact about **what the child asked for** and
+is true the moment the sheet is read. The occurrence is a fact about **one candidate schedule**. ADR
+§3.1 always said the record *"names a coordinate (day, period), never an occurrence_id"*; storage
+never followed the record, and now does. `deriveElectivePreferenceId` gains a third, coordinate-scoped
+arm (`epref2:`), so two cells are two rows **with no template in sight**. Coordinate resolution stays
+exactly where §13.2 put it — solve-time, template-scoped — so a file imported in spring round-trips
+its coordinates intact and becomes resolvable later **without being re-imported**.
+
+**MEASURED:** P33 (per-cell long form) went from 15 preference rows and 75 `DROPPED_DUPLICATE_RANK`
+residue items to **90 rows and 0** — 75 of a camper's answers were being discarded, and are now
+stored. No other probe changed bucket, residue count or row count, and no probe reports a count
+disagreeing with the rows it wrote.

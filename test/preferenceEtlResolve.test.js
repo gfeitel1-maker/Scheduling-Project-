@@ -586,6 +586,92 @@ describe('the IDENTITY resolver (ADR §13.1, §12.3, §4.4)', () => {
     expect(kinds).toEqual(['cell-choice'])
   })
 
+  it('two cells naming the SAME activity are TWO rows, with their coordinates intact', () => {
+    // OWNER RULING, round 2, and this is the whole point of it. A child who asks
+    // for Archery in Monday period 3 AND in Monday period 6 has stated TWO
+    // things. Storage used to key on (camper, occurrence_id, choice), and
+    // occurrence_id is NULL until a template exists — so both answers collapsed
+    // onto one row and the second was reported as a dropped duplicate. That is
+    // the T278 defect (the importer silently discarding a camper's answer)
+    // happening inside the fix for it.
+    //
+    // The COORDINATE is a fact about what the CHILD asked for, true the moment
+    // the sheet is read. The OCCURRENCE is a fact about one candidate schedule,
+    // and does not exist yet. Conflating them is what made this lossy.
+    seedActivities(['Archery', 'Ceramics'])
+
+    const result = commitBytes(
+      'same-activity-two-cells.csv',
+      'Camper Name,Day,Period,#1\n' +
+        'Dalia Tuff,Monday,Period 3,Archery\n' +
+        'Dalia Tuff,Monday,Period 6,Archery\n'
+    )
+    expect(result.error).toBeNull()
+    expect(result.ok).toBe(true)
+
+    const rows = withDb((db) =>
+      db
+        .prepare(
+          `SELECT coordinate_day_label, coordinate_period_label, occurrence_id
+             FROM elective_preferences ORDER BY coordinate_period_label`
+        )
+        .all()
+    )
+    // TWO rows. Not one, and not a residued drop.
+    expect(rows).toHaveLength(2)
+    expect(result.counts.preferences).toBe(2)
+    expect(rows.map((r) => r.coordinate_period_label)).toEqual(['Period 3', 'Period 6'])
+    for (const r of rows) expect(r.coordinate_day_label).toBe('Monday')
+
+    // occurrence_id stays NULL, and that is CORRECT rather than a gap: no
+    // template exists at import time, and resolving the coordinate to an
+    // occurrence is the caller's job at solve time (ADR §13.2). The file
+    // round-trips its coordinates intact and becomes resolvable later WITHOUT
+    // being re-imported.
+    for (const r of rows) expect(r.occurrence_id).toBeNull()
+
+    // And nothing was reported as dropped, because nothing was.
+    expect(residueKinds(result)).not.toContain('DROPPED_DUPLICATE_RANK')
+  })
+
+  it('the coordinate is stored exactly as the file wrote it', () => {
+    seedActivities(['Swim'])
+    const result = commitBytes(
+      'coordinate-verbatim.csv',
+      'Camper Name,Day Of Week,Period Number,#1\nDalia Tuff,Wednesday,4,Swim\n'
+    )
+    expect(result.ok).toBe(true)
+    const row = withDb((db) =>
+      db.prepare('SELECT coordinate_day_label, coordinate_period_label FROM elective_preferences').get()
+    )
+    expect(row.coordinate_day_label).toBe('Wednesday')
+    expect(row.coordinate_period_label).toBe('4')
+  })
+
+  it('a whole-run sheet stores NO coordinate, and still collapses a repeated choice', () => {
+    // Non-vacuity for the row above. A flat ranked list has no cells, so both
+    // coordinate columns are NULL and the pre-existing whole-run uniqueness
+    // invariant is untouched: naming one activity at two ranks is still ONE row
+    // at the better rank, with the drop residued.
+    seedActivities(['Swim', 'Archery'])
+    const result = commitBytes(
+      'whole-run-repeat.csv',
+      'Camper Name,#1,#2,#3\nDalia Tuff,Swim,Archery,Swim\n'
+    )
+    expect(result.ok).toBe(true)
+
+    const rows = withDb((db) =>
+      db.prepare('SELECT rank, coordinate_day_label, coordinate_period_label FROM elective_preferences ORDER BY rank').all()
+    )
+    expect(rows).toHaveLength(2)
+    for (const r of rows) {
+      expect(r.coordinate_day_label).toBeNull()
+      expect(r.coordinate_period_label).toBeNull()
+    }
+    expect(rows.map((r) => r.rank)).toEqual([1, 2])
+    expect(residueKinds(result)).toContain('DROPPED_DUPLICATE_RANK')
+  })
+
   it('F1 non-vacuity: the same name twice at the SAME coordinate is STILL refused', () => {
     // The widening must be a widening, not a removal. Two rows naming one child
     // at ONE coordinate is the original T226 collision and stays refused.

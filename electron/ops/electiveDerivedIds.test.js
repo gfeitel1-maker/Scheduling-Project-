@@ -49,17 +49,121 @@ describe('frozen output vectors', () => {
   // is preferred to a back-compat shim — the same tradeoff round 1's own ADR
   // migration note already made for this exact table). Re-pinning the
   // narrower preference-id vector alone is proportionate; bumping V is not.
+  // T279 ROUND 2 (docs/adr/2026-09-27-elective-preference-etl-canonical-record-
+  // and-learned-axis-binding.md §14.2, docs/work/tickets/T279-preference-etl-
+  // canonical-record-and-residue.md) re-pins the preference vectors onto
+  // `epref2:` and adds the coordinate arm. A DELIBERATE ACT per this block's own
+  // rule, not an edit made to chase a red test.
+  //
+  // WHY THE SHAPE CHANGED. The function gained a THIRD scope arm keyed on the
+  // (day label, period label) COORDINATE as written on the sheet. Before it, a
+  // per-cell sheet imported when no template existed had `occurrence_id` NULL on
+  // every row, fell into the 'all' arm, and two cells naming one activity derived
+  // ONE id — so the second silently overwrote the first, discarding a camper's
+  // answer because the app could not yet express it as a row.
+  //
+  // WHY `PREFERENCE_V` AND NOT A BUMP OF `V`. The reasoning recorded above still
+  // holds: `V` is shared by eight id kinds INCLUDING `camper${V}`, and re-keying
+  // every camper id — referenced by assignments and attendance — is not
+  // proportionate to a change in one id's scope arms. What round 1 got wrong was
+  // not the refusal to bump V, it was leaving the shape change INVISIBLE. A
+  // per-kind version fixes that without the blast radius. Verified mechanically
+  // that `epref` is the only prefix carrying PREFERENCE_V and that
+  // coordinateComponents has exactly one caller, so exactly these two vectors
+  // needed re-pinning and the rest of this block is untouched BECAUSE it is
+  // unaffected — not because it was overlooked.
+  //
+  // IDS FROM EARLIER ROUNDS OF THIS BRANCH ARE NOT COMPARABLE. An `epref1:` row
+  // in a developer's local shoresh-dev database will not match a freshly-derived
+  // id for the same logical row. That is exactly what this module's comment at
+  // its `V` declaration asks a future reader to be told.
+  //
+  // THE EXPECTED STRINGS BELOW ARE DERIVED FROM THE SPEC, NOT REGENERATED FROM
+  // THE IMPLEMENTATION — a vector copied out of the code under test asserts
+  // nothing about the code under test. `join` emits `${c.length}.${c}` per
+  // component, so each one is checkable by hand:
+  //
+  //   'run-1'    -> 5.run-1        'camper-1' -> 8.camper-1
+  //   'occ'      -> 3.occ          'occ-1'    -> 5.occ-1
+  //   'at'       -> 2.at           'all'      -> 3.all
+  //   'monday'   -> 6.monday       'period3'  -> 7.period3
+  //   'choice-1' -> 8.choice-1
+  //
+  // The coordinate halves are canonicalized by electiveChoiceLabelKey (lowercase,
+  // whitespace stripped), so 'Monday' -> 'monday' and 'Period 3' -> 'period3'.
   it('pins deriveElectivePreferenceId (scoped)', () => {
     expect(deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1')).toBe(
-      'epref1:5.run-18.camper-13.occ5.occ-18.choice-1'
+      'epref2:5.run-18.camper-13.occ5.occ-18.choice-1'
     )
   })
 
-  // The fallback arm (null occurrence_id) — a NEW vector, not a re-pin.
+  // The fallback arm (null occurrence_id, no coordinate).
   it('pins deriveElectivePreferenceId (whole-run fallback, null occurrence_id)', () => {
     expect(deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1')).toBe(
-      'epref1:5.run-18.camper-13.all8.choice-1'
+      'epref2:5.run-18.camper-13.all8.choice-1'
     )
+  })
+
+  // The COORDINATE arm — the reason round 2 exists.
+  it('pins deriveElectivePreferenceId (coordinate-scoped, no occurrence yet)', () => {
+    expect(
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', {
+        dayName: 'Monday',
+        periodLabel: 'Period 3',
+      })
+    ).toBe('epref2:5.run-18.camper-12.at6.monday7.period38.choice-1')
+  })
+
+  // THE DEFECT THE WHOLE CHANGE EXISTS TO FIX, pinned as a PAIR of literal
+  // vectors rather than only as an inequality. An inequality would catch a future
+  // re-merge, but it would not catch the two ids drifting together into some
+  // third shape, and it does not tell a reader WHAT the two ids are. Both halves
+  // are hand-derived: identical but for the period component, 7.period3 vs
+  // 7.period6.
+  it('pins two cells, one camper, one choice, DIFFERENT coordinates → two distinct ids', () => {
+    const at = (periodLabel) =>
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', { dayName: 'Monday', periodLabel })
+
+    expect(at('Period 3')).toBe('epref2:5.run-18.camper-12.at6.monday7.period38.choice-1')
+    expect(at('Period 6')).toBe('epref2:5.run-18.camper-12.at6.monday7.period68.choice-1')
+    // Stated as well as implied: these must never collapse onto one row again.
+    expect(at('Period 3')).not.toBe(at('Period 6'))
+  })
+
+  it('the coordinate is canonicalized, so one cell spelled two ways is ONE row', () => {
+    // Same canonicalizer as the choice label (electiveChoiceLabelKey), not a
+    // second normalization rule — a second rule is the drift this module refuses.
+    expect(
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', {
+        dayName: ' monday ',
+        periodLabel: 'period3',
+      })
+    ).toBe('epref2:5.run-18.camper-12.at6.monday7.period38.choice-1')
+  })
+
+  it('an occurrence OUTRANKS a coordinate: once resolved, the occurrence is the scope', () => {
+    // The arms are ordered by strength. An occurrence is a fact about the
+    // schedule actually being solved, so a resolved preference keys exactly as it
+    // did before the coordinate existed — pinned to the SCOPED vector above, so
+    // this cannot pass by both sides changing together.
+    expect(
+      deriveElectivePreferenceId('run-1', 'camper-1', 'occ-1', 'choice-1', {
+        dayName: 'Monday',
+        periodLabel: 'Period 3',
+      })
+    ).toBe('epref2:5.run-18.camper-13.occ5.occ-18.choice-1')
+  })
+
+  it('the two coordinate halves cannot collide across the split', () => {
+    // Passed as SEPARATE length-prefixed components, so ('Monday 1', '') and
+    // ('Monday', '1') are different ids rather than one. Hand-derived:
+    // 'monday1' is 7 chars and '' is 0, vs 'monday' 6 and '1' 1.
+    expect(
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', { dayName: 'Monday 1', periodLabel: '' })
+    ).toBe('epref2:5.run-18.camper-12.at7.monday10.8.choice-1')
+    expect(
+      deriveElectivePreferenceId('run-1', 'camper-1', null, 'choice-1', { dayName: 'Monday', periodLabel: '1' })
+    ).toBe('epref2:5.run-18.camper-12.at6.monday1.18.choice-1')
   })
 
   it('pins deriveElectiveAssignmentId', () => {

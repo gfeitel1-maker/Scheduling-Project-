@@ -3712,9 +3712,9 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   }
 
   // v79 (T279, docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-
-  // learned-axis-binding.md §12.6 + §13.3) — TWO nullable columns the elective
-  // preference ETL needs in order to STORE what it reads instead of reporting
-  // it and dropping it:
+  // learned-axis-binding.md §12.6 + §13.3, extended by round 2's owner ruling) —
+  // FOUR nullable columns the elective preference ETL needs in order to STORE
+  // what it reads instead of reporting it and dropping it:
   //
   //   campers.division_label          — the division exactly as written on the
   //     source file. PROVENANCE, never an entity reference: `group_id` answers
@@ -3727,6 +3727,13 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   //     or 'unordered-set'. `rank` stays an integer; rank_kind says what
   //     COMPARING two of them means, which one integer column cannot carry
   //     across the three observed sheet kinds (§4.2).
+  //   elective_preferences.coordinate_day_label
+  //   elective_preferences.coordinate_period_label
+  //                                   — the (day, period) coordinate AS WRITTEN on
+  //     the sheet. A fact about what the CHILD asked for, true when the sheet is
+  //     read; `occurrence_id` is a fact about one candidate schedule and does not
+  //     exist until a template does. Storing only the latter discarded the former,
+  //     so two cells naming one activity merged into one row.
   //
   // Guard is the house `>= N-1 && < N` form (`>= 78 && < 79`), not a bare
   // `< 79`: the bare form is a known bug in this repo — it re-fires on every
@@ -3763,6 +3770,17 @@ const DEVICE_HEALTH_EVENTS_DDL = `
         const cols = db.pragma('table_info(elective_preferences)').map((c) => c.name)
         if (!cols.includes('rank_kind')) {
           db.exec('ALTER TABLE elective_preferences ADD COLUMN rank_kind TEXT')
+        }
+        // The COORDINATE as read off the file, which is a different fact from the
+        // occurrence and must not wait on one. See schema.sql's comment on this
+        // table: storing only occurrence_id meant a sheet imported before any
+        // schedule existed had NULL on every row, so two cells naming one
+        // activity collapsed and a child's second answer was discarded.
+        if (!cols.includes('coordinate_day_label')) {
+          db.exec('ALTER TABLE elective_preferences ADD COLUMN coordinate_day_label TEXT')
+        }
+        if (!cols.includes('coordinate_period_label')) {
+          db.exec('ALTER TABLE elective_preferences ADD COLUMN coordinate_period_label TEXT')
         }
       }
     })()

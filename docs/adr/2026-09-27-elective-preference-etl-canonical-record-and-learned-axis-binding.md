@@ -1819,3 +1819,141 @@ rather than absorbed:
 blocker the traceability table was built to prevent, and found that a premise I had called verified was
 verified for the wrong stage of the pipeline. The design is better; my estimate of it was too high.
 
+
+## 14. ROUND 7 — two owner rulings from the first implementation round
+
+Both came out of implementation reporting a consequence honestly and the owner rejecting the
+conclusion drawn from it. Recorded here rather than in the ticket because the first is a standing rule
+that outlives T279 entirely.
+
+### 14.1 STANDING RULE — at the machine seam, ACCEPT AND REPORT. Never refuse a readable file.
+
+Owner, 2026-09-27: *"imagine that someone is using the cli or the mcp — the point would be to have
+your AI talk to the software. that bridge makes everything about our life easier. how could we write
+software that says no to someone?"*
+
+**Ruling: the CLI (`scripts/preferenceSheetCli.js`, `scripts/ingestCli.js`) and the MCP tools
+(`scripts/mcp/tools.js`) must never refuse a file they can read.** A refusal at that seam is not a
+safety property — it is the bridge failing. The whole point of the machine interface is that an agent
+can drive this software on a director's behalf, and an agent cannot argue with a refusal the way a
+human can.
+
+**This generalises a ruling already on the record** rather than introducing a new principle. The owner
+had already ruled, at `commitElectiveRun.js:53-57`, *"we are reading someone's data. we are not
+choosing how they import it"*, and round 5 of this ADR applied it to one case (a whole-run list with no
+`occurrence_id`). §14.1 states the general form: **ACCEPT AND REPORT is the only acceptable shape at
+the machine seam.** Residue (§3.4) is what makes that safe — the loud half is the reason accepting is
+not the same as pretending.
+
+**What this rule does NOT license**, stated because it would otherwise read as "never refuse
+anything":
+
+- A genuine **collision** still refuses, because accepting it would mean inventing an answer. Two
+  children sharing a name with nothing to tell them apart, or one camper holding one rank on two
+  different choices, are not readable files with a reported caveat — they are files with two possible
+  readings and no evidence for either. §12.2b's asymmetry table stands.
+- It is not licence to **write a value that was not resolved**. §12.0 is unchanged: accept the file,
+  and say what could not be resolved. Accepting a file and silently guessing at its contents is the
+  defect this whole ADR exists to remove, and "never refuse" must not be read as permission to
+  commit it.
+
+The distinction is between *"this app does not support your file"* (forbidden at the machine seam) and
+*"this file is ambiguous and I cannot choose for you"* (still correct). The first is a limitation the
+bridge should absorb; the second is a question only a human can answer.
+
+#### §14.1 IS NOT SATISFIED TODAY, and here is exactly how far off it is
+
+Stated with the measurement rather than as an aspiration, because a standing rule recorded without its
+gap list reads as a rule already kept. T279 round 2 **stopped adding** a refusal; it did not remove the
+ones already there. Measured against the corpus (`node scripts/preferenceCorpusProbe.mjs
+--seed-catalog`), of 15 refusals on the preference path **14 violate §14.1** and one does not:
+
+| Refusal | Probes | Verdict |
+|---|---|---|
+| *"does not look like a camper preference sheet — could not find: name/ranks"* | P03, P04, P12, P19, P22, P23, P26, P29, P30, P31, P32, P34 | **VIOLATES.** Every one is a readable file in a shape no adapter exists for: prose rank headers, a header that is not row 1, a planner grid, an offerings menu, tidy/long form, activities-as-columns, split name columns. |
+| *"header lists rank #N more than once"* | P11 | **VIOLATES.** A duplicate rank header is resolvable — it is the `unordered-set` reading (§4.1), a tie among equals — and is being refused instead of read. |
+| *"has no rows under its header"* | P39 | Benign. There is no data to accept; this is a description, not a refusal of content. |
+| *"camper name appears on more than one row with no camper id"* | P07 | **CORRECT and stays.** Genuine ambiguity with no evidence for either reading — the second category above. |
+
+So §14.1's real cost is **the adapters**, and that is the honest sizing: the rule is satisfied by
+teaching the reader more shapes and reporting what it could not bind, not by deleting refusal
+statements. Deleting them without an adapter would produce the far worse failure of committing a file
+the reader does not understand — T224 exactly. **This is a program, not a patch**, and it is the
+`offerings-menu` / elective-adapter work §11.1 and §12.5 residual 3 already scope. What round 2 adds is
+the *rule* those slices are measured against, plus the number they have to move: **14 to 0.**
+
+
+### 14.2 The coordinate is STORED, and §12.2b's key was wrong about which fact it was scoping
+
+**The report that triggered this.** Round 1 implemented §12.2b's collision key literally, as
+`deriveElectivePreferenceId`'s own key — `(camper_id, occurrence_id, choice_id)` — and then reported
+the consequence: *"until a caller resolves a coordinate to an occurrence_id, two DIFFERENT cells
+naming the SAME activity collapse onto one row. The drop is residued rather than silent, which is the
+honest behaviour available at this layer."* Measured on P33: 15 rows written, 75 dropped.
+
+**The owner's reading, which is correct and which the design had missed:** that sentence describes the
+importer **discarding a camper's answer** — "Archery, Monday period 3" — because it could not yet
+express it as a row. **That is the defect this ADR was opened for, happening inside the fix for it.**
+Residuing a loss does not stop it being a loss; §3.4's loud half exists for values the app genuinely
+cannot resolve, not as a receipt for data it chose to drop.
+
+**The error, named precisely.** §12.2b reasoned about scope as though `occurrence_id` were the only
+scope dimension, and concluded that rank must not join the key — which is still right. What it missed
+is that a preference is scoped by **two different kinds of fact**, and they are not interchangeable:
+
+| Fact | What it is about | When it is true |
+|---|---|---|
+| **coordinate** (day label, period label, as written) | what the **CHILD** asked for | the moment the sheet is read |
+| **occurrence_id** | a cell of **ONE candidate schedule** | only once a template exists |
+
+Keying a child's statement on a schedule's identity makes the child's statement unstorable until a
+schedule exists. **§3.1 had this right and storage never followed it** — it says the binding "names a
+coordinate (day, period), never an `occurrence_id`; the caller resolves the coordinate against
+`deriveOccurrences` at solve time." The canonical record was correct from round 1; the STORAGE was
+never made to match it, and §12.6's "no other schema change" foreclosed the column that would have.
+**That is §12.7's own diagnosed pattern — residue-instead-of-storage — for the third time in this
+document.** It is worth stating plainly that the tell held: every time this design reported something
+as residue where storing it needed a column, the storage was the right answer.
+
+**Decision, three parts.**
+
+1. **`elective_preferences` carries the coordinate as read** — `coordinate_day_label` and
+   `coordinate_period_label`, both nullable, at v79 (§12.6's column list grows to four). Stored
+   VERBATIM: the derived id canonicalizes for keying, but these columns are provenance and a director
+   has to recognise their own sheet in them. `occurrence_id` is unchanged — still nullable, still
+   resolved later by the caller.
+2. **`deriveElectivePreferenceId` gains a THIRD arm, and a per-kind version.** The arms, in
+   descending strength of scope: `occ` (an occurrence), `at` (a coordinate), `all` (neither, the
+   whole-run fallback). Two cells therefore derive two ids **with no template in sight**, which is the
+   entire point. The prefix version becomes `epref2:` via a new `PREFERENCE_V` rather than a bump of
+   the module-wide `V`: `V` is shared by eight id kinds including `camper${V}`, and re-keying every
+   camper id — referenced by assignments and attendance — is not proportionate to a change in one id's
+   scope arms. The owner's instruction was that the shape change must be **visible** rather than
+   drifting under an unbumped version, which a per-kind version satisfies without the blast radius.
+   Pre-production: nothing live to re-key, and a developer's local `shoresh-dev` database holding
+   `epref1:` rows will not match freshly-derived ids — stated rather than glossed, per this module's
+   own warning about exactly that case.
+3. **Coordinate RESOLUTION does not move.** The eligibility and coverage checks stay solve-time and
+   template-scoped, exactly where §13.2 put them. This change only stops the coordinate being thrown
+   away before those checks can ever run. A file imported in spring, before any schedule exists,
+   round-trips its coordinates intact and becomes resolvable later **without being re-imported** —
+   which is the property that makes §13.2's staging workable rather than merely defensible.
+
+**Consequence for §12.2b's collision rules, re-checked rather than assumed.** Two cells are now
+genuinely distinct scopes, so collisions that round 1 was resolving are **not collisions at all**. The
+asymmetry table is unchanged in substance but its scope dimension is now "occurrence, else
+coordinate, else whole-run": a repeated choice **within one scope** is still resolved best-rank-wins
+with the drop residued, and a whole-run sheet behaves exactly as before, because it has no coordinate
+and every row shares the empty scope.
+
+**MEASURED, and the number moved as predicted.** P33 (per-cell long form): **15 rows → 90 rows, 75
+`DROPPED_DUPLICATE_RANK` residue items → 0.** Seventy-five of five campers' answers were being
+discarded. No other probe changed bucket, residue count or row count, and no probe reports a count
+that disagrees with the rows it wrote.
+
+**§12.4's traceability row and T279's `archive_when` are corrected, not quietly left.** The predicate
+demanded "distinct **non-null** `occurrence_id`s", which implementation proved unachievable on this
+path — the CLI passes no occurrences and no template exists at parse time (§13.2). The property that
+actually matters, and is now true, is **one row per cell with its coordinate intact and no merge**;
+`occurrence_id` may legitimately be NULL at import time. A predicate proven unachievable is reworded
+on the record, never left standing as though it were still the target.

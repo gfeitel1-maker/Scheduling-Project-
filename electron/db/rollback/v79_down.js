@@ -6,6 +6,14 @@
 //      index and no CHECK constraint, so the plain single-statement form
 //      applies (v77_down's shape, not v51_down's recreate-and-copy).
 //   2. `ALTER TABLE elective_preferences DROP COLUMN rank_kind` — same.
+//   2b. The same for `coordinate_day_label` and `coordinate_period_label`. This
+//      is the LOSSIEST part of the rollback and the one to read twice: those two
+//      columns are the only record of WHICH CELL a per-cell preference belongs
+//      to. Dropping them does not merely lose a label — it collapses a child's
+//      several per-cell answers into indistinguishable rows, because
+//      deriveElectivePreferenceId's 'at' arm is what kept them apart. Rolling
+//      back therefore reintroduces exactly the data loss v79 was taken to fix,
+//      and the only way back is to re-import the source file.
 //   3. No registry membership restored: this script does not touch PROJECTIONS
 //      (electron/ops/projections.js) or src/localClient.mock.js. Those are
 //      separate, deliberate code changes a schema-only rollback does not undo,
@@ -47,6 +55,11 @@ export function rollbackV79(db) {
     }
     if (hasColumn(db, 'elective_preferences', 'rank_kind')) {
       db.exec('ALTER TABLE elective_preferences DROP COLUMN rank_kind')
+    }
+    for (const column of ['coordinate_day_label', 'coordinate_period_label']) {
+      if (hasColumn(db, 'elective_preferences', column)) {
+        db.exec(`ALTER TABLE elective_preferences DROP COLUMN ${column}`)
+      }
     }
     // `>= 79`, not `= 79` — a bare equality strands any HIGHER version in the
     // table, so rolling back v79 on a database that has since migrated further

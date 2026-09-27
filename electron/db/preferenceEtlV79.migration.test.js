@@ -3,10 +3,22 @@
 // Migration v79 (T279, docs/adr/2026-09-27-elective-preference-etl-canonical-
 // record-and-learned-axis-binding.md §12.6 + §13.3) — TWO nullable columns:
 // `campers.division_label` (§12.2a, provenance: the division label as written
-// on the source file, NEVER an entity reference) and
+// on the source file, NEVER an entity reference),
 // `elective_preferences.rank_kind` (§4.2/§13.3, what comparing two ranks
-// means). Modelled on electivePreferencesOccurrence.migration.test.js's
-// fresh-vs-migrated shape.
+// means), and — ROUND 2, OWNER RULING — the COORDINATE columns
+// `elective_preferences.coordinate_day_label` / `.coordinate_period_label`.
+// Modelled on electivePreferencesOccurrence.migration.test.js's fresh-vs-migrated
+// shape.
+//
+// WHY THE COORDINATE IS STORED AND NOT ONLY THE OCCURRENCE. They are facts about
+// different things: the COORDINATE ("Monday, Period 3") is what the CHILD asked
+// for, and it is true the moment the sheet is read; the OCCURRENCE is a cell of
+// one particular candidate schedule, and it does not exist until a template
+// does. Storing only the occurrence meant a spring import — before any schedule
+// exists — silently discarded the coordinate, so two cells naming one activity
+// merged into one row. That is the T278 defect happening inside the fix for it.
+// ADR §3.1 always said the record "names a coordinate, never an occurrence_id";
+// storage simply never followed the record.
 //
 // Both are ALTER TABLE ADD COLUMN, appended LAST, because `campers` is the
 // same column-order trap special_days/elective_sets.is_reusable hit: a fresh
@@ -102,8 +114,8 @@ describe('migration v79 — campers.division_label and elective_preferences.rank
       expect(camperCols[camperCols.length - 1]).toBe('division_label')
 
       const prefCols = columns(db, 'elective_preferences')
-      expect(prefCols).toContain('rank_kind')
-      expect(prefCols[prefCols.length - 1]).toBe('rank_kind')
+      // All three v79 columns, in ALTER order, appended last.
+      expect(prefCols.slice(-3)).toEqual(['rank_kind', 'coordinate_day_label', 'coordinate_period_label'])
     } finally {
       db.close()
     }
@@ -117,6 +129,8 @@ describe('migration v79 — campers.division_label and elective_preferences.rank
 
       expect(columns(db, 'campers')).toContain('division_label')
       expect(columns(db, 'elective_preferences')).toContain('rank_kind')
+      expect(columns(db, 'elective_preferences')).toContain('coordinate_day_label')
+      expect(columns(db, 'elective_preferences')).toContain('coordinate_period_label')
       expect(getSchemaVersion(db)).toBeGreaterThanOrEqual(79)
 
       // Carried forward, not discarded: NULL is the correct value for a row
@@ -127,6 +141,8 @@ describe('migration v79 — campers.division_label and elective_preferences.rank
       const pref = db.prepare("SELECT * FROM elective_preferences WHERE id = 'pref1'").get()
       expect(pref.rank).toBe(1)
       expect(pref.rank_kind).toBeNull()
+      expect(pref.coordinate_day_label).toBeNull()
+      expect(pref.coordinate_period_label).toBeNull()
     } finally {
       db.close()
     }
@@ -149,6 +165,8 @@ describe('migration v79 — campers.division_label and elective_preferences.rank
     // §13.4 — this is the assertion that makes the ALTER load-bearing.
     expect(PROJECTIONS.campers.fields).toContain('division_label')
     expect(PROJECTIONS.elective_preferences.fields).toContain('rank_kind')
+    expect(PROJECTIONS.elective_preferences.fields).toContain('coordinate_day_label')
+    expect(PROJECTIONS.elective_preferences.fields).toContain('coordinate_period_label')
   })
 
   it('rollbackV79 removes both columns and un-stamps the version', () => {
@@ -164,6 +182,8 @@ describe('migration v79 — campers.division_label and elective_preferences.rank
 
       expect(columns(db, 'campers')).not.toContain('division_label')
       expect(columns(db, 'elective_preferences')).not.toContain('rank_kind')
+      expect(columns(db, 'elective_preferences')).not.toContain('coordinate_day_label')
+      expect(columns(db, 'elective_preferences')).not.toContain('coordinate_period_label')
       // The camper survives the rollback — only the column goes.
       expect(db.prepare("SELECT display_name FROM campers WHERE id = 'cam1'").get().display_name).toBe('A Camper')
       expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version >= 79').get().c).toBe(0)

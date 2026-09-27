@@ -509,7 +509,10 @@ export const MOCK_WRITE_ALLOWLIST = {
   elective_choices: ['run_id', 'label', 'is_linked'],
   elective_choice_offerings: ['choice_id', 'occurrence_id', 'activity_id'],
   // occurrence_id added v78 (T265) — a preference is per (day, period) cell.
-  elective_preferences: ['run_id', 'camper_id', 'occurrence_id', 'choice_id', 'rank', 'rank_kind'],
+  elective_preferences: [
+    'run_id', 'camper_id', 'occurrence_id', 'choice_id', 'rank', 'rank_kind',
+    'coordinate_day_label', 'coordinate_period_label',
+  ],
   elective_assignments: [
     'run_id', 'occurrence_id', 'camper_id', 'activity_id', 'choice_id', 'preference_rank',
     'source', 'is_locked', 'solver_generation',
