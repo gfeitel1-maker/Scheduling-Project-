@@ -31,6 +31,7 @@ Regenerate with `npm run index:work`.
 | [A refused sync is visible where the devices are](../../docs/work/tickets/T268-a-refused-sync-is-visible-where-the-devices-are.md) | open | — |
 | [Schema-version handshake and a version gate before Automerge merge](../../docs/work/tickets/T271-schema-version-gate-before-merge.md) | in-progress | [2026-09-26-schema-version-gate-before-merge](../../docs/adr/2026-09-26-schema-version-gate-before-merge.md) |
 | [A freshly created camp starts syncing without a restart](../../docs/work/tickets/T273-sync-starts-after-camp-bootstrap.md) | open | — |
+| [A device that joins a camp by code starts syncing without a restart](../../docs/work/tickets/T274-join-by-code-sync-start.md) | in-progress | [T275-degraded-sync-retry-surface](../../docs/work/tickets/T275-degraded-sync-retry-surface.md) · [T276-extract-sync-starter-for-executed-tests](../../docs/work/tickets/T276-extract-sync-starter-for-executed-tests.md) |
 
 ### documentation-governance
 
@@ -52,6 +53,13 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Phase E — measure whether WAN failure is discovery or direct dial](../../docs/work/tickets/T212-wan-connectivity-measurement.md) | open | [2026-09-18-connectivity-observability-event-vocabulary](../../docs/adr/2026-09-18-connectivity-observability-event-vocabulary.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [CI minutes: stop re-verifying a tree that already went green](../../docs/work/tickets/T261-ci-minutes-duplicate-main-runs.md) | open | — |
+| [Extract startAutomergeSyncNodeIfEnabled so its behaviour is executed under test](../../docs/work/tickets/T276-extract-sync-starter-for-executed-tests.md) | open | [T275-degraded-sync-retry-surface](../../docs/work/tickets/T275-degraded-sync-retry-surface.md) |
+
+### ui-ux-design
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [Surface the safe-degraded 'sync needs retry' state to the director](../../docs/work/tickets/T275-degraded-sync-retry-surface.md) | open | — |
 
 ### unclassified
 

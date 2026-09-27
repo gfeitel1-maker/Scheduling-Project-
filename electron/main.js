@@ -262,7 +262,7 @@ export function sanitizeOpRejectedForIpc(msg) {
 function ensureDeviceRow(db, deviceId) {
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
 }
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted, onCampBootstrapped } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted, onCampBootstrapped, onCampJoined } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
   // never a behavior change for a caller that stays silent about them.
@@ -281,6 +281,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // displaying the pairing code — silently never synced until restart.
   // Defaults to a no-op so every existing caller is unaffected.
   const onCampBootstrappedFn = onCampBootstrapped || (() => {})
+  // T274 — the join-path mirror of T273's onCampBootstrapped. Invoked once by
+  // joinAwaitData, after the joined camp's document has actually landed and
+  // the temporary join-session node has been stopped (see joinAwaitData
+  // below for why the stop must happen first: the join node and the
+  // persistent node share this device's libp2p peer identity, keyed by db —
+  // ensureDeviceIdentity — not by which node started it, so running both at
+  // once would be the same peer identity live twice). Defaults to a no-op so
+  // every existing caller is unaffected.
+  const onCampJoinedFn = onCampJoined || (() => {})
   // T228 — requireAuthorized is module-level (not a closure over this call's
   // getMainWindow), so the last makeHandlers call to run wins here. That
   // matches every other caller of getMainWindow in this file, which is
@@ -2266,13 +2275,48 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // written yet at any point before login.
   let activeJoin = null
 
-  async function joinStart({ code, deviceName } = {}) {
-    if (activeJoin) await joinCancel()
+  async function joinStart({
+    code,
+    deviceName,
+    // T274 round 2 (Security + Code Reviewer): these are test-only seams,
+    // forwarded to startJoinSession, which already documents them as such
+    // (peer discovery over loopback, no real network interface, used by
+    // test/integration/harnessAutomerge.js's AmClient.join for the same
+    // reason). preload.js:72 forwards the WHOLE args object to this handler
+    // over IPC — the renderer CAN send these, so they are only HONORED under
+    // Vitest (below), never merely "inert because nothing sends them". The
+    // join-code HMAC proof still gates admission regardless of what a
+    // renderer supplies here, so this is not an auth bypass — but a
+    // discovery/timeout value a compromised renderer could otherwise steer
+    // is not a boundary worth leaving unenforced when enforcing it costs one
+    // env check.
+    knownHost,
+    peerDiscovery,
+    discoveryWaitMs,
+    documentWaitMs,
+  } = {}) {
+    if (activeJoin) {
+      const cancelled = await joinCancel()
+      // T274 round 3 — a `stop_failed` here means the OLD temporary node is
+      // still running and joinCancel deliberately kept the reference (see its
+      // own comment) rather than orphan it. Starting a new session anyway
+      // would immediately clobber that reference with a second real node on
+      // this device's same peer identity — the exact bug this round exists
+      // to close. Refuse instead: `activeJoin` is still set, so a follow-up
+      // joinCancel (or joinStart) call gets another chance to actually stop
+      // it before anything new is allowed to start.
+      if (cancelled.status === 'stop_failed') return { status: 'stop_failed' }
+    }
+    const testOnly = Boolean(process.env.VITEST)
     const started = await startJoinSession({
       db,
       deviceId,
       deviceName: deviceName || db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)?.name,
       code,
+      knownHost: testOnly ? knownHost : undefined,
+      peerDiscovery: testOnly ? peerDiscovery : undefined,
+      discoveryWaitMs: testOnly ? discoveryWaitMs : undefined,
+      documentWaitMs: testOnly ? documentWaitMs : undefined,
     })
     if (started.status !== 'started') return { status: started.status }
     activeJoin = started.session
@@ -2303,21 +2347,91 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // The camp's data, as distinct from its identity — see joinSession's own
   // waitForCamp comment. `timeout` here is a real outcome the screen must
   // show, never a spinner that hides a dead connection.
+  //
+  // T274 — on success this is also where the join handoff completes. The
+  // join module's own header comment calls this out: "the handoff is the
+  // point" — a join session is over the instant the camp exists and the
+  // first document has landed, and from then on this device must behave
+  // like an ordinary Client with a persistent, camp-scoped sync node. Two
+  // things make that NOT a one-line "just start the persistent node" fix:
+  //   1. Nothing did it before this, at all — the device ran the rest of its
+  //      session with no persistent node and never synced until restart.
+  //   2. The join flow already runs its OWN temporary libp2p node, and that
+  //      node shares THIS device's stable peer identity with whatever the
+  //      persistent starter would create (ensureDeviceIdentity is keyed by
+  //      db, not by which node started it) — so starting the persistent node
+  //      while the temporary one is still up would be one peer identity
+  //      live twice, not a harmless second node.
+  // So the temporary session is stopped FIRST, synchronously with this call
+  // (the join UI is already on a "receiving" spinner; a few extra ms to tear
+  // down libp2p is invisible), and only then is onCampJoined fired — mirroring
+  // T273's onCampBootstrapped, deliberately NOT awaited: libp2p startup takes
+  // as long as it takes, and a successful join must never be reported as
+  // failed because sync start-up was slow. startAutomergeSyncNodeIfEnabled's
+  // own idempotency guard (`if (automergeSyncNode) return`) makes any
+  // redundant invocation harmless.
   async function joinAwaitData() {
     if (!activeJoin) throw new Error('no join in progress')
-    const camp = await activeJoin.waitForCamp()
-    return camp ? { status: 'ok', camp } : { status: 'timeout' }
+    const session = activeJoin
+    const camp = await session.waitForCamp()
+    // T274 round 3 — deliberately does NOT null `activeJoin` here. The node
+    // is still running (waitForCamp only gave up waiting; it didn't stop
+    // anything), so keeping the reference means a retry's joinStart ->
+    // joinCancel can still find and stop it — the same "never drop the
+    // reference to a possibly-live node" invariant joinCancel now enforces
+    // on its own failure path, already covering this composition.
+    if (!camp) return { status: 'timeout' }
+
+    activeJoin = null
+    // T274 round 2 (Red Hat, HIGH): onCampJoined must fire ONLY when the
+    // temporary node is confirmed stopped. The whole reason to stop first is
+    // that the temp node and the persistent node share this device's
+    // db-keyed peer identity — if stop() throws, the temp node may still be
+    // up, and starting the persistent one anyway would be that identity live
+    // twice. Prefer safe-degraded (no persistent node started this cycle;
+    // getSyncStatus's existing T268 path surfaces "not syncing", which a
+    // retry or restart resolves) over a confirmed double-node.
+    let stopped = false
+    try {
+      await session.stop()
+      stopped = true
+    } catch (err) {
+      console.error(`join: stopping the temporary join node failed — sync node NOT started this cycle to avoid a duplicate peer identity (non-fatal, resolves on retry/restart): ${err?.message ?? err}`)
+    }
+    if (stopped) {
+      try {
+        Promise.resolve(onCampJoinedFn()).catch((err) => {
+          console.error(`sync node start after join failed (non-fatal): ${err?.message ?? err}`)
+        })
+      } catch (err) {
+        console.error(`sync node start after join failed (non-fatal): ${err?.message ?? err}`)
+      }
+    }
+
+    return { status: 'ok', camp }
   }
 
+  // T274 round 3 (Red Hat, MEDIUM) — the same double-identity hazard fix 1
+  // (joinAwaitData) closed, on the cancel path. This used to null
+  // `activeJoin` BEFORE awaiting stop(), so a rejection left the temporary
+  // node running with NO reference to it anywhere in main.js. A subsequent
+  // joinStart (its own auto-cancel-then-start below, or a manual retry) would
+  // then start a SECOND real libp2p node on this device's db-keyed peer
+  // identity, orphaning the first. `activeJoin` is now cleared ONLY once
+  // stop() is confirmed to have succeeded — mirroring joinAwaitData's own
+  // "gate the next step on the stop actually succeeding" discipline — so a
+  // failed stop keeps the reference alive (retryable, never orphaned) instead
+  // of being silently dropped.
   async function joinCancel() {
     if (!activeJoin) return { status: 'idle' }
     const session = activeJoin
-    activeJoin = null
     try {
       await session.stop()
     } catch (err) {
-      console.error(`join: stopping the join session failed (non-fatal): ${err?.message ?? err}`)
+      console.error(`join: stopping the join session failed — the node is NOT orphaned, its reference is retained so a retry can stop it and nothing starts a second node on this identity in the meantime: ${err?.message ?? err}`)
+      return { status: 'stop_failed' }
     }
+    activeJoin = null
     return { status: 'cancelled' }
   }
 
@@ -2398,6 +2512,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     joinLogin,
     joinAwaitData,
     joinCancel,
+    // T274 final — the one-funnel guard: `startAutomergeSyncNodeIfEnabled`
+    // reads this (via `liveHandlers`, same as `isJoinWindowOpen` below) to
+    // refuse starting the PERSISTENT node while a join session is still
+    // retained (in-flight, or kept alive after a failed stop — see
+    // joinCancel's own comment). `activeJoin` is null on every path that
+    // should NOT block a start: before any join, and after
+    // joinAwaitData's successful camp materialization (which nulls it
+    // before firing onCampJoined). It is non-null only while a join is
+    // genuinely still live or stuck-retained, which is exactly the case a
+    // second, PERSISTENT node on this device's same peer identity must not
+    // be started underneath.
+    hasRetainedJoinSession: () => activeJoin !== null,
     isJoinWindowOpen: () => joinWindowOpen,
     getSyncClient: () => syncClient,
   }
@@ -2958,6 +3084,18 @@ if (isElectronEntryPoint()) {
   // anything about libp2p/Automerge itself — same "handed a getter, not the
   // implementation" shape as getMainWindow above.
   let automergeSyncNode = null
+  // T274 round 2 (Red Hat, MEDIUM): `if (automergeSyncNode) return` alone is
+  // a TOCTOU race — it is checked synchronously, but `automergeSyncNode` is
+  // not assigned until AFTER `await startSyncNode(...)` resolves, several
+  // awaits later in the same function. Two concurrent calls (a join
+  // completing while app.whenReady()'s own call is still in flight, an IPC
+  // retry, a re-render) can both read `automergeSyncNode` as null and both
+  // reach `startSyncNode`, producing two real libp2p nodes on this device's
+  // one peer identity. This latch is set synchronously, before the first
+  // await, so the second call's guard sees it immediately; cleared in
+  // `finally` so a failed attempt can be retried. Also hardens the merged
+  // T273 bootstrap path, which calls this same function.
+  let automergeSyncNodeStarting = false
   // T268 — has a startAutomergeSyncNodeIfEnabled() attempt finished (success,
   // refusal, or failure) since this process started? getSyncStatus reads this
   // to decide between "not yet attempted, so still read as 'host'" (avoids a
@@ -2986,6 +3124,12 @@ if (isElectronEntryPoint()) {
     // camp. Its own `if (automergeSyncNode) return` idempotency guard makes a
     // second invocation (app.whenReady's, already returned by then) harmless.
     onCampBootstrapped: () => startAutomergeSyncNodeIfEnabled(),
+    // T274 — the join-path mirror: the only thing that starts sync on the
+    // session that JOINS a camp. joinAwaitData stops the temporary join node
+    // before calling this, so there is never a second live libp2p node with
+    // this device's peer identity; startAutomergeSyncNodeIfEnabled's own
+    // idempotency guard makes any further redundant invocation harmless too.
+    onCampJoined: () => startAutomergeSyncNodeIfEnabled(),
   })
   registerHandlers(initialHandlers, db)
 
@@ -3155,6 +3299,40 @@ if (isElectronEntryPoint()) {
     // already-running cases read as healthy regardless of what the flag says.
     if (!isAutomergeEngine()) return
     if (automergeSyncNode) return // idempotency guard: never leak a second libp2p node
+    // T274 final — the one-funnel guard. Three rounds each closed the
+    // double-identity class one CALLER at a time (joinAwaitData, joinCancel,
+    // the joinStart auto-cancel), and Red Hat found a fourth: a temp join
+    // node retained after a failed stop (joinCancel's own comment), left
+    // live by a director backing out of the join screen, then bootstrapCamp
+    // firing onCampBootstrapped UNCONDITIONALLY — bootstrapCamp never checked
+    // activeJoin, because it has no way to see it. Rather than teach a
+    // fourth (and every future) caller about join state, the invariant now
+    // lives at the one place every caller already funnels through: every
+    // path that starts the PERSISTENT node — onCampBootstrapped,
+    // onCampJoined, app.whenReady() — calls this function and nothing else
+    // ever calls startSyncNode for it (verified: the only other
+    // `startSyncNode(` call site in this file is joinSession's OWN temporary
+    // node, a different function entirely). `liveHandlers` is the same
+    // main-process-scope handle `isJoinWindowOpen` below already reads this
+    // way — no getter needed beyond the one added to makeHandlers' return
+    // object. Null on every path that must NOT be blocked (before any join;
+    // after a successful join, which nulls `activeJoin` before firing
+    // onCampJoined — see joinAwaitData); non-null only while a join is
+    // genuinely still live or stuck-retained, which is exactly when a
+    // second, persistent node on this device's same peer identity must not
+    // start. Accepted trade: a stuck-retained session means the persistent
+    // node stays off until restart (safe-degraded, same posture as every
+    // other guard in this function) rather than risk the double node.
+    if (liveHandlers?.hasRetainedJoinSession?.()) {
+      console.warn('automerge sync: a join session is still live or retained — sync node not started this run (resolves once it is stopped, or on restart)')
+      return
+    }
+    // T274 round 2: the TOCTOU latch (see its declaration above). Checked and
+    // set synchronously, in the same tick as the guard above — no await has
+    // happened yet, so a concurrent call arriving before this one reaches its
+    // own `await startSyncNode(...)` is guaranteed to see it set.
+    if (automergeSyncNodeStarting) return
+    automergeSyncNodeStarting = true
     // `attempted` tracks whether this run reached a point where a start could
     // actually have happened — distinct from "did this function run". A
     // fresh install has no camp yet at app.whenReady() (bootstrapCamp itself
@@ -3402,6 +3580,11 @@ if (isElectronEntryPoint()) {
       // running" ('host-not-syncing'). Skipped when `attempted` was flipped
       // false above (no camp bootstrapped yet) — see that comment.
       if (attempted) automergeStartupAttempted = true
+      // Cleared unconditionally (success or failure) so a failed attempt —
+      // this run's own catch above, or the no-camp/refusal/no-doc returns —
+      // can be retried by a later call rather than latching "starting"
+      // forever.
+      automergeSyncNodeStarting = false
       // A director already looking at the sidebar when this settles should
       // see it without reloading — wrapped so a UI push can never take sync
       // startup down with it.

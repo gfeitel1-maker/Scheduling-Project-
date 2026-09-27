@@ -43,6 +43,10 @@ const MAIN_JS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'main.js
 const HANDLERS_VAR = 'initialHandlers'
 const OPTION_NAME = 'onCampBootstrapped'
 const STARTER_NAME = 'startAutomergeSyncNodeIfEnabled'
+// T274 — the join-path mirror of onCampBootstrapped. Same starter, same
+// call site, a different hook because a joined camp materializes through
+// joinAwaitData rather than bootstrapCamp.
+const OPTION_NAME_JOINED = 'onCampJoined'
 
 // Every `makeHandlers(...)` call site in main.js, and whether it is expected to
 // hand the sync starter to bootstrapCamp. `newHandlers` (main.js:2677, the
@@ -50,6 +54,15 @@ const STARTER_NAME = 'startAutomergeSyncNodeIfEnabled'
 // are DELIBERATELY unwired — see the header comment; that gap is owner-recorded
 // and belongs to a follow-up ticket, not to T273.
 const EXPECTED_CALL_SITES = {
+  initialHandlers: true,
+  newHandlers: false,
+  restoreHandlers: false,
+}
+// T274 — the same set of call sites, for the join-path hook. Identical
+// expectations to EXPECTED_CALL_SITES: only the one true startup site wires
+// it, and the two db-swap sites stay unwired for the same reason (T274 is
+// explicitly out of scope for the db-swap lifecycle redesign).
+const EXPECTED_CALL_SITES_JOINED = {
   initialHandlers: true,
   newHandlers: false,
   restoreHandlers: false,
@@ -97,13 +110,13 @@ function findMakeHandlersCallSites(ast) {
   return sites
 }
 
-/** The `onCampBootstrapped` property of a makeHandlers call's options object. */
-function onCampBootstrappedProp(call) {
+/** The named property (e.g. `onCampBootstrapped`/`onCampJoined`) of a makeHandlers call's options object. */
+function optionProp(call, optionName) {
   const options = call.arguments[2]
   if (options?.type !== 'ObjectExpression') return null
   return (
     options.properties.find(
-      (p) => p.type === 'Property' && !p.computed && p.key?.name === OPTION_NAME
+      (p) => p.type === 'Property' && !p.computed && p.key?.name === optionName
     ) ?? null
   )
 }
@@ -146,7 +159,7 @@ describe('T273 wiring: the real sync starter reaches bootstrapCamp', () => {
       'ObjectExpression'
     )
 
-    const prop = onCampBootstrappedProp(site.call)
+    const prop = optionProp(site.call, OPTION_NAME)
     expect(
       prop,
       `makeHandlers(${HANDLERS_VAR}) does not pass \`${OPTION_NAME}\` — a camp bootstrapped in this session will not start syncing until restart (T273)`
@@ -175,7 +188,7 @@ describe('T273 wiring: the real sync starter reaches bootstrapCamp', () => {
 
     const actual = Object.fromEntries(
       sites.map((s) => {
-        const prop = onCampBootstrappedProp(s.call)
+        const prop = optionProp(s.call, OPTION_NAME)
         return [s.name, Boolean(prop && invokesStarter(prop.value))]
       })
     )
@@ -193,24 +206,269 @@ describe('T273 wiring: the real sync starter reaches bootstrapCamp', () => {
   })
 
   it('declares onCampBootstrapped in makeHandlers own options destructuring', () => {
-    let params = null
+    expect(makeHandlersDeclaresOption(OPTION_NAME), `makeHandlers does not accept \`${OPTION_NAME}\``).toBe(true)
+  })
+})
+
+/** Whether makeHandlers' own (third parameter) options destructuring declares `optionName`. */
+function makeHandlersDeclaresOption(optionName) {
+  let params = null
+  walk(parseMain(), (node) => {
+    if (
+      (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
+      node.id?.name === 'makeHandlers'
+    ) {
+      params = node.params
+    }
+  })
+  expect(params, 'makeHandlers declaration not found').toBeTruthy()
+
+  const optionsParam = params[2]
+  const pattern = optionsParam?.type === 'AssignmentPattern' ? optionsParam.left : optionsParam
+  expect(pattern?.type, 'makeHandlers third parameter is not destructured').toBe('ObjectPattern')
+
+  return pattern.properties.some(
+    (p) => p.type === 'Property' && !p.computed && p.key?.name === optionName
+  )
+}
+
+// T274 — the join-path mirror of the T273 block above. Same three
+// invariants (exactly one call site wired, the wired set pinned, the option
+// declared on makeHandlers), against `onCampJoined` instead of
+// `onCampBootstrapped`. A joined camp materializes through joinAwaitData, not
+// bootstrapCamp, so it needs its own hook — but the same starter, the same
+// one true call site, and the same db-swap exclusion.
+describe('T274 wiring: the real sync starter reaches joinAwaitData', () => {
+  it(`passes an ${OPTION_NAME_JOINED} that CALLS ${STARTER_NAME}`, () => {
+    const site = findMakeHandlersCallSites(parseMain()).find((s) => s.name === HANDLERS_VAR)
+    expect(site, `no \`const ${HANDLERS_VAR} = makeHandlers(...)\` found in main.js`).toBeTruthy()
+
+    expect(site.call.arguments[2]?.type, 'makeHandlers third argument is not an object literal').toBe(
+      'ObjectExpression'
+    )
+
+    const prop = optionProp(site.call, OPTION_NAME_JOINED)
+    expect(
+      prop,
+      `makeHandlers(${HANDLERS_VAR}) does not pass \`${OPTION_NAME_JOINED}\` — a device that joins a camp in this session will not start syncing until restart (T274)`
+    ).toBeTruthy()
+
+    expect(
+      invokesStarter(prop.value),
+      `\`${OPTION_NAME_JOINED}\` never CALLS \`${STARTER_NAME}\` — merely naming it leaves sync stopped until restart (T274)`
+    ).toBe(true)
+  })
+
+  it('pins the known set of makeHandlers call sites and which are wired for the join hook', () => {
+    const ast = parseMain()
+    const sites = findMakeHandlersCallSites(ast)
+
+    const actual = Object.fromEntries(
+      sites.map((s) => {
+        const prop = optionProp(s.call, OPTION_NAME_JOINED)
+        return [s.name, Boolean(prop && invokesStarter(prop.value))]
+      })
+    )
+
+    expect(
+      actual,
+      [
+        'The set of makeHandlers(...) call sites in main.js, or which of them start sync on join, has changed.',
+        'Decide deliberately, do not just update this expectation:',
+        `  - A NEW call site: does a camp joined through it need to start syncing? If yes it needs \`${OPTION_NAME_JOINED}\`; if no, say why here.`,
+        `  - \`newHandlers\` (main.js:2677) or \`restoreHandlers\` (main.js:2917) now WIRED: those are db-swap paths, deliberately excluded by T274 too — see the header comment.`,
+        `  - \`${HANDLERS_VAR}\` now UNWIRED: that is the T274 regression this file exists to catch.`,
+      ].join('\n')
+    ).toEqual(EXPECTED_CALL_SITES_JOINED)
+  })
+
+  it('declares onCampJoined in makeHandlers own options destructuring', () => {
+    expect(makeHandlersDeclaresOption(OPTION_NAME_JOINED), `makeHandlers does not accept \`${OPTION_NAME_JOINED}\``).toBe(true)
+  })
+})
+
+// T274 round 2 (Red Hat, MEDIUM) — startAutomergeSyncNodeIfEnabled itself
+// cannot be executed under Vitest at all (it is declared inside
+// isElectronEntryPoint()'s `!process.env.VITEST`-gated block — see this
+// file's own header comment), so a real "call it twice concurrently" test is
+// structurally impossible without restructuring the function out of that
+// block, which is a bigger change than this fix. This is the same
+// AST-parsing approach the rest of this file already uses for exactly that
+// reason, aimed at the TOCTOU class of bug instead of the wiring class: it
+// proves the synchronous in-flight latch (`automergeSyncNodeStarting`) is
+// set BEFORE the function's first `await` (so a concurrent call arriving
+// before that await sees it) and cleared in a `finally` (so a failed
+// attempt can be retried) — the precise shape that closes the race, checked
+// and set synchronously before either call could have reached the
+// `startSyncNode` await that the raw `if (automergeSyncNode) return` guard
+// alone could not protect.
+/** The `startAutomergeSyncNodeIfEnabled` function declaration/expression node itself. */
+function findStarterFunction(ast) {
+  let fn = null
+  walk(ast, (node) => {
+    if (
+      (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
+      node.id?.name === STARTER_NAME
+    ) {
+      fn = node
+    }
+  })
+  return fn
+}
+
+describe('T274 round 2: startAutomergeSyncNodeIfEnabled has a synchronous in-flight latch', () => {
+  const STARTING_FLAG = 'automergeSyncNodeStarting'
+
+  it(`sets \`${STARTING_FLAG} = true\` before the function's first await`, () => {
+    const fn = findStarterFunction(parseMain())
+    expect(fn, `${STARTER_NAME} not found in main.js`).toBeTruthy()
+
+    let setLine = null
+    let firstAwaitLine = null
+    walk(fn.body, (node) => {
+      if (
+        setLine === null &&
+        node.type === 'AssignmentExpression' &&
+        node.operator === '=' &&
+        node.left?.type === 'Identifier' &&
+        node.left.name === STARTING_FLAG &&
+        node.right?.type === 'Literal' &&
+        node.right.value === true
+      ) {
+        setLine = node.loc.start.line
+      }
+      if (firstAwaitLine === null && node.type === 'AwaitExpression') {
+        firstAwaitLine = node.loc.start.line
+      }
+    })
+
+    expect(setLine, `${STARTER_NAME} never sets \`${STARTING_FLAG} = true\` — the TOCTOU latch is missing`).not.toBeNull()
+    expect(firstAwaitLine, `${STARTER_NAME} has no await — the race this latch guards against cannot exist, so this guard is stale`).not.toBeNull()
+    expect(
+      setLine,
+      `\`${STARTING_FLAG} = true\` (line ${setLine}) must be set BEFORE the function's first await (line ${firstAwaitLine}) — set any later and a concurrent call arriving in the gap would not see it, recreating the double-node race`
+    ).toBeLessThan(firstAwaitLine)
+  })
+
+  it(`clears \`${STARTING_FLAG}\` in a finally block, on every exit`, () => {
+    const fn = findStarterFunction(parseMain())
+    expect(fn, `${STARTER_NAME} not found in main.js`).toBeTruthy()
+
+    let clearedInFinally = false
+    walk(fn.body, (node) => {
+      if (node.type !== 'TryStatement' || !node.finalizer) return
+      walk(node.finalizer, (n) => {
+        if (
+          n.type === 'AssignmentExpression' &&
+          n.operator === '=' &&
+          n.left?.type === 'Identifier' &&
+          n.left.name === STARTING_FLAG &&
+          n.right?.type === 'Literal' &&
+          n.right.value === false
+        ) {
+          clearedInFinally = true
+        }
+      })
+    })
+
+    expect(
+      clearedInFinally,
+      `${STARTER_NAME} never clears \`${STARTING_FLAG} = false\` inside a finally block — a failed attempt would latch "starting" forever and every later call would be silently refused`
+    ).toBe(true)
+  })
+})
+
+// T274 final (Red Hat, HIGH) — three rounds each closed the double-identity
+// class one CALLER at a time (joinAwaitData, joinCancel, joinStart's
+// auto-cancel). Red Hat found a fourth: a temp join node retained after a
+// failed stop, left live by a director backing out of the join screen, then
+// bootstrapCamp firing onCampBootstrapped unconditionally — bootstrapCamp
+// never checked join state, because it had no way to. The fix moves the
+// invariant to the one funnel every current AND future starter of the
+// PERSISTENT node goes through: startAutomergeSyncNodeIfEnabled itself.
+//
+// Same testability wall as the round-2 latch: this function cannot be
+// executed under Vitest at all (declared inside main.js's
+// `!process.env.VITEST`-gated isElectronEntryPoint() block). The predicate
+// this guard reads (`hasRetainedJoinSession`) IS real and executable —
+// electron/main.test.js's own describe('hasRetainedJoinSession — the funnel
+// guard predicate', ...) drives it against a real makeHandlers instance
+// across every path that must and must not be blocked. What THIS file proves
+// by parsing main.js is the shape that test cannot reach: that the funnel
+// actually CALLS that predicate via `liveHandlers`, and returns before any
+// node-starting code runs.
+describe('T274 final: startAutomergeSyncNodeIfEnabled refuses while a join session is retained', () => {
+  const RETAINED_JOIN_PREDICATE = 'hasRetainedJoinSession'
+
+  it(`checks liveHandlers.${RETAINED_JOIN_PREDICATE}() and returns before starting a node`, () => {
+    const fn = findStarterFunction(parseMain())
+    expect(fn, `${STARTER_NAME} not found in main.js`).toBeTruthy()
+
+    // Find the `if (...) { ...; return }` (or `if (...) return`) statement
+    // whose test calls liveHandlers.hasRetainedJoinSession(), and the
+    // `startSyncNode(` call that actually starts the persistent node —
+    // both inside the SAME function, in source order.
+    let guardLine = null
+    let startCallLine = null
+    walk(fn.body, (node) => {
+      if (
+        guardLine === null &&
+        node.type === 'IfStatement' &&
+        (() => {
+          let callsPredicate = false
+          walk(node.test, (n) => {
+            if (
+              n.type === 'CallExpression' &&
+              n.callee?.type === 'MemberExpression' &&
+              n.callee.property?.name === RETAINED_JOIN_PREDICATE
+            ) {
+              callsPredicate = true
+            }
+          })
+          return callsPredicate
+        })()
+      ) {
+        guardLine = node.loc.start.line
+      }
+      if (
+        startCallLine === null &&
+        node.type === 'CallExpression' &&
+        node.callee?.type === 'Identifier' &&
+        node.callee.name === 'startSyncNode'
+      ) {
+        startCallLine = node.loc.start.line
+      }
+    })
+
+    expect(
+      guardLine,
+      `${STARTER_NAME} never checks \`liveHandlers.${RETAINED_JOIN_PREDICATE}()\` — a join session retained after a failed stop (or still in flight) would not block a second, PERSISTENT node from starting on this device's same peer identity`
+    ).not.toBeNull()
+    expect(startCallLine, `no startSyncNode(...) call found inside ${STARTER_NAME} — this guard is stale`).not.toBeNull()
+    expect(
+      guardLine,
+      `the \`${RETAINED_JOIN_PREDICATE}\` guard (line ${guardLine}) must run BEFORE startSyncNode is called (line ${startCallLine}) — checked any later and the persistent node could already be starting`
+    ).toBeLessThan(startCallLine)
+  })
+
+  it(`makeHandlers exposes ${RETAINED_JOIN_PREDICATE} on its returned handlers object`, () => {
+    let returnObj = null
     walk(parseMain(), (node) => {
       if (
         (node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression') &&
         node.id?.name === 'makeHandlers'
       ) {
-        params = node.params
+        walk(node.body, (n) => {
+          if (n.type === 'ReturnStatement' && n.argument?.type === 'ObjectExpression') {
+            returnObj = n.argument
+          }
+        })
       }
     })
-    expect(params, 'makeHandlers declaration not found').toBeTruthy()
-
-    const optionsParam = params[2]
-    const pattern = optionsParam?.type === 'AssignmentPattern' ? optionsParam.left : optionsParam
-    expect(pattern?.type, 'makeHandlers third parameter is not destructured').toBe('ObjectPattern')
-
-    const declared = pattern.properties.some(
-      (p) => p.type === 'Property' && !p.computed && p.key?.name === OPTION_NAME
+    expect(returnObj, 'makeHandlers return object not found').toBeTruthy()
+    const declared = returnObj.properties.some(
+      (p) => p.type === 'Property' && !p.computed && p.key?.name === RETAINED_JOIN_PREDICATE
     )
-    expect(declared, `makeHandlers does not accept \`${OPTION_NAME}\``).toBe(true)
+    expect(declared, `makeHandlers' return object does not expose \`${RETAINED_JOIN_PREDICATE}\``).toBe(true)
   })
 })
