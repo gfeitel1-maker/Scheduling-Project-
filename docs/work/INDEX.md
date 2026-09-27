@@ -66,7 +66,8 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [Surface the safe-degraded 'sync needs retry' state to the director](../../docs/work/tickets/T275-degraded-sync-retry-surface.md) | open | — |
+| [Surface the safe-degraded 'sync needs retry' state to the director](../../docs/work/tickets/T275-degraded-sync-retry-surface.md) | open | [T277-sync-not-running-visibility](../../docs/work/tickets/T277-sync-not-running-visibility.md) |
+| [A quiet always-present indicator when sync is not running](../../docs/work/tickets/T277-sync-not-running-visibility.md) | open | — |
 
 ### unclassified
 

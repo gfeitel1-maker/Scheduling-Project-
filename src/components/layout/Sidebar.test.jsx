@@ -402,8 +402,8 @@ describe('Sidebar: host-not-syncing retry affordance (T275)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'try again' }))
 
     expect(retrySync).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('trying…')).toBeTruthy()
-    expect(screen.queryByText('try again')).toBeNull()
+    expect(within(screen.getByRole('menu')).getByText('trying…')).toBeTruthy()
+    expect(within(screen.getByRole('menu')).queryByText('try again')).toBeNull()
   })
 
   it('sync-blocked stays a fully inert span — no button, no click handler, copy unchanged (non-vacuity: this fails if the gate were keyed on tone instead of state)', () => {
@@ -440,16 +440,98 @@ describe('Sidebar: host-not-syncing retry affordance (T275)', () => {
       const { rerender } = renderSidebar({ syncStatus: HOST_NOT_SYNCING })
       openGear()
       fireEvent.click(screen.getByRole('button', { name: 'try again' }))
-      expect(screen.getByText('trying…')).toBeTruthy()
+      expect(within(screen.getByRole('menu')).getByText('trying…')).toBeTruthy()
 
       // A later push settles, but is still host-not-syncing (the retry failed again).
       rerender(sidebarElement({ syncStatus: HOST_NOT_SYNCING }))
       act(() => { vi.advanceTimersByTime(5000) })
 
       expect(screen.getByRole('button', { name: 'try again' })).toBeTruthy()
-      expect(screen.queryByText('trying…')).toBeNull()
+      expect(within(screen.getByRole('menu')).queryByText('trying…')).toBeNull()
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+// T277 — a quiet, always-present footer indicator that appears ONLY when
+// sync is not running. The gear-popup placement (T275) failed the
+// director's-eye check: nobody finds a stalled sync inside a Settings menu.
+// Non-vacuity is the point of this suite — present for the two not-running
+// states, actually UNMOUNTED (not just visually hidden) for every healthy
+// state, so a test that only checked the present case could not go green
+// while the row always renders.
+describe('Sidebar: footer sync-not-running indicator (T277)', () => {
+  const HOST_NOT_SYNCING = {
+    mode: 'host', connected: false, state: 'host-not-syncing',
+    unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1,
+  }
+  const SYNC_BLOCKED = {
+    mode: 'host', connected: false, state: 'sync-blocked', syncBlocked: true,
+    unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1,
+  }
+  const HOST_SYNCED = { mode: 'host', connected: true, state: 'host', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1 }
+  const CLIENT_CONNECTED = { mode: 'client', connected: true, state: 'client-connected', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1 }
+  const STANDALONE = { mode: 'standalone', connected: false, state: 'standalone', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 0 }
+  const CLIENT_DISCONNECTED = { mode: 'client', connected: false, state: 'client-disconnected', unsharedWrites: 0, lowDisk: false, otherDeviceCount: 1 }
+
+  let retrySync
+  beforeEach(() => {
+    retrySync = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('shoresh', { retrySync })
+  })
+
+  it('is present for host-not-syncing', () => {
+    renderSidebar({ syncStatus: HOST_NOT_SYNCING })
+    expect(screen.getByText('sync not running')).toBeTruthy()
+  })
+
+  it('is present for sync-blocked', () => {
+    renderSidebar({ syncStatus: SYNC_BLOCKED })
+    expect(screen.getByText('sync not running')).toBeTruthy()
+  })
+
+  it('is absent (unmounted) for host', () => {
+    renderSidebar({ syncStatus: HOST_SYNCED })
+    expect(screen.queryByText('sync not running')).toBeNull()
+  })
+
+  it('is absent (unmounted) for client-connected', () => {
+    renderSidebar({ syncStatus: CLIENT_CONNECTED })
+    expect(screen.queryByText('sync not running')).toBeNull()
+  })
+
+  it('is absent (unmounted) for standalone', () => {
+    renderSidebar({ syncStatus: STANDALONE })
+    expect(screen.queryByText('sync not running')).toBeNull()
+  })
+
+  it('is absent (unmounted) for client-disconnected', () => {
+    renderSidebar({ syncStatus: CLIENT_DISCONNECTED })
+    expect(screen.queryByText('sync not running')).toBeNull()
+  })
+
+  it('host-not-syncing: clicking the row calls window.shoresh.retrySync and shows trying…', () => {
+    renderSidebar({ syncStatus: HOST_NOT_SYNCING })
+    expect(screen.getByText('try again')).toBeTruthy()
+    fireEvent.click(screen.getByText('sync not running').closest('button'))
+    expect(retrySync).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('trying…')).toBeTruthy()
+    expect(screen.queryByText('try again')).toBeNull()
+  })
+
+  it('sync-blocked: shows no trailing action word, and clicking navigates to devices (not retry)', () => {
+    const onNavigate = vi.fn()
+    renderSidebar({ syncStatus: SYNC_BLOCKED, onNavigate })
+    expect(screen.queryByText('try again')).toBeNull()
+    fireEvent.click(screen.getByText('sync not running').closest('button'))
+    expect(onNavigate).toHaveBeenCalledWith('devices')
+    expect(retrySync).not.toHaveBeenCalled()
+  })
+
+  it('the gear-menu T275 label still works alongside the footer indicator', () => {
+    renderSidebar({ syncStatus: HOST_NOT_SYNCING })
+    fireEvent.click(screen.getByTitle('Settings'))
+    expect(screen.getByRole('button', { name: 'try again' })).toBeTruthy()
   })
 })
