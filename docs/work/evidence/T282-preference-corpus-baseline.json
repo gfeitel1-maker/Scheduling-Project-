@@ -1,0 +1,2848 @@
+{
+  "generated": "2026-09-27",
+  "probes": 40,
+  "buckets": {
+    "COMMITTED": 20,
+    "BREAKS LOUDLY": 20
+  },
+  "results": [
+    {
+      "id": "P01",
+      "file": "P01-kind3-canonical.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Kind 3 global ranked list, #1..#3, name + division, no id",
+      "hypothesis": "reads correctly",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 12,
+          "choices": 20,
+          "preferences": 36
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 12",
+          "elective_choices": "0 -> 20",
+          "elective_preferences": "0 -> 36",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 298"
+        },
+        "dbAfter": {
+          "campers": 12,
+          "elective_choices": 20,
+          "elective_preferences": 36,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 298,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P02",
+      "file": "P02-kind3-top25.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Kind 3, #1..#25 priority gradient (ADR 1 finding 7)",
+      "hypothesis": "reads correctly; gradient meaning is not represented anywhere",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 8,
+          "choices": 20,
+          "preferences": 200
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            },
+            {
+              "rank": 4,
+              "index": 5
+            },
+            {
+              "rank": 5,
+              "index": 6
+            },
+            {
+              "rank": 6,
+              "index": 7
+            },
+            {
+              "rank": 7,
+              "index": 8
+            },
+            {
+              "rank": 8,
+              "index": 9
+            },
+            {
+              "rank": 9,
+              "index": 10
+            },
+            {
+              "rank": 10,
+              "index": 11
+            },
+            {
+              "rank": 11,
+              "index": 12
+            },
+            {
+              "rank": 12,
+              "index": 13
+            },
+            {
+              "rank": 13,
+              "index": 14
+            },
+            {
+              "rank": 14,
+              "index": 15
+            },
+            {
+              "rank": 15,
+              "index": 16
+            },
+            {
+              "rank": 16,
+              "index": 17
+            },
+            {
+              "rank": 17,
+              "index": 18
+            },
+            {
+              "rank": 18,
+              "index": 19
+            },
+            {
+              "rank": 19,
+              "index": 20
+            },
+            {
+              "rank": 20,
+              "index": 21
+            },
+            {
+              "rank": 21,
+              "index": 22
+            },
+            {
+              "rank": 22,
+              "index": 23
+            },
+            {
+              "rank": 23,
+              "index": 24
+            },
+            {
+              "rank": 24,
+              "index": 25
+            },
+            {
+              "rank": 25,
+              "index": 26
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 8",
+          "elective_choices": "0 -> 20",
+          "elective_preferences": "0 -> 160",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 1102"
+        },
+        "dbAfter": {
+          "campers": 8,
+          "elective_choices": 20,
+          "elective_preferences": 160,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 1102,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P03",
+      "file": "P03-kind3-prose-rank-headers.csv",
+      "entry": "pref",
+      "class": "E",
+      "shape": "Kind 3 with realistic prose rank headers (\"First Choice\", \"Second Choice\", ...)",
+      "hypothesis": "RANK_HEADER is ^#\\s*(\\d+)$ so no rank column is found",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: ranks. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P04",
+      "file": "P04-kind3-bare-student-header.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Kind 3 whose name column is headed simply \"Student\" (not \"Student Name\")",
+      "hypothesis": "NAME_HEADER requires (camper|student|child).*name or ^name$",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: name. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P05",
+      "file": "P05-kind3-external-id.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Kind 3 with a stable external camper id column",
+      "hypothesis": "reads correctly, identity keyed on the id",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 12,
+          "choices": 20,
+          "preferences": 36
+        },
+        "mapping": {
+          "nameIndex": 1,
+          "externalIdIndex": 0,
+          "divisionIndex": 2,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 3
+            },
+            {
+              "rank": 2,
+              "index": 4
+            },
+            {
+              "rank": 3,
+              "index": 5
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 12",
+          "elective_choices": "0 -> 20",
+          "elective_preferences": "0 -> 36",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 298"
+        },
+        "dbAfter": {
+          "campers": 12,
+          "elective_choices": 20,
+          "elective_preferences": 36,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 298,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P06",
+      "file": "P06-kind3-partial-id.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "PARTIAL-ID residue (ADR 4.4): one child on two rows, one row carrying an id and one not",
+      "hypothesis": "two derived ids for one child, with nothing reported",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 7,
+          "choices": 18,
+          "preferences": 21
+        },
+        "mapping": {
+          "nameIndex": 1,
+          "externalIdIndex": 0,
+          "divisionIndex": 2,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 3
+            },
+            {
+              "rank": 2,
+              "index": 4
+            },
+            {
+              "rank": 3,
+              "index": 5
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 7",
+          "elective_choices": "0 -> 18",
+          "elective_preferences": "0 -> 21",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 197"
+        },
+        "dbAfter": {
+          "campers": 7,
+          "elective_choices": 18,
+          "elective_preferences": 21,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 197,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P07",
+      "file": "P07-kind3-same-name-no-id.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Two rows naming one child, no external id (ADR 4.4)",
+      "hypothesis": "sameNameCampers + contradictory ranks -> refused",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "1 camper name appears on more than one row with no camper id to tell them apart: Ari Feldspar (rows 2, 8). Resolve these before importing — two children sharing a name would be merged into one record.",
+        "blocked": null,
+        "counts": {
+          "campers": 6,
+          "choices": 18,
+          "preferences": 21
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 1,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P08",
+      "file": "P08-kind3-zero-choices.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Kind 3 including a camper who ranked nothing at all, and blank middle ranks",
+      "hypothesis": "camper written with no preferences; nothing reported",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 6,
+          "choices": 14,
+          "preferences": 14
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 6",
+          "elective_choices": "0 -> 14",
+          "elective_preferences": "0 -> 14",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 146"
+        },
+        "dbAfter": {
+          "campers": 6,
+          "elective_choices": 14,
+          "elective_preferences": 14,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 146,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P09",
+      "file": "P09-kind3-packed-cells.csv",
+      "entry": "pref",
+      "class": "F",
+      "shape": "Packed multi-value cells: one #1 cell holding \"Swim, Archery, Ceramics\"",
+      "hypothesis": "the whole string becomes ONE choice label",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 6,
+          "choices": 18,
+          "preferences": 18
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 6",
+          "elective_choices": "0 -> 18",
+          "elective_preferences": "0 -> 18",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 178"
+        },
+        "dbAfter": {
+          "campers": 6,
+          "elective_choices": 18,
+          "elective_preferences": 18,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 178,
+          "_sample_choices": [
+            "Archery, Ceramics, Woodworking",
+            "Archery",
+            "Ceramics",
+            "Ceramics, Woodworking, Basketball",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P10",
+      "file": "P10-unordered-set-no-rank.csv",
+      "entry": "pref",
+      "class": "F",
+      "shape": "An unranked SET (ADR 4.1): one column \"Activities Chosen\" holding a packed set, no ranks",
+      "hypothesis": "no rank columns found",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: ranks. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P11",
+      "file": "P11-kind3-duplicate-rank-header.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Header lists rank #1 twice",
+      "hypothesis": "header-level refusal before parsing",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file's header lists rank #1 more than once — columns C and D. Give each ranked choice its own rank number (#1, #2, …) and import again.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P12",
+      "file": "P12-header-not-first-row.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Two title/junk rows above the real header row",
+      "hypothesis": "row 1 is taken as the header unconditionally",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: name, ranks. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P13",
+      "file": "P13-trailing-junk-rows.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Kind 3 with a blank line and footer rows below the data",
+      "hypothesis": "footer rows become skippedRows or phantom campers",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 11,
+          "choices": 20,
+          "preferences": 24
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 11",
+          "elective_choices": "0 -> 20",
+          "elective_preferences": "0 -> 24",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 234"
+        },
+        "dbAfter": {
+          "campers": 11,
+          "elective_choices": 20,
+          "elective_preferences": 24,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 234,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P14",
+      "file": "P14-kind3-tsv.tsv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Kind 3 as TSV rather than CSV",
+      "hypothesis": "SheetJS sniffs the delimiter; reads correctly",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 12,
+          "choices": 20,
+          "preferences": 36
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 12",
+          "elective_choices": "0 -> 20",
+          "elective_preferences": "0 -> 36",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 298"
+        },
+        "dbAfter": {
+          "campers": 12,
+          "elective_choices": 20,
+          "elective_preferences": 36,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 298,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P15",
+      "file": "P15-kind3-xlsx.xlsx",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Kind 3 as a real .xlsx workbook",
+      "hypothesis": "reads correctly",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 12,
+          "choices": 20,
+          "preferences": 36
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 12",
+          "elective_choices": "0 -> 20",
+          "elective_preferences": "0 -> 36",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 298"
+        },
+        "dbAfter": {
+          "campers": 12,
+          "elective_choices": 20,
+          "elective_preferences": 36,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 298,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P16",
+      "file": "P16-kind3-ranks-out-of-order.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Rank columns physically ordered #3, #1, #2",
+      "hypothesis": "rankColumns sorted by rank; reads correctly",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 8,
+          "choices": 10,
+          "preferences": 24
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 3
+            },
+            {
+              "rank": 2,
+              "index": 4
+            },
+            {
+              "rank": 3,
+              "index": 2
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 8",
+          "elective_choices": "0 -> 10",
+          "elective_preferences": "0 -> 24",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 192"
+        },
+        "dbAfter": {
+          "campers": 8,
+          "elective_choices": 10,
+          "elective_preferences": 24,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 192,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P17",
+      "file": "P17-kind3-spaced-rank-headers.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Rank headers written \"# 1\", \"#2 \", \" #3\" — whitespace variants",
+      "hypothesis": "the regex tolerates internal space after # and the cells are trimmed",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 6,
+          "choices": 18,
+          "preferences": 18
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 6",
+          "elective_choices": "0 -> 18",
+          "elective_preferences": "0 -> 18",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 178"
+        },
+        "dbAfter": {
+          "campers": 6,
+          "elective_choices": 18,
+          "elective_preferences": 18,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 178,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P18",
+      "file": "P18-kind3-optout-and-comments.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "Kind 3 plus the swim opt-out checkbox and the free-text comments box (ADR 4.3, 1 finding 7)",
+      "hypothesis": "both columns are silently dropped; the opt-out changes eligibility (1 finding 4)",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 8,
+          "choices": 20,
+          "preferences": 24
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 8",
+          "elective_choices": "0 -> 20",
+          "elective_preferences": "0 -> 24",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 222"
+        },
+        "dbAfter": {
+          "campers": 8,
+          "elective_choices": 20,
+          "elective_preferences": 24,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 222,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P19",
+      "file": "P19-planner-grid.csv",
+      "entry": "pref",
+      "class": "A",
+      "shape": "Kind 2 planner grid, periods in rows / days in columns, through the PREFERENCE reader",
+      "hypothesis": "no name column and no #N header",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: name, ranks. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P20",
+      "file": "P20-planner-grid-sched.xlsx",
+      "entry": "sched",
+      "class": "A",
+      "shape": "The same Kind 2 planner grid through the SCHEDULE importer",
+      "hypothesis": "day-name columns present, so partitionSchedulePages accepts it as a schedule",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": {
+          "created": {
+            "cohorts": 0,
+            "tiers": 0,
+            "groups": 1,
+            "days_of_operation": 5,
+            "time_blocks": 0,
+            "locations": 0,
+            "activities": 23
+          },
+          "updated": 0,
+          "unchanged": null,
+          "conflicts": 0,
+          "held": false,
+          "total": 29,
+          "fixedEventsCreated": 0
+        },
+        "declinedPages": [],
+        "residual": {
+          "sheets": [],
+          "cells": []
+        },
+        "dbDelta": {
+          "groups": "0 -> 1",
+          "activities": "0 -> 23",
+          "operations": "0 -> 69"
+        },
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 1,
+          "tiers": 0,
+          "activities": 23,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 69,
+          "_sample_choices": [],
+          "_all_activities": [
+            "Archery",
+            "Basketball",
+            "Bunk Unity",
+            "Ceramics",
+            "Cooking",
+            "Dance",
+            "Fishing",
+            "Free Swim",
+            "Gaga",
+            "Hockey",
+            "Instructional Swim",
+            "Lunch",
+            "Music",
+            "Nature",
+            "Photography",
+            "Rock Climbing",
+            "Sailing",
+            "Shabbat",
+            "Soccer",
+            "Swim",
+            "Tennis",
+            "Woodworking",
+            "Yoga"
+          ],
+          "_sample_groups": [
+            "P20-planner-grid-sched.xlsx"
+          ],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P21",
+      "file": "P21-offerings-menu-sched.xlsx",
+      "entry": "sched",
+      "class": "D",
+      "shape": "Kind 1 offerings menu, two sub-columns per day under a merged day header, packed cells",
+      "hypothesis": "a menu of what is OFFERED read as if it were somebody schedule",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a schedule — expected either day-name columns or clock-time row labels, and found neither",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": [],
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P22",
+      "file": "P22-offerings-menu-pref.csv",
+      "entry": "pref",
+      "class": "D",
+      "shape": "The same Kind 1 offerings menu through the PREFERENCE reader",
+      "hypothesis": "refused for want of a name column",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: name, ranks. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P23",
+      "file": "P23-grid-plus-ranked-fallback.csv",
+      "entry": "pref",
+      "class": "C",
+      "shape": "Kind 2 + Kind 3 on ONE page: the planner grid, then a \"Next Five Choices\" ranked block below it (ADR 1, class C)",
+      "hypothesis": "the grid header wins and the ranked block below is never seen",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: name, ranks. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P24",
+      "file": "P24-transposed-planner-sched.xlsx",
+      "entry": "sched",
+      "class": "A",
+      "shape": "Planner grid TRANSPOSED — days as rows, periods as columns",
+      "hypothesis": "detectOrientation should distinguish this from P20",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a schedule — expected either day-name columns or clock-time row labels, and found neither",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": [],
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P25",
+      "file": "P25-mixed-workbook-sched.xlsx",
+      "entry": "sched",
+      "class": "G",
+      "shape": "Mixed workbook (T223 shape): offerings menu tab + camper selection tab + planner tab",
+      "hypothesis": "per-page partition keeps the selection tab out of extraction",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": {
+          "created": {
+            "cohorts": 0,
+            "tiers": 0,
+            "groups": 1,
+            "days_of_operation": 5,
+            "time_blocks": 0,
+            "locations": 0,
+            "activities": 23
+          },
+          "updated": 0,
+          "unchanged": null,
+          "conflicts": 0,
+          "held": false,
+          "total": 29,
+          "fixedEventsCreated": 0
+        },
+        "declinedPages": [
+          "Offerings Menu",
+          "Selections"
+        ],
+        "residual": {
+          "sheets": [],
+          "cells": []
+        },
+        "dbDelta": {
+          "groups": "0 -> 1",
+          "activities": "0 -> 23",
+          "operations": "0 -> 69"
+        },
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 1,
+          "tiers": 0,
+          "activities": 23,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 69,
+          "_sample_choices": [],
+          "_all_activities": [
+            "Archery",
+            "Basketball",
+            "Bunk Unity",
+            "Ceramics",
+            "Cooking",
+            "Dance",
+            "Fishing",
+            "Free Swim",
+            "Gaga",
+            "Hockey",
+            "Instructional Swim",
+            "Lunch",
+            "Music",
+            "Nature",
+            "Photography",
+            "Rock Climbing",
+            "Sailing",
+            "Shabbat",
+            "Soccer",
+            "Swim",
+            "Tennis",
+            "Woodworking",
+            "Yoga"
+          ],
+          "_sample_groups": [
+            "Planner"
+          ],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P26",
+      "file": "P26-mixed-workbook-pref.xlsx",
+      "entry": "pref",
+      "class": "G",
+      "shape": "The SAME mixed workbook through the preference reader, whose reader is FIRST SHEET ONLY",
+      "hypothesis": "the actual preference tab is sheet 2 and is never read",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: name, ranks. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P27",
+      "file": "P27-two-row-merged-header-sched.xlsx",
+      "entry": "sched",
+      "class": "A",
+      "shape": "Grid with a two-row header: day names on row 1 (merged, so blanks), clock times on row 2",
+      "hypothesis": "twoRowSplit should fold them",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a schedule — expected either day-name columns or clock-time row labels, and found neither",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": [],
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P28",
+      "file": "P28-activity-named-like-a-day-sched.xlsx",
+      "entry": "sched",
+      "class": "A",
+      "shape": "A grid whose activity names collide with day names (\"Monday Night Live\", \"Friday Night Program\", \"Shabbat\")",
+      "hypothesis": "day detection keys on cell text somewhere and may mis-locate the axis",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": {
+          "created": {
+            "cohorts": 0,
+            "tiers": 0,
+            "groups": 1,
+            "days_of_operation": 5,
+            "time_blocks": 0,
+            "locations": 0,
+            "activities": 12
+          },
+          "updated": 0,
+          "unchanged": null,
+          "conflicts": 0,
+          "held": false,
+          "total": 18,
+          "fixedEventsCreated": 0
+        },
+        "declinedPages": [],
+        "residual": {
+          "sheets": [],
+          "cells": []
+        },
+        "dbDelta": {
+          "groups": "0 -> 1",
+          "activities": "0 -> 12",
+          "operations": "0 -> 47"
+        },
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 1,
+          "tiers": 0,
+          "activities": 12,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 47,
+          "_sample_choices": [],
+          "_all_activities": [
+            "Arts And Crafts",
+            "Cooking",
+            "Dance",
+            "Drama",
+            "Friday Night Program",
+            "Gaga",
+            "Monday Night Live",
+            "Nature",
+            "Photography",
+            "Rock Climbing",
+            "Soccer",
+            "Tennis"
+          ],
+          "_sample_groups": [
+            "P28-activity-named-like-a-day-sched.xlsx"
+          ],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P29",
+      "file": "P29-compound-period-headers.csv",
+      "entry": "pref",
+      "class": "E",
+      "shape": "Class E compound headers, one row per camper: \"Monday Period 3 - First Choice\", ...",
+      "hypothesis": "no #N header, so no ranks found",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: ranks. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P30",
+      "file": "P30-per-cell-hash-headers.csv",
+      "entry": "pref",
+      "class": "E",
+      "shape": "Per-cell sheet whose headers ARE hash-ranks but repeat per period: \"Monday #1\", \"Monday #2\", \"Wednesday #1\"",
+      "hypothesis": "anchored regex misses them entirely",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: ranks. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P31",
+      "file": "P31-tidy-long-format.csv",
+      "entry": "pref",
+      "class": "NEW",
+      "shape": "INVENTED: tidy/long export — one row per (camper, rank, activity), which is what a normalised form backend emits",
+      "hypothesis": "no #N columns; the sheet is entirely legible to a human and illegible here",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: ranks. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P32",
+      "file": "P32-activities-as-columns.csv",
+      "entry": "pref",
+      "class": "NEW",
+      "shape": "INVENTED: inverted matrix — one column per ACTIVITY, the cell holds the rank number",
+      "hypothesis": "no #N columns; ranks live in cells, not headers",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: ranks. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P33",
+      "file": "P33-per-cell-long-format.csv",
+      "entry": "pref",
+      "class": "NEW",
+      "shape": "INVENTED: per-cell preferences in LONG form — the same camper repeated once per (day, period) block, each block carrying its own legitimate #1..#3",
+      "hypothesis": "rows collapse onto one derived camper id, so legitimate per-cell rank 1s look like a same-name collision",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "5 camper names appear on more than one row with no camper id to tell them apart: Ari Feldspar (rows 2, 3, 4, 5, 6, 7); Noa Quartzite (rows 8, 9, 10, 11, 12, 13); Eli Basalt (rows 14, 15, 16, 17, 18, 19); Tamar Gneiss (rows 20, 21, 22, 23, 24, 25); Yonah Slatestone (rows 26, 27, 28, 29, 30, 31). Resolve these before importing — two children sharing a name would be merged into one record.",
+        "blocked": null,
+        "counts": {
+          "campers": 5,
+          "choices": 7,
+          "preferences": 90
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": null,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 3
+            },
+            {
+              "rank": 2,
+              "index": 4
+            },
+            {
+              "rank": 3,
+              "index": 5
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 5,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P34",
+      "file": "P34-split-name-columns.csv",
+      "entry": "pref",
+      "class": "NEW",
+      "shape": "INVENTED: name split across \"First Name\" and \"Last Name\", which is what most form tools emit by default",
+      "hypothesis": "neither column matches NAME_HEADER",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file does not look like a camper preference sheet — could not find: name. Expected a camper-name column and columns headed #1, #2, … for the ranked choices.",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P35",
+      "file": "P35-group-column-is-a-track.csv",
+      "entry": "pref",
+      "class": "NEW",
+      "shape": "INVENTED: a column headed \"Group\" that holds an ACTIVITY TRACK, not a division — DIVISION_HEADER matches /group/",
+      "hypothesis": "the track is written into campers.division",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 8,
+          "choices": 10,
+          "preferences": 24
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 8",
+          "elective_choices": "0 -> 10",
+          "elective_preferences": "0 -> 24",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 192"
+        },
+        "dbAfter": {
+          "campers": 8,
+          "elective_choices": 10,
+          "elective_preferences": 24,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 192,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P36",
+      "file": "P36-name-column-is-the-counselor.csv",
+      "entry": "pref",
+      "class": "NEW",
+      "shape": "INVENTED: two person columns — \"Counselor Name\" and a camper column headed just \"Camper\". Only one of them matches anything.",
+      "hypothesis": "preferences attributed to whichever column the pattern happens to hit",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 8,
+          "choices": 10,
+          "preferences": 24
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": null,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 8",
+          "elective_choices": "0 -> 10",
+          "elective_preferences": "0 -> 24",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 192"
+        },
+        "dbAfter": {
+          "campers": 8,
+          "elective_choices": 10,
+          "elective_preferences": 24,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 192,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P39",
+      "file": "P39-empty-under-header.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "DEGENERATE: a valid header row with no data rows at all",
+      "hypothesis": "refused for having no rows under its header",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": false,
+        "exitCode": 1,
+        "error": "that file has no rows under its header — nothing to import",
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {},
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 0,
+          "_sample_choices": [],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "BREAKS LOUDLY"
+    },
+    {
+      "id": "P40",
+      "file": "P40-text-grid-daysheet.txt",
+      "entry": "sched",
+      "class": "A",
+      "shape": "The planner grid as a plain-text grid, the format parseTextGrid takes",
+      "hypothesis": "the text path is a different reader from the workbook path",
+      "reimport": null,
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": null,
+        "mapping": null,
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": {
+          "created": {
+            "cohorts": 0,
+            "tiers": 0,
+            "groups": 1,
+            "days_of_operation": 5,
+            "time_blocks": 0,
+            "locations": 0,
+            "activities": 23
+          },
+          "updated": 0,
+          "unchanged": null,
+          "conflicts": 0,
+          "held": false,
+          "total": 29,
+          "fixedEventsCreated": 0
+        },
+        "declinedPages": [],
+        "residual": {
+          "sheets": [],
+          "cells": [
+            {
+              "value": "Period 1",
+              "count": 1
+            },
+            {
+              "value": "Period 2",
+              "count": 1
+            }
+          ]
+        },
+        "dbDelta": {
+          "groups": "0 -> 1",
+          "activities": "0 -> 23",
+          "operations": "0 -> 69"
+        },
+        "dbAfter": {
+          "campers": 0,
+          "elective_choices": 0,
+          "elective_preferences": 0,
+          "elective_assignment_runs": 0,
+          "groups": 1,
+          "tiers": 0,
+          "activities": 23,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 69,
+          "_sample_choices": [],
+          "_all_activities": [
+            "Archery",
+            "Basketball",
+            "Bunk Unity",
+            "Ceramics",
+            "Cooking",
+            "Fishing",
+            "Free Swim",
+            "Hockey Music",
+            "Instructional Swim",
+            "Lunch",
+            "Lunch Lunch",
+            "Nature",
+            "Period 3 Sailing",
+            "Period 4 Swim",
+            "Period 5 Free Swim",
+            "Period 6 Dance",
+            "Period 7 Lunch",
+            "Photography",
+            "Rock Climbing Gaga",
+            "Soccer",
+            "Tennis Shabbat",
+            "Woodworking",
+            "Yoga"
+          ],
+          "_sample_groups": [
+            "Period\tMonday\tTuesday\tWednesday\tThursday\tFriday"
+          ],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": []
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P37",
+      "file": "P37-kind3-reimport-same-bytes.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "RE-IMPORT: byte-identical to P01, imported twice in a row (ADR 8 idempotency row)",
+      "hypothesis": "derived run id converges; second import is a no-op, not a doubling",
+      "reimport": "same",
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 12,
+          "choices": 20,
+          "preferences": 36
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            },
+            {
+              "rank": 3,
+              "index": 4
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "0 -> 12",
+          "elective_choices": "0 -> 20",
+          "elective_preferences": "0 -> 36",
+          "elective_assignment_runs": "0 -> 1",
+          "operations": "0 -> 298"
+        },
+        "dbAfter": {
+          "campers": 12,
+          "elective_choices": 20,
+          "elective_preferences": 36,
+          "elective_assignment_runs": 1,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 298,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        },
+        "_second_import": {
+          "threw": null,
+          "ok": true,
+          "exitCode": 0,
+          "error": null,
+          "blocked": null,
+          "counts": {
+            "campers": 12,
+            "choices": 20,
+            "preferences": 36
+          },
+          "mapping": {
+            "nameIndex": 0,
+            "externalIdIndex": null,
+            "divisionIndex": 1,
+            "rankColumns": [
+              {
+                "rank": 1,
+                "index": 2
+              },
+              {
+                "rank": 2,
+                "index": 3
+              },
+              {
+                "rank": 3,
+                "index": 4
+              }
+            ],
+            "unmapped": []
+          },
+          "sameNameCampers": 0,
+          "skippedRows": [],
+          "summary": null,
+          "declinedPages": null,
+          "residual": null,
+          "dbDelta": {
+            "operations": "298 -> 595"
+          },
+          "dbAfter": {
+            "campers": 12,
+            "elective_choices": 20,
+            "elective_preferences": 36,
+            "elective_assignment_runs": 1,
+            "groups": 0,
+            "tiers": 0,
+            "activities": 0,
+            "days": null,
+            "time_blocks": 0,
+            "schedule_templates": 0,
+            "operations": 595,
+            "_sample_choices": [
+              "Swim",
+              "Archery",
+              "Ceramics",
+              "Woodworking",
+              "Basketball"
+            ],
+            "_all_activities": [],
+            "_sample_groups": [],
+            "_sample_divisions": [
+              "UNREADABLE: no such column: division"
+            ],
+            "_sample_camper_names": [
+              "Ari Feldspar",
+              "Noa Quartzite",
+              "Eli Basalt",
+              "Tamar Gneiss"
+            ]
+          }
+        }
+      },
+      "bucket": "COMMITTED"
+    },
+    {
+      "id": "P38",
+      "file": "P38-kind3-reimport-drifted.csv",
+      "entry": "pref",
+      "class": "B",
+      "shape": "DRIFTED RE-IMPORT: P37 with one rank column renamed and one extra camper (ADR 8 drift row)",
+      "hypothesis": "a drifted file must not silently inherit the prior reading",
+      "reimport": "drift-of-P37",
+      "observed": {
+        "threw": null,
+        "ok": true,
+        "exitCode": 0,
+        "error": null,
+        "blocked": null,
+        "counts": {
+          "campers": 13,
+          "choices": 20,
+          "preferences": 26
+        },
+        "mapping": {
+          "nameIndex": 0,
+          "externalIdIndex": null,
+          "divisionIndex": 1,
+          "rankColumns": [
+            {
+              "rank": 1,
+              "index": 2
+            },
+            {
+              "rank": 2,
+              "index": 3
+            }
+          ],
+          "unmapped": []
+        },
+        "sameNameCampers": 0,
+        "skippedRows": [],
+        "summary": null,
+        "declinedPages": null,
+        "residual": null,
+        "dbDelta": {
+          "campers": "12 -> 13",
+          "elective_choices": "20 -> 40",
+          "elective_preferences": "36 -> 62",
+          "elective_assignment_runs": "1 -> 2",
+          "operations": "595 -> 847"
+        },
+        "dbAfter": {
+          "campers": 13,
+          "elective_choices": 40,
+          "elective_preferences": 62,
+          "elective_assignment_runs": 2,
+          "groups": 0,
+          "tiers": 0,
+          "activities": 0,
+          "days": null,
+          "time_blocks": 0,
+          "schedule_templates": 0,
+          "operations": 847,
+          "_sample_choices": [
+            "Swim",
+            "Archery",
+            "Ceramics",
+            "Woodworking",
+            "Basketball"
+          ],
+          "_all_activities": [],
+          "_sample_groups": [],
+          "_sample_divisions": [
+            "UNREADABLE: no such column: division"
+          ],
+          "_sample_camper_names": [
+            "Ari Feldspar",
+            "Noa Quartzite",
+            "Eli Basalt",
+            "Tamar Gneiss"
+          ]
+        }
+      },
+      "bucket": "COMMITTED"
+    }
+  ]
+}

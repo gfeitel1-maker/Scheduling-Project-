@@ -745,7 +745,9 @@ hard constraint on the implementing brief, not a review-time discovery:
 
 ## 8. Test corpus and the acceptance metric — designed here, built later
 
-**Per my brief the corpus is designed, not built, this round.**
+**Round 2: designed, not built. ROUND 3: BUILT AND RUN — see §8.1 for the measured baseline.** The
+design below stands as written; §8.1 records what today's code actually does with it, and names the
+two places §8's own expectations were wrong.
 
 ### 8.0 The corpus is SYNTHETIC-ONLY — normative, and no gate can enforce it for us
 
@@ -839,14 +841,158 @@ the corpus:
 Neither number may be reported from a hand-built fixture, and per §6.3 both must either aggregate the
 host-local journal deliberately or be labelled device-local on their face.
 
+### 8.1 MEASURED — the corpus was built and run against unmodified code, 2026-09-27
+
+**Owner instruction, verbatim:** *"instead, use the architect to devise 20-30 different potential
+imports and then run them through the system as a test of what works, what breaks, and where to look
+at what to fix."* **40 probe files** were built and run. Artifacts:
+
+- `scripts/fixtures/make-preference-corpus.mjs` → `test/fixtures/preference-corpus/probes/` (40 files)
+  and `test/fixtures/preference-corpus/manifest.json`
+- `scripts/preferenceCorpusProbe.mjs` — the measurement harness (asserts nothing, on purpose)
+- `docs/work/evidence/T282-preference-corpus-baseline.json` — the raw run
+- `test/preferenceCorpusNames.test.js` — the §8.0 clause 4 control, 45 assertions, green
+
+**Why this is evidence and not self-congratulation.** Red Hat's round-2 RISK 5 was that a corpus
+measures adapter/generator agreement — same author, same round, both written to each other. That
+objection applies to a corpus built *after* the adapters. Nothing has been built to these files: the
+system under test is unmodified `main`-era code, and **nothing was fixed during the measurement**, so
+the baseline is a baseline.
+
+**The entry points.** Every probe enters at **file bytes**. `pref` = `runPreferenceSheetCli`
+(`scripts/preferenceSheetCli.js`), which drives the same `inferPreferenceMapping` /
+`parsePreferenceSheet` / `commitElectiveRun` chain the renderer's
+`src/screens/elective/assignment/AssignmentPanel.jsx:254-263` drives. `sched` = `runIngestCli`
+(`scripts/ingestCli.js`), which drives the same `partitionSchedulePages` → `extractEntities` →
+`commitIngest` chain `ImportScreen.jsx` drives. No probe constructs a `parsed` object.
+
+**The counts.**
+
+| | count | probes |
+|---|---|---|
+| **(a) WORKS** — read correctly today | **11** | P01 P05 P08 P14 P15 P16 P17 P25 P28 P36 P37 |
+| **(b) BREAKS LOUDLY** — refused or errored | **20** | P03 P04 P07 P10 P11 P12 P19 P21 P22 P23 P24 P26 P27 P29 P30 P31 P32 P33 P34 P39 |
+| **(c) BREAKS SILENTLY** — committed, exit 0, data wrong or lost | **9** | P02 P06 P09 P13 P18 P20 P35 P38 P40 |
+| THREW | 0 | — |
+
+**The ticket exists because of one instance of (c). There are nine more, plus one cross-cutting loss.**
+
+#### (c) The silent misses, in full
+
+| Probe | Shape | Observed | Where to look |
+|---|---|---|---|
+| **P38** | drifted re-import: `#3` renamed `Third Choice` | committed `ok=true`; **rank 3 dropped for all 13 campers** (26 prefs, not 39); no residue, no low confidence | `src/ingest/preferenceSheet.js:25` `RANK_HEADER`; `:58-60` `unmapped` reports only missing *roles*, never an unrecognised *column* |
+| **P02** | 25-rank gradient, an activity repeated at two ranks | CLI printed `preferences: 200`; **the database holds 160**. `deriveElectivePreferenceId` keys on `(run_id, camper_id, occurrence_id, choice_id)` — **rank is not in the key**, so the second rank overwrites the first | `electron/ops/electiveDerivedIds.js` `deriveElectivePreferenceId`; `electron/ops/commitElectiveRun.js:318` |
+| **P06** | partial id: one child on two rows, one row with an id | **two camper records for one child** (7 from 6), preferences split 3/3, nothing reported. `sameNameCampers` excludes it by design (§4.4) and nothing replaces it | `src/ingest/preferenceSheet.js:135-147` |
+| **P09** | packed cell `"Archery, Ceramics, Woodworking"` | committed as **one** `elective_choices` label naming no real activity | `src/ingest/preferenceSheet.js:126-132` |
+| **P13** | footer rows below the data | **3 phantom campers** — `Total Campers`, `Please Return`, `Camp Office Use Only` — each with preferences (`8`, `by June 1`). `skippedRows` empty | `src/ingest/preferenceSheet.js:83-91` |
+| **P18** | swim opt-out checkbox + comments box | both columns committed nothing and **reported nothing**. §1 finding 4: the opt-out changes how many cells that camper must fill | `src/ingest/preferenceSheet.js:38-63`; §4.3 has no home for it yet |
+| **P20** | a **camper's planner grid** through the schedule importer | committed `ok=true`: 23 activities including `Lunch`, `Free Swim`, `Shabbat`, `Bunk Unity`, and **one group named after the filename** (`P20-planner-grid-sched.xlsx`) | `src/ingest/scheduleShape.js` `partitionSchedulePages`; group naming in `src/ingest/extractEntities.js` |
+| **P35** | a column headed `Group` holding an activity **track** | `divisionIndex` bound to it and `Sports Track` read as a division — then dropped (below) | `src/ingest/preferenceSheet.js:28` `DIVISION_HEADER` matches `/group/` |
+| **P40** | the planner as a plain-text grid | committed 23 malformed activities (`Hockey Music`, `Lunch Lunch`, `Period 3 Sailing`, `Rock Climbing Gaga`, `Tennis Shabbat`) and a group named after the joined header line | `src/ingest/textGrid.js` `parseTextGrid`. **Caveat:** the probe's tab-delimited dialect may not be the one this reader expects — but it committed garbage rather than refusing, which is the finding either way |
+
+**Cross-cutting, affecting 15 of the 40 probes: the division is parsed, previewed, and then
+discarded.** `campers` has no `division` column (`electron/db/localDb.js:2677-2684`);
+`parsePreferenceSheet` emits one per camper and the CLI reports it;
+`commitElectiveRun.js:287-293` writes `camp_id`, `display_name`, `external_id`, `is_active` and
+**drops `division` on the floor**, with no error and no residue. Found by probing for the column and
+getting `no such column: division`.
+
+#### (b) Loud, but is the message ACCURATE?
+
+**Nine of the twenty refusals blame the sheet for our own limitation.** Listed because a misleading
+refusal sends a director to edit a file that is not wrong:
+
+| Probe | Message | Why it misleads |
+|---|---|---|
+| **P33** | *"5 camper names appear on more than one row with no camper id to tell them apart… two children sharing a name would be merged"* | It is **one child with six legitimate per-cell blocks**. The message diagnoses an identity problem that does not exist and asks the director to fix it. **Round 2's widening of `hasContradictoryRanks` to carry `occurrence_id` does not help here**, because `describeElectiveRunRefusal` tests `sameNameCampers` *first* (`electron/ops/commitElectiveRun.js:37`) and `sameNameCampers` has no occurrence dimension at all |
+| **P27** | *"expected either day-name columns or clock-time row labels, and found neither"* | The file has **both** — day names on header row 1, clock times on row 2. The message enumerates two accepted forms and refuses a file containing each |
+| **P21** | same | `Monday`…`Friday` are in row 1, under a merged two-row header |
+| **P24** | same | the days are present, as row labels — this is the transposed orientation |
+| **P12** | *"does not look like a camper preference sheet — could not find: name, ranks"* | the header is in the file, on row 3. `rows[0]` is taken as the header unconditionally (`scripts/preferenceSheetCli.js:135`) |
+| **P23** | same | the ranked fallback block, headed `#1`…`#5`, is in the file below the grid — only row 1 was read |
+| **P26** | same | sheet 2 **is** a valid preference sheet. The reader is first-sheet-only by design (`scripts/preferenceSheetCli.js:63-71`) and never says so |
+| **P19** | same | this is precisely a camper preference document — Kind 2 |
+| **P10** | *"could not find: ranks"* | §4.1 rules an unordered set a legitimate shape. The message implies the sheet is malformed |
+
+The other eleven refusals are accurate: P03, P04, P29, P30, P31, P32, P34 all say plainly that the
+reader wants `#1`, `#2` headers and a camper-name column and did not find them; P07, P11, P39 name
+the exact rows or columns; P22 correctly declines an offerings menu.
+
+#### Where to look, ranked by probes unblocked
+
+1. **`src/ingest/preferenceSheet.js:38-63` — `inferPreferenceMapping` must report columns it did not
+   recognise, not only roles it could not fill.** Today `unmapped` lists missing *roles*; a column the
+   reader does not understand is invisible. This one change, which teaches the reader **no new shape**,
+   converts **P38, P18, P13, P35 and P02's over-count from silent to loud** — the largest
+   silent→loud conversion available, and by §8's own rule that metric 2 dominates, the highest-leverage
+   fix in the corpus. **Recommended first.**
+2. `src/ingest/preferenceSheet.js:25` `RANK_HEADER` — its anchored `^#\s*(\d+)$` is the mechanism
+   behind P03, P29, P30, P31, P32 and the P38 silent miss: 6 probes.
+3. Header-row location — `scripts/preferenceSheetCli.js:135` / `preferenceSheet.js:78` both assume
+   row 1: P12, P13, P23.
+4. Two-row / merged / transposed headers on the schedule path — P21, P24, P27, and the accuracy of
+   `scripts/ingestCli.js:119-122`'s message.
+5. `electron/ops/electiveDerivedIds.js` `deriveElectivePreferenceId` — P02; one probe, but it loses
+   data on a sheet that otherwise reads correctly, and the reported count disagrees with the database.
+6. `electron/ops/commitElectiveRun.js:287-293` + the `campers` schema — the division, 15 probes.
+7. `src/ingest/preferenceSheet.js:26` `NAME_HEADER` — P04, P34.
+
+#### What the evidence CONTRADICTS in this ADR and in round 2's rulings
+
+Five, stated rather than quietly absorbed.
+
+1. **§8's shape table guards the wrong direction.** It lists class D as the danger — *"offerings menu
+   (must be declined by the preference reader)"* — and P22 shows that is already handled. The
+   unguarded direction is the opposite one: **class A, a camper's own planner grid, is ACCEPTED by the
+   schedule importer and committed as camp structure** (P20). The T224 gate exists to keep a
+   *preference sheet* out of extraction; nothing keeps a *planner grid* out, because a planner grid
+   genuinely is grid-shaped. That hole is not named anywhere in this ADR before now.
+2. **The residue mechanism (§3.4) sits in the wrong half of the pipeline to catch four of the nine
+   silent misses.** P02, P06, P18 and the division loss all happen **at or after commit**, inside
+   `commitElectiveRun`, which this ADR treats as settled. A residue design that lives only in the
+   reader would report none of them.
+3. **Round 2's correction to `hasContradictoryRanks` is incomplete.** Widening the rank key with
+   `occurrence_id` was right, but `describeElectiveRunRefusal` checks `sameNameCampers` **first**
+   (`electron/ops/commitElectiveRun.js:37`) and that set carries no occurrence dimension, so P33 —
+   one child, six legitimate per-cell blocks — is still refused as an identity collision. The round-2
+   ruling widened one key and left its neighbour narrow.
+4. **§4.4's ruling that same-name handling is "not a second defect" is half falsified.** The
+   same-name *refusal* is sound (P07). Its complement is not: the PARTIAL-ID case it added as residue
+   (P06) commits two records for one child with nothing reported, so the identity story is loud in one
+   direction and silent in the other.
+5. **§8's non-vacuity table cannot be executed in the order it implies.** Its first row — *"a
+   correctly-read grid writes N rows with distinct non-null `occurrence_id`s"* — is presented as the
+   test that proves the defect fixed. The corpus shows the preference reader refuses every grid at the
+   header (P19, P23), so that test has no red-then-green available at the file-bytes entry until an
+   adapter exists. It is still the right first test; it is not the right first *step*.
+
+#### What this corpus CANNOT establish
+
+**These are shapes we imagined.** That is a smaller limit than designing to one real file, and it is
+the limit the owner's ruling deliberately accepts — but it is not zero, and a green corpus is not a
+claim of agnosticism. Class H is absent by design and stays absent. Two further limits stated
+plainly: the classification of a *committed* probe as correct or wrong is my reading of the rows, not
+a mechanical check; and P40's text dialect may not be the one `parseTextGrid` expects.
+
 ## 9. Open questions for the owner
 
-1. **Can we get one real Camp InTouch export from your camp?** *(Top question — the cheapest single
-   thing that would de-risk this whole design.)* Everything in §1 is a blank planning form. The file
-   that actually carries campers' answers comes out of the Camp InTouch portal, and nobody on this
-   project has ever seen one. No published spec exists for any camp platform's elective export. One
-   real export — even with the names removed — would turn shape class H from a guess into a fact, and
-   would tell us immediately whether it carries a stable camper id (§4.4) or forces name matching.
+1. **CLOSED — answered NO, 2026-09-27. Do not re-ask.** The question was: can we get one real Camp
+   InTouch export. The owner declines, and his reasoning overrides my recommendation rather than
+   merely refusing it — verbatim: *"you do not need a real import. that would explicitly defeat the
+   purpose of system agnostic machine learning."* He is right about the mechanism: designing the
+   reader against one real file makes that file the spec, and a reader tuned to one vendor's column
+   arrangement is the thing D14 already retired.
+
+   **What this changes.** Shape class H stops being *a gap we are waiting on the owner to fill* and
+   becomes *a shape class we deliberately design without*. It is still never fabricated (§8's table
+   is unchanged on that point), and §8.0 clause 3 — the handling rule for a real export held outside
+   the repository — is now dead text rather than a live procedure.
+
+   **What replaces it**, on the owner's instruction: *"instead, use the architect to devise 20-30
+   different potential imports and then run them through the system as a test of what works, what
+   breaks, and where to look at what to fix."* That measurement is §8.1, and it was run against
+   unmodified code before anything was built to it.
 2. **Is "infer, show, confirm, remember" what you meant by learning?** §6 rules it is, and rules out a
    trained model on the evidence available. If you meant something closer to a model that reads
    unfamiliar files on its own, say so — it is a different ADR with a different evidence bar, and I

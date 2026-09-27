@@ -20,4 +20,23 @@ path-scanned only, contents never read. The name-list assertion in `archive_when
 control — see ADR §8.0.
 
 **Shape class H (a camp-platform portal export) must be modelled as UNKNOWN and never fabricated.**
-No vendor publishes a column-level spec and no sample has been seen. Blocked on ADR §9 Q1.
+No vendor publishes a column-level spec and no sample has been seen. **No longer blocked — ADR §9 Q1
+is CLOSED, answered NO (2026-09-27).** The owner will not supply a real export, and his reasoning is
+the design reason rather than a refusal: designing the reader against one real file makes that file
+the spec. Class H is therefore a shape class this corpus **deliberately designs without**, not a gap
+awaiting a sample.
+
+**STAGE 4 IS PART-BUILT AND THE BASELINE IS MEASURED.** On the owner's instruction, 40 probe files
+were built and run against unmodified code before any adapter existed — results in ADR §8.1, raw run
+in `docs/work/evidence/T282-preference-corpus-baseline.json`. Shipped this round:
+
+- `scripts/fixtures/make-preference-corpus.mjs`, `test/fixtures/preference-corpus/`
+- `scripts/preferenceCorpusProbe.mjs` (measurement harness — asserts nothing, by design)
+- `test/preferenceCorpusNames.test.js` — the §8.0 clause 4 synthetic-name control, which is the
+  `archive_when` clause about a committed name list, now satisfied
+
+**Still open for this ticket:** the shape-parameterised coverage test that FAILS when a class is
+uncovered; scaling to a ~500-camper realistic camp with per-division geometries; and both acceptance
+numbers (correct-binding rate, silent-miss rate) reported from tests rather than from a harness. The
+silent-miss baseline to beat is **9 of 40**, and P38 is the drifted-re-import instance §8's metric 2
+says must be zero.
