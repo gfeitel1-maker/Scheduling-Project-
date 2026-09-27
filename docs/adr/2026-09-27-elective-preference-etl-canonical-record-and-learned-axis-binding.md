@@ -1882,6 +1882,22 @@ the reader does not understand — T224 exactly. **This is a program, not a patc
 `offerings-menu` / elective-adapter work §11.1 and §12.5 residual 3 already scope. What round 2 adds is
 the *rule* those slices are measured against, plus the number they have to move: **14 to 0.**
 
+**MEASURED AFTER T285 (2026-09-27): the count is 0.** All six adapter slices ran
+(`docs/work/tickets/T285-preference-shape-adapters.md`), and every row of the table above is closed
+except the two that were never violations: P07 stays refused as the genuine ambiguity this rule's
+second category preserves, and P39 is an empty file. The corpus now reports **no probe in the
+BREAKS SILENTLY bucket at all**.
+
+Two things §14.1 turned out to need that this section did not anticipate, both recorded in T285's
+outcome section: an offerings menu and a filled planner are the same geometry, so the rule is
+satisfied WITHOUT classifying the kind — by the kind-agnostic fact that a page naming no camper
+cannot hold a camper preference; and "never refuse" had to be paired with a SECOND accuracy
+obligation, because the first draft of each new adapter characterised what it skipped wrongly
+(a planner grid called "a title or a season line", an unreadable sheet called "no camper name
+column" when it had one). **Accepting a file and then describing it wrongly is not an improvement
+on refusing it**, which is the sharpest lesson of the program and belongs beside the rule.
+
+
 
 ### 14.2 The coordinate is STORED, and §12.2b's key was wrong about which fact it was scoping
 

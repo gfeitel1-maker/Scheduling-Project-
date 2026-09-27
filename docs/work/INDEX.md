@@ -32,7 +32,7 @@ Regenerate with `npm run index:work`.
 | [Stage 1 — the ETL spine, all five RESOLVERS, and schema v79 (campers.division_label)](../../docs/work/tickets/T279-preference-etl-canonical-record-and-residue.md) | open | [T285-preference-shape-adapters](../../docs/work/tickets/T285-preference-shape-adapters.md) |
 | [Stage 2 — the decision journal records axis-binding questions and their outcomes](../../docs/work/tickets/T280-import-decision-journal-for-axis-bindings.md) | open | — |
 | [Stage 3 — a remembered, versioned, revocable per-camp axis binding](../../docs/work/tickets/T281-remembered-axis-binding-per-camp.md) | open | — |
-| [Shape is not a reason to refuse ingest — thirteen preference-shape adapters into the ETL spine](../../docs/work/tickets/T285-preference-shape-adapters.md) | open | — |
+| [Shape is not a reason to refuse ingest — thirteen preference-shape adapters into the ETL spine](../../docs/work/tickets/T285-preference-shape-adapters.md) | in-progress | — |
 
 ### documentation-governance
 

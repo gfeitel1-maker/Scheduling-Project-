@@ -1,7 +1,7 @@
 ---
 title: "Shape is not a reason to refuse ingest — thirteen preference-shape adapters into the ETL spine"
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-09-27
 task_class: database-sync
 archive_when: "PER-SLICE, because this is a program and one predicate over thirteen probes would be dischargeable only by finishing all of it: SLICE A (header/identity) — P03, P04, P34, P12 and P11 each COMMIT with the right data asserted at the database (prose rank headers read as ranks; a bare `Student` header read as the name; `First Name`/`Last Name` joined into one display name; a header that is not row 1 located; two `#1` columns read as an UNORDERED SET per ADR 4.1 rather than refused), and the ADR 14.1 violation count falls from 14 to 9. SLICE B (compound headers) — P29 and P30 COMMIT with each preference carrying the coordinate the header names, count falls to 7. SLICE C (tidy/inverted) — P31 and P32 COMMIT with one row per (camper, rank, activity), count falls to 5. SLICE D (multi-sheet) — P26 COMMITs and the reader stops being first-sheet-only without merging two submissions into one run, count falls to 4. SLICE E (menu) — P22 is READ without refusing AND correctly concludes it names NO camper preferences: zero campers and zero elective_preferences rows written, with residue naming it a menu, count falls to 3. SLICE F (grids) — P19 then P23 COMMIT, P23 reading BOTH its grid and its ranked block with the alternative reading named in residue, count falls to 1 (P07 alone, a genuine ambiguity that must stay refused; P39 is an empty file and writes nothing). Every slice: tests enter at FILE BYTES and assert at the DATABASE, no hand-built `parsed` object, and the silent-miss count against the seven measured misses is reported each round and is zero or explained."
@@ -115,3 +115,67 @@ Both must land a **coordinate** per preference, which v79's `coordinate_day_labe
 The learning layer (T280–T282) — no remembered binding, no import profile, no drift detection. The
 declared-kind UI surface (ADR §3.3 rulings 1–4) insofar as it needs a screen; this ticket may consume
 a declared kind but does not design its confirmation surface.
+
+
+## OUTCOME — all six slices ran; the count reached 0; two predicates were NOT met as written
+
+Commits: slice A `afcf6955`, B `017d237c`, C `af665000`, D `32ae8dda`, E+F `9d3a9537`.
+
+**ADR §14.1 violation count: 14 → 7 → 5 → 3 → 2 → 0.** Measured each round with
+`node scripts/preferenceCorpusProbe.mjs --seed-catalog`. Final corpus buckets: COMMITTED 33,
+BREAKS LOUDLY 5, READ-WROTE-NOTHING 2, **BREAKS SILENTLY 0**. Silent misses against the seven
+measured misses: **0** throughout. No probe reports a count disagreeing with the rows it wrote.
+
+Still refused, both correctly: **P07** (two rows naming one child with no external id — §14.1's own
+second category, a genuine ambiguity where guessing merges two real children) and **P39** (an empty
+file: a description, not a refusal of content).
+
+### Two predicates this ticket set for itself and did NOT meet as written
+
+Recorded rather than quietly satisfied, because both were wrong rather than merely hard.
+
+1. **Slice E said the residue should name P22 "a menu". It does not, deliberately.** An offerings
+   menu and a filled planner are the same day × period grid with opposite meanings (ADR §3.3), so
+   naming the kind would be exactly the shape inference §3.3 says cannot work and constraint 1
+   forbids. What shipped instead is kind-agnostic and checkable: **neither page names a camper**, so
+   neither can hold a camper preference, whatever kind it is. A test asserts the message does *not*
+   say "menu". The predicate asked for a claim this app has no evidence for.
+
+2. **Slice F said P23 would read BOTH its grid and its ranked block. It reads the ranked block
+   only.** This is an **owner question**, not an implementation shortfall. P23's grid carries no
+   camper-name column — nothing on it says whose week it is. Its ranked block names four campers
+   below it. Attributing the grid's cells to those campers is a guess about whose week the grid
+   describes, and the grid may equally be a group's schedule or an offerings menu. The grid is
+   therefore reported with that reason stated, and the alternative reading named (§14.1
+   constraint 2). **What would close it:** a declared per-page kind (ADR §3.3 rulings 1–4), which
+   this ticket explicitly scoped out, or a source file whose grid carries camper identity.
+
+### A finding from slice A, closed inside it
+
+Slice A's header locator made P23 commit early, and described its 8-row × 5-day grid as "usually a
+title or a season line" — a confident wrong characterization of half the document, and exactly the
+predicted hazard that a newly-readable shape is a new opportunity to read it wrongly. Closed by
+splitting the finding on **structure**: two or more rows of three or more populated cells is a
+TABLE whatever it holds. P12's genuine title/season preamble still gets the calm message, pinned so
+this does not cry wolf on every ordinary export.
+
+### The multiplicity rule generalised, on its third encounter
+
+P31's long format was the third layout to hit the same question, so the rule is stated once in
+general form rather than as a flag per shape:
+
+> A row occupies the **(coordinate, rank) slots** it fills. Two rows for one name collide only if
+> their slot sets **intersect**.
+
+A wide row fills every rank, so two wide rows always collide at rank 1 — T226's original case,
+preserved exactly. A per-cell row fills one rank in one coordinate, so a planner's rows never
+collide. A long row fills exactly one rank, so one child's three ranked rows never collide while two
+rows claiming their first choice still do.
+
+### The harness's own label was a false signal, and was split
+
+`BREAKS SILENTLY` meant "reported success and wrote nothing", which was silent *because* nothing
+else was reported. A page naming no camper now writes nothing correctly and says so, and calling
+that `BREAKS SILENTLY` would be the measurement telling the same kind of lie this program exists to
+remove. Split into `READ, WROTE NOTHING` on the question that matters everywhere else: **was the
+operator told?**
