@@ -241,7 +241,8 @@ replaceable adapter.** Concretely, four stages with three named contracts betwee
 
 ### 3.1 The canonical record
 
-**ROUND 5 — THIS RECORD CHANGED SHAPE. READ §12.1 AND §12.2a.** It carried a `division` with nowhere
+**ROUND 5 — THIS RECORD CHANGED SHAPE. READ §12.1 AND §12.2a. ROUND 6: the literal record block
+below is STALE — §13.3 carries the current shape, including `divisionLabel` and `rankKind`.** It carried a `division` with nowhere
 to go, and its preference count was the number parsed rather than the number written. Both are
 corrected in §12; `campers` gains `division_label` at schema **v79**.
 
@@ -280,7 +281,9 @@ Two properties make it the right canonical record and both are load-bearing:
 
 ### 3.1a The RESOLVE stage, and the error round 1 of this ADR made
 
-**ROUND 5 — THIS SECTION UNDER-SPECIFIED THE STAGE THAT MATTERS. READ §12.0.** RESOLVE is not only
+**ROUND 5 — THIS SECTION UNDER-SPECIFIED THE STAGE THAT MATTERS. READ §12.0. ROUND 6: and §13.1 —
+`sameNameCampers` refuses a correctly-read grid, the same refuse-everything class as below, one gate
+to the left.** RESOLVE is not only
 coordinate→occurrence binding: it is **five** resolvers under one rule, and it is what closes every
 one of the seven measured silent misses.
 
@@ -346,7 +349,9 @@ convenience. Same seam, local execution.
 
 ### 3.3 Declared kind is per-page; axis binding is proposed and confirmed
 
-**ROUND 4 — READ §11.2 FIRST. This section's central premise is WRONG.** It designs a reader that
+**ROUND 4 — READ §11.2 FIRST. This section's central premise is WRONG. AND READ §13.2: §11.2's own
+framing was also wrong about WHEN the checks run — check 1 at parse time, checks 2 and 3 only at solve
+time against the template being solved, and both unavailable when the elective set is unplaced.** It designs a reader that
 *infers* an axis structure from an unknown grid. Electives are a NESTED schedule inside an
 already-defined day: the days and periods, and which coordinates are elective at all, ALREADY EXIST
 in the projection when the elective import runs. Axis binding is therefore a **matching** problem
@@ -1007,6 +1012,13 @@ claim of agnosticism. Class H is absent by design and stays absent. Two further 
 plainly: the classification of a *committed* probe as correct or wrong is my reading of the rows, not
 a mechanical check; and P40's text dialect may not be the one `parseTextGrid` expects.
 
+**ROUND 6 — THE SHARPEST LIMIT, AND IT WAS MISSING (§13.6c). This corpus cannot exercise the
+coordinate resolver at all.** `scripts/preferenceSheetCli.js:225-241` commits with `occurrences: []`,
+and all 33 in-scope probes enter through it, so **no probe can produce a non-null `occurrence_id`** and
+§11.2's checks 2 and 3 had no input on this path. The baseline is sound for the **column, label,
+division and identity** resolvers and says **nothing** about the coordinate one. The harness plumbing
+it needs — a template, an elective set, tiered groups — is added to T282's scope.
+
 ## 9. Open questions for the owner
 
 1. **CLOSED — answered NO, 2026-09-27. Do not re-ask.** The question was: can we get one real Camp
@@ -1429,9 +1441,11 @@ is not acceptable evidence for any row (T62, T197 round 1, the v78 fallback row)
 | 3 | **P09** packed cell → one nonexistent choice | §12.3 — label resolver against the activity catalog; never mint an unmatched label silently | seed the catalog, import P09; assert **no** `elective_choices` row whose label matches no activity, and a residue item per ambiguous cell. Second case: empty catalog → every label listed as unverified | **T279** |
 | 4 | **P13** 3 phantom campers from footer rows | §12.3 — same label resolver: a row resolving to no activity is not a camper row | import P13; assert exactly **8** camper rows and 3 `skippedRows` naming row numbers and contents | **T279** |
 | 5 | **P18** opt-out + comments dropped silently | §12.0 column resolver (makes both **loud**) + §11.3 (the opt-out is the per-camper override of the fixed-event set, an input to the coverage check) | import P18; assert a residue item per unrecognised column, naming it. **Storage of the opt-out is a RESIDUAL — see §12.5** | **T279** (loud) / residual (stored) |
-| 6 | **P35** `Group` column read as a division | §12.2a — group resolver; unmatched label → `division_label` verbatim, `group_id` null, residue | import P35; assert `group_id IS NULL`, `division_label = 'Sports Track'`, and a residue item naming the unmatched label | **T279** |
+| 6 | **P35** `Group` column read as a division | §12.2a + **§13.5** — the DIVISION resolver, two targets in order (`groups`, then `tiers`); unmatched → `division_label` verbatim, `group_id` null, residue | import P35; assert `group_id IS NULL`, `division_label = 'Sports Track'`, and a residue item naming the unmatched label. **ROUND 6: `group_id IS NULL` being the success condition DISABLES check 3 for those campers — the test must also assert the page is counted UNMEASURED by metric 2, never passing (§13.5)** | **T279** |
 | 7 | **P38** drift silently dropped rank 3 for 13 campers | §12.3 — column resolver **+** remembered-binding re-verification (§11.2 checks 1 and 3) | import P37, confirm the binding, import P38; assert the run is **not** committed on the stale binding — the director is re-asked, or a residue item names the column that vanished | **T281** (memory) / **T279** (the loud half) |
 | — | **cross-cutting:** division parsed, previewed, dropped (15/33) | §12.2a — `campers.division_label` + resolved `group_id`, schema **v79** (§12.6) | import P01; assert `division_label` non-null for every camper and `group_id` resolved where a matching group exists | **T279** |
+
+| 8 | **ROUND 6 / F1** a correctly-read grid is REFUSED for every camper — one name, one derived id, many rows (§13.1, reproduced by execution) | §13.1 — the identity resolver owns multiplicity; `sameNameCampers` gains the coordinate dimension: many rows for one name collide only when they share a coordinate, or when all lack one | import a per-cell planner for ONE camper with 18 distinct coordinates; assert 18 rows written, one camper, and the run **NOT refused**. Non-vacuity: the same name on two rows at the SAME coordinate is still refused | **T279** |
 
 **Two axis-binding rows carried over from §8, restated here so the table is the single place to check
 coverage:** a correctly-read grid writes N rows with distinct non-null `occurrence_id`s and is **not**
@@ -1481,8 +1495,20 @@ the number, stated so a Maker inherits them: the migration is **ALTER ADD COLUMN
 `>= 78 && < 79`, not a bare `< 79`; and the version constant must be **re-checked immediately before
 merge**, because the check-to-merge window stays open while other sessions run.
 
-**No other schema change.** `elective_preferences` is untouched; `deriveElectivePreferenceId` keeps its
-shape; no index is relaxed, so `detectUniqueFieldCollision` gains nothing to register.
+~~**No other schema change.** `elective_preferences` is untouched~~ — **STRUCK IN ROUND 6 (§13.3).**
+v79 carries **two** columns: `campers.division_label TEXT` and `elective_preferences.rank_kind TEXT`.
+Without the second, §4.2's `rankKind` ruling is unimplementable and §9 Q4 has no input.
+
+**ROUND 6 ADDITION to the obligation list (§13.4) — load-bearing and INVISIBLE if missed.**
+`applyProjection` silently discards a field absent from its entity's allowlist
+(`electron/ops/projections.js:1114`, `if (!projection.fields.includes(op.field)) return` — no error,
+no log). So the same change MUST add `division_label` to `PROJECTIONS.campers.fields` (`:840-843`)
+and `rank_kind` to `PROJECTIONS.elective_preferences.fields` (`:943-946`). Ship the ALTER and the
+writer without these and nothing is populated anywhere, with a green gate.
+
+`deriveElectivePreferenceId` keeps its shape; no index is relaxed, so `detectUniqueFieldCollision`
+gains nothing to register. Version skew is **already governed** — mixed-version replication is out of
+scope by an accepted, owner-decided ADR (`docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md`).
 
 ### 12.7 Where rounds 1–4 were bent around data that does not exist
 
@@ -1544,4 +1570,252 @@ says which slice closes which silent miss.
 - **T282 — corpus and metrics.** Unchanged in scope; the silent-miss baseline to beat is **7 of 33**,
   and the corpus already exists and is committed, so each slice above can be measured against the same
   33 probes rather than against new fixtures written to it.
+
+## 13. ROUND 6 — five review findings, all accepted; one contested in part; one premise re-framed
+
+**Every finding below was re-verified in this tree before being accepted.** F1 by *executing*
+`parsePreferenceSheet` and `describeElectiveRunRefusal`, not by reading them. Four of five are
+accepted outright, one (F4) is accepted in substance with its second half contested as already
+governed. **F1 changes the design; F2 changes the conditions on §11.2's recommendation, not the
+recommendation.**
+
+**First, a correction in my own favour, recorded because the review found it and I had understated
+it.** §11.2 leaned on `template_slots.elective_set_id`/`event_id`/`activity_id` as the camp's existing
+three-way classification of every coordinate, and hedged because `schema.sql:574-584` says the
+exclusivity is *"enforced by the (UI-driven) write path in a later slice."* **That comment is stale
+v35 text.** `MUTUALLY_EXCLUSIVE_FIELDS.template_slots` (`electron/ops/projections.js:1070-1071`)
+enforces it **today**, through `sanitizeMutuallyExclusiveRow`, as a precedence-ordered group. So the
+classification is reliable enough to drive a **refusal**, not merely a proposal. §11.2's conclusion
+holds more firmly than §11.2 claimed.
+
+### 13.1 F1 [BLOCKER, ACCEPTED] — `sameNameCampers` refuses a correctly-read grid
+
+**Reproduced by execution, not inference.** One camper, 18 planner cells read per-cell as 18 rows,
+each with a distinct `occurrence_id`:
+
+```
+campers=1 prefs=18
+sameNameCampers=1 [{"n":"<synthetic>","rows":18}]
+REFUSAL: 1 camper name appears on more than one row with no camper id to tell them apart:
+         <synthetic> (rows 2, 3, …, 19). Resolve these before importing —
+         two children sharing a name would be merged into one record.
+```
+
+`src/ingest/preferenceSheet.js:126-137` keeps every name with `rowNumbers.length > 1 && ids.size === 1`;
+`electron/ops/commitElectiveRun.js:36-44` tests `sameNameCampers` **before** `hasContradictoryRanks`.
+So **§12.4's row "a correctly-read grid writes N rows with distinct non-null `occurrence_id`s and is
+NOT refused" and T279's own `archive_when` were unachievable as written.**
+
+**This is the refuse-everything class §3.1a corrected in round 2, surviving one gate to the left of the
+one I fixed** — and I named it myself in §8.1 contradiction 3, then left it out of both §12.4 and
+§12.5. That omission is precisely the completeness claim the traceability table exists to make, so the
+table was making a claim it had not earned. Recorded rather than quietly patched, per the D14/D4
+convention.
+
+**Decision — the fifth resolver (rows → identities) explicitly owns multiplicity, and
+`sameNameCampers` gains the coordinate dimension.** This is the *same widening* round 2 applied to
+`hasContradictoryRanks`, applied to its neighbour, which is why round 2's correction was incomplete
+(§8.1 contradiction 3, now closed):
+
+> One name collapsing to one derived id across many rows is a **collision** only if those rows
+> occupy the **same** coordinate — or if every one of them lacks a coordinate (the whole-run shape,
+> where many rows for one name can only mean many rows for one child). Rows carrying **distinct**
+> `occurrence_id`s are **one camper's per-cell answers**, which is the correct reading of a grid and
+> must not be refused.
+
+An absent `occurrence_id` collapses to the same empty component for every whole-run row, so T226's
+original behaviour is preserved exactly for that shape — a widening, not a replacement. Added to
+§12.4 as row 8, and T279's `archive_when` is corrected.
+
+### 13.2 F2 [HIGH, ACCEPTED — the premise survives with conditions; the framing does not]
+
+Three verified facts, each fatal to §11.2's **unconditional** framing:
+
+1. **No template exists at binding time.** `src/screens/elective/assignment/AssignmentPanel.jsx:242-270`
+   runs file → `inferPreferenceMapping` → `confirmMapping` → `parsePreferenceSheet` with no template;
+   `chooseTemplateAndSolve` is at :281, strictly after.
+2. **The coordinate set is PER-TEMPLATE and two templates may disagree.** `deriveOccurrences` groups
+   by `template_id` and returns `.templates[chosenTemplateId]`; neither candidate route is canonical
+   (CLAUDE.md).
+3. **It can be EMPTY, and that state is rendered.** `AssignmentPanel.jsx:447` handles
+   `candidateTemplateIds.length === 0` with *"This set isn't on a schedule yet."* **And the ordering
+   this breaks is the natural one** — a director collecting family forms in spring, before the
+   schedule is built.
+
+**§11.2 contradicted §3.1, and §11.2 is the section that yields.** §3.1 already rules the canonical
+binding **template-agnostic**: *"A binding names a coordinate (day, period), never an `occurrence_id`;
+the caller resolves the coordinate against `deriveOccurrences` at solve time."* §11.2 then wrote the
+three checks as if they all ran at binding time. That was my error, and §3.1 was right first.
+
+**Decision — the checks are STAGED, and two of them are conditional:**
+
+| Check | Runs | Needs a template? | Unavailable when |
+|---|---|---|---|
+| **1 — domain** (a named day/period exists at this camp) | **parse/bind time** | **No** — `days` and `time_blocks` are camp-scoped (`schema.sql:722-730`), not template-scoped | never |
+| **2 — elective-eligibility** (this coordinate is an elective cell) | **solve time**, against **the template being solved** | Yes | no template chosen, or the set is unplaced |
+| **3 — coverage** (expected selectable-cell count per camper) | **solve time**, same template | Yes | as check 2, **and** per §13.5 for untiered campers |
+
+**The empty-coordinate-set paragraph, in the same voice §12.3 used for the empty activity catalog.**
+When the elective set is not yet on a schedule, checks 2 and 3 are **UNAVAILABLE, not failing**.
+Reading `zero elective coordinates` as "every cell is provably wrong" would refuse the spring
+collection of family forms, which is the *normal* order of work. So: the bindings are parsed, resolved
+as far as check 1 allows, and **stored with their coordinates intact**; checks 2 and 3 are deferred
+and surfaced as a standing residue — *"these preferences cannot be checked against a schedule yet"* —
+which **clears by itself** once the set is placed. Deferral is visible; it is never silence.
+
+**The disagreement rule.** A coordinate that is an elective cell under one candidate template and not
+under the other is **not a refusal and not a defect in the child's preferences.** Checks 2 and 3 are
+scoped to the template being solved, and a cross-template disagreement is **information about the two
+schedules**, reported as a per-template residue against the solve that surfaced it. Any other rule
+would require designating one route canonical, which CLAUDE.md forbids and §3.1 already refused.
+
+**Does F2 change the recommendation?** No — it changes its conditions. Matching against a known set is
+still strictly better than free-form inference, and check 1 alone (which needs no template) already
+catches the class of wrong reading that opened this ADR. What F2 removes is the claim that all three
+checks are always available. **Confidence in the axis-binding sub-design drops from medium-high back to
+medium** — not because the approach is wrong, but because two of its three checks are conditional on a
+state the natural workflow does not guarantee, and the deferral path is now load-bearing.
+
+### 13.3 F3 [HIGH, ACCEPTED, both halves + the compounding case] — `rankKind`, and a stale record block
+
+**This is §12.7's own diagnosed pattern recurring one section from where I diagnosed it**, which is the
+part worth saying plainly: §4.2 ruled the binding needs a companion `rankKind`;
+`schema.sql:1473-1480` has no such column; and §12.6 then foreclosed adding one — *"No other schema
+change. `elective_preferences` is untouched"* — while I was already taking a version with nothing to
+migrate. Residue-instead-of-storage, again, three sections after I named it as the tell.
+
+**Decision: `elective_preferences.rank_kind TEXT` joins v79.** §12.6's "no other schema change"
+sentence is **struck**. Without it, §4.2's ruling is unimplementable and §9 Q4's solver weighting has
+no input: the field distinguishing a cell-choice from a whole-run fallback would never be written.
+Nullable, ALTER ADD COLUMN, nothing to migrate.
+
+**§3.1's literal record block is STALE and is replaced, not merely banner-flagged** — a Maker copies
+the block, not the banner. The round-6 shape:
+
+```
+{ camperName, camperExternalId|null,
+  divisionLabel|null,                 // §12.2a — provenance, verbatim
+  dayName|null, periodLabel|null,     // nullable: the "premise 6 is dead" property
+  choiceLabel, rank|null, rankKind,   // §4.1 null rank; §4.2 kind, persisted at v79
+  source: { page, row, column } }
+```
+…and the record SET carries a **post-resolution** preference count (§12.1) plus the residue ledger.
+
+**The compounding case F3 raises, which had no defined winner: `null` vs `2` on one derived id.** §4.1
+mandates `rank: null` for an unordered set; §12.2b's asymmetry table is defined over ranks that exist.
+A third row, added to that table:
+
+| Collision | Resolvable by a rule? | Treatment |
+|---|---|---|
+| same rank, two different choices | No | **REFUSE** (unchanged) |
+| same choice, two different ranks | Yes — the better rank is the stronger statement | **best (lowest) rank wins; the drop is residue** |
+| **same choice, one ranked and one unranked (`null`)** | **Yes — an explicit rank is strictly more information than its absence** | **the RANKED row wins; residue names the discarded unranked one AND the `rank_kind` disagreement, because a file that said the same thing twice in two different languages is telling us something about itself** |
+
+Two unranked rows for one derived id are identical and are a no-op.
+
+### 13.4 F4 [MEDIUM — obligation ACCEPTED, skew half CONTESTED as already governed]
+
+**Accepted, and it is a genuine gap in §12.6's obligation list.** `PROJECTIONS.campers.fields` is an
+explicit allowlist — `['camp_id','display_name','group_id','external_id','is_active']`
+(`electron/ops/projections.js:840-843`) — and `applyProjection` does `if
+(!projection.fields.includes(op.field)) return` (`:1114`): **an unknown field is silently discarded,
+no error, no log.** So a Maker shipping the ALTER and the writer but not the allowlist entry populates
+nothing, anywhere, and the gate stays green. §12.6 is corrected to require, as part of the same
+change and not a follow-up:
+
+- `PROJECTIONS.campers.fields` gains **`division_label`**.
+- `PROJECTIONS.elective_preferences.fields` gains **`rank_kind`** — the same trap, found by applying
+  F4's own reasoning to F3's column: that allowlist is
+  `['run_id','camper_id','occurrence_id','choice_id','rank']` (`:943-946`).
+
+**Contested, with evidence: the version-skew half is already ruled and does not need a new ruling
+here.** `docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md` is **accepted, normative,
+owner-decided**: a camp's devices run one build. So "a v78 device silently drops every
+`division_label` write" is a known, governed consequence of an out-of-scope configuration, not an open
+question for this ADR — and `authGate.test.js:77`'s observability-only `schemaVersion` is the
+*implementation* of that ruling, not a gap in it. I am not invoking pre-production to wave it away;
+I am pointing at the ADR that decided it. **What I do accept** is that the obligation list must say
+this, so a Maker does not rediscover it: the projection entry is load-bearing, and its absence is
+invisible rather than loud.
+
+### 13.5 F5 [MEDIUM, ACCEPTED] — division is a TIER here, and that makes check 3 conditional
+
+Verified: `DIVISION_HEADER = /division|bunk|group|unit|edah/i` (`preferenceSheet.js:28`) conflates four
+granularities; the division concept in this codebase is **`tiers`** (`schema.sql:499-505`); and
+`deriveOccurrences` keys occurrences on `group.tier_id`, emitting `UNTIERED_GROUP` and **skipping the
+slot** when it is absent (`:33-40`). So a file whose Division column holds `Grades 7-8` matches no
+group, `group_id` is NULL for every camper — and **§12.4 row 6 asserted `group_id IS NULL` as the
+SUCCESS condition without noting that it disables the numeric signal §8 metric 2 depends on.** That is
+a real hole in the traceability table's own logic.
+
+**Decision, two parts.**
+
+1. **The group resolver becomes the DIVISION resolver, with two target sets in order: `groups`, then
+   `tiers`.** A `groups` match sets `group_id` (and yields the tier transitively). A `tiers` match sets
+   **nothing referential** and is reported as residue naming the tier it matched, so the director can
+   assign groups. **`campers.tier_id` is deliberately NOT added**, even though I am already taking a
+   version: `groups.tier_id` is the single path from a camper to a tier, and a second path is a second
+   thing to disagree. That is the one place in this round where I am declining a column on the merits
+   rather than out of caution — and it is the opposite of §12.7's diagnosed pattern, so it is worth
+   distinguishing.
+2. **Check 3 is UNAVAILABLE for a camper whose division resolved to neither a group nor a tier, and
+   metric 2 must not score those pages as passing.** Stated as the metric's construction:
+
+   > **Metric 2 (silent-miss rate) is published over the pages where check 3 was AVAILABLE, plus an
+   > explicit count of UNMEASURED pages.** A page whose campers are untiered is unmeasured, never
+   > passing. A design that raised the measured rate by pushing pages into the unmeasured bucket would
+   > be visible as a rising unmeasured count, which is the whole point of reporting it beside the
+   > number rather than inside it.
+
+This preserves metric 2's "must be zero" property, which a silent denominator would have destroyed.
+
+### 13.6 The three lower findings
+
+**(a) §6.1 ruling 2's season expiry is unimplementable and is REPLACED.** `grep -c season
+electron/db/schema.sql` returns **0**. There is no season concept; `cohorts.session_week_start/_end`
+(`schema.sql:670-678`) is a session window, not a season, and dating a binding's expiry to a calendar
+was the wrong instinct anyway. **Replacement ruling: a remembered binding expires on a change to the
+camp's elective COORDINATE SET** — the same input checks 1 and 3 already consume. That is both
+implementable today and more correct: what should force re-confirmation is the schedule changing
+shape, not a date passing. T281's ship-gate is corrected accordingly.
+
+**(b) The label resolver's second target set — accepted, and folded rather than added.** §11.2 check 2
+distinguishes a wrong binding from a fixed-event cell by *"the cell's content matches the known fixed
+event there"*, which is a label→**event** resolution that none of §12.0's five resolvers owned.
+Applying my own coverage question to my own design is what surfaced it. **It folds into the label
+resolver as a second target**: a rank-cell label resolves against `{the camp's activities} ∪ {the fixed
+event at that coordinate}`. **The near-miss case is named explicitly**, because it is the near-match
+defect wearing a new name: `Instructional Swim` vs `Swim (Instructional)` matches neither target
+exactly, so it is **residue**, never a silent match and never a silent refusal. Same discipline as
+`nearDuplicateNames`. Five resolvers, one of which has two target sets.
+
+**(c) THE CORPUS CANNOT EXERCISE THE COORDINATE RESOLVER — accepted, and it is the sharpest limit on
+§8.1's evidence.** `scripts/preferenceSheetCli.js:225-241` commits with `occurrences: []` and
+`assignments: []` and says so. All 33 in-scope probes enter through it, so **no probe can produce a
+non-null `occurrence_id`**, and §11.2 checks 2 and 3 had no input on that path. Consequences, stated
+rather than absorbed:
+
+- §8.1's measured baseline is sound for what it measured — the **column, label, division and identity**
+  resolvers — and says **nothing** about the coordinate resolver. §8.1's "what this corpus cannot
+  establish" is extended to say so.
+- §12.4's claim that its tests "enter at file bytes and assert at the database" is true only once the
+  harness can supply a template, an elective set and tiered groups. **That plumbing is added to
+  T282's scope** with its own predicate; without it, rows 1, 2, 7 and the two carried-over
+  axis-binding rows cannot be written as specified.
+
+### 13.7 What round 6 changes overall
+
+| | Before round 6 | After |
+|---|---|---|
+| Schema v79 | 1 column (`campers.division_label`) | **2** — plus `elective_preferences.rank_kind` (§13.3) |
+| Projection allowlists | not mentioned | **required, same change** — `campers` + `elective_preferences` (§13.4) |
+| §11.2 checks | three, always available | **staged**: 1 at parse time, 2 and 3 at solve time, conditional (§13.2, §13.5) |
+| Resolvers | five | five, one with **two target sets** (§13.6b) |
+| §12.4 rows | 7 + cross-cutting + 2 carried | **+1** (F1 grid multiplicity), row 6 annotated (§13.5) |
+| Axis-binding confidence | medium-high | **medium** — two of three checks are conditional |
+| Coverage confidence | high | **medium-high** — F1 was a gap in the table itself |
+
+**Both confidence figures go DOWN this round**, and that is the honest reading: the review found a
+blocker the traceability table was built to prevent, and found that a premise I had called verified was
+verified for the wrong stage of the pipeline. The design is better; my estimate of it was too high.
 

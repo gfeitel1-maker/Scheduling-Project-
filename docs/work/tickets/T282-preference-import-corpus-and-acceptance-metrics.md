@@ -52,3 +52,19 @@ uncovered; scaling to a ~500-camper realistic camp with per-division geometries;
 numbers (correct-binding rate, silent-miss rate) reported from tests rather than from a harness. The
 silent-miss baseline to beat is **7 of 33** (see the round-4 correction above), and P38 is the drifted-re-import instance §8's metric 2
 says must be zero.
+
+**ROUND 6 — A NEW PREDICATE, because the corpus cannot currently exercise the coordinate resolver at
+all (ADR §13.6c).** `scripts/preferenceSheetCli.js:225-241` commits with `occurrences: []`, and all 33
+in-scope probes enter through it, so **no probe can produce a non-null `occurrence_id`** and §11.2's
+checks 2 and 3 have no input on that path. §8.1's baseline is sound for the column, label, division and
+identity resolvers and says nothing about the coordinate one.
+
+*Added to `archive_when` in substance:* the harness can bootstrap a **template, an elective set, and
+TIERED groups**, so at least one probe commits preferences with distinct non-null `occurrence_id`s and
+the unplaced-set case (`candidateTemplateIds.length === 0`) is exercised as **deferral**, not refusal.
+Without this, ADR §12.4 rows 1, 2, 7 and the two carried-over axis-binding rows cannot be written as
+specified.
+
+**Metric 2's construction is now explicit (ADR §13.5):** published over pages where check 3 was
+AVAILABLE, **plus an explicit count of UNMEASURED pages**. An untiered-camper page is unmeasured, never
+passing — otherwise a design could raise the measured rate by pushing pages into a silent denominator.
