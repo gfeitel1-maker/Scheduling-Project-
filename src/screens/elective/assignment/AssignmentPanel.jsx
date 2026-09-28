@@ -12,7 +12,8 @@ import { localClient } from '../../../localClient'
 import { S, prefersReducedMotion, useEnterTransition } from '../../../styles/shared'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow, IMPORT_LIMITS } from '../../../utils/exportSanitize.js'
-import { inferPreferenceMapping, parsePreferenceSheet, hasContradictoryRanks } from '../../../ingest/preferenceSheet.js'
+import { inferPreferenceLayout, hasContradictoryRanks } from '../../../ingest/preferenceSheet.js'
+import { buildPreferenceCatalog, readPreferenceSheet, submissionKeyFromRows } from '../../../ingest/preferenceImport.js'
 import { buildElectiveAssignments } from '../../../engine/buildElectiveAssignments.js'
 import { SyncIcon } from '../../../components/icons/index.jsx'
 import { deriveOccurrences } from './deriveOccurrences.js'
@@ -188,6 +189,8 @@ export default function AssignmentPanel({
   const [phase, setPhase] = useState('empty')
   const [rows, setRows] = useState(null)
   const [mapping, setMapping] = useState(null)
+  const [sourceLabel, setSourceLabel] = useState(null)
+  const [submissionKey, setSubmissionKey] = useState(null)
   const [parsed, setParsed] = useState(null)
   const [templateId, setTemplateId] = useState(null)
   const [occurrences, setOccurrences] = useState([])
@@ -252,7 +255,18 @@ export default function AssignmentPanel({
         return
       }
       setRows(fileRows)
-      setMapping(inferPreferenceMapping(fileRows[0]))
+      // WHAT IDENTIFIES A PROVISIONAL SUBJECT: the SUBMISSION, never the file name.
+      // Keying on the name merged two real children whose planners were both
+      // exported as `planner.csv`. The label is kept for the director to recognise;
+      // the key is the content.
+      setSourceLabel(file.name.replace(/\.[^.]+$/, ''))
+      setSubmissionKey(submissionKeyFromRows(fileRows))
+      // The mapping shown to the director is LOCATED, not assumed to be row 1, and
+      // is resolved against the camp's own entities — so what they are asked to
+      // confirm is what the transform will actually do. `inferPreferenceMapping`
+      // on row 0 with no catalog was a different reading from the one that ran.
+      const catalog = buildPreferenceCatalog({ activities, groups, tiers })
+      setMapping(inferPreferenceLayout(fileRows, { catalog }))
       setPhase('mapping')
     } catch (err) {
       onError?.(describeWriteFailure(err, 'Could not read that file.'))
@@ -261,7 +275,35 @@ export default function AssignmentPanel({
   }
 
   function confirmMapping() {
-    const result = parsePreferenceSheet(rows, { campId, mapping })
+    // THE SAME CALL SHAPE THE CLI AND THE MCP TOOLS USE. This used to be
+    // `parsePreferenceSheet(rows, { campId, mapping })` — no catalog, no grid, no
+    // subject — so in the director's own import path the header locator never ran,
+    // every resolver abstained for want of a catalog, and the planner-grid path was
+    // unreachable. Every number this program measured described the CLI and not the
+    // product. ADR section 3.2: a second call shape is a second T224, because the
+    // arguments are where the behaviour lives.
+    const catalog = buildPreferenceCatalog({ activities, groups, tiers })
+    let result
+    try {
+      // The transform is pure but not incapable of throwing — a derived id's
+      // `opaque()` guard rejects a malformed component rather than encoding it, and
+      // that surfaces here. An unhandled throw would leave the panel stuck in
+      // 'mapping' with no explanation, which is the silent failure the
+      // describeWriteFailure rule exists to prevent.
+      result = readPreferenceSheet({ rows, campId, catalog, sourceLabel, submissionKey }).parsed
+    } catch (err) {
+      onError?.(describeWriteFailure(err, 'Could not read that sheet.'))
+      setPhase('mapping')
+      return
+    }
+    if (!result) {
+      onError?.(
+        'That file does not read as a camper preference sheet — no camper-name column and no ' +
+        'day/period grid. Nothing was changed.'
+      )
+      setPhase('mapping')
+      return
+    }
     setParsed(result)
     setPhase('parsed')
     setAnnouncement(
@@ -505,7 +547,12 @@ export default function AssignmentPanel({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".xlsx,.xlsm,.xls,.txt"
+        // `.csv` and `.tsv` were MISSING while `readSheetRows` has always had a
+        // delimited branch for them and the CLI reads them happily — so a camp
+        // exporting CSV, which the probe corpus says is the common case, could not
+        // select their own file in the app at all. Found by driving the real picker
+        // rather than by reading the code.
+        accept=".xlsx,.xlsm,.xls,.csv,.tsv,.txt"
         style={{ display: 'none' }}
         onChange={(e) => onFileSelected(e.target.files?.[0])}
       />
@@ -562,9 +609,16 @@ export default function AssignmentPanel({
       {phase === 'parsing' && <Busy label="Reading the file…" />}
 
       {phase === 'mapping' && (
+        // THE LOCATED HEADER, not row 0. The locator can put the table at row 3
+        // (a title and a season line above it are ordinary), and feeding row 0
+        // here showed the director a corrector whose column options were the
+        // TITLE's cells — so every rank read "Not mapped" even though the
+        // transform had mapped them correctly, and any "correction" they made
+        // would have broken a working read. Found by driving the real picker in
+        // the browser, not by reading the code.
         <MappingCorrector
-          header={rows[0]}
-          sampleRows={rows.slice(1, 4)}
+          header={rows[mapping?.headerIndex ?? 0] ?? rows[0]}
+          sampleRows={rows.slice((mapping?.headerIndex ?? 0) + 1, (mapping?.headerIndex ?? 0) + 4)}
           mapping={mapping}
           onChange={setMapping}
           onConfirm={confirmMapping}
