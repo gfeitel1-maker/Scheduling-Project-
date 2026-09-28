@@ -97,17 +97,17 @@ export default function ParseSummary({ parsed, contradictoryRanks = false, onSol
   // paragraphs and the grouping only demoted the duplicates to bullets. Two items
   // with the same `why` are literally the same finding, so the group states it once
   // and the items contribute only their distinguishing `head`.
-  const residueGroups = []
+  const groupsByKey = new Map()
   for (const item of residue) {
     // An item from a producer that has not been split yet carries only `message`.
     // It becomes a statement with no token rather than the same string printed
     // twice, so a partial conversion reads as terse, not as duplicated.
     const why = item.why ?? item.message
-    const existing = residueGroups.find((g) => g.kind === item.kind && g.why === why)
-    const group = existing ?? { kind: item.kind, why, heads: [] }
-    if (!existing) residueGroups.push(group)
-    if (item.head) group.heads.push(item.head)
+    const key = `${item.kind}::${why}`
+    if (!groupsByKey.has(key)) groupsByKey.set(key, { key, kind: item.kind, why, heads: [] })
+    if (item.head) groupsByKey.get(key).heads.push(item.head)
   }
+  const residueGroups = [...groupsByKey.values()]
 
   return (
     <div style={enter}>
@@ -133,7 +133,7 @@ export default function ParseSummary({ parsed, contradictoryRanks = false, onSol
           </summary>
           <div style={{ marginTop: 6 }}>
             {residueGroups.map((group) => (
-              <div key={`${group.kind}::${group.why}`} style={S.findingsRailRow(severityColor(group.kind))}>
+              <div key={group.key} style={S.findingsRailRow(severityColor(group.kind))}>
                 <div>
                   <div style={A.residueWhy}>{group.why}</div>
                   {group.heads.length > 0 && (

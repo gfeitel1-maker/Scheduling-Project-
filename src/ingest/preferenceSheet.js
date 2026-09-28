@@ -646,8 +646,12 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
   for (const c of mapping?.unrecognisedColumns ?? []) {
     add(
       'UNRECOGNISED_COLUMN',
-      `Column ${c.column}`,
-      `Headed \u201c${c.header}\u201d, which is not a field this import knows, so nothing on it was read.`,
+      // THE HEADER BELONGS IN THE TOKEN, not in the fact. Two unrecognised columns
+      // are ONE finding with two instances, and putting each header in its own `why`
+      // split them into two groups that then repeated the identical tail verbatim —
+      // the exact shape the head/why split exists to prevent.
+      `Column ${c.column} (\u201c${c.header}\u201d)`,
+      'Not a field this import knows, so nothing on it was read.',
       { header: c.header, column: c.column, index: c.index }
     )
   }
