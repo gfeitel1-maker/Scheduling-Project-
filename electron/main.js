@@ -51,6 +51,7 @@ import {
 import { campHasSetupData } from './ops/campHasSetupData.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
+import { createCampDataRecordWriter } from './campDataRecord.js'
 import { isAutomergeEngine } from './sync/automerge/syncEngineFlag.js'
 import { createAutomergeSyncStarter } from './sync/automerge/syncStarter.js'
 import { resolveConflictInDoc } from './automerge/reconcile.js'
@@ -318,6 +319,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   })
   ensureDeviceRow(db, deviceId)
 
+  // T292 — the read-only camp data document (Documents/Shoresh/<camp> data.xlsx).
+  // One writer per makeHandlers call, wired additively in wireOpApplied below
+  // alongside the existing onOpApplied push (never replacing it — that
+  // listener array is multi-subscriber, see localWriteClient.js). Best-effort
+  // and non-blocking by construction (see campDataRecord.js); a failure here
+  // never affects the op-apply path that triggered it.
+  const campDataRecordWriter = createCampDataRecordWriter({
+    db,
+    documentsDir: path.join(os.homedir(), 'Documents'),
+    isDev: !app.isPackaged,
+  })
+
   let syncClient = null
   let modeChosen = false
   let mode = null
@@ -327,6 +340,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       const mainWindow = getMainWindow ? getMainWindow() : null
       if (mainWindow) mainWindow.webContents.send('shoresh:op-applied', sanitizeOpForIpc(op))
     })
+    // T292 — additive subscriber: the projection is already updated by the
+    // time onOpApplied/onFullSyncApplied fire, so a schedule() here reads
+    // current data. Debounced internally, so a bulk import's hundreds of ops
+    // coalesce into one rewrite.
+    syncClient.onOpApplied(() => campDataRecordWriter.schedule())
+    if (typeof syncClient.onFullSyncApplied === 'function') {
+      syncClient.onFullSyncApplied(() => campDataRecordWriter.schedule())
+    }
+    // Fire once immediately: by the time wireOpApplied runs (bootstrapCamp's
+    // post-creation path, or the returning-device login path), a camp already
+    // exists, so the document is born without waiting for the first op.
+    campDataRecordWriter.schedule()
     if (typeof syncClient.onOpConflict === 'function') {
       syncClient.onOpConflict((msg) => {
         const mainWindow = getMainWindow ? getMainWindow() : null
@@ -1037,6 +1062,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     } catch (err) {
       console.error(`sync node start after bootstrap failed (non-fatal): ${err?.message ?? err}`)
     }
+
+    // T292 — the camp now exists on this device. createUser above already fired
+    // onOpApplied (→ schedule()), so the data document is in practice already
+    // born; this explicit schedule() makes the spec §1.1 "born the moment a camp
+    // exists" guarantee DIRECT rather than incidental to createUser's write path.
+    campDataRecordWriter.schedule()
 
     return { campId, userId: user.id }
   }
