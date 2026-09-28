@@ -1,14 +1,13 @@
 ---
 title: "Documentation staleness audit and high-priority refresh"
 document_type: ticket
-status: completed
+status: in-progress
 task_class: documentation-governance
 date: 2026-09-28
 created: 2026-09-28
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
 related_adrs: [docs/adr/2026-09-27-wan-connectivity-hardening-ladder.md]
-resolved_by: 5a35fa237e7de817247a353db544cbd79b17e6e5
-archive_when: "A prioritized staleness inventory exists (each finding citing the doc line and the contradicting code/current truth) AND the high-priority refreshes in the agent-read priority tier (CLAUDE.md, docs/current/**, docs/governance/**, SECURITY.md) have landed on main; ADR/README-layer findings that are lower priority may remain as tracked follow-up"
+archive_when: "The single inventory (docs/work/2026-09-28-documentation-staleness-inventory.md) covers the ENTIRE live doc corpus (every tracked *.md outside docs/archive/** and legacy/**, each finding citing doc line + contradicting code/current truth) AND every confirmed refresh across ALL agent-read and descriptive tiers has landed on main; the two parked ARCHITECTURE_STANDARD items (O1/O2) are resolved per the 2026-09-28 owner ruling with O1 confirmed by the security agent"
 ---
 
 # T294 — Documentation staleness audit and high-priority refresh
@@ -53,9 +52,18 @@ in small reviewable PRs, each merged on green.
 `npm run index:work` · `npm run check:governance` (doc-refs + status-drift) · PR + merge on green
 (CI is the gate of record).
 
-## Outcome (2026-09-28, PR #586)
+## REOPENED 2026-09-28 (owner directive)
 
-Success predicate discharged:
+The priority-tier pass (below) was necessary but not sufficient. Owner directed a COMPREHENSIVE
+whole-corpus audit + refresh, and RULED on the two parked items (resolve, do not re-park):
+O1 = stale terminology (refresh to libp2p/Automerge connection-boundary model, cite the `users`
+auth-field ADR for the tracked residual, route past the security agent); O2 = stale description
+(op-log is a device-local history ledger). Amending a standard is human-gated; the owner directive
+is the authorization. `archive_when` widened accordingly. Phase-1 outcome retained for the record.
+
+## Phase 1 outcome (2026-09-28, PR #586) — agent-read tier
+
+Priority-tier predicate discharged:
 
 1. **Prioritized, code-confirmed inventory exists** — `docs/work/2026-09-28-documentation-staleness-inventory.md`, produced by four parallel auditors across disjoint domains.
 2. **Agent-read-tier refreshes landed on `main`** (PR #586, CI `verify` green):
