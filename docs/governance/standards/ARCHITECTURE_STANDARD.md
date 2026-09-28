@@ -58,10 +58,21 @@ overwrite guard exists to enforce this at the projection seam.
 
 ## 4. Every mutating handler is authorized
 
-Mutating IPC handlers and mutating WebSocket handlers call `authorize()`
-(`electron/auth/authorize.js`) before acting. `authorize()` re-derives role and device trust from
-the database on every call and never trusts the token payload, which is what makes a role change or
-a device revocation take effect on the very next request.
+Mutating IPC handlers call `authorize()` (`electron/auth/authorize.js`) before acting. `authorize()`
+re-derives role and device trust from the database on every call and never trusts the token payload,
+which is what makes a role change or a device revocation take effect on the very next request.
+
+There is no longer a WebSocket-handler tier to authorize: since the Stage-6 cutover, changes from
+another device do not arrive as per-message handler calls but as **Automerge document merges**,
+authenticated at the **connection boundary** (mutual Noise auth + the pairing/revocation gate in
+`electron/sync/automerge/authGate.js`, `mutualAuth.js`, `electron/auth/connectionAuth.js`) rather
+than re-authorized per write. The one place a per-merge authorization check does run is the
+**credential fields** — `users.role`/`pin_hash`/`pin_salt`/`cred_version` carry a Host Ed25519
+`auth_sig` verified on the merge path (`electron/automerge/projector.js`, ADR
+[2026-09-14-users-auth-fields-off-the-replicated-document.md](../../adr/2026-09-14-users-auth-fields-off-the-replicated-document.md)).
+The residual — non-credential domain writes from an already-approved device are trusted at the
+connection boundary, not re-authorized per merge — is the known, accepted CRDT-merge limitation
+tracked by that ADR and `docs/current/CRDT_SECURITY_GAPS.md`.
 
 Two categories of handlers sit outside it deliberately, each with a recorded decision:
 
@@ -78,8 +89,10 @@ dependency: a corrupted file cannot issue the token needed to open or restore it
 in this block carries the comment:
 `// Project lifecycle — trusted local-device operation, exempt from camp session auth.`
 
-This exemption covers file-level operations only. Every handler that reads or writes camp-scoped
-data through the op-log must call `authorize()`, regardless of where in `main.js` it is registered.
+This exemption covers file-level operations only. Every **IPC handler** that reads or writes
+camp-scoped data must call `authorize()`, regardless of where in `main.js` it is registered. (Data
+arriving by document merge is governed at the connection boundary, as described above, not by an IPC
+`authorize()` call.)
 
 ## 5. Host and Client are asymmetric, permanently
 
