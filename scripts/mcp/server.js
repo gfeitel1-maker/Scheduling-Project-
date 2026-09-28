@@ -100,6 +100,20 @@ const TOOLS = [
           description:
             "Optional. WHOSE sheet this is. A filled-in planner grid has no camper-name column — it is one camper's own sheet and the identity comes from the submission, not the page — so pass the camper's name here when you know it. Without it the sheet is still imported in full, against a provisional subject you can name later with attribute_camper_subject.",
         },
+        label_resolutions: {
+          type: 'array',
+          description:
+            "Optional. How to read labels this camp's activity list cannot resolve, which the residue in a preview names. Each entry is {label, action, activity_name}. action 'map_to_existing' reads that label as an activity the camp already has (activity_name required) — use it when the sheet spells an existing activity differently, e.g. 'Arts and Crafts' against 'Arts & Crafts'. action 'split_packed' reads a cell naming several activities at once ('Swim, Archery, Ceramics') as those separate choices. Both only change how the FILE is read and write nothing extra; neither creates an activity, so a label naming an activity the camp genuinely lacks stays residue until someone adds it.",
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string', description: 'The label exactly as the sheet wrote it.' },
+              action: { type: 'string', enum: ['map_to_existing', 'split_packed'] },
+              activity_name: { type: 'string', description: "Required for map_to_existing: the camp's own name for the activity." },
+            },
+            required: ['label', 'action'],
+          },
+        },
       },
       required: ['file_path'],
     },
@@ -118,6 +132,20 @@ const TOOLS = [
           type: 'string',
           description:
             "Optional. WHOSE sheet this is, for a planner grid that names no camper. Without it the choices are still stored in full against a provisional subject, which list_unattributed_subjects will show and attribute_camper_subject can name later without re-importing.",
+        },
+        label_resolutions: {
+          type: 'array',
+          description:
+            "Optional. How to read labels this camp's activity list cannot resolve, which the residue in a preview names. Each entry is {label, action, activity_name}. action 'map_to_existing' reads that label as an activity the camp already has (activity_name required) — use it when the sheet spells an existing activity differently, e.g. 'Arts and Crafts' against 'Arts & Crafts'. action 'split_packed' reads a cell naming several activities at once ('Swim, Archery, Ceramics') as those separate choices. Both only change how the FILE is read and write nothing extra; neither creates an activity, so a label naming an activity the camp genuinely lacks stays residue until someone adds it.",
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string', description: 'The label exactly as the sheet wrote it.' },
+              action: { type: 'string', enum: ['map_to_existing', 'split_packed'] },
+              activity_name: { type: 'string', description: "Required for map_to_existing: the camp's own name for the activity." },
+            },
+            required: ['label', 'action'],
+          },
         },
       },
       required: ['file_path'],

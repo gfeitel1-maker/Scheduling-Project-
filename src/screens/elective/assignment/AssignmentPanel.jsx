@@ -14,6 +14,7 @@ import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow, IMPORT_LIMITS } from '../../../utils/exportSanitize.js'
 import { inferPreferenceLayout, hasContradictoryRanks } from '../../../ingest/preferenceSheet.js'
 import { residueIsDecision } from '../../../ingest/residueKinds.js'
+import { proposeActivityMatch, resolutionMap, RESOLUTION } from '../../../ingest/labelResolutions.js'
 import { journalEntriesFor } from '../../../ingest/decisionJournal.js'
 import { buildPreferenceCatalog, readPreferenceSheet, submissionKeyFromRows } from '../../../ingest/preferenceImport.js'
 import { buildElectiveAssignments } from '../../../engine/buildElectiveAssignments.js'
@@ -157,30 +158,60 @@ function Busy({ label }) {
   )
 }
 
-// THE DECISIONS THIS PANEL PRESENTED about unknown labels, one per distinct label
-// rather than one per cell — the label is the unit of resolution, so forty rows
-// naming "Quidditch" is one question, not forty. Pure, so the journal's view of
-// what was asked is derived from the parse rather than from whatever the UI
-// happened to render.
-function unknownLabelDecisions(parsed) {
-  const labels = new Set()
-  for (const item of parsed?.residue ?? []) {
-    if (residueIsDecision(item.kind) && item.label) labels.add(item.label)
-  }
-  return [...labels].map((label) => ({
-    id: `resolve_unknown_label:${label}`,
-    kind: 'resolve_unknown_label',
-    entityName: label,
-  }))
+// THE DECISIONS THIS PANEL PRESENTED, one per distinct LABEL rather than one per
+// cell \u2014 the label is the unit of resolution, so forty rows naming "Quidditch" are
+// one question, not forty. Pure, so the journal's view of what was asked is derived
+// from the parse rather than from whatever the UI happened to render.
+//
+// TWO KINDS NOW (T298), and they are separate journal kinds rather than one, because
+// the ANSWER SETS differ: an unknown label can be added or mapped, a packed cell can
+// also be split. Collapsing them would make "split_packed" look available on a
+// decision where it never was, and the journal's whole value is that a later slice
+// can trust what it says was on offer.
+const JOURNAL_KIND = {
+  UNRESOLVED_CHOICE_LABEL: 'resolve_unknown_label',
+  AMBIGUOUS_PACKED_CELL: 'resolve_packed_cell',
 }
 
-// Only the labels actually resolved get an answer; every other presented decision
+function presentedDecisions(parsed, activityNames) {
+  const byLabel = new Map()
+  for (const item of parsed?.residue ?? []) {
+    if (!residueIsDecision(item.kind) || !item.label) continue
+    const kind = JOURNAL_KIND[item.kind]
+    if (!kind || byLabel.has(item.label)) continue
+    byLabel.set(item.label, {
+      id: `${kind}:${item.label}`,
+      kind,
+      entityName: item.label,
+      // WHAT WE SUGGESTED, recorded alongside the question. Without this the
+      // journal can say a director mapped a label but not whether they took our
+      // proposal or overrode it \u2014 and "was the proposal right" is the first
+      // question the deferred learning layer has to answer.
+      proposal: proposeActivityMatch(item.label, activityNames)?.name ?? null,
+    })
+  }
+  return [...byLabel.values()]
+}
+
+// Only the labels actually settled get an answer; every other presented decision
 // falls through `journalEntriesFor` as UNANSWERED, which is the recording the
 // journal exists for.
-function resolvedAnswers(resolvedLabels) {
+const JOURNAL_ACTION = {
+  [RESOLUTION.ADD_ACTIVITY]: 'added_activity',
+  [RESOLUTION.MAP_TO_EXISTING]: 'mapped_to_existing',
+  [RESOLUTION.SPLIT_PACKED]: 'split_packed',
+}
+
+function answersFor(decisions, resolutions) {
+  const byLabel = resolutionMap(resolutions)
   const answers = {}
-  for (const label of resolvedLabels ?? []) {
-    answers[`resolve_unknown_label:${label}`] = { action: 'added_activity' }
+  for (const d of decisions) {
+    const settled = byLabel[d.entityName]
+    if (!settled) continue
+    answers[d.id] = {
+      action: JOURNAL_ACTION[settled.action] ?? settled.action,
+      activityName: settled.activityName ?? undefined,
+    }
   }
   return answers
 }
@@ -237,8 +268,12 @@ export default function AssignmentPanel({
   // does not disturb).
   const [viewRun, setViewRun] = useState(null)
   const [danglingFindings, setDanglingFindings] = useState([])
-  // The labels this director settled on THIS parse, and the one being written.
-  const [resolvedLabels, setResolvedLabels] = useState([])
+  // What this director settled on THIS parse \u2014 a list of
+  // `{ label, action, activityName }` \u2014 and the label currently being acted on.
+  // A LIST, not a set of labels: slice 1 only needed to know WHETHER a label was
+  // resolved, and slice 2 needs to know HOW, because two of the three resolutions
+  // feed the re-parse and the third does not.
+  const [resolutions, setResolutions] = useState([])
   const [resolvingLabel, setResolvingLabel] = useState(null)
   const fileInputRef = useRef(null)
   // H3 — a synchronous guard against a double-tap committing twice. The
@@ -265,6 +300,14 @@ export default function AssignmentPanel({
   }, [templateSlots, groups, electiveSetId])
   const candidateTemplateIds = Object.keys(templates)
 
+  // ONE DERIVATION of the camp's activity names, read by the picker, by the proposal
+  // rule and by the journal's record of what we proposed. Three copies of this would
+  // be three chances for the journal to record a proposal the director never saw.
+  const activityNames = useMemo(
+    () => (activities ?? []).map((a) => a?.name).filter(Boolean),
+    [activities]
+  )
+
   function reset() {
     setPhase('empty')
     setRows(null)
@@ -277,7 +320,7 @@ export default function AssignmentPanel({
     setCommittedInfo(null)
     setViewRun(null)
     setDanglingFindings([])
-    setResolvedLabels([])
+    setResolutions([])
     setResolvingLabel(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
@@ -313,24 +356,57 @@ export default function AssignmentPanel({
     }
   }
 
-  // SLICE 1'S ONE RESOLUTION. The director confirms; the app does not decide — this
-  // runs only from an explicit click on a named label, and nothing is proposed or
-  // applied on its own.
+  // THE THREE RESOLUTIONS. The director confirms; the app does not decide \u2014 each of
+  // these runs only from an explicit press on a named label, and nothing is proposed
+  // or applied on its own.
   //
-  // Re-parses afterwards because residue was computed against the OLD catalog: the
-  // sheet's rows for that label are still sitting unimported, and the whole point of
-  // the action is that they stop being residue. Resolving is never a gate — Solve
-  // Assignments is available before, during and after, and a failure here leaves the
-  // parse exactly as it was.
+  // All three end the same way, in `confirmMapping`, which RE-PARSES: residue was
+  // computed against the old catalog and the old resolutions, the sheet's rows for
+  // that label are still sitting unimported, and the whole point of every one of
+  // these actions is that they stop being residue. Resolving is never a gate \u2014 Solve
+  // Assignments is available before, during and after, and a failure leaves the parse
+  // exactly as it was.
+  //
+  // ONLY THE FIRST WRITES ANYTHING. Adding an activity is a mutation and goes through
+  // describeWriteFailure. Mapping and splitting mutate NOTHING: they are statements
+  // about how to read this file, so they cost one re-parse and no database call at
+  // all. That asymmetry is worth naming rather than hiding \u2014 a director who maps a
+  // label has not changed their camp, they have corrected a spelling in a sheet.
+  function settle(label, entry) {
+    const next = [...resolutions.filter((r) => r.label !== label), entry]
+    setResolutions(next)
+    return next
+  }
+
   async function resolveUnknownLabel(label) {
     if (!onAddActivity || resolvingLabel) return
     setResolvingLabel(label)
     try {
       const created = await onAddActivity(label)
-      setResolvedLabels((prev) => (prev.includes(label) ? prev : [...prev, label]))
-      confirmMapping(created ? [created] : [])
+      const next = settle(label, { label, action: RESOLUTION.ADD_ACTIVITY })
+      confirmMapping(created ? [created] : [], next)
     } catch (err) {
       onError?.(describeWriteFailure(err, `Could not add \u201c${label}\u201d as an activity.`))
+    } finally {
+      setResolvingLabel(null)
+    }
+  }
+
+  function mapLabelToActivity(label, activityName) {
+    if (!activityName || resolvingLabel) return
+    setResolvingLabel(label)
+    try {
+      confirmMapping([], settle(label, { label, action: RESOLUTION.MAP_TO_EXISTING, activityName }))
+    } finally {
+      setResolvingLabel(null)
+    }
+  }
+
+  function splitPackedCell(label) {
+    if (resolvingLabel) return
+    setResolvingLabel(label)
+    try {
+      confirmMapping([], settle(label, { label, action: RESOLUTION.SPLIT_PACKED }))
     } finally {
       setResolvingLabel(null)
     }
@@ -341,7 +417,14 @@ export default function AssignmentPanel({
   // so the re-parse is handed the new row directly rather than waiting a tick and
   // hoping — a re-parse against a stale catalog would resolve nothing and look like
   // the resolution failed.
-  function confirmMapping(extraActivities = []) {
+  // `resolutionList` defaults to the state value rather than to empty: this is also
+  // called from the ordinary mapping-confirmation path, where nothing has been
+  // settled yet and the state IS the answer. Passed explicitly by the three settle
+  // paths above because `setResolutions` has not landed in this render yet \u2014 reading
+  // state there would re-parse against the resolutions as they were BEFORE the
+  // director's press, which is the same stale-catalog trap `extraActivities` exists
+  // to avoid, one field over.
+  function confirmMapping(extraActivities = [], resolutionList = resolutions) {
     // THE SAME CALL SHAPE THE CLI AND THE MCP TOOLS USE. This used to be
     // `parsePreferenceSheet(rows, { campId, mapping })` — no catalog, no grid, no
     // subject — so in the director's own import path the header locator never ran,
@@ -357,7 +440,10 @@ export default function AssignmentPanel({
       // that surfaces here. An unhandled throw would leave the panel stuck in
       // 'mapping' with no explanation, which is the silent failure the
       // describeWriteFailure rule exists to prevent.
-      result = readPreferenceSheet({ rows, campId, catalog, sourceLabel, submissionKey }).parsed
+      result = readPreferenceSheet({
+        rows, campId, catalog, sourceLabel, submissionKey,
+        resolutions: resolutionMap(resolutionList),
+      }).parsed
     } catch (err) {
       onError?.(describeWriteFailure(err, 'Could not read that sheet.'))
       setPhase('mapping')
@@ -526,7 +612,8 @@ export default function AssignmentPanel({
       // question not worth asking. Best-effort and never blocking, the same posture
       // as ReconciliationScreen's call — a committed run must stay committed.
       try {
-        const entries = journalEntriesFor(unknownLabelDecisions(parsed), resolvedAnswers(resolvedLabels), crypto.randomUUID())
+        const presented = presentedDecisions(parsed, activityNames)
+        const entries = journalEntriesFor(presented, answersFor(presented, resolutions), crypto.randomUUID())
         if (entries.length > 0) await localClient.recordImportDecisions({ entries })
       } catch {
         /* diagnostics only — never surfaced, never blocking */
@@ -732,7 +819,10 @@ export default function AssignmentPanel({
             onSolve={() => chooseTemplateAndSolve(candidateTemplateIds[0])}
             onChooseDifferentFile={reset}
             onAddActivity={onAddActivity ? resolveUnknownLabel : undefined}
-            resolvedLabels={resolvedLabels}
+            onMapToActivity={mapLabelToActivity}
+            onSplitPacked={splitPackedCell}
+            activityNames={activityNames}
+            resolutions={resolutionMap(resolutions)}
             busyLabel={resolvingLabel}
           />
         )

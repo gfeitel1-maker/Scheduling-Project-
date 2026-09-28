@@ -103,6 +103,9 @@ export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [
  * @param {string}   [args.sourceLabel]   a human-readable label for a provisional
  *   subject (the file name). A LABEL, never the key: keying on it merged two real
  *   children whose planners were both exported as `planner.csv`.
+ * @param {object}   [args.resolutions]   the director's settled label resolutions,
+ *   from `resolutionMap` — `{ [rawLabel]: { action, activityName } }`. Absent means
+ *   nothing has been settled, which is every FIRST read of a sheet.
  * @param {string}   [args.submissionKey] the identity of a provisional subject —
  *   an opaque per-submission string (a content hash). Two submissions can never
  *   collide; the same submission re-read converges.
@@ -119,6 +122,11 @@ export function readPreferenceSheet({
   camperName = null,
   sourceLabel = null,
   submissionKey = null,
+  // T298 — what a director already settled about labels this catalog cannot
+  // resolve, keyed on the raw label (src/ingest/labelResolutions.js). Forwarded
+  // rather than interpreted: this module locates and delegates, and a resolution
+  // is the transform's input, not this one's.
+  resolutions = null,
 } = {}) {
   // The header ROW is located, not assumed to be row 1: a title and a season line
   // above the table are ordinary, and assuming row 1 made such a sheet "not a
@@ -163,6 +171,7 @@ export function readPreferenceSheet({
       ? { unmapped: [], unrecognisedColumns: [], rankColumns: [], headerIndex: 0 }
       : mapping,
     catalog,
+    resolutions,
     grid: grid
       ? {
           layout: grid,

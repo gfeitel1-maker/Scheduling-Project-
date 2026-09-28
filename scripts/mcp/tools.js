@@ -14,6 +14,7 @@ import { openLocalDb } from '../../electron/db/localDb.js'
 import { makeDocCipher } from '../../electron/db/docCipher.js'
 import { runIngestCli } from '../ingestCli.js'
 import { runPreferenceSheetCli } from '../preferenceSheetCli.js'
+import { resolutionMap, RESOLUTION } from '../../src/ingest/labelResolutions.js'
 import { attributeElectiveSubject } from '../../electron/ops/attributeElectiveSubject.js'
 import { listEntities } from '../../electron/ops/read.js'
 import { assembleScheduleEngineInputs } from '../../electron/ops/scheduleEngineInputs.js'
@@ -70,6 +71,22 @@ export function ingestCommitTool(args, { dbPath, allowWrite, authorUserId, dbKey
 //
 // Same handler contract as the pair above: (args, { dbPath, allowWrite,
 // authorUserId, dbKey }) in, a plain pre-envelope result object out.
+// T298 — WHAT AN AGENT MAY SETTLE ABOUT A LABEL, filtered to the two resolutions
+// that write nothing. `map_to_existing` and `split_packed` are statements about how
+// to read the file; `add_activity` MINTS a camp activity, which is a change to the
+// camp's own setup, and a tool whose stated job is "read this sheet" must not make
+// one as a side effect. An agent that wants the activity creates it, then re-previews.
+const MACHINE_RESOLUTIONS = new Set([RESOLUTION.MAP_TO_EXISTING, RESOLUTION.SPLIT_PACKED])
+
+function machineResolutions(list) {
+  if (!Array.isArray(list) || list.length === 0) return null
+  return resolutionMap(
+    list
+      .filter((r) => MACHINE_RESOLUTIONS.has(r?.action))
+      .map((r) => ({ label: r.label, action: r.action, activityName: r.activity_name ?? r.activityName }))
+  )
+}
+
 export function preferenceSheetPreviewTool(args, { dbPath, dbKey }) {
   return runPreferenceSheetCli({
     file: args.file_path,
@@ -81,6 +98,7 @@ export function preferenceSheetPreviewTool(args, { dbPath, dbKey }) {
     // agent driving the import on a director's behalf. It existed as a parameter
     // with no argv parser and no tool passing it, which is not a feature.
     camperName: args.camper_name ?? null,
+    resolutions: machineResolutions(args.label_resolutions),
     dbKey,
   })
 }
@@ -100,6 +118,7 @@ export function preferenceSheetCommitTool(args, { dbPath, allowWrite, authorUser
     action: 'commit',
     runName: args.run_name ?? null,
     camperName: args.camper_name ?? null,
+    resolutions: machineResolutions(args.label_resolutions),
     authorUserId: authorUserId ?? null,
     dbKey,
   })
