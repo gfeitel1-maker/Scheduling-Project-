@@ -22,6 +22,12 @@ Regenerate with `npm run index:work`.
 | [Phase A — Cloudflare Worker and KV rendezvous bulletin board (source and tests only)](../../docs/work/tickets/T209-rendezvous-worker-phase-a.md) | in-progress | [2026-09-18-rendezvous-record-encoding-and-namespace-rotation](../../docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [T267-fixed-recurring-event-identity-model](../../docs/work/tickets/T267-fixed-recurring-event-identity-model.md) | in-progress | [2026-09-26-fixed-recurring-event-identity-model](../../docs/adr/2026-09-26-fixed-recurring-event-identity-model.md) |
 
+### copy-terminology
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [Scope and pin down the fixed / recurring / activity vocabulary across the product](../../docs/work/tickets/T293-fixed-recurring-activity-vocabulary.md) | open | — |
+
 ### database-sync
 
 | Ticket | Status | Referenced by |
