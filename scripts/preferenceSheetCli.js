@@ -146,6 +146,11 @@ export function runPreferenceSheetCli({
     return errorResult(base, `cannot open db: ${dbPath} (${e.message})`)
   }
 
+  // Identifies the exact bytes of this submission. Used for the run id (so a resent
+  // sheet is an idempotent retry rather than a second run) AND as the identity of an
+  // unattributed grid subject — see resolveSubject.
+  const submissionSha256 = createHash('sha256').update(buf).digest('hex')
+
   try {
     // One camp per device db — the same lookup every other read in this repo
     // uses, and the reason camp isolation needs no filter.
@@ -241,9 +246,7 @@ export function runPreferenceSheetCli({
         }
       }
 
-      // Identifies the exact bytes this run came from, so a director looking at a
-      // run later can tell whether a resent sheet is the same document.
-      const sourceSha256 = createHash('sha256').update(buf).digest('hex')
+      const sourceSha256 = submissionSha256
 
       let outcome
       try {
@@ -287,11 +290,40 @@ export function runPreferenceSheetCli({
     // preferences are stored with their coordinates and a human or an agent names
     // the child later, without re-importing. Landing the data unattributed is
     // strictly better than dropping it.
-    const resolveSubject = (pageName) => {
+    const resolveSubject = () => {
+      // 1. THE CALLER KNOWS. The portal, the import screen's selection, or an agent
+      //    driving the CLI/MCP. Attributed outright.
       if (camperName) return { displayName: camperName, source: 'caller', attributed: true }
-      if (pageName) return { displayName: pageName, source: 'page', attributed: true }
+
+      // 2/3. Nothing named the child, so the subject is PROVISIONAL — and its
+      //    IDENTITY IS THE SUBMISSION, not the filename.
+      //
+      //    KEYING ON THE FILENAME MERGED TWO REAL CHILDREN, reproduced by
+      //    execution: two campers whose portal exported each planner as the ordinary
+      //    basename `planner.csv` collapsed onto ONE camper row holding both
+      //    children's answers, with two contradictory rank-1 cell choices at every
+      //    coordinate — ok=true, no refusal, no residue. `hasContradictoryRanks` and
+      //    the parse-level collision pass run PER IMPORT and structurally cannot see
+      //    across two. That is the "merge two real children" case the ADR names as
+      //    the ONLY legitimate refusal, happening silently on the default path.
+      //
+      //    The content hash keys it instead, through `deriveCamperId`'s `ext` arm:
+      //    two different submissions can never collide, and the SAME bytes re-sent
+      //    converge onto one subject rather than duplicating — the same idempotency
+      //    the run id already gets from `deriveImportedElectiveRunId`. The filename
+      //    stays as the human-readable LABEL so a director recognises which
+      //    submission it is; it is no longer the key, so renaming a file no longer
+      //    forks the child either.
       const stem = path.basename(file).replace(/\.[^.]+$/, '')
-      return { displayName: stem || null, source: stem ? 'filename' : 'none', attributed: false }
+      return {
+        displayName: stem || null,
+        // `sub-` prefixed so a row read in a SQLite shell is obviously not a camp
+        // roster id, and truncated because 32 hex characters already make collision
+        // a non-issue while keeping the id legible for diagnosis.
+        externalId: `sub-${submissionSha256.slice(0, 32)}`,
+        source: stem ? 'filename' : 'none',
+        attributed: false,
+      }
     }
 
     if (!chosen) {
@@ -327,7 +359,7 @@ export function runPreferenceSheetCli({
           mapping: { unmapped: [], unrecognisedColumns: [], rankColumns: [], headerIndex: 0 },
           catalog,
           grid: { layout, rows: gridSheet.sheet.rows.slice(1), headerIndex: 0 },
-          subject: resolveSubject(null),
+          subject: resolveSubject(),
         })
         const unreadOther = sheets
           .filter((sh) => sh.name !== gridSheet.sheet.name)
@@ -409,7 +441,10 @@ export function runPreferenceSheetCli({
       // The grid's subject is resolved WITHOUT looking at the named campers in the
       // table below it: this page names four of them, so picking one would be a
       // guess about whose week the grid describes.
-      subject: preambleGrid ? resolveSubject(null) : undefined,
+      //
+      // The `pageName` branch this used to have was DEAD CODE — both call sites
+      // passed null — so it is deleted rather than left looking like a feature.
+      subject: preambleGrid ? resolveSubject() : undefined,
     })
 
     return finishRun({ parsed, mapping, extraResidue: unreadSheets })

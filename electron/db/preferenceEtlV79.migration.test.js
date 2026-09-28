@@ -181,8 +181,32 @@ describe('migration v79 — campers.division_label and elective_preferences.rank
         "INSERT INTO campers (id, camp_id, display_name, division_label) VALUES ('cam1', 'camp1', 'A Camper', 'Grades 7-8')"
       ).run()
 
+      // Give every one of the five columns a value, so `discarded` has something to
+      // under-report if it goes back to counting two of them.
+      db.prepare(
+        "INSERT INTO elective_assignment_runs (id, camp_id, name) VALUES ('run1', 'camp1', 'Run')"
+      ).run()
+      db.prepare(
+        `INSERT INTO elective_preferences
+           (id, run_id, camper_id, choice_id, rank, rank_kind, coordinate_day_label, coordinate_period_label)
+         VALUES ('p1', 'run1', 'cam1', 'c1', 1, 'cell-choice', 'Monday', 'Period 3')`
+      ).run()
+      db.prepare("UPDATE campers SET is_unattributed = 1 WHERE id = 'cam1'").run()
+
       const result = rollbackV79(db)
       expect(result.ok).toBe(true)
+
+      // ASSERTED, because this test used to check `ok` and nothing else while
+      // `discarded` silently counted only two of the five columns — and the two it
+      // omitted are the ones the module's own header calls "the LOSSIEST part of the
+      // rollback". A count that under-reports reads as a complete accounting.
+      expect(result.discarded).toEqual({
+        divisionLabels: 1,
+        unattributedSubjects: 1,
+        rankKinds: 1,
+        coordinateDayLabels: 1,
+        coordinatePeriodLabels: 1,
+      })
 
       expect(columns(db, 'campers')).not.toContain('division_label')
       expect(columns(db, 'elective_preferences')).not.toContain('rank_kind')

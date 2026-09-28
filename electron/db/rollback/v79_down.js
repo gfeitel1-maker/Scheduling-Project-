@@ -40,13 +40,28 @@ const hasColumn = (db, table, column) =>
  * @returns {{ok:true, discarded:{divisionLabels:number, rankKinds:number}}}
  */
 export function rollbackV79(db) {
+  // ALL FIVE COLUMNS ARE COUNTED. This used to report only division_label and
+  // rank_kind while the file's own header calls the coordinate columns "the LOSSIEST
+  // part of the rollback" — so the number a director saw understated exactly the
+  // loss they most needed to see. An under-reporting count is worse than none: it
+  // reads as a complete accounting.
+  const countNonNull = (table, column) =>
+    hasColumn(db, table, column)
+      ? db.prepare(`SELECT COUNT(*) c FROM ${table} WHERE ${column} IS NOT NULL`).get().c
+      : 0
+
   const discarded = {
-    divisionLabels: hasColumn(db, 'campers', 'division_label')
-      ? db.prepare('SELECT COUNT(*) c FROM campers WHERE division_label IS NOT NULL').get().c
-      : 0,
-    rankKinds: hasColumn(db, 'elective_preferences', 'rank_kind')
-      ? db.prepare('SELECT COUNT(*) c FROM elective_preferences WHERE rank_kind IS NOT NULL').get().c
-      : 0,
+    divisionLabels: countNonNull('campers', 'division_label'),
+    // A subject whose name nobody knows. Dropping the flag does not delete the
+    // camper, but it makes them indistinguishable from an ordinary named one, so
+    // they fall out of the attention surface and nobody is ever asked who they are.
+    unattributedSubjects: countNonNull('campers', 'is_unattributed'),
+    rankKinds: countNonNull('elective_preferences', 'rank_kind'),
+    // THE LOSSIEST TWO. These are the only record of WHICH CELL a per-cell
+    // preference belongs to, so dropping them collapses a child's several answers
+    // into indistinguishable rows.
+    coordinateDayLabels: countNonNull('elective_preferences', 'coordinate_day_label'),
+    coordinatePeriodLabels: countNonNull('elective_preferences', 'coordinate_period_label'),
   }
 
   db.transaction(() => {
@@ -87,8 +102,11 @@ if (process.argv[1] && process.argv[1].endsWith('v79_down.js')) {
   const result = rollbackV79(db)
   db.close()
   console.log(
-    `v79 rolled back: discarded ${result.discarded.divisionLabels} campers.division_label and ` +
-    `${result.discarded.rankKinds} elective_preferences.rank_kind value(s). There was no prior ` +
+    `v79 rolled back: discarded ${result.discarded.divisionLabels} campers.division_label, ` +
+    `${result.discarded.unattributedSubjects} campers.is_unattributed, ` +
+    `${result.discarded.rankKinds} elective_preferences.rank_kind, and ` +
+    `${result.discarded.coordinateDayLabels}/${result.discarded.coordinatePeriodLabels} ` +
+    'coordinate day/period label(s). There was no prior ' +
     'value to restore, since neither column existed before v79, and division_label is provenance ' +
     'no other row records — re-importing the source file is the only way back. This app build ' +
     'still declares schema version 79 — reopening it re-adds both columns, empty.'

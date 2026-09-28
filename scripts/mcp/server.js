@@ -20,6 +20,8 @@ import {
   ingestCommitTool,
   preferenceSheetPreviewTool,
   preferenceSheetCommitTool,
+  attributeSubjectTool,
+  listUnattributedSubjectsTool,
   listEntitiesTool,
   setupSummaryTool,
   scheduleStateTool,
@@ -93,6 +95,11 @@ const TOOLS = [
       properties: {
         file_path: { type: 'string', description: 'Absolute path to the preference sheet to read.' },
         run_name: { type: 'string', description: 'Optional name for the run this sheet would create.' },
+        camper_name: {
+          type: 'string',
+          description:
+            "Optional. WHOSE sheet this is. A filled-in planner grid has no camper-name column — it is one camper's own sheet and the identity comes from the submission, not the page — so pass the camper's name here when you know it. Without it the sheet is still imported in full, against a provisional subject you can name later with attribute_camper_subject.",
+        },
       },
       required: ['file_path'],
     },
@@ -107,10 +114,43 @@ const TOOLS = [
       properties: {
         file_path: { type: 'string' },
         run_name: { type: 'string', description: 'Optional. Defaults to the file name.' },
+        camper_name: {
+          type: 'string',
+          description:
+            "Optional. WHOSE sheet this is, for a planner grid that names no camper. Without it the choices are still stored in full against a provisional subject, which list_unattributed_subjects will show and attribute_camper_subject can name later without re-importing.",
+        },
       },
       required: ['file_path'],
     },
     handler: preferenceSheetCommitTool,
+  },
+  {
+    name: 'list_unattributed_subjects',
+    description:
+      "List the imported sheets whose camper is not yet identified. A filled-in planner grid is one camper's own sheet and carries no name column, so when nothing said whose it was, the choices were stored in full against a provisional subject labelled with the file name. Each entry gives the subject_id to pass to attribute_camper_subject and how many preferences it holds. This is the same list the director sees under \"Needs your attention\".",
+    inputSchema: { type: 'object', properties: {} },
+    handler: listUnattributedSubjectsTool,
+  },
+  {
+    name: 'attribute_camper_subject',
+    description:
+      "Name the camper whose sheet was imported without an identity. Moves that subject's choices onto the camper's real identity, so a later import of the same name lands on the SAME record rather than creating a second one, and nothing needs re-importing. Requires --allow-write. Refuses if the camper is already identified, since renaming an identified camper would give them a new identity and disconnect them from their other records.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        subject_id: {
+          type: 'string',
+          description: 'The subject to name, from list_unattributed_subjects.',
+        },
+        camper_name: { type: 'string', description: "The camper's name as the camp writes it." },
+        external_id: {
+          type: 'string',
+          description: "Optional. The camp's own roster id for this camper, if there is one.",
+        },
+      },
+      required: ['subject_id', 'camper_name'],
+    },
+    handler: attributeSubjectTool,
   },
   {
     name: 'list_entities',

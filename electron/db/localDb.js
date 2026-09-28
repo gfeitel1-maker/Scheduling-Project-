@@ -3723,6 +3723,14 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   //     invisible again, which is the defect §12.2a corrects. A group is NEVER
   //     created from an elective file (T224's lesson as a rule), so an
   //     unmatched label lands here and in residue, and nowhere else.
+  //   campers.is_unattributed         — a subject whose NAME this app does not know
+  //     (T285). A planner grid carries no name column because it is one camper's own
+  //     sheet and the identity comes from the SUBMISSION, so such a page is ONE
+  //     subject rather than zero. The flag exists so that subject is findable LATER
+  //     WITHOUT RE-IMPORT — the import's residue says so at the time, but residue is
+  //     not persisted, and "land it, then resolve it" is only true if the thing to
+  //     resolve can be found. Read by the attention surface
+  //     (src/ingest/attentionList.js) and cleared by attributeElectiveSubject.
   //   elective_preferences.rank_kind  — one of 'cell-choice', 'ordered-fallback'
   //     or 'unordered-set'. `rank` stays an integer; rank_kind says what
   //     COMPARING two of them means, which one integer column cannot carry

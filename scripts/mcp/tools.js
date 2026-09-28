@@ -14,6 +14,7 @@ import { openLocalDb } from '../../electron/db/localDb.js'
 import { makeDocCipher } from '../../electron/db/docCipher.js'
 import { runIngestCli } from '../ingestCli.js'
 import { runPreferenceSheetCli } from '../preferenceSheetCli.js'
+import { attributeElectiveSubject } from '../../electron/ops/attributeElectiveSubject.js'
 import { listEntities } from '../../electron/ops/read.js'
 import { assembleScheduleEngineInputs } from '../../electron/ops/scheduleEngineInputs.js'
 import { normalizeSlots } from '../../src/utils/normalizeSlots.js'
@@ -70,7 +71,18 @@ export function ingestCommitTool(args, { dbPath, allowWrite, authorUserId, dbKey
 // Same handler contract as the pair above: (args, { dbPath, allowWrite,
 // authorUserId, dbKey }) in, a plain pre-envelope result object out.
 export function preferenceSheetPreviewTool(args, { dbPath, dbKey }) {
-  return runPreferenceSheetCli({ file: args.file_path, dbPath, action: 'preview', dbKey })
+  return runPreferenceSheetCli({
+    file: args.file_path,
+    dbPath,
+    action: 'preview',
+    // T285 — WHOSE sheet this is, when the caller knows. A planner grid carries no
+    // name column because the identity comes from the SUBMISSION rather than the
+    // page, so this is step 1 of the identity order and the normal case for an
+    // agent driving the import on a director's behalf. It existed as a parameter
+    // with no argv parser and no tool passing it, which is not a feature.
+    camperName: args.camper_name ?? null,
+    dbKey,
+  })
 }
 
 export function preferenceSheetCommitTool(args, { dbPath, allowWrite, authorUserId, dbKey }) {
@@ -87,9 +99,73 @@ export function preferenceSheetCommitTool(args, { dbPath, allowWrite, authorUser
     dbPath,
     action: 'commit',
     runName: args.run_name ?? null,
+    camperName: args.camper_name ?? null,
     authorUserId: authorUserId ?? null,
     dbKey,
   })
+}
+
+// T285 — NAME A SUBJECT WE ALREADY HOLD THE ANSWERS FOR.
+//
+// The import's own residue promises "name the camper when you know them, and
+// nothing needs re-importing". This is the call that makes that true, and the MCP
+// surface is its natural home: it is exactly the bridge the owner asked for — an
+// agent talking to the software on a director's behalf — and the same act is in the
+// director's attention surface ("Needs your attention"), not a separate screen.
+//
+// Attribution REKEYS rather than renaming: see attributeElectiveSubject for why a
+// rename would convert a merge bug into a worse fork bug.
+export function attributeSubjectTool(args, { dbPath, allowWrite, authorUserId, dbKey }) {
+  if (!allowWrite) {
+    return {
+      ok: false,
+      error:
+        'this changes data — relaunch the server with --allow-write to enable attribute_camper_subject',
+      exitCode: 1,
+    }
+  }
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
+  try {
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return { ok: false, error: 'db has no camp bootstrapped yet', exitCode: 1 }
+    const device = db.prepare('SELECT id FROM devices LIMIT 1').get()
+    if (!device) return { ok: false, error: 'db has no device registered yet', exitCode: 1 }
+
+    const out = attributeElectiveSubject(db, {
+      campId: camp.id,
+      deviceId: device.id,
+      authorUserId: authorUserId ?? null,
+      subjectId: args.subject_id,
+      displayName: args.camper_name,
+      externalId: args.external_id ?? null,
+    })
+    return out.ok ? { ...out, exitCode: 0 } : { ...out, exitCode: 1 }
+  } finally {
+    db.close()
+  }
+}
+
+// The subjects awaiting a name. Read from the SAME place the director's attention
+// surface reads (campers.is_unattributed), so an agent and a human are looking at
+// one list rather than two queries that can disagree.
+export function listUnattributedSubjectsTool(args, { dbPath, dbKey }) {
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
+  try {
+    const subjects = db
+      .prepare(
+        `SELECT c.id AS subject_id, c.display_name AS label,
+                COUNT(p.id) AS preference_count
+           FROM campers c
+           LEFT JOIN elective_preferences p ON p.camper_id = c.id
+          WHERE c.is_unattributed = 1
+          GROUP BY c.id, c.display_name
+          ORDER BY c.display_name`
+      )
+      .all()
+    return { ok: true, subjects, exitCode: 0 }
+  } finally {
+    db.close()
+  }
 }
 
 export function listEntitiesTool(args, { dbPath, dbKey }) {
