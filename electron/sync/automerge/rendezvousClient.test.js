@@ -6,7 +6,10 @@
 // seam 4 (addendum §6) rounds-trips against the REAL handler, not a hand-described stub, so a body
 // shape drift is caught even if this test file and the client agree with each other and disagree
 // with the worker.
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { generateKeyPair } from '@libp2p/crypto/keys'
 import { peerIdFromPrivateKey } from '@libp2p/peer-id'
 import { handleRequest } from '../../../workers/rendezvous/worker.js'
@@ -16,7 +19,10 @@ import {
   registerRecord,
   fetchPeers,
   startRendezvousClient,
+  createRendezvousDiscovery,
 } from './rendezvousClient.js'
+import { openLocalDb } from '../../db/localDb.js'
+import { nextSequence } from './rendezvousSequence.js'
 
 // In-memory KV mock matching the Cloudflare KV surface worker.js actually calls: get/put/list.
 function makeKvMock() {
@@ -266,5 +272,163 @@ describe('startRendezvousClient — namespace/key re-derivation, decrypt-failure
     expect(verdict.addressBodyDecrypted).toBe(false)
     expect(verdict.record.addressBodyError).toBeDefined()
     handle.stop()
+  })
+
+  it('logs a non-PII warning when a discovered peer fails to parse (Round 2, FIX 4)', async () => {
+    // A validly-signed record whose decrypted address body contains a malformed multiaddr string
+    // is not adversarial input (verify() already authenticated the signer) — it is exactly the
+    // kind of non-adversarial failure (e.g. a library version bump) the bare catch was masking.
+    // console.warn must fire with a reason, never with the record bytes/addresses themselves.
+    const kv = makeKvMock()
+    const fetchImpl = makeWorkerFetch(kv)
+
+    const A = await import('@automerge/automerge')
+    const { mintRendezvousAddressKey, readRendezvousAddressKey } = await import('./rendezvousAddressKey.js')
+    const { mintRendezvousNamespace, readRendezvousNamespace } = await import('./rendezvousNamespace.js')
+    let doc = A.from({ camps: { 'camp-1::name': 'Camp' } })
+    doc = A.change(doc, (d) => {
+      d.camps.id = 'camp-1'
+    })
+    doc = mintRendezvousNamespace(doc, 'camp-1').doc
+    doc = mintRendezvousAddressKey(doc, 'camp-1').doc
+    const { namespace } = readRendezvousNamespace(doc, 'camp-1')
+    const addressKey = readRendezvousAddressKey(doc, 'camp-1')
+
+    // A peer OTHER than the discovering client, with a validly-signed record whose decrypted
+    // address body contains a malformed multiaddr string — authenticated but structurally broken.
+    const otherPrivateKey = await generateKeyPair('Ed25519')
+    const otherPeerId = peerIdFromPrivateKey(otherPrivateKey).toString()
+    const now = Date.now()
+    const record = {
+      namespace,
+      peerId: otherPeerId,
+      epoch: 1,
+      seq: 1,
+      issuedAt: now,
+      expiresAt: now + 60_000,
+      addresses: ['not-a-valid-multiaddr'],
+    }
+    const bytes = signRecord(record, otherPrivateKey, addressKey)
+    await registerRecord({ baseUrl: 'https://rendezvous.example', namespace, peerId: otherPeerId, recordBytes: bytes, fetchImpl })
+
+    const selfPrivateKey = await generateKeyPair('Ed25519')
+    const selfPeerId = peerIdFromPrivateKey(selfPrivateKey).toString()
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const target = createRendezvousDiscovery({
+        campId: 'camp-1',
+        baseUrl: 'https://rendezvous.example',
+        doc: () => doc,
+        getPrivateKey: async () => selfPrivateKey,
+        peerId: selfPeerId,
+        fetchImpl,
+        intervalMs: 0,
+      })()
+      let capturedPeer = null
+      target.addEventListener('peer', (e) => {
+        capturedPeer = e.detail
+      })
+      target.start()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      target.stop()
+
+      expect(capturedPeer).toBeNull() // the malformed multiaddr means no 'peer' event fires
+      expect(warnSpy).toHaveBeenCalled()
+      const loggedText = warnSpy.mock.calls.flat().join(' ')
+      expect(loggedText).not.toContain('not-a-valid-multiaddr')
+      expect(loggedText).not.toContain(otherPeerId)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+})
+
+describe('fetchPeers — client-side response caps (Round 2, FIX 2 regression restoration)', () => {
+  it('drops entries beyond MAX_RECORDS_PER_RESPONSE without attempting to decode/verify them', async () => {
+    const overLimitPeers = Array.from({ length: 250 }, (_, i) => Buffer.from(`peer-${i}`).toString('base64'))
+    const fetchImpl = async () => new Response(JSON.stringify({ peers: overLimitPeers }), { status: 200 })
+    const result = await fetchPeers({ baseUrl: 'https://rendezvous.example', namespace: 'h'.repeat(64), fetchImpl })
+    expect(result.ok).toBe(true)
+    expect(result.peers.length).toBeLessThan(overLimitPeers.length)
+    expect(result.peers.length).toBeLessThanOrEqual(200)
+  })
+
+  it('drops an individual entry whose base64 length exceeds MAX_RECORD_BASE64_LENGTH before decoding', async () => {
+    const oversizedEntry = 'A'.repeat(20000)
+    const normalEntry = Buffer.from('small-record').toString('base64')
+    const fetchImpl = async () => new Response(JSON.stringify({ peers: [oversizedEntry, normalEntry] }), { status: 200 })
+    const result = await fetchPeers({ baseUrl: 'https://rendezvous.example', namespace: 'i'.repeat(64), fetchImpl })
+    expect(result.ok).toBe(true)
+    expect(result.peers).toHaveLength(1)
+    expect(result.peers[0].toString()).toBe('small-record')
+  })
+})
+
+describe('durable rendezvous publish sequence across a simulated restart (Round 2, FIX 1)', () => {
+  const files = []
+  afterEach(() => {
+    for (const f of files.splice(0)) {
+      for (const suffix of ['', '-wal', '-shm']) {
+        if (fs.existsSync(f + suffix)) fs.unlinkSync(f + suffix)
+      }
+    }
+  })
+
+  it('continues the persisted sequence after a fresh client is constructed against the same db, not reset to 1', async () => {
+    const dbFile = path.join(os.tmpdir(), `shoresh-rendezvous-seq-${Date.now()}-${Math.random()}.sqlite`)
+    files.push(dbFile)
+    const db = openLocalDb(dbFile)
+
+    const A = await import('@automerge/automerge')
+    const { mintRendezvousAddressKey } = await import('./rendezvousAddressKey.js')
+    const { mintRendezvousNamespace } = await import('./rendezvousNamespace.js')
+    let doc = A.from({ camps: { id: 'camp-1' } })
+    doc = mintRendezvousNamespace(doc, 'camp-1').doc
+    doc = mintRendezvousAddressKey(doc, 'camp-1').doc
+
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    const privateKey = await generateKeyPair('Ed25519')
+    const peerId = peerIdFromPrivateKey(privateKey).toString()
+
+    // "Before restart" — a client wired with the durable counter, same shape syncStarter.js uses.
+    const before = startRendezvousClient({
+      baseUrl: 'https://rendezvous.example',
+      campId: 'camp-1',
+      doc: () => doc,
+      getPrivateKey: async () => privateKey,
+      peerId,
+      onDiscoveredPeer: () => {},
+      fetchImpl,
+      intervalMs: 0,
+      nextSequence: () => nextSequence(db),
+    })
+    await before.tick()
+    await before.tick()
+    before.stop()
+
+    const registerCalls = fetchImpl.mock.calls.filter(([url]) => url.includes('/v1/register'))
+    expect(registerCalls).toHaveLength(2)
+    const rowBeforeRestart = db.prepare('SELECT seq FROM rendezvous_sequence WHERE id = 1').get()
+    expect(rowBeforeRestart.seq).toBe(2)
+
+    // "Restart" — a brand-new client instance (localSeq starts back at 0 in-memory), same db.
+    const after = startRendezvousClient({
+      baseUrl: 'https://rendezvous.example',
+      campId: 'camp-1',
+      doc: () => doc,
+      getPrivateKey: async () => privateKey,
+      peerId,
+      onDiscoveredPeer: () => {},
+      fetchImpl,
+      intervalMs: 0,
+      nextSequence: () => nextSequence(db),
+    })
+    await after.tick()
+    after.stop()
+
+    const rowAfterRestart = db.prepare('SELECT seq FROM rendezvous_sequence WHERE id = 1').get()
+    expect(rowAfterRestart.seq).toBe(3) // continues, does NOT reset to 1
+    db.close()
   })
 })

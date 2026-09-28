@@ -31,6 +31,7 @@ import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './docS
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './startupGuard.js'
 import { createMdnsDiscovery } from './discovery.js'
 import { readRendezvousConfig, createRendezvousDiscovery } from './rendezvousClient.js'
+import { nextSequence } from './rendezvousSequence.js'
 import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { recordAuditEvent } from '../../audit/auditLog.js'
 import { issueDeviceToken } from '../../auth/localAuth.js'
@@ -301,6 +302,7 @@ export function createAutomergeSyncStarter({
             doc: () => getDocIfLoaded(db),
             getPrivateKey: async () => rendezvousPrivateKey,
             peerId: rendezvousPeerId,
+            nextSequence: () => nextSequence(db),
           })
         )
       }

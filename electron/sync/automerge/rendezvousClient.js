@@ -28,6 +28,14 @@ export function readRendezvousConfig(env) {
   return { enabled: true, baseUrl }
 }
 
+// Client-side DoS protection against a flooded/hostile/hijacked worker (the worker is untrusted
+// by design — see the header comment). Mirrors the worker's own MAX_PEERS_PER_NAMESPACE cap so a
+// response cannot make the client do more decode/verify work than the worker itself allows to
+// accumulate. Applied BEFORE decode/verify, restored after the v2 rewrite dropped the v1 client's
+// equivalent caps (Round 2 FIX 2).
+const MAX_RECORDS_PER_RESPONSE = 200
+const MAX_RECORD_BASE64_LENGTH = 8192
+
 function classifyHttpStatus(status) {
   if (status >= 400 && status < 500) return 'http_4xx'
   if (status >= 500) return 'http_5xx'
@@ -86,7 +94,8 @@ export async function fetchPeers({ baseUrl, namespace, fetchImpl = fetch }) {
   }
   if (!body || !Array.isArray(body.peers)) return { ok: false, reason: 'malformed_response' }
 
-  const peers = body.peers.map((b64) => {
+  const bounded = body.peers.slice(0, MAX_RECORDS_PER_RESPONSE).filter((b64) => typeof b64 === 'string' && b64.length <= MAX_RECORD_BASE64_LENGTH)
+  const peers = bounded.map((b64) => {
     try {
       return Buffer.from(b64, 'base64')
     } catch {
@@ -197,7 +206,7 @@ export function startRendezvousClient({
  * this data comes from an untrusted cache) is dropped rather than thrown, same discipline as the
  * rest of this file's untrusted-input handling.
  */
-export function createRendezvousDiscovery({ campId, baseUrl, doc, getPrivateKey, peerId, nextSequence, intervalMs } = {}) {
+export function createRendezvousDiscovery({ campId, baseUrl, doc, getPrivateKey, peerId, nextSequence, intervalMs, fetchImpl } = {}) {
   return () => {
     let handle = null
     const target = new EventTarget()
@@ -210,6 +219,7 @@ export function createRendezvousDiscovery({ campId, baseUrl, doc, getPrivateKey,
         peerId,
         nextSequence,
         intervalMs,
+        ...(fetchImpl ? { fetchImpl } : {}),
         onDiscoveredPeer: async ({ id, multiaddrs }) => {
           try {
             const [{ peerIdFromString }, { multiaddr }] = await Promise.all([
@@ -219,8 +229,12 @@ export function createRendezvousDiscovery({ campId, baseUrl, doc, getPrivateKey,
             const discoveredPeerId = peerIdFromString(id)
             const discoveredMultiaddrs = (multiaddrs ?? []).map((a) => multiaddr(a))
             target.dispatchEvent(new CustomEvent('peer', { detail: { id: discoveredPeerId, multiaddrs: discoveredMultiaddrs } }))
-          } catch {
-            // malformed peer data from an untrusted cache — drop, don't throw
+          } catch (err) {
+            // Drop, don't throw — this data comes from an untrusted cache. But a bare catch also
+            // masks a non-adversarial failure (e.g. a peer-id/multiaddr library version bump) as
+            // if it were malicious input, so make it operator-visible. No-PII: log the failure
+            // reason only, never the record bytes, addresses, or peer id itself.
+            console.warn('rendezvous: dropped a discovered peer that failed to parse:', err?.message ?? String(err))
           }
         },
       })

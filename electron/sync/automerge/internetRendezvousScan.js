@@ -93,16 +93,18 @@ export function forbiddenPackagesPresent(lockfilePackages, forbiddenPackages) {
 
 /**
  * Pure: given a list of `{relPath, basename, source}` and the discovery egress allowlist state,
- * returns offender description strings. A file is exempt only if its OWN basename is on the
- * allowlist AND discovery is currently signed off — never by virtue of who imports it (T288
- * addendum §1.3's file-identity-not-import-graph rule; seam 3's importer-inheritance exploit).
+ * returns offender description strings. A file is exempt only if its OWN full repo-relative path
+ * is on the allowlist AND discovery is currently signed off — never by basename (a second file
+ * sharing a basename at a different path must not inherit the exemption — Round 2 FIX 3) and
+ * never by virtue of who imports it (T288 addendum §1.3's file-identity-not-import-graph rule;
+ * seam 3's importer-inheritance exploit).
  */
 export function unauthorizedEgress(files, { discoveryOn, allowlist }) {
   const allowed = new Set(allowlist)
   return files
-    .filter(({ basename, source }) => {
+    .filter(({ relPath, source }) => {
       if (findInternetEgress(source).length === 0) return false
-      return !(discoveryOn && allowed.has(basename))
+      return !(discoveryOn && allowed.has(relPath))
     })
     .map(({ relPath, source }) => `${relPath} (${findInternetEgress(source).join(', ')})`)
 }
