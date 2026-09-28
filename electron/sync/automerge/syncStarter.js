@@ -321,6 +321,15 @@ export function createAutomergeSyncStarter({
         // its absence, because loopback is exactly what those tests want.
         listen: ['/ip4/0.0.0.0/tcp/0'],
         onRemoteOps: (events) => {
+          // T292 round 2 FIX 2 — a remote merge never fires onOpApplied (that
+          // listener only covers this device's OWN local write()/
+          // writeBulkReplace() calls), so a receive-only device's camp data
+          // document would otherwise never update. onRemoteOps fires AFTER
+          // projectAll (see syncNode.js's own comment on this callback), so
+          // SQLite is already current by the time schedule() reads it.
+          // Scheduled unconditionally — this must happen even with no window
+          // open, unlike the renderer push below.
+          getLiveHandlers()?.scheduleCampDataRecord?.()
           const mainWindow = getMainWindow()
           if (!mainWindow) return
           dispatchRemoteOps(events, {
