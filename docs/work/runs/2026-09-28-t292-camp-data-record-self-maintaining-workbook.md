@@ -202,6 +202,18 @@ Spec fidelity 5, Security 5, Resilience 4, Maintainability 4, UX/legibility 4.
   three mechanisms are verified correct by direct reading, but a future refactor
   could silently drop one without a red build. Deferred as a post-merge follow-up
   (integration-test harness for these listener/lifecycle interactions).
+  **RESOLVED (2026-09-28):** the will-quit flush and the reinitialize/restore
+  dispose-before-close sequences were lifted out of the non-exported entry-point
+  IIFE into two exported helpers (`flushCampDataRecordOnQuit`,
+  `disposeCampDataRecordThenCloseDb` in `electron/main.js`) so the mechanism is
+  behaviorally testable; the writer-listener order is reachable through
+  `makeHandlers`. New suite `electron/campDataRecordWiring.test.js` (11 tests):
+  a behavioral test that a throwing renderer-push does not starve the writer's
+  `schedule()` (wiring 2), behavioral tests of the flush/dispose helpers incl.
+  the dispose→close ordering (wirings 1, 3), and three structural checks that the
+  call sites route through the helpers. Each guard was confirmed red against a
+  planted defect (listener reorder, dropped flush, close-before-dispose, dropped
+  call site) before revert.
 - **Perf tradeoff (accepted):** the debounced write path is synchronous fs I/O on
   the main thread; documented in campDataRecord.js as acceptable at realistic camp
   sizes. Revisit only if a real camp's write time is shown to matter.
