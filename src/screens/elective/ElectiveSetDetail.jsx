@@ -205,11 +205,16 @@ export default function ElectiveSetDetail({
   // import-create activities are indistinguishable rows. Name only — no
   // location/eligibility at creation time, those are Activities-screen
   // concerns (spec's "what a newly-created activity gets").
+  // Returns the created activity, which the residue-resolution path in
+  // AssignmentPanel re-parses against immediately: `refreshActivities` updates the
+  // prop for the NEXT render, and a re-parse that waited for it would read the old
+  // catalog and resolve nothing. The inline-add caller ignores the return value.
   async function createAndAddOffering(name) {
     const { activityId, activity } = await createActivity({ name, campId: set.camp_id, activities }, activityRepo)
     await add({ activityId })
     await markElectivePermissionTier(activityRepo, activityId, activity.recurrence_truth_status)
     await refreshActivities()
+    return activity
   }
 
   // File -> parse -> populate wiring (ADR §8, mirrors EventGridEditor.jsx's
@@ -462,6 +467,7 @@ export default function ElectiveSetDetail({
         scheduleTemplates={scheduleTemplates}
         scheduleWeeks={scheduleWeeks}
         role={role}
+        onAddActivity={createAndAddOffering}
         onError={setError}
         onNavigate={onNavigate}
       />

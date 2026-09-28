@@ -43,13 +43,47 @@ export const A = {
   // affordance in the app — so the summary carries the same severity rail the rows
   // inside it carry, and stays legible before anything is expanded. Left CLOSED by
   // default: opening it is a product change, not a styling one.
+  //
+  // NEUTRAL, because this is the variant used when everything below is an
+  // acknowledgment. `residueSummaryDecide` is the bronze one.
   residueSummary: {
     fontSize: 13,
     fontWeight: 600,
     color: 'var(--text)',
     cursor: 'pointer',
     padding: '6px 0 6px 10px',
+    borderLeft: '3px solid var(--border)',
+  },
+  // The residue summary when something ASKS for the director. Bronze is the
+  // standard's caution hue and a decision is what it is for; with only
+  // acknowledgments below, the neutral `residueSummary` is used instead, because
+  // nothing there needs attention.
+  residueSummaryDecide: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: 'var(--text)',
+    cursor: 'pointer',
+    padding: '6px 0 6px 10px',
     borderLeft: '3px solid var(--accent)',
+  },
+  // The one resolution slice 1 implements. A link-button, not a primary: the
+  // primary on this screen is Solve Assignments, and resolving must never read as
+  // the way forward — residue is a report, and solving stays available either way.
+  residueAction: {
+    marginTop: 6,
+    padding: 0,
+    background: 'none',
+    border: 'none',
+    color: 'var(--primary)',
+    fontWeight: 600,
+    fontSize: 12,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  residueResolved: {
+    marginTop: 6,
+    fontSize: 12,
+    color: 'var(--text-secondary)',
   },
   // The distinguishing token of one residue item, and the shared fact above a
   // group of them. Same name/why split as the attention surface

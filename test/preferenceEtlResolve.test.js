@@ -1472,3 +1472,88 @@ describe('T285 slice G — a grid is one camper\u2019s sheet', () => {
     expect(residueOf(result, 'MULTIPLE_OPTIONS_PER_PERIOD')).toHaveLength(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// T285 — THE COLLAPSE ARITHMETIC, asserted end to end: file bytes in, database
+// out, and the residue shape the panel groups on in between.
+//
+// The owner's question was "43 is a lot of things to resolve", and the honest
+// answer is that 43 was never the number: it counted CELLS. These tests pin the
+// three quantities apart so they cannot drift back together — instances, the
+// statements they collapse into, and the subset of those a director can act on.
+// ---------------------------------------------------------------------------
+describe('T285 — instances, statements, and decisions are three different numbers', () => {
+  // The panel's own grouping rule (ParseSummary.jsx): two items with the same
+  // `why` are the same finding. Restated here rather than imported because this
+  // file's contract is the DATA the panel is handed, and a test that imported the
+  // renderer's helper would stop noticing if the data lost the parts it groups on.
+  const statementsOf = (result) =>
+    [...new Set((result.residue ?? []).map((r) => `${r.kind}::${r.why}`))]
+
+  it('40 rows naming ONE unknown activity is 40 instances, ONE statement, ONE decision', () => {
+    seedActivities(['Swim', 'Art'])
+    const rows = Array.from({ length: 40 }, (_, i) => `Camper ${String(i + 1).padStart(2, '0')} Stone,Quidditch,Swim`)
+    const result = commitBytes('forty-quidditch.csv', `Camper Name,#1,#2\n${rows.join('\n')}\n`)
+    expect(result.ok).toBe(true)
+
+    const unresolved = residueOf(result, 'UNRESOLVED_CHOICE_LABEL')
+    // FORTY instances — one per cell, because the blast radius is real.
+    expect(unresolved).toHaveLength(40)
+    // ONE statement: every instance shares the fact, and differs only in its token.
+    expect(new Set(unresolved.map((r) => r.why)).size).toBe(1)
+    expect(new Set(unresolved.map((r) => r.head)).size).toBe(40)
+    // ONE decision, keyed on the LABEL, because adding the activity once settles
+    // all forty rows. This is the number the summary must show.
+    expect(new Set(unresolved.map((r) => r.label))).toEqual(new Set(['Quidditch']))
+
+    // And the database agrees that nothing was invented: Quidditch is not a choice.
+    const labels = withDb((db) => db.prepare('SELECT label FROM elective_choices').all().map((r) => r.label))
+    expect(labels).not.toContain('Quidditch')
+    // The readable half DID land — residue is a report, not a refusal.
+    expect(withDb((db) => db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c)).toBe(40)
+  })
+
+  it('the decision count is a SUBSET of the statement count, not equal to it', () => {
+    // Planting the defect: if every residue kind were treated as actionable, the
+    // two numbers would be identical and this test would pass vacuously. The
+    // preamble and the unrecognised column are acknowledgments — true statements
+    // about what was not read, with nothing to settle.
+    seedActivities(['Swim', 'Art'])
+    const result = commitBytes(
+      'mixed-residue.csv',
+      'Camp Activity Selection Form\nSummer,Session 2\n' +
+        'Camper Name,#1,#2,Additional Comments\n' +
+        'Ari Feldspar,Quidditch,Swim,\nNoa Quartzite,Quidditch,Art,\n'
+    )
+    expect(result.ok).toBe(true)
+
+    const statements = statementsOf(result)
+    const decisionStatements = new Set(
+      (result.residue ?? [])
+        .filter((r) => r.kind === 'UNRESOLVED_CHOICE_LABEL')
+        .map((r) => `${r.kind}::${r.why}`)
+    )
+    expect(statements.length).toBeGreaterThan(decisionStatements.size)
+    expect(decisionStatements.size).toBe(1)
+    // The acknowledgments are present and named, not suppressed.
+    expect(residueKinds(result)).toContain('SKIPPED_PREAMBLE')
+    expect(residueKinds(result)).toContain('UNRECOGNISED_COLUMN')
+  })
+
+  it('once the camp HAS the activity, there is no decision and the rows import', () => {
+    // The other half of the resolution: this is the state the panel's "Add as an
+    // activity" action re-parses into, asserted at the database rather than
+    // through the UI. Without it, the action's premise is untested.
+    seedActivities(['Swim', 'Art', 'Quidditch'])
+    const result = commitBytes(
+      'quidditch-known.csv',
+      'Camper Name,#1,#2\nAri Feldspar,Quidditch,Swim\nNoa Quartzite,Quidditch,Art\n'
+    )
+    expect(result.ok).toBe(true)
+    expect(residueOf(result, 'UNRESOLVED_CHOICE_LABEL')).toHaveLength(0)
+
+    const labels = withDb((db) => db.prepare('SELECT label FROM elective_choices ORDER BY label').all().map((r) => r.label))
+    expect(labels).toContain('Quidditch')
+    expect(withDb((db) => db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c)).toBe(4)
+  })
+})

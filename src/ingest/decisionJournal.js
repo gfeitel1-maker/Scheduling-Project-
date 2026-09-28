@@ -85,6 +85,22 @@ function outcomeFor(decision, answer) {
     return OUTCOMES.UNANSWERED
   }
 
+  if (decision.kind === 'resolve_unknown_label') {
+    // T285 — the import panel's residue. The sheet named an activity this camp
+    // does not have; the director can settle it, and settling it changes what
+    // gets imported.
+    //
+    // CHANGED rather than ACCEPTED, and the distinction is the point of the
+    // journal rather than a detail of it: there is no proposal here to accept.
+    // Nothing was preselected, so acting is always the director supplying an
+    // answer the import did not have. An unanswered one — the label left
+    // unresolved, which is the DEFAULT and costs nothing — is the case a later
+    // learning slice most needs to see, because a label nobody ever resolves is
+    // a question not worth asking.
+    if (answer.action === 'added_activity') return OUTCOMES.CHANGED
+    return OUTCOMES.UNANSWERED
+  }
+
   // A kind this function has not been taught. Deliberately not a throw: a new
   // decision kind must never be able to fail an import through the journal,
   // which is diagnostics. It is recorded as unanswered and shows up as a gap in
