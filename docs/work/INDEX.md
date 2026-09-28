@@ -60,6 +60,12 @@ Regenerate with `npm run index:work`.
 | [CI minutes: stop re-verifying a tree that already went green](../../docs/work/tickets/T261-ci-minutes-duplicate-main-runs.md) | open | — |
 | [A main-side gate that flags a merged ticket whose status never flipped](../../docs/work/tickets/T283-board-truth-audit-gate.md) | open | — |
 
+### ui-ux-design
+
+| Ticket | Status | Referenced by |
+|---|---|---|
+| [Database-document view — see the camp's data as an Excel-like workbook](../../docs/work/tickets/T292-database-document-view.md) | open | — |
+
 ### unclassified
 
 | Ticket | Status | Referenced by |
