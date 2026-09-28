@@ -261,6 +261,44 @@ export function sanitizeOpRejectedForIpc(msg) {
 function ensureDeviceRow(db, deviceId) {
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
 }
+
+// T292 round-2 follow-up (Red Hat MEDIUM test-coverage gap): the will-quit
+// flush and the reinitialize/restore dispose-before-close sequences used to
+// live inline inside the non-exported Electron entry-point IIFE below, so no
+// test could reach them — a future refactor could silently drop one without a
+// red gate. Dropping the flush loses the last debounced camp-data write on
+// quit; disposing AFTER db.close() arms a debounced timer against a closed
+// handle. Lifting each into a tiny exported helper makes the mechanism itself
+// testable, and the two db-swap call sites (reinitialize, restore-project)
+// stop duplicating the same two-line pattern. See
+// docs/work/runs/2026-09-28-t292-camp-data-record-self-maintaining-workbook.md
+// ("Findings carried forward").
+
+/**
+ * Flush any still-pending debounced camp-data document write before the process
+ * exits (T292 round 2 FIX 3). flushCampDataRecord (campDataRecord.js) already
+ * catches every failure internally; the extra try/catch here is belt-and-braces
+ * so quit can never be blocked by it either way. Called from app's will-quit.
+ */
+export function flushCampDataRecordOnQuit(liveHandlers) {
+  try {
+    liveHandlers?.flushCampDataRecord?.()
+  } catch (err) {
+    console.error('campDataRecord: flush on quit failed (non-fatal):', err?.message ?? err)
+  }
+}
+
+/**
+ * Dispose the camp-data writer BEFORE closing the db it reads from (T292 round 2
+ * FIX 5), so its pending debounced timer can never fire against a closed handle.
+ * The order is the whole point: dispose first, close second. Called by every
+ * db-swap site (reinitialize, restore-project). Both calls are individually
+ * guarded so neither a dispose failure nor an already-closed db can propagate.
+ */
+export function disposeCampDataRecordThenCloseDb(liveHandlers, oldDb) {
+  try { liveHandlers?.disposeCampDataRecord?.() } catch { /* ignore */ }
+  try { oldDb?.close?.() } catch { /* ignore — db may already be closed */ }
+}
 export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath, getAutomergeSyncNode, getAutomergeStartupAttempted, onCampBootstrapped, onCampJoined, retrySync } = {}) {
   // Both default to safe no-ops so every existing caller/test that doesn't
   // pass them (there are many) is unaffected — Stage 5d-2b additions only,
@@ -2926,8 +2964,7 @@ if (isElectronEntryPoint()) {
     // New db is open and handlers built — safe to swap. T292 round 2 FIX 5:
     // dispose the OLD writer first — its pending debounced timer reads from
     // `db`, so it must not still be armed once that handle closes.
-    try { liveHandlers?.disposeCampDataRecord?.() } catch { /* ignore */ }
-    try { db.close() } catch { /* ignore — db may already be closed */ }
+    disposeCampDataRecordThenCloseDb(liveHandlers, db)
     db = newDb
     dbPath = newPath
     deviceId = newDeviceId
@@ -3158,8 +3195,7 @@ if (isElectronEntryPoint()) {
     }
 
     // T292 round 2 FIX 5 — same reasoning as reinitialize() above.
-    try { liveHandlers?.disposeCampDataRecord?.() } catch { /* ignore */ }
-    try { db.close() } catch { /* ignore */ }
+    disposeCampDataRecordThenCloseDb(liveHandlers, db)
     db = newDb
     deviceId = getOrCreateDeviceId(db)
     const restoreHandlers = makeHandlers(db, deviceId, { getMainWindow: () => mainWindow, dbPath, userDataPath })
@@ -3406,14 +3442,8 @@ if (isElectronEntryPoint()) {
       console.error('automerge sync: flush on quit failed (non-fatal):', err?.message ?? err)
     }
     // T292 round 2 FIX 3 — flush any still-pending debounced camp data
-    // document write before the process exits. flushCampDataRecord's own
-    // fireOnce already catches every failure internally; this try/catch is
-    // belt-and-braces so quit can never be blocked by it either way.
-    try {
-      liveHandlers?.flushCampDataRecord?.()
-    } catch (err) {
-      console.error('campDataRecord: flush on quit failed (non-fatal):', err?.message ?? err)
-    }
+    // document write before the process exits. See flushCampDataRecordOnQuit.
+    flushCampDataRecordOnQuit(liveHandlers)
     const automergeSyncNode = syncStarter.getNode()
     if (automergeSyncNode) {
       try {
