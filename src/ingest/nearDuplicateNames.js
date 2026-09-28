@@ -101,3 +101,67 @@ export function findNameVariantCandidates(namesWithCounts = []) {
   out.sort((x, y) => x.canonical.localeCompare(y.canonical) || x.variant.localeCompare(y.variant))
   return out
 }
+
+// CONNECTOR SPELLINGS
+//
+// T298. `findNameVariantCandidates` above finds ONE similarity class — a stem
+// plus a grammatical suffix. It does not find the class a director actually hits
+// first, and the example is the owner's own: a sheet saying "Arts and Crafts"
+// against a camp that has "Arts & Crafts". Folded, those are `artsandcrafts` and
+// `arts&crafts` — neither is a prefix of the other, so the suffix rule abstains,
+// correctly and uselessly.
+//
+// So this is a SECOND rule, exported separately rather than folded into the
+// first, because the first's precision argument is a claim about its own rule
+// and merging them would quietly restate it about a rule it was never made for.
+//
+// THE RULE IS EQUALITY, not distance. Everything except the connector must be
+// character-identical once case and whitespace are gone. That is why it is safe
+// where edit distance is not: it asserts only that "and", "&" and "+" are three
+// spellings of one connector, which is a fact about English rather than a guess
+// about two names. "Swim and Dive" / "Swim & Dive" pair; "Lunch 1" / "Lunch 2"
+// cannot, and neither can any pair differing in a single letter.
+//
+// Still a PROPOSAL, on the same contract as the suffix rule and for the same
+// reason: the module's whole posture is that a name merge is a director's call.
+// TWO OBJECTS FOR ONE PATTERN, deliberately. `RegExp.prototype.test` on a
+// `g`-flagged regex advances `lastIndex` on the shared object, so a single
+// constant used for both the replace and the guard makes this function's answer
+// depend on how many times it was called before — the guard would abstain on
+// every other call. The `g` flag is required for replace-all and forbidden for
+// test, so they cannot be the same object.
+const CONNECTOR_RE_ALL = /(?:\band\b|&|\+)/gi
+const HAS_CONNECTOR = /(?:\band\b|&|\+)/i
+
+// A printable sentinel rather than a NUL: this value is only ever compared to
+// another value from this same function, so what it is does not matter, and a
+// control character in a source string is a hazard for no gain.
+const CONNECTOR_MARK = '·and·'
+
+const connectorKey = (s) =>
+  String(s ?? '')
+    .toLowerCase()
+    .replace(CONNECTOR_RE_ALL, CONNECTOR_MARK)
+    .replace(/\s+/g, '')
+
+/**
+ * @param {string} label            the spelling the FILE used.
+ * @param {string[]} existingNames  the camp's own activity names.
+ * @returns {string|null} the existing name that is the same name differently
+ *   punctuated, or null. Null when TWO existing names fold to the label's key —
+ *   an ambiguous proposal is worse than none, and the picker still lets the
+ *   director choose.
+ */
+export function findConnectorVariant(label, existingNames = []) {
+  const raw = String(label ?? '')
+  // A label with no connector cannot be a connector variant of anything. Without
+  // this, two names differing only in whitespace would pair here — which is the
+  // upstream canonical map's job (buildActivityNameCanonicalMap), not ours.
+  if (!HAS_CONNECTOR.test(raw)) return null
+  const key = connectorKey(raw)
+  if (!key) return null
+  const hits = existingNames.filter(
+    (n) => typeof n === 'string' && n !== raw && connectorKey(n) === key
+  )
+  return hits.length === 1 ? hits[0] : null
+}

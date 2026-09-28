@@ -98,6 +98,34 @@ function outcomeFor(decision, answer) {
     // learning slice most needs to see, because a label nobody ever resolves is
     // a question not worth asking.
     if (answer.action === 'added_activity') return OUTCOMES.CHANGED
+    // T298 — the second resolution. Also CHANGED, and for the same reason: there
+    // was no proposal preselected, so mapping is the director supplying an answer
+    // the import did not have. That a PROPOSAL was shown next to the picker does
+    // not make taking it an ACCEPTED: the director still had to press it, and the
+    // learning question a later slice asks of this row is "was the proposal
+    // right", which `chosen` answers by naming the activity and `proposed` by
+    // naming what we suggested.
+    if (answer.action === 'mapped_to_existing') return OUTCOMES.CHANGED
+    return OUTCOMES.UNANSWERED
+  }
+
+  if (decision.kind === 'resolve_packed_cell') {
+    // T298 — a cell naming several activities at once. THREE readings, all of
+    // them the director's to pick, so every one of them is CHANGED; there is no
+    // default reading to accept, which is precisely why the cell was residue.
+    //
+    // WHETHER THE DELIMITER SHOULD BE REMEMBERED is the open question this row
+    // exists to answer, and it is deliberately not answered by building a store.
+    // T118's `compound_cell_decisions` is the precedent for remembering a
+    // director-confirmed reading of an ambiguous cell per camp, and it is the
+    // right shape when the time comes — but it earned that by being about a
+    // pattern (`Sports w/G1`) recurring across a file, whereas a packed cell is
+    // one string. Which of the three readings a camp picks, and whether it picks
+    // the same one every time, is exactly what these rows will show. Until they
+    // do, remembering would be a guess wearing a table.
+    if (answer.action === 'split_packed') return OUTCOMES.CHANGED
+    if (answer.action === 'added_activity') return OUTCOMES.CHANGED
+    if (answer.action === 'mapped_to_existing') return OUTCOMES.CHANGED
     return OUTCOMES.UNANSWERED
   }
 
@@ -127,6 +155,12 @@ function proposedOf(decision) {
     entityName: decision.entityName ?? null,
     field: decision.field ?? null,
     confidence: decision.confidence ?? null,
+    // T298 — WHAT WE SUGGESTED, when we suggested anything. `undefined` rather
+    // than null when absent, so it drops out of the JSON entirely: a decision
+    // that proposed nothing must be distinguishable from one that proposed
+    // nothing IN PARTICULAR, and the whole question a later learning slice puts
+    // to this table is whether the proposals were any good.
+    proposal: decision.proposal ?? undefined,
   })
 }
 
@@ -136,6 +170,17 @@ function chosenOf(answer) {
     choice: answer.choice ?? null,
     entity_id: answer.entity_id ?? null,
     value: answer.value ?? null,
+    // T298 — WHICH ACTION the director took. `outcomeFor` above reads this and
+    // then throws it away, collapsing three distinct resolutions of a packed
+    // cell into one CHANGED; the outcome is the right summary and the wrong
+    // record. Recording it costs one short string and is the difference between
+    // "the director settled it" and "the director settled it by splitting".
+    // `undefined` when absent, so the kinds that answer by `choice` are stored
+    // exactly as before.
+    action: answer.action ?? undefined,
+    // The activity a mapping pointed AT. Named rather than an id because a
+    // resolution is about a spelling, and the id is not what was compared.
+    activityName: answer.activityName ?? undefined,
   })
 }
 

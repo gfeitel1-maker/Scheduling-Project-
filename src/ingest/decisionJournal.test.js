@@ -94,7 +94,11 @@ describe('what is stored', () => {
     const entry = journalEntriesFor([fat], { d1: { action: 'edited', value: 3 } }, 'i')[0]
     expect(entry.proposed).not.toMatch(/big/)
     expect(JSON.parse(entry.proposed)).toEqual({ entity: 'activities', entityName: 'Swim', field: null, confidence: null })
-    expect(JSON.parse(entry.chosen)).toEqual({ choice: null, entity_id: null, value: 3 })
+    // T298 added `action` to what is stored. This test's claim is COMPACTNESS —
+    // that the 500-row payload above did not come along — and that claim is
+    // untouched by one short string; narrowing the record to keep the literal
+    // expectation would have been the wrong repair.
+    expect(JSON.parse(entry.chosen)).toEqual({ choice: null, entity_id: null, value: 3, action: 'edited' })
   })
 
   it('survives a value that will not serialize', () => {
@@ -136,7 +140,13 @@ describe('resolve_unknown_label (T285)', () => {
 
   it('does not invent an outcome for an action it has not been taught', () => {
     // A thin journal is recoverable; an inventive one is not.
-    const entry = journalEntriesFor([decision], { [decision.id]: { action: 'mapped_to_existing' } }, 'i')[0]
+    // This test used to name `mapped_to_existing` here, because in slice 1 that
+    // was a real product action not yet built. T298 built it, so the example had
+    // to move — the test's claim is about an UNTAUGHT action and a taught one
+    // cannot demonstrate it. `split_packed` is deliberately not used either: it
+    // is taught, just on a different kind, and it would pass here for the right
+    // reason by accident.
+    const entry = journalEntriesFor([decision], { [decision.id]: { action: 'invented_by_a_later_slice' } }, 'i')[0]
     expect(entry.outcome).toBe(OUTCOMES.UNANSWERED)
   })
 })

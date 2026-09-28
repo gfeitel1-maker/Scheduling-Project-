@@ -85,6 +85,44 @@ export const A = {
     fontSize: 12,
     color: 'var(--text-secondary)',
   },
+  // T298 — several actions on one row, so they need to sit on a line rather than
+  // stack. A row with ONE action keeps `residueAction` exactly as it was; this
+  // wraps two or three of them without changing how one looks.
+  residueActions: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    gap: 14,
+  },
+  // The mapping picker. A native <select> deliberately: the camp's activity list
+  // is an open set of arbitrary length, the platform's own control handles a long
+  // one better than anything built here would, and there is no existing combobox
+  // in this codebase to extend — inventing one for a picker used on a residue row
+  // would be the drift `design-system` exists to prevent.
+  residuePicker: {
+    marginTop: 8,
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+  },
+  residueSelect: {
+    fontFamily: 'inherit',
+    fontSize: 12,
+    padding: '4px 6px',
+    borderRadius: 4,
+    border: '1px solid var(--border)',
+    background: 'var(--surface)',
+    color: 'var(--text)',
+    maxWidth: 260,
+  },
+  // WHY AN OPTION IS PRESELECTED, stated rather than implied. A preselected value
+  // in a picker is a proposal, and a proposal a director cannot see the reason for
+  // is indistinguishable from the app having decided.
+  residueProposal: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+  },
   // The distinguishing token of one residue item, and the shared fact above a
   // group of them. Same name/why split as the attention surface
   // (src/screens/RootsHomeScreen.jsx) so one concept reads one way across screens.

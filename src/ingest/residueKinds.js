@@ -21,7 +21,14 @@
 // decision is a claim that an action for it EXISTS in the product — the standing
 // rule against a control whose options are all inert means the list and the
 // implemented actions have to stay in step, so the default is the safe one.
-export const DECISION_KINDS = new Set(['UNRESOLVED_CHOICE_LABEL'])
+//
+// T298 PROMOTES `AMBIGUOUS_PACKED_CELL`, and the promotion is earned rather than
+// asserted: a cell reading "Swim, Archery, Ceramics" has three live readings and
+// all three are now implemented actions — read it as those separate choices, add
+// it as one oddly-named activity, or map it to one the camp already has. Before
+// this it was a true statement with nothing behind it, which is the definition of
+// an acknowledgment, so it was correctly listed as one.
+export const DECISION_KINDS = new Set(['UNRESOLVED_CHOICE_LABEL', 'AMBIGUOUS_PACKED_CELL'])
 
 export const residueIsDecision = (kind) => DECISION_KINDS.has(kind)
 

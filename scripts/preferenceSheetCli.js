@@ -106,6 +106,18 @@ export function runPreferenceSheetCli({
   // name column because the identity comes from the SUBMISSION, not the page, so
   // this is the first and best source in the identity order.
   camperName = null,
+  // T298 — the director's settled label resolutions, already in the resolver's
+  // shape (`{ [rawLabel]: { action, activityName } }`; see resolutionMap in
+  // src/ingest/labelResolutions.js). MCP PARITY, and the reason it matters: an
+  // agent driving this import can already SEE the residue in a preview, and
+  // without this it could read the question and not answer it. Mapping and
+  // splitting write nothing — they are statements about how to read the file —
+  // so they are exactly the kind of answer a machine caller can supply safely.
+  //
+  // `add_activity` is deliberately NOT reachable this way: it MINTS a camp
+  // activity, which is a mutation of the camp's own setup rather than a reading
+  // of the file, and an agent that wants one should create it as an activity.
+  resolutions = null,
 }) {
   const base = baseResult({ file, dbPath, action })
 
@@ -376,6 +388,7 @@ export function runPreferenceSheetCli({
           catalog,
           grid: { layout, rows: gridSheet.sheet.rows.slice(1), headerIndex: 0 },
           subject: resolveSubject(gridSheet.sheet.rows),
+          resolutions,
         })
         const unreadOther = sheets
           .filter((sh) => sh.name !== gridSheet.sheet.name)
@@ -458,6 +471,7 @@ export function runPreferenceSheetCli({
       campId: camp.id,
       mapping,
       catalog,
+      resolutions,
       grid: preambleGrid
         ? { layout: preambleGrid, rows: rows.slice(1, mapping.headerIndex), headerIndex: 0 }
         : undefined,

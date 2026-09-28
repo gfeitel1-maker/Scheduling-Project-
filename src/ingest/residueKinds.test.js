@@ -6,6 +6,15 @@ describe('residueIsDecision — a kind is an acknowledgment until proven otherwi
     expect(residueIsDecision('UNRESOLVED_CHOICE_LABEL')).toBe(true)
   })
 
+  it('treats a packed cell as a decision (T298), because three actions now exist', () => {
+    // Promoted, and the promotion is the claim: a cell reading "Swim, Archery" can
+    // be read as those separate choices, added as one oddly-named activity, or
+    // mapped to one the camp has. All three are implemented; before they were, this
+    // was correctly an acknowledgment.
+    expect(residueIsDecision('AMBIGUOUS_PACKED_CELL')).toBe(true)
+    expect(residueRailColor('AMBIGUOUS_PACKED_CELL')).toBe('var(--accent)')
+  })
+
   it('treats everything else as an acknowledgment, including an unknown kind', () => {
     // The default matters: listing a kind as a decision is a claim that an action
     // for it EXISTS, and the standing rule forbids a control whose options are all

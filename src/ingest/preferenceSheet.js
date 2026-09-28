@@ -458,8 +458,17 @@ export function inferPreferenceLayout(rows = [], { maxScan = 10, catalog } = {})
  * does, which is the refuse-everything class §3.1a had to correct twice. So an
  * abstention WRITES the label and flags every one of them unverified: loud and
  * useless-looking, which §12.3 says is correct, rather than quiet and wrong.
+ *
+ * T298 adds a fifth, and it is the only one that is not an inference:
+ *   {status:'mapped', as}  a DIRECTOR said this label names that activity.
+ *
+ * `resolutions` is how a settled question stops being asked. It is consulted
+ * BEFORE any rule, because a director's answer is not evidence to be weighed
+ * against the catalog — it is the answer. Consulting it before the `empty` guard
+ * too: an abstention is a statement that there was nothing to resolve against,
+ * and a direct instruction is not subject to it.
  */
-function makeLabelResolver(activities = []) {
+function makeLabelResolver(activities = [], resolutions = {}) {
   const known = new Map()
   for (const name of activities) {
     const label = typeof name === 'string' ? name : name?.name
@@ -468,6 +477,28 @@ function makeLabelResolver(activities = []) {
   const empty = known.size === 0
 
   const resolve = (raw) => {
+    const decided = resolutions?.[raw]
+    if (decided) {
+      // MAP_TO_EXISTING carries the camp's own spelling, and the caller stores
+      // THAT rather than the file's — which is the whole point of the action. A
+      // preference stored under the file's spelling would derive its own
+      // elective_choices row and its own labelKey, so it would match no offering
+      // and the mapping would have joined nothing.
+      if (decided.action === 'map_to_existing' && decided.activityName) {
+        return { status: 'mapped', as: decided.activityName }
+      }
+      // ADD_ACTIVITY needs nothing here: the activity now exists, so the catalog
+      // this resolver was built from already matches it on the re-parse. It is
+      // listed in `resolutions` for the JOURNAL's sake, not the resolver's.
+      //
+      // SPLIT_PACKED is the packed reading, confirmed. Splitting on the same
+      // expression the detection used, so what the director agreed to and what
+      // gets read cannot drift apart.
+      if (decided.action === 'split_packed') {
+        const parts = raw.split(PACKED_CELL_SPLIT).map((p) => p.trim()).filter(Boolean)
+        if (parts.length >= 2) return { status: 'split', parts }
+      }
+    }
     if (empty) return { status: 'abstained' }
     if (known.has(recognitionKey('activities', raw))) return { status: 'matched' }
     // A packed multi-value cell inside a RANKED column — which §4.1 ruled on
@@ -569,7 +600,7 @@ export const residueParts = (head, why) => ({ head, why, message: `${head} — $
  *   `residue` is the loud half (§3.4): non-empty by default until each item is
  *   claimed or waived.
  */
-export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid, subject } = {}) {
+export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid, subject, resolutions } = {}) {
   const headerIndex = mapping?.headerIndex ?? 0
   const body = rows.slice(headerIndex + 1)
   const campers = []
@@ -578,7 +609,7 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
   const choicesByKey = new Map()
   const skippedRows = []
   const residue = []
-  const { resolve: resolveLabel, empty: catalogAbsent } = makeLabelResolver(catalog?.activities ?? [])
+  const { resolve: resolveLabel, empty: catalogAbsent } = makeLabelResolver(catalog?.activities ?? [], resolutions ?? {})
   const resolveDivision = makeDivisionResolver(catalog ?? {})
 
   const add = (kind, head, why, extra = {}) => residue.push({ kind, ...residueParts(head, why), ...extra })
@@ -800,6 +831,26 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
         resolved.push(c)
         continue
       }
+      // T298 — the director said this label names an activity the camp has. The
+      // CAMP'S spelling replaces the file's from here on, so the preference
+      // derives the same labelKey as the offering and lands on the activity that
+      // already exists rather than minting a parallel choice beside it.
+      if (verdict.status === 'mapped') {
+        resolved.push({ ...c, raw: verdict.as })
+        continue
+      }
+      // T298 — the packed reading, confirmed by a director. Every part becomes
+      // its own cell at rank NULL / UNORDERED_SET, which is §4.1's rule for a
+      // packed cell and not a new one: the parts arrived in one cell, so their
+      // order is cell order, and cell order is not ordering evidence. Reading
+      // three packed alternatives as three things at rank N would assert a
+      // ranking the child never stated, which is the fabrication §4.1 forbids.
+      if (verdict.status === 'split') {
+        for (const part of verdict.parts) {
+          resolved.push({ ...c, raw: part, rank: null, rankKind: UNORDERED_SET })
+        }
+        continue
+      }
       const column = columnLabel(c.index)
       if (verdict.status === 'packed') {
         add(
@@ -1018,20 +1069,42 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
           if (!raw) continue
           const verdict = resolveLabel(raw)
           const coordinate = { dayName: col.dayName, periodLabel }
-          if (verdict.status === 'matched' || verdict.status === 'abstained') {
+          // T298 — one helper for the three statuses that all mean "read this
+          // cell as these activities", so the grid path cannot drift from the
+          // ranked path on what a resolution means. `mapped` yields the camp's
+          // own spelling, `split` yields the parts, and the other two yield the
+          // cell as written.
+          const readAs =
+            verdict.status === 'mapped' ? [verdict.as]
+              : verdict.status === 'split' ? verdict.parts
+                : verdict.status === 'matched' || verdict.status === 'abstained' ? [raw]
+                  : null
+          if (readAs) {
             if (verdict.status === 'abstained') unverifiedLabels.add(raw)
-            const labelKey = electiveChoiceLabelKey(raw)
-            if (!choicesByKey.has(labelKey)) choicesByKey.set(labelKey, { label: raw, labelKey })
-            candidates.push({
-              camper_id: subjectId,
-              label: choicesByKey.get(labelKey).label,
-              labelKey,
-              // One cell, one coordinate: CHOSEN, rank 1 by construction (§4.2).
-              rank: 1,
-              rank_kind: CELL_CHOICE,
-              coordinate,
-              rowNumber,
-            })
+            for (const name of readAs) {
+              const labelKey = electiveChoiceLabelKey(name)
+              if (!choicesByKey.has(labelKey)) choicesByKey.set(labelKey, { label: name, labelKey })
+              candidates.push({
+                camper_id: subjectId,
+                label: choicesByKey.get(labelKey).label,
+                labelKey,
+                // One cell, one coordinate: CHOSEN, rank 1 by construction (§4.2).
+                //
+                // A SPLIT cell is the exception, and it is not a stylistic one: two
+                // names at rank 1 for one camper is exactly what
+                // `describeElectiveRunRefusal` reads as a camper holding the same
+                // rank twice, so a first draft of this made a resolved packed cell
+                // REFUSE THE WHOLE SHEET. A packed cell's parts are an unordered set
+                // for the same reason §4.1 gives on the ranked path — the parts
+                // arrived in one cell and cell order is not evidence — so they take
+                // rank NULL here too, and the two paths agree about what a packed
+                // cell means rather than each deciding locally.
+                rank: verdict.status === 'split' ? null : 1,
+                rank_kind: verdict.status === 'split' ? UNORDERED_SET : CELL_CHOICE,
+                coordinate,
+                rowNumber,
+              })
+            }
             continue
           }
           const column = columnLabel(col.index)

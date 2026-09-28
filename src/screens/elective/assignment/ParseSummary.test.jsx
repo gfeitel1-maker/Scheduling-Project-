@@ -180,7 +180,10 @@ describe('ParseSummary', () => {
           <ParseSummary
             parsed={withResidue([unknown('Row 3, column C')])}
             onAddActivity={vi.fn()}
-            resolvedLabels={['Quidditch']}
+            /* T298 renamed this prop: slice 1 needed to know WHETHER a label was
+               resolved, slice 2 needs to know HOW, because the row now states
+               which of three resolutions was taken. Same assertion. */
+            resolutions={{ Quidditch: { action: 'add_activity' } }}
             onSolve={vi.fn()}
             onChooseDifferentFile={vi.fn()}
           />
@@ -226,5 +229,197 @@ describe('ParseSummary', () => {
       render(<ParseSummary parsed={CLEAN} onSolve={vi.fn()} onChooseDifferentFile={vi.fn()} />)
       expect(screen.queryByText(/to decide|noted/)).toBeNull()
     })
+  })
+})
+
+// T298 — THE TWO RESOLUTIONS SLICE 1 LEFT OUT, and the rule that decides whether
+// each is rendered at all. Every assertion here is about an affordance being PRESENT
+// or ABSENT, never disabled: "never a control whose options are all inert" is a rule
+// about rendering, and a greyed-out control satisfies it only in appearance.
+describe('ParseSummary resolutions (T298)', () => {
+  const withResidue = (residue) => ({ ...CLEAN, residue })
+  const unknown = (label = 'Arts and Crafts') => ({
+    kind: 'UNRESOLVED_CHOICE_LABEL',
+    head: 'Row 3, column C',
+    why: `\u201c${label}\u201d is not an activity this camp has.`,
+    label,
+  })
+  const packed = (label = 'Archery; Ceramics; Drama', parts = ['Archery', 'Ceramics', 'Drama']) => ({
+    kind: 'AMBIGUOUS_PACKED_CELL',
+    head: 'Row 3, column D',
+    why: `\u201c${label}\u201d is not an activity this camp has, but split up it names ${parts.length} that are. Nothing was read from the cell.`,
+    label,
+    parts,
+  })
+  const CAMP = ['Swim', 'Arts & Crafts', 'Archery']
+
+  const open = (props) =>
+    render(
+      <ParseSummary onSolve={vi.fn()} onChooseDifferentFile={vi.fn()} {...props} />
+    )
+
+  describe('map to an existing activity', () => {
+    it('PRESELECTS the proposal and says why, without applying it', async () => {
+      const onMapToActivity = vi.fn()
+      open({ parsed: withResidue([unknown()]), onMapToActivity, activityNames: CAMP })
+      expect(screen.getByTestId('residue-map-select').value).toBe('Arts & Crafts')
+      expect(screen.getByTestId('residue-proposal').textContent).toBe('Same name, punctuated differently')
+      // PRESELECTED IS NOT APPLIED. Nothing has been called; the director presses Map.
+      expect(onMapToActivity).not.toHaveBeenCalled()
+    })
+
+    it('maps the whole LABEL GROUP, not one row', async () => {
+      const onMapToActivity = vi.fn()
+      // Forty cells named it; the group is one row with forty tokens, and the call
+      // carries the LABEL, so one press settles all of them.
+      const many = Array.from({ length: 40 }, (_, i) => ({ ...unknown(), head: `Row ${i + 3}, column C` }))
+      open({ parsed: withResidue(many), onMapToActivity, activityNames: CAMP })
+      expect(screen.getAllByTestId('residue-map')).toHaveLength(1)
+      await userEvent.click(screen.getByTestId('residue-map'))
+      expect(onMapToActivity).toHaveBeenCalledWith('Arts and Crafts', 'Arts & Crafts')
+    })
+
+    it('lets the director override the proposal', async () => {
+      const onMapToActivity = vi.fn()
+      open({ parsed: withResidue([unknown()]), onMapToActivity, activityNames: CAMP })
+      await userEvent.selectOptions(screen.getByTestId('residue-map-select'), 'Swim')
+      // The explanation goes with the proposal it explained.
+      expect(screen.queryByTestId('residue-proposal')).toBeNull()
+      await userEvent.click(screen.getByTestId('residue-map'))
+      expect(onMapToActivity).toHaveBeenCalledWith('Arts and Crafts', 'Swim')
+    })
+
+    it('is ABSENT when the camp has no activities to map to', () => {
+      // The one case where every option would be inert. Not rendered empty, and not
+      // rendered disabled — absent.
+      open({ parsed: withResidue([unknown()]), onMapToActivity: vi.fn(), activityNames: [] })
+      expect(screen.queryByTestId('residue-map-select')).toBeNull()
+      expect(screen.queryByTestId('residue-map')).toBeNull()
+    })
+
+    it('is ABSENT on an acknowledgment, which has no action', () => {
+      open({
+        parsed: withResidue([{ kind: 'UNVERIFIED_CHOICE_LABEL', head: '\u201cSwim\u201d', why: 'Imported as a choice.', label: 'Swim' }]),
+        onMapToActivity: vi.fn(),
+        activityNames: CAMP,
+      })
+      expect(screen.queryByTestId('residue-map-select')).toBeNull()
+    })
+
+    it('states the outcome once settled, naming what it now reads as', () => {
+      open({
+        parsed: withResidue([unknown()]),
+        onMapToActivity: vi.fn(),
+        activityNames: CAMP,
+        resolutions: { 'Arts and Crafts': { action: 'map_to_existing', activityName: 'Arts & Crafts' } },
+      })
+      expect(screen.getByText('Read as \u201cArts & Crafts\u201d')).not.toBeNull()
+      expect(screen.queryByTestId('residue-map')).toBeNull()
+    })
+  })
+
+  describe('a packed cell is a decision with three readings', () => {
+    it('counts as something TO DECIDE, not something noted', () => {
+      open({ parsed: withResidue([packed()]), activityNames: CAMP })
+      expect(screen.getByText('1 thing to decide')).not.toBeNull()
+    })
+
+    it('offers all three, and names how many the split would produce', async () => {
+      const onSplitPacked = vi.fn()
+      open({
+        parsed: withResidue([packed()]),
+        onSplitPacked,
+        onAddActivity: vi.fn(),
+        onMapToActivity: vi.fn(),
+        activityNames: CAMP,
+      })
+      expect(screen.getByTestId('residue-split').textContent).toBe('Read as 3 separate choices')
+      expect(screen.getByTestId('residue-add')).not.toBeNull()
+      expect(screen.getByTestId('residue-map')).not.toBeNull()
+      await userEvent.click(screen.getByTestId('residue-split'))
+      expect(onSplitPacked).toHaveBeenCalledWith('Archery; Ceramics; Drama', ['Archery', 'Ceramics', 'Drama'])
+    })
+
+    it('does not offer a split on a row with no parts to split into', () => {
+      // An UNRESOLVED label is one name. Offering "read as 0 separate choices" would
+      // be the inert control the standing rule forbids.
+      open({ parsed: withResidue([unknown()]), onSplitPacked: vi.fn(), onAddActivity: vi.fn(), activityNames: CAMP })
+      expect(screen.queryByTestId('residue-split')).toBeNull()
+      expect(screen.getByTestId('residue-add')).not.toBeNull()
+    })
+
+    it('states the split outcome once settled', () => {
+      open({
+        parsed: withResidue([packed()]),
+        onSplitPacked: vi.fn(),
+        activityNames: CAMP,
+        resolutions: { 'Archery; Ceramics; Drama': { action: 'split_packed' } },
+      })
+      expect(screen.getByText('Read as separate choices')).not.toBeNull()
+      expect(screen.queryByTestId('residue-split')).toBeNull()
+    })
+  })
+
+  describe('a settled decision leaves the residue list, and still says so', () => {
+    // FOUND IN THE BROWSER, not in a test. Resolving re-parses, the label stops being
+    // residue, and the row the director just pressed vanished — only the counts moved,
+    // and a director watching the row they pressed is not watching the counts. The
+    // first draft's "Read as ..." branch was therefore unreachable in the happy path.
+    it('states the outcome even when the label is no longer residue at all', () => {
+      open({
+        parsed: withResidue([]),
+        activityNames: CAMP,
+        resolutions: { 'Arts and Crafts': { action: 'map_to_existing', activityName: 'Arts & Crafts' } },
+      })
+      expect(screen.getByTestId('residue-settled')).not.toBeNull()
+      expect(screen.getByText('Read as \u201cArts & Crafts\u201d')).not.toBeNull()
+      // It is a statement about what was done, so it does not read as outstanding.
+      expect(screen.getByText('1 settled')).not.toBeNull()
+      expect(screen.queryByText(/thing to decide/)).toBeNull()
+    })
+
+    it('does not duplicate a row that is still residue', () => {
+      // `add_activity` can leave the label in residue (a mint that still does not
+      // match); the group's own row owns the outcome then, and a settled row beside
+      // it would state the same fact twice.
+      open({
+        parsed: withResidue([unknown()]),
+        onAddActivity: vi.fn(),
+        activityNames: CAMP,
+        resolutions: { 'Arts and Crafts': { action: 'add_activity' } },
+      })
+      expect(screen.queryByTestId('residue-settled')).toBeNull()
+      expect(screen.getAllByText('Added as an activity')).toHaveLength(1)
+    })
+
+    it('outstanding work still leads the summary', () => {
+      open({
+        parsed: withResidue([packed()]),
+        onSplitPacked: vi.fn(),
+        activityNames: CAMP,
+        resolutions: { 'Arts and Crafts': { action: 'map_to_existing', activityName: 'Arts & Crafts' } },
+      })
+      expect(screen.getByText('1 thing to decide \u00b7 1 settled')).not.toBeNull()
+    })
+  })
+
+  it('SOLVE IS AVAILABLE THROUGHOUT \u2014 residue is a report, never a gate', () => {
+    open({
+      parsed: withResidue([unknown(), packed()]),
+      onAddActivity: vi.fn(),
+      onMapToActivity: vi.fn(),
+      onSplitPacked: vi.fn(),
+      activityNames: CAMP,
+    })
+    expect(screen.getByText('Solve Assignments')).not.toBeNull()
+  })
+
+  it('renders NO action at all when the caller supplies no handlers', () => {
+    // The CLI's and the tests' default. An absent handler means absent affordance,
+    // which is the rule held at the prop boundary.
+    open({ parsed: withResidue([unknown(), packed()]), activityNames: CAMP })
+    expect(screen.queryByTestId('residue-add')).toBeNull()
+    expect(screen.queryByTestId('residue-map')).toBeNull()
+    expect(screen.queryByTestId('residue-split')).toBeNull()
   })
 })

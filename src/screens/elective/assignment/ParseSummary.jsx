@@ -1,8 +1,10 @@
 // T229 -- clean parse summary, or the blocking refusal card, for a parsed
 // preference sheet. Never both: a same-name collision or a contradictory-rank
 // sheet means the Solve button is ABSENT, not disabled (design spec).
+import { useMemo, useState } from 'react'
 import { S, useEnterTransition } from '../../../styles/shared'
 import { foldTokens, residueIsDecision, residueRailColor } from '../../../ingest/residueKinds'
+import { proposeActivityMatch, RESOLUTION } from '../../../ingest/labelResolutions'
 import { A } from './assignmentStyles'
 
 // REPORTED AT SOLVE TIME INSTEAD, and better there. `AssignmentPanel` re-reports
@@ -19,10 +21,16 @@ const SOLVE_TIME_KINDS = new Set(['UNMATCHED_DIVISION'])
 // when they had one thing to settle and two notes. That undoes the collapse it sits
 // on top of. The instance counts still exist; they are the tokens inside each
 // statement, where they describe a blast radius rather than a workload.
-function residueSummaryLabel(decisionCount, ackCount) {
+function residueSummaryLabel(decisionCount, ackCount, settledCount) {
   const parts = []
   if (decisionCount > 0) parts.push(`${decisionCount} thing${decisionCount === 1 ? '' : 's'} to decide`)
   if (ackCount > 0) parts.push(`${ackCount} thing${ackCount === 1 ? '' : 's'} noted`)
+  // T298 — LAST, because it is the only one of the three that is already done, and
+  // a count of finished work must not lead a summary whose job is to say what is
+  // outstanding. It is here at all so that a disclosure holding nothing BUT settled
+  // rows still has a summary; without it the last resolution on a sheet collapses
+  // the label to an empty string.
+  if (settledCount > 0) parts.push(`${settledCount} settled`)
   return parts.join(' \u00b7 ')
 }
 
@@ -33,15 +41,46 @@ function residueSummaryLabel(decisionCount, ackCount) {
 //
 // "Ignore it for this import" is deliberately NOT a control: it is already what
 // happens, so a button for it would be inert, and the standing rule forbids that.
-// "Map it to an existing activity" is a real decision and is NOT here — it needs a
-// picker and a proposal rule, and half of it rendered as a disabled affordance would
-// look finished while doing nothing.
-function ResidueRow({ group, onAddActivity, resolvedLabels, busyLabel }) {
+//
+// T298 ADDS THE TWO SLICE 1 LEFT OUT, for the reason slice 1 itself gave \u2014 they
+// needed a picker and a proposal rule, and half of either rendered as a disabled
+// affordance would have looked finished while doing nothing.
+//
+//   MAP TO AN EXISTING ACTIVITY, on every label-bearing decision row. Offered only
+//   when the camp HAS activities to map to: with an empty catalog every option in
+//   the picker would be inert, which is the one case where the standing rule means
+//   the affordance is ABSENT rather than empty.
+//
+//   READ A PACKED CELL AS ITS PARTS, on `AMBIGUOUS_PACKED_CELL` only, where the
+//   producer supplies the parts. All three readings of such a cell are now live,
+//   which is what earned that kind its promotion to a decision.
+//
+// A PROPOSAL IS PRESELECTED, NEVER APPLIED. `proposeActivityMatch` may preselect an
+// option and the row says in words why it did; nothing is written until the director
+// presses the button beside it.
+function ResidueRow({ group, onAddActivity, onMapToActivity, onSplitPacked, activityNames, resolutions, busyLabel }) {
   const { invariant, variable } = foldTokens(group.heads)
   const label = group.label ?? null
-  const canAdd = Boolean(onAddActivity) && residueIsDecision(group.kind) && Boolean(label)
-  const resolved = label != null && resolvedLabels.includes(label)
+  const isDecision = residueIsDecision(group.kind) && Boolean(label)
+  const settled = label != null ? resolutions[label] : null
   const busy = busyLabel != null && busyLabel === label
+
+  const canAdd = Boolean(onAddActivity) && isDecision
+  // The picker needs somewhere to map TO. Zero activities means every option is
+  // inert, so the affordance is absent rather than empty.
+  const canMap = Boolean(onMapToActivity) && isDecision && activityNames.length > 0
+  const packedParts = group.kind === 'AMBIGUOUS_PACKED_CELL' ? (group.parts ?? []) : []
+  const canSplit = Boolean(onSplitPacked) && isDecision && packedParts.length >= 2
+
+  const proposal = useMemo(
+    () => (canMap ? proposeActivityMatch(label, activityNames) : null),
+    [canMap, label, activityNames]
+  )
+  const [picked, setPicked] = useState('')
+  // The proposal is the picker\u2019s initial value; `picked` takes over the moment the
+  // director touches the control. Derived rather than copied into state, so a
+  // re-parse that changes the proposal is not shadowed by a stale stored value.
+  const selected = picked || proposal?.name || ''
 
   return (
     <div style={S.findingsRailRow(residueRailColor(group.kind))}>
@@ -53,21 +92,80 @@ function ResidueRow({ group, onAddActivity, resolvedLabels, busyLabel }) {
             {invariant ? `${invariant} \u2014 ${variable.join(', ')}` : variable.join(' \u00b7 ')}
           </div>
         )}
-        {canAdd && !resolved && (
-          <button
-            type="button"
-            className="press-97"
-            disabled={busy}
-            onClick={() => onAddActivity(label)}
-            style={A.residueAction}
-          >
-            {busy ? `Adding \u201c${label}\u201d\u2026` : `Add \u201c${label}\u201d as an activity`}
-          </button>
+        {!settled && (canSplit || canAdd) && (
+          <div style={A.residueActions}>
+            {canSplit && (
+              <button
+                type="button"
+                className="press-97"
+                disabled={busy}
+                onClick={() => onSplitPacked(label, packedParts)}
+                style={A.residueAction}
+                data-testid="residue-split"
+              >
+                {busy ? 'Reading\u2026' : `Read as ${packedParts.length} separate choices`}
+              </button>
+            )}
+            {canAdd && (
+              <button
+                type="button"
+                className="press-97"
+                disabled={busy}
+                onClick={() => onAddActivity(label)}
+                style={A.residueAction}
+                data-testid="residue-add"
+              >
+                {busy ? `Adding \u201c${label}\u201d\u2026` : `Add \u201c${label}\u201d as an activity`}
+              </button>
+            )}
+          </div>
         )}
-        {resolved && <div style={A.residueResolved}>Added as an activity</div>}
+        {!settled && canMap && (
+          <div style={A.residuePicker}>
+            <select
+              value={selected}
+              disabled={busy}
+              onChange={(e) => setPicked(e.target.value)}
+              style={A.residueSelect}
+              aria-label={`Map \u201c${label}\u201d to an activity this camp has`}
+              data-testid="residue-map-select"
+            >
+              <option value="">{'Map to an activity this camp has\u2026'}</option>
+              {activityNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="press-97"
+              disabled={busy || !selected}
+              onClick={() => onMapToActivity(label, selected)}
+              style={A.residueAction}
+              data-testid="residue-map"
+            >
+              Map
+            </button>
+            {proposal && selected === proposal.name && (
+              <span style={A.residueProposal} data-testid="residue-proposal">
+                {proposal.rule === 'connector'
+                  ? 'Same name, punctuated differently'
+                  : 'Same name, different word form'}
+              </span>
+            )}
+          </div>
+        )}
+        {settled && <div style={A.residueResolved}>{settledText(settled)}</div>}
       </div>
     </div>
   )
+}
+
+// WHAT THE ROW SAYS ONCE IT IS SETTLED. Bare fact, and it names the thing that
+// changed rather than congratulating anyone for changing it.
+function settledText(settled) {
+  if (settled.action === RESOLUTION.MAP_TO_EXISTING) return `Read as \u201c${settled.activityName}\u201d`
+  if (settled.action === RESOLUTION.SPLIT_PACKED) return 'Read as separate choices'
+  return 'Added as an activity'
 }
 
 function Stat({ value, label }) {
@@ -84,10 +182,19 @@ export default function ParseSummary({
   contradictoryRanks = false,
   onSolve,
   onChooseDifferentFile,
-  // Slice 1's ONE implemented resolution. Absent (the CLI's and the tests'
-  // default) means no action is offered at all, rather than a dead control.
+  // THE THREE IMPLEMENTED RESOLUTIONS. Each is absent by default (the CLI's and
+  // the tests' case), and an absent handler means the action is NOT RENDERED
+  // rather than rendered dead — the standing rule, held at the prop boundary so a
+  // caller that cannot perform an action cannot accidentally display it.
   onAddActivity,
-  resolvedLabels = [],
+  onMapToActivity,
+  onSplitPacked,
+  // The camp's activity names, which are both the picker's options and what the
+  // proposal rule compares against. Empty means no mapping affordance at all.
+  activityNames = [],
+  // What this director has already settled on THIS parse, keyed by label:
+  // `{ [label]: { action, activityName } }` from `resolutionMap`.
+  resolutions = {},
   busyLabel = null,
 }) {
   const enter = useEnterTransition('slideFade')
@@ -165,13 +272,30 @@ export default function ParseSummary({
     // to add. It is only ever read for a decision kind, where the producer always
     // carries it, and `ResidueRow` requires it before offering anything.
     if (!groupsByKey.has(key)) {
-      groupsByKey.set(key, { key, kind: item.kind, why, label: item.label ?? null, heads: [] })
+      // `parts` rides the group for the same reason `label` does: the packed
+      // reading is about the CELL VALUE, and every item sharing this group's `why`
+      // shares the cell value that produced it, so the parts are a property of the
+      // group rather than of any one row that named it.
+      groupsByKey.set(key, { key, kind: item.kind, why, label: item.label ?? null, parts: item.parts ?? null, heads: [] })
     }
     if (item.head) groupsByKey.get(key).heads.push(item.head)
   }
   const residueGroups = [...groupsByKey.values()]
   const decisions = residueGroups.filter((g) => residueIsDecision(g.kind))
   const acknowledgments = residueGroups.filter((g) => !residueIsDecision(g.kind))
+
+  // A SETTLED DECISION LEAVES THE RESIDUE LIST ENTIRELY, which is correct and, on
+  // its own, silent: resolving re-parses, the label stops being residue, and the row
+  // the director just acted on simply disappears. Only the counts move, and a
+  // director watching the row they pressed is not watching the counts.
+  //
+  // So a settled resolution keeps its own row, stating what the file now reads as.
+  // On the NEUTRAL hairline and outside the "to decide" count — it is a statement
+  // about what was done, not a thing still to do.
+  const stillResidue = new Set(residueGroups.map((g) => g.label).filter(Boolean))
+  const settledRows = Object.entries(resolutions)
+    .filter(([label]) => !stillResidue.has(label))
+    .map(([label, settled]) => ({ label, settled }))
 
   return (
     <div style={enter}>
@@ -190,20 +314,31 @@ export default function ParseSummary({
           </ul>
         </details>
       )}
-      {residueGroups.length > 0 && (
+      {(residueGroups.length > 0 || settledRows.length > 0) && (
         <details style={A.disclosure}>
           <summary style={decisions.length > 0 ? A.residueSummaryDecide : A.residueSummary}>
-            {residueSummaryLabel(decisions.length, acknowledgments.length)}
+            {residueSummaryLabel(decisions.length, acknowledgments.length, settledRows.length)}
           </summary>
           <div style={{ marginTop: 6 }}>
             {/* DECISIONS FIRST, unconditionally. The one row that asks something of
                 the director must not sit below two that do not. */}
+            {settledRows.map(({ label, settled }) => (
+              <div key={`settled:${label}`} style={S.findingsRailRow('var(--border)')} data-testid="residue-settled">
+                <div style={{ flex: 1 }}>
+                  <div style={A.residueWhy}>{`\u201c${label}\u201d`}</div>
+                  <div style={A.residueResolved}>{settledText(settled)}</div>
+                </div>
+              </div>
+            ))}
             {[...decisions, ...acknowledgments].map((group) => (
               <ResidueRow
                 key={group.key}
                 group={group}
                 onAddActivity={onAddActivity}
-                resolvedLabels={resolvedLabels}
+                onMapToActivity={onMapToActivity}
+                onSplitPacked={onSplitPacked}
+                activityNames={activityNames}
+                resolutions={resolutions}
                 busyLabel={busyLabel}
               />
             ))}
