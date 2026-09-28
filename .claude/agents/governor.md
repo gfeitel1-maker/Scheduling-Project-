@@ -247,7 +247,7 @@ Wait for score + justification.
 - **Architecture & testing:** [`ARCHITECTURE_STANDARD.md`](../../docs/governance/standards/ARCHITECTURE_STANDARD.md)
   · [`TESTING_STANDARD.md`](../../docs/governance/standards/TESTING_STANDARD.md) — the latter owns the
   gate list and says when the integration harness is mandatory.
-- **DnD:** `@dnd-kit/core`, PointerSensor, `distance: 8` activation constraint
+- **DnD:** `@dnd-kit/core`, PointerSensor, `distance: 5` activation constraint
 - **DB:** local SQLite, read/written only through `window.shoresh`/`localClient` IPC — never
   directly from the renderer. `template_slots` (not `schedule_slots`). Every mutation is appended
   to the `operations` table as **device-local history** (Trash/Restore/history — not the sync
