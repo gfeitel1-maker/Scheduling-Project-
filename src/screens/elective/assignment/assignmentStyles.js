@@ -21,12 +21,57 @@ export const A = {
     fontSize: 20,
     color: 'var(--text)',
   },
+  // ONE disclosure idiom for the panel's two collapsible sections (skipped rows,
+  // unresolved residue), which were a byte-identical local fork of each other.
+  // Matches the app's only other styled <details> summary (RosterList): the summary
+  // is a control, so it gets weight, colour and a pointer cursor rather than the
+  // browser default.
+  disclosure: {
+    color: 'var(--text-secondary)',
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  disclosureSummary: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    padding: '4px 0',
+  },
+  // The COLLAPSED weight cue for the residue section. The ADR calls residue "the
+  // loud half", and a 12px secondary line is quieter than every other attention
+  // affordance in the app — so the summary carries the same severity rail the rows
+  // inside it carry, and stays legible before anything is expanded. Left CLOSED by
+  // default: opening it is a product change, not a styling one.
+  residueSummary: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: 'var(--text)',
+    cursor: 'pointer',
+    padding: '6px 0 6px 10px',
+    borderLeft: '3px solid var(--accent)',
+  },
+  // The distinguishing token of one residue item, and the shared fact above a
+  // group of them. Same name/why split as the attention surface
+  // (src/screens/RootsHomeScreen.jsx) so one concept reads one way across screens.
+  residueWhy: {
+    fontWeight: 600,
+    fontSize: 13,
+    color: 'var(--text)',
+    overflowWrap: 'break-word',
+  },
+  residueHeads: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+    marginTop: 2,
+    overflowWrap: 'break-word',
+  },
   busyRow: {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
     color: 'var(--text-secondary)',
     fontSize: 13,
-    fontFamily: 'monospace',
+    fontFamily: 'var(--font-mono)',
   },
 }

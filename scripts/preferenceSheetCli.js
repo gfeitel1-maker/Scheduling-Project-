@@ -30,7 +30,12 @@ import * as XLSX from 'xlsx'
 import { openLocalDb } from '../electron/db/localDb.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from '../electron/ops/commitElectiveRun.js'
 import { deriveImportedElectiveRunId } from '../electron/ops/electiveDerivedIds.js'
-import { detectGridLayout, inferPreferenceLayout, parsePreferenceSheet } from '../src/ingest/preferenceSheet.js'
+import {
+  detectGridLayout,
+  inferPreferenceLayout,
+  parsePreferenceSheet,
+  residueParts,
+} from '../src/ingest/preferenceSheet.js'
 import { submissionKeyFromRows } from '../src/ingest/preferenceImport.js'
 import { readWorkbookSafely, unescapeRow } from '../src/utils/exportSanitize.js'
 
@@ -378,9 +383,11 @@ export function runPreferenceSheetCli({
             kind: 'UNREAD_SHEET',
             sheet: sh.name,
             rows: sh.rows.length,
-            message:
-              `The tab \u201c${sh.name}\u201d (${sh.rows.length} row(s)) was not read \u2014 the grid on ` +
-              `\u201c${gridSheet.sheet.name}\u201d was. Tabs are never combined.`,
+            ...residueParts(
+              `Tab \u201c${sh.name}\u201d`,
+              `Not read (${sh.rows.length} row(s)) \u2014 the grid on ` +
+                `\u201c${gridSheet.sheet.name}\u201d was. Tabs are never combined.`
+            ),
           }))
         return finishRun({
           parsed: parsedGrid,
@@ -398,15 +405,17 @@ export function runPreferenceSheetCli({
           sheet: c.sheet.name,
           rows: c.sheet.rows.length,
           unmapped: c.mapping.unmapped,
-          message: lacksName
-            ? `${where} has no camper name column, so nothing on it could be recorded as a ` +
-              'camper\u2019s preference \u2014 a preference is something a NAMED child asked for. Nothing ' +
-              'was imported and nothing was changed. If this is a grid of what each group does, or a ' +
-              'menu of what is on offer, it belongs to the schedule rather than to camper choices.'
-            : `${where} names campers but holds no ranked choices this import could read, so nothing ` +
-              'was imported and nothing was changed. Ranked choices are recognised from headers like ' +
-              '\u201c#1\u201d or \u201cFirst Choice\u201d, from a rank column beside an activity column, or ' +
-              'from one column per activity when those activities already exist in this camp.',
+          // A preference is something a NAMED child asked for, which is why the
+          // first case writes nothing. Ranked choices are recognised from headers
+          // like "#1"/"First Choice", from a rank column beside an activity
+          // column, or from one column per activity when those activities exist.
+          ...residueParts(
+            where,
+            lacksName
+              ? 'Has no camper name column, so nothing was imported and nothing was changed.'
+              : 'Names campers but holds no ranked choices this import could read, so nothing was ' +
+                'imported and nothing was changed.'
+          ),
         }
       })
       return {
@@ -430,10 +439,13 @@ export function runPreferenceSheetCli({
         kind: 'UNREAD_SHEET',
         sheet: s.name,
         rows: s.rows.length,
-        message:
-          `The tab \u201c${s.name}\u201d (${s.rows.length} row(s)) was not read \u2014 the camper ` +
-          `preferences were taken from \u201c${sheet.name}\u201d instead. Tabs are never combined, so ` +
-          'if that tab holds a second set of submissions it has NOT been imported.',
+        // Tabs are never combined, so a second set of submissions on that tab has
+        // NOT been imported.
+        ...residueParts(
+          `Tab \u201c${s.name}\u201d`,
+          `Not read (${s.rows.length} row(s)) \u2014 the camper preferences were taken from ` +
+            `\u201c${sheet.name}\u201d instead. Tabs are never combined.`
+        ),
       }))
 
     // A SECOND TABLE ABOVE THE HEADER IS READ TOO, not reported as unread

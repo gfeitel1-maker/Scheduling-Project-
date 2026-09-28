@@ -323,7 +323,10 @@ describe('runPreferenceSheetCli', () => {
 
     const misses = result.residue.filter((r) => r.kind === 'NO_CAMPER_NAMES' || r.kind === 'NO_READABLE_CHOICES')
     expect(misses.length).toBeGreaterThan(0)
-    for (const m of misses) expect(m.message.length).toBeGreaterThan(40)
+    for (const m of misses) {
+      expect(m.head.length).toBeGreaterThan(0)
+      expect(m.why.length).toBeGreaterThan(20)
+    }
   })
 
   it('refuses a missing file, a missing db, a camp-less db and a device-less db', () => {

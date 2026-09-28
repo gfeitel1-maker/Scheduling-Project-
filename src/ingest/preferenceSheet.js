@@ -524,6 +524,22 @@ function makeDivisionResolver({ groups = [], tiers = [] } = {}) {
 }
 
 /**
+ * The two parts of a residue item, plus the two joined.
+ *
+ * A residue item is a ROW WITH PARTS, not a paragraph. `head` is the DISTINGUISHING
+ * token — the one thing that differs between two items the reader is comparing
+ * (`Column F`, `Row 5, column E`, a camper's name). `why` is the bare fact, and is
+ * deliberately IDENTICAL for every item that shares a cause: that is what lets the
+ * panel print it once above a list of heads instead of repeating the same sentence
+ * forty times (`src/screens/elective/assignment/ParseSummary.jsx`). `message` is the
+ * two joined, for the CLI and agent surfaces that emit one line per item.
+ *
+ * Exported because the CLI produces residue of its own (unread tabs, a sheet with no
+ * readable choices) and one contract with two constructors is how the halves drift.
+ */
+export const residueParts = (head, why) => ({ head, why, message: `${head} — ${why}` })
+
+/**
  * Read the sheet under a mapping, resolving every value against the camp.
  *
  * @param {Array<Array>} rows      raw row arrays, header first
@@ -565,7 +581,7 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
   const { resolve: resolveLabel, empty: catalogAbsent } = makeLabelResolver(catalog?.activities ?? [])
   const resolveDivision = makeDivisionResolver(catalog ?? {})
 
-  const add = (kind, message, extra = {}) => residue.push({ kind, message, ...extra })
+  const add = (kind, head, why, extra = {}) => residue.push({ kind, ...residueParts(head, why), ...extra })
 
   // The rows ABOVE the header, which were read past rather than read. Skipping
   // them is right; not saying so is the same silence §12.0 forbids everywhere
@@ -595,21 +611,20 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
     if (structuredRows.length >= 2) {
       add(
         'UNREAD_TABLE_ABOVE_HEADER',
-        `Rows 1-${headerIndex} hold what looks like a second TABLE — ${structuredRows.length} rows of ` +
-          'three or more filled cells, which is a grid, not a title. Only the table starting at row ' +
-          `${headerIndex + 1} was read, and the reason the grid was not is that it carries no camper `+
-          'name column: a preference is something a NAMED child asked for, and nothing on that grid ' +
-          'says whose week it is. If those cells are the choices of the campers listed below, this ' +
-          'page holds two kinds of preference and only one has been imported \u2014 attributing the ' +
-          'grid to them would be a guess this import will not make.',
+        `Rows 1-${headerIndex}`,
+        // The reason the grid was NOT read stays here rather than in the sentence the
+        // director reads: it carries no camper name column, a preference is something a
+        // NAMED child asked for, and attributing the grid to the campers listed below
+        // would be a guess this import will not make.
+        `A second table \u2014 ${structuredRows.length} rows of three or more filled cells, with no ` +
+          `camper name column. Only the table starting at row ${headerIndex + 1} was read.`,
         { rows: preambleRows, headerRow: headerIndex + 1, structuredRows: structuredRows.length }
       )
     } else {
       add(
         'SKIPPED_PREAMBLE',
-        `The table starts at row ${headerIndex + 1}, so row(s) ${preambleRows.join(', ')} above it ` +
-          'were not read. That is usually a title or a season line — check nothing on them was meant ' +
-          'to be imported.',
+        `Row(s) ${preambleRows.join(', ')}`,
+        `Above the table, so not read \u2014 the table starts at row ${headerIndex + 1}.`,
         { rows: preambleRows, headerRow: headerIndex + 1 }
       )
     }
@@ -618,9 +633,11 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
   for (const d of mapping?.duplicatedRanks ?? []) {
     add(
       'DUPLICATED_RANK_HEADER',
-      `Rank #${d.rank} is the header of ${d.columns.length} columns (${d.columns.join(', ')}), so ` +
-        'those choices have been kept as equally acceptable rather than put in an order the file ' +
-        'does not state. Give each ranked choice its own number if you meant them to be ranked.',
+      `Rank #${d.rank}`,
+      // Why we do not order them: the file does not state an order, and typing order
+      // is not one. Give each ranked choice its own number to rank them.
+      `Heads ${d.columns.length} columns (${d.columns.join(', ')}), so those choices were kept as ` +
+        'equally acceptable rather than ranked.',
       { rank: d.rank, columns: d.columns }
     )
   }
@@ -629,9 +646,8 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
   for (const c of mapping?.unrecognisedColumns ?? []) {
     add(
       'UNRECOGNISED_COLUMN',
-      `Column ${c.column} is headed “${c.header}” and this import does not know what that ` +
-        'field is, so nothing on it was read. If it matters, nobody has been told it was skipped ' +
-        'until now.',
+      `Column ${c.column}`,
+      `Headed \u201c${c.header}\u201d, which is not a field this import knows, so nothing on it was read.`,
       { header: c.header, column: c.column, index: c.index }
     )
   }
@@ -784,19 +800,22 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
       if (verdict.status === 'packed') {
         add(
           'AMBIGUOUS_PACKED_CELL',
-          `Row ${rowNumber}, column ${column} holds “${c.raw}”, which is not an ` +
-            `activity this camp has — but split up it names ${verdict.parts.length} that it does. ` +
-            'That could be several alternatives packed into one choice, or one activity whose name ' +
-            'contains a comma, and only you can say which, so nothing was read from this cell.',
+          `Row ${rowNumber}, column ${column}`,
+          // Not split automatically: it could be several alternatives packed into one
+          // choice, or one activity whose name contains a comma, and only the director
+          // can say which.
+          `\u201c${c.raw}\u201d is not an activity this camp has, but split up it names ` +
+            `${verdict.parts.length} that are. Nothing was read from the cell.`,
           { rowNumber, column, label: c.raw, parts: verdict.parts }
         )
         continue
       }
       add(
         'UNRESOLVED_CHOICE_LABEL',
-        `Row ${rowNumber}, column ${column} names “${c.raw}”, which is not an ` +
-          'activity this camp has. It was not imported as a choice, because inventing one would ' +
-          'put an activity on a schedule that does not exist.',
+        `Row ${rowNumber}, column ${column}`,
+        // Not minted: inventing an activity would put one on a schedule that does not
+        // exist.
+        `\u201c${c.raw}\u201d is not an activity this camp has.`,
         { rowNumber, column, label: c.raw }
       )
     }
@@ -860,17 +879,16 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
       if (division.status === 'tier') {
         add(
           'DIVISION_MATCHED_TIER',
-          `${displayName || externalId}’s division “${divisionLabel}” matches the tier ` +
-            `“${division.tierName}” rather than a group, so it tells us the age band but not ` +
-            'which bunk. Assign them to a group to finish the picture.',
+          `${displayName || externalId}`,
+          `Division \u201c${divisionLabel}\u201d matches the tier \u201c${division.tierName}\u201d, not a group.`,
           { label: divisionLabel, camperId: id, tier: division.tierName }
         )
       } else if (division.status === 'unmatched') {
         add(
           'UNMATCHED_DIVISION',
-          `${displayName || externalId}’s division reads “${divisionLabel}”, which is not a ` +
-            'group or a tier this camp has. It has been kept exactly as the file wrote it, but it ' +
-            'is not linked to anything — no group was created from it.',
+          `${displayName || externalId}`,
+          `Division \u201c${divisionLabel}\u201d is not a group or a tier this camp has. Kept as the file ` +
+            'wrote it, linked to nothing.',
           { label: divisionLabel, camperId: id }
         )
       }
@@ -921,10 +939,11 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
     const column = columnLabel(mapping.unorderedSetIndex)
     add(
       'UNORDERED_SET',
-      `Column ${column} lists several activities per camper with no order between them, on ` +
-        `${unorderedSetRows.length} row(s). They have been kept as equally acceptable rather than ` +
-        'turned into a first, second and third choice \u2014 the file does not say which came first, ' +
-        'and guessing from the order they were typed in would invent a preference nobody stated.',
+      `Column ${column}`,
+      // Not turned into first/second/third: the file does not say which came first,
+      // and guessing from typing order would invent a preference nobody stated.
+      `Lists several activities per camper with no order between them, on ${unorderedSetRows.length} ` +
+        'row(s). Kept as equally acceptable.',
       { column, index: mapping.unorderedSetIndex, rows: unorderedSetRows }
     )
   }
@@ -944,10 +963,12 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
       // reading is named — this does not assert what the document IS.
       add(
         'MULTIPLE_OPTIONS_PER_PERIOD',
-        `That grid gives more than one activity for each period (${layout.optionsPerCoordinate} ` +
-          'columns per day), so it reads as a list of what is ON OFFER rather than one camper\u2019s ' +
-          'choices \u2014 nobody chooses two things for one period. Nothing from it was imported. If it ' +
-          'is really one camper\u2019s filled-in sheet, give each period a single column and import again.',
+        'The grid',
+        // Nothing is written and the ALTERNATIVE reading is named, so this does not
+        // assert what the document IS. Give each period a single column to import it as
+        // one camper's sheet.
+        `Gives ${layout.optionsPerCoordinate} activities for each period, so it reads as what is ON ` +
+          'OFFER rather than one camper\u2019s choices. Nothing from it was imported.',
         { optionsPerCoordinate: layout.optionsPerCoordinate, rows: gridRows.length }
       )
     } else {
@@ -976,11 +997,11 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
       if (subject?.attributed !== true) {
         add(
           'UNATTRIBUTED_SUBJECT',
-          `That grid is one camper\u2019s own sheet, but nothing on it and nothing about the import ` +
-            `said WHOSE \u2014 so its ${gridRows.length} period rows have been stored against a subject ` +
-            `provisionally called \u201c${subjectName ?? 'unnamed'}\u201d. The choices are saved with the ` +
-            'day and period they sit in; name the camper when you know them, and nothing needs ' +
-            're-importing.',
+          `Stored as \u201c${subjectName ?? 'unnamed'}\u201d`,
+          // The ASK ("name the camper") deliberately lives on the attention surface
+          // (src/ingest/attentionList.js), which is navigable, not here, which is not.
+          // Owner ruling: unattributed campers live there. One statement, one place to act.
+          `Not yet named \u2014 ${gridRows.length} period rows are saved against it.`,
           { subject: subjectName, source: subject?.source ?? 'none' }
         )
       }
@@ -1013,18 +1034,19 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
           if (verdict.status === 'packed') {
             add(
               'AMBIGUOUS_PACKED_CELL',
-              `Row ${rowNumber}, column ${column} holds \u201c${raw}\u201d, which is not an activity this ` +
-                `camp has \u2014 but split up it names ${verdict.parts.length} that it does, so nothing was ` +
-                'read from that cell.',
+              `Row ${rowNumber}, column ${column}`,
+              `\u201c${raw}\u201d is not an activity this camp has, but split up it names ` +
+                `${verdict.parts.length} that are. Nothing was read from the cell.`,
               { rowNumber, column, label: raw, parts: verdict.parts }
             )
             continue
           }
           add(
             'UNRESOLVED_CHOICE_LABEL',
-            `${col.dayName} ${periodLabel ?? ''} holds \u201c${raw}\u201d, which is not an activity this ` +
-              'camp has, so it was not imported as a choice. A fixed event like lunch or ' +
-              'instructional swim is expected here \u2014 those are not electives.',
+            `${col.dayName} ${periodLabel ?? ''}`.trim(),
+            // A fixed event like lunch or instructional swim is expected here; those are not
+            // electives, so this is ordinary on a planner grid.
+            `\u201c${raw}\u201d is not an activity this camp has.`,
             { rowNumber, column, label: raw, coordinate }
           )
         }
@@ -1035,9 +1057,9 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
   for (const label of unverifiedLabels) {
     add(
       'UNVERIFIED_CHOICE_LABEL',
-      `“${label}” was imported as a choice, but this camp has no activities set up yet, so ` +
-        'there was nothing to check it against. Once the activity list exists, re-import to have ' +
-        'these verified.',
+      `\u201c${label}\u201d`,
+      // Re-import once the activity list exists to have these verified.
+      'Imported as a choice, but this camp has no activities set up to check it against.',
       { label }
     )
   }
@@ -1106,10 +1128,10 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
 
     add(
       'DROPPED_DUPLICATE_RANK',
-      `${winner.label} is named more than once by the same camper for the same period. The ` +
-        `stronger statement was kept (${winner.rank == null ? 'no rank' : `#${winner.rank}`}) and ` +
-        `${loser.rank == null ? 'the unranked mention' : `#${loser.rank}`} on row ${loser.rowNumber} ` +
-        'was dropped, so the count you see is the number of preferences actually stored.',
+      `Row ${loser.rowNumber}`,
+      `${winner.label} is named more than once by the same camper for the same period. Kept ` +
+        `${winner.rank == null ? 'no rank' : `#${winner.rank}`}, dropped ` +
+        `${loser.rank == null ? 'the unranked mention' : `#${loser.rank}`}.`,
       {
         label: winner.label,
         camperId: winner.camper_id,
@@ -1122,9 +1144,9 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
     if (winner.rank_kind !== loser.rank_kind) {
       add(
         'RANK_KIND_DISAGREEMENT',
-        `${winner.label} appears for the same camper both as ${loser.rank_kind} and as ` +
-          `${winner.rank_kind}. The file is saying the same thing twice in two different ` +
-          'languages, which is usually a sign the form changed between submissions.',
+        `${winner.label}`,
+        // Usually a sign the form changed between submissions.
+        `Appears for the same camper both as ${loser.rank_kind} and as ${winner.rank_kind}.`,
         { label: winner.label, camperId: winner.camper_id, kept: winner.rank_kind, dropped: loser.rank_kind }
       )
     }
@@ -1166,11 +1188,11 @@ export function parsePreferenceSheet(rows = [], { campId, mapping, catalog, grid
       if (entry.rows.some((r) => !r.hasExternalId)) {
         add(
           'FORKED_IDENTITY',
-          `“${entry.display_name}” appears on rows ` +
-            `${entry.rows.map((r) => r.rowNumber).join(', ')} and they resolve to different ` +
-            'camper records, because some carry a camper id and some do not. If those are two ' +
-            'different children, this is right. If it is one child, they now hold half their ' +
-            'choices each — check the divisions below and re-import with an id on every row.',
+          `\u201c${entry.display_name}\u201d`,
+          // If they are two different children this is right; if it is one child they now
+          // hold half their choices each, and an id on every row fixes it.
+          `On rows ${entry.rows.map((r) => r.rowNumber).join(', ')}, which resolve to different camper ` +
+            'records because some carry a camper id and some do not.',
           {
             display_name: entry.display_name,
             rows: entry.rows.map((r) => ({

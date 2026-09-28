@@ -4,6 +4,26 @@
 import { S, useEnterTransition } from '../../../styles/shared'
 import { A } from './assignmentStyles'
 
+// WRONG, not merely unresolved: something the file states contradicts itself, or a
+// camper's choices were split or dropped. Everything else is advisory — the import
+// read what it could and is saying what it left. `--danger` is reserved for the
+// first set so it keeps meaning something; the rest get `--accent`, the caution hue.
+const WRONG_KINDS = new Set([
+  'DROPPED_DUPLICATE_RANK',
+  'RANK_KIND_DISAGREEMENT',
+  'FORKED_IDENTITY',
+  'NO_CAMPER_NAMES',
+  'NO_READABLE_CHOICES',
+])
+const severityColor = (kind) => (WRONG_KINDS.has(kind) ? 'var(--danger)' : 'var(--accent)')
+
+// REPORTED AT SOLVE TIME INSTEAD, and better there. `AssignmentPanel` re-reports
+// unmatched divisions aggregated per division VALUE with a `suggestDivisionMatch`
+// proposal ("did you mean …?"); the parse-time item is per camper and suggests
+// nothing. Rendering both means the director meets the vague one first. The item is
+// still produced and still in the residue ledger — only this panel skips it.
+const SOLVE_TIME_KINDS = new Set(['UNMATCHED_DIVISION'])
+
 function Stat({ value, label }) {
   return (
     <div>
@@ -59,16 +79,34 @@ export default function ParseSummary({ parsed, contradictoryRanks = false, onSol
   //
   // Deliberately in the SAME disclosure idiom as `skippedRows` above rather than a
   // banner: banners are the "SaaS nonsense" the standing rule rejects, and state
-  // that needs surfacing belongs in the vocabulary a director already reads. Grouped
-  // by kind because one unresolved label per row would otherwise bury the one
-  // sentence that matters — a 100-camper sheet naming one missing activity is ONE
-  // finding, not a hundred.
-  const residue = parsed?.residue ?? []
-  const residueByKind = []
+  // that needs surfacing belongs in the vocabulary a director already reads.
+  //
+  // Rendered as a SEVERITY-RAILED ROW WITH PARTS, like every other attention item in
+  // the app — the solver's findings two steps later in this same workflow
+  // (`AssignmentPreview`) and the attention surface (`RootsHomeScreen`). It was prose
+  // in a bare div, which made one concept read two ways two clicks apart.
+  //
+  // A 100-camper sheet naming one missing activity is ONE finding, not a hundred, and
+  // that now holds: the producer splits each item into a shared `why` and a
+  // distinguishing `head` (`src/ingest/preferenceSheet.js`), so the group prints the
+  // fact once and the hundred rows contribute a hundred tokens on one line.
+  const residue = (parsed?.residue ?? []).filter((r) => !SOLVE_TIME_KINDS.has(r.kind))
+  // Grouped on the SHARED FACT, not on the kind. Grouping by kind alone did not
+  // collapse anything: the old items were each a complete self-contained sentence,
+  // so forty rows naming one unknown activity produced forty near-identical
+  // paragraphs and the grouping only demoted the duplicates to bullets. Two items
+  // with the same `why` are literally the same finding, so the group states it once
+  // and the items contribute only their distinguishing `head`.
+  const residueGroups = []
   for (const item of residue) {
-    const existing = residueByKind.find((g) => g.kind === item.kind)
-    if (existing) existing.items.push(item)
-    else residueByKind.push({ kind: item.kind, items: [item] })
+    // An item from a producer that has not been split yet carries only `message`.
+    // It becomes a statement with no token rather than the same string printed
+    // twice, so a partial conversion reads as terse, not as duplicated.
+    const why = item.why ?? item.message
+    const existing = residueGroups.find((g) => g.kind === item.kind && g.why === why)
+    const group = existing ?? { kind: item.kind, why, heads: [] }
+    if (!existing) residueGroups.push(group)
+    if (item.head) group.heads.push(item.head)
   }
 
   return (
@@ -79,8 +117,8 @@ export default function ParseSummary({ parsed, contradictoryRanks = false, onSol
         <Stat value={preferences} label="Preferences" />
       </div>
       {skippedRows.length > 0 && (
-        <details style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 12 }}>
-          <summary>{skippedRows.length} row(s) skipped</summary>
+        <details style={A.disclosure}>
+          <summary style={A.disclosureSummary}>{skippedRows.length} row(s) skipped</summary>
           <ul style={{ margin: '6px 0 0', paddingLeft: 20 }}>
             {skippedRows.map((r, i) => (
               <li key={i}>Row {r.rowNumber} — {r.reason}</li>
@@ -88,26 +126,20 @@ export default function ParseSummary({ parsed, contradictoryRanks = false, onSol
           </ul>
         </details>
       )}
-      {residueByKind.length > 0 && (
-        <details style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 12 }}>
-          <summary>
+      {residueGroups.length > 0 && (
+        <details style={A.disclosure}>
+          <summary style={A.residueSummary}>
             {residue.length} thing(s) this import could not resolve
           </summary>
           <div style={{ marginTop: 6 }}>
-            {residueByKind.map((group) => (
-              <div key={group.kind} style={{ marginBottom: 8 }}>
-                {/* The first item's sentence carries the explanation; the rest are
-                    listed as the specific cases it covers, so the reader gets one
-                    statement plus its instances rather than the same paragraph N
-                    times. */}
-                <div style={{ marginBottom: 2 }}>{group.items[0].message}</div>
-                {group.items.length > 1 && (
-                  <ul style={{ margin: '2px 0 0', paddingLeft: 20 }}>
-                    {group.items.slice(1).map((item, i) => (
-                      <li key={i}>{item.message}</li>
-                    ))}
-                  </ul>
-                )}
+            {residueGroups.map((group) => (
+              <div key={`${group.kind}::${group.why}`} style={S.findingsRailRow(severityColor(group.kind))}>
+                <div>
+                  <div style={A.residueWhy}>{group.why}</div>
+                  {group.heads.length > 0 && (
+                    <div style={A.residueHeads}>{group.heads.join(' \u00b7 ')}</div>
+                  )}
+                </div>
               </div>
             ))}
           </div>

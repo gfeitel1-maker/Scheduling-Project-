@@ -762,7 +762,12 @@ describe('residue (ADR §3.4)', () => {
     expect(result.residue.length).toBeGreaterThan(0)
     for (const item of result.residue) {
       expect(typeof item.kind).toBe('string')
-      expect(item.message.length).toBeGreaterThan(20)
+      // BOTH PARTS, because the panel renders them separately: a missing `head`
+      // leaves a group with nothing to distinguish its instances, and a missing
+      // `why` leaves the group with no statement at all.
+      expect(item.head.length).toBeGreaterThan(0)
+      expect(item.why.length).toBeGreaterThan(20)
+      expect(item.message).toBe(`${item.head} \u2014 ${item.why}`)
     }
   })
 })
@@ -1172,7 +1177,8 @@ describe('T285 slice C — tidy/long and inverted layouts', () => {
 
     const miss = residueOf(result, 'NO_READABLE_CHOICES')
     expect(miss).toHaveLength(1)
-    expect(miss[0].message).toMatch(/names campers but holds no ranked choices/)
+    expect(miss[0].head).toBe('This file')
+    expect(miss[0].why).toMatch(/names campers but holds no ranked choices/i)
     expect(residueOf(result, 'NO_CAMPER_NAMES')).toHaveLength(0)
   })
 })
@@ -1361,9 +1367,13 @@ describe('T285 slice G — a grid is one camper\u2019s sheet', () => {
 
     const item = residueOf(result, 'UNATTRIBUTED_SUBJECT')
     expect(item).toHaveLength(1)
-    // The sentence must say the identity is missing, in words a director reads.
-    expect(item[0].message).toMatch(/said WHOSE/i)
-    expect(item[0].message).toMatch(/provisionally called/i)
+    // The row must name WHICH submission (the head) and that it is unnamed (the
+    // why), in words a director reads. The ASK lives on the attention surface —
+    // see the UNATTRIBUTED SUBJECTS block in src/ingest/attentionList.js — so this
+    // deliberately does NOT repeat it.
+    expect(item[0].head).toBe('Stored as \u201cP19-planner-grid\u201d')
+    expect(item[0].why).toMatch(/not yet named/i)
+    expect(item[0].why).not.toMatch(/re-import/i)
   })
 
   it('an explicitly supplied camper name attributes the sheet, and is NOT flagged', () => {
@@ -1445,7 +1455,8 @@ describe('T285 slice G — a grid is one camper\u2019s sheet', () => {
     const item = residueOf(result, 'MULTIPLE_OPTIONS_PER_PERIOD')
     expect(item).toHaveLength(1)
     // It must name the ALTERNATIVE reading rather than assert a kind.
-    expect(item[0].message).toMatch(/more than one/i)
+    expect(item[0].why).toMatch(/on offer/i)
+    expect(item[0].why).toMatch(/2 activities for each period/i)
     expect(item[0].optionsPerCoordinate).toBe(2)
   })
 
