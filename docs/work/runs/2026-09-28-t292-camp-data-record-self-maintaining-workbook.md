@@ -173,9 +173,9 @@ a hazard it found: under VITEST, writes go to os.tmpdir() instead of the real
 | index:work | green | INDEX.md regenerated |
 
 Note: the first gate attempt failed (exit 1) at the `security` step — the privacy
-scanner flagged the invented fixture name "Camp Bear" (23 findings, not a
-vulnerability). Fixed by swapping to the allowlisted synthetic name "Kinneret";
-re-run passed clean.
+scanner flagged a fabricated camp name used in the test fixtures (23 findings, not a
+vulnerability). Fixed by swapping to an allowlisted synthetic camp name; re-run
+passed clean.
 
 ## Verifier verdict
 
