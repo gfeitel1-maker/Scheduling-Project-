@@ -337,3 +337,41 @@ residual items that keep it from a 5 are operational/owner preconditions (Cloudf
 log minimization, namespace-rotation policy, and the still-open WAN blockers the 2026-09-14 ADR
 itself named — internet-scale libp2p rate limits and signed auto-update), plus a client/worker
 wire-format mismatch that must be reconciled before wiring functions at all.
+
+---
+
+## Owner sign-off — 2026-09-28
+
+**Signed off by the owner (gfeitel1) on 2026-09-28: YES, for internet-transport discovery only.**
+
+This records the human-approval gate the 2026-09-14 ADR requires. The owner accepts this
+re-assessment and authorizes enabling **Phase B/C WAN discovery** — wiring the rendezvous client
+into the running app so paired devices can find each other's current network location via the
+Cloudflare Worker bulletin board and dial directly. Scope, decisions, and how the residual open
+items are discharged:
+
+- **Discovery only.** This sign-off authorizes the discovery/direct-dial rung. It does **not**
+  authorize the relay (Phase F, `@libp2p/circuit-relay-v2`) or hole-punch (Phase E, `@libp2p/dcutr`
+  + AutoNAT) capabilities, which add materially new attack surface (a public forwarder; NAT
+  traversal). Those return for a **short delta re-assessment** before their egress code lands, per
+  the owner's instruction to attack the relay/hole-punch path hard.
+- **The gate is being made per-capability so this scoping is enforced by the build, not by promise.**
+  Rather than the coarse single `INTERNET_TRANSPORT_SIGNOFF` flip (which would mechanically disarm
+  the guard for every internet package at once), the guard is refined so discovery is enabled while
+  relay/DCUtR/WebRTC/QUIC stay blocked behind their own capability flags until each is signed off.
+  The flip itself lands **inside the Slice C PR** (the first PR that adds discovery egress), under
+  mandatory Security + Red Hat review, so the guard stays armed until egress actually arrives.
+- **T4 — auto-update integrity: discharged by scope decision, not by building a central update
+  channel.** The owner's product model for v1 is **open source, forked per camp**: the owner ships
+  v1 and does not centrally distribute or auto-update the app for other operators — each fork/camp
+  operator owns their own build, signing, and update posture. There is therefore no
+  owner-operated "broad WAN rollout" for which central signed auto-update is a precondition. The
+  ADR's T4 concern is resolved for the Shoresh core by removing the centrally-managed-update
+  assumption; code-signing/update integrity becomes each downstream operator's responsibility, to be
+  documented for them. (Ticket T289 "central signed auto-update" is descoped by this decision.)
+- **Internet-scale libp2p rate limiting (T3): tracked fast-follow, not blocking discovery.** As the
+  T3 assessment notes, discovery dials are pre-filtered to `isKnownPeer` candidates, so the board
+  cannot cause the node to dial strangers; the pre-auth connection surface reachable by IP is the
+  residual, tracked before broad use.
+- **Wire-format mismatch** between client and worker contract must be reconciled as part of Slice C
+  (one of the three locked forward-findings) before the wiring functions at all.
