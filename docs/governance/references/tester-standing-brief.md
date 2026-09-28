@@ -67,7 +67,7 @@ The seeded test data for Camp Arazim is:
 ## Key invariants (always true if engine is correct)
 
 1. No activity appears more than once per day per group
-2. Anchor rows (Boker Tefillah, Aruchat Tzaharayim, Menucha, Peulat Erev) appear in purple across all 9 groups × 5 days
+2. Anchor rows (Boker Tefillah, Aruchat Tzaharayim, Menucha, Peulat Erev) appear in slate (`--anchor`) across all 9 groups × 5 days
 3. No amber/gold locked styling on any cell unless the user explicitly locked an activity
-4. Clicking any filled cell opens the edit modal — it does NOT lock the cell
+4. Clicking any filled cell opens the inline click-to-write cell editor — it does NOT lock the cell
 5. The expand handle is invisible until you hover the cell

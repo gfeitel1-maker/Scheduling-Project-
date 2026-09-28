@@ -72,15 +72,15 @@ Tags: `[REGRESSION]` = always run after any code change. `[FULL]` = full run onl
 - 5.1 Group View is the default active tab
 - 5.2 Tzrif Aleph is selected by default (first pill highlighted)
 - 5.3 Grid shows 5 day columns (Mon–Fri) and 8 block rows
-- 5.4 Boker Tefillah row: all 5 days show purple anchor cell labeled "Boker Tefillah" — NOT an activity
-- 5.5 Aruchat Tzaharayim row: all 5 days show purple anchor cell
-- 5.6 Menucha row: all 5 days show purple anchor cell
-- 5.7 Peulat Erev row: all 5 days show purple anchor cell
+- 5.4 Boker Tefillah row: all 5 days show slate anchor cell (`--anchor`) labeled "Boker Tefillah" — NOT an activity
+- 5.5 Aruchat Tzaharayim row: all 5 days show slate anchor cell (`--anchor`)
+- 5.6 Menucha row: all 5 days show slate anchor cell (`--anchor`)
+- 5.7 Peulat Erev row: all 5 days show slate anchor cell (`--anchor`)
 - 5.8 No cell has amber/gold border (no stale locks)
 - 5.9 Activity blocks show colored activity names (different activities per day per group)
 - 5.10 No activity name repeats across multiple blocks on the same day column
 - 5.11 Click a different group pill (e.g., Bunk 5) — grid updates for that group
-- 5.12 Click a filled activity cell — edit modal opens (does NOT lock the cell)
+- 5.12 Click a filled activity cell — the inline cell editor opens (does NOT lock the cell)
 - 5.13 Edit modal shows the current activity name
 - 5.14 Close/cancel the modal — cell returns to normal, no lock applied
 - 5.15 Hover a filled activity cell — thin expand handle appears at the bottom of the cell
@@ -93,9 +93,9 @@ Tags: `[REGRESSION]` = always run after any code change. `[FULL]` = full run onl
 - 6.1 Click "Daily View" tab — view switches
 - 6.2 All 9 groups visible as columns
 - 6.3 Day tabs (Monday–Friday) are clickable and switch the day
-- 6.4 Anchor rows (Boker Tefillah, Aruchat Tzaharayim, etc.) show purple cells across all group columns
+- 6.4 Anchor rows (Boker Tefillah, Aruchat Tzaharayim, etc.) show slate cells (`--anchor`) across all group columns
 - 6.5 No amber/gold border on any cell
-- 6.6 Clicking a filled cell opens edit modal — does NOT lock the cell
+- 6.6 Clicking a filled cell opens the inline cell editor — does NOT lock the cell
 - 6.7 Close modal — no lock applied
 
 ---
@@ -148,7 +148,7 @@ Tags: `[REGRESSION]` = always run after any code change. `[FULL]` = full run onl
 - 11.2 Modal text mentions data will be lost
 - 11.3 Click "Cancel" — modal closes, schedule unchanged
 - 11.4 Click "Regenerate from Scratch" again, then confirm — schedule regenerates
-- 11.5 After regen: Unfillable = 0, Underserved = 0, anchors still in purple
+- 11.5 After regen: Unfillable = 0, Underserved = 0, anchors still slate
 - 11.6 No activity repeats on the same day for the same group (spot-check Tzrif Gimel)
 
 ---

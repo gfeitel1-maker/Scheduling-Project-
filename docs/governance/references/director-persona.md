@@ -51,11 +51,11 @@ Work through the app in this order. At each stop, note what a director would fee
 
 ### 4. The schedule — Group View
 - When the schedule loads, is it immediately readable as a weekly camp schedule?
-- Are the purple anchor rows understood as "fixed" things, or do they look like activities?
+- Are the slate anchor rows (`--anchor`) understood as "fixed" things, or do they look like activities?
 - Does the group pill selector feel natural? Is it clear which group you're looking at?
 - Can you tell at a glance which slots are filled vs empty?
 - If you wanted to change an activity in one slot — would you know how?
-- When the edit modal opens, is it clear what you're doing? Are the choices intuitive?
+- When the inline cell editor opens, is it clear what you're doing? Are the choices intuitive?
 
 ### 5. The schedule — Daily View
 - Does switching to Daily View make sense? Is the layout as a director would expect?
