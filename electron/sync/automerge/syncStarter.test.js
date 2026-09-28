@@ -196,3 +196,28 @@ describe('createAutomergeSyncStarter: idempotency, no-camp, and failure bookkeep
     expect(starter2.getNode()).toBeTruthy()
   })
 })
+
+// Round 2 FIX 1 — confirmed defect: createRendezvousDiscovery({...}) was constructed without
+// `nextSequence`, so rendezvousClient.js fell back to its in-memory `let localSeq = 0` (resets to
+// 1 on every process restart). The durable counter (rendezvousSequence.js's nextSequence(db),
+// backed by the rendezvous_sequence SQLite singleton table) must be the one actually wired here —
+// a device that restarts and republishes at seq=1 is rejected as non-monotonic by still-running
+// peers' in-memory watermark until they too restart.
+describe('createRendezvousDiscovery wiring — durable sequence, not the in-memory fallback', () => {
+  it('passes nextSequence backed by rendezvousSequence.js into createRendezvousDiscovery', () => {
+    const src = fs.readFileSync(new URL('./syncStarter.js', import.meta.url), 'utf8')
+    expect(
+      /import\s*\{\s*nextSequence\s*\}\s*from\s*['"]\.\/rendezvousSequence\.js['"]/.test(src),
+      'syncStarter.js must import nextSequence from ./rendezvousSequence.js'
+    ).toBe(true)
+
+    const callMatch = src.match(/createRendezvousDiscovery\(\{[\s\S]*?\}\)/)
+    expect(callMatch, 'createRendezvousDiscovery({...}) call not found in syncStarter.js').toBeTruthy()
+    expect(
+      /nextSequence\s*:/.test(callMatch[0]),
+      'createRendezvousDiscovery({...}) must pass nextSequence — without it, the client falls back ' +
+        'to an in-memory counter that resets to 1 on every restart, making a restarted device look ' +
+        'non-monotonic to still-running peers'
+    ).toBe(true)
+  })
+})

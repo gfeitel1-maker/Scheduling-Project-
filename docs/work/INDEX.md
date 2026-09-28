@@ -62,6 +62,7 @@ Regenerate with `npm run index:work`.
 | [Name the at-rest key-acquisition failure at the openLocalDb seam](../../docs/work/tickets/T260-name-key-acquisition-failure.md) | in-progress | — |
 | [Slice A — attack-hardened join secret (ephemeral, scrypt-KDF, rate-limited, both-sides)](../../docs/work/tickets/T286-join-secret-hardening.md) | in-progress | — |
 | [Slice B — v2 encrypted rendezvous record (camp-shared key, AES-256-GCM address body)](../../docs/work/tickets/T287-v2-encrypted-record.md) | in-progress | — |
+| [Slice C — rendezvous client built fresh to the v2 encrypted-record shape](../../docs/work/tickets/T288-rendezvous-client-v2.md) | in-progress | [T287-v2-encrypted-record](../../docs/work/tickets/T287-v2-encrypted-record.md) · [T290-dcutr-holepunch](../../docs/work/tickets/T290-dcutr-holepunch.md) |
 
 ### test-infrastructure
 

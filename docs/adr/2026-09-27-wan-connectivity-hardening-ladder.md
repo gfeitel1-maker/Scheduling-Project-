@@ -221,14 +221,23 @@ ordinary Automerge document sync, 2026-09-18 Decision 2/3a).
    16-byte tag). Because the version byte is checked first and unconditionally (2026-09-18's own
    anti-downgrade property), a v1 verifier rejects a v2 record outright rather than misparsing it —
    the format was built in 2026-09-18 specifically to make this possible without a coexistence period.
-   **`rendezvousClient.js` (T211) has never been written or wired** (confirmed above) — so there is no
-   existing v1 wire-shape client to reconcile against, and the "Q5 client/worker mismatch" the security
-   reassessment doc flags as an open item is resolved by construction: **T211 is built once, directly
-   against the v2 shape**, POSTing `{recordBase64}` (matching `workers/rendezvous/worker.js`'s actual,
-   already-shipped opaque-blob contract — not the `{namespace,peerId,record}` shape an earlier design
-   note assumed) and reading `GET /v1/peers/<namespace>` → `{records: [{recordBase64}, ...]}` per the
-   Worker's existing, unmodified handler. No dual-shape client, no format renegotiation, no "v1 client
-   talking to v2 worker" case ever exists in the field, because nothing has shipped yet.
+   **`rendezvousClient.js` (T211/T288) has never been written or wired** (confirmed above) — so there
+   is no existing v1 wire-shape client to reconcile against, and the "Q5 client/worker mismatch" the
+   security reassessment doc flags as an open item is resolved by construction: **T288 is built once,
+   directly against the v2 shape.**
+
+   **CORRECTION (2026-09-28, T288 recon):** the paragraph above (as originally written) claimed the
+   client POSTs `{recordBase64}` and reads `{records: [{recordBase64}, ...]}`. That was wrong — it was
+   never checked against the Worker source. `workers/rendezvous/worker.js` (read directly for T288) is
+   the real, already-shipped contract, and it is:
+   - `POST /v1/register` body `{ namespace, peerId, record }` where `record` is the base64 encoding of
+     `signRecord()`'s output (`handleRegister`, `worker.js` lines 141–157: destructures `namespace`,
+     `peerId`, `record` from the JSON body and validates each independently).
+   - `GET /v1/peers/<namespace>` → `{ peers: [base64, base64, ...] }` — a flat array of opaque base64
+     blobs, not `{records: [{recordBase64}]}` (`handlePeers`, lines 175–191).
+   There is no dual-shape client, no format renegotiation, no "v1 client talking to v2 worker" case —
+   that part of the original claim stands. Only the concrete field/shape names were wrong. See the T288
+   addendum below for the client's exact contract against this corrected shape.
 5. **Migration/coexistence (org-migration):** consumer inventory = `rendezvousRecord.js`,
    `rendezvousRecord.test.js`, and nothing else (T211 unbuilt; the Worker is version-agnostic by
    design). **This is a clean, hard cutover, not a staged migration** — consistent with this
@@ -507,3 +516,502 @@ extends its use).
    ADR's design; this ADR does not request it now.
 4. Whether the owner wants to correct 2026-09-15's CPU-hours/CPU-years unit error as its own small
    doc fix (Section 4) — cosmetic, does not block anything, flagged for completeness.
+
+---
+
+## Addendum 2026-09-28 (Architect, T288) — per-capability transport gate, rendezvous client design
+
+**Status of this addendum:** normative for Slice C (T288). Written after the owner's DISCOVERY-ONLY
+sign-off (`docs/work/security/2026-09-26-internet-transport-signoff-reassessment.md`, owner sign-off
+section dated 2026-09-28). Relay (Slice F/`@libp2p/circuit-relay-v2`) and hole-punch
+(Slice E/`@libp2p/dcutr`+`autonat`) remain **NOT authorized** and must stay build-blocked. Everything
+below is designed so that flipping discovery on cannot, by construction, also flip those on.
+
+### 0. Divergent design pass (adhd skill, summary)
+
+Five cognitive frames (regulator, attacker, logistics, inversion, 3am-on-call) were run in parallel,
+isolated, no cross-contamination. Converged, independently-corroborated themes:
+- **A single checked-in capability registry is the source of truth** (regulator + 3am-on-call
+  converged on this independently — strong signal). Not four independently-maintained lists.
+- **Fail-closed, allowlist-not-blocklist** for both the package scan and the egress scan (inversion +
+  attacker both identified blocklist-of-known-bad as the failure mode that lets a renamed/new package
+  or a novel egress primitive through silently authorized).
+- **Package scan must walk the resolved dependency tree (lockfile), not just `package.json` direct
+  deps** — a wrapper package that depends on `@libp2p/circuit-relay-v2` internally defeats a
+  direct-deps-only scan (attacker frame's top exploit).
+- **Discovery's egress allowance must be an exact-filename allowlist, not "any file the discovery
+  capability's entrypoint imports"** — the attacker frame's top exploit was adding a new file under
+  `electron/sync/**` that isn't itself network code but is imported only by the now-authorized
+  discovery module, inheriting its pass. The fix is to scope by file identity, never by import
+  relationship.
+- **Golden fixture / planted-violation tests per capability**, proving each detector actually fires
+  (3am-on-call) — this repo has shipped a guard that only agreed with clean code before (see
+  `internetRendezvousScan.js`'s own header comment on T207).
+- **An append-only, dated signoff record instead of a bare boolean** (regulator + 3am-on-call) — an
+  auditor asks "who authorized what, when," which `git blame` on a boolean cannot answer well once
+  there are 10+ capabilities.
+
+Traps identified and designed out below: reusing the old coarse flag as a fallback/default for the new
+discovery flag (inversion); gating relay code behind an env var that could default true outside the
+scanned path (attacker); regex-only import scanning that misses dynamic `import()`/computed
+`require()` (attacker + inversion).
+
+### 1. Per-capability transport gate — design
+
+**Registry file (new): `electron/sync/automerge/transportCapabilities.js`.** Single source of truth,
+imported by the guard test and by nothing else at runtime (it is data, not wiring — importing it from
+`transport.js` or `syncStarter.js` would let production code branch on it, which is not the intent;
+the gate is a build-time/test-time check only).
+
+```js
+// electron/sync/automerge/transportCapabilities.js
+//
+// One row per capability. This file is the ONLY place a capability's authorization state lives —
+// the guard test (transportBoundary.guard.test.js) reads it, nothing hard-codes a second copy of
+// "is X allowed" anywhere else. Default for every capability is BLOCKED; a capability becomes
+// ALLOWED only by adding a `signoff` entry here, in the same PR that lands the capability's code,
+// under mandatory Security + Red Hat review (see ADR 2026-09-27 addendum §5).
+//
+// `packages`: npm package names whose presence (anywhere in the resolved dependency tree, not just
+// direct deps) implies this capability.
+// `sourceMarkers`: literal strings that must not appear in syncStarter.js's source when this
+// capability is blocked (function/import names a wiring of this capability would use).
+// `egressAllowlist`: for the DISCOVERY capability only — the exact, closed set of file basenames
+// under electron/sync/** that are authorized to perform their own network egress (fetch/https/etc).
+// Every other file under electron/sync/** must have zero egress, regardless of capability state.
+// `signoff`: null = blocked (default). `{date, owner, doc}` = authorized — `doc` must point at a
+// dated sign-off record (an ADR, or docs/work/security/*signoff*.md).
+
+export const TRANSPORT_CAPABILITIES = {
+  discovery: {
+    packages: [], // discovery ships no new libp2p package — it's a plain `fetch` client
+    sourceMarkers: [], // discovery is wired as peerDiscovery entries in syncStarter.js; see note below
+    egressAllowlist: ['rendezvousClient.js'], // the ONLY file allowed to fetch()
+    // Implementation note (T288 round 2): the shipped allowlist matches the FULL repo-relative path
+    // ('electron/sync/automerge/rendezvousClient.js'), not the basename, so a same-named file at a
+    // different path cannot inherit the exemption. The design intent ("exact file identity") is unchanged.
+    signoff: {
+      date: '2026-09-28',
+      owner: 'gfeitel1', // GitHub handle, not an email — keep PII out of public history
+      doc: 'docs/work/security/2026-09-26-internet-transport-signoff-reassessment.md#owner-sign-off',
+    },
+  },
+  relay: {
+    packages: ['@libp2p/circuit-relay-v2'],
+    sourceMarkers: ['circuitRelay'],
+    egressAllowlist: [],
+    signoff: null,
+  },
+  dcutr: {
+    packages: ['@libp2p/dcutr', '@libp2p/autonat'],
+    sourceMarkers: ['dcutr', 'autonat'],
+    egressAllowlist: [],
+    signoff: null,
+  },
+  webrtc: {
+    packages: ['@libp2p/webrtc', '@libp2p/webrtc-direct'],
+    sourceMarkers: ['webRTC'],
+    egressAllowlist: [],
+    signoff: null,
+  },
+  websockets: {
+    packages: ['@libp2p/websockets'],
+    sourceMarkers: [],
+    egressAllowlist: [],
+    signoff: null,
+  },
+  webtransport: {
+    packages: ['@libp2p/webtransport'],
+    sourceMarkers: [],
+    egressAllowlist: [],
+    signoff: null,
+  },
+  quic: {
+    packages: ['@chainsafe/libp2p-quic'],
+    sourceMarkers: [],
+    egressAllowlist: [],
+    signoff: null,
+  },
+  kadDht: {
+    packages: ['@libp2p/kad-dht'],
+    sourceMarkers: ['kadDHT'],
+    egressAllowlist: [],
+    signoff: null,
+  },
+  bootstrap: {
+    packages: ['@libp2p/bootstrap'],
+    sourceMarkers: ['bootstrap('],
+    egressAllowlist: [],
+    signoff: null,
+  },
+  upnp: {
+    packages: ['@libp2p/upnp-nat'],
+    sourceMarkers: [],
+    egressAllowlist: [],
+    signoff: null,
+  },
+}
+
+// Flat views the guard consumes — computed, never hand-duplicated.
+export const ALL_FORBIDDEN_PACKAGES = () =>
+  Object.entries(TRANSPORT_CAPABILITIES).flatMap(([cap, c]) => (c.signoff ? [] : c.packages))
+export const ALL_FORBIDDEN_MARKERS = () =>
+  Object.entries(TRANSPORT_CAPABILITIES).flatMap(([cap, c]) => (c.signoff ? [] : c.sourceMarkers))
+export const DISCOVERY_EGRESS_ALLOWLIST = TRANSPORT_CAPABILITIES.discovery.egressAllowlist
+```
+
+Note on `discovery.sourceMarkers: []` — discovery's wiring into `syncStarter.js` is not a forbidden
+marker to check for; it's an ADDITION the guard must now positively expect (see 1.2 below), not a
+string it forbids.
+
+**Why not an env var or a second boolean (the two "obvious" designs, rejected):** an env var can
+default true in a path the static scan never inspects (attacker frame — the literal exploit named for
+relay). A second boolean (`DISCOVERY_SIGNOFF`) sitting next to `INTERNET_TRANSPORT_SIGNOFF` still
+requires every one of the four assertions to be hand-taught which boolean gates which check, which is
+exactly the shared-mutable-state trap the inversion frame flagged: one accidental `||` between the two
+booleans re-creates the coarse gate. A registry makes "which capabilities are on" a single computed
+read (`Object.values(TRANSPORT_CAPABILITIES).filter(c => c.signoff)`), and makes adding capability #12
+a data-entry change, not a new code path in the guard (3am-on-call's explicit ask).
+
+**1.1 Package-presence assertion (replaces the current direct-deps check).**
+
+```js
+it('declares no un-signed-off internet-transport dependency, anywhere in the resolved tree', () => {
+  const lockfile = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'))
+  const resolvedPackageNames = new Set(
+    Object.keys(lockfile.packages ?? {})
+      .map((p) => p.replace(/^node_modules\//, '').replace(/.*\/node_modules\//, ''))
+  )
+  const forbidden = ALL_FORBIDDEN_PACKAGES()
+  const present = forbidden.filter((p) => resolvedPackageNames.has(p))
+  expect(present, `Un-signed-off transport package present in the resolved dependency tree ` +
+    `(direct or transitive): ${present.join(', ')}. Add a signoff entry in transportCapabilities.js ` +
+    `only after the ADR re-assessment for that capability is recorded.`
+  ).toEqual([])
+})
+```
+
+This closes the attacker frame's transitive-dependency exploit (a wrapper package depending on
+`@libp2p/circuit-relay-v2` internally) — `package-lock.json`'s `packages` map lists every resolved
+node_modules path regardless of nesting depth, which is why `1.` grounded this against the actual
+lockfile shape rather than `package.json`'s direct-deps object (`org-source-verification`: verified
+against this repo's installed `libp2p@3.3.11` / lockfile — see §6 below).
+
+**1.2 syncStarter marker assertion — now asymmetric per capability.**
+
+Two sub-assertions, not one regex:
+- **Positive expectation for discovery** (only meaningful once discovery is authorized): if
+  `TRANSPORT_CAPABILITIES.discovery.signoff` is set, `syncStarter.js` MUST reference a rendezvous
+  wiring symbol (e.g. `createRendezvousDiscovery` — see §2 for the exact export name the client
+  provides) alongside the existing `createMdnsDiscovery(` — i.e. discovery being "on" is itself
+  asserted, not just "not forbidden." This stops a signed-off-but-never-wired flag from silently
+  reading as compliant (the inversion frame's "blocks discovery too by accident" failure mode, applied
+  in reverse: a flag that's on in the registry but has no effect on `syncStarter.js` is just as wrong
+  as one that's off but has an effect).
+- **Negative assertion for every still-blocked capability**, computed from the registry rather than a
+  hand-written array:
+
+```js
+it('syncStarter.js references no marker of a still-blocked capability', () => {
+  const starterSrc = readFileSync(join(__dirname, 'syncStarter.js'), 'utf8')
+  const forbiddenMarkers = ALL_FORBIDDEN_MARKERS()
+  const present = forbiddenMarkers.filter((m) => starterSrc.includes(m))
+  expect(present, `syncStarter.js references blocked-capability marker(s): ${present.join(', ')}.`
+  ).toEqual([])
+})
+```
+
+Because `ALL_FORBIDDEN_MARKERS()` excludes discovery's markers only when discovery has a `signoff`
+entry, discovery going green cannot silently widen what this loop tolerates for `relay`/`dcutr`/etc —
+each capability's markers are excluded from the forbidden set individually, keyed by its own
+`signoff`, never by a global "signoff granted" flag.
+
+**1.3 Behavioral egress scan — allowlist by exact file identity, not by import relationship.**
+
+`internetRendezvousScan.js`'s `findInternetEgress` stays as the pattern-matching primitive
+(unmodified — it correctly has no opinion on policy, only on "does this text contain an egress
+primitive"). What changes is the guard test's use of it:
+
+```js
+it('the sync path performs no internet egress outside the signed-off discovery allowlist', () => {
+  const syncDir = join(repoRoot, 'electron', 'sync')
+  const files = [] // ...same walk as today...
+  const scanned = files.filter((f) => !f.endsWith('internetRendezvousScan.js'))
+  const allowlist = new Set(DISCOVERY_EGRESS_ALLOWLIST) // e.g. ['rendezvousClient.js']
+  const discoveryOn = Boolean(TRANSPORT_CAPABILITIES.discovery.signoff)
+
+  const offenders = scanned
+    .map((f) => [f.slice(repoRoot.length + 1), path.basename(f), findInternetEgress(readFileSync(f, 'utf8'))])
+    .filter(([, basename, hits]) => hits.length > 0 && !(discoveryOn && allowlist.has(basename)))
+    .map(([rel, , hits]) => `${rel} (${hits.join(', ')})`)
+
+  expect(offenders, `Unauthorized internet egress: ${offenders.join('; ')}. Only the files named in ` +
+    `TRANSPORT_CAPABILITIES.discovery.egressAllowlist may perform their own egress, and only while ` +
+    `discovery has a signoff entry.`
+  ).toEqual([])
+})
+```
+
+This is the load-bearing fix for the attacker frame's top exploit: a NEW file (e.g. `relayBridge.js`)
+imported only by `rendezvousClient.js` still gets scanned on its own path and its own basename is
+checked against the allowlist independently — it is not exempted by virtue of who imports it. Adding a
+second file to the allowlist requires touching `transportCapabilities.js` under the same Security +
+Red Hat review gate as flipping a signoff, which is the auditable choke point (guard-the-choke-point,
+not-the-instance, per project memory).
+
+`findInternetEgress` itself should gain one more pattern to close the dynamic-import/computed-require
+gap the attacker and inversion frames both raised:
+
+```js
+{ label: 'dynamic import()/computed require()', re: /\bimport\s*\(\s*[^'"`]/m }, // import(expr), not import('literal')
+```
+
+(a static `import('./x.js')` with a string literal is not egress by itself and is already excluded by
+this pattern only matching a non-literal argument; `require(someVariable)` is covered by the existing
+absence of any literal-string requirement in that class of check — confirm during Maker's red-first
+pass per §6 below rather than assumed here.)
+
+**1.4 transport.js import-scan assertion — same registry-driven negative check as 1.2, minor change
+only** (replace the hand-maintained `INTERNET_TRANSPORT_PACKAGES` array with `ALL_FORBIDDEN_PACKAGES()`
+from the registry; logic otherwise unchanged, since discovery introduces no new import into
+`transport.js` at all — the rendezvous client is a peerDiscovery function passed into `syncStarter.js`,
+parallel to `createMdnsDiscovery`, and never touches `transport.js`).
+
+**Fail-closed invariant, stated once, binding on all four assertions:** a capability with no `signoff`
+entry is blocked by every assertion independently. There is no code path in any of the four checks
+that reads a SINGLE shared "is anything signed off" boolean — each reads `TRANSPORT_CAPABILITIES`
+per-capability. This is the direct fix for the inversion frame's "shared mutable state" trap.
+
+### 2. Wire contract — exact spec for the T288 client
+
+**File:** `electron/sync/automerge/rendezvousClient.js` (new — the v1 file at
+`claude/dreamy-williams-da94cb:electron/sync/automerge/rendezvousClient.js` is superseded and MUST NOT
+be resurrected: 2-arg `signRecord`, no `addressKey`, `{bytes}` wire shape, all incompatible with the
+shipped v2 `rendezvousRecord.js`).
+
+**Publish (`POST {baseUrl}/v1/register`):**
+```
+body: {
+  namespace: <64-hex string>,      // readRendezvousNamespace(doc(), campId).namespace
+  peerId:    <string>,              // this device's libp2p PeerId.toString()
+  record:    <base64 string>,       // base64(signRecord(record, privateKey, addressKey))
+}
+```
+matching `handleRegister` (`workers/rendezvous/worker.js` lines 124–173) field-for-field. Response:
+`{ok: true}` (200) on success; `{error: string}` with 400/413/429 on rejection — never throw, the
+client turns every non-2xx into `{ok: false, reason: <mapped>}` (see error shape below).
+
+**Discover (`GET {baseUrl}/v1/peers/{namespace}`):**
+```
+response: { peers: [<base64 string>, <base64 string>, ...] }
+```
+matching `handlePeers` (lines 175–191) exactly — a flat array of opaque base64 blobs, no `records`
+wrapper, no per-entry metadata. The client base64-decodes each entry to bytes and passes it to
+`verify()` from `rendezvousRecord.js`.
+
+**org-interface-contracts checklist for this contract:**
+- **Idempotency.** `POST /v1/register` is a `kv.put` keyed by `(namespace, peerId)` with a TTL — a
+  re-POST of the same or a newer record (a fresh `signRecord` output with `seq` incremented) simply
+  overwrites the KV entry. Idempotent in the sense that matters here: publishing twice never
+  double-registers or double-counts against `MAX_PEERS_PER_NAMESPACE` for an already-registered peer
+  (confirmed directly in `handleRegister`'s `existing === null` branch, worker.js lines 161–169). No
+  client-side retry key is needed beyond retrying the same POST.
+- **Concurrent retries.** Two publish ticks racing (e.g. a timer firing while a previous publish is
+  still in flight) both produce valid signed records with increasing `seq`; whichever POST lands last
+  at the KV layer wins, and the verifier-side watermark (`lastEpoch`/`lastSeq` in `verify()`) means an
+  out-of-order arrival at a READER is rejected as non-monotonic rather than accepted — convergence is
+  correct even under reordering. The client should still avoid firing two publishes concurrently
+  (single in-flight publish per tick, skip-not-queue if the previous one hasn't resolved) purely to
+  bound Worker load, not because correctness requires it.
+- **Unknown outcomes.** A `fetch` that times out or the process losing network mid-request is treated
+  as `{ok: false, reason: 'unknown'}` — the client MUST NOT assume the record either did or didn't
+  reach the Worker. Retrying is always safe (idempotent per above), so the caller's policy is simply
+  "retry next tick," never "assume failure and do something destructive," and never "assume success and
+  skip the next publish."
+- **Error shape.** The client never throws across its own boundary (matching `rendezvousRecord.js`'s
+  own `verify()`/`decryptAddressBody` discipline). Every method returns `{ok: true, ...}` or
+  `{ok: false, reason: 'network' | 'http_4xx' | 'http_5xx' | 'malformed_response' | 'unknown'}`.
+- **Trust boundary validation.** Every byte read from `GET /v1/peers/*` is adversarial input — the
+  Worker is "an untrusted cache, not an authority" by its own header comment. The client passes each
+  decoded blob straight to `rendezvousRecord.verify()`, which already implements the full
+  version→structural→signature→freshness→monotonicity→decrypt-last order. The client itself adds no
+  additional trust — it must not, for example, short-circuit on `peers.length === 0` vs `> 0` as a
+  trust signal, since KV is only eventually consistent (Worker's own comment) and an empty response is
+  not evidence of anything.
+- **Scope/authority boundary.** No `authorize()` call applies here — this is unauthenticated public
+  discovery data (namespace-gated only, per 2026-09-18's namespace-as-capability design), not a
+  camp-authenticated IPC/WS path. Flag: this client never writes to SQLite, the Automerge document, or
+  the op-log directly — its only effect is handing `{id, multiaddrs}` shapes to `onDiscoveredPeer`
+  (mirroring `transport.js`'s `onPeerDiscovery` shape exactly, per the recon note that this is the
+  existing integration point), so no `PROJECTIONS`/camp-isolation boundary is crossed by this file at
+  all.
+
+### 3. Address key and namespace re-derivation
+
+Every publish tick, the client MUST:
+1. Call `readRendezvousNamespace(doc(), campId)` and `readRendezvousAddressKey(doc(), campId)` fresh
+   — `doc()` is a live accessor (e.g. `getDocIfLoaded`/`liveDoc`'s current getter), never a value
+   captured once at client construction time and reused. This is what makes a concurrent mint
+   (`mintRendezvousNamespace`/`mintRendezvousAddressKey`, both documented as racy across concurrent
+   devices — see their own file comments) self-heal: the LOSING device's next tick reads the
+   SURVIVING value from the merged document, rather than continuing to sign against a namespace/key
+   pair that lost the Automerge merge.
+2. If either read returns `null` (rendezvous not yet enabled for this camp — no prior
+   mint/publish has happened), the client is a no-op for that tick: skip the publish, log nothing
+   sensitive (matching the Worker's own no-PII-logging posture), and retry next tick. This is not an
+   error — it is the expected steady state for every camp until whatever UI/flow (out of scope for
+   T288 — wiring the ENABLE action is a separate ticket) calls `mintRendezvousNamespace`/
+   `mintRendezvousAddressKey` for the first time.
+3. On the READ (discover) side, a fetched peer record whose `addressBodyError` comes back (wrong/no
+   key, or the address key hasn't synced to this device yet) is treated as **not-yet-resolvable**, per
+   `rendezvousRecord.verify()`'s own documented contract (`ok` stays true if signature/freshness/
+   monotonicity all pass; only `addressBodyDecrypted` is false) — the peer is authentically who it
+   claims, its addresses just aren't usable yet. The client should keep the peer in a
+   "known but unreachable" state and re-attempt decryption on a later document change (the address key
+   syncing in), not blacklist or discard the peer id.
+
+### 4. Rate-limit finding-1 — Host + Worker
+
+**Scope check first: Slice C is discovery-only.** No join-proof is exchanged over WAN in this slice —
+`joinSession.js`'s WAN path is Slice E+/unbuilt. So this section is bounded to what's actually
+reachable in T288: an attacker who has (or brute-forces/guesses within the namespace's 256-bit space,
+i.e. effectively "has") a camp's rendezvous namespace can call `POST /v1/register` and
+`GET /v1/peers/<namespace>` directly against the Worker — no Host/libp2p connection is involved at
+all for discovery itself. **Finding-1 as scoped in the brief (identity churn defeating `authGate.js`'s
+per-peer/per-device throttle) is about the LAN/WAN authenticate path (`authGate.js`), which is not
+reachable via WAN until join-over-WAN ships (Slice E+).** Given that, this addendum draws the line as
+follows:
+
+- **Actionable now, in T288:** nothing in `authGate.js` needs to change for Slice C, because Slice C
+  adds no new caller of it — discovery never opens a libp2p connection to an unauthenticated peer on
+  its own; it only learns candidate multiaddrs and hands them to the existing mDNS-parallel discovery
+  path, which still goes through the SAME `authGate`/`authorize()` flow every LAN peer already does.
+  **Confidence: high.** This is a direct reading of the recon note ("join-proof over WAN is NOT wired
+  yet") plus `authGate.js`'s actual call sites (`onAuthenticate`/`onPairingRequest`/`onLogin`, none of
+  which discovery invokes).
+- **Design for WHEN it becomes reachable (Slice E+), recorded now so Maker doesn't silently decide it
+  later:** the correct rate-limit key is `connection.remoteAddr` (verified against installed
+  `@libp2p/interface@3.3.0` — `Connection.remoteAddr: Multiaddr`, `Connection.remotePeer: PeerId`, see
+  §6), NOT `fromPeerId` (`connection.remotePeer.toString()`) and NOT attacker-supplied `msg.device_id`.
+  Both of the latter are free for an attacker to mint fresh per attempt (a new Ed25519 keypair costs
+  nothing, and `device_id` is client-asserted with no proof of prior registration) — that IS the
+  identity-churn bypass the recon note names, and it applies as much to `fromPeerId` as to
+  `device_id`, which the current `authGate.js` code does not yet account for (it treats `fromPeerId` as
+  a costlier-to-rotate signal than `device_id`, but under this project's threat model once a connection
+  is reachable over the internet rather than only LAN, it isn't). `remoteAddr` is a `Multiaddr`; extract
+  the host via `.nodeAddress().address` (works for `/ip4/.../tcp/...` and `/ip6/.../tcp/...` forms) and
+  key the throttle map on that string instead of/in addition to `fromPeerId`.
+  **Known limitation to record, not solve here:** LAN peers behind the same router/NAT and WAN peers
+  behind a shared CGNAT legitimately share one public IP, so an IP-keyed limiter can rate-limit
+  unrelated devices together (a false-positive-adjacent cost, not a security hole) — this is a
+  known, accepted tradeoff pattern (the Worker's own `MAX_PEERS_PER_NAMESPACE` doc comment accepts an
+  analogous one), not a defect to fix in this addendum. **Confidence: medium** on the exact
+  `nodeAddress()` extraction API remaining stable across the `@libp2p/interface` line — flagged for
+  Maker to re-verify against the resolved version at implementation time (`org-source-verification`),
+  since Multiaddr's helper surface has changed across major versions historically.
+- **Worker-edge, what's code vs. deploy-time config:** `workers/rendezvous/worker.js`'s own header
+  comment is explicit and current — "it does NOT rate-limit by IP or otherwise throttle callers. The
+  owner must configure Cloudflare-side rate limiting and/or a WAF rule." That remains correct after
+  this review; nothing in Slice C changes it. **Owner decision, explicitly flagged, not decided here:**
+  whether to configure Cloudflare's rate limiting for `/v1/register` before or concurrently with Slice
+  C shipping. This addendum recommends doing so promptly since Slice C's own client makes the register
+  endpoint reachable in practice for the first time (today it's live code with zero callers), but the
+  actual Cloudflare dashboard/WAF configuration is outside any ticket's code diff and is the owner's to
+  perform. Should any code-level per-source bound be added to `worker.js` itself now (e.g. a
+  `CF-Connecting-IP`-keyed counter in KV, as a belt-and-suspenders layer under the WAF)? **Not
+  recommended for T288's scope** — it would add a second write per register call, KV is not built for
+  fast counters (eventual consistency across edge PoPs, per the Worker's own comment on `GET`), and the
+  existing fixed-size/fixed-cap validation already bounds per-request work; a proper rate limiter
+  belongs in Cloudflare's purpose-built Rate Limiting product, not hand-rolled in KV. Flagged as an
+  explicit **owner decision** if the owner wants defense-in-depth beyond the WAF regardless.
+
+### 5. Signoff flag co-location
+
+The `discovery` capability's `signoff` entry in `transportCapabilities.js` (the block in §1 with
+`date: '2026-09-28'`) lands in the **same PR** as the rendezvous client and the egress-allowlist entry
+that authorizes it — never split across two PRs, and never landed before the client code it authorizes
+exists (an armed-but-unused signoff is as wrong as an unarmed one, per §1.2's positive-expectation
+assertion). This PR requires mandatory **Security** and **Red Hat** review before merge, per the
+existing project convention for Tier-4 boundary changes. `relay`, `dcutr`, `webrtc`, `websockets`,
+`webtransport`, `quic`, `kadDht`, `bootstrap`, `upnp` all keep `signoff: null` — untouched by this PR.
+
+### 6. Red-first seam plan
+
+Non-vacuity discipline (memory: "plant the defect the guard cannot see" — a test that only agrees with
+already-clean code proves nothing):
+
+1. **Per-capability gate, relay-still-blocked.** Fixture test: temporarily add
+   `@libp2p/circuit-relay-v2` to a copy of `package-lock.json`'s `packages` map (in-memory, not the
+   real file) and assert `1.1`'s assertion logic (extracted as a pure function taking the parsed
+   lockfile + registry) returns a non-empty `present` array. Must go red even though `discovery.signoff`
+   is set — proves flipping discovery does not widen the relay check.
+2. **Per-capability gate, transitive package.** Same fixture technique, but the forbidden package
+   appears only as a nested `node_modules/some-wrapper/node_modules/@libp2p/circuit-relay-v2` path —
+   must still be caught (proves the lockfile-walk, not direct-deps-only).
+3. **Discovery egress allowlist, importer-inheritance exploit.** Plant a fixture file
+   `electron/sync/__fixtures__/relayBridge.fixture.js` containing a `fetch(...)` call, imported (in the
+   fixture only) by a copy of the discovery client's source. Assert the egress scan still flags
+   `relayBridge.fixture.js` by its own basename — proves scope is file-identity-based, not
+   import-graph-based.
+4. **Wire-shape round-trip against a worker stub.** An in-process fake implementing exactly
+   `handleRegister`/`handlePeers` from `worker.js` (or literally importing `workers/rendezvous/worker.js`
+   against an in-memory KV mock, preferred — reuses the real handler instead of re-describing it) —
+   publish via the client, discover via the client, assert the decoded, verified record matches what
+   was published. Must fail loudly (not silently pass) if the client's body shape drifts from
+   `{namespace, peerId, record}`.
+5. **Address-key re-derivation self-heal.** Two simulated concurrent `mintRendezvousAddressKey` calls
+   on forked docs, merged via `A.merge`; assert the client's next-tick read (via the same `doc()`
+   accessor pattern) picks up whichever key survived the merge, not a stale closed-over value — this
+   is the test that would have failed had the client hoisted the key into a constructor param instead
+   of re-reading per tick.
+6. **Decrypt-failure = not-resolvable, not rejected.** A record signed with address key A, verified
+   with address key B (or no key) — assert `ok: true`, `addressBodyDecrypted: false`,
+   `record.addressBodyError` set, and assert the client's discover-side handling keeps the peer as
+   "known, unresolved" rather than dropping it.
+7. **Rate-limit key resists identity churn (Slice E+ prep, can land now as a unit test on the key
+   function alone, ungated by Slice E).** A pure function `rateLimitKeyFor(connection)` extracted from
+   the §4 design, unit-tested: two connections with different `remotePeer` values but the same
+   `remoteAddr` host produce the same key. This can be written and merged in T288 as pure, dead
+   (unwired) code with no capability implication, exactly like `rendezvousRecord.js` was merged unwired
+   — or deferred whole to the Slice E ticket. **Architect recommendation: defer whole to Slice E** —
+   writing dead rate-limit code now, ungated by any capability flag, doesn't reduce Slice E's risk and
+   adds a file nobody re-reviews before it's wired. Flagging as an open question for Governor rather
+   than deciding unilaterally, since it's a sequencing call, not a technical one.
+8. **LAN-only parity when discovery is disabled.** With `discovery.signoff` forced to `null` in a test
+   double of the registry, assert `syncStarter.js`'s actual startup path (already covered by existing
+   `mainSyncStartupWiring.test.js`-style AST/behavior assertions) is byte-identical to today's — this
+   is a regression guard that Slice C adds zero behavior when the capability is off, satisfying the
+   "additive, not replacing" framing implicit in the per-capability model.
+
+### 7. What could not be verified here
+
+- The exact stable API for extracting a bare IP string from a `Multiaddr` (`.nodeAddress()` vs
+  `.toOptions()` vs manual tuple parsing) was confirmed to exist in `@libp2p/interface@3.3.0`'s
+  `Connection.remoteAddr: Multiaddr` type, but the `Multiaddr` class itself ships from a different
+  package (`@multiformats/multiaddr`, a transitive dependency, not directly resolved by name in this
+  pass) — Maker must re-verify the exact helper method against ITS resolved version before implementing
+  §4's rate-limit key, per `org-source-verification`. Flagged, not assumed.
+- Whether `findInternetEgress`'s proposed dynamic-`import()` pattern in §1.3 produces false positives
+  against this codebase's existing legitimate dynamic imports (e.g. `syncStarter.js`'s own
+  `await import('./syncNode.js')`, which is a same-repo relative import, not egress, but IS a
+  non-literal-adjacent `import(` call depending on how the regex is scoped) — this needs to be run
+  against the real tree before being asserted as a red-first test, not just designed on paper. Flagged
+  as a Maker verification step, not resolved here.
+- Cloudflare's current dashboard-level rate-limiting configuration state for the deployed
+  `workers/rendezvous` route was not checked (no access to the Cloudflare account from this pass) — the
+  §4 recommendation to configure it "promptly" is based on the Worker source's own comment, not on
+  confirming today's actual deployed configuration.
+
+### Open questions for Governor (not decided in this addendum)
+
+1. Whether seam 7 (rate-limit-key-resists-churn unit test) lands in the T288 PR as dead/unwired code,
+   or is deferred whole to the Slice E ticket — a sequencing call, not a technical one (see §6 item 7).
+2. Owner decision, flagged not decided (§4): Cloudflare-side rate limiting / WAF configuration timing
+   for `/v1/register`, and whether a code-level KV-based per-source counter is wanted in `worker.js` as
+   defense-in-depth beyond the WAF (not recommended by this addendum, but the owner's call).
+3. The exact export name/shape `rendezvousClient.js` uses to hand discovered peers to `syncStarter.js`
+   (`createRendezvousDiscovery({campId, baseUrl})` returning something with the same shape as
+   `createMdnsDiscovery`, by analogy) is a naming/interface-shape choice narrow enough that Maker can
+   decide it during implementation rather than needing it pinned here — flagged so Governor can
+   confirm that's an acceptable amount of latitude to leave Maker, given this ADR is meant to leave
+   Maker no *architectural* judgment calls, and this one is not architectural (it's file-local naming).

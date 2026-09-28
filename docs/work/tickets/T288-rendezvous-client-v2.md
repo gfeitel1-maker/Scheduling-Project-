@@ -1,7 +1,7 @@
 ---
 title: "Slice C — rendezvous client built fresh to the v2 encrypted-record shape"
 document_type: ticket
-status: parked
+status: in-progress
 task_class: security-auth
 date: 2026-09-27
 created: 2026-09-27
