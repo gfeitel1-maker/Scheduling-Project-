@@ -18,7 +18,16 @@ describe('inferPreferenceMapping', () => {
     const m = inferPreferenceMapping(HEADER)
     expect(m.nameIndex).toBe(0)
     expect(m.divisionIndex).toBe(1)
-    expect(m.rankColumns).toEqual([{ rank: 1, index: 3 }, { rank: 2, index: 4 }, { rank: 3, index: 5 }])
+    // `coordinate: null` joins each entry in T285 slice B — a rank column may now
+    // name its own cell ("Monday Period 3 - First Choice"), and a plain `#N`
+    // header names none. Asserted explicitly rather than loosened away, because
+    // which coordinate a rank column carries decides which period a child's
+    // first choice lands in.
+    expect(m.rankColumns).toEqual([
+      { rank: 1, index: 3, coordinate: null },
+      { rank: 2, index: 4, coordinate: null },
+      { rank: 3, index: 5, coordinate: null },
+    ])
     expect(m.externalIdIndex).toBeNull()
   })
 
@@ -61,8 +70,12 @@ describe('parsePreferenceSheet', () => {
   it('flags two campers with the same name instead of merging them', () => {
     const rows = [HEADER, ROWS[1], ['Ari Green', 'Bogrim', 'N', 'Gaga', 'Archery', 'Sailing', '']]
     const out = parsePreferenceSheet(rows, { campId: 'camp-1', mapping })
+    // T279: `divisionLabels` joins the entry, in row order. The refusal sentence
+    // has to name each row's division — it is the disambiguation evidence that
+    // lets a director say "those are two different kids", and the message
+    // carried nothing of the kind before (ADR 2026-09-27 §12.2a).
     expect(out.sameNameCampers).toEqual([
-      { display_name: 'Ari Green', rowNumbers: [2, 3] },
+      { display_name: 'Ari Green', rowNumbers: [2, 3], divisionLabels: ['Arad', 'Bogrim'] },
     ])
     // Not merged, not silently split: one id, and a decision handed back.
     expect(new Set(out.campers.map((c) => c.id)).size).toBe(1)

@@ -18,25 +18,37 @@ and `README.md` all derive from it rather than maintaining their own copies.
 
 ## 1. The gates
 
-**`npm run verify` is the gate.** It runs these six steps, in this order, stopping at the first
+**`npm run verify` is the gate.** It runs these eight steps <!-- doc-fact:verify_step_count value=8 -->, in this order, stopping at the first
 failure, and prints a single `✅ VERIFY PASSED` / `❌ VERIFY FAILED` / `⚠️ VERIFY INCONCLUSIVE`
-verdict line. Read that line; never read the exit code of a piped or tee'd wrapper.
+verdict line. Read that line; never read the exit code of a piped or tee'd wrapper. The
+authoritative list and order is `VERIFY_STEPS` in `scripts/verify.js`; this table derives from it.
 
 | # | Command | Covers |
 |---|---|---|
 | 1 | `npm run agents:check` | Every `.claude/agents/` profile still round-trips from its bindings |
 | 2 | `npm run check:governance` | Frontmatter shape, reference paths, index freshness, status drift, and descriptive docs naming deleted paths |
-| 3 | `npm run build` | The production bundle. The only step that exercises the bundler |
-| 4 | `npm run security` | npm-audit, secret scan, dangerous-pattern scan |
-| 5 | `npm run test:integration` | **Multi-node** scenarios: pairing, revocation, token renewal, conflict detection, clock skew, role changes |
-| 6 | `npm run lint` | ESLint, including the ban on reintroducing `@supabase/*` imports |
-| 7 | `npm run test` | The Vitest suite |
+| 3 | `npm run licenses:check` | Third-party license manifest (`electron/third-party-licenses.json`) is current (`scripts/generate-licenses.js --check`) |
+| 4 | `npm run build` | The production bundle. The only step that exercises the bundler |
+| 5 | `npm run security` | npm-audit, secret scan, dangerous-pattern scan |
+| 6 | `npm run test:integration` | **Multi-node** scenarios: pairing, revocation, token renewal, conflict detection, clock skew, role changes |
+| 7 | `npm run lint` | ESLint, including the ban on reintroducing `@supabase/*` imports |
+| 8 | `npm run test` | The Vitest suite |
 
 **The order is cheapest-first and is load-bearing, not cosmetic.** Because the gate short-circuits,
 a step placed after an expensive one is not reported until that expensive one has finished. These
-six are sorted by measured cost so a failure is reported as early as it can be. Re-measure and
+eight are sorted by measured cost so a failure is reported as early as it can be. Re-measure and
 re-sort if a step's cost changes materially; `scripts/verify.test.js` asserts the ordering property,
 not merely the literal list.
+
+The "eight" on the gate line above carries a `<!-- doc-fact:verify_step_count value=8 -->` marker.
+This is the **doc-fact freshness gate** (T295, `scripts/doc-facts.js` + `checkDocFacts` in
+`scripts/check-governance.js`): a marked claim's `value=` is compared, on every `check:governance`
+run, against a value derived deterministically from source (here, the length of `VERIFY_STEPS`; for
+the schema-version marker in `PLATFORM_STATE.md`, `CURRENT_SCHEMA_VERSION`). A mismatch is a
+**blocking** finding. If you change the number of steps, update both the prose and the marker's
+`value=` in the same commit — the gate will otherwise fail the build, by design. The registry of
+checkable facts is `DOC_FACTS`; add an entry (with a source-only, DB-free `derive`) plus a marker to
+extend it.
 
 **`npm run build` was added on 2026-09-17, resolving T188 §7.1.** This standard had named it a gate
 for months while `scripts/verify.js` never ran it — `git log -S` shows it was never in

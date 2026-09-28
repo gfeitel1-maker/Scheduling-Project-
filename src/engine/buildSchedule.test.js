@@ -38,19 +38,19 @@ describe('anchored activities excluded from regular placement', () => {
     expect(anchorSlots.length).toBeGreaterThan(0)
   })
 
-  // T62 regression, real-row shape. The two assertions above use an anchor
-  // carrying `activity_id` — a field `fixed_events` has never had (no
-  // migration adds it; electron/ops/ingest.js writes name/day/block/scope and
-  // no activity link). A real anchor references its activity BY NAME, so
-  // `anchoredActivityIds` is empty in production and the T62 exclusion never
-  // fires: an activity that is already anchored is placed a second time as a
-  // regular slot. This test uses the row shape the app actually produces.
-  it('never places an anchored activity as a regular slot when the anchor links by NAME (real row shape)', () => {
+  // T62 regression, real-row shape post-PR2 (T267). This fixture carries
+  // `activity_id` — the real shape electron/ops/ingest.js now writes since the
+  // fixed_events → activities activity_id link landed. resolveAnchorActivityIds
+  // (buildSchedule.js) resolves BY activity_id, so `anchoredActivityIds` is
+  // populated in production and the T62 exclusion fires: an activity that is
+  // already anchored is NOT placed a second time as a regular slot. This test
+  // confirms Lunch is correctly excluded from regular placement.
+  it('never places an anchored activity as a regular slot when the anchor links by id (real row shape)', () => {
     const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
     const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
     const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
-    // No activity_id — exactly what electron/ops/ingest.js writes.
-    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    // Carries activity_id — the row shape electron/ops/ingest.js writes post-PR2.
+    const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [lunch], anchors: [anchor] }))
 
     const regularLunchSlots = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
@@ -66,7 +66,7 @@ describe('anchored activities excluded from regular placement', () => {
     const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
     const swim = { id: 'swim', name: 'Swim', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 5, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     // A Recurring event: scoped to g1 only, no activity_id — the real row shape.
-    const anchor = { id: 'anc-rec', name: 'Swim', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc-rec', activity_id: 'swim', name: 'Swim', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const { slots } = buildSchedule(minimal({ groups: [baseGroup, g2], timeBlocks: [baseBlock, block2], activities: [swim], anchors: [anchor] }))
 
     const regular = slots.filter(s => s.type === 'activity' && s.activityId === 'swim')
@@ -92,7 +92,7 @@ describe('anchored activities excluded from regular placement', () => {
     const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
     const swim = { id: 'swim', name: 'Swim', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 5, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     // Pinned Monday only, for g1's division — the post-T180 shape.
-    const anchor = { id: 'anc-mon', name: 'Swim', unit_id: null, unit_ids: ['t1'], is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc-mon', activity_id: 'swim', name: 'Swim', unit_id: null, unit_ids: ['t1'], is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
     const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [swim], anchors: [anchor] }))
 
     const regular = slots.filter(s => s.type === 'activity' && s.activityId === 'swim')
@@ -105,7 +105,7 @@ describe('anchored activities excluded from regular placement', () => {
   it('still excludes the anchored activity at ANOTHER BLOCK on the pinned day (the T62 bug)', () => {
     const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
     const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
-    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
     const { slots } = buildSchedule(minimal({ timeBlocks: [baseBlock, block2], activities: [lunch], anchors: [anchor] }))
     // Day scoping must NOT become block scoping: same group, same day, Lunch
     // again two hours later is exactly what T62 was about.
@@ -443,7 +443,7 @@ describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)
   const lunch = { id: 'lunch', name: 'Lunch', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
 
   it('flags a persisted regular slot whose activity is anchored for that group (stale case)', () => {
-    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: true, flags: {} },
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_anchor: false, flags: {} },
@@ -466,7 +466,7 @@ describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)
   it('does NOT flag a regular slot on a day the activity is not anchored', () => {
     const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
     const swim = { id: 'swim', name: 'Swim', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
-    const anchor = { id: 'anc-mon', name: 'Swim', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc-mon', activity_id: 'swim', name: 'Swim', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: true, flags: {} },
       { group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'swim', is_anchor: false, flags: {} },
@@ -478,7 +478,7 @@ describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)
   it('still flags a regular slot on the SAME day the activity is anchored', () => {
     const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
     const swim = { id: 'swim', name: 'Swim', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
-    const anchor = { id: 'anc-mon', name: 'Swim', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc-mon', activity_id: 'swim', name: 'Swim', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: true, flags: {} },
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'swim', is_anchor: false, flags: {} },
@@ -488,7 +488,7 @@ describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)
   })
 
   it('emits no ANCHOR_DUPLICATE for a correctly-generated (non-stale) schedule', () => {
-    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, is_anchor: true, flags: {} },
     ]
@@ -498,26 +498,30 @@ describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)
 
   // Round-2 (Red Hat): the fixtures above hand-build slots directly, which
   // proves the audit logic in isolation but never exercises the real
-  // staleness path — an anchor renamed AFTER a schedule was generated. These
-  // two run the REAL engine to produce generated slots, then evaluate
-  // computeFindings against the anchor state as it exists NOW (post-rename),
-  // which is exactly what the screen does on reload.
-  it('E2E: a real build with a mismatched anchor name places Lunch as regular, and a post-rename anchor flags it as ANCHOR_DUPLICATE', () => {
+  // staleness path. T267 PR2 makes resolution id-based, so a plain rename of
+  // the anchor's free-text `name` can no longer go stale (the link doesn't
+  // live in the name at all) — the remaining staleness case is the
+  // `activity_id` itself changing (e.g. relinked to a different catalog row)
+  // AFTER a schedule was generated against the old link. These two run the
+  // REAL engine to produce generated slots, then evaluate computeFindings
+  // against the anchor state as it exists NOW (post-relink), which is
+  // exactly what the screen does on reload.
+  it('E2E: a real build with no activity_id places Lunch as regular, and a post-link anchor flags it as ANCHOR_DUPLICATE', () => {
     // A second block so the anchor occupying b1 leaves room for Lunch to
     // place regularly in b2.
     const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
-    // At build time the anchor's name ("Lnch") does not match any activity,
-    // so Pass 1's name resolution excludes nothing and Lunch places normally.
-    const staleAnchor = { id: 'anc1', name: 'Lnch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    // At build time the anchor has no activity_id (an identity gap), so Pass
+    // 1's resolution excludes nothing and Lunch places normally.
+    const staleAnchor = { id: 'anc1', activity_id: null, name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const { slots } = buildSchedule(minimal({ groups, days, timeBlocks: [baseBlock, block2], activities: [{ ...lunch, min_per_week: 1, priority: 'high', max_per_week: 10, eligible_tier_ids: [], eligible_group_ids: [] }], anchors: [staleAnchor] }))
     const regularLunch = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
     expect(regularLunch.length).toBeGreaterThan(0)
 
-    // Director renames the anchor to "Lunch" after generation — the schedule
-    // on screen is unchanged (still holds the regular Lunch slot from above).
-    const renamedAnchor = { ...staleAnchor, name: 'Lunch' }
+    // Director (or ingest) links the anchor to Lunch after generation — the
+    // schedule on screen is unchanged (still holds the regular Lunch slot).
+    const linkedAnchor = { ...staleAnchor, activity_id: 'lunch' }
     const dbSlots = slots.map(s => ({ group_id: s.groupId, day_id: s.dayId, time_block_id: s.blockId, activity_id: s.activityId, is_anchor: s.type === 'anchor', is_span_head: s.is_span_head, flags: {} }))
-    const findings = computeFindings({ slots: dbSlots, groups, activities: [lunch], days, anchors: [renamedAnchor], weekId: null })
+    const findings = computeFindings({ slots: dbSlots, groups, activities: [lunch], days, anchors: [linkedAnchor], weekId: null })
     const dup = findings.filter(f => f.kind === 'ANCHOR_DUPLICATE')
     expect(dup).toHaveLength(1)
     expect(dup[0]).toMatchObject({ groupId: 'g1', activityId: 'lunch' })
@@ -526,7 +530,7 @@ describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)
   it('E2E: a freshly-generated in-sync schedule (anchor name matching at build time) emits no ANCHOR_DUPLICATE', () => {
     // Anchor name matches Lunch at build time, so Pass 1 excludes Lunch from
     // regular placement — the same-named anchor covers it instead.
-    const inSyncAnchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const inSyncAnchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const { slots } = buildSchedule(minimal({ groups, days, timeBlocks: [baseBlock], activities: [{ ...lunch, min_per_week: 1, priority: 'high', max_per_week: 10, eligible_tier_ids: [], eligible_group_ids: [] }], anchors: [inSyncAnchor] }))
     const regularLunch = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
     expect(regularLunch).toHaveLength(0)
@@ -538,7 +542,7 @@ describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)
 
   it('does not flag a different group\'s legitimate regular slot when the anchor is scoped to another group', () => {
     const g2 = { id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }
-    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'anchor-slot', is_anchor: true, flags: {} },
       { group_id: 'g2', day_id: 'd1', time_block_id: 'b2', activity_id: 'lunch', is_anchor: false, flags: {} },
@@ -563,7 +567,7 @@ describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)
   it('emits no ANCHOR_DUPLICATE for an activity that is week-closed for this week, even though its all-weeks anchor is live', () => {
     const swim = { id: 'swim', name: 'Swim', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     // schedule_week_id: null — an all-weeks anchor, unaffected by the week close.
-    const anchor = { id: 'anc-swim', name: 'Swim', schedule_week_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc-swim', activity_id: 'swim', name: 'Swim', schedule_week_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'swim', is_anchor: false, flags: {} },
     ]
@@ -577,7 +581,7 @@ describe('computeFindings ANCHOR_DUPLICATE (T182 stale anchor/regular duplicate)
 
   it('control: the same setup DOES fire when Swim is not week-closed', () => {
     const swim = { id: 'swim', name: 'Swim', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
-    const anchor = { id: 'anc-swim', name: 'Swim', schedule_week_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc-swim', activity_id: 'swim', name: 'Swim', schedule_week_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const slots = [
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'swim', is_anchor: false, flags: {} },
     ]
@@ -598,21 +602,21 @@ describe('anchoredActivityIdsByGroupDay (shared helper, T182; keyed by day since
   const lunch = { id: 'lunch', name: 'Lunch' }
 
   it('resolves a name-linked anchor to its activity id, scoped to is_all_groups', () => {
-    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const map = anchoredActivityIdsByGroupDay([anchor], [lunch], groups, { days })
     expect(map.get('g1|d1')?.has('lunch')).toBe(true)
   })
 
   it('scopes to explicit group_ids when unit_id absent and is_all_groups false', () => {
     const g2 = { id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }
-    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const map = anchoredActivityIdsByGroupDay([anchor], [lunch], [baseGroup, g2], { days })
     expect(map.get('g1|d1')?.has('lunch')).toBe(true)
     expect(map.get('g2|d1')?.has('lunch')).toBeFalsy()
   })
 
   it('filters out an anchor bound to a different schedule_week_id', () => {
-    const anchor = { id: 'anc1', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: 'week-2' }
+    const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: 'week-2' }
     const map = anchoredActivityIdsByGroupDay([anchor], [lunch], groups, { days, weekId: 'week-1' })
     expect(map.get('g1|d1')).toBeUndefined()
   })
@@ -627,7 +631,7 @@ describe('anchoredActivityIdsByGroupDay (shared helper, T182; keyed by day since
   it('marks only the day an anchor is pinned to, not the whole week', () => {
     const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
     const swim = { id: 'swim', name: 'Swim' }
-    const anchor = { id: 'anc-mon', name: 'Swim', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc-mon', activity_id: 'swim', name: 'Swim', unit_id: null, is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'b1', span_blocks: 1 }
     const map = anchoredActivityIdsByGroupDay([anchor], [swim], groups, { days: [baseDay, day2] })
     expect(map.get('g1|d1')?.has('swim')).toBe(true)
     expect(map.get('g1|d2')?.has('swim')).toBeFalsy()
@@ -635,7 +639,7 @@ describe('anchoredActivityIdsByGroupDay (shared helper, T182; keyed by day since
 
   it('a null day_id still covers every day', () => {
     const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
-    const anchor = { id: 'anc-all', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const anchor = { id: 'anc-all', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const map = anchoredActivityIdsByGroupDay([anchor], [lunch], groups, { days: [baseDay, day2] })
     expect(map.get('g1|d1')?.has('lunch')).toBe(true)
     expect(map.get('g1|d2')?.has('lunch')).toBe(true)
@@ -2037,5 +2041,23 @@ describe('cross-cohort route conflicts', () => {
     }))
 
     expect(result.conflicts).toHaveLength(0)
+  })
+})
+
+// Review finding #2 (MEDIUM) — every ANCHOR_IDENTITY_GAP finding carried
+// groupId:null, activityId:null, so findingDismissKey (src/screens/schedule/
+// findingKey.js) derived the SAME key for every such finding after a T267
+// PR2 migration leaves multiple fixed_events rows with null activity_id —
+// dismissing one silently hid the rest. Each finding must carry a
+// per-anchor discriminator (anchorId) distinct findings can key off.
+describe('ANCHOR_IDENTITY_GAP findings carry a per-anchor discriminator', () => {
+  it('two anchors with null activity_id each produce their own finding with a distinct anchorId', () => {
+    const anchor1 = { id: 'anc-gap-1', name: 'Mifkad', activity_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const anchor2 = { id: 'anc-gap-2', name: 'Lunch', activity_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const result = buildSchedule(minimal({ anchors: [anchor1, anchor2] }))
+
+    const gapFindings = result.findings.filter(f => f.kind === 'ANCHOR_IDENTITY_GAP')
+    expect(gapFindings).toHaveLength(2)
+    expect(gapFindings.map(f => f.anchorId).sort()).toEqual(['anc-gap-1', 'anc-gap-2'])
   })
 })

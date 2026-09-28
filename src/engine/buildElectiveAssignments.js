@@ -212,9 +212,28 @@ export function buildElectiveAssignments({
     if (!byKey.has(key)) byKey.set(key, { byOccurrence: new Map(), fallback: null })
     return byKey.get(key)
   }
+  // T285 — BOTH SCOPES FOLD TO THE BEST (LOWEST) RANK. `entry.fallback = rank`
+  // was a bare assignment, so the LAST whole-run row seen won: a camper naming
+  // Swim at #1 and again at #5 ended up holding rank 5 for Swim and losing to a
+  // #2 they had ranked WORSE.
+  //
+  // Three things agreed against it and it contradicted all of them: its own
+  // sibling `choiceRankMinOverMembers` (below) folds to the minimum; ADR §12.2b
+  // rules "best (lowest) rank wins" for exactly this collision; and the parser
+  // already implements that ruling. The engine must be right on its own terms
+  // rather than relying on a caller to pre-clean its input — the parser
+  // de-duplicates this today, but `buildElectiveAssignments` is a pure exported
+  // function with other callers and tests.
+  //
+  // The occurrence-scoped side gets the same fold for the same reason: two rows
+  // naming one choice in one cell is the same collision, one scope down.
+  const better = (held, rank) => (held == null || (rank != null && rank < held) ? rank : held)
   const record = (entry, occurrenceId, rank) => {
-    if (occurrenceId != null) entry.byOccurrence.set(occurrenceId, rank)
-    else entry.fallback = rank
+    if (occurrenceId != null) {
+      entry.byOccurrence.set(occurrenceId, better(entry.byOccurrence.get(occurrenceId) ?? null, rank))
+    } else {
+      entry.fallback = better(entry.fallback, rank)
+    }
   }
   const rankAt = (camperId, occurrenceId, labelKey) => {
     const entry = rankOf.get(camperId)?.get(labelKey)

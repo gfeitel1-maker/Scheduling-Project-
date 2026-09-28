@@ -6,12 +6,12 @@
   },
   "roles": {
     "architect": {
-      "adapter_hash": "11029372130d3e39",
-      "generated_hash": "9cde8fe7f36dfcd5"
+      "adapter_hash": "f60a4c6e3e2e361d",
+      "generated_hash": "2577f24c127be2db"
     },
     "architecture-auditor": {
-      "adapter_hash": "b33bebfac5c16af9",
-      "generated_hash": "b33bebfac5c16af9"
+      "adapter_hash": "46ac2dc40ab9b7fd",
+      "generated_hash": "46ac2dc40ab9b7fd"
     },
     "code-reviewer": {
       "adapter_hash": "bf1ca9b4406555e8",
@@ -22,20 +22,20 @@
       "generated_hash": "5602011c8e655eb8"
     },
     "designer": {
-      "adapter_hash": "cfc7a7697b997ed1",
-      "generated_hash": "26b2cd4fa5579318"
+      "adapter_hash": "af125bb4364edcd2",
+      "generated_hash": "72f6aab8e05bb5b3"
     },
     "governor": {
-      "adapter_hash": "632ee4fcaad7e4bc",
-      "generated_hash": "65f363c05fcd430e"
+      "adapter_hash": "18b7809150a8c2cd",
+      "generated_hash": "b6032b411251e6fb"
     },
     "grader": {
       "adapter_hash": "f932de4a371c9445",
       "generated_hash": "6b7188ebeee20b23"
     },
     "maker": {
-      "adapter_hash": "5d6641ad6a18d6c1",
-      "generated_hash": "dd6f0bd5980ae2af"
+      "adapter_hash": "bcaf64f51a13cd8b",
+      "generated_hash": "b80e6c27d43cd15e"
     },
     "red-hat": {
       "adapter_hash": "7f6bab7536f9f9b4",

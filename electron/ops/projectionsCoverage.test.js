@@ -206,8 +206,11 @@ const UNRESOLVED_SPREAD_SOURCES = [
     entity: 'fixed_events',
     // Human-verified: `base` (saveAnchor(), `fields` from AnchorModal.save()
     // minus `selectedDays`) and `record` (import path, `row` minus
-    // warning/_dayLabel/_blockName/_tierNames).
-    fields: ['name', 'is_all_groups', 'group_ids', 'time_block_id', 'notes', 'day_id', 'camp_id', 'cohort_id', 'schedule_week_id'],
+    // warning/_dayLabel/_blockName/_tierNames). T267 PR2 adds `activity_id`:
+    // saveAnchor()/confirmImport() now resolve the typed/imported name to a
+    // catalogue activity and write its id (electron write path,
+    // PROJECTIONS.fixed_events.fields registers it).
+    fields: ['name', 'is_all_groups', 'group_ids', 'time_block_id', 'notes', 'day_id', 'camp_id', 'cohort_id', 'schedule_week_id', 'activity_id'],
   },
   {
     file: 'src/screens/schedule/useSlotMutations.js',

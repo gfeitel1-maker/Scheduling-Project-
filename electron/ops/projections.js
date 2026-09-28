@@ -840,7 +840,14 @@ export const PROJECTIONS = {
   campers: {
     table: 'campers',
     key: 'id',
-    fields: ['camp_id', 'display_name', 'group_id', 'external_id', 'is_active'],
+    // division_label (v79) is PROVENANCE — the division as written on an
+    // imported file. It MUST be listed: applyProjection returns silently for a
+    // field absent from this array, so omitting it leaves the column empty
+    // everywhere with no error and no log.
+    fields: [
+      'camp_id', 'display_name', 'group_id', 'external_id', 'is_active', 'division_label',
+      'is_unattributed',
+    ],
     ensureExists: (db, id) => {
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
       getStmt(db, "INSERT OR IGNORE INTO campers (id, camp_id, display_name) VALUES (?, ?, '')").run(
@@ -943,7 +950,13 @@ export const PROJECTIONS = {
   elective_preferences: {
     table: 'elective_preferences',
     key: 'id',
-    fields: ['run_id', 'camper_id', 'occurrence_id', 'choice_id', 'rank'],
+    // rank_kind and the two coordinate columns (v79) — same allowlist trap as
+    // campers.division_label above, and appendOp THROWS 'field not allowed for
+    // entity' for an unlisted field, so a missing entry fails the whole commit.
+    fields: [
+      'run_id', 'camper_id', 'occurrence_id', 'choice_id', 'rank', 'rank_kind',
+      'coordinate_day_label', 'coordinate_period_label',
+    ],
     ensureExists: (db, id, field, value) => {
       if (field !== 'run_id') return
       ensureRunStub(db, value)

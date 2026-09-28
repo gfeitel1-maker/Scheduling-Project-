@@ -3,7 +3,7 @@ title: "Per-camp genesis identity for T202's re-pair gap — recommendation"
 document_type: adr
 authority: normative
 status: accepted
-implementation_state: not_started
+implementation_state: implemented
 date: 2026-09-19
 decided: 2026-09-19
 deciders: [product-owner]

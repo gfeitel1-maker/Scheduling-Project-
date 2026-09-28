@@ -85,5 +85,34 @@ export function buildStructureIssues(collections) {
     }
   }
 
+  // UNATTRIBUTED SUBJECTS (T285). A camper whose NAME this app does not know, from
+  // a planner grid that carries no name column because the identity comes from the
+  // SUBMISSION rather than the page.
+  //
+  // OWNER RULING on where this goes: the existing attention surface, not a bespoke
+  // screen and not a banner (standing rule — banners are "SaaS nonsense"; state that
+  // needs surfacing goes in the vocabulary that already exists). A camper whose name
+  // we do not know is exactly the shape of thing this list already carries. That
+  // also settles agent access: the same list, not a special-case query.
+  //
+  // This is the only READER of `campers.is_unattributed`. Before it the column had
+  // one writer and no reader at all, so the import's own residue — "name the camper
+  // when you know them, and nothing needs re-importing" — was a false promise: there
+  // was no surface on which to know.
+  for (const camper of collections.campers ?? []) {
+    if (camper.is_unattributed !== 1) continue
+    issues.push({
+      // The camper id is IN the item id, because acting on this means attributing
+      // that specific subject and the surface is the only place it is offered.
+      id: `unattributed-camper:${camper.id}`,
+      // The label the import kept (its filename), which is how a director recognises
+      // which submission this is.
+      name: camper.display_name || 'An unnamed sheet',
+      why: 'We have this camper\u2019s choices but not their name — who is this?',
+      domainTag: 'Campers',
+      sourceKind: 'unattributed-camper',
+    })
+  }
+
   return issues
 }

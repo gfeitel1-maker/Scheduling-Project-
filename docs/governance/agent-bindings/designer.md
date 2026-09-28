@@ -75,7 +75,7 @@ your spec — cite the token name and let the standard define it. One copy, one 
   Per-cell computed geometry (`gridRow`, `gridColumn`) and data-derived colours stay inline.
   A **new** ephemeral cell state is specced as a data attribute plus a rule in `scheduleGrid.css`,
   never as React state.
-- **DnD:** Drag interactions use `@dnd-kit/core` with `distance: 8` activation.
+- **DnD:** Drag interactions use `@dnd-kit/core` with `distance: 5` activation.
 - **Motion** always ships a `prefers-reduced-motion` fallback.
 - If you believe the standard itself should change, that is a **human gate**
   (`CONSTITUTION.md` Art. IV) — propose it to Governor; never design around it.

@@ -3,7 +3,7 @@ title: "Schema-version handshake and a version gate before Automerge merge"
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: in-progress
 date: 2026-09-26
 decided: 2026-09-26
 deciders: [architect, product-owner]

@@ -14,6 +14,7 @@ import { LocationPicker } from '../components/LocationPicker'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
 import { resolveAnchorUnitIds } from '../engine/anchorScope.js'
+import { whitespaceInsensitiveName } from '../ingest/preview.js'
 import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
 
 // Repository-only migration (not the full useCrudScreen hook): load() fans out
@@ -268,6 +269,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
   const [groups, setGroups] = useState([])
   const [weeks, setWeeks] = useState([])
   const [locations, setLocations] = useState([])
+  const [activities, setActivities] = useState([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [importStep, setImportStep] = useState(null)
@@ -292,7 +294,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
     setLoading(true)
     setError(null)
     try {
-      const [aData, dData, bData, tData, gData, wData, lData] = await Promise.all([
+      const [aData, dData, bData, tData, gData, wData, lData, actData] = await Promise.all([
         localClient.list('fixed_events'),
         localClient.list('days_of_operation'),
         localClient.list('time_blocks'),
@@ -300,6 +302,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
         localClient.list('groups'),
         localClient.list('schedule_weeks'),
         localClient.list('locations'),
+        localClient.list('activities'),
       ])
       const list = (aData || [])
         // kind is NOT NULL post-migration (v51 CHECK, docs/adr/2026-08-28-
@@ -329,6 +332,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
         .filter(w => w.camp_id === campId)
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
       setLocations((lData || []).filter(l => l.camp_id === campId))
+      setActivities((actData || []).filter(a => a.camp_id === campId))
     } catch {
       setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
@@ -367,9 +371,53 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
     }
   }
 
+  // T267 PR2 — resolve the typed name to a catalogue activity, the same
+  // recognition key ingest and the engine use (whitespaceInsensitiveName).
+  // Never writes a fixed_events row with a null activity_id: exactly one
+  // match links to it (marking it pinned if it wasn't already); zero matches
+  // creates a new pinned activity; two-or-more is an ambiguity the director
+  // must resolve by renaming, surfaced as a save error rather than guessed.
+  // `activityList` defaults to the (possibly stale) `activities` React
+  // state, correct for the single-shot modal save. `confirmImport` passes an
+  // explicit in-loop array it mutates in place, so the 2nd..Nth row of a
+  // multi-day recurring import (all sharing one name) sees the activity the
+  // 1st row just created instead of re-creating it — see electron/ops/ingest.js's
+  // activityIdByName map for the same pattern.
+  async function resolveActivityLink(name, activityList = activities) {
+    const key = whitespaceInsensitiveName(name)
+    const matches = activityList.filter((a) => whitespaceInsensitiveName(a.name) === key)
+    if (matches.length === 1) {
+      if (matches[0].catalog_role !== 'pinned_event') {
+        await repository.writeFields('activities', matches[0].id, { catalog_role: 'pinned_event' })
+      }
+      return matches[0].id
+    }
+    if (matches.length === 0) {
+      const newActivityId = crypto.randomUUID()
+      await repository.createRecord('activities', newActivityId, {
+        name, camp_id: campId, catalog_role: 'pinned_event',
+      })
+      activityList.push({ id: newActivityId, camp_id: campId, name, catalog_role: 'pinned_event' })
+      return newActivityId
+    }
+    throw new Error(`"${name}" matches more than one activity in your catalog — rename one of them before saving.`)
+  }
+
   async function saveAnchor(id, fields) {
     if (!activeCohort) return
-    const { selectedDays, ...base } = fields
+    const { selectedDays, ...rest } = fields
+    let activityId
+    try {
+      activityId = await resolveActivityLink(rest.name)
+    } catch (err) {
+      setError(
+        err.message?.includes('matches more than one activity')
+          ? err.message
+          : describeWriteFailure(err, `That ${eventLabel} could not be saved.`)
+      )
+      throw err
+    }
+    const base = { ...rest, activity_id: activityId }
     try {
       if (id) {
         // Editing: update existing record, use first selected day
@@ -653,12 +701,16 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
     setImporting(true)
     try {
       let added = 0, skipped = 0, skippedWithOrphan = 0, filedElsewhere = 0
+      // Shared across the whole loop so same-named rows (a recurring event's
+      // several days) link to one activity instead of each creating its own.
+      const activityCache = [...activities]
       for (const row of importRows) {
         if (!row.name || row.warning) { skipped++; continue }
         const { warning: _warning, _dayLabel, _blockName, _tierNames, ...record } = row
         const newId = crypto.randomUUID()
         try {
-          await writeFields(newId, { ...record, camp_id: campId, cohort_id: activeCohort.id })
+          const activityId = await resolveActivityLink(record.name, activityCache)
+          await writeFields(newId, { ...record, activity_id: activityId, camp_id: campId, cohort_id: activeCohort.id })
         } catch {
           const cleanedUp = await cleanupPartialRow(newId)
           if (cleanedUp) {

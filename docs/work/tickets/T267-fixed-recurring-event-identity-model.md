@@ -1,7 +1,7 @@
 ---
 title: T267-fixed-recurring-event-identity-model
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-09-26
 task_class: architecture
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md, docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md]
@@ -46,3 +46,13 @@ cosmetic rename cleanup.
 - T266 (`activities.catalog_role`) — absorbed by this ticket, not superseded.
 - T197 (elective run outer-schedule export) — `electron/ops/electiveRunOuterSchedule.js` returns
   `activityId: null` for an anchor today because no `activity_id` exists. Coordinate before landing.
+
+## Closed 2026-09-28 — full archive_when discharged
+
+All three PRs of the plan are merged to `main`:
+
+- **PR1** (#560, schema v78) — `anchor_activities` renamed `fixed_events`, `activity_id` column added and backfilled at migration; `activities.catalog_role` (T266) absorbed.
+- **PR2** (#597) — resolution cut over to `activity_id`; name-matching fallback (`anchorNameKey`, `indexActivitiesByName`) **deleted**; `ANCHOR_IDENTITY_GAP` refuse gate makes a fixed/recurring event that does not resolve to exactly one activity a **visible** error that blocks generation; write paths (Anchors screen, ingest, elective outer-schedule / T197) now set `activity_id`; tests pin "exactly one" and "once per group per day".
+- **PR3** (#601) — cosmetic close-out: comments/version tag corrected to the two-keys model (free-choice exclusion by `catalog_role`, anchor-duplicate exclusion by `activity_id`); no behavior change.
+
+**Deliberately left (not part of archive_when):** load-bearing persisted identifiers (`type:'anchor'`, `is_anchor`, `anchorId`), routing/census keys (`anchors`/`fixedevents`), and the owner-gated user-facing "Event" labels — the last is tracked as a naming decision in the T293 vocabulary spec.

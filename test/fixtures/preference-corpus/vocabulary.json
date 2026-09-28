@@ -1,0 +1,22 @@
+{
+  "_provenance": "HAND-AUTHORED. Every person-name-SHAPED string (two or more consecutive capitalised words) that the probe corpus is allowed to contain besides a camper name from synthetic-names.json. Reviewed entry by entry: none of these is a person. If the generator needs a new person-shaped string it must be added here deliberately, which is the review step the privacy guard cannot perform (ADR section 8.0 clause 4).",
+  "_enforced_by": "test/preferenceCorpusNames.test.js",
+  "allowed": [
+    "Camper Name", "Student Name", "Child Name", "Camper ID", "Camper Number",
+    "Student ID", "First Name", "Last Name", "Counselor Name", "Activity Name",
+    "Bunk Name", "Parent Email",
+    "Rock Climbing", "Arts And Crafts", "Free Swim", "Instructional Swim",
+    "Bunk Unity", "Ropes Course", "Water Polo", "Ultimate Frisbee",
+    "Additional Comments", "Activities Chosen", "Swim Alternative", "Activity Selection",
+    "Schedule Planner", "Next Five Choices", "Offerings Menu",
+    "Period Number", "Day Of Week", "Time Block", "Choice Rank",
+    "First Choice", "Second Choice", "Third Choice", "Fourth Choice", "Fifth Choice",
+    "Monday Period", "Tuesday Period", "Wednesday Period", "Thursday Period", "Friday Period",
+    "Monday Afternoon", "Friday Afternoon",
+    "Total Campers", "Please Return", "Do Not Write Below This Line",
+    "Camp Office Use Only", "Sports Track", "Arts Track", "Outdoor Track",
+    "Upper Division", "Lower Division", "Middle Division",
+    "Monday Night Live", "Friday Night Program",
+    "Opt Out", "Must Have", "Would Like To Have"
+  ]
+}

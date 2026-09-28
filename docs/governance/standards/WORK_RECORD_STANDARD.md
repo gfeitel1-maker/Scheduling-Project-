@@ -359,7 +359,9 @@ stale.
 
 ## 7. Enforcement
 
-`npm run check:governance` is **blocking**, and `npm run verify` runs it after `lint` and `test`.
+`npm run check:governance` is **blocking**, and `npm run verify` runs it **early — second, before
+`build`, `security`, `test:integration`, `lint`, and `test`** (the gate is ordered cheapest-first;
+`VERIFY_STEPS` in `scripts/verify.js` is the authority).
 A finding fails the build. This includes `checkStatusDrift` (§3.2): a commit on the current branch
 that claims to close a ticket or ADR while its frontmatter still reads open is a finding, same as
 any other.

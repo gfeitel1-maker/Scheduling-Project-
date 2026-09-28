@@ -99,6 +99,17 @@ export function useGeneration({
     setGenFindings(result.findings || [])
     setGenDismissed(new Set())
 
+    // T267 PR2 (ADR step 5): a fixed event whose activity_id resolves to
+    // zero or more than one live activity is a generation-blocking gap, not
+    // a silent placement miss — refuse the write rather than persisting a
+    // schedule built against a broken identity link. The finding is already
+    // visible (setGenFindings above); this only stops replaceWeek.
+    if ((result.findings || []).some(f => f.severity === 'error')) {
+      setActionError('This schedule could not be generated: a fixed or recurring event is not linked to a valid activity. Fix it on the Fixed/Recurring Events screen and try again.')
+      setGenerating(false)
+      return
+    }
+
     // ensureTemplateRow -> writeFields THROWS on any non-applied write (including
     // the SCHEDULE_TEMPLATE_KIND_CONFLICT backstop in electron/ops/projections.js).
     // generate() is invoked as a floating promise from the route offers, so an
@@ -178,6 +189,14 @@ export function useGeneration({
     const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, locations, electiveSetActivities, events, anchorsOnly: true, weekId })
     setManualFindings(result.findings || [])
     setManualDismissed(new Set())
+
+    // T267 PR2 (ADR step 5) — same refuse gate as generate(): do not place
+    // anchors from a fixed_events row with an unresolvable activity_id.
+    if ((result.findings || []).some(f => f.severity === 'error')) {
+      setActionError('This schedule could not be generated: a fixed or recurring event is not linked to a valid activity. Fix it on the Fixed/Recurring Events screen and try again.')
+      setGenerating(false)
+      return
+    }
 
     // Same guard as generate(): a throw from ensureTemplateRow would otherwise
     // strand `generating` at true with no error on screen.

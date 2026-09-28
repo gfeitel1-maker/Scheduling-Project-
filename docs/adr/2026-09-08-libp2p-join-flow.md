@@ -3,7 +3,7 @@ title: "ADR: How a new device joins a camp over libp2p (Stage 6 join flow)"
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: in_progress
+implementation_state: implemented
 date: 2026-09-08
 decided: 2026-09-08
 deciders: [product-owner-delegated]

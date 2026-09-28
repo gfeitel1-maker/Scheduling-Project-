@@ -1,5 +1,5 @@
 import { assertIdListShape } from './assertIdListShape.js'
-import { indexActivitiesByName, resolveAnchorActivityIds } from './anchorActivityLink.js'
+import { resolveAnchorActivityIds } from './anchorActivityLink.js'
 import { resolveAnchorGroupIds, resolveAnchorDayIds } from './anchorScope.js'
 import { isActivityEligibleForGroup } from './eligibility.js'
 import { isFreeChoiceActivity } from './freeChoiceActivities.js'
@@ -90,10 +90,11 @@ function normalizeInput(input) {
   }
 }
 
-// T62, corrected (T182 extraction). An anchor names its activity, it does not
-// link to it (see anchorActivityLink.js) — so this is keyed by NAME, and
-// scoped PER GROUP rather than camp-wide. The scope matters: `fixed_events`
-// holds both all-camp Fixed events (Lunch) and group-scoped Recurring ones
+// T62, corrected (T182 extraction). An anchor links its activity by
+// `activity_id` (see anchorActivityLink.js) — so this is keyed by
+// activity_id, and scoped PER GROUP rather than camp-wide. The scope
+// matters: `fixed_events` holds both all-camp Fixed events (Lunch) and
+// group-scoped Recurring ones
 // (docs/adr/2026-08-28-fixed-vs-recurring-events.md). A camp-wide exclusion
 // would let one group's recurring Swim delete Swim from every other group's
 // catalog. Day-agnostic within a group, deliberately: an anchor IS that
@@ -158,7 +159,6 @@ export function anchoredActivityIdsByGroupDay(anchors, activities, groups, { day
   const filtered = (anchors || []).filter(
     (a) => a.schedule_week_id == null || a.schedule_week_id === weekId
   )
-  const activitiesByName = indexActivitiesByName(activities)
   // An empty `days` makes every null-day_id anchor mark NOTHING — a guard that
   // silently stops guarding. Unreachable-in-effect from scheduleCohort (no days
   // means no slots to place, so it excludes nothing from nothing), but REACHABLE
@@ -175,7 +175,7 @@ export function anchoredActivityIdsByGroupDay(anchors, activities, groups, { day
     // a direct anchor.group_ids read here. `groups` is the live list.
     const groupList = anchorCoveredGroupIds(anchor, groups)
 
-    const anchoredIds = resolveAnchorActivityIds(anchor, activitiesByName)
+    const anchoredIds = resolveAnchorActivityIds(anchor)
     if (anchoredIds.length === 0) continue
     // Same shared atom Pass 1 uses — one reading of "which days does this
     // anchor cover", not two.
@@ -203,10 +203,15 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // ── Pass 0: resolve eligibility ──────────────────────────────────────────
   const eligibility = new Map() // activityId → Set<groupId>
   for (const act of activities) {
-    // T266 — a pinned event's row stays in `activities` (anchor suppression
-    // resolves to it BY NAME and would silently switch off if it were removed),
-    // but it is eligible for NO group AS A FREE CHOICE: ingest pass 1/2 already
-    // claimed it, so pass 3 may not place it. Recording that as an empty
+    // T266 — a pinned event's row stays in `activities`: isFreeChoiceActivity
+    // (src/engine/freeChoiceActivities.js) reads `activities.catalog_role` and
+    // that is what makes it eligible for NO group AS A FREE CHOICE here — ingest
+    // pass 1/2 already claimed it, so pass 3 may not place it. (Separately, the
+    // fixed_events row also references this row BY ID via `activity_id`, which
+    // is the SEPARATE anchor-duplicate exclusion below in this file — removing
+    // the activities row would dangle that link too, but that is a different
+    // mechanism keyed by a different column.) Recording the free-choice claim
+    // as an empty
     // eligibility set, rather than skipping the row, means every downstream
     // consumer of `eligibility` — the open-slot pool below, UNDERSERVED, and
     // prefer_before_day — honours it from one decision.
@@ -240,9 +245,9 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   const anchors = (_legacyAnchors || []).filter(
     (a) => a.schedule_week_id == null || a.schedule_week_id === weekId
   )
-  // T62, corrected. An anchor names its activity, it does not link to it (see
-  // anchorActivityLink.js) — so this is keyed by NAME, and scoped PER GROUP
-  // rather than camp-wide. The scope matters: `fixed_events` holds both
+  // T62, corrected. An anchor links its activity by `activity_id` (see
+  // anchorActivityLink.js) — so this is keyed by activity_id, and scoped PER
+  // GROUP rather than camp-wide. The scope matters: `fixed_events` holds both
   // all-camp Fixed events (Lunch) and group-scoped Recurring ones (docs/adr/
   // 2026-08-28-fixed-vs-recurring-events.md). A camp-wide exclusion would let
   // one group's recurring Swim delete Swim from every other group's catalog.
@@ -905,6 +910,34 @@ function buildSchedule(input) {
     allAnchors.push(...(cohortEntry._legacyAnchors || []))
   }
 
+  // T267 PR2 (ADR step 5): the identity invariant, checked against the REAL
+  // `activities` list handed to this build — a since-deleted activity is
+  // simply absent from it, which is exactly what "zero live" means here. A
+  // fixed_events row with no resolvable activity_id, or one pointing at
+  // nothing live, is a generation-blocking gap, not a silent placement miss
+  // (that was T62's failure class). `activityById` counts matches
+  // defensively (>1 cannot occur by id lookup, but the guard should read
+  // honestly rather than assume its own invariant).
+  const liveActivityIds = new Set(activities.map(a => a.id))
+  const identityGapFindings = []
+  const seenGapAnchors = new Set()
+  for (const anchor of allAnchors) {
+    if (seenGapAnchors.has(anchor.id)) continue
+    seenGapAnchors.add(anchor.id)
+    const ids = resolveAnchorActivityIds(anchor).filter((id) => liveActivityIds.has(id))
+    if (ids.length === 1) continue
+    identityGapFindings.push({
+      kind: 'ANCHOR_IDENTITY_GAP',
+      groupId: null,
+      activityId: anchor.activity_id ?? null,
+      severity: 'error',
+      reason: ids.length === 0
+        ? `"${anchor.name || anchor.id}" is not linked to a live activity — regeneration is blocked until this is fixed`
+        : `"${anchor.name || anchor.id}" resolves to more than one activity — regeneration is blocked until this is fixed`,
+      anchorId: anchor.id,
+    })
+  }
+
   const conflicts = findRouteConflicts({
     slots: allSlots,
     activities,
@@ -917,7 +950,7 @@ function buildSchedule(input) {
   return {
     slots: allSlots,
     conflicts,
-    findings: allFindings,
+    findings: [...allFindings, ...identityGapFindings],
   }
 }
 

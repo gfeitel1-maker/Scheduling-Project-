@@ -3,7 +3,7 @@ title: "Persisted open reconciliation decisions — host-local journal feeding R
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: implemented
 date: 2026-08-28
 approved: owner-approved 2026-08-28 (after two Red Hat passes on the staleness/clearing logic)
 task_class: architecture

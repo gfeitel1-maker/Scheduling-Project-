@@ -211,6 +211,57 @@ describe('useGeneration', () => {
     expect(props.setActionError).toHaveBeenCalledWith('Could not save undo point — regeneration cancelled')
   })
 
+  // T267 PR2 (ADR step 5) — refuse-to-generate gate.
+  describe('ANCHOR_IDENTITY_GAP refuse gate', () => {
+    it('generate() does NOT write the schedule when buildSchedule reports an error-severity finding', async () => {
+      buildSchedule.mockReturnValueOnce({
+        slots: [{ id: 'ns-1' }],
+        findings: [{ kind: 'ANCHOR_IDENTITY_GAP', severity: 'error', reason: 'dangling' }],
+      })
+      const { result, props } = setup()
+      await act(async () => { await result.current.generate() })
+
+      expect(props.repo.replaceWeek).not.toHaveBeenCalled()
+      expect(props.setActionError).toHaveBeenCalledWith(expect.stringContaining('not linked to a valid activity'))
+      expect(props.setGenerating).toHaveBeenLastCalledWith(false)
+    })
+
+    it('generate() DOES write the schedule when findings contain no error severity (non-vacuity)', async () => {
+      buildSchedule.mockReturnValueOnce({
+        slots: [{ id: 'ns-1' }],
+        findings: [{ kind: 'UNDERSERVED', severity: 'caution' }],
+      })
+      const { result, props } = setup()
+      await act(async () => { await result.current.generate() })
+
+      expect(props.repo.replaceWeek).toHaveBeenCalledWith('tid-generated', [{ id: 'ns-1' }])
+    })
+
+    it('placeAnchors() does NOT write the schedule when buildSchedule reports an error-severity finding', async () => {
+      buildSchedule.mockReturnValueOnce({
+        slots: [{ id: 'ns-1' }],
+        findings: [{ kind: 'ANCHOR_IDENTITY_GAP', severity: 'error', reason: 'dangling' }],
+      })
+      const { result, props } = setup()
+      await act(async () => { await result.current.placeAnchors() })
+
+      expect(props.repo.replaceWeek).not.toHaveBeenCalled()
+      expect(props.setActionError).toHaveBeenCalledWith(expect.stringContaining('not linked to a valid activity'))
+      expect(props.setGenerating).toHaveBeenLastCalledWith(false)
+    })
+
+    it('placeAnchors() DOES write the schedule when findings contain no error severity (non-vacuity)', async () => {
+      buildSchedule.mockReturnValueOnce({
+        slots: [{ id: 'ns-1' }],
+        findings: [],
+      })
+      const { result, props } = setup()
+      await act(async () => { await result.current.placeAnchors() })
+
+      expect(props.repo.replaceWeek).toHaveBeenCalledWith('tid-manual', [{ id: 'ns-1' }])
+    })
+  })
+
   it('regenFromScratch() closes the confirm modal then regenerates', async () => {
     const { result, props } = setup()
     await act(async () => { await result.current.regenFromScratch() })

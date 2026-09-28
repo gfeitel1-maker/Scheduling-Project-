@@ -7,35 +7,17 @@ governing_docs: [docs/governance/standards/WORKING_COPY_STANDARD.md]
 
 # Nightly consolidation
 
-## ⚠️ Two copies exist right now — launchd still runs the OLD one
+## The in-repo scripts are what launchd runs (move completed 2026-09-15, T171)
 
-Moving these scripts into the repo did **not** repoint the scheduler. As of this commit:
+launchd (`com.shoresh.memory-consolidation.plist`) runs `~/dev/shoresh/scripts/consolidation/run.sh`
+at 03:00 — the in-repo copy in **this** directory. So editing a script here, landing it on `main`,
+and advancing the main checkout **is** what changes tonight's run. A scheduled 03:00 run has fired
+and completed through the repointed path.
 
-| | path | run by launchd? |
-|---|---|---|
-| repo copy (this directory) | `scripts/consolidation/*.sh` | **no** |
-| original | `~/.claude/projects/<slug>/_consolidation/*.sh` | **yes, at 03:00** |
-
-So editing a script here, seeing the gate pass, and merging **does not change what runs tonight**.
-The two copies are independently editable and will drift.
-
-The repoint is deliberately deferred: `com.shoresh.memory-consolidation.plist` can only point at
-`~/dev/shoresh/scripts/consolidation/run.sh` once that path exists on the checkout launchd reads,
-which means after this branch merges *and* the main checkout advances. Pointing it early breaks
-the 03:00 run outright — which was tried, caught, and reverted on 2026-09-15.
-
-**To finish the move** (after merge, with the main checkout on the merged commit):
-
-```bash
-P=~/Library/LaunchAgents/com.shoresh.memory-consolidation.plist
-cp -n "$P" "$P.bak-$(date +%F)"
-# replace the _consolidation/run.sh path with ~/dev/shoresh/scripts/consolidation/run.sh
-plutil -lint "$P"                        # must print OK
-launchctl unload "$P" && launchctl load "$P"
-```
-
-Then delete the old copies so they cannot drift, leaving a marker in their place. Until that is
-done, **the original directory is the source of truth for what actually runs.** Tracked as T171.
+_Prior (T171, now closed): for a window after these scripts moved into the repo, launchd still ran an
+out-of-repo copy at `~/.claude/projects/<slug>/_consolidation/*.sh`, so the two copies could drift and
+the out-of-repo one was the source of truth. The plist has since been repointed and those out-of-repo
+copies removed, so that hazard no longer exists._
 
 ---
 

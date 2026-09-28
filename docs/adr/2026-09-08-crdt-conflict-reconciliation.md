@@ -3,7 +3,7 @@ title: "ADR: Reconciling concurrent edits under the CRDT — union what doesn't 
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: in_progress
+implementation_state: implemented
 date: 2026-09-08
 decided: 2026-09-08
 deciders: [product-owner]

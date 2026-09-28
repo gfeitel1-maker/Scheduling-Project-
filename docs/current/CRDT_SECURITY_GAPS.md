@@ -103,6 +103,16 @@ central authority the local-first design exists to remove.
 doc: authorize at the merge boundary (Automerge has actor ids, so authorship is available), or keep
 admin-only entities out of the shared document.
 
+**Update (shipped since):** for the **credential fields specifically** — `users.role`, `pin_hash`,
+`pin_salt`, `cred_version` — the merge-boundary-authorization option was subsequently taken (ADR
+`../adr/2026-09-14-users-auth-fields-off-the-replicated-document.md`, T172). `electron/automerge/projector.js`'s
+`upsertUsersEntity` runs on the receive/merge path and **refuses** any change to those fields whose
+Host-produced Ed25519 `auth_sig` does not verify (a monotonic `cred_version` bound into the signature
+defeats replay/rollback). So the demote-then-write escalation this gap describes is now closed for
+role/credential changes. What remains device-side (this gap's residual) is **non-credential domain
+writes** — an approved device's edits to ordinary camp entities are still trusted at the connection
+boundary, not re-authorized per merge.
+
 ---
 
 ## OPEN
@@ -121,6 +131,14 @@ Wi-Fi, which is why it is a decision rather than a task.
 
 They are scrypt hashes with per-user salts, not plaintext, and `camps.signing_secret` and every
 genuinely Host-only table remain structurally excluded (`hostOnlyExclusion.test.js`).
+
+**Update (shipped since):** the *replication* of PIN material is unchanged (the offline-login
+tradeoff above still holds), but a compromised paired device can no longer **overwrite** the admin
+credential camp-wide: a change to `pin_hash`/`pin_salt`/`role`/`cred_version` now requires a valid
+Host Ed25519 `auth_sig`, verified on the merge path in `electron/automerge/projector.js`
+(`upsertUsersEntity`), per ADR `../adr/2026-09-14-users-auth-fields-off-the-replicated-document.md`
+(T172). So the open item is now narrowly "the hashes physically replicate," not "a paired device can
+forge a credential."
 
 ---
 

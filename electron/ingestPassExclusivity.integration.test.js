@@ -40,7 +40,7 @@ import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
 import { derivePinOnlyActivityNames } from '../src/ingest/pinOnlyActivityNames.js'
 import { inferActivityRules } from '../src/ingest/activityRules.js'
 import { filterFreeChoiceActivities, isFreeChoiceActivity } from '../src/engine/freeChoiceActivities.js'
-import { indexActivitiesByName, resolveAnchorActivityIds, anchorNameKey } from '../src/engine/anchorActivityLink.js'
+import { resolveAnchorActivityIds } from '../src/engine/anchorActivityLink.js'
 import buildSchedule from '../src/engine/buildSchedule.js'
 
 const SAMPLE = path.join(process.cwd(), 'docs/work/specs/samples/campB-by-day.txt')
@@ -105,7 +105,7 @@ afterEach(() => {
 // tripwire whose name and assertion disagree tells a future reader the wrong thing about when it
 // was last looked at — the whole point of pinning the literal. Both now say 78.
 it('is written against schema v78', () => {
-  expect(CURRENT_SCHEMA_VERSION).toBe(78)
+  expect(CURRENT_SCHEMA_VERSION).toBe(79)
 })
 
 // ── The real ingest path, run once per test ────────────────────────────────
@@ -217,31 +217,35 @@ describe('T266 — the real ingest path', () => {
   })
 
   // ── Clause 3 (before 2, because 2 depends on it) ──────────────────────────
-  it('clause 3 — anchor name resolution still returns exactly one row', () => {
+  // T267 PR2: resolution is id-based now, via the real fixed_events.activity_id
+  // ingest writes at commit time (electron/ops/ingest.js) — not a name index.
+  it('clause 3 — anchor activity_id resolution still returns exactly one row', () => {
     runRealIngest()
-    const rows = activityRows()
     const anchors = anchorRows().filter((a) => a.name === PINNED)
     expect(anchors.length).toBeGreaterThan(0)
 
-    const byNameIndex = indexActivitiesByName(rows)
     for (const anchor of anchors) {
-      const ids = resolveAnchorActivityIds(anchor, byNameIndex)
+      const ids = resolveAnchorActivityIds(anchor)
       // Zero and two-or-more are BOTH failures. Zero is the silent one: it is
-      // what a delete-the-row fix produces, and it switches the
+      // what a missing write-path fix produces, and it switches the
       // don't-schedule-twice suppression off with no error anywhere.
       expect(ids).toHaveLength(1)
     }
   })
 
-  it('clause 3 — the marker does not hide the row from name resolution', () => {
+  it('clause 3 — the marker does not hide the row from id resolution', () => {
     // The whole design rests on this: MARKER, NOT HOLE. The row is excluded from
     // menus and still present for resolution. Stated as its own assertion so a
-    // future "optimisation" that filters the resolution index fails here.
+    // future "optimisation" that breaks the activity_id link fails here.
     runRealIngest()
     const rows = activityRows()
     const marked = byName(rows, PINNED)
-    const index = indexActivitiesByName(rows)
-    expect(index.get(anchorNameKey(PINNED))).toEqual(marked.map((r) => r.id))
+    const markedIds = new Set(marked.map((r) => r.id))
+    const anchors = anchorRows().filter((a) => a.name === PINNED)
+    for (const anchor of anchors) {
+      expect(resolveAnchorActivityIds(anchor)).toHaveLength(1)
+      expect(markedIds.has(anchor.activity_id)).toBe(true)
+    }
   })
 
   // ── Clause 4 ──────────────────────────────────────────────────────────────
@@ -379,11 +383,14 @@ describe('T266 clause 2 — the generated grid', () => {
     expect(activityPlacements(scheduleFromDb(), partialIds).length).toBeGreaterThan(0)
   })
 
-  it('NON-VACUITY (the defect the description does NOT point at): a HOLE instead of a marker silently disables the suppression', () => {
-    // The naive fix — "stop creating the row" — satisfies clause 1 perfectly and
-    // breaks clause 3 invisibly. Nothing in the phrase "exclude the name from the
-    // catalogue" leads you to this. Simulated by DELETING the pinned activity
-    // rows, which is precisely what that fix would leave behind.
+  it('NON-VACUITY (the defect the description does NOT point at): a HOLE instead of a marker is a generation-blocking gap, not a silent no-op', () => {
+    // Under T267 PR2's id-based resolution, deleting the pinned activity row
+    // no longer makes resolveAnchorActivityIds silently return [] — the
+    // anchor still carries the (now dangling) activity_id, so resolution
+    // still returns exactly one id. The failure mode moved from "silent
+    // resolution miss" to "buildSchedule's ANCHOR_IDENTITY_GAP finding",
+    // which is the whole point of the invariant in step 5 of the ADR: this
+    // proves it actually fires for the case a delete-the-row fix produces.
     runRealIngest()
     makeEverythingPlaceable()
     const anchors = anchorRows().filter((a) => a.name === PINNED)
@@ -394,12 +401,10 @@ describe('T266 clause 2 — the generated grid', () => {
 
     // Clause 1 still looks perfect — the name is gone from the catalogue.
     expect(byName(holed, PINNED)).toEqual([])
-    // Clause 3 is now broken, and NOTHING throws. resolveAnchorActivityIds
-    // returns [], which every caller treats as a correct no-op, so the
-    // don\'t-schedule-twice suppression is simply off.
-    const index = indexActivitiesByName(holed)
+    // resolveAnchorActivityIds still returns the (dangling) id — it does not
+    // consult the activities table at all.
     for (const anchor of anchors) {
-      expect(resolveAnchorActivityIds(anchor, index)).toEqual([])
+      expect(resolveAnchorActivityIds(anchor)).toEqual([anchor.activity_id])
     }
   })
 

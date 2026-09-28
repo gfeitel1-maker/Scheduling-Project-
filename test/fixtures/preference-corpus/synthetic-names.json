@@ -1,0 +1,14 @@
+{
+  "_provenance": "HAND-AUTHORED, SYNTHETIC. Invented given names paired with mineral/geology surnames so no entry was copied from any real camp file, roster, export, or person known to this project. ADR docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-learned-axis-binding.md section 8.0 clause 1 makes this list the ONLY permitted source of camper names anywhere in the probe corpus. Adding a name here is a deliberate act: it must be invented, never transcribed.",
+  "_enforced_by": "test/preferenceCorpusNames.test.js",
+  "names": [
+    "Ari Feldspar", "Noa Quartzite", "Eli Basalt", "Tamar Gneiss",
+    "Yonah Slatestone", "Maya Obsidian", "Dov Limeshale", "Shira Pyrite",
+    "Gil Marlstone", "Adin Chertwood", "Liora Jasperly", "Nadav Calcite",
+    "Ronit Dolomite", "Amit Granitine", "Tzvi Micafold", "Ilana Serpentine",
+    "Oren Halitebrook", "Bracha Gypsumfield", "Yael Andesite", "Kobi Rhyolite",
+    "Dalia Travertine", "Netanel Siltstone", "Zohar Peridot", "Efrat Tuffstone",
+    "Chaim Anthracene", "Tirtza Bauxfield", "Meir Corundine", "Avigail Zirconly",
+    "Lev Schistwick", "Hadar Fluorspar", "Boaz Magnetine", "Rivka Sandarch"
+  ]
+}

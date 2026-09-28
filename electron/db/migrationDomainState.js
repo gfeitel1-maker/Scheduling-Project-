@@ -225,6 +225,16 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // schema-only, whatever it does or does not preserve as a result. v78 calls no appendOp in
   // either round.
   78,
+  // v79 (T279/T285, docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-learned-axis-
+  // binding.md section 12.6/13.3/14.1a) ALTERs campers to add nullable division_label and
+  // is_unattributed, and elective_preferences to add nullable rank_kind, coordinate_day_label and
+  // coordinate_period_label — FIVE columns in total. (Earlier drafts of this comment said two, then
+  // four, as the version grew; corrected rather than left describing a version that never shipped.) Schema-only by the same mechanism test:
+  // two db.exec ADD COLUMN statements, no appendOp, no backfill, and NULL is already the correct
+  // value for every existing row rather than a placeholder standing in for one. Nothing about
+  // what the camp MEANS changes until an import writes into the new columns, and that write is
+  // an ordinary op like any other.
+  79,
 ])
 
 /** True if applying `version` can change what the camp means. */
