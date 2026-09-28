@@ -1,6 +1,6 @@
 # Shoresh — Security Model
 
-_Last updated: 2026-09-14_
+_Last updated: 2026-09-28_
 
 The standing security program that governs how this model is maintained and tested lives at
 [docs/work/security/2026-09-14-security-program.md](docs/work/security/2026-09-14-security-program.md)
@@ -25,7 +25,8 @@ switch, or equivalent. It is not hardened for the public internet.
 
 **This boundary is an assumption with an expiry, and it is enforced by network topology, not by
 code — be precise about how.** The production node binds **all interfaces** (`/ip4/0.0.0.0/tcp/0`,
-`electron/main.js`) — NOT loopback (loopback would break LAN sync). What keeps it off the internet
+`electron/sync/automerge/syncStarter.js` — the listen + mDNS wiring moved out of `main.js` in
+T276) — NOT loopback (loopback would break LAN sync). What keeps it off the internet
 today is **discovery**: peers are found only via `@libp2p/mdns` (link-local multicast); no DHT,
 relay, or bootstrap is installed or wired. So the pre-auth surface is reachable by anything that can
 route to the host's ephemeral port — shielded by NAT/firewall topology + an unadvertised port, not
@@ -43,8 +44,8 @@ open. This does not move the deployment boundary: the WAN rendezvous modules exi
 are still **not wired into production discovery** (mDNS-only), so the boundary described above holds. Any
 move to internet-reachable discovery requires that re-assessment first — enforced by
 [docs/adr/2026-09-14-internet-transport-security-gate.md](docs/adr/2026-09-14-internet-transport-security-gate.md)
-and its build-failing guard (which now checks the real `main.js` discovery wiring, not a dead
-loopback constant).
+and its build-failing guard (which reads the real `electron/sync/automerge/syncStarter.js` discovery
+wiring, not a dead loopback constant).
 
 ---
 
@@ -53,8 +54,10 @@ loopback constant).
 ### Device pairing gate
 
 Every new device must be explicitly approved by an admin before it can sync or authenticate.
-A Client sends a `pairing_request` WebSocket message; it sits in `pairing_pending` phase
-until an admin approves or denies it in the Device Manager screen. Approved devices receive
+A joining Client requests pairing over the libp2p connection; it remains a pending device
+(`devices.pairing_status = 'pending'`, `electron/auth/connectionAuth.js`) until an admin approves or
+denies it in the Device Manager screen. (The renderer once had a `pairing_pending` device-mode phase;
+that UI phase was retired in Stage 6c — the Host-side pending status is the real gate.) Approved devices receive
 a `device_secret_identifier` (32 random bytes, hex-encoded) minted by the Host at approval
 time.
 
@@ -108,8 +111,10 @@ minted a fresh keypair on every process start.
   connect") and authorization ("what may this actor do") stay separate layers, and a guard test
   enforces that `authorize.js` never reads the column.
 
-Token lifetime is 24 hours. The Host re-checks revocation status before issuing a renewal
-(`renew_token` WS message).
+Token lifetime is 24 hours. There is no in-band token-renewal message; a token past this window
+simply stops verifying (`electron/auth/localAuth.js`), and freshness comes from the client
+re-presenting its token on every restart (ADR `2026-08-16-client-reauth-on-restart`, described
+below), at which point revocation is re-checked.
 
 ### Centralized `authorize()`
 
@@ -361,17 +366,17 @@ and `audit_events` all outlive a projected row: deleting a camper removes the SQ
 rolled-back v66 migration drops the whole table, but neither is a purge. The real purge path is
 ADR 2026-09-17 D10, tracked as **T202**; read that ADR for what it can and cannot reach before
 telling anyone a child's record has been erased. Two structural guards ship with T194 in the
-meantime: all seven entities are non-restorable (so a camper can never be enumerated in Trash or
+meantime: all eight participant entities are non-restorable (so a camper can never be enumerated in Trash or
 re-materialized from the op-log by a restore), and `recordAuditEvent` **refuses** free text in the
 three caller-supplied fields that can carry it — `metadata`, `targetId` and `reason` — whenever
-`targetType` is one of the seven. `audit_events` is append-only and survives every purge, so a name
+`targetType` is one of the eight. `audit_events` is append-only and survives every purge, so a name
 written there would be unrecoverable by T202 too. Be precise about the scope of that guard: it is
 not a general PII filter on the audit log. `reason` stays free text for every **other** target type,
 which is what every existing call site passes, and the guard keys on the exact registered entity
 name — an unregistered spelling is refused outright rather than silently passing through
 (`electron/ops/participantEntities.js` is the single definition every guard derives from).
 
-Access is admin-only (D9): no non-admin role has any in-app read path to any of the seven, and staff
+Access is admin-only (D9): no non-admin role has any in-app read path to any of the eight, and staff
 receive the exported artifact instead. See `electron/auth/participantEntitiesAdminOnly.test.js`,
 which asserts the negative.
 
@@ -484,7 +489,8 @@ non-Host device is refused rather than silently erasing only itself.
 
 `evaluateAuthenticate` binds a token to the `device_id` carried **inside** the token, **and** — as
 of T162 — to the device's libp2p peer id on a trust-on-first-use basis. `bindOrVerifyPeerIdentity`
-(`electron/auth/connectionAuth.js`) records the PeerId the first time a device authenticates and
+(defined in `electron/sync/automerge/peerIdentity.js`, called from `electron/auth/connectionAuth.js`)
+records the PeerId the first time a device authenticates and
 rejects a mismatch on later connections (`4405 peer_identity_mismatch`), so a valid token replayed
 from a *different* machine is no longer admitted. Production wires this live:
 `electron/sync/automerge/syncNode.js` passes the Noise-proven connection PeerId (`fromPeerId`) into
