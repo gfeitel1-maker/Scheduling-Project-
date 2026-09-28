@@ -81,7 +81,7 @@ Tags: `[REGRESSION]` = always run after any code change. `[FULL]` = full run onl
 - 5.10 No activity name repeats across multiple blocks on the same day column
 - 5.11 Click a different group pill (e.g., Bunk 5) — grid updates for that group
 - 5.12 Click a filled activity cell — the inline cell editor opens (does NOT lock the cell)
-- 5.13 Edit modal shows the current activity name
+- 5.13 The inline cell editor shows the current activity name
 - 5.14 Close/cancel the modal — cell returns to normal, no lock applied
 - 5.15 Hover a filled activity cell — thin expand handle appears at the bottom of the cell
 - 5.16 [MANUAL ONLY] Expand handle shows ↕ symbol and "Drag to extend" tooltip on handle hover — JS cannot trigger React hover state, skip in automated runs
