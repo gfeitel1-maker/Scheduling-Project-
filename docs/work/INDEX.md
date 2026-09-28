@@ -21,6 +21,7 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Phase A — Cloudflare Worker and KV rendezvous bulletin board (source and tests only)](../../docs/work/tickets/T209-rendezvous-worker-phase-a.md) | in-progress | [2026-09-18-rendezvous-record-encoding-and-namespace-rotation](../../docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [T267-fixed-recurring-event-identity-model](../../docs/work/tickets/T267-fixed-recurring-event-identity-model.md) | in-progress | [2026-09-26-fixed-recurring-event-identity-model](../../docs/adr/2026-09-26-fixed-recurring-event-identity-model.md) |
+| [Camp data record — a self-maintaining openable file of the camp's data](../../docs/work/tickets/T292-database-document-view.md) | open | [2026-09-28-t292-database-document-view](../../docs/work/specs/2026-09-28-t292-database-document-view.md) |
 
 ### database-sync
 
@@ -59,12 +60,6 @@ Regenerate with `npm run index:work`.
 | [Phase E — measure whether WAN failure is discovery or direct dial](../../docs/work/tickets/T212-wan-connectivity-measurement.md) | open | [2026-09-18-connectivity-observability-event-vocabulary](../../docs/adr/2026-09-18-connectivity-observability-event-vocabulary.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [CI minutes: stop re-verifying a tree that already went green](../../docs/work/tickets/T261-ci-minutes-duplicate-main-runs.md) | open | — |
 | [A main-side gate that flags a merged ticket whose status never flipped](../../docs/work/tickets/T283-board-truth-audit-gate.md) | open | — |
-
-### ui-ux-design
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [Camp data record — a single openable file that shows the camp's data](../../docs/work/tickets/T292-database-document-view.md) | open | [2026-09-28-t292-database-document-view](../../docs/work/specs/2026-09-28-t292-database-document-view.md) |
 
 ### unclassified
 

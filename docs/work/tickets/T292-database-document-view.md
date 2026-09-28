@@ -1,73 +1,77 @@
 ---
-title: "Camp data record — a single openable file that shows the camp's data"
+title: "Camp data record — a self-maintaining openable file of the camp's data"
 document_type: ticket
 status: open
-task_class: ui-ux-design
+task_class: architecture
 date: 2026-09-28
 created: 2026-09-28
-governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md, docs/current/WHERE_DATA_LIVES.md]
+governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md, docs/current/WHERE_DATA_LIVES.md]
 related_tickets: []
 related_adrs: []
 related_specs: [docs/work/specs/2026-09-28-t292-database-document-view.md]
-archive_when: "The 'download the camp's data' record ships (a single openable .xlsx workbook of the camp's director-facing data) and the owner confirms it against the spec; or the owner rejects the idea and this ticket records the disposition."
+archive_when: "Shoresh maintains a self-updating .xlsx record of the camp's data in ~/Documents/Shoresh/ from setup onward, refreshed on data change, and the owner confirms it against the spec; or the owner rejects the idea and this ticket records the disposition."
 ---
 
-# T292 — A record people can open, to see the camp's data
+# T292 — A record people can open, that Shoresh keeps current on its own
 
 ## The idea, in the owner's terms
 
 > "I want a record that people can open to see into the work. It is a feature most
 > pieces of software do not have. This is not magic. Should be conceivably easy."
+>
+> "I don't want a separate 'download this now' button. I want it to be created when
+> someone installs Shoresh."
 
-A director should be able to open **one file** that shows the camp's actual data —
-the records the app is built on — laid out like a workbook: one sheet per thing
-(groups, activities, days, campers, …), plain rows and columns, readable at a
-glance. You can open it, keep it, or send it. Most software never lets you see the
-data underneath it; this does, and it should be close to free because the app
-already holds the data and already knows how to write a spreadsheet.
+A director should always have **one file** on their computer that shows the camp's
+data as a workbook — one sheet per thing, plain rows and columns. They never ask for
+it and never click anything: **Shoresh creates and maintains it automatically.** Open
+it whenever, and it's current. Most software never lets you see the data underneath;
+this does, as an always-present file.
 
-**Form (owner-confirmed 2026-09-28): a single openable file**, not an in-app
-screen. **Scope: the camp's data** (not the software's build/dev record).
+Owner-confirmed shape (2026-09-28):
+- **A single openable file**, not an in-app screen; **the camp's data**, not the build record.
+- **No trigger button.** The app owns the file.
+- **Auto-refresh on every data change** (and at first camp setup). Not a one-time write.
+- **Location: `~/Documents/Shoresh/<camp> data.xlsx`** — where a director can find it.
 
 ## Observable success predicate
 
-Done when a director can, from the app, produce **one `.xlsx` file** that:
+Done when, on a normally-running install:
 
-1. Opens in Excel/Numbers/Sheets with **one sheet per director-facing entity**
-   (groups, tiers/age divisions, cohorts/programs, activities, locations, days,
-   time blocks, weeks, campers, fixed events, special days, events, elective sets).
-2. Shows **human-readable columns** — headers in the app's words (not raw db column
-   names), foreign keys rendered as the linked record's **name** (never a UUID),
-   dates and times formatted.
-3. **Hides plumbing** — no id/`*_id`, `client_write_id`, `created_at`/`updated_at`/
-   `deleted_at`; no op-log/tombstone/conflict/device/auth/migration tables; camp
-   credentials are structurally unreachable (they are never read).
-4. Carries a small **cover/meta line** — camp name and "as of `<date>`" — so a
-   reader knows it is a point-in-time copy, not a live document.
-5. Runs every cell through the existing formula-injection sanitizer
-   (`src/utils/exportSanitize.js`).
+1. From the moment a camp exists on the device (bootstrap or join), a file appears at
+   `~/Documents/Shoresh/<camp> data.xlsx` **without the director doing anything**.
+2. After any change to the camp's data — an edit, an import, an incoming sync — the
+   file **reflects the change** the next time it is opened (writes are coalesced, not
+   one-per-op; see spec §3).
+3. The file opens with **one sheet per director-facing entity**, human-readable
+   columns (app words, foreign keys as names, dates/times formatted), **no plumbing**
+   (ids, `*_id`, timestamps, op-log/tombstone/device/auth/migration tables; camp
+   credentials structurally unreachable), and a **"Camp `<name>` — as of `<date>`"**
+   meta line.
+4. Every cell routed through the existing sanitizer (`src/utils/exportSanitize.js`).
+5. A failed refresh (Documents unwritable, file open-locked) **never blocks the actual
+   edit** — it is best-effort and retried on the next change, surfaced non-fatally.
 
 ## Non-goals
 
-- **Not an in-app grid / screen** — it is a file you open. (Owner-confirmed.)
-- **Not the enrichment round-trip.** The existing `exportWorkbook.js` writes a
-  re-importable file with hidden `shoresh_id`/baseline machinery for a subset of
-  entities; this is a *plain human snapshot* of all director-facing data, no
-  round-trip, no hidden columns.
-- **Not editable / not a source of truth.** It is a copy. Per WHERE_DATA_LIVES the
-  Automerge document wins; this reads the SQLite projection only to render, and
-  never claims to be canonical.
-- **Not a SQL/DBA browser** — director-legible, curated, no raw schema.
+- **No download/export button, no in-app grid.** (Owner-confirmed.) The file is the surface.
+- **Not the enrichment round-trip.** `src/utils/exportWorkbook.js` writes a *re-importable*
+  file with hidden `shoresh_id`/baseline machinery for 6 entities; this is a plain,
+  read-only human snapshot of all director-facing data, no round-trip.
+- **Not editable / not canonical.** It is a copy the app writes out; per WHERE_DATA_LIVES
+  the Automerge document wins. Editing the file does nothing to the camp.
+- **Not a SQL/DBA browser.** Curated, director-legible; no raw schema, no ids.
 
-## Open questions (small — for the spec to settle)
+## Open questions (for the spec to settle)
 
-1. Which entities make the default sheet set, and are schedule-internal/participant
-   tables (`template_slots`, elective participant tables, week exclusions) left out
-   or included behind a plain label. (Bias: leave out; they don't read like "my data.")
-2. Where the "Download the camp's data" action lives (e.g. a button on a
-   settings/roots surface) — trivial, but a placement choice.
-3. Whether a second, even-simpler format (a single standalone `.html` file) is worth
-   offering alongside `.xlsx`. (Bias: `.xlsx` only; it is the "workbook" they asked for.)
+1. Which entities make the default sheet set; leave schedule-internal/participant tables
+   out (bias: yes).
+2. Dev vs. packaged: the dev build uses a separate DB — should its file be suffixed
+   (e.g. `<camp> data (dev).xlsx`) so it can't be mistaken for a real camp's? (bias: yes.)
+3. Refresh coalescing window and trigger seam (which projection/op-apply event the
+   writer hooks) — a spec/architecture detail, not an owner decision.
+4. Camp rename / multiple camps over a device's life: filename follows the current camp;
+   stale files from a prior camp name are left as-is (bias) or cleaned up.
 
 ## Status
 
