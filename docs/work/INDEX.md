@@ -42,6 +42,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
+| [Documentation staleness audit and high-priority refresh](../../docs/work/tickets/T294-documentation-staleness-audit-and-refresh.md) | in-progress | — |
 
 ### scheduling-engine
 

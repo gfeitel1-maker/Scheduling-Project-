@@ -67,6 +67,77 @@ decision under `CONSTITUTION.md` Article IV, not an editorial refresh.
 - **`README.md` + `docs/adr/**`** (Domain D): no P0/P1. All documented commands exist in `package.json`; all referenced paths resolve; architecture description current; ADR supersession handled in-prose; no ADR has wrong status/superseded-by metadata. Only the D1 P2 future-note above.
 - **Governance path/reference integrity**: 14 referenced ADRs/docs/scripts resolve; CONSTITUTION agent roster (13 agents) matches `.claude/agents/`.
 - **`SECURITY.md` numeric parameters**: scrypt N=2^16/r=8/p=1, lockout 5/30s, admin-6/staff-4 PIN floor, parameter clamping — all verified against `electron/auth/localAuth.js`. No stale Supabase/RLS-as-current description anywhere.
-- **`docs/current/WHERE_DATA_LIVES.md`** counts (schema v78, 51 tables) consistent with unchanged schema.
-</content>
-</invoke>
+- **`docs/current/WHERE_DATA_LIVES.md`** counts were themselves stale (see the comprehensive pass below); the phase-1 note that they were "consistent" was wrong and is corrected there.
+
+---
+
+# Comprehensive whole-corpus pass (2026-09-28, owner directive)
+
+Seven auditors swept the ENTIRE live doc corpus — every tracked `*.md` outside `docs/archive/**` and `legacy/**` (707 files), split into disjoint domains. Historical work-record trees (tickets, runs, handoffs, specs, evidence, architecture-reports) are historical-by-design and their frontmatter/status integrity is machine-enforced by `check:governance` (clean); they are not staleness-rewrite targets. Findings below; every contradiction was confirmed at code file:line. `Status`: LANDED (which PR) / OWNER (escalated) / NOTED (corpus-consistency, deferred to safeguards phase).
+
+## Descriptive-current tier (PR-A)
+
+| Doc | Stale claim | Truth (verified) | Status |
+|---|---|---|---|
+| `CLAUDE.md:101` | DnD `distance: 8` activation constraint | `src/screens/ScheduleScreen.jsx:239` PointerSensor `distance: 5` (8 is the separate span-extend gesture) | LANDED PR-A |
+| `docs/current/PLATFORM_STATE.md:687` | schema "v58 as of this writing" | `CURRENT_SCHEMA_VERSION = 78` (`electron/db/localDb.js:38`) | LANDED PR-A |
+| `docs/current/PLATFORM_STATE.md` (two `schema_migrations` bullets) | "currently v77"; enumeration stops at v71 | v78; v72–v78 exist (localDb.js:29-37, rollbacks v73–v78) | LANDED PR-A (versions + v72–v78 added) |
+| `docs/current/WHERE_DATA_LIVES.md:76` | "51 tables — 29 synced, 1 projected, 21 SQLite-only" | 63 tables (opened fresh DB), 36 synced (`MODELED_ENTITIES.size`), 1 projected-never-synced, 26 SQLite-only (`PROJECTIONS`=37) | LANDED PR-A |
+| `docs/current/WHERE_DATA_LIVES.md:80` | "The 28 camp entities" | 33 (36 modeled − camps/users/tombstones) | LANDED PR-A |
+| `docs/current/WHERE_DATA_LIVES.md:86` | "23 SQLite-only tables"; `device_health_events` listed twice | 26; dedupe | LANDED PR-A |
+| `docs/current/KEY_RECOVERY_STORY.md:30,93` | device identity key T162 "accepted, not yet built" | shipped, schema v67 `device_identity_key` (`electron/auth/deviceIdentity.js`) | LANDED PR-A |
+| `docs/current/KEY_RECOVERY_STORY.md:86` | at-rest storage-key refusal "will be updated when wired live" | implemented, gated off by default (`SHORESH_AT_REST_ENCRYPTION`, `electron/main.js`) | LANDED PR-A |
+
+## Security tier (PR-B)
+
+| Doc | Stale claim | Truth | Status |
+|---|---|---|---|
+| `docs/current/CRDT_SECURITY_GAPS.md` Gaps #3/#4 | role-enforcement / PIN-replication gaps stated without the shipped mitigation | `electron/automerge/projector.js` `upsertUsersEntity` enforces Host `auth_sig` + `cred_version` on the merge path (users auth-field ADR) | LANDED PR-B |
+| `SECURITY.md:366,368,375` | "seven" participant entities | eight — `PARTICIPANT_ENTITIES` (`electron/ops/participantEntities.js:18`) incl. `elective_run_outer_snapshots` (T243/v74) | LANDED PR-B |
+| `SECURITY.md:27,46` | prod bind + guard attributed to `electron/main.js` | `electron/sync/automerge/syncStarter.js:300` (T276); guard reads syncStarter.js | LANDED PR-B |
+| `SECURITY.md:111` | renewal via "`renew_token` WS message" | no renewal handler exists; freshness = re-present-on-restart (`electron/auth/localAuth.js:147`) | LANDED PR-B |
+| `SECURITY.md:485` | `bindOrVerifyPeerIdentity` in `connectionAuth.js` | defined in `electron/sync/automerge/peerIdentity.js`; connectionAuth.js is the caller | LANDED PR-B |
+| `SECURITY.md:3,56` | "Last updated 2026-09-14"; ":56 pairing_pending phase" | later work landed; renderer phase retired (Host-side `devices.pairing_status='pending'` is real) | LANDED PR-B |
+
+## Governance standards + references (PR-C)
+
+| Doc | Item | Status |
+|---|---|---|
+| `docs/governance/standards/ARCHITECTURE_STANDARD.md` O1 | "mutating WebSocket handlers call `authorize()`" → refresh to libp2p/Automerge connection-boundary model, cite users auth-field ADR for tracked residual | LANDED PR-C (owner-ruled; security-agent confirmed) |
+| `docs/governance/standards/ARCHITECTURE_STANDARD.md` O2 §2 | op-log "replayable across devices" → "device-local history ledger; replication is Automerge" | LANDED PR-C (owner-ruled) |
+| `docs/governance/standards/DESIGN_STANDARD.md:214` | pending-retheme list names deleted `EditModal.jsx` | LANDED PR-C |
+| `docs/governance/standards/DESIGN_STANDARD.md:210` | `ANCHOR_COLOR='#A63595'` listed pending; already `var(--anchor)` | LANDED PR-C |
+| `docs/governance/standards/WORK_RECORD_STANDARD.md:362` | says `check:governance` runs after lint/test; actually 2nd (cheapest-first) | LANDED PR-C |
+| `docs/governance/references/{tester-standing-brief,regression-script,director-persona}.md` | "purple" anchor cells → slate (`--anchor`); "edit modal" → inline click-to-write editor | LANDED PR-C |
+| **`docs/governance/standards/DESIGN_STANDARD.md:78-81,313-316` §3/§9** | doc asserts a 6-distinct-hue `ACTIVITY_COLORS` palette "live" + a hue-identity rationale; code (`src/components/schedule/slotCellConstants.js:62`) ships an all-navy monochrome lightness ladder | **OWNER DECISION** — three-way (standard rationale vs code vs the standard's own delegation clause :121-125); refresh §3/§9 to the shipped ladder, or treat code as unauthorized drift |
+
+## Agent layer (PR-D) — edit bindings, regenerate profiles
+
+| Binding (+ generated profile) | Stale claim | Status |
+|---|---|---|
+| `governor` | "LAN Host (WebSocket server)"; "op-log … replayed across devices" | LANDED PR-D |
+| `maker` | "op-log … replayed across devices" | LANDED PR-D |
+| `architecture-auditor` | audit scope points at deleted `syncClient.js`/`syncServer.js` | LANDED PR-D |
+| `architect` | skill-wrapper example names "WebSocket message" primitive | LANDED PR-D |
+| (19 of 27 agent files clean) | | — |
+
+## ADR metadata + subdir READMEs (PR-E)
+
+| Doc | Item | Status |
+|---|---|---|
+| `docs/adr/2026-08-28-persisted-reconciliation-decisions.md` | `implementation_state` not_started → implemented (shipped: `open_reconciliation_decisions` v52) | LANDED PR-E |
+| `docs/adr/2026-09-08-libp2p-join-flow.md` | in_progress → implemented (`joinSession.js` wired) | LANDED PR-E |
+| `docs/adr/2026-09-08-crdt-conflict-reconciliation.md` | in_progress → implemented (`reconcile.js` wired) | LANDED PR-E |
+| `docs/adr/2026-09-19-per-camp-genesis-identity.md` | not_started → implemented (`campDocument.js:325` genesisDoc) | LANDED PR-E |
+| `docs/adr/2026-09-26-schema-version-gate-before-merge.md` | not_started → in-progress/partial (handshake gate `syncNode.js:35` present; doc-embedded half pending) | LANDED PR-E |
+| `docs/adr/2026-09-17-wan-rendezvous-seam.md` | status proposed, but the 2026-09-27 ladder treats it as accepted | LANDED PR-E (reconciled) |
+| `scripts/consolidation/README.md:10-38` | "launchd still runs the OLD copy" — false; T171 completed 2026-09-15, in-repo scripts are live, out-of-repo copies gone | LANDED PR-E |
+
+## NOTED — corpus-consistency, deferred to the safeguards phase (not stale-vs-reality)
+
+- **ADR `implementation_state` vocabulary drift**: the 136 ADRs use `implemented`/`shipped`/`complete`/`completed`, `in-progress`/`in_progress`, `not-started`/`not_started` interchangeably (the standard's enum is `not-started`/`in-progress`/`implemented`). Not misleading about reality, just inconsistent — a normalization + `check:governance` enum-enforcement job for the safeguards phase.
+- `scripts/mcp/README.md` tools table omits the three projection-repair tools (prose mentions them) — optional.
+
+## Audited clean / correctly-historical (no action)
+
+`README.md`; `docs/governance/{GOVERNANCE_INDEX, constitution/CONSTITUTION, standards/TESTING_STANDARD, standards/WORKING_COPY_STANDARD}.md`; 19/27 agent files; `workers/rendezvous/README.md`, `src/assets/brand/README.md`, `design/brand-source/README.md`, `scripts/consolidation/consolidate.md`, `scripts/mcp/README.md` (bar the optional note); `experiments/future-arch/**` and `docs/superpowers/**` and the `docs/work/2026-*` explorations (all correctly point-in-time historical); no earlier WAN ADR needs a supersession flip.
