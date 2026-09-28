@@ -6,7 +6,7 @@ import { createCampDataRecordWriter } from './campDataRecord.js'
 import { listEntities } from './ops/read.js'
 import { openTemplatedDb, cleanupTemplatedDbs } from './db/testDbTemplate.js'
 
-function fakeDb(campRow = { id: 'camp1', name: 'Camp Bear' }) {
+function fakeDb(campRow = { id: 'camp1', name: 'Kinneret' }) {
   return {
     prepare: () => ({ get: () => campRow }),
   }
@@ -30,7 +30,7 @@ describe('createCampDataRecordWriter — real listEntities seam', () => {
 
   it('fireOnce (via a real db + the REAL listEntities) never throws for any entity the writer reads', () => {
     const { db } = openTemplatedDb()
-    db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp Bear', 'sec')").run()
+    db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Kinneret', 'sec')").run()
 
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'campdata-real-'))
     const writer = createCampDataRecordWriter({
@@ -44,7 +44,7 @@ describe('createCampDataRecordWriter — real listEntities seam', () => {
     writer.schedule()
     expect(() => writer.flush()).not.toThrow()
 
-    const target = path.join(tmpDir, 'Shoresh', 'Camp Bear data.xlsx')
+    const target = path.join(tmpDir, 'Shoresh', 'Kinneret data.xlsx')
     expect(fs.existsSync(target)).toBe(true)
 
     fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -83,7 +83,7 @@ describe('createCampDataRecordWriter', () => {
     expect(buildFn).toHaveBeenCalledTimes(1)
     expect(writeFn).toHaveBeenCalledTimes(1)
 
-    const target = path.join(tmpDir, 'Shoresh', 'Camp Bear data.xlsx')
+    const target = path.join(tmpDir, 'Shoresh', 'Kinneret data.xlsx')
     expect(fs.existsSync(target)).toBe(true)
   })
 
@@ -125,7 +125,7 @@ describe('createCampDataRecordWriter', () => {
     expect(() => writer.schedule()).not.toThrow()
     await expect(vi.advanceTimersByTimeAsync(1000)).resolves.not.toThrow()
 
-    const target = path.join(tmpDir, 'Shoresh', 'Camp Bear data.xlsx')
+    const target = path.join(tmpDir, 'Shoresh', 'Kinneret data.xlsx')
     expect(fs.existsSync(target)).toBe(false)
     expect(errorSpy).toHaveBeenCalled()
 
@@ -148,7 +148,7 @@ describe('createCampDataRecordWriter', () => {
     writer.schedule()
     await vi.advanceTimersByTimeAsync(1000)
 
-    const target = path.join(tmpDir, 'Shoresh', 'Camp Bear data (dev).xlsx')
+    const target = path.join(tmpDir, 'Shoresh', 'Kinneret data (dev).xlsx')
     expect(fs.existsSync(target)).toBe(true)
   })
 
@@ -206,7 +206,7 @@ describe('createCampDataRecordWriter', () => {
     writer.flush()
 
     expect(buildFn).toHaveBeenCalledTimes(1)
-    const target = path.join(tmpDir, 'Shoresh', 'Camp Bear data.xlsx')
+    const target = path.join(tmpDir, 'Shoresh', 'Kinneret data.xlsx')
     expect(fs.existsSync(target)).toBe(true)
 
     // The debounce timer flush() bypassed must not ALSO fire later.

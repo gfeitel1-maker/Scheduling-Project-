@@ -128,14 +128,47 @@ regardless; deferred to round 2 after the fixes.
 
 Round-2 Maker brief dispatched with the seven fixes above.
 
+## Round 2
+
+Maker applied all seven fixes test-first (focused suites green: builder 14/14,
+campDataRecord 10/10 incl. a REAL listEntities/camps integration test,
+syncStarter 8/8 incl. the onRemoteOps trigger, main.test.js 193/193). Also fixed
+a hazard it found: under VITEST, writes go to os.tmpdir() instead of the real
+~/Documents. Governor read every fix diff and confirmed each:
+- FIX 1 (CRITICAL): `camps` removed from ENTITY_NAMES; `entities.camps` built
+  from the local `SELECT id, name FROM camps` row fireOnce already fetches; the
+  Camp sheet still emits only `name`. Credentials doubly unreachable.
+- FIX 2 (HIGH): syncStarter.js onRemoteOps → `getLiveHandlers()?.scheduleCampDataRecord?.()`
+  (fires after projectAll; unconditional, even with no window). Dead
+  onFullSyncApplied hook removed.
+- FIX 3 (HIGH): synchronous `flush()` wired into `will-quit`.
+- FIX 4 (HIGH): writer's onOpApplied listener registered first.
+- FIX 5 (MED): `disposeCampDataRecord()` called before db.close() in
+  reinitialize() and restore (liveHandlers still points at the OLD handlers;
+  control flow fully synchronous, race-free by construction).
+- FIX 6 (MED): dead re-entrancy guard removed; sync-write cost documented as an
+  accepted tradeoff (no realistic camp approaches a problematic size).
+- FIX 7 (LOW): no-leak test hardened to a structural /(^id$)|(_id$)|(_at$)/i check.
+
+### Round 2 review dispositions
+- **Security: 5/5** — re-review found no new vulnerability; credentials still
+  structurally unreachable, no remote-controlled data reaches the builder/
+  filename/path, VITEST redirect not production-exploitable, flush() fail-safe.
+- **Red Hat: 4/5** — all five round-1 findings FIXED at the mechanism level
+  (three with direct tests). One point docked for a TEST-COVERAGE gap: the
+  will-quit flush wiring, the listener-order wiring, and the reinitialize/restore
+  dispose wiring live in main.js integration code with no regression test — a
+  future refactor could silently drop one. Not a reproducible bug. Carried
+  forward as a follow-up.
+
 ## Verifier verdict
 
-pending (round 2)
+pending (awaiting full-gate output — gate queued behind another worktree's lock)
 
 ## Grader score
 
-pending (round 2)
+pending
 
 ## Decision
 
-pending (round 2)
+pending

@@ -17,7 +17,7 @@ const FORBIDDEN_HEADERS = [
 
 function baseEntities(overrides = {}) {
   return {
-    camps: [{ id: 'camp1', name: 'Camp Bear', signing_secret: 'SECRET_VALUE_XYZ', signing_public_key: 'PUBKEY_VALUE_ABC' }],
+    camps: [{ id: 'camp1', name: 'Kinneret', signing_secret: 'SECRET_VALUE_XYZ', signing_public_key: 'PUBKEY_VALUE_ABC' }],
     tiers: [],
     cohorts: [],
     groups: [],
@@ -42,7 +42,7 @@ function sheetToAoa(wb, name) {
 
 describe('buildCampDataWorkbook', () => {
   it('produces exactly the 14 sheets in order', () => {
-    const wb = buildCampDataWorkbook({ entities: baseEntities(), campName: 'Camp Bear', asOf: new Date('2026-09-28T12:00:00Z') })
+    const wb = buildCampDataWorkbook({ entities: baseEntities(), campName: 'Kinneret', asOf: new Date('2026-09-28T12:00:00Z') })
     expect(wb.SheetNames).toEqual(SHEET_NAMES)
   })
 
@@ -50,7 +50,7 @@ describe('buildCampDataWorkbook', () => {
     const entities = baseEntities({
       activities: [{ id: 'a1', name: 'Swim', min_per_week: 2, camp_id: 'camp1' }],
     })
-    const wb = buildCampDataWorkbook({ entities, campName: 'Camp Bear', asOf: new Date() })
+    const wb = buildCampDataWorkbook({ entities, campName: 'Kinneret', asOf: new Date() })
     const aoa = sheetToAoa(wb, 'Activities')
     const header = aoa[1]
     expect(header).toContain('Min Sessions/Week')
@@ -65,7 +65,7 @@ describe('buildCampDataWorkbook', () => {
         id: 'a1', name: 'Swim', eligible_group_ids: JSON.stringify(['g1', 'g2']),
       }],
     })
-    const wb = buildCampDataWorkbook({ entities, campName: 'Camp Bear', asOf: new Date() })
+    const wb = buildCampDataWorkbook({ entities, campName: 'Kinneret', asOf: new Date() })
     const groupsAoa = sheetToAoa(wb, 'Groups')
     expect(groupsAoa[2]).toContain('Seniors')
 
@@ -80,7 +80,7 @@ describe('buildCampDataWorkbook', () => {
     const entities = baseEntities({
       groups: [{ id: 'g1', name: 'Bunk A', tier_id: 'nonexistent-id' }],
     })
-    const wb = buildCampDataWorkbook({ entities, campName: 'Camp Bear', asOf: new Date() })
+    const wb = buildCampDataWorkbook({ entities, campName: 'Kinneret', asOf: new Date() })
     const aoa = sheetToAoa(wb, 'Groups')
     const header = aoa[1]
     const idx = header.indexOf('Age Division')
@@ -103,7 +103,7 @@ describe('buildCampDataWorkbook', () => {
       events: [{ id: 'ev1', name: 'Trip', location_id: 'l1' }],
       elective_sets: [{ id: 'es1', name: 'Electives', day_id: 'd1', time_block_id: 'tb1' }],
     })
-    const wb = buildCampDataWorkbook({ entities, campName: 'Camp Bear', asOf: new Date() })
+    const wb = buildCampDataWorkbook({ entities, campName: 'Kinneret', asOf: new Date() })
     // Structural: catches a FUTURE unlisted id/timestamp-shaped column, not
     // just today's known names (round 2 FIX 7 — hardens beyond the denylist
     // test below, which only proves today's headers stay clean).
@@ -133,7 +133,7 @@ describe('buildCampDataWorkbook', () => {
       events: [{ id: 'ev1', name: 'Trip', location_id: 'l1' }],
       elective_sets: [{ id: 'es1', name: 'Electives', day_id: 'd1', time_block_id: 'tb1' }],
     })
-    const wb = buildCampDataWorkbook({ entities, campName: 'Camp Bear', asOf: new Date() })
+    const wb = buildCampDataWorkbook({ entities, campName: 'Kinneret', asOf: new Date() })
     for (const name of wb.SheetNames) {
       const aoa = sheetToAoa(wb, name)
       const header = (aoa[1] || []).map((h) => String(h))
@@ -144,7 +144,7 @@ describe('buildCampDataWorkbook', () => {
   })
 
   it('never puts credential VALUES in any cell of any sheet', () => {
-    const wb = buildCampDataWorkbook({ entities: baseEntities(), campName: 'Camp Bear', asOf: new Date() })
+    const wb = buildCampDataWorkbook({ entities: baseEntities(), campName: 'Kinneret', asOf: new Date() })
     for (const name of wb.SheetNames) {
       const aoa = sheetToAoa(wb, name)
       for (const row of aoa) {
@@ -160,7 +160,7 @@ describe('buildCampDataWorkbook', () => {
     const entities = baseEntities({
       special_days: [{ id: 'sd1', name: '=SUM(A1)', notes: 'ok' }],
     })
-    const wb = buildCampDataWorkbook({ entities, campName: 'Camp Bear', asOf: new Date() })
+    const wb = buildCampDataWorkbook({ entities, campName: 'Kinneret', asOf: new Date() })
     const aoa = sheetToAoa(wb, 'Special Days')
     expect(aoa[2][0]).toBe("'=SUM(A1)")
   })
@@ -172,31 +172,31 @@ describe('buildCampDataWorkbook', () => {
         { id: 'sd2', name: 'Gone', deleted_at: '2026-01-01T00:00:00Z' },
       ],
     })
-    const wb = buildCampDataWorkbook({ entities, campName: 'Camp Bear', asOf: new Date() })
+    const wb = buildCampDataWorkbook({ entities, campName: 'Kinneret', asOf: new Date() })
     const aoa = sheetToAoa(wb, 'Special Days')
     const names = aoa.slice(2).map((r) => r[0])
     expect(names).toEqual(['Kept'])
   })
 
   it('writes the meta line on row 1 of every sheet', () => {
-    const wb = buildCampDataWorkbook({ entities: baseEntities(), campName: 'Camp Bear', asOf: new Date('2026-09-28T16:30:00Z') })
+    const wb = buildCampDataWorkbook({ entities: baseEntities(), campName: 'Kinneret', asOf: new Date('2026-09-28T16:30:00Z') })
     for (const name of wb.SheetNames) {
       const aoa = sheetToAoa(wb, name)
-      expect(aoa[0][0]).toMatch(/^Camp Camp Bear — as of /)
+      expect(aoa[0][0]).toMatch(/^Camp Kinneret — as of /)
     }
   })
 
   it('empty state is meta row + header row only', () => {
-    const wb = buildCampDataWorkbook({ entities: baseEntities(), campName: 'Camp Bear', asOf: new Date() })
+    const wb = buildCampDataWorkbook({ entities: baseEntities(), campName: 'Kinneret', asOf: new Date() })
     const aoa = sheetToAoa(wb, 'Special Days')
     expect(aoa.length).toBe(2)
   })
 
   it('camp sheet has exactly one row with only the camp name column', () => {
-    const wb = buildCampDataWorkbook({ entities: baseEntities(), campName: 'Camp Bear', asOf: new Date() })
+    const wb = buildCampDataWorkbook({ entities: baseEntities(), campName: 'Kinneret', asOf: new Date() })
     const aoa = sheetToAoa(wb, 'Camp')
     expect(aoa[1]).toEqual(['Camp Name'])
-    expect(aoa[2]).toEqual(['Camp Bear'])
+    expect(aoa[2]).toEqual(['Kinneret'])
   })
 
   it('renders boolean columns as Yes/No or Yes/blank per spec', () => {
@@ -204,7 +204,7 @@ describe('buildCampDataWorkbook', () => {
       campers: [{ id: 'k1', display_name: 'Kid', is_active: 1 }, { id: 'k2', display_name: 'Kid2', is_active: 0 }],
       activities: [{ id: 'a1', name: 'Swim', is_outdoor: 1 }, { id: 'a2', name: 'Craft', is_outdoor: 0 }],
     })
-    const wb = buildCampDataWorkbook({ entities, campName: 'Camp Bear', asOf: new Date() })
+    const wb = buildCampDataWorkbook({ entities, campName: 'Kinneret', asOf: new Date() })
     const campersAoa = sheetToAoa(wb, 'Campers')
     const activeIdx = campersAoa[1].indexOf('Active')
     expect(campersAoa[2][activeIdx]).toBe('Yes')
