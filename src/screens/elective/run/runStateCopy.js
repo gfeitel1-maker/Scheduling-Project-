@@ -20,10 +20,24 @@ export const STALE_GENERATION_COPY =
 // "Name the occurrence (not just an id)" — the spec leaves the label format to
 // whatever this screen's data already supports. `overCapacityOccurrences`
 // carries occurrenceId + activityId; the activity name is always resolvable,
-// the day/time block only when the caller has the run's occurrences in hand
-// (it does for the run it just solved, not for one opened cold from the run
-// list). Degrade by dropping detail, never by printing a raw id when a name
+// the day/time block only when the caller passes occurrences that contain this
+// one. Degrade by dropping detail, never by printing a raw id when a name
 // exists.
+//
+// T296 CORRECTION — there are now TWO occurrence sets, and this function's
+// callers pass the wrong one. `templateOccurrences` (AssignmentPanel React
+// state) is the CURRENT template's set, and is EMPTY for a run opened from the
+// run list; `useRunState().occurrences` is the run's own persisted set and is
+// always there. Every caller of this function still passes the former, so an
+// over-capacity row on a reopened run still degrades to a bare activity name.
+// T296 did not change that — it is T250's rendered copy with its own tests, and
+// fixing it belongs to a ticket that can re-verify that surface. The stale claim
+// that the day/time block is simply unavailable for a reopened run has been
+// removed, because it is no longer true: the data is one prop away.
+//
+// A second known defect, same scope: `days_of_operation` stores its name in
+// `label`, and the lookup below reads `.name` only — so a day never resolves and
+// `when` silently collapses to the time block alone.
 export function occurrenceLabel({ occurrenceId, activityId, activities = [], occurrences = [], days = [], timeBlocks = [] }) {
   const activityName = activities.find((a) => a.id === activityId)?.name
   const occurrence = occurrences.find((o) => o.id === occurrenceId)

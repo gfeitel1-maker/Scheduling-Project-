@@ -8,10 +8,11 @@ import { S, RunError } from './RunStateRows.jsx'
 
 const styles = {
   wrap: { marginBottom: 16 },
-  row: { display: 'flex', alignItems: 'baseline', gap: 10, width: '100%', textAlign: 'left', padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', marginBottom: 6, cursor: 'pointer' },
+  // T296 consolidated this row and its trailing detail into S.listRow /
+  // S.listRowMeta — CamperWeekPanel needed the identical shape, and a second
+  // copy of it had already drifted.
   name: { fontWeight: 600, fontSize: 13 },
   status: { fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' },
-  source: { fontSize: 12, color: 'var(--text-secondary)', marginLeft: 'auto' },
 }
 
 export default function RunList({ onOpen }) {
@@ -43,12 +44,12 @@ export default function RunList({ onOpen }) {
           type="button"
           className="press-97"
           data-testid={`run-list-row-${run.id}`}
-          style={styles.row}
+          style={S.listRow}
           onClick={() => onOpen?.(run)}
         >
           <span style={styles.name}>{run.name}</span>
           <span style={styles.status}>{run.status === 'final' ? 'Final' : 'Draft'}</span>
-          {run.source_filename ? <span style={styles.source}>{run.source_filename}</span> : null}
+          {run.source_filename ? <span style={S.listRowMeta}>{run.source_filename}</span> : null}
         </button>
       ))}
     </div>

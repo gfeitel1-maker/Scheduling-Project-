@@ -103,7 +103,9 @@ const CLEAN_RUN_STATE = {
 function catalogs() {
   return {
     activities: ACTIVITIES, days: DAYS, timeBlocks: TIME_BLOCKS, groups: GROUPS,
-    tiers: TIERS, occurrences: OCCURRENCES,
+    // T296 renamed this prop: it is the CURRENT template's occurrence set, not
+    // the run's own (which now arrives via getElectiveRun as state.occurrences).
+    tiers: TIERS, templateOccurrences: OCCURRENCES,
     scheduleTemplates: SCHEDULE_TEMPLATES, scheduleWeeks: SCHEDULE_WEEKS,
   }
 }

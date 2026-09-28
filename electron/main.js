@@ -2077,6 +2077,27 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       )
       .get({ runId, gen }).c
 
+    // T296: the run's own occurrence rows, so a screen can name a placement's
+    // day and period. The renderer's `occurrences` are AssignmentPanel React
+    // state set only by a fresh solve, so a run reopened from the run list had
+    // none and every occurrence label degraded to a raw id (runStateCopy.js's
+    // occurrenceLabel documents that degradation).
+    //
+    // NOT generation-filtered, and that is deliberate rather than an oversight.
+    // Nothing in electron/ deletes an elective_occurrences row, so this table
+    // accumulates the union of every generation's occurrences — the same fact
+    // that makes a DB-derived DANGLING_MANUAL_ASSIGNMENT check unsound
+    // (AssignmentPanel's note). The difference is the use: a consumer LOOKS UP
+    // the occurrence named by an assignment row it already has, so a superseded
+    // row it never asks for is inert. Anything needing the exact CURRENT
+    // occurrence set must not read this list as that set.
+    const occurrences = db
+      .prepare(
+        `SELECT id, elective_set_id, day_id, time_block_id, tier_id
+           FROM elective_occurrences WHERE run_id = ? ORDER BY id`
+      )
+      .all(runId)
+
     // Shared with getElectiveRunOuterScheduleHandler (T248) — see
     // electron/ops/finalizedAgainstStaleGeneration.js.
     const finalizedAgainstStaleGeneration = computeFinalizedAgainstStaleGeneration(db, run)
@@ -2113,7 +2134,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       }
     }
 
-    return { rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences }
+    return { rows, staleCount, finalizedAgainstStaleGeneration, overCapacityOccurrences, occurrences }
   }
 
   // Finalizing a draft run into an immutable, exportable final one (T244,

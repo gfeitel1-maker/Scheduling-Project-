@@ -3,11 +3,18 @@
 // screens render: the assignment rows, the stale-solver count, whether the run
 // was finalized against a later generation, and which occurrences are over
 // capacity.
+//
+// T296 adds a fifth: the run's own occurrence rows, which is what lets a run
+// opened cold from the run list name the day and period of a placement instead
+// of printing an occurrence id.
 import { useEffect, useState } from 'react'
 import { localClient } from '../../../localClient'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 
-const EMPTY = { rows: [], staleCount: 0, finalizedAgainstStaleGeneration: false, overCapacityOccurrences: [] }
+const EMPTY = {
+  rows: [], staleCount: 0, finalizedAgainstStaleGeneration: false,
+  overCapacityOccurrences: [], occurrences: [],
+}
 
 export function useRunState(runId) {
   const [state, setState] = useState(EMPTY)
