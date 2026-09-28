@@ -221,8 +221,10 @@ Wait for score + justification.
 ## Project Context
 
 - **App:** Shoresh camp scheduling app — React 19 + Vite renderer inside an Electron desktop app.
-  Local-first: each device has its own SQLite db (`better-sqlite3`); one device is the LAN Host
-  (WebSocket server), others are Clients that sync to it. **No cloud backend.** See `CLAUDE.md`.
+  Local-first: each device has its own SQLite db (`better-sqlite3`) that is a projection of a
+  per-camp **Automerge document**, replicated peer-to-peer over **libp2p** (Noise-encrypted, mutually
+  authenticated) — no Host process serving a socket, no `ws://`. One device acts as the pairing/token
+  Host. **No cloud backend.** See `CLAUDE.md`.
 - **Preview:** `npm run dev` → http://localhost:5200 is the *browser* renderer against a dev mock
   (`src/localClient.mock.js`), not the real stack. `npm run electron:dev` runs the real app.
   Anything involving persistence, auth, or sync must be verified under Electron.
@@ -238,7 +240,8 @@ Wait for score + justification.
 - **DnD:** `@dnd-kit/core`, PointerSensor, `distance: 8` activation constraint
 - **DB:** local SQLite, read/written only through `window.shoresh`/`localClient` IPC — never
   directly from the renderer. `template_slots` (not `schedule_slots`). Every mutation is appended
-  to the `operations` op-log and replayed across devices; new entities must be registered in
+  to the `operations` table as **device-local history** (Trash/Restore/history — not the sync
+  mechanism; replication is via the Automerge document); new entities must still be registered in
   `PROJECTIONS` (`electron/ops/projections.js`) or writes silently never materialize.
   Isolation is one-camp-per-device-db (`SELECT ... FROM camps LIMIT 1`).
 - **Workflow law:** [`docs/governance/constitution/CONSTITUTION.md`](../../docs/governance/constitution/CONSTITUTION.md) Art. VI–VII

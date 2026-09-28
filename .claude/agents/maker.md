@@ -73,7 +73,8 @@ Invoke these in order:
 - Local SQLite via `better-sqlite3`. The renderer **never** touches the db directly — every read and
   write goes through `window.shoresh` / `localClient` IPC.
 - Table: `template_slots` (not `schedule_slots`)
-- Every mutation is appended to the `operations` op-log and replayed across devices. A new entity
+- Every mutation is appended to the `operations` table as device-local history (Trash/Restore/history;
+  **not** the sync mechanism — replication is via the Automerge document). A new entity
   **must** be registered in `PROJECTIONS` (`electron/ops/projections.js`) — an unregistered entity's
   writes succeed at the op-log and then silently never materialize into its table. This has bitten
   this project twice (`schedule_templates`, `schedule_snapshots`).
