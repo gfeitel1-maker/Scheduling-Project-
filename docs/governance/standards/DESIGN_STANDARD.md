@@ -31,7 +31,7 @@ Every token has a semantic meaning, not just a hex.
 
 Professional. Grounded. Warm. Quiet. Precise. **Never playful.**
 
-Shoresh is a professional planning instrument for a camp director, not a consumer toy. The interface is grounded and quiet: paper-toned surfaces, thin hairline borders, generous whitespace, softly rounded corners, and shadows so faint they only separate a modal from the page behind it. Warmth lives in the paper background and the bronze accent — never in bounce, saturation, or decoration. It is precise: **color is a data channel, not ornament.** On the schedule grid — the product's visual center — every hue means something (which activity, whether an event is locked, whether a slot is flagged), so the palette is deliberately desaturated and mutually separable rather than vivid.
+Shoresh is a professional planning instrument for a camp director, not a consumer toy. The interface is grounded and quiet: paper-toned surfaces, thin hairline borders, generous whitespace, softly rounded corners, and shadows so faint they only separate a modal from the page behind it. Warmth lives in the paper background and the bronze accent — never in bounce, saturation, or decoration. It is precise: **color is a data channel, not ornament.** On the schedule grid — the product's visual center — colour is never decorative. It carries three independent channels: the activity ladder encodes how often an activity runs (frequency, a navy lightness ramp); anchor slate (`--anchor`) marks a slot that is locked/structural; and the flag colours (`FLAG_COLORS`) mark a flagged slot by severity. Each is deliberately desaturated and mutually separable rather than vivid.
 
 - **Component style:** Minimal shadows. Thin borders. Comfortable whitespace. Soft corners. No unnecessary decoration.
 - **Motion:** explains, never entertains. Fade / Lift / Slide / Settle. No bounce, no elastic, no playful animation.
@@ -72,57 +72,55 @@ Every current `:root` variable in `src/index.css` is covered, plus three new tok
 
 ## 3. Activity data palette
 
-Six muted, professional colors for schedule activity types. Replaces the vivid
-`['#00ADBB','#2F7DE1','#00AA59','#A63595','#F0585D','#7DC433']`.
+A six-rung monochrome navy lightness ladder, dark → light, encoding **how often an activity
+runs** — not which activity it is. Owner decision, 2026-09-12 (T52).
 
 **Current palette** (live in `src/components/schedule/slotCellConstants.js`):
 
 ```js
-const ACTIVITY_COLORS = ['#305C7B','#3D7D84','#4B8C60','#B6A050','#B68B6B','#BE6BC7']
+const ACTIVITY_COLORS = ['#121E2B','#203144','#2F455C','#405872','#526B86','#667F99']
 ```
 
-Six hues on six rungs of a lightness ladder — hue carries identity for most people, lightness
-carries it for everyone else.
+**Assignment: by frequency rung, not per-activity hue.** `assignActivityColors` sets each
+activity's colour to `ACTIVITY_COLORS[frequencyRung(a.min_per_week)]`. `frequencyRung` maps
+`min_per_week` to a rung: 5+/week → rung 0 (darkest, `#121E2B`); 4 → rung 1; 3 → rung 2; 2 → rung
+3; 1 → rung 4; unset/0/unknown → rung 5 (lightest, `#667F99`, the honest reading of "nobody has
+said, which reads as runs least often").
 
-| # | Name | Hex | Rationale / distinctness |
-|---|---|---|---|
-| 1 | Deep Slate Blue | `#305C7B` | Coolest, darkest-reading blue. Far from every warm hue; separates from `--primary` navy by value and from `--anchor` slate by chroma. |
-| 2 | Teal | `#3D7D84` | Blue-green. Separated from Green by hue, and pushed bluer than the previous proposal to widen the greyscale gap against the greens. |
-| 3 | Green | `#4B8C60` | Mid-green. Clearly warmer/greener than Teal; hue carries the distinction. |
-| 4 | Ochre | `#B6A050` | Yellow-warm. Lightest member — the top of the greyscale ladder, which is what separates it from Clay in print. |
-| 5 | Clay | `#B68B6B` | Orange-brown. Separated from Ochre by hue and saturation, and from Plum by hue. |
-| 6 | Plum | `#BE6BC7` | Muted violet — the only purple-family hue; no neighbour competes. Deliberately the most chromatic of the six, because violet is the hue most at risk of collapsing into blue under common colour-vision deficiencies. |
+**A fixed scale, not a ranking over the camp's current activities.** 3-per-week is the same blue
+in every camp, forever. Under a ranking, adding one new activity could recolour everything already
+on the grid; a fixed scale means a director's schedule never changes colour for a reason they
+didn't cause.
 
-(Names are descriptive labels for discussion; `slotCellConstants.js` records the values
-positionally and carries no names of its own.)
+**The guaranteed constraint is pairwise contrast, not hue-distinctness.**
+`slotCellConstants.test.js` asserts `ACTIVITY_COLORS` has length 6, all-unique, and every pair
+exceeds a minimum perceptual-separation floor — it is a lightness/contrast guarantee, not a claim
+that the six read as distinct hues (they are all navy). **The test is the normative guarantee** —
+any future re-pick must keep it passing.
 
-**Why these values and not the 2026-07-28 proposal.** The previous set was chosen for hue alone,
-and three of its six collapsed into one colour for anyone with red-green colour blindness (~6% of
-men). Measured as the smallest distance between any two entries:
+Two constraints pull in opposite directions and both must hold at once: (A) the separation floor
+wants the widest possible lightness spread; (B) every rung must still read as a ~6px identity dot
+on the cream page (`.identity-dot`, `scheduleGrid.css`) — a pale rung that looks fine as a swatch
+can disappear at dot scale. The rungs are compressed to lightness 16–86 with saturation carrying
+some of the separation to satisfy both. Constraint (B) is the binding one and it has a number:
+every rung must clear roughly **4:1 contrast against the surface at dot scale** — the shipped ramp
+measures ~4.01:1 at its palest rung (`slotCellConstants.js`). The first ramp tried (`#102842…#D2DBE5`)
+satisfied the separation floor but sat at **1.35:1** at its palest rung — invisible as a 6px dot.
+Do not lighten the top rungs past that ~4:1 floor to make the grid prettier; the dots stop reading.
 
-```
-                    normal  deuteranopia  protanopia  greyscale
-  was                   39             6           5          2
-  now                   34            20          17         17
-```
+If frequency ever stops driving the assignment, this palette must go back to distinct hues or go
+away entirely — a ramp implies an order, and assigned arbitrarily that implied order would be
+actively misleading.
 
-Slightly less separation for normal vision, several times more for everyone else — and the
-greyscale figure is the one that matters most in practice, because camps print schedules. At 2, a
-printed dot was indistinguishable from any other.
-
-1. **Colour-vision separation.** The original six clustered under deuteranopia and protanopia
-   simulation. The current six are chosen so that every pair remains distinguishable under
-   simulation, not only under normal trichromatic vision.
-2. **Greyscale separation for print.** The original palette was selected for white-label contrast,
-   which optimises each colour against white independently and says nothing about how the six
-   separate *from each other* in monochrome. The current palette spreads the six across the
-   luminance range so that a printed grid stays readable without colour.
-
-This is a token-value change and the aesthetic call is the director's; the constraint that must
-survive any reshuffle is the one in `slotCellConstants.test.js`, not these exact values.
-**The test is the normative guarantee** — any future re-pick must keep it passing. Do not adjust
-these hexes without re-running it, and do not re-derive them from white-label contrast ratios
-alone; that was the metric that produced the superseded set.
+_Prior: before T52 this section documented a six-DISTINCT-HUE palette
+(`['#305C7B','#3D7D84','#4B8C60','#B6A050','#B68B6B','#BE6BC7']` — Deep Slate Blue, Teal, Green,
+Ochre, Clay, Plum), chosen for colour-vision-deficiency separation and greyscale print
+separation, replacing an earlier vivid six-hue set. That per-hue "distinctness" framing (each
+colour picked to differ from its neighbours by hue) no longer describes the palette: the current
+ladder is one hue at six lightness values, and separation is carried by lightness/saturation, not
+hue. The CVD and greyscale-print reasoning that motivated the switch away from the original vivid
+set is still substantively true of the current ladder (it was measured again under the new values —
+see `slotCellConstants.js` comments) — only the "six distinct hues" framing is retired._
 
 **Usage note — the palette is no longer a fill.** After the 2026-07-28 grid decolorization pass,
 activity colour paints only a small (~6–8px) identity dot on the cell (`SlotCell.jsx`), not the
@@ -146,7 +144,7 @@ more separation is ever needed, add a non-colour channel (shape, a hairline, pos
 - **`--danger` (brick `#B44E48`)** = destructive and error only: delete/remove controls, validation failures, fatal error screens, the `UNFILLABLE` flag. Red, terminal — "this is wrong / this will destroy."
 - **`--warning` (same brick value)** = *legacy alias only.* Existing code uses it as danger; keep it defined so nothing breaks, but do not introduce a new meaning under this name.
 - **`--accent` (bronze `#B8833A`) carries the caution/attention role.** Anything meaning "temporary, needs attention, in progress, throttled" — the auth lockout box, a soft advisory — uses bronze, **not** red. This keeps red rare and therefore loud when it does appear (a core "quiet, precise" move: reserve the alarm color). There is intentionally **no separate amber `warning` token**; bronze is the caution hue. The shared primitive for this is `S.cautionBanner` (`src/styles/shared.js`) — `color-mix(in srgb, var(--accent) 12%, var(--surface))` fill, `color-mix(in srgb, var(--accent) 45%, var(--border))` hairline, `color-mix(in srgb, var(--accent) 65%, var(--text))` text — used for advisory copy like "set this up first" (e.g. `GroupsScreen.jsx`, `AnchorsScreen.jsx`). Screens must route through it rather than hardcoding an amber block locally.
-- **`--anchor` (slate `#5C6B7A`) vs the activity palette:** anchor is deliberately *outside* the six-color data palette. Activity colors say "which activity"; anchor says "this slot is locked/structural and cannot be moved." Slate is low-chroma and cool so it never competes with a hue-coded activity — it reads as chrome/lock, not data. The grid legend must document anchor **separately** from the activity key.
+- **`--anchor` (slate `#5C6B7A`) vs the activity palette:** anchor is deliberately *outside* the six-rung activity ladder. Activity colour says "how often this activity runs" (frequency rung); anchor says "this slot is locked/structural and cannot be moved." Slate is low-chroma and cool, and is a distinct hue from the activity ladder's navy, so it never competes with or is mistaken for a frequency rung — it reads as chrome/lock, not data. The grid legend must document anchor **separately** from the activity key.
 - **`--success` vs `--secondary`:** both green, but success (`#4C8A63`, lighter) means *status* (confirmed/online/merged) while secondary (`#2F6B58` forest) is a *structural UI accent*. Kept distinct on purpose.
 - **The colored-fill pill (toggleable filter chip or static status badge) routes through `S.chip(color, selected, overrides)`** (`src/styles/shared.js`) — the shared primitive for the "colored pill, white text" shape used by the schedule group/day pickers, reconciliation's decision chips, device authorization badges, and activity priority tags. `selected` switches between the filled/on look (`background: color`, `color: '#fff'`) and the surface/off look (`background: var(--surface)`, `color: var(--text)`); `overrides` tune radius/padding/font-size per call site without re-deriving the fill logic. `#fff` as a chip text color is only defined here — screens must route through it rather than hardcoding a filled pill locally.
 - **The uppercase condensed "Add X" section-header label routes through `S.sectionLabel`** (`src/styles/shared.js`) — `fontFamily: 'var(--font-condensed)'`, `fontWeight: 700`, `fontSize: 13`, `marginBottom: 10`, `textTransform: 'uppercase'`, `letterSpacing: '0.05em'`. Was byte-identically forked across the Tiers/Groups/Days/TimeBlocks/Electives/Locations/Events setup screens' inline "Add Tier / Add Group / Add Day / …" form-section headers before Wave 3 consolidated it. A screen needing a trivial variation (e.g. an extra margin) spreads `{ ...S.sectionLabel, marginBottom: N }` rather than forking the primitive.
@@ -312,8 +310,9 @@ Fonts:
   --font-sans 'Inter' · --font-condensed 'IBM Plex Sans' · --font-mono 'IBM Plex Mono'
 Activity palette (source of truth: src/components/schedule/slotCellConstants.js,
                   separation locked by slotCellConstants.test.js):
-  ['#305C7B','#3D7D84','#4B8C60','#B6A050','#B68B6B','#BE6BC7']
-  (Deep Slate Blue, Teal, Green, Ochre, Clay, Plum)
+  ['#121E2B','#203144','#2F455C','#405872','#526B86','#667F99']
+  Monochrome navy lightness ladder, dark (rung 0, most frequent) -> light (rung 5, least/unset).
+  Assigned by frequency rung (min_per_week), not per-activity.
   Painted as a ~6-8px identity dot, not a cell fill — see §3.
 Motion:
   --motion-fast 140ms · --motion-base 220ms · --motion-settle 340ms
