@@ -202,8 +202,9 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // ── Pass 0: resolve eligibility ──────────────────────────────────────────
   const eligibility = new Map() // activityId → Set<groupId>
   for (const act of activities) {
-    // T266 — a pinned event's row stays in `activities` (anchor suppression
-    // resolves to it BY NAME and would silently switch off if it were removed),
+    // T266 — a pinned event's row stays in `activities` (the fixed_events row
+    // references it BY ID via `activity_id`, and removing the activities row
+    // would dangle that link, silently switching off the anchor suppression),
     // but it is eligible for NO group AS A FREE CHOICE: ingest pass 1/2 already
     // claimed it, so pass 3 may not place it. Recording that as an empty
     // eligibility set, rather than skipping the row, means every downstream

@@ -7,12 +7,12 @@
 //
 // Pass 1/2 record their claim as `activities.catalog_role = 'pinned_event'`
 // (schema v75, T266). The row is NOT deleted — that is the whole point. An
-// anchor references its activity BY NAME (src/engine/anchorActivityLink.js;
-// there is no activity_id column), and both don't-schedule-twice suppressions
-// resolve through that name. Remove the row and the suppression becomes a silent
-// no-op and the event is placed twice, with no error and no finding. So pass 1/2
-// leaves a MARKER, NOT A HOLE: present for name resolution, absent from every
-// menu.
+// anchor references its activity BY ID via `fixed_events.activity_id`
+// (resolved in src/engine/anchorActivityLink.js), and both don't-schedule-twice
+// suppressions resolve through that id. Remove the row and the link dangles —
+// the suppression becomes a silent no-op and the event is placed twice, with
+// no error and no finding. So pass 1/2 leaves a MARKER, NOT A HOLE: present
+// for id resolution, absent from every menu.
 //
 // WHY THIS IS ONE SHARED FUNCTION AND NOT A FILTER WRITTEN AT EACH SITE.
 // `electiveGenerationVisibleFragment` exists for the same reason: a second
