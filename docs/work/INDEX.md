@@ -20,7 +20,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [Phase A — Cloudflare Worker and KV rendezvous bulletin board (source and tests only)](../../docs/work/tickets/T209-rendezvous-worker-phase-a.md) | in-progress | [2026-09-18-rendezvous-record-encoding-and-namespace-rotation](../../docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
-| [T267-fixed-recurring-event-identity-model](../../docs/work/tickets/T267-fixed-recurring-event-identity-model.md) | in-progress | [2026-09-26-fixed-recurring-event-identity-model](../../docs/adr/2026-09-26-fixed-recurring-event-identity-model.md) · [2026-09-28-t267-pr2-id-cutover](../../docs/work/runs/2026-09-28-t267-pr2-id-cutover.md) · [2026-09-28-t267-pr3-cosmetic-cleanup](../../docs/work/runs/2026-09-28-t267-pr3-cosmetic-cleanup.md) · [2026-09-28-fixed-recurring-activity-vocabulary](../../docs/work/specs/2026-09-28-fixed-recurring-activity-vocabulary.md) |
 
 ### copy-terminology
 
