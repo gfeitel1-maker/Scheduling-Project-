@@ -32,9 +32,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // (T266, docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md — activities.
 // catalog_role), v76 (T197, docs/adr/2026-09-26-elective-run-outer-inheritance-and-linked-choice-
 // export.md), v77 (T267, docs/adr/2026-09-26-fixed-recurring-event-identity-model.md —
-// anchor_activities renamed to fixed_events, gains activity_id), and v78 (T265,
+// anchor_activities renamed to fixed_events, gains activity_id), v78 (T265,
 // docs/adr/2026-09-26-per-cell-elective-preferences.md — elective_preferences gains
-// occurrence_id) all land in this file; 78 is the current version.
+// occurrence_id), and v79 (T279, docs/adr/2026-09-27-elective-preference-etl-canonical-
+// record-and-learned-axis-binding.md — five nullable elective-preference-ETL columns:
+// campers.division_label/is_unattributed and elective_preferences.rank_kind/
+// coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
+// current version.
 export const CURRENT_SCHEMA_VERSION = 79
 
 export function initSchema(db) {
