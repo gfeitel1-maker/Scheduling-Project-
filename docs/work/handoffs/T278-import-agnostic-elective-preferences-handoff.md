@@ -1,10 +1,13 @@
 ---
+task: T278-import-agnostic-elective-preferences
 title: "Handoff: T278/T279/T285 import-agnostic elective preferences"
 document_type: handoff
 status: active
-date: 2026-09-28
+created: 2026-09-28
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/adr/2026-09-27-elective-preference-etl-canonical-record-and-learned-axis-binding.md]
-task_class: ingest
+related_tickets: [docs/work/tickets/T278-import-agnostic-elective-preferences.md, docs/work/tickets/T279-preference-etl-canonical-record-and-residue.md, docs/work/tickets/T285-preference-shape-adapters.md]
+task_class: database-sync
+archive_when: "PR #579 is merged and the identity-key and import-screen slices named in this handoff are closed, or a later handoff supersedes it"
 ---
 
 # Handoff — import-agnostic elective preferences

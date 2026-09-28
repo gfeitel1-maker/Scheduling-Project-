@@ -1728,6 +1728,37 @@ change and not a follow-up:
   F4's own reasoning to F3's column: that allowlist is
   `['run_id','camper_id','occurrence_id','choice_id','rank']` (`:943-946`).
 
+**RETRACTED 2026-09-28 — THE PREMISE THIS DISMISSAL RESTED ON HAS MOVED, and it is recorded as an
+open question rather than restated to look settled.**
+
+The paragraph below contested a version-skew finding by citing
+`docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md` as *"accepted, normative,
+owner-decided"*. That document now carries, at its own head: *"Premise removed — 2026-09-26 (owner).
+This ADR's safety argument no longer holds and is reopened under the relay/sync program."* And
+`docs/work/tickets/T284-mixed-version-replication-unenforced.md` states the position plainly in its
+title: **mixed-version replication is promised by nobody and prevented by nothing.** So nothing
+prevents a mixed-version pair from forming, and the sentence "a camp's devices run one build" is a
+description of intent, not an enforced property.
+
+**What that changes for v79, stated as the consequence rather than waved away.** A v78 device
+receiving a v79 op for one of the five new columns discards it in `applyProjection` — silently, on the
+REPLAY path (the local write path throws, see §13.4 below). For `division_label` and
+`is_unattributed` the loss is provenance. **For `coordinate_day_label` / `coordinate_period_label` it
+is not**: without the coordinate, a per-cell preference has no scope, every cell of a planner collapses
+onto the whole-run fallback, and the T278 defect this ADR exists to remove is back on that device. That
+is a real consequence of an unenforced boundary, not a theoretical one.
+
+**Why it does not block this work, on grounds that do not depend on the moved premise:** pre-production
+— there is no live camp, no paired fleet, and no rows anywhere that must keep matching, so there is no
+skew to suffer today. That ground is independent of the reopened ADR and survives it.
+
+**Why it is not fixable here:** a v78 build cannot be taught about v79's columns. The fix belongs to
+whatever T284's program decides — enforce the boundary, or make replication version-aware. **Open
+question, owned by T284, cross-referenced here so a future reader does not find a resolved-looking
+note resting on a premise that moved.**
+
+The paragraph below is kept as the record of what round 6 argued and why it no longer stands.
+
 **Contested, with evidence: the version-skew half is already ruled and does not need a new ruling
 here.** `docs/adr/2026-09-18-mixed-version-replication-out-of-scope.md` is **accepted, normative,
 owner-decided**: a camp's devices run one build. So "a v78 device silently drops every
