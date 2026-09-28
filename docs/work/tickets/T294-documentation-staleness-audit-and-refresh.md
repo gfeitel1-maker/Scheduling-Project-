@@ -75,8 +75,9 @@ Priority-tier predicate discharged:
 
 ## Phase 2 outcome — comprehensive whole-corpus pass (2026-09-28)
 
-Seven auditors swept the entire live doc corpus (707 tracked `*.md` outside `docs/archive/**` /
-`legacy/**`), split into disjoint domains; every contradiction code-confirmed. Canonical inventory
+Seven auditors swept the entire live doc corpus (707 tracked `*.md` outside the historical
+`docs/archive/**` and `legacy/**` trees), split into disjoint domains; every contradiction
+code-confirmed. Canonical inventory
 (`docs/work/2026-09-28-documentation-staleness-inventory.md`) now covers the full corpus. Refreshes
 landed on `main` in five domain PRs, each CI-green, each independently reviewed:
 
