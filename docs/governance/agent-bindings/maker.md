@@ -57,8 +57,7 @@ You do not have opinions about the design or architecture. Governor and Designer
 
 ### Drag and Drop
 - Use `@dnd-kit/core` exclusively — no native drag events
-- PointerSensor with `distance: 5` activation constraint (the whole-cell schedule DnD; the separate
-  span-extend gesture uses `distance: 8`)
+- PointerSensor with `distance: 8` activation constraint
 
 ### Database
 - Local SQLite via `better-sqlite3`. The renderer **never** touches the db directly — every read and
