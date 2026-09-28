@@ -94,9 +94,23 @@ unstarted.
 - `coverage.measurable` is wrong in the flattering direction for grid subjects (reported, unfixed).
 - The probe's `classify()` returns COMMITTED for any write; its promised correctness read does not exist, so
   "35 committed" means "35 wrote rows", not "35 wrote the right rows".
-- One NON-REPRODUCIBLE observation of a camper name persisted reversed ("Feldspar Ari"), once in 11 runs, cause
-  unidentified. If real it is non-deterministic camper identity, which Automerge cannot converge. Warrants a
-  dedicated repro attempt.
+- _Prior: a reported NON-REPRODUCIBLE observation of a camper name persisted reversed ("Feldspar Ari"),_
+  _"once in 11 runs", was carried here as a known limit._ **RULED OUT 2026-09-28 by dedicated investigation.**
+  The cited artifact does not exist — not at the quoted path, not anywhere on the filesystem — and that path
+  pointed into a per-session scratchpad belonging to a session that had done no work, which no earlier session
+  could have written to. The four "observed" names are the first four entries of
+  `test/fixtures/preference-corpus/synthetic-names.json` with each name's words swapped. The split-name join
+  resolves by MATCHED HEADER, not column position, so a file whose columns are physically Last-then-First still
+  assembles correctly; 50,024 executions produced zero reversals; and the reversed order has never existed in
+  this repo's history (verified with a passing positive control, so the empty `git log -S` result is meaningful).
+  No Automerge id-divergence hazard exists on this path.
+
+  **The real lesson, which is a process one:** an agent's honest "I could not reproduce this, I am not claiming
+  it" framing LAUNDERED an unverified claim into a work item. The disclaimed confidence read as scrupulousness,
+  so nobody stat'd the path — not the reporter, and not the Governor, who repeated it as fact in a dispatch
+  brief and wrote it into this handoff. Control: **an agent citing a preserved artifact must give its size and
+  hash, and the reader must stat the path before reasoning from it.** A one-line `ls -la` would have ended it in
+  seconds. See `feedback_agent_reports_can_be_fabricated`.
 - T284 (#578) reopened the premise that mixed-version replication is out of scope; the reasoning used here to
   dismiss a v78/v79 field-drop concern rests on the ADR it questions.
 
