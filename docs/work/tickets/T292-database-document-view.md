@@ -1,7 +1,7 @@
 ---
 title: "Camp data record — a self-maintaining openable file of the camp's data"
 document_type: ticket
-status: open
+status: in-progress
 task_class: architecture
 date: 2026-09-28
 created: 2026-09-28
@@ -62,16 +62,14 @@ Done when, on a normally-running install:
   the Automerge document wins. Editing the file does nothing to the camp.
 - **Not a SQL/DBA browser.** Curated, director-legible; no raw schema, no ids.
 
-## Open questions (for the spec to settle)
+## Owner decisions — SETTLED (2026-09-28: "build it with the recommendations")
 
-1. Which entities make the default sheet set; leave schedule-internal/participant tables
-   out (bias: yes).
-2. Dev vs. packaged: the dev build uses a separate DB — should its file be suffixed
-   (e.g. `<camp> data (dev).xlsx`) so it can't be mistaken for a real camp's? (bias: yes.)
-3. Refresh coalescing window and trigger seam (which projection/op-apply event the
-   writer hooks) — a spec/architecture detail, not an owner decision.
-4. Camp rename / multiple camps over a device's life: filename follows the current camp;
-   stale files from a prior camp name are left as-is (bias) or cleaned up.
+1. Default sheet set **excludes** schedule-internal/participant tables.
+2. Dev build's file is **suffixed `(dev)`**.
+3. **`.xlsx` only** (no `.html` variant).
+4. Filename **follows the current camp; old files left in place** on rename.
+
+Building spec slices **S1 + S2** only.
 
 ## Status
 

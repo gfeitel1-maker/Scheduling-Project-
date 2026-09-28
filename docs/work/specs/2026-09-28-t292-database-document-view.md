@@ -2,7 +2,7 @@
 title: "T292 — Camp data record: a self-maintaining openable workbook"
 document_type: spec
 authority: proposed
-status: draft
+status: approved
 task_class: architecture
 created: 2026-09-28
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md, docs/current/WHERE_DATA_LIVES.md]
@@ -153,14 +153,16 @@ rejected. Writing on app-close-only would let the open file lag a live edit sess
 - **Designer on S1 metadata:** relabeling vocabulary, FK-as-name, empty states, against
   `DESIGN_STANDARD.md`.
 
-## 8. Open decisions for the owner
+## 8. Owner decisions — SETTLED (2026-09-28: "build it with the recommendations")
 
-1. **D1** — Leave schedule-internal/participant tables out (recommended) or include them.
-2. **D2** — Suffix the dev build's file `(dev)` (recommended) so it can't be mistaken for
-   a real camp's.
-3. **D3** — `.xlsx` only (recommended) or also a standalone `.html` file.
-4. **D4** — On camp rename / a device hosting a different camp later: filename follows the
-   current camp and old files are left in place (recommended) vs. cleaned up.
+1. **D1 — RESOLVED: leave schedule-internal/participant tables out** of the default file.
+2. **D2 — RESOLVED: suffix the dev build's file `(dev)`** so it can't be mistaken for a
+   real camp's.
+3. **D3 — RESOLVED: `.xlsx` only.** No `.html` variant.
+4. **D4 — RESOLVED: filename follows the current camp; old files are left in place** on
+   rename or camp change (no cleanup).
+
+S3 (advanced sheets / `.html`) is therefore **dropped** from scope — build S1 + S2 only.
 
 ---
 

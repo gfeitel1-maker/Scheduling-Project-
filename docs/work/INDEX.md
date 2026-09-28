@@ -21,7 +21,7 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [Phase A — Cloudflare Worker and KV rendezvous bulletin board (source and tests only)](../../docs/work/tickets/T209-rendezvous-worker-phase-a.md) | in-progress | [2026-09-18-rendezvous-record-encoding-and-namespace-rotation](../../docs/adr/2026-09-18-rendezvous-record-encoding-and-namespace-rotation.md) · [2026-09-17-rendezvous-wan-connectivity](../../docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md) |
 | [T267-fixed-recurring-event-identity-model](../../docs/work/tickets/T267-fixed-recurring-event-identity-model.md) | in-progress | [2026-09-26-fixed-recurring-event-identity-model](../../docs/adr/2026-09-26-fixed-recurring-event-identity-model.md) |
-| [Camp data record — a self-maintaining openable file of the camp's data](../../docs/work/tickets/T292-database-document-view.md) | open | [2026-09-28-t292-database-document-view](../../docs/work/specs/2026-09-28-t292-database-document-view.md) |
+| [Camp data record — a self-maintaining openable file of the camp's data](../../docs/work/tickets/T292-database-document-view.md) | in-progress | [2026-09-28-t292-database-document-view](../../docs/work/specs/2026-09-28-t292-database-document-view.md) |
 
 ### database-sync
 
