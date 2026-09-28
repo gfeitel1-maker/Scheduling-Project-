@@ -38,18 +38,18 @@ describe('anchored activities excluded from regular placement', () => {
     expect(anchorSlots.length).toBeGreaterThan(0)
   })
 
-  // T62 regression, real-row shape. The two assertions above use an anchor
-  // carrying `activity_id` — a field `fixed_events` has never had (no
-  // migration adds it; electron/ops/ingest.js writes name/day/block/scope and
-  // no activity link). A real anchor references its activity BY NAME, so
-  // `anchoredActivityIds` is empty in production and the T62 exclusion never
-  // fires: an activity that is already anchored is placed a second time as a
-  // regular slot. This test uses the row shape the app actually produces.
-  it('never places an anchored activity as a regular slot when the anchor links by NAME (real row shape)', () => {
+  // T62 regression, real-row shape post-PR2 (T267). This fixture carries
+  // `activity_id` — the real shape electron/ops/ingest.js now writes since the
+  // fixed_events → activities activity_id link landed. resolveAnchorActivityIds
+  // (buildSchedule.js) resolves BY activity_id, so `anchoredActivityIds` is
+  // populated in production and the T62 exclusion fires: an activity that is
+  // already anchored is NOT placed a second time as a regular slot. This test
+  // confirms Lunch is correctly excluded from regular placement.
+  it('never places an anchored activity as a regular slot when the anchor links by id (real row shape)', () => {
     const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
     const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
     const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
-    // No activity_id — exactly what electron/ops/ingest.js writes.
+    // Carries activity_id — the row shape electron/ops/ingest.js writes post-PR2.
     const anchor = { id: 'anc1', activity_id: 'lunch', name: 'Lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
     const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [lunch], anchors: [anchor] }))
 

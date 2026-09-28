@@ -387,10 +387,12 @@ export function buildPlan(source, existing = null, resolutions = []) {
   // A name in this set now also carries `catalog_role: 'pinned_event'` onto the
   // activity row (schema v75), which is what actually enforces the owner's rule
   // ("once something is pulled from the first or second pass it should no longer
-  // be available to be pulled out in the third"). The row is still CREATED — that
-  // is deliberate and load-bearing, not an oversight: an anchor resolves its
-  // activity BY NAME (src/engine/anchorActivityLink.js), so deleting the row
-  // would silently disable the don't-schedule-twice suppression and place the
+  // be available to be pulled out in the third") — that marker is what the
+  // free-choice exclusion reads (src/engine/freeChoiceActivities.js). The row is
+  // still CREATED — that is deliberate and load-bearing for a SEPARATE reason
+  // too: an anchor resolves its activity BY `activity_id`
+  // (src/engine/anchorActivityLink.js), so deleting the row would dangle that
+  // link and silently disable the anchor-duplicate suppression, placing the
   // event twice with no error. A MARKER, NOT A HOLE.
   //
   // tier:'low' is KEPT alongside the marker. It is now orthogonal — whichever way

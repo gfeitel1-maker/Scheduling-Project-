@@ -549,11 +549,16 @@ CREATE TABLE IF NOT EXISTS activities (
   -- or pass 2 (recurring) already claimed it, so it is not available to pass 3
   -- and does not appear in any free-choice menu.
   --
-  -- The row still EXISTS, deliberately: an anchor references its activity BY
-  -- NAME (src/engine/anchorActivityLink.js, no activity_id column), and both
-  -- don't-schedule-twice suppressions resolve through that name. Deleting the
-  -- row would remove the handle and silently place the event twice. This is a
-  -- MARKER, NOT A HOLE.
+  -- The row still EXISTS, deliberately, for TWO independent reasons keyed by
+  -- two DIFFERENT columns: (1) this `catalog_role` marker is what the
+  -- free-choice exclusion reads (src/engine/freeChoiceActivities.js,
+  -- isFreeChoiceActivity) to keep the row out of every menu; (2) the
+  -- `fixed_events` row links to it via `activity_id`
+  -- (src/engine/anchorActivityLink.js), the key the SEPARATE anchor-duplicate
+  -- exclusion uses (src/engine/buildSchedule.js, anchoredActivityIdsByGroupDay).
+  -- Deleting the row breaks both: catalog_role stops existing to be read, and
+  -- the activity_id link dangles — the event is placed twice. A MARKER, NOT A
+  -- HOLE.
   --
   -- Must be LAST, for the same reason recurrence_truth_status and location_id
   -- above it are: ALTER-added on a migrated db (localDb.js v75), which always
@@ -772,9 +777,8 @@ CREATE TABLE IF NOT EXISTS time_blocks (
 -- internal sub-schedule — see that ADR's "two families" ruling). The `kind`
 -- column already distinguishes fixed from recurring within this one table.
 --
--- activity_id (v75 here; T267: renumber at rebase to main+1 once T266/T197
--- land — see the migration block and rollback comments for the same note):
--- a soft reference (no SQL FOREIGN KEY, matching this table's existing
+-- activity_id (v77, T267 — see the migration block and rollback comments for
+-- the same note): a soft reference (no SQL FOREIGN KEY, matching this table's existing
 -- FK-by-convention columns like location_id, and elective_set_activities.
 -- activity_id's precedent) to activities.id, replacing the by-NAME link
 -- src/engine/anchorActivityLink.js resolved through (the T62 scar its header
