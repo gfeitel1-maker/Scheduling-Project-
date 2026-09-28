@@ -79,7 +79,7 @@ Seven auditors swept the ENTIRE live doc corpus — every tracked `*.md` outside
 
 | Doc | Stale claim | Truth (verified) | Status |
 |---|---|---|---|
-| `CLAUDE.md:101` | DnD `distance: 8` activation constraint | `src/screens/ScheduleScreen.jsx:239` PointerSensor `distance: 5` (8 is the separate span-extend gesture) | LANDED PR-A |
+| `CLAUDE.md:101` | DnD `distance: 8` activation constraint | `src/screens/ScheduleScreen.jsx:239` PointerSensor `distance: 5` — the only DnD activation constraint in the schedule code; the span-extend handle uses a plain `onPointerDown` with no distance disambiguation (`SlotCell.jsx`) | LANDED PR-A |
 | `docs/current/PLATFORM_STATE.md:687` | schema "v58 as of this writing" | `CURRENT_SCHEMA_VERSION = 78` (`electron/db/localDb.js:38`) | LANDED PR-A |
 | `docs/current/PLATFORM_STATE.md` (two `schema_migrations` bullets) | "currently v77"; enumeration stops at v71 | v78; v72–v78 exist (localDb.js:29-37, rollbacks v73–v78) | LANDED PR-A (versions + v72–v78 added) |
 | `docs/current/WHERE_DATA_LIVES.md:76` | "51 tables — 29 synced, 1 projected, 21 SQLite-only" | 63 tables (opened fresh DB), 36 synced (`MODELED_ENTITIES.size`), 1 projected-never-synced, 26 SQLite-only (`PROJECTIONS`=37) | LANDED PR-A |
@@ -130,7 +130,7 @@ Seven auditors swept the ENTIRE live doc corpus — every tracked `*.md` outside
 | `docs/adr/2026-09-08-crdt-conflict-reconciliation.md` | in_progress → implemented (`reconcile.js` wired) | LANDED PR-E |
 | `docs/adr/2026-09-19-per-camp-genesis-identity.md` | not_started → implemented (`campDocument.js:325` genesisDoc) | LANDED PR-E |
 | `docs/adr/2026-09-26-schema-version-gate-before-merge.md` | not_started → in-progress/partial (handshake gate `syncNode.js:35` present; doc-embedded half pending) | LANDED PR-E |
-| `docs/adr/2026-09-17-wan-rendezvous-seam.md` | status proposed, but the 2026-09-27 ladder treats it as accepted | LANDED PR-E (reconciled) |
+| `docs/adr/2026-09-17-wan-rendezvous-seam.md` | status proposed, but the 2026-09-27 ladder treats it as accepted | **DEFERRED — owner confirmation** (NOT reconciled; low-confidence status flip on a historical ADR — is the whole seam decision accepted, or only the ladder's D3? left as-is) |
 | `scripts/consolidation/README.md:10-38` | "launchd still runs the OLD copy" — false; T171 completed 2026-09-15, in-repo scripts are live, out-of-repo copies gone | LANDED PR-E |
 
 ## NOTED — corpus-consistency, deferred to the safeguards phase (not stale-vs-reality)
