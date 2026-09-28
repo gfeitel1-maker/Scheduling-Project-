@@ -52,8 +52,10 @@ Read these areas in full before generating candidates:
    minimal? Does it leak IPC details to callers?
 4. **`electron/ops/`** — op-log primitives, projections, deleteRecord, duplicateWeek, deleteWeek.
    Are the write primitives deep enough? Is there shallow pass-through?
-5. **`electron/sync/`** — syncClient.js and syncServer.js. Assess seam discipline: does the
-   renderer need to know sync topology? Does the server leak op-log internals?
+5. **`electron/sync/automerge/`** — the libp2p/Automerge sync layer (`docStore`, `liveDoc`,
+   `mutualAuth`, `discovery`, `joinSession`, `syncNode`). Assess seam discipline: does the renderer
+   need to know sync topology? Is the CRDT/transport boundary leaking into higher layers? (The old
+   `syncClient.js`/`syncServer.js` WebSocket layer was deleted in the Stage-6 cutover.)
 6. **`src/components/schedule/`** — schedule UI components. Look for components that are too
    wide (know too much about their callers' state) or too shallow (barely wrap a div).
 7. **`src/engine/`** — the pure engine modules. Benchmark for depth. Other modules should aspire
