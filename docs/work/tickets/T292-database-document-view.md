@@ -74,4 +74,5 @@ Building spec slices **S1 + S2** only.
 ## Status
 
 Spec: [docs/work/specs/2026-09-28-t292-database-document-view.md](../specs/2026-09-28-t292-database-document-view.md).
-Not yet built. Awaiting owner acceptance of the spec before implementation.
+Spec approved by owner ("build it with the recommendations"). Building S1 + S2.
+Run record: [docs/work/runs/2026-09-28-t292-camp-data-record-self-maintaining-workbook.md](../runs/2026-09-28-t292-camp-data-record-self-maintaining-workbook.md).
