@@ -219,14 +219,14 @@ describe('resolveWeekCatalog', () => {
   })
 })
 
-// The anchors above all carry `activity_id`, a column `fixed_events` has
-// never had (see anchorActivityLink.js). Every suppression assertion built on
-// that shape passed while the production path — a name-only anchor — matched
-// nothing and left the anchor standing. These use the real row shape.
-describe('resolveWeekCatalog — anchors linked by NAME (real row shape)', () => {
-  const nameAnchor = { id: 'anch-name', name: 'Swim', is_all_groups: true, group_ids: null }
+// T267 PR2: resolution is id-based. A name-only anchor (no activity_id) is
+// an identity gap and resolves to nothing — it cannot be suppressed by
+// activity/location closure, which the "keeps an anchor whose name is an
+// event" test below already covers. These assert the id-linked case.
+describe('resolveWeekCatalog — anchors linked by activity_id (real row shape)', () => {
+  const nameAnchor = { id: 'anch-name', activity_id: 'act-swim', name: 'Swim', is_all_groups: true, group_ids: null }
 
-  it('suppresses a name-linked anchor when its activity is closed for the week', () => {
+  it('suppresses an id-linked anchor when its activity is closed for the week', () => {
     const result = resolveWeekCatalog({
       groups, activities, anchors: [nameAnchor], weekId: WEEK,
       activityExclusions: [{ week_id: WEEK, activity_id: 'act-swim' }],
@@ -236,7 +236,7 @@ describe('resolveWeekCatalog — anchors linked by NAME (real row shape)', () =>
     expect(result.suppressedAnchors).toEqual([{ anchor: nameAnchor, reason: 'activity-excluded' }])
   })
 
-  it('suppresses a name-linked anchor when its activity’s location is closed for the week', () => {
+  it('suppresses an id-linked anchor when its activity’s location is closed for the week', () => {
     const result = resolveWeekCatalog({
       groups, activities, anchors: [nameAnchor], weekId: WEEK,
       activityExclusions: [], groupExclusions: [],

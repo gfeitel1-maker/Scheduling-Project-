@@ -1,4 +1,4 @@
-import { indexActivitiesByName, resolveAnchorActivityIds } from './anchorActivityLink.js'
+import { resolveAnchorActivityIds } from './anchorActivityLink.js'
 import { resolveAnchorGroupIds } from './anchorScope.js'
 
 // Pure pre-pass that resolves the camp-wide catalog against a single week's
@@ -52,17 +52,11 @@ export function resolveWeekCatalog({
   const keptAnchors = []
   const suppressedAnchors = []
 
-  // An anchor names its activity, it does not link to it — see
-  // anchorActivityLink.js. This read was `anchor.activity_id ?? anchor.unit_id`,
-  // which resolved to undefined for every real row (no such column) and then
-  // fell back to unit_id — a TIER id, compared against ACTIVITY ids, so it
-  // could only ever miss. Both suppression rules below were therefore inert:
-  // closing Swim (or the Pool) for a week left the Swim anchor on the grid.
-  // Same root cause as the T62 placement bug, same fix, one shared resolver.
-  const activitiesByName = indexActivitiesByName(activities)
-
+  // An anchor links to its activity via `fixed_events.activity_id` — see
+  // anchorActivityLink.js. T267 PR2 cuts this over from the earlier
+  // name-matching fallback to a direct id lookup.
   for (const anchor of anchors) {
-    const anchorActivityIds = resolveAnchorActivityIds(anchor, activitiesByName)
+    const anchorActivityIds = resolveAnchorActivityIds(anchor)
     if (anchorActivityIds.some((id) => excludedActivityIds.has(id))) {
       suppressedAnchors.push({ anchor, reason: 'activity-excluded' })
       continue

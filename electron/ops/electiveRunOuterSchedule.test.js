@@ -89,6 +89,36 @@ describe('deriveElectiveRunOuterRows — v76 inheritance and camper universe', (
     db.close()
   })
 
+  // T267 PR2 — the anchor branch of resolveTemplateSlot must return the
+  // fixed_events row's real activity_id, not the hardcoded null T197 (PR1)
+  // left as a deferred placeholder.
+  it('emits activity_id for an inherited row whose template slot is a fixed event (anchor)', () => {
+    const db = freshDb()
+    const fx = baseFixture(db)
+    const camperId = randomUUID()
+    db.prepare('INSERT INTO campers (id, camp_id, display_name, group_id, is_active) VALUES (?, ?, ?, ?, 1)')
+      .run(camperId, fx.campId, 'Camper A', fx.groupId)
+    addPreference(db, fx.run.id, camperId)
+    const activityId = randomUUID()
+    db.prepare('INSERT INTO activities (id, camp_id, name, location_id, span_blocks, catalog_role) VALUES (?, ?, ?, ?, 1, ?)')
+      .run(activityId, fx.campId, 'Lunch', fx.locationId, 'pinned_event')
+    const anchorId = randomUUID()
+    db.prepare('INSERT INTO fixed_events (id, camp_id, name, kind, activity_id) VALUES (?, ?, ?, ?, ?)')
+      .run(anchorId, fx.campId, 'Lunch', 'fixed', activityId)
+    db.prepare(
+      'INSERT INTO template_slots (id, template_id, group_id, is_anchor, anchor_id, day_id, time_block_id) VALUES (?, ?, ?, 1, ?, ?, ?)'
+    ).run(randomUUID(), fx.templateId, fx.groupId, anchorId, fx.dayId, fx.tb[0])
+
+    const { rows } = deriveElectiveRunOuterRows(db, fx.run)
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      cell_kind: 'inherited', activity_id: activityId, activity_name: 'Lunch',
+    })
+
+    db.close()
+  })
+
   it('collapses three contiguous identical-activity template_slots rows into one span-headed row (span_blocks: 3)', () => {
     const db = freshDb()
     const fx = baseFixture(db)
