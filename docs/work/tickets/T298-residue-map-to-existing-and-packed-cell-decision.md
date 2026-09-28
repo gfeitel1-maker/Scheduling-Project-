@@ -1,7 +1,7 @@
 ---
 title: "Residue resolution slice 2 — join a label to an activity that exists, and settle a packed cell"
 document_type: ticket
-status: complete
+status: completed
 created: 2026-09-28
 task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]
