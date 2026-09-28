@@ -2043,3 +2043,21 @@ describe('cross-cohort route conflicts', () => {
     expect(result.conflicts).toHaveLength(0)
   })
 })
+
+// Review finding #2 (MEDIUM) — every ANCHOR_IDENTITY_GAP finding carried
+// groupId:null, activityId:null, so findingDismissKey (src/screens/schedule/
+// findingKey.js) derived the SAME key for every such finding after a T267
+// PR2 migration leaves multiple fixed_events rows with null activity_id —
+// dismissing one silently hid the rest. Each finding must carry a
+// per-anchor discriminator (anchorId) distinct findings can key off.
+describe('ANCHOR_IDENTITY_GAP findings carry a per-anchor discriminator', () => {
+  it('two anchors with null activity_id each produce their own finding with a distinct anchorId', () => {
+    const anchor1 = { id: 'anc-gap-1', name: 'Mifkad', activity_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const anchor2 = { id: 'anc-gap-2', name: 'Lunch', activity_id: null, unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const result = buildSchedule(minimal({ anchors: [anchor1, anchor2] }))
+
+    const gapFindings = result.findings.filter(f => f.kind === 'ANCHOR_IDENTITY_GAP')
+    expect(gapFindings).toHaveLength(2)
+    expect(gapFindings.map(f => f.anchorId).sort()).toEqual(['anc-gap-1', 'anc-gap-2'])
+  })
+})

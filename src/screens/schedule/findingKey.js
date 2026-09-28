@@ -22,6 +22,11 @@ export function findingDismissKey(f) {
       return `${base}|got:${f.got}|needed:${f.needed}`
     case 'DISTRIBUTION':
       return `${base}|before:${f.beforeCount}|req:${f.requiredBefore}`
+    case 'ANCHOR_IDENTITY_GAP':
+      // groupId/activityId are both null for every such finding (buildSchedule.js) —
+      // the coordinate-only base key would collapse every gap onto one key.
+      // anchorId (the fixed_events row id) is the real per-finding discriminator.
+      return `${base}|anchor:${f.anchorId}`
     default:
       // ANCHOR_DUPLICATE, DANGLING_LOCATION, and any future presence-only kind.
       return base

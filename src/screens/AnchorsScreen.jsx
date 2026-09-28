@@ -377,9 +377,15 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
   // match links to it (marking it pinned if it wasn't already); zero matches
   // creates a new pinned activity; two-or-more is an ambiguity the director
   // must resolve by renaming, surfaced as a save error rather than guessed.
-  async function resolveActivityLink(name) {
+  // `activityList` defaults to the (possibly stale) `activities` React
+  // state, correct for the single-shot modal save. `confirmImport` passes an
+  // explicit in-loop array it mutates in place, so the 2nd..Nth row of a
+  // multi-day recurring import (all sharing one name) sees the activity the
+  // 1st row just created instead of re-creating it — see electron/ops/ingest.js's
+  // activityIdByName map for the same pattern.
+  async function resolveActivityLink(name, activityList = activities) {
     const key = whitespaceInsensitiveName(name)
-    const matches = activities.filter((a) => whitespaceInsensitiveName(a.name) === key)
+    const matches = activityList.filter((a) => whitespaceInsensitiveName(a.name) === key)
     if (matches.length === 1) {
       if (matches[0].catalog_role !== 'pinned_event') {
         await repository.writeFields('activities', matches[0].id, { catalog_role: 'pinned_event' })
@@ -391,6 +397,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
       await repository.createRecord('activities', newActivityId, {
         name, camp_id: campId, catalog_role: 'pinned_event',
       })
+      activityList.push({ id: newActivityId, camp_id: campId, name, catalog_role: 'pinned_event' })
       return newActivityId
     }
     throw new Error(`"${name}" matches more than one activity in your catalog — rename one of them before saving.`)
@@ -694,12 +701,15 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
     setImporting(true)
     try {
       let added = 0, skipped = 0, skippedWithOrphan = 0, filedElsewhere = 0
+      // Shared across the whole loop so same-named rows (a recurring event's
+      // several days) link to one activity instead of each creating its own.
+      const activityCache = [...activities]
       for (const row of importRows) {
         if (!row.name || row.warning) { skipped++; continue }
         const { warning: _warning, _dayLabel, _blockName, _tierNames, ...record } = row
         const newId = crypto.randomUUID()
         try {
-          const activityId = await resolveActivityLink(record.name)
+          const activityId = await resolveActivityLink(record.name, activityCache)
           await writeFields(newId, { ...record, activity_id: activityId, camp_id: campId, cohort_id: activeCohort.id })
         } catch {
           const cleanedUp = await cleanupPartialRow(newId)

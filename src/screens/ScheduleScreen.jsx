@@ -627,7 +627,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       groupId: s.group_id,
     })),
     ...activeFindings.map(f => ({
-      key: `${f.groupId}|${f.activityId}|${f.kind}`,
+      // groupId/activityId are both null for EVERY ANCHOR_IDENTITY_GAP finding
+      // (buildSchedule.js) — the plain coordinate key would collapse two
+      // distinct anchors' gaps onto one React row. anchorId (the fixed_events
+      // row id) is that kind's real discriminator; every other kind keeps its
+      // prior coordinate-only React key unchanged.
+      key: f.kind === 'ANCHOR_IDENTITY_GAP' ? `${f.groupId}|${f.activityId}|${f.kind}|${f.anchorId}` : `${f.groupId}|${f.activityId}|${f.kind}`,
       // The dismiss handler must reproduce the SAME payload-addressed key the
       // activeFindings filter reads, so it is computed here from the raw finding
       // (which still carries the magnitude) rather than re-spelled at dismiss time.
