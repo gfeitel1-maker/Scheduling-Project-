@@ -30,6 +30,8 @@ import {
 import { loadDoc as loadAutomergeDoc, docPath as automergeDocPath } from './docStore.js'
 import { resolveStartupDoc, dispatchRemoteOps, REMOTE_OPS_COALESCE_THRESHOLD } from './startupGuard.js'
 import { createMdnsDiscovery } from './discovery.js'
+import { readRendezvousConfig, createRendezvousDiscovery } from './rendezvousClient.js'
+import { ensureDeviceIdentity } from '../../auth/deviceIdentity.js'
 import { recordAuditEvent } from '../../audit/auditLog.js'
 import { issueDeviceToken } from '../../auth/localAuth.js'
 import { recordDeviceHealthEvent, DEVICE_HEALTH } from '../../ops/deviceHealthEvents.js'
@@ -285,6 +287,24 @@ export function createAutomergeSyncStarter({
       // doesn't already have. Projection is genuinely needed only when a REMOTE merge brings new
       // state — handleReceived already does that, every time, going forward. So this call was pure
       // downside risk with no corresponding benefit, and is removed rather than guarded.
+      // T288 — WAN discovery, additive to mDNS, gated on SHORESH_RENDEZVOUS_URL. Unset (the
+      // default) means this array has exactly one entry, byte-identical to pre-T288 behaviour —
+      // see transportBoundary.guard.test.js's LAN-only parity regression.
+      const rendezvousConfig = readRendezvousConfig(process.env)
+      const peerDiscovery = [createMdnsDiscovery({ campId })]
+      if (rendezvousConfig.enabled) {
+        const { peerId: rendezvousPeerId, privateKey: rendezvousPrivateKey } = await ensureDeviceIdentity(db)
+        peerDiscovery.push(
+          createRendezvousDiscovery({
+            campId,
+            baseUrl: rendezvousConfig.baseUrl,
+            doc: () => getDocIfLoaded(db),
+            getPrivateKey: async () => rendezvousPrivateKey,
+            peerId: rendezvousPeerId,
+          })
+        )
+      }
+
       const startSyncNode = startSyncNodeImpl ? await startSyncNodeImpl() : (await import('./syncNode.js')).startSyncNode
       automergeSyncNode = await startSyncNode({
         deviceId,
@@ -310,7 +330,7 @@ export function createAutomergeSyncStarter({
         // Camp-scoped mDNS (Stage 5d-2a) — a peer advertising a different
         // camp's tag is structurally never surfaced by @libp2p/mdns at all
         // (see discovery.js's own module comment), so it is never dialed.
-        peerDiscovery: [createMdnsDiscovery({ campId })],
+        peerDiscovery,
         // The SAME director-approval forwarder the WS transport already
         // uses (defined in chooseMode's host branch, threaded here via the
         // module-scoped `notifyPairingRequest` below) — approving/denying a

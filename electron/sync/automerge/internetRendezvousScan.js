@@ -47,6 +47,13 @@ const EGRESS_PATTERNS = [
   { label: 'XMLHttpRequest', re: /\bXMLHttpRequest\b/m },
   { label: 'raw net/tls socket', re: /\b(?:net|tls)\s*\.\s*connect\s*\(/m },
   { label: 'hard-coded http(s) URL', re: /['"`]https?:\/\//m },
+  // T288 addendum §1.3 — a dynamic import() whose argument is NOT a string literal is a computed
+  // module specifier, which can resolve to an internet-egress package at runtime without any
+  // static import to grep for. A static `import('./x.js')` (or "x.js", or `x.js`) is excluded by
+  // requiring the char immediately after `(`/whitespace to NOT be a quote — this is what keeps
+  // syncStarter.js's legitimate `await import('./syncNode.js')` from false-positiving (confirmed
+  // against the real file before shipping this pattern, per the addendum's own open item).
+  { label: 'dynamic import()/computed require()', re: /\bimport\s*\(\s*[^'"`]/m },
 ]
 
 /**
@@ -69,3 +76,33 @@ export function findInternetEgress(source) {
 }
 
 export const EGRESS_LABELS = EGRESS_PATTERNS.map((p) => p.label)
+
+/**
+ * Pure: given a package-lock.json `packages` map (the RESOLVED dependency tree — every nested
+ * node_modules path, not just direct deps) and a list of forbidden package names, returns the
+ * subset of forbidden names present anywhere in the tree. Extracted so the guard's non-vacuity
+ * tests can feed it an in-memory, modified lockfile fixture without touching the real file
+ * (T288 addendum §6, seams 1-2).
+ */
+export function forbiddenPackagesPresent(lockfilePackages, forbiddenPackages) {
+  const resolvedNames = new Set(
+    Object.keys(lockfilePackages ?? {}).map((p) => p.replace(/.*node_modules\//, ''))
+  )
+  return forbiddenPackages.filter((p) => resolvedNames.has(p))
+}
+
+/**
+ * Pure: given a list of `{relPath, basename, source}` and the discovery egress allowlist state,
+ * returns offender description strings. A file is exempt only if its OWN basename is on the
+ * allowlist AND discovery is currently signed off — never by virtue of who imports it (T288
+ * addendum §1.3's file-identity-not-import-graph rule; seam 3's importer-inheritance exploit).
+ */
+export function unauthorizedEgress(files, { discoveryOn, allowlist }) {
+  const allowed = new Set(allowlist)
+  return files
+    .filter(({ basename, source }) => {
+      if (findInternetEgress(source).length === 0) return false
+      return !(discoveryOn && allowed.has(basename))
+    })
+    .map(({ relPath, source }) => `${relPath} (${findInternetEgress(source).join(', ')})`)
+}

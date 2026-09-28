@@ -52,6 +52,39 @@ import { shouldThrottle, PAIRING_RATE_MS, LOGIN_MIN_INTERVAL_MS } from '../rateL
 // number.
 const MAX_PENDING_PAIRING = 50
 
+// T288 forward-finding (b), GOVERNOR OVERRIDE of the ADR addendum's Slice-E deferral: the
+// identity-churn bypass on the throttles below is closable NOW (it does not depend on WAN join
+// existing), and is a LOCKED Slice C requirement per owner handoff + T287. `fromPeerId` and the
+// client-supplied `device_id` are both free for an attacker to mint fresh per attempt — a new
+// Ed25519 keypair costs nothing, and `device_id` is client-asserted with no proof of prior
+// registration. `connection.remoteAddr` (the network source host) is not attacker-forgeable
+// without a genuinely different source, so it is added as a THIRD throttle key, additive to the
+// existing two (defense-in-depth — see the throttle-keying comment above).
+//
+// org-source-verification: `@multiformats/multiaddr@13.0.3` (this repo's resolved version) has
+// neither `.nodeAddress()` nor `.toOptions()` — both are absent from the installed package (the
+// ADR addendum flagged this as unverified and asked Maker to re-check). The stable extraction API
+// for this version is `.getComponents()`, returning `[{code, name, value}, ...]`. A multiaddr with
+// no ip4/ip6 component (e.g. a bare /dns4/.../tcp/... form) falls back to the full remoteAddr
+// string rather than throwing — a plausible-but-unproven address is still a valid throttle key,
+// just a less precise one.
+//
+// KNOWN ACCEPTED LIMITATION (recorded, not fixed here): peers behind one NAT/CGNAT share a source
+// IP and can be throttled together — a false-positive-adjacent cost, not a security hole,
+// analogous to the Worker's own MAX_PEERS_PER_NAMESPACE doc comment accepting a similar tradeoff.
+export function rateLimitKeyFor(connection) {
+  const addr = connection?.remoteAddr
+  if (!addr) return 'unknown'
+  try {
+    const components = addr.getComponents()
+    const ipComponent = components.find((c) => c.name === 'ip4' || c.name === 'ip6')
+    if (ipComponent) return `${ipComponent.name}:${ipComponent.value}`
+  } catch {
+    // fall through to the raw-string fallback below
+  }
+  return addr.toString()
+}
+
 // Throttle keying — the central design decision here, so it is spelled out
 // once. Two Maps, keyed differently, and a frame is throttled if EITHER says
 // "too soon":
@@ -66,12 +99,13 @@ const MAX_PENDING_PAIRING = 50
 //     still reaching evaluatePairingRequest/evaluateLogin (DB writes,
 //     audit-log inserts) at up to once per PAIRING_RATE_MS/
 //     LOGIN_MIN_INTERVAL_MS for every distinct device_id it invents.
-// Explicit limit this does NOT close: a peer that opens a BRAND NEW libp2p
-// connection (a fresh noise handshake, and on many transports a fresh
-// keypair) for every single frame gets a fresh `fromPeerId` each time and
-// evades the peer-keyed half entirely. That case is bounded elsewhere —
-// transport.js's MAX_CONNECTIONS ceiling and the real per-connection cost of
-// a noise handshake — not by anything in this file; don't overclaim it here.
+// A peer that opens a BRAND NEW libp2p connection (a fresh noise handshake, and on many
+// transports a fresh keypair) for every single frame gets a fresh `fromPeerId` each time and
+// evades the peer-keyed half entirely — this is now ALSO throttled, by `rateLimitKeyFor`'s
+// source-host key (see above), for as long as the churn stays behind the same network source.
+// It is bounded elsewhere too — transport.js's MAX_CONNECTIONS ceiling and the real
+// per-connection cost of a noise handshake — but is no longer unbounded by MAX_CONNECTIONS alone,
+// as an earlier version of this comment claimed (T288).
 // State is intentionally never cleared on peer:disconnect (unlike
 // `authenticatedPeers` below): a peer that disconnects and immediately
 // reconnects with the SAME identity must not get a clean rate-limit slate,
@@ -130,8 +164,10 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
   // time deterministically, exactly like syncServer.js's own `now` option.
   const lastPairingRequestAtByPeer = new Map()
   const lastPairingRequestAtByDevice = new Map()
+  const lastPairingRequestAtBySource = new Map()
   const lastLoginAttemptAtByPeer = new Map()
   const lastLoginAttemptAtByDevice = new Map()
+  const lastLoginAttemptAtBySource = new Map()
 
   node.addEventListener('peer:disconnect', (evt) => {
     authenticatedPeers.delete(evt.detail.toString())
@@ -203,16 +239,19 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
       if (msg.type === 'pairing_request') {
         const at = now()
+        const sourceKey = rateLimitKeyFor(connection)
         const throttled =
           shouldThrottle(lastPairingRequestAtByPeer.get(fromPeerId), at, PAIRING_RATE_MS) ||
           (typeof msg.device_id === 'string' &&
-            shouldThrottle(lastPairingRequestAtByDevice.get(msg.device_id), at, PAIRING_RATE_MS))
+            shouldThrottle(lastPairingRequestAtByDevice.get(msg.device_id), at, PAIRING_RATE_MS)) ||
+          shouldThrottle(lastPairingRequestAtBySource.get(sourceKey), at, PAIRING_RATE_MS)
         if (throttled) {
           stream.abort(new Error('rate_limited'))
           return
         }
         lastPairingRequestAtByPeer.set(fromPeerId, at)
         if (typeof msg.device_id === 'string') lastPairingRequestAtByDevice.set(msg.device_id, at)
+        lastPairingRequestAtBySource.set(sourceKey, at)
 
         if (pendingPairingPeers.size >= MAX_PENDING_PAIRING) {
           stream.abort(new Error('pending_pairing_full'))
@@ -253,16 +292,19 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
       if (msg.type === 'login') {
         const at = now()
+        const sourceKey = rateLimitKeyFor(connection)
         const throttled =
           shouldThrottle(lastLoginAttemptAtByPeer.get(fromPeerId), at, LOGIN_MIN_INTERVAL_MS) ||
           (typeof msg.device_id === 'string' &&
-            shouldThrottle(lastLoginAttemptAtByDevice.get(msg.device_id), at, LOGIN_MIN_INTERVAL_MS))
+            shouldThrottle(lastLoginAttemptAtByDevice.get(msg.device_id), at, LOGIN_MIN_INTERVAL_MS)) ||
+          shouldThrottle(lastLoginAttemptAtBySource.get(sourceKey), at, LOGIN_MIN_INTERVAL_MS)
         if (throttled) {
           stream.abort(new Error('rate_limited'))
           return
         }
         lastLoginAttemptAtByPeer.set(fromPeerId, at)
         if (typeof msg.device_id === 'string') lastLoginAttemptAtByDevice.set(msg.device_id, at)
+        lastLoginAttemptAtBySource.set(sourceKey, at)
 
         let result
         try {
