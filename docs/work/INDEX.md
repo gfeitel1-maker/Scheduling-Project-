@@ -221,7 +221,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
-| 2026-09-28 | [T292 — self-maintaining openable workbook of the camp's data (spec slices S1 + S2)](../../docs/work/runs/2026-09-28-t292-camp-data-record-self-maintaining-workbook.md) | architecture | in-progress | _no verdict yet_ |
+| 2026-09-28 | [T292 — self-maintaining openable workbook of the camp's data (spec slices S1 + S2)](../../docs/work/runs/2026-09-28-t292-camp-data-record-self-maintaining-workbook.md) | architecture | pass | PASS |
 | 2026-09-26 | [Docs: closes T218 closes T222 on owner ruling; reshape T219 to the ingest gap](../../docs/work/runs/2026-09-26-docs-closes-t218-closes-t222-on-owner-ruling-reshape-t219-to.md) | documentation-governance | pass | pass |
 | 2026-09-26 | [T197: elective run projection and export, schema v76 — closes T197](../../docs/work/runs/2026-09-26-t197-elective-run-projection-and-export-schema-v76-closes-t1.md) | database-sync | pass | pass |
 | 2026-09-26 | [T266: a claimed event name never reaches the activity pass — closes T266](../../docs/work/runs/2026-09-26-t266-a-claimed-event-name-never-reaches-the-activity-pass-cl.md) | database-sync | pass | pass |

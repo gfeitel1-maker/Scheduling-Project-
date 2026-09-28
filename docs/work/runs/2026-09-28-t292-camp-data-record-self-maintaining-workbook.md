@@ -2,8 +2,8 @@
 task: T292 — self-maintaining openable workbook of the camp's data (spec slices S1 + S2)
 document_type: run
 date: 2026-09-28
-round: 1
-status: in-progress
+round: 2
+status: pass
 task_class: architecture
 governing_docs:
   - docs/governance/constitution/CONSTITUTION.md
@@ -27,8 +27,11 @@ omitted_agents:
     note: "Deliverable is a file on disk written by the main process, not an in-app screen (non-goal: no button, no grid). No director-facing UI to evaluate; correctness is deterministic (unit + integration) and adversarial (Red Hat)."
 deterministic_checks: [npm run verify]
 human_gates: []
-verdict: null
-completion_evidence: []
+verdict: PASS
+completion_evidence:
+  - "npm run verify exit 0 — all 8 steps green (/tmp/t292_verify4.log)"
+  - "Verifier PASS: showstopper tests confirmed (campDataRecord 10/10, syncStarter 8/8, buildCampDataWorkbook 14/14)"
+  - "Grader PASS: average 4.33, lowest dimension 4"
 archive_when: "S1 + S2 shipped on branch claude/T292-database-document-view with a green gate and Grader pass; leaves docs/work/ when the owner confirms the file behaviour against the spec."
 ---
 
@@ -161,14 +164,51 @@ a hazard it found: under VITEST, writes go to os.tmpdir() instead of the real
   future refactor could silently drop one. Not a reproducible bug. Carried
   forward as a follow-up.
 
+## Gates
+
+| Gate | Result | Evidence |
+|---|---|---|
+| npm run verify (8 steps) | PASS (exit 0) | /tmp/t292_verify4.log: "✅ VERIFY PASSED — agents:check + check:governance + licenses:check + build + security + test:integration + lint + test all green" |
+| check:governance | green | advisory only (platform-state-stale) |
+| index:work | green | INDEX.md regenerated |
+
+Note: the first gate attempt failed (exit 1) at the `security` step — the privacy
+scanner flagged the invented fixture name "Camp Bear" (23 findings, not a
+vulnerability). Fixed by swapping to the allowlisted synthetic name "Kinneret";
+re-run passed clean.
+
 ## Verifier verdict
 
-pending (awaiting full-gate output — gate queued behind another worktree's lock)
+**PASS** — raw gate `VERIFY_EXIT=0`, "✅ VERIFY PASSED" (all 8 steps). Both round-1
+showstoppers confirmed fixed by running their tests:
+- camps/listEntities seam: `campDataRecord.test.js` "fireOnce (via a real db + the
+  REAL listEntities) never throws for any entity the writer reads" — 10/10; source
+  confirms 'camps' not in ENTITY_NAMES, entities.camps built from the local SELECT.
+- incoming-sync trigger: `syncStarter.test.js` "calls getLiveHandlers().
+  scheduleCampDataRecord() when onRemoteOps fires" — 8/8; source confirms the
+  onRemoteOps → getLiveHandlers()?.scheduleCampDataRecord?.() wiring.
+- no-leak structural guard: `buildCampDataWorkbook.test.js` — 14/14.
 
 ## Grader score
 
-pending
+**PASS** — average **4.33**, lowest dimension **4** (threshold ≥ 4.0, none below 3).
+Spec fidelity 5, Security 5, Resilience 4, Maintainability 4, UX/legibility 4.
 
-## Decision
+## Findings carried forward
 
-pending
+- **Test-coverage gap (Red Hat, MEDIUM, not a bug):** the will-quit flush wiring,
+  the writer-listener-order wiring, and the reinitialize/restore dispose wiring
+  all live in `electron/main.js` integration code with no regression test — all
+  three mechanisms are verified correct by direct reading, but a future refactor
+  could silently drop one without a red build. Deferred as a post-merge follow-up
+  (integration-test harness for these listener/lifecycle interactions).
+- **Perf tradeoff (accepted):** the debounced write path is synchronous fs I/O on
+  the main thread; documented in campDataRecord.js as acceptable at realistic camp
+  sizes. Revisit only if a real camp's write time is shown to matter.
+
+## Decision: PASS
+
+Round 2 (final round) passes: green gate + Verifier PASS + Grader 4.33. Both
+round-1 showstoppers fixed and covered by new tests. Shipped as commits on
+claude/T292-database-document-view (PR #585); not merged — CI is the gate of
+record and the owner merges on green.

@@ -74,5 +74,16 @@ Building spec slices **S1 + S2** only.
 ## Status
 
 Spec: [docs/work/specs/2026-09-28-t292-database-document-view.md](../specs/2026-09-28-t292-database-document-view.md).
-Spec approved by owner ("build it with the recommendations"). Building S1 + S2.
+Spec approved by owner ("build it with the recommendations"). S1 + S2 BUILT and
+verified (round 2): green `npm run verify` (all 8 steps), Verifier PASS, Grader
+4.33. Shipped as commits on `claude/T292-database-document-view` (PR #585).
+Awaiting CI on PR #585 and owner merge; owner then confirms the file behaviour
+against the spec to close.
+
 Run record: [docs/work/runs/2026-09-28-t292-camp-data-record-self-maintaining-workbook.md](../runs/2026-09-28-t292-camp-data-record-self-maintaining-workbook.md).
+
+**Remaining / follow-up (not blocking merge):** add an integration-test harness
+for the `electron/main.js` listener/lifecycle wiring — the will-quit flush, the
+writer-listener registration order, and the reinitialize/restore dispose — which
+are correct today but untested (Red Hat MEDIUM, carried forward from the run
+record's Findings).
