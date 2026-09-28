@@ -1,12 +1,13 @@
 ---
 title: "Documentation staleness audit and high-priority refresh"
 document_type: ticket
-status: in-progress
+status: completed
 task_class: documentation-governance
 date: 2026-09-28
 created: 2026-09-28
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
 related_adrs: [docs/adr/2026-09-27-wan-connectivity-hardening-ladder.md]
+resolved_by: 5a35fa237e7de817247a353db544cbd79b17e6e5
 archive_when: "A prioritized staleness inventory exists (each finding citing the doc line and the contradicting code/current truth) AND the high-priority refreshes in the agent-read priority tier (CLAUDE.md, docs/current/**, docs/governance/**, SECURITY.md) have landed on main; ADR/README-layer findings that are lower priority may remain as tracked follow-up"
 ---
 
@@ -52,7 +53,22 @@ in small reviewable PRs, each merged on green.
 `npm run index:work` · `npm run check:governance` (doc-refs + status-drift) · PR + merge on green
 (CI is the gate of record).
 
-## Remaining
+## Outcome (2026-09-28, PR #586)
 
-Open until the success predicate is discharged. Findings that turn out to be a doc/standard/code
-three-way contradiction are escalated to the owner rather than resolved unilaterally.
+Success predicate discharged:
+
+1. **Prioritized, code-confirmed inventory exists** — `docs/work/2026-09-28-documentation-staleness-inventory.md`, produced by four parallel auditors across disjoint domains.
+2. **Agent-read-tier refreshes landed on `main`** (PR #586, CI `verify` green):
+   - `docs/current/PLATFORM_STATE.md` — join secret implemented (T286), not "proposed"; 40-bit non-rotating code marked `_Prior:`; v2 encrypted rendezvous record (T287) noted.
+   - `SECURITY.md` — camp token bound to device libp2p PeerId on a TOFU basis (T162, `device_identity_key` v67); join-code blocker addressed.
+   - `docs/governance/standards/TESTING_STANDARD.md` — gate list corrected to the eight `VERIFY_STEPS` (`licenses:check` was missing).
+   - `docs/governance/standards/ARCHITECTURE_STANDARD.md` — Host runs the libp2p sync server, not a WebSocket server.
+
+## Known limit at close — escalated to owner, NOT resolved
+
+Two `docs/governance/standards/ARCHITECTURE_STANDARD.md` **substantive-rule** contradictions are doc/standard/code three-way conflicts. Per the standard-not-overridden-by-code rule they are the owner's call (`CONSTITUTION.md` Article IV), captured in the inventory as O1/O2 and deliberately left unedited here:
+
+- **O1** — §4/§5 "mutating **WebSocket** handlers call `authorize()`": no WebSocket handlers exist; remote changes arrive as Automerge merges authorized at the connection boundary. (Its known HIGH residual is already tracked by the accepted `users` auth-field ADR.)
+- **O2** — §2 op-log is "**replayable across devices**": op-log is now a device-local history ledger; replication is Automerge.
+
+Lower-tier follow-up (not blocking): README P2 WAN note when the Tier-4 internet-transport gate flips. ADR layer audited clean.
