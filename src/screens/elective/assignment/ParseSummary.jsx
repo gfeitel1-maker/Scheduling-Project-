@@ -2,20 +2,8 @@
 // preference sheet. Never both: a same-name collision or a contradictory-rank
 // sheet means the Solve button is ABSENT, not disabled (design spec).
 import { S, useEnterTransition } from '../../../styles/shared'
+import { foldTokens, residueIsDecision, residueRailColor } from '../../../ingest/residueKinds'
 import { A } from './assignmentStyles'
-
-// WRONG, not merely unresolved: something the file states contradicts itself, or a
-// camper's choices were split or dropped. Everything else is advisory — the import
-// read what it could and is saying what it left. `--danger` is reserved for the
-// first set so it keeps meaning something; the rest get `--accent`, the caution hue.
-const WRONG_KINDS = new Set([
-  'DROPPED_DUPLICATE_RANK',
-  'RANK_KIND_DISAGREEMENT',
-  'FORKED_IDENTITY',
-  'NO_CAMPER_NAMES',
-  'NO_READABLE_CHOICES',
-])
-const severityColor = (kind) => (WRONG_KINDS.has(kind) ? 'var(--danger)' : 'var(--accent)')
 
 // REPORTED AT SOLVE TIME INSTEAD, and better there. `AssignmentPanel` re-reports
 // unmatched divisions aggregated per division VALUE with a `suggestDivisionMatch`
@@ -23,6 +11,64 @@ const severityColor = (kind) => (WRONG_KINDS.has(kind) ? 'var(--danger)' : 'var(
 // nothing. Rendering both means the director meets the vague one first. The item is
 // still produced and still in the residue ledger — only this panel skips it.
 const SOLVE_TIME_KINDS = new Set(['UNMATCHED_DIVISION'])
+
+// THE COUNT NAMES WHAT THERE IS TO DO, not how many cells produced it.
+//
+// It read "43 thing(s) this import could not resolve" over three statements — an
+// instance count above a decision body, which told a director they had 43 problems
+// when they had one thing to settle and two notes. That undoes the collapse it sits
+// on top of. The instance counts still exist; they are the tokens inside each
+// statement, where they describe a blast radius rather than a workload.
+function residueSummaryLabel(decisionCount, ackCount) {
+  const parts = []
+  if (decisionCount > 0) parts.push(`${decisionCount} thing${decisionCount === 1 ? '' : 's'} to decide`)
+  if (ackCount > 0) parts.push(`${ackCount} thing${ackCount === 1 ? '' : 's'} noted`)
+  return parts.join(' \u00b7 ')
+}
+
+// THE ONE ACTION SLICE 1 IMPLEMENTS, and the reason it is the one: an unresolved
+// label is the only residue kind where the director can settle the question and the
+// settlement changes what gets imported. Adding the activity makes the camp have it,
+// so the sheet's preferences for it become readable on the re-parse.
+//
+// "Ignore it for this import" is deliberately NOT a control: it is already what
+// happens, so a button for it would be inert, and the standing rule forbids that.
+// "Map it to an existing activity" is a real decision and is NOT here — it needs a
+// picker and a proposal rule, and half of it rendered as a disabled affordance would
+// look finished while doing nothing.
+function ResidueRow({ group, onAddActivity, resolvedLabels, busyLabel }) {
+  const { invariant, variable } = foldTokens(group.heads)
+  const label = group.label ?? null
+  const canAdd = Boolean(onAddActivity) && residueIsDecision(group.kind) && Boolean(label)
+  const resolved = label != null && resolvedLabels.includes(label)
+  const busy = busyLabel != null && busyLabel === label
+
+  return (
+    <div style={S.findingsRailRow(residueRailColor(group.kind))}>
+      <div style={{ flex: 1 }}>
+        <div style={A.residueWhy}>{group.why}</div>
+        {variable.length > 0 && (
+          <div style={A.residueHeads}>
+            {/* The invariant segment, factored out of every token and stated once. */}
+            {invariant ? `${invariant} \u2014 ${variable.join(', ')}` : variable.join(' \u00b7 ')}
+          </div>
+        )}
+        {canAdd && !resolved && (
+          <button
+            type="button"
+            className="press-97"
+            disabled={busy}
+            onClick={() => onAddActivity(label)}
+            style={A.residueAction}
+          >
+            {busy ? `Adding \u201c${label}\u201d\u2026` : `Add \u201c${label}\u201d as an activity`}
+          </button>
+        )}
+        {resolved && <div style={A.residueResolved}>Added as an activity</div>}
+      </div>
+    </div>
+  )
+}
 
 function Stat({ value, label }) {
   return (
@@ -33,7 +79,17 @@ function Stat({ value, label }) {
   )
 }
 
-export default function ParseSummary({ parsed, contradictoryRanks = false, onSolve, onChooseDifferentFile }) {
+export default function ParseSummary({
+  parsed,
+  contradictoryRanks = false,
+  onSolve,
+  onChooseDifferentFile,
+  // Slice 1's ONE implemented resolution. Absent (the CLI's and the tests'
+  // default) means no action is offered at all, rather than a dead control.
+  onAddActivity,
+  resolvedLabels = [],
+  busyLabel = null,
+}) {
   const enter = useEnterTransition('slideFade')
   const sameName = parsed?.sameNameCampers ?? []
   const refused = sameName.length > 0 || contradictoryRanks
@@ -104,10 +160,18 @@ export default function ParseSummary({ parsed, contradictoryRanks = false, onSol
     // twice, so a partial conversion reads as terse, not as duplicated.
     const why = item.why ?? item.message
     const key = `${item.kind}::${why}`
-    if (!groupsByKey.has(key)) groupsByKey.set(key, { key, kind: item.kind, why, heads: [] })
+    // `label` rides on the group because the ACTION is about the label, not about
+    // any one cell that named it — forty rows naming "Quidditch" are one activity
+    // to add. It is only ever read for a decision kind, where the producer always
+    // carries it, and `ResidueRow` requires it before offering anything.
+    if (!groupsByKey.has(key)) {
+      groupsByKey.set(key, { key, kind: item.kind, why, label: item.label ?? null, heads: [] })
+    }
     if (item.head) groupsByKey.get(key).heads.push(item.head)
   }
   const residueGroups = [...groupsByKey.values()]
+  const decisions = residueGroups.filter((g) => residueIsDecision(g.kind))
+  const acknowledgments = residueGroups.filter((g) => !residueIsDecision(g.kind))
 
   return (
     <div style={enter}>
@@ -128,19 +192,20 @@ export default function ParseSummary({ parsed, contradictoryRanks = false, onSol
       )}
       {residueGroups.length > 0 && (
         <details style={A.disclosure}>
-          <summary style={A.residueSummary}>
-            {residue.length} thing(s) this import could not resolve
+          <summary style={decisions.length > 0 ? A.residueSummaryDecide : A.residueSummary}>
+            {residueSummaryLabel(decisions.length, acknowledgments.length)}
           </summary>
           <div style={{ marginTop: 6 }}>
-            {residueGroups.map((group) => (
-              <div key={group.key} style={S.findingsRailRow(severityColor(group.kind))}>
-                <div>
-                  <div style={A.residueWhy}>{group.why}</div>
-                  {group.heads.length > 0 && (
-                    <div style={A.residueHeads}>{group.heads.join(' \u00b7 ')}</div>
-                  )}
-                </div>
-              </div>
+            {/* DECISIONS FIRST, unconditionally. The one row that asks something of
+                the director must not sit below two that do not. */}
+            {[...decisions, ...acknowledgments].map((group) => (
+              <ResidueRow
+                key={group.key}
+                group={group}
+                onAddActivity={onAddActivity}
+                resolvedLabels={resolvedLabels}
+                busyLabel={busyLabel}
+              />
             ))}
           </div>
         </details>

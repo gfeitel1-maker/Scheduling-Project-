@@ -13,6 +13,8 @@ import { S, prefersReducedMotion, useEnterTransition } from '../../../styles/sha
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow, IMPORT_LIMITS } from '../../../utils/exportSanitize.js'
 import { inferPreferenceLayout, hasContradictoryRanks } from '../../../ingest/preferenceSheet.js'
+import { residueIsDecision } from '../../../ingest/residueKinds.js'
+import { journalEntriesFor } from '../../../ingest/decisionJournal.js'
 import { buildPreferenceCatalog, readPreferenceSheet, submissionKeyFromRows } from '../../../ingest/preferenceImport.js'
 import { buildElectiveAssignments } from '../../../engine/buildElectiveAssignments.js'
 import { SyncIcon } from '../../../components/icons/index.jsx'
@@ -155,6 +157,34 @@ function Busy({ label }) {
   )
 }
 
+// THE DECISIONS THIS PANEL PRESENTED about unknown labels, one per distinct label
+// rather than one per cell — the label is the unit of resolution, so forty rows
+// naming "Quidditch" is one question, not forty. Pure, so the journal's view of
+// what was asked is derived from the parse rather than from whatever the UI
+// happened to render.
+function unknownLabelDecisions(parsed) {
+  const labels = new Set()
+  for (const item of parsed?.residue ?? []) {
+    if (residueIsDecision(item.kind) && item.label) labels.add(item.label)
+  }
+  return [...labels].map((label) => ({
+    id: `resolve_unknown_label:${label}`,
+    kind: 'resolve_unknown_label',
+    entityName: label,
+  }))
+}
+
+// Only the labels actually resolved get an answer; every other presented decision
+// falls through `journalEntriesFor` as UNANSWERED, which is the recording the
+// journal exists for.
+function resolvedAnswers(resolvedLabels) {
+  const answers = {}
+  for (const label of resolvedLabels ?? []) {
+    answers[`resolve_unknown_label:${label}`] = { action: 'added_activity' }
+  }
+  return answers
+}
+
 // Reads the raw header+rows out of an uploaded file. A preference sheet is a
 // flat table (name/id/division/rank columns), not a day x time-block grid, so
 // this deliberately does NOT reuse workbookToPages/parseGridSchedule (the
@@ -184,6 +214,10 @@ async function readSheetRows(file) {
 
 export default function AssignmentPanel({
   electiveSetId, campId, setActivities, activities, groups, tiers, days, timeBlocks,
+  // Mints an activity AND offers it in this set, returning the created activity.
+  // ElectiveSetDetail's `createAndAddOffering` — the same path populateElectiveSet
+  // uses, so a residue-resolved activity is indistinguishable from any other.
+  onAddActivity,
   templateSlots, scheduleTemplates, scheduleWeeks, role, onError, onNavigate,
 }) {
   const [phase, setPhase] = useState('empty')
@@ -203,6 +237,9 @@ export default function AssignmentPanel({
   // does not disturb).
   const [viewRun, setViewRun] = useState(null)
   const [danglingFindings, setDanglingFindings] = useState([])
+  // The labels this director settled on THIS parse, and the one being written.
+  const [resolvedLabels, setResolvedLabels] = useState([])
+  const [resolvingLabel, setResolvingLabel] = useState(null)
   const fileInputRef = useRef(null)
   // H3 — a synchronous guard against a double-tap committing twice. The
   // `committing` prop below covers the ordinary case (React has re-rendered
@@ -240,6 +277,8 @@ export default function AssignmentPanel({
     setCommittedInfo(null)
     setViewRun(null)
     setDanglingFindings([])
+    setResolvedLabels([])
+    setResolvingLabel(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -274,7 +313,35 @@ export default function AssignmentPanel({
     }
   }
 
-  function confirmMapping() {
+  // SLICE 1'S ONE RESOLUTION. The director confirms; the app does not decide — this
+  // runs only from an explicit click on a named label, and nothing is proposed or
+  // applied on its own.
+  //
+  // Re-parses afterwards because residue was computed against the OLD catalog: the
+  // sheet's rows for that label are still sitting unimported, and the whole point of
+  // the action is that they stop being residue. Resolving is never a gate — Solve
+  // Assignments is available before, during and after, and a failure here leaves the
+  // parse exactly as it was.
+  async function resolveUnknownLabel(label) {
+    if (!onAddActivity || resolvingLabel) return
+    setResolvingLabel(label)
+    try {
+      const created = await onAddActivity(label)
+      setResolvedLabels((prev) => (prev.includes(label) ? prev : [...prev, label]))
+      confirmMapping(created ? [created] : [])
+    } catch (err) {
+      onError?.(describeWriteFailure(err, `Could not add \u201c${label}\u201d as an activity.`))
+    } finally {
+      setResolvingLabel(null)
+    }
+  }
+
+  // `extraActivities` is the activity a residue resolution JUST created. The
+  // `activities` prop is refreshed by the parent and does not land in this render,
+  // so the re-parse is handed the new row directly rather than waiting a tick and
+  // hoping — a re-parse against a stale catalog would resolve nothing and look like
+  // the resolution failed.
+  function confirmMapping(extraActivities = []) {
     // THE SAME CALL SHAPE THE CLI AND THE MCP TOOLS USE. This used to be
     // `parsePreferenceSheet(rows, { campId, mapping })` — no catalog, no grid, no
     // subject — so in the director's own import path the header locator never ran,
@@ -282,7 +349,7 @@ export default function AssignmentPanel({
     // unreachable. Every number this program measured described the CLI and not the
     // product. ADR section 3.2: a second call shape is a second T224, because the
     // arguments are where the behaviour lives.
-    const catalog = buildPreferenceCatalog({ activities, groups, tiers })
+    const catalog = buildPreferenceCatalog({ activities: [...activities, ...extraActivities], groups, tiers })
     let result
     try {
       // The transform is pure but not incapable of throwing — a derived id's
@@ -451,6 +518,18 @@ export default function AssignmentPanel({
         onError?.(out.error)
         setPhase('preview')
         return
+      }
+      // T173's journal — what the importer ASKED about this sheet's unknown labels
+      // and what the director did, INCLUDING the ones left alone. An unresolved
+      // label costs nothing and is the default, so the unanswered entries are the
+      // ones a later learning slice needs most: a question nobody ever answers is a
+      // question not worth asking. Best-effort and never blocking, the same posture
+      // as ReconciliationScreen's call — a committed run must stay committed.
+      try {
+        const entries = journalEntriesFor(unknownLabelDecisions(parsed), resolvedAnswers(resolvedLabels), crypto.randomUUID())
+        if (entries.length > 0) await localClient.recordImportDecisions({ entries })
+      } catch {
+        /* diagnostics only — never surfaced, never blocking */
       }
       setDanglingFindings(out.findings ?? [])
       setCommittedInfo({ runId: out.runId, camperCount: out.counts.campers, occurrenceCount: occurrences.length })
@@ -621,7 +700,9 @@ export default function AssignmentPanel({
           sampleRows={rows.slice((mapping?.headerIndex ?? 0) + 1, (mapping?.headerIndex ?? 0) + 4)}
           mapping={mapping}
           onChange={setMapping}
-          onConfirm={confirmMapping}
+          // Wrapped, NOT passed by reference: MappingCorrector's onConfirm is a click
+          // handler, so a bare reference hands the click EVENT to `extraActivities`.
+          onConfirm={() => confirmMapping()}
           onChooseDifferentFile={reset}
         />
       )}
@@ -650,6 +731,9 @@ export default function AssignmentPanel({
             contradictoryRanks={hasContradictoryRanks(parsed)}
             onSolve={() => chooseTemplateAndSolve(candidateTemplateIds[0])}
             onChooseDifferentFile={reset}
+            onAddActivity={onAddActivity ? resolveUnknownLabel : undefined}
+            resolvedLabels={resolvedLabels}
+            busyLabel={resolvingLabel}
           />
         )
       )}

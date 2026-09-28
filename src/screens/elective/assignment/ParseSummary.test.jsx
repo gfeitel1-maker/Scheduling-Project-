@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import ParseSummary from './ParseSummary'
 
 const CLEAN = { campers: [{ id: 'c1' }], choices: [{ label: 'Swim' }], preferences: [{ camper_id: 'c1' }], sameNameCampers: [], skippedRows: [] }
@@ -31,19 +32,14 @@ describe('ParseSummary', () => {
   // them nothing.
   describe('residue', () => {
     const withResidue = (residue) => ({ ...CLEAN, residue })
-    const parts = (kind, head, why) => ({ kind, head, why, message: `${head} — ${why}` })
+    const parts = (kind, head, why, extra = {}) => ({ kind, head, why, message: `${head} — ${why}`, ...extra })
+    const unknown = (head, label = 'Quidditch') =>
+      parts('UNRESOLVED_CHOICE_LABEL', head, `“${label}” is not an activity this camp has.`, { label })
 
     it('renders each item as a severity-railed row with the fact and its token', () => {
       render(
-        <ParseSummary
-          parsed={withResidue([
-            parts('UNRESOLVED_CHOICE_LABEL', 'Row 3, column C', '“Quidditch” is not an activity this camp has.'),
-          ])}
-          onSolve={vi.fn()}
-          onChooseDifferentFile={vi.fn()}
-        />
+        <ParseSummary parsed={withResidue([unknown('Row 3, column C')])} onSolve={vi.fn()} onChooseDifferentFile={vi.fn()} />
       )
-      expect(screen.getByText(/1 thing\(s\) this import could not resolve/)).not.toBeNull()
       // The fact and the token are SEPARATE elements, which is what makes this a row
       // with parts rather than the paragraph it used to be.
       expect(screen.getByText('“Quidditch” is not an activity this camp has.')).not.toBeNull()
@@ -52,25 +48,60 @@ describe('ParseSummary', () => {
       expect(screen.getByText('Solve Assignments')).not.toBeNull()
     })
 
-    it('collapses 40 rows naming ONE unknown activity into ONE statement plus 40 tokens', () => {
-      // THE CLAIM THE OLD COMMENT MADE AND THE OLD CODE DID NOT KEEP. Grouping by
-      // kind alone demoted duplicates to bullets but every item was still a complete
-      // self-contained sentence, so this shape rendered forty near-identical
-      // paragraphs. Asserted at n=40 because it read acceptably at n=2.
-      const why = '“Quidditch” is not an activity this camp has.'
-      const residue = Array.from({ length: 40 }, (_, i) =>
-        parts('UNRESOLVED_CHOICE_LABEL', `Row ${i + 2}, column E`, why)
-      )
+    it('THE COUNT NAMES DECISIONS, not the instances that produced them', () => {
+      // 43 residue items, 3 statements, ONE of them a decision. The old label said
+      // "43 thing(s) this import could not resolve", which told a director they had
+      // 43 problems when they had one thing to settle. Planting the defect: if the
+      // label counted items again, this reads 43.
+      const residue = [
+        parts('SKIPPED_PREAMBLE', 'Row(s) 1, 2', 'Above the table, so not read.'),
+        parts('UNRECOGNISED_COLUMN', 'Column F', 'Not a field this import knows.'),
+        parts('UNRECOGNISED_COLUMN', 'Column G', 'Not a field this import knows.'),
+        ...Array.from({ length: 40 }, (_, i) => unknown(`Row ${i + 4}, column C`)),
+      ]
       render(<ParseSummary parsed={withResidue(residue)} onSolve={vi.fn()} onChooseDifferentFile={vi.fn()} />)
 
-      expect(screen.getByText(/40 thing\(s\) this import could not resolve/)).not.toBeNull()
-      // ONE statement. getAllByText throws nothing and returns every match, so a
-      // length of 1 is the collapse; the pre-fix render would have returned 40.
+      expect(screen.getByText('1 thing to decide · 2 things noted')).not.toBeNull()
+      // The INSTANCE count must not appear in the label at all. "Row 43" legitimately
+      // contains 43 inside the token line below, so this is asserted on the summary.
+      const summary = screen.getByText(/things noted/)
+      expect(summary.tagName).toBe('SUMMARY')
+      expect(summary.textContent).not.toMatch(/43/)
+    })
+
+    it('collapses 40 rows naming ONE unknown activity into ONE statement, and folds the invariant token', () => {
+      // THE CLAIM THE OLD COMMENT MADE AND THE OLD CODE DID NOT KEEP, plus the fold:
+      // "column C" was printed forty times carrying no information after the first.
+      const why = '“Quidditch” is not an activity this camp has.'
+      const residue = Array.from({ length: 40 }, (_, i) => unknown(`Row ${i + 4}, column C`))
+      render(<ParseSummary parsed={withResidue(residue)} onSolve={vi.fn()} onChooseDifferentFile={vi.fn()} />)
+
+      // ONE statement; the pre-fix render returned 40.
       expect(screen.getAllByText(why)).toHaveLength(1)
-      // FORTY tokens, all present, on one line — none silently dropped by the
-      // grouping.
-      const tokens = screen.getByText(/Row 2, column E/)
-      for (let i = 0; i < 40; i += 1) expect(tokens.textContent).toContain(`Row ${i + 2}, column E`)
+      // The invariant is stated ONCE and the forty varying parts follow it, so
+      // "column C" appears exactly once in the whole token line.
+      const tokens = screen.getByText(/Column C/)
+      expect(tokens.textContent.match(/column C/gi)).toHaveLength(1)
+      for (let i = 0; i < 40; i += 1) expect(tokens.textContent).toContain(`Row ${i + 4}`)
+    })
+
+    it('does NOT fold when the repeated segment is not actually invariant', () => {
+      // Non-vacuity for the fold: two unrecognised columns share no segment, so
+      // factoring anything out would be an invention. Also proves the fold is not
+      // just "drop the last segment".
+      render(
+        <ParseSummary
+          parsed={withResidue([
+            parts('UNRECOGNISED_COLUMN', 'Column F (“Comments”)', 'Not a field this import knows.'),
+            parts('UNRECOGNISED_COLUMN', 'Column G (“Notes”)', 'Not a field this import knows.'),
+          ])}
+          onSolve={vi.fn()}
+          onChooseDifferentFile={vi.fn()}
+        />
+      )
+      const tokens = screen.getByText(/Column F/)
+      expect(tokens.textContent).toContain('Column F (“Comments”)')
+      expect(tokens.textContent).toContain('Column G (“Notes”)')
     })
 
     it('keeps two DIFFERENT unknown activities as two statements', () => {
@@ -78,16 +109,85 @@ describe('ParseSummary', () => {
       // findings that differ. Grouping on `kind` alone would have shown one.
       render(
         <ParseSummary
-          parsed={withResidue([
-            parts('UNRESOLVED_CHOICE_LABEL', 'Row 2, column E', '“Quidditch” is not an activity this camp has.'),
-            parts('UNRESOLVED_CHOICE_LABEL', 'Row 9, column E', '“Jousting” is not an activity this camp has.'),
-          ])}
+          parsed={withResidue([unknown('Row 2, column E'), unknown('Row 9, column E', 'Jousting')])}
           onSolve={vi.fn()}
           onChooseDifferentFile={vi.fn()}
         />
       )
       expect(screen.getByText(/Quidditch/)).not.toBeNull()
       expect(screen.getByText(/Jousting/)).not.toBeNull()
+      expect(screen.getByText('2 things to decide')).not.toBeNull()
+    })
+
+    describe('decision vs acknowledgment', () => {
+      it('offers the resolution on a DECISION, once per label rather than once per row', async () => {
+        const onAddActivity = vi.fn()
+        const residue = Array.from({ length: 40 }, (_, i) => unknown(`Row ${i + 4}, column C`))
+        render(
+          <ParseSummary
+            parsed={withResidue(residue)}
+            onAddActivity={onAddActivity}
+            onSolve={vi.fn()}
+            onChooseDifferentFile={vi.fn()}
+          />
+        )
+        // FORTY rows naming one activity is ONE activity to add.
+        const buttons = screen.getAllByText('Add “Quidditch” as an activity')
+        expect(buttons).toHaveLength(1)
+        await userEvent.click(buttons[0])
+        expect(onAddActivity).toHaveBeenCalledWith('Quidditch')
+      })
+
+      it('offers NOTHING on an acknowledgment — there is nothing to decide', () => {
+        render(
+          <ParseSummary
+            parsed={withResidue([parts('SKIPPED_PREAMBLE', 'Row(s) 1, 2', 'Above the table, so not read.')])}
+            onAddActivity={vi.fn()}
+            onSolve={vi.fn()}
+            onChooseDifferentFile={vi.fn()}
+          />
+        )
+        expect(screen.queryByRole('button', { name: /as an activity/ })).toBeNull()
+        expect(screen.getByText('1 thing noted')).not.toBeNull()
+      })
+
+      it('renders NO action at all when the host supplies no handler', () => {
+        // The standing rule against a control whose options are all inert: with no
+        // way to add an activity, the affordance is absent, not disabled.
+        render(
+          <ParseSummary parsed={withResidue([unknown('Row 3, column C')])} onSolve={vi.fn()} onChooseDifferentFile={vi.fn()} />
+        )
+        expect(screen.queryByText(/as an activity/)).toBeNull()
+      })
+
+      it('puts the decision ABOVE the acknowledgments whatever order they arrived in', () => {
+        render(
+          <ParseSummary
+            parsed={withResidue([
+              parts('SKIPPED_PREAMBLE', 'Row(s) 1, 2', 'Above the table, so not read.'),
+              unknown('Row 3, column C'),
+            ])}
+            onSolve={vi.fn()}
+            onChooseDifferentFile={vi.fn()}
+          />
+        )
+        const text = document.body.textContent
+        expect(text.indexOf('Quidditch')).toBeLessThan(text.indexOf('Above the table'))
+      })
+
+      it('replaces the action with its outcome once the label is resolved', () => {
+        render(
+          <ParseSummary
+            parsed={withResidue([unknown('Row 3, column C')])}
+            onAddActivity={vi.fn()}
+            resolvedLabels={['Quidditch']}
+            onSolve={vi.fn()}
+            onChooseDifferentFile={vi.fn()}
+          />
+        )
+        expect(screen.queryByText(/Add “Quidditch”/)).toBeNull()
+        expect(screen.getByText('Added as an activity')).not.toBeNull()
+      })
     })
 
     it('does not repeat UNMATCHED_DIVISION, which the solve step reports with a suggestion', () => {
@@ -106,9 +206,7 @@ describe('ParseSummary', () => {
       )
       expect(screen.queryByText(/Sports Track/)).toBeNull()
       expect(screen.getByText(/Additional Comments/)).not.toBeNull()
-      // The count is the count of what is SHOWN, so it cannot promise a row that
-      // is not there.
-      expect(screen.getByText(/1 thing\(s\) this import could not resolve/)).not.toBeNull()
+      expect(screen.getByText('1 thing noted')).not.toBeNull()
     })
 
     it('falls back to the joined message for an item with no parts', () => {
@@ -126,7 +224,7 @@ describe('ParseSummary', () => {
 
     it('shows nothing when there is no residue — non-vacuity for the disclosure', () => {
       render(<ParseSummary parsed={CLEAN} onSolve={vi.fn()} onChooseDifferentFile={vi.fn()} />)
-      expect(screen.queryByText(/could not resolve/)).toBeNull()
+      expect(screen.queryByText(/to decide|noted/)).toBeNull()
     })
   })
 })

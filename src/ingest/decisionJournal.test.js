@@ -110,3 +110,33 @@ describe('what is stored', () => {
     expect(journalEntriesFor([d], { d1: { action: 'looks_right' } }, 'i')[0].lane).toBe('hold')
   })
 })
+
+// T285 — the import panel's residue. The journal is the reason the learning
+// layer (T280-T282) could be deferred on evidence rather than on a guess, so a
+// resolution surface that did not feed it would leave that deferral unendable.
+describe('resolve_unknown_label (T285)', () => {
+  const decision = { id: 'resolve_unknown_label:Quidditch', kind: 'resolve_unknown_label', entityName: 'Quidditch' }
+
+  it('records an added activity as CHANGED, because nothing was proposed to accept', () => {
+    const entry = journalEntriesFor([decision], { [decision.id]: { action: 'added_activity' } }, 'i')[0]
+    expect(entry.outcome).toBe(OUTCOMES.CHANGED)
+    expect(entry.kind).toBe('resolve_unknown_label')
+  })
+
+  it('records a label the director left alone as UNANSWERED, which is the point', () => {
+    // Leaving it is the DEFAULT and costs nothing, so the unanswered rows are the
+    // signal: a label nobody ever resolves is a question not worth asking.
+    expect(journalEntriesFor([decision], {}, 'i')[0].outcome).toBe(OUTCOMES.UNANSWERED)
+  })
+
+  it('records the label asked about, so a later slice can see WHICH ones recur', () => {
+    const entry = journalEntriesFor([decision], {}, 'i')[0]
+    expect(JSON.parse(entry.proposed).entityName).toBe('Quidditch')
+  })
+
+  it('does not invent an outcome for an action it has not been taught', () => {
+    // A thin journal is recoverable; an inventive one is not.
+    const entry = journalEntriesFor([decision], { [decision.id]: { action: 'mapped_to_existing' } }, 'i')[0]
+    expect(entry.outcome).toBe(OUTCOMES.UNANSWERED)
+  })
+})
