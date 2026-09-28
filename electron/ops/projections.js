@@ -950,7 +950,6 @@ export const PROJECTIONS = {
   elective_preferences: {
     table: 'elective_preferences',
     key: 'id',
-    // rank_kind (v79) — same allowlist trap as campers.division_label above.
     // rank_kind and the two coordinate columns (v79) — same allowlist trap as
     // campers.division_label above, and appendOp THROWS 'field not allowed for
     // entity' for an unlisted field, so a missing entry fails the whole commit.
