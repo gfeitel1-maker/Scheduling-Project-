@@ -18,7 +18,7 @@ and `README.md` all derive from it rather than maintaining their own copies.
 
 ## 1. The gates
 
-**`npm run verify` is the gate.** It runs these eight steps, in this order, stopping at the first
+**`npm run verify` is the gate.** It runs these eight steps <!-- doc-fact:verify_step_count value=8 -->, in this order, stopping at the first
 failure, and prints a single `✅ VERIFY PASSED` / `❌ VERIFY FAILED` / `⚠️ VERIFY INCONCLUSIVE`
 verdict line. Read that line; never read the exit code of a piped or tee'd wrapper. The
 authoritative list and order is `VERIFY_STEPS` in `scripts/verify.js`; this table derives from it.
@@ -39,6 +39,16 @@ a step placed after an expensive one is not reported until that expensive one ha
 eight are sorted by measured cost so a failure is reported as early as it can be. Re-measure and
 re-sort if a step's cost changes materially; `scripts/verify.test.js` asserts the ordering property,
 not merely the literal list.
+
+The "eight" on the gate line above carries a `<!-- doc-fact:verify_step_count value=8 -->` marker.
+This is the **doc-fact freshness gate** (T295, `scripts/doc-facts.js` + `checkDocFacts` in
+`scripts/check-governance.js`): a marked claim's `value=` is compared, on every `check:governance`
+run, against a value derived deterministically from source (here, the length of `VERIFY_STEPS`; for
+the schema-version marker in `PLATFORM_STATE.md`, `CURRENT_SCHEMA_VERSION`). A mismatch is a
+**blocking** finding. If you change the number of steps, update both the prose and the marker's
+`value=` in the same commit — the gate will otherwise fail the build, by design. The registry of
+checkable facts is `DOC_FACTS`; add an entry (with a source-only, DB-free `derive`) plus a marker to
+extend it.
 
 **`npm run build` was added on 2026-09-17, resolving T188 §7.1.** This standard had named it a gate
 for months while `scripts/verify.js` never ran it — `git log -S` shows it was never in

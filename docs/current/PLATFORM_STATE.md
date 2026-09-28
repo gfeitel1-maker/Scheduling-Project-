@@ -686,7 +686,7 @@ theme and degrades under ~48px.
 
 ## Database Tables
 
-(SQLite, one file per device — `electron/db/schema.sql`, schema **v78** as of this writing)
+(SQLite, one file per device — `electron/db/schema.sql`, schema **v79** as of this writing <!-- doc-fact:schema_version value=79 -->)
 
 - **camps** — `id, name, signing_public_key` (Ed25519 public key, hex-encoded DER/SPKI — replicated to all Clients so they can verify camp tokens). Exactly one row expected per device db (single-camp-per-db assumption used throughout, e.g. `SELECT ... FROM camps LIMIT 1`).
 - **host_signing_key** — `id (always 1), public_key, private_key, created_at`. Host-only table; generated once at `bootstrapCamp()`. Never replicated. The private key never leaves the Host device.
