@@ -30,8 +30,12 @@ authorization by construction.
 ## 2. All mutations go through the op-log
 
 Every write is appended to the `operations` table as an entity/field-level row carrying a
-`client_write_id`, then projected into its table. This is what makes writes idempotent under retry
-and replayable across devices.
+`client_write_id`, then projected into its table. This is what makes writes idempotent under retry.
+The `operations` table is a **device-local history ledger** (backing Trash, Restore, entity history
+and ingest-undo) — since the Stage-6 cutover it is **not** the cross-device replication mechanism and
+is not replayed to other devices; replication is via the Automerge document (`electron/sync/automerge/`,
+`electron/automerge/`). Code that treats `operations` as the way data reaches another device is
+reasoning about an architecture this app no longer has.
 
 **A new entity must be registered in `PROJECTIONS` (`electron/ops/projections.js`).** An
 unregistered entity's writes succeed at the op-log and then silently never materialize — the row
