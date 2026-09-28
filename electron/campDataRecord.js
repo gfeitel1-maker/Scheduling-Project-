@@ -15,8 +15,13 @@ import { buildCampDataWorkbook } from '../src/utils/buildCampDataWorkbook.js'
 // docs/work/... vitest console.log note), and retried on the next
 // schedule() rather than surfaced as a crash.
 
+// Round 2 FIX 1: 'camps' is deliberately NOT listed here. listEntities(db,
+// 'camps') throws ("Unrecognized entity: camps") — camps is neither in
+// DIRECT_CAMP_ENTITIES nor PARENT_SCOPED_ENTITIES (campScopedEntities.js);
+// it is looked up directly by fireOnce's own `SELECT id, name FROM camps`
+// instead, and that single row is what becomes entities.camps below.
 const ENTITY_NAMES = [
-  'camps', 'tiers', 'cohorts', 'groups', 'campers', 'locations', 'activities',
+  'tiers', 'cohorts', 'groups', 'campers', 'locations', 'activities',
   'days_of_operation', 'time_blocks', 'schedule_weeks', 'fixed_events',
   'special_days', 'events', 'elective_sets',
 ]
@@ -41,8 +46,6 @@ export function createCampDataRecordWriter({
   writeFn = defaultWriteFn,
 } = {}) {
   let timer = null
-  let writing = false
-  let pendingAgain = false
 
   function targetPath(campName) {
     const dir = path.join(documentsDir, 'Shoresh')
@@ -51,12 +54,22 @@ export function createCampDataRecordWriter({
     return { dir, file, full: path.join(dir, file) }
   }
 
+  // Round 2 FIX 6: fireOnce is entirely synchronous (fs.*Sync throughout, no
+  // await/yield point), so two invocations can never genuinely overlap on
+  // this single-threaded event loop — a "writing" re-entrancy guard around a
+  // fully synchronous function is dead code that can never be observed true.
+  // Removed rather than kept as decoration. The accepted tradeoff this
+  // leaves: fireOnce's synchronous fs calls run on the main thread, so a very
+  // large camp's write briefly blocks it. flush() (quit path) needs this
+  // synchronicity anyway; the debounced path could be made async later if a
+  // real camp's write time is ever shown to matter, but no camp so far comes
+  // close (see spec's expected row counts).
   function fireOnce() {
     try {
       const camp = db.prepare('SELECT id, name FROM camps LIMIT 1').get()
       if (!camp) return
 
-      const entities = {}
+      const entities = { camps: [camp] }
       for (const name of ENTITY_NAMES) {
         entities[name] = listEntitiesFn(db, name)
       }
@@ -83,32 +96,24 @@ export function createCampDataRecordWriter({
     }
   }
 
-  function runFire() {
-    if (writing) {
-      // A new schedule() arrived while a write was in flight — the trailing
-      // edge already fired, so make sure a follow-up write happens once this
-      // one finishes rather than dropping the newer data.
-      pendingAgain = true
-      return
-    }
-    writing = true
-    try {
-      fireOnce()
-    } finally {
-      writing = false
-      if (pendingAgain) {
-        pendingAgain = false
-        runFire()
-      }
-    }
-  }
-
   function schedule() {
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => {
       timer = null
-      runFire()
+      fireOnce()
     }, debounceMs)
+  }
+
+  // Round 2 FIX 3: called from app's will-quit. If a debounced write is
+  // still pending, write it NOW, synchronously, instead of losing it to the
+  // process exiting before the timer fires. A no-op when nothing is pending.
+  // fireOnce already catches every failure internally, so this can never
+  // throw into the quit handler.
+  function flush() {
+    if (!timer) return
+    clearTimeout(timer)
+    timer = null
+    fireOnce()
   }
 
   function dispose() {
@@ -118,5 +123,5 @@ export function createCampDataRecordWriter({
     }
   }
 
-  return { schedule, dispose }
+  return { schedule, flush, dispose }
 }

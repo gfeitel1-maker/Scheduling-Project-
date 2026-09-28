@@ -83,26 +83,59 @@ on every change.
 | Red Hat | yes | non-blocking best-effort, coalescing never drops last change, atomic write |
 | Grader | yes | consolidated score from the review reports |
 
-## Gates
+## Round 1
 
-| Gate | Result | Evidence |
-|---|---|---|
-| npm run verify | pending | |
-| check:governance | pending | |
-| index:work | pending | |
+Maker built S1 + S2 test-first; focused suites green (13/13 builder, 7/7 writer).
+Parallel review found showstoppers the green tests missed (both suites mock/bypass
+the real read seam and the real sync signals). Governor independently confirmed
+each by reading the source:
+
+- **CRITICAL (Code Reviewer):** `campDataRecord.js` routes `camps` through
+  `listEntities`, but `camps` is in neither `DIRECT_CAMP_ENTITIES` nor
+  `PARENT_SCOPED_ENTITIES` → `listEntities(db,'camps')` throws `Unrecognized
+  entity: camps`; `fireOnce`'s try/catch swallows it → **the workbook is never
+  written in the real app** (only in tests, which pass a hand-built `camps` array
+  / mock `listEntities`). Confirmed: `DIRECT.has('camps')=false`, `'camps' in
+  PARENT=false`.
+- **HIGH (Red Hat):** incoming sync ops never trigger the writer. `notifyOpApplied`
+  fires only from `write()`/`writeBulkReplace()` (localWriteClient.js:125,148 —
+  local writes only); remote ops flow through `syncNode` `onRemoteOps`
+  (syncStarter.js:301, after `projectAll`). And `fullSyncAppliedListeners` is
+  pushed (localWriteClient.js:162) but **never invoked** — the hook is dead. So a
+  receive-only device's file freezes. Contradicts spec §1.2.
+- **HIGH (Red Hat):** no flush/dispose on quit → last debounced write dropped if
+  the director quits within debounceMs. `will-quit` flushes Automerge but not this
+  writer.
+- **HIGH/MED (Red Hat):** `notifyOpApplied` fan-out has no per-listener try/catch;
+  the writer's `schedule()` is registered AFTER the renderer-push listener, so a
+  push throw starves the writer for that op.
+- **MED (Red Hat):** `reinitialize()`/restore close the db without disposing the
+  old writer → stale timer fires on a closed db.
+- **MED (Red Hat + Code Reviewer):** `writing`/`pendingAgain` re-entrancy guard is
+  dead code (fireOnce is fully synchronous, no yield point) — untested/false
+  assurance; and the synchronous main-thread I/O can stall the app on a large camp.
+- **LOW (Code Reviewer + Security):** the builder IS a genuine field allowlist
+  (Security CONFIRMED, no-leak 5/5) but the no-leak *test* uses a denylist —
+  harden to a structural check.
+
+Security: 5/5 (no-leak seam, sanitizer routing, path-traversal all confirmed).
+Red Hat resilience: 2/5. Code Reviewer: not-ready (green tests, broken feature).
+
+Gate (`npm run verify`) not scored round 1 — the feature is non-functional
+regardless; deferred to round 2 after the fixes.
+
+## Round 1 decision: RETRY
+
+Round-2 Maker brief dispatched with the seven fixes above.
 
 ## Verifier verdict
 
-pending
+pending (round 2)
 
 ## Grader score
 
-pending
-
-## Findings carried forward
-
-pending
+pending (round 2)
 
 ## Decision
 
-pending
+pending (round 2)

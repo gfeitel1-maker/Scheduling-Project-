@@ -325,9 +325,20 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // listener array is multi-subscriber, see localWriteClient.js). Best-effort
   // and non-blocking by construction (see campDataRecord.js); a failure here
   // never affects the op-apply path that triggered it.
+  // Round 2 follow-up (found while re-running the suite for this ticket's
+  // fixes): makeHandlers is called directly, with a real db, from
+  // electron/main.test.js's 233+ cases — there is no Electron app around it
+  // to sandbox a real filesystem path the way electron:dev's separate
+  // shoresh-dev userData directory does for SQLite (see CLAUDE.md). Without
+  // this guard, `npm test` would schedule real debounced writes into the
+  // machine's ACTUAL ~/Documents/Shoresh folder. Redirect to a per-process
+  // tmp directory under Vitest; production (no VITEST env var) is unaffected.
+  const documentsDir = process.env.VITEST
+    ? path.join(os.tmpdir(), 'shoresh-test-documents')
+    : path.join(os.homedir(), 'Documents')
   const campDataRecordWriter = createCampDataRecordWriter({
     db,
-    documentsDir: path.join(os.homedir(), 'Documents'),
+    documentsDir,
     isDev: !app.isPackaged,
   })
 
@@ -336,18 +347,28 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   let mode = null
 
   function wireOpApplied() {
+    // T292 round 2 FIX 4: registered FIRST, before the renderer-push listener
+    // below. notifyOpApplied's fan-out (localWriteClient.js) has no
+    // per-listener try/catch, so an exception in one listener starves every
+    // listener registered after it — putting the writer first means a
+    // misbehaving renderer-push can never prevent the document from being
+    // scheduled.
+    //
+    // This covers LOCAL writes only (write()/writeBulkReplace() are the only
+    // callers of notifyOpApplied). A REMOTE merge (another device's edit
+    // arriving over libp2p) never calls onOpApplied at all — that path is
+    // wired separately, in syncStarter.js's onRemoteOps, via
+    // scheduleCampDataRecord below (round 2 FIX 2).
+    //
+    // onFullSyncApplied is deliberately NOT used here: fullSyncAppliedListeners
+    // (localWriteClient.js) is pushed to but never invoked anywhere in this
+    // codebase — it was dead before this ticket, and wiring a writer to a
+    // signal that never fires would just be an inert no-op, not a real path.
+    syncClient.onOpApplied(() => campDataRecordWriter.schedule())
     syncClient.onOpApplied((op) => {
       const mainWindow = getMainWindow ? getMainWindow() : null
       if (mainWindow) mainWindow.webContents.send('shoresh:op-applied', sanitizeOpForIpc(op))
     })
-    // T292 — additive subscriber: the projection is already updated by the
-    // time onOpApplied/onFullSyncApplied fire, so a schedule() here reads
-    // current data. Debounced internally, so a bulk import's hundreds of ops
-    // coalesce into one rewrite.
-    syncClient.onOpApplied(() => campDataRecordWriter.schedule())
-    if (typeof syncClient.onFullSyncApplied === 'function') {
-      syncClient.onFullSyncApplied(() => campDataRecordWriter.schedule())
-    }
     // Fire once immediately: by the time wireOpApplied runs (bootstrapCamp's
     // post-creation path, or the returning-device login path), a camp already
     // exists, so the document is born without waiting for the first op.
@@ -2606,6 +2627,20 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // the same wiring `isJoinWindowOpen` already uses.
     getJoinSecret: () => joinSecret,
     getSyncClient: () => syncClient,
+    // T292 round 2 FIX 2 — the seam syncStarter.js's onRemoteOps calls (via
+    // getLiveHandlers(), the same forwarding pattern isJoinWindowOpen/
+    // getJoinSecret already use above) so a REMOTE merge schedules the
+    // document write exactly like a local write does. Read via optional
+    // chaining by every caller, so a stale/mocked handlers object without
+    // this method is simply a no-op, never a throw.
+    scheduleCampDataRecord: () => campDataRecordWriter.schedule(),
+    // T292 round 2 FIX 5 — called by reinitialize()/the restore-backup
+    // handler before the underlying db is closed, so this writer's pending
+    // timer (which reads from `db`) cannot fire against a closed handle.
+    disposeCampDataRecord: () => campDataRecordWriter.dispose(),
+    // T292 round 2 FIX 3 — called from app's will-quit so a still-pending
+    // debounced write is not lost to the process exiting first.
+    flushCampDataRecord: () => campDataRecordWriter.flush(),
   }
 }
 
@@ -2888,7 +2923,10 @@ if (isElectronEntryPoint()) {
       userDataPath,
     })
 
-    // New db is open and handlers built — safe to swap.
+    // New db is open and handlers built — safe to swap. T292 round 2 FIX 5:
+    // dispose the OLD writer first — its pending debounced timer reads from
+    // `db`, so it must not still be armed once that handle closes.
+    try { liveHandlers?.disposeCampDataRecord?.() } catch { /* ignore */ }
     try { db.close() } catch { /* ignore — db may already be closed */ }
     db = newDb
     dbPath = newPath
@@ -3119,6 +3157,8 @@ if (isElectronEntryPoint()) {
       return { error: 'restore_failed', message: err.message }
     }
 
+    // T292 round 2 FIX 5 — same reasoning as reinitialize() above.
+    try { liveHandlers?.disposeCampDataRecord?.() } catch { /* ignore */ }
     try { db.close() } catch { /* ignore */ }
     db = newDb
     deviceId = getOrCreateDeviceId(db)
@@ -3364,6 +3404,15 @@ if (isElectronEntryPoint()) {
       flushAutomergeDoc()
     } catch (err) {
       console.error('automerge sync: flush on quit failed (non-fatal):', err?.message ?? err)
+    }
+    // T292 round 2 FIX 3 — flush any still-pending debounced camp data
+    // document write before the process exits. flushCampDataRecord's own
+    // fireOnce already catches every failure internally; this try/catch is
+    // belt-and-braces so quit can never be blocked by it either way.
+    try {
+      liveHandlers?.flushCampDataRecord?.()
+    } catch (err) {
+      console.error('campDataRecord: flush on quit failed (non-fatal):', err?.message ?? err)
     }
     const automergeSyncNode = syncStarter.getNode()
     if (automergeSyncNode) {

@@ -87,6 +87,36 @@ describe('buildCampDataWorkbook', () => {
     expect(aoa[2][idx]).toBe('')
   })
 
+  it('never leaks an id-shaped or timestamp-shaped header, structurally (not just the known denylist)', () => {
+    const entities = baseEntities({
+      tiers: [{ id: 't1', name: 'Seniors' }],
+      cohorts: [{ id: 'c1', name: 'Session 1' }],
+      groups: [{ id: 'g1', name: 'Bunk A', tier_id: 't1' }],
+      campers: [{ id: 'k1', display_name: 'Kid', group_id: 'g1' }],
+      locations: [{ id: 'l1', name: 'Field' }],
+      activities: [{ id: 'a1', name: 'Swim', location_id: 'l1' }],
+      days_of_operation: [{ id: 'd1', label: 'Monday', day_of_week: 1 }],
+      time_blocks: [{ id: 'tb1', name: 'Period 1', start_time: '08:00:00', end_time: '09:00:00' }],
+      schedule_weeks: [{ id: 'w1', name: 'Week 1' }],
+      fixed_events: [{ id: 'fe1', name: 'Flag', day_id: 'd1', time_block_id: 'tb1' }],
+      special_days: [{ id: 'sd1', name: 'Color War' }],
+      events: [{ id: 'ev1', name: 'Trip', location_id: 'l1' }],
+      elective_sets: [{ id: 'es1', name: 'Electives', day_id: 'd1', time_block_id: 'tb1' }],
+    })
+    const wb = buildCampDataWorkbook({ entities, campName: 'Camp Bear', asOf: new Date() })
+    // Structural: catches a FUTURE unlisted id/timestamp-shaped column, not
+    // just today's known names (round 2 FIX 7 — hardens beyond the denylist
+    // test below, which only proves today's headers stay clean).
+    const idOrTimestampShaped = /(^id$)|(_id$)|(_at$)/i
+    for (const name of wb.SheetNames) {
+      const aoa = sheetToAoa(wb, name)
+      const header = (aoa[1] || []).map((h) => String(h))
+      for (const h of header) {
+        expect(h, `sheet "${name}" header "${h}" is id/timestamp-shaped`).not.toMatch(idOrTimestampShaped)
+      }
+    }
+  })
+
   it('never leaks id-like, timestamp, credential, or ingestion-internal headers on any sheet', () => {
     const entities = baseEntities({
       tiers: [{ id: 't1', name: 'Seniors' }],

@@ -1714,10 +1714,13 @@ describe('wireOpApplied: op-applied forwarding to renderer (Round 3 Fix 1)', () 
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
     expect(lastCreatedSyncClient.onOpApplied).toHaveBeenCalled()
-    const registeredCallback = lastCreatedSyncClient.onOpApplied.mock.calls[0][0]
-
+    // T292 round 2: wireOpApplied now registers TWO onOpApplied listeners
+    // (the camp-data-record writer, then this renderer push) — real
+    // notifyOpApplied fires every registered listener for an applied op, so
+    // the test does the same rather than assuming the renderer push is
+    // index 0.
     const rawOp = { id: 'op1', entity: 'users', entity_id: 'u1', field: 'pin_hash', value: 'RAW-SCRYPT-DIGEST', device_id: 'dA' }
-    registeredCallback(rawOp)
+    for (const [callback] of lastCreatedSyncClient.onOpApplied.mock.calls) callback(rawOp)
 
     expect(sendSpy).toHaveBeenCalledWith('shoresh:op-applied', expect.any(Object))
     const sentOp = sendSpy.mock.calls.find((c) => c[0] === 'shoresh:op-applied')[1]
@@ -1731,9 +1734,8 @@ describe('wireOpApplied: op-applied forwarding to renderer (Round 3 Fix 1)', () 
     const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
-    const registeredCallback = lastCreatedSyncClient.onOpApplied.mock.calls[0][0]
     const rawOp = { id: 'op2', entity: 'users', entity_id: 'u1', field: 'pin_salt', value: 'RAW-SALT', device_id: 'dA' }
-    registeredCallback(rawOp)
+    for (const [callback] of lastCreatedSyncClient.onOpApplied.mock.calls) callback(rawOp)
 
     const sentOp = sendSpy.mock.calls.find((c) => c[0] === 'shoresh:op-applied')[1]
     expect(JSON.stringify(sentOp)).not.toContain('RAW-SALT')
@@ -1746,9 +1748,8 @@ describe('wireOpApplied: op-applied forwarding to renderer (Round 3 Fix 1)', () 
     const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test' })
 
-    const registeredCallback = lastCreatedSyncClient.onOpApplied.mock.calls[0][0]
     const rawOp = { id: 'op3', entity: 'users', entity_id: 'u1', field: 'name', value: 'Alice', device_id: 'dA' }
-    registeredCallback(rawOp)
+    for (const [callback] of lastCreatedSyncClient.onOpApplied.mock.calls) callback(rawOp)
 
     const sentOp = sendSpy.mock.calls.find((c) => c[0] === 'shoresh:op-applied')[1]
     expect(sentOp.value).toBe('Alice')

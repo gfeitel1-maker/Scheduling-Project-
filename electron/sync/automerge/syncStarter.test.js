@@ -196,3 +196,49 @@ describe('createAutomergeSyncStarter: idempotency, no-camp, and failure bookkeep
     expect(starter2.getNode()).toBeTruthy()
   })
 })
+
+// T292 round 2 FIX 2 — a remote merge (another device's edit landing via
+// libp2p) never fires localWriteClient's onOpApplied (that only covers this
+// device's own local write()/writeBulkReplace()), so the camp data document
+// writer must be scheduled from onRemoteOps instead. This proves the option
+// start() actually passes to startSyncNode reaches getLiveHandlers()'s
+// scheduleCampDataRecord — the real seam, not a description of it.
+describe('createAutomergeSyncStarter: onRemoteOps schedules the camp data record (T292)', () => {
+  it('calls getLiveHandlers().scheduleCampDataRecord() when onRemoteOps fires', async () => {
+    insertCamp()
+    let capturedOnRemoteOps
+    const fakeStartSyncNode = vi.fn(async (opts) => {
+      capturedOnRemoteOps = opts.onRemoteOps
+      return makeFakeNode()
+    })
+    const scheduleCampDataRecord = vi.fn()
+    const starter = makeStarter({
+      getLiveHandlers: () => ({ scheduleCampDataRecord }),
+      startSyncNodeImpl: async () => fakeStartSyncNode,
+    })
+
+    await starter.start()
+    expect(typeof capturedOnRemoteOps).toBe('function')
+
+    capturedOnRemoteOps([{ entity: 'groups', entity_id: 'g1' }])
+
+    expect(scheduleCampDataRecord).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not throw when getLiveHandlers() or scheduleCampDataRecord is absent', async () => {
+    insertCamp()
+    let capturedOnRemoteOps
+    const fakeStartSyncNode = vi.fn(async (opts) => {
+      capturedOnRemoteOps = opts.onRemoteOps
+      return makeFakeNode()
+    })
+    const starter = makeStarter({
+      getLiveHandlers: () => null,
+      startSyncNodeImpl: async () => fakeStartSyncNode,
+    })
+
+    await starter.start()
+
+    expect(() => capturedOnRemoteOps([])).not.toThrow()
+  })
+})
