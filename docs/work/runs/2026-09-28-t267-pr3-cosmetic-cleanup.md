@@ -143,4 +143,33 @@ NAME") are also false. All are Finding B comment residue. Both reviewers correct
 
 ### Round 2
 
-Maker re-dispatched with the exact accurate mechanism and the full site list.
+Maker re-dispatched with the verified two-keys mechanism and the full site list. Corrected
+(comment-only, commit `00feefd8`): `freeChoiceActivities.js` header, `buildSchedule.js` Pass 0 +
+both "T62, corrected" blocks (:93-94, :243-244 "keyed by NAME" → "keyed by activity_id"),
+`buildPlan.js:391`, and `buildSchedule.test.js` (block/inline comments + the `it(...)` description
+"by NAME" → "by id"). No assertion, fixture value, or test logic changed (Red Hat confirmed via
+`git diff` isolation; 149 engine tests green).
+
+Re-review:
+- **Code Reviewer:** both round-1 MEDIUMs + the LOW resolved in every touched file; found ONE
+  remaining site — `schema.sql:551-554` (the `activities.catalog_role` comment, edited in round 1,
+  not in the round-2 file list) still carried the "both suppressions resolve through that id"
+  conflation. MEDIUM, mechanical.
+- **Red Hat:** independently re-swept the tree; confirmed Finding B discharge is **exhaustive**
+  (every remaining `BY NAME`/`no activity_id column` hit is a justified leave — fixture-scanner
+  classification, fe.support dry-run join, v77 backfill mechanism, pre-v77 migration-test history);
+  confirmed the test diff is comment-only and the v77 tag correct (corroborated against
+  `migrationDomainState.js:69`). Resilience 5/5. Only a LOW: close out this run record before merge.
+
+### Round 2b
+
+Fixed the one Code-Reviewer site: `schema.sql:551-554` rewritten to the two-keys model (commit
+`03aec61a`, SQL comment only — no DDL/column change). Finding B now exhaustively discharged across
+all sites; Findings G (conservative — nothing beyond B) and H (v75→v77 tag) discharged.
+
+**Final commit stack (off `origin/main`):** `ccf5b0f5` · `00feefd8` · `03aec61a`. All edits are
+comments, one SQL version tag, and doc housekeeping (INDEX.md + this record). No behavior, schema,
+identifier, persisted value, IPC channel, routing key, or user-facing string changed.
+
+Next: full `npm run verify` at top level (queued behind another session's gate lock) → Verifier
+adjudicates raw output → Grader.
