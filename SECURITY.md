@@ -32,8 +32,15 @@ route to the host's ephemeral port — shielded by NAT/firewall topology + an un
 by a code boundary. The intended next step (owner decision 2026-09-15) is **cross-internet sync,
 direct hole-punch, NO relay** ("no server of any kind") — which a WAN security assessment
 (`docs/work/security/2026-09-15-wan-dht-boundary-assessment.md`) found has hard blockers that must
-be fixed first (a 40-bit non-rotating join code, LAN-sized rate limits, unsigned builds) and one
-networking invariant (symmetric-NAT/CGNAT pairs cannot be punched directly without a relay). Any
+be fixed first (join code, LAN-sized rate limits, unsigned builds) and one
+networking invariant (symmetric-NAT/CGNAT pairs cannot be punched directly without a relay).
+The join-code blocker has since been **addressed by T286** (see the WAN-connectivity hardening
+ladder, [docs/adr/2026-09-27-wan-connectivity-hardening-ladder.md](docs/adr/2026-09-27-wan-connectivity-hardening-ladder.md)):
+the join secret is now ephemeral, window-scoped, random (never campId-derived), 50-bit, and
+scrypt-tagged for rendezvous (`electron/sync/joinCode.js`) — replacing the earlier
+`base32Crockford(sha256(campId)[:5])` derivation. LAN-sized rate limits and unsigned builds remain
+open. This does not move the deployment boundary: the WAN rendezvous modules exist with tests but
+are still **not wired into production discovery** (mDNS-only), so the boundary described above holds. Any
 move to internet-reachable discovery requires that re-assessment first — enforced by
 [docs/adr/2026-09-14-internet-transport-security-gate.md](docs/adr/2026-09-14-internet-transport-security-gate.md)
 and its build-failing guard (which now checks the real `main.js` discovery wiring, not a dead
@@ -475,17 +482,21 @@ non-Host device is refused rather than silently erasing only itself.
 
 ### A camp token is a bearer credential (T155)
 
-`evaluateAuthenticate` binds a token to the `device_id` carried **inside** the token. Nothing binds
-it to the libp2p peer id presenting it, so a valid token replayed from a different machine is
-admitted. Measured, not assumed: `electron/sync/automerge/syncNodeAuthGate.test.js` pins both this
-and its counterweight — revocation is re-checked on every authenticate, so a replayed token stops
-working the moment the device it names is revoked.
+`evaluateAuthenticate` binds a token to the `device_id` carried **inside** the token, **and** — as
+of T162 — to the device's libp2p peer id on a trust-on-first-use basis. `bindOrVerifyPeerIdentity`
+(`electron/auth/connectionAuth.js`) records the PeerId the first time a device authenticates and
+rejects a mismatch on later connections (`4405 peer_identity_mismatch`), so a valid token replayed
+from a *different* machine is no longer admitted. Production wires this live:
+`electron/sync/automerge/syncNode.js` passes the Noise-proven connection PeerId (`fromPeerId`) into
+`evaluateAuthenticate`. Measured, not assumed:
+`electron/sync/automerge/syncNodeAuthGate.test.js` pins both this and its counterweight — revocation
+is re-checked on every authenticate, so a token also stops working the moment the device it names is
+revoked.
 
-`devices.libp2p_peer_id` cannot close this as it stands: libp2p generates a fresh peer id on every
-process start, which is exactly why that column is documented as a routing convenience and never a
-trust signal. Binding a token to a peer would reject every ordinary reconnect. Closing it properly
-means persisting a libp2p identity per device and binding tokens to it — a design decision with its
-own key-management consequences.
+_Prior: this section held that `devices.libp2p_peer_id` "cannot close this as it stands" because
+libp2p generates a fresh peer id on every process start. That is no longer true — `device_identity_key`
+(schema v67, `electron/auth/deviceIdentity.js`) persists a per-device libp2p identity, giving a
+stable PeerId across restarts, which is exactly what made the TOFU binding above possible._
 
 Obtaining the token in the first place means reaching a paired device's storage, and anyone who can
 do that already has the camp document.

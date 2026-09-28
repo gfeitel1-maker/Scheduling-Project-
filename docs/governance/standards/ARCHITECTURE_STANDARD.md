@@ -79,7 +79,8 @@ data through the op-log must call `authorize()`, regardless of where in `main.js
 
 ## 5. Host and Client are asymmetric, permanently
 
-One device is the Host: it runs the WebSocket server and holds the Ed25519 private key in
+One device is the Host: it runs the libp2p sync server (`electron/sync/automerge/`), authenticating
+peers over Noise-encrypted, mutually-authenticated connections, and holds the Ed25519 private key in
 `host_signing_key`. That key never replicates. Clients receive only the public half and can verify
 tokens but never mint them. Do not design anything that assumes a Client can act as a Host without
 an explicit, human-approved promotion path.
