@@ -586,10 +586,13 @@ export const TRANSPORT_CAPABILITIES = {
   discovery: {
     packages: [], // discovery ships no new libp2p package — it's a plain `fetch` client
     sourceMarkers: [], // discovery is wired as peerDiscovery entries in syncStarter.js; see note below
-    egressAllowlist: ['rendezvousClient.js'], // the ONLY file allowed to fetch(); exact basename match
+    egressAllowlist: ['rendezvousClient.js'], // the ONLY file allowed to fetch()
+    // Implementation note (T288 round 2): the shipped allowlist matches the FULL repo-relative path
+    // ('electron/sync/automerge/rendezvousClient.js'), not the basename, so a same-named file at a
+    // different path cannot inherit the exemption. The design intent ("exact file identity") is unchanged.
     signoff: {
       date: '2026-09-28',
-      owner: 'gfeitel1@gmail.com',
+      owner: 'gfeitel1', // GitHub handle, not an email — keep PII out of public history
       doc: 'docs/work/security/2026-09-26-internet-transport-signoff-reassessment.md#owner-sign-off',
     },
   },

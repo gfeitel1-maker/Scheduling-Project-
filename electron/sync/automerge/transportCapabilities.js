@@ -27,7 +27,7 @@ export const TRANSPORT_CAPABILITIES = {
     egressAllowlist: ['electron/sync/automerge/rendezvousClient.js'],
     signoff: {
       date: '2026-09-28',
-      owner: 'gfeitel1@gmail.com',
+      owner: 'gfeitel1', // GitHub handle, not an email — keep PII out of public history; provenance is `doc`
       doc: 'docs/work/security/2026-09-26-internet-transport-signoff-reassessment.md#owner-sign-off',
     },
   },
