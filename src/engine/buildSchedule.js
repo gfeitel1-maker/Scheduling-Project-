@@ -90,10 +90,11 @@ function normalizeInput(input) {
   }
 }
 
-// T62, corrected (T182 extraction). An anchor names its activity, it does not
-// link to it (see anchorActivityLink.js) — so this is keyed by NAME, and
-// scoped PER GROUP rather than camp-wide. The scope matters: `fixed_events`
-// holds both all-camp Fixed events (Lunch) and group-scoped Recurring ones
+// T62, corrected (T182 extraction). An anchor links its activity by
+// `activity_id` (see anchorActivityLink.js) — so this is keyed by
+// activity_id, and scoped PER GROUP rather than camp-wide. The scope
+// matters: `fixed_events` holds both all-camp Fixed events (Lunch) and
+// group-scoped Recurring ones
 // (docs/adr/2026-08-28-fixed-vs-recurring-events.md). A camp-wide exclusion
 // would let one group's recurring Swim delete Swim from every other group's
 // catalog. Day-agnostic within a group, deliberately: an anchor IS that
@@ -202,11 +203,15 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // ── Pass 0: resolve eligibility ──────────────────────────────────────────
   const eligibility = new Map() // activityId → Set<groupId>
   for (const act of activities) {
-    // T266 — a pinned event's row stays in `activities` (the fixed_events row
-    // references it BY ID via `activity_id`, and removing the activities row
-    // would dangle that link, silently switching off the anchor suppression),
-    // but it is eligible for NO group AS A FREE CHOICE: ingest pass 1/2 already
-    // claimed it, so pass 3 may not place it. Recording that as an empty
+    // T266 — a pinned event's row stays in `activities`: isFreeChoiceActivity
+    // (src/engine/freeChoiceActivities.js) reads `activities.catalog_role` and
+    // that is what makes it eligible for NO group AS A FREE CHOICE here — ingest
+    // pass 1/2 already claimed it, so pass 3 may not place it. (Separately, the
+    // fixed_events row also references this row BY ID via `activity_id`, which
+    // is the SEPARATE anchor-duplicate exclusion below in this file — removing
+    // the activities row would dangle that link too, but that is a different
+    // mechanism keyed by a different column.) Recording the free-choice claim
+    // as an empty
     // eligibility set, rather than skipping the row, means every downstream
     // consumer of `eligibility` — the open-slot pool below, UNDERSERVED, and
     // prefer_before_day — honours it from one decision.
@@ -240,9 +245,9 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   const anchors = (_legacyAnchors || []).filter(
     (a) => a.schedule_week_id == null || a.schedule_week_id === weekId
   )
-  // T62, corrected. An anchor names its activity, it does not link to it (see
-  // anchorActivityLink.js) — so this is keyed by NAME, and scoped PER GROUP
-  // rather than camp-wide. The scope matters: `fixed_events` holds both
+  // T62, corrected. An anchor links its activity by `activity_id` (see
+  // anchorActivityLink.js) — so this is keyed by activity_id, and scoped PER
+  // GROUP rather than camp-wide. The scope matters: `fixed_events` holds both
   // all-camp Fixed events (Lunch) and group-scoped Recurring ones (docs/adr/
   // 2026-08-28-fixed-vs-recurring-events.md). A camp-wide exclusion would let
   // one group's recurring Swim delete Swim from every other group's catalog.

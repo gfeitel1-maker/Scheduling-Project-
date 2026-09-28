@@ -119,4 +119,28 @@ doc naming a renamed path would fail it.
 
 ### Round 1
 
-(pending dispatch)
+Maker corrected the three worklist sites (freeChoiceActivities.js, schema.sql catalog_role
+comment, schema.sql v75→v77 tag, buildSchedule.js:205) — all comment-only. Committed `ccf5b0f5`.
+Review panel (Code Reviewer + Red Hat, foreground) then found the round-1 fix was **accurate but
+incomplete and partly re-introduced a subtler falsehood**:
+
+- **Code Reviewer (MEDIUM×2, LOW):** the corrected comments conflate two independent suppressions.
+  The free-choice exclusion (`isFreeChoiceActivity`, freeChoiceActivities.js) is keyed by
+  `catalog_role`; the anchor-duplicate exclusion (`anchoredActivityIdsByGroupDay` →
+  `resolveAnchorActivityIds`, buildSchedule.js) is keyed by `activity_id`. Round-1's "both
+  suppressions resolve through that id" is false — the row stays for two reasons via two different
+  keys.
+- **Red Hat (HIGH, MEDIUM, LOW):** Finding B not exhaustively discharged. Two more now-false sites
+  survive: `src/ingest/buildPlan.js:391-392` ("resolves its activity BY NAME") and
+  `src/engine/buildSchedule.test.js:41-55` (comment claims "fixed_events has never had activity_id /
+  no activity link / by NAME / exclusion never fires" while the fixture two lines below sets
+  `activity_id: 'lunch'` — internally self-contradictory post-PR2).
+
+Governor independently verified the mechanism (buildSchedule.js:177 `resolveAnchorActivityIds`
+returns `[activity_id]`; freeChoiceActivities.js `isFreeChoiceActivity` reads `catalog_role`), and
+found two further stale sites in the same sweep: `buildSchedule.js:93-94` and `:243-244` ("keyed by
+NAME") are also false. All are Finding B comment residue. Both reviewers correct → RETRY round 2.
+
+### Round 2
+
+Maker re-dispatched with the exact accurate mechanism and the full site list.

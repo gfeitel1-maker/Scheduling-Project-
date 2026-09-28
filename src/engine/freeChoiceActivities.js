@@ -6,12 +6,16 @@
 // pass it should no longer be available to be pulled out in the third."
 //
 // Pass 1/2 record their claim as `activities.catalog_role = 'pinned_event'`
-// (schema v75, T266). The row is NOT deleted — that is the whole point. An
-// anchor references its activity BY ID via `fixed_events.activity_id`
-// (resolved in src/engine/anchorActivityLink.js), and both don't-schedule-twice
-// suppressions resolve through that id. Remove the row and the link dangles —
-// the suppression becomes a silent no-op and the event is placed twice, with
-// no error and no finding. So pass 1/2 leaves a MARKER, NOT A HOLE: present
+// (schema v75, T266). The row is NOT deleted — that is the whole point, for
+// TWO separate reasons keyed by two DIFFERENT columns. This file's own
+// exclusion (isFreeChoiceActivity, below) reads ONLY `catalog_role` — that is
+// what keeps the row out of every free-choice menu. Independently,
+// `fixed_events.activity_id` links to this row (resolved in
+// src/engine/anchorActivityLink.js) and feeds the SEPARATE anchor-duplicate
+// exclusion in buildSchedule.js (anchoredActivityIdsByGroupDay). Delete the
+// row and BOTH suppressions break: catalog_role stops existing to be read,
+// and the activity_id link dangles — the event is placed twice, with no
+// error and no finding. So pass 1/2 leaves a MARKER, NOT A HOLE: present
 // for id resolution, absent from every menu.
 //
 // WHY THIS IS ONE SHARED FUNCTION AND NOT A FILTER WRITTEN AT EACH SITE.
