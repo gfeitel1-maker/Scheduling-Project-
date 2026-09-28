@@ -51,10 +51,10 @@ function resolveTemplateSlot(row, { activityById, anchorById, eventById }) {
   }
   if (row.is_anchor) {
     const anchor = anchorById.get(row.anchor_id) ?? null
-    // fixed_events (T267 — renamed from anchor_activities) carries a real activity_id as of v77,
-    // but this PR (T267 PR1) does not yet cut resolution over to it (that is PR 2) — its own
-    // `name` remains the identity used here, per the ADR's "else name from fixed_events" fallback.
-    return { kind: 'anchor', refId: row.anchor_id, activityId: null, activityName: anchor?.name ?? null }
+    // fixed_events carries a real activity_id as of v77 (T267 PR1), and PR2
+    // cuts resolution over to it — the id-based link, not the anchor's own
+    // free-text `name`, is now the identity source for activityId.
+    return { kind: 'anchor', refId: row.anchor_id, activityId: anchor?.activity_id ?? null, activityName: anchor?.name ?? null }
   }
   if (row.activity_id != null) {
     const activity = activityById.get(row.activity_id) ?? null

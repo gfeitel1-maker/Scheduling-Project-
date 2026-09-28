@@ -94,11 +94,11 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
     await waitFor(() => {
-      const nameCalls = localClient.write.mock.calls.filter(c => c[3] === 'name')
+      const nameCalls = localClient.write.mock.calls.filter(c => c[1] === 'fixed_events' && c[3] === 'name')
       expect(nameCalls.length).toBe(3)
     })
 
-    const idCalls = localClient.write.mock.calls.filter(c => c[3] === 'name')
+    const idCalls = localClient.write.mock.calls.filter(c => c[1] === 'fixed_events' && c[3] === 'name')
     const ids = idCalls.map(c => c[2])
     expect(new Set(ids).size).toBe(3)
     ids.forEach(id => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'fixed_events', id, 'name', 'Mifkad'))
@@ -139,6 +139,66 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
     expect(selectedLabel.style.color).toBe('rgb(255, 255, 255)')
     expect(unselectedLabel.style.background).toBe('var(--surface)')
     expect(unselectedLabel.style.color).toBe('var(--text)')
+  })
+})
+
+describe('AnchorsScreen — T267 PR2 activity_id link on save', () => {
+  it('creating an anchor with a name matching NO catalog activity creates one and links activity_id', async () => {
+    const days = [day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 })]
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'fixed_events') return Promise.resolve([])
+      if (entity === 'days_of_operation') return Promise.resolve(days)
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'activities') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('+ Add Fixed Event'))
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Lunch' } })
+    fireEvent.click(screen.getByText('Monday'))
+    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.click(screen.getAllByText('Add Fixed Event').slice(-1)[0])
+
+    await waitFor(() => {
+      const activityIdCalls = localClient.write.mock.calls.filter(c => c[1] === 'fixed_events' && c[3] === 'activity_id')
+      expect(activityIdCalls.length).toBe(1)
+    })
+    // The new activity itself was created with catalog_role pinned_event.
+    const roleCalls = localClient.write.mock.calls.filter(c => c[1] === 'activities' && c[3] === 'catalog_role')
+    expect(roleCalls.length).toBe(1)
+    expect(roleCalls[0][4]).toBe('pinned_event')
+    const nameCalls = localClient.write.mock.calls.filter(c => c[1] === 'activities' && c[3] === 'name')
+    expect(nameCalls[0][4]).toBe('Lunch')
+  })
+
+  it('creating an anchor with a name matching an EXISTING activity links to it, no new activity created', async () => {
+    const days = [day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 })]
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'fixed_events') return Promise.resolve([])
+      if (entity === 'days_of_operation') return Promise.resolve(days)
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'activities') return Promise.resolve([{ id: 'act-lunch', camp_id: CAMP_ID, name: 'Lunch', catalog_role: 'pinned_event' }])
+      return Promise.resolve([])
+    })
+
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('+ Add Fixed Event'))
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'lunch' } })
+    fireEvent.click(screen.getByText('Monday'))
+    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.click(screen.getAllByText('Add Fixed Event').slice(-1)[0])
+
+    await waitFor(() => {
+      const activityIdCalls = localClient.write.mock.calls.filter(c => c[1] === 'fixed_events' && c[3] === 'activity_id')
+      expect(activityIdCalls.length).toBe(1)
+      expect(activityIdCalls[0][4]).toBe('act-lunch')
+    })
+    expect(localClient.write.mock.calls.some(c => c[1] === 'activities' && c[3] === 'name')).toBe(false)
   })
 })
 

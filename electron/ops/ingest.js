@@ -911,6 +911,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // deriveLocationId's own normalization contract exactly, so a lookup here
   // agrees with the id a create/mint would derive for the same name.
   const locationIdByName = new Map()
+  // T267 PR2 — name -> activity id, so a fixed_events write in this same
+  // commit can set `activity_id` to the catalog row commitPlan already
+  // proposes (created or matched) for the same source cell. Same
+  // first-write-wins convention as the maps above.
+  const activityIdByName = new Map()
 
   // Populated INSIDE the transaction, after any teardown (ADR §4): in replace
   // mode the rows these maps would name are about to be destroyed, and seeding
@@ -951,6 +956,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       if (row.name) {
         const key = String(row.name).trim()
         if (!locationIdByName.has(key)) locationIdByName.set(key, row.id)
+      }
+    }
+    for (const row of db.prepare('SELECT id, name FROM activities WHERE camp_id = ? ORDER BY id ASC').all(camp_id)) {
+      if (row.name) {
+        const key = normalizeName(row.name)
+        if (!activityIdByName.has(key)) activityIdByName.set(key, row.id)
       }
     }
   }
@@ -1499,6 +1510,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       if (tierId) writeDivisionEvidence(entityId, item._division_support, unitName)
     }
     if (entity === 'activities') {
+      // T267 PR2 — registered up front (INGESTIBLE_ENTITIES places activities
+      // before fixed_events), so the fixed_events write below can resolve
+      // this same-cell activity by name.
+      const key = normalizeName(name)
+      if (!activityIdByName.has(key)) activityIdByName.set(key, entityId)
       // Inferred (or director-edited) rules, keyed by the exact activity name
       // the director approved. The op log is the boundary that owns validation
       // (round 2 review, Fix 4): buildSchedule.js's runRound only matches
@@ -2463,24 +2479,26 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           }
           evidenceSupportFixedEvents[fe.name] = fe.support
         }
+        // T267 PR2 — the catalog activity commitPlan proposes for this same
+        // source cell (see plan.activities' pinOnlyActivityNames handling),
+        // resolved by the same normalized name key every other name->id map
+        // in this file uses. A fixed event whose name matches no catalog
+        // activity at all (a real event like "Mifkad", not a pinned
+        // activity) legitimately resolves to null here — buildSchedule.js's
+        // ANCHOR_IDENTITY_GAP finding is scoped to rows the app expects to
+        // carry a link, not to every fixed_events row unconditionally.
+        const linkedActivityId = activityIdByName.get(normalizeName(fe.name)) ?? null
         const fields = {
           camp_id,
           cohort_id,
           day_id: dayId,
           time_block_id: tbId,
-          // This name is LOAD-BEARING FOR SCHEDULING, not just for display.
-          // An anchor has no activity_id column (there is no such column, and
-          // never has been) — src/engine/anchorActivityLink.js matches an
-          // anchor to its catalog activity by name, and buildSchedule uses
-          // that match to keep an already-anchored activity out of regular
-          // placement. So anything that re-keys this name — a name-variant
-          // merge, a compound-cell resolution ("Lunch + Leave" -> "Lunch") —
-          // changes scheduling eligibility, not merely a label. The match uses
-          // whitespaceInsensitiveName's key (src/ingest/preview.js); the
-          // engine re-spells it locally to stay dependency-free, and
-          // src/engine/anchorActivityLink.keyParity.test.js fails if the two
-          // ever disagree.
+          // The name stays load-bearing for DISPLAY and for resolving
+          // linkedActivityId above, but scheduling now reads activity_id
+          // (src/engine/anchorActivityLink.js) — set together, below, in the
+          // same commit that creates/matches the activity itself.
           name: String(fe.name ?? '').trim(),
+          ...(linkedActivityId ? { activity_id: linkedActivityId } : {}),
           // Fixed vs Recurring (docs/adr/2026-08-28-fixed-vs-recurring-events.md
           // §6/§9) — re-derived from the same isAll boolean the scope fields
           // below already use, not re-read from fe.kind, so this stays
