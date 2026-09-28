@@ -149,7 +149,9 @@ function derivedChoiceId(value) {
   )
 }
 
-// The ONE component that is not opaque.
+// A component that is not opaque. (It was the ONE such component until T279
+// round 2 added the coordinate pair; see coordinateComponents below, which is
+// admitted on the same terms and shares this canonicalizer.)
 //
 // Owner ruling R2 (2026-09-17): elective_choices keys on the normalized label,
 // not on its member activities. Editing a choice's members therefore keeps the
@@ -336,18 +338,120 @@ export function deriveElectiveChoiceOfferingId(choiceId, occurrenceId, activityI
 // unverified property of this function, and does not depend on trusting any
 // particular sentinel value to stay unused.
 //
-// UNIQUENESS (Governor round-5 requirement): exactly one scoped row per (run,
-// camper, occurrence, choice) — the scoped arm includes occurrence_id, so two
-// different occurrences derive two different ids, each a legitimate distinct
-// row. At most one fallback row per (run, camper, choice) — the fallback arm
-// excludes occurrence_id entirely, so every fallback preference for the same
-// (run, camper, choice) derives the SAME id, and a second whole-run ranking
-// of the same choice by the same camper overwrites the first rather than
-// creating a second row (the derived id IS the uniqueness invariant, same
-// convention as every other entity in this module).
-export function deriveElectivePreferenceId(runId, camperId, occurrenceId, choiceId) {
-  const scope = occurrenceId != null ? ['occ', opaque('occurrence_id', occurrenceId)] : ['all']
-  return `epref${V}:${join([
+// A COORDINATE component (T279 round 2, owner ruling): a (day label, period
+// label) pair as WRITTEN ON THE SOURCE FILE.
+//
+// This is the SECOND family of non-opaque components in this module, so the
+// claim above that the choice label is "the ONE component that is not opaque"
+// is corrected rather than left standing. It is admitted on exactly the same
+// terms: `join` is length-prefixed and therefore provably injective whatever
+// the component contains, so free text cannot forge a collision — the OPAQUE
+// guard buys normalization-skew resistance, not injectivity.
+//
+// And the skew is handled the same way the choice label handles it, by the SAME
+// canonicalizer rather than a second normalization rule: `electiveChoiceLabelKey`
+// lowercases and strips whitespace, so 'Monday'/'monday'/' Monday ' are one
+// coordinate and not three. A second rule here is exactly the drift this
+// module's "throwing rather than escaping" comment refuses.
+//
+// The two halves are passed as SEPARATE components, never concatenated, so
+// ('Monday 1', '') and ('Monday', '1') cannot collide.
+function coordinateComponents(dayLabel, periodLabel) {
+  return [
+    'at',
+    electiveChoiceLabelKey(dayLabel ?? ''),
+    electiveChoiceLabelKey(periodLabel ?? ''),
+  ]
+}
+
+// PREFERENCE DERIVATION VERSION, separate from the module-wide V — and the
+// separation is deliberate, not laziness.
+//
+// T279 round 2 changed this function's shape (a third, coordinate-scoped arm),
+// and the owner's instruction was to bump deliberately and say so rather than
+// let the shape drift silently under an unbumped version, as this module's own
+// comment on V warns has already happened twice. Bumping the module-wide V would
+// have done that — but V is shared by EIGHT id kinds including `camper${V}`, so
+// bumping it re-keys every CAMPER id in the database, and camper ids are
+// referenced by assignments and attendance. That is a blast radius this change
+// has not earned. A per-kind version re-keys exactly the rows whose shape
+// changed and nothing else, which is what the V comment's own words ("re-keying
+// of every row OF THAT KIND") describe.
+//
+// Pre-production: no live camp data anywhere to re-key. A developer's local
+// shoresh-dev database that already ran an elective commit holds `epref1:` rows
+// that will not match a freshly-derived id — stated rather than glossed, per the
+// V comment's warning about exactly that case.
+const PREFERENCE_V = 2
+
+// UNIQUENESS (Governor round-5 requirement, EXTENDED in T279 round 2): THREE
+// arms, in descending strength of scope, because a preference can be scoped by
+// two different kinds of fact.
+//
+//   'occ' — an occurrence_id: a cell of ONE particular candidate schedule. Two
+//           different occurrences derive two different ids.
+//   'at'  — a COORDINATE as read off the file: what the CHILD asked for. Two
+//           different cells derive two different ids EVEN WITH NO TEMPLATE, which
+//           is the whole point of the arm.
+//   'all' — neither: the whole-run fallback. Every fallback preference for one
+//           (run, camper, choice) derives the SAME id, so a second whole-run
+//           ranking of the same choice overwrites the first rather than creating
+//           a second row.
+//
+// WHY THE 'at' ARM HAD TO EXIST. Without it, a per-cell sheet imported before
+// any schedule exists had occurrence_id NULL on every row, fell into 'all', and
+// two cells naming one activity collapsed onto one id — the importer discarding
+// a child's answer because it could not yet express it as a row. ADR §3.1 always
+// said the record "names a coordinate (day, period), never an occurrence_id";
+// this is storage finally matching the record.
+//
+// The arms cannot collide with each other: 'occ', 'at' and 'all' are distinct
+// length-prefixed literals.
+export function deriveElectivePreferenceId(runId, camperId, occurrenceId, choiceId, coordinate = null) {
+  // STRICT AT THE INSIDE, permissive at the outside.
+  //
+  // ADR §14.1 rules that the CLI and the MCP tools must never refuse a file they
+  // can read. That governs what this software does with a DIRECTOR'S or an
+  // AGENT'S FILE; it says nothing about a malformed INTERNAL CALL, and reading it
+  // as though it did would be expensive here. A coordinate object whose
+  // properties are misspelled or renamed is a programming error, not camp data.
+  //
+  // What this guard closes, confirmed by execution rather than inspection:
+  // `{ wrongKey: 'Monday', other: 'Period 3' }` and
+  // `{ wrongKey: 'Friday', other: 'Period 6' }` both fell through to the 'all'
+  // arm and derived the IDENTICAL id, indistinguishable from passing no
+  // coordinate at all. A caller with a typo therefore got whole-run FALLBACK
+  // rows while believing it had passed a coordinate — silently re-merging exactly
+  // what the 'at' arm was added to keep apart. That is this ticket's own defect
+  // class (writing a value we could not resolve, without saying so) reappearing
+  // at our own API boundary, so it throws in the style of `opaque()` rejecting a
+  // malformed component rather than quietly encoding it.
+  //
+  // PRESENCE OF THE KEY, NOT ITS VALUE, is what is required. A single-day sheet
+  // (periods only, no day axis) legitimately passes `dayName: null`, and that
+  // must keep working — it is pinned in the frozen vectors precisely so nobody
+  // "fixes" this throw by rejecting null legs and breaks every real single-day
+  // sheet. A coordinate with both keys present and both null says "this row has
+  // no cell", which is the whole-run fallback, and is allowed through.
+  if (coordinate != null) {
+    const shaped =
+      typeof coordinate === 'object' && ('dayName' in coordinate || 'periodLabel' in coordinate)
+    if (!shaped) {
+      throw new Error(
+        'electiveDerivedIds: coordinate must be an object carrying dayName and/or periodLabel ' +
+          '(ADR 2026-09-27 §3.1\u2019s canonical record) — pass null for no coordinate rather than ' +
+          'an object this function cannot read, which would silently derive a whole-run fallback id'
+      )
+    }
+  }
+
+  const hasCoordinate = coordinate != null && (coordinate.dayName != null || coordinate.periodLabel != null)
+  const scope = occurrenceId != null
+    ? ['occ', opaque('occurrence_id', occurrenceId)]
+    : hasCoordinate
+      ? coordinateComponents(coordinate.dayName, coordinate.periodLabel)
+      : ['all']
+  return `epref${PREFERENCE_V}:${join([
     opaque('run_id', runId),
     opaque('camper_id', camperId),
     ...scope,

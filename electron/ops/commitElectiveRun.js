@@ -35,7 +35,18 @@ const SOLVER_VERSION = 'buildElectiveAssignments@1'
 export function describeElectiveRunRefusal(parsed) {
   const sameName = parsed?.sameNameCampers ?? []
   if (sameName.length > 0) {
-    const who = sameName.map((c) => `${c.display_name} (rows ${c.rowNumbers.join(', ')})`).join('; ')
+    // T279 / ADR section 12.2a: the sentence must name each row's DIVISION
+    // alongside its row number. The division is exactly what lets a director
+    // say "those are two different kids" — the disambiguation evidence the
+    // identity ruling rests on — and this message did not carry it, so a
+    // director was told two rows collide and given nothing to tell them apart.
+    const who = sameName
+      .map((c) => {
+        const divisions = (c.divisionLabels ?? []).filter(Boolean)
+        const where = divisions.length > 0 ? `rows ${c.rowNumbers.join(', ')}: ${divisions.join(', ')}` : `rows ${c.rowNumbers.join(', ')}`
+        return `${c.display_name} (${where})`
+      })
+      .join('; ')
     const noun = sameName.length === 1 ? 'camper name appears' : 'camper names appear'
     return (
       `${sameName.length} ${noun} on more than one row with no camper id to tell them apart: ${who}. ` +
@@ -290,6 +301,43 @@ export function commitElectiveRun(db, {
           display_name: c.display_name,
           external_id: c.external_id ?? null,
           is_active: 1,
+          // T279 / ADR section 12.2a — the deliberate PAIR. `group_id` is the
+          // RESOLVED reference (null when the file's label matched no group of
+          // this camp's, never a group invented from the file); `division_label`
+          // is what the file actually said, verbatim. This function used to
+          // write four fields and drop the division entirely, which is how 15 of
+          // 33 probes lost it — and worse than a lost field, because the owner's
+          // stable-identity ruling rests on a unit being attached, so discarding
+          // it removed the evidence that ruling depends on.
+          //
+          // NEITHER IS WRITTEN UNCONDITIONALLY, and the reason is a regression
+          // this ticket caused and the gate caught. `write` SKIPS an undefined
+          // field, so `undefined` means "this import has nothing to say about
+          // that column" while `null` means "assert emptiness" — and asserting
+          // emptiness here is destructive:
+          //
+          //  group_id is ROSTER-OWNED. A camper already in Bunk Alpha, imported
+          //  from a preference sheet whose division matched no group, had their
+          //  group silently cleared by an unconditional `?? null` — an ordinary
+          //  per-field LWW op that clobbers real group membership campwide.
+          //  electiveRunOuterInheritance.integration.test.js caught it: the
+          //  camper lost their group, so the inherited group-template cell could
+          //  no longer be derived. A preference sheet may SET a group it
+          //  resolved; it may never clear one it simply failed to resolve.
+          //
+          //  division_label is this import's own PROVENANCE, so an empty cell in
+          //  a division column IS a fact worth recording — but only when the
+          //  sheet HAS such a column. A sheet with no division column at all
+          //  says nothing about the division, and must not erase what an earlier
+          //  import recorded.
+          group_id: c.group_id ?? undefined,
+          division_label: c.division_label ?? (c.division_observed ? null : undefined),
+          // T285 slice G — a subject whose NAME is not known, from a planner grid
+          // that carries no name column because the identity comes from the
+          // SUBMISSION rather than the page. `undefined` when absent, so an
+          // ordinary named camper is never asserted as attributed-or-not and a
+          // later import that DOES name them does not have to clear a flag.
+          is_unattributed: c.is_unattributed ?? undefined,
         })
       }
 
@@ -316,7 +364,12 @@ export function commitElectiveRun(db, {
         }
         write(
           'elective_preferences',
-          deriveElectivePreferenceId(runId, p.camper_id, p.occurrence_id ?? null, choiceId),
+          // The COORDINATE joins the key (T279 round 2). Without it, a per-cell
+          // sheet imported before any template exists has occurrence_id NULL on
+          // every row, so two cells naming one activity derive ONE id and the
+          // second silently overwrites the first — the importer discarding a
+          // child's answer because it could not yet express it as a row.
+          deriveElectivePreferenceId(runId, p.camper_id, p.occurrence_id ?? null, choiceId, p.coordinate ?? null),
           {
             run_id: runId,
             camper_id: p.camper_id,
@@ -327,6 +380,20 @@ export function commitElectiveRun(db, {
             occurrence_id: p.occurrence_id ?? null,
             choice_id: choiceId,
             rank: p.rank,
+            // T279 (v79) / ADR section 4.2 — `rank` stays an integer; rank_kind
+            // says what COMPARING two of them means. A grid cell is CHOSEN
+            // ('cell-choice', rank 1 by construction), a "next 5 choices" list
+            // is a ranked FALLBACK subordinate to the cells
+            // ('ordered-fallback'), and a packed multi-value cell is an
+            // 'unordered-set' with no ranking at all — a tie among equals, never
+            // a ranking invented from cell order.
+            rank_kind: p.rank_kind ?? null,
+            // Stored as the file WROTE them, never canonicalized: the derived id
+            // canonicalizes for keying, but these columns are provenance and a
+            // director has to recognise their own sheet in them. NULL on a
+            // whole-run row, which legitimately has no cell.
+            coordinate_day_label: p.coordinate?.dayName ?? null,
+            coordinate_period_label: p.coordinate?.periodLabel ?? null,
           }
         )
       }

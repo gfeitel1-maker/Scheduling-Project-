@@ -54,7 +54,13 @@ describe('rollback bare-equality schema_migrations guard', () => {
     //
     // 35 was v75_down.js (T266): deletes with `WHERE version >= 75`, drops a
     // nullable column only ingest writes, so it loses a classification.
-    expect(files.length).toBe(38)
+    //
+    // 39 is v79_down.js (T279). Deletes with `WHERE version >= 79`, and drops
+    // two nullable columns: elective_preferences.rank_kind, re-derivable by
+    // re-importing, and campers.division_label, which is NOT — it is provenance
+    // no other row records, so that value is gone until the source file is
+    // imported again. The rollback says so rather than implying reversibility.
+    expect(files.length).toBe(39)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

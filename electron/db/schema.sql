@@ -1364,13 +1364,41 @@ CREATE TABLE IF NOT EXISTS event_slots (
 -- constraint, so a future column here is an ADR-level change, not a field
 -- addition. external_id is an opaque string from the camp's OWN roster system
 -- — it matches the *_id glob only by spelling and references no Shoresh entity.
+-- COLUMN ORDER: division_label is declared LAST (added v79), matching where
+-- `ALTER TABLE campers ADD COLUMN division_label` places it on a migrated
+-- pre-v79 db — SQLite always appends an ADD COLUMN. Same convention as
+-- elective_preferences.occurrence_id below. A fresh install and a
+-- migrated-forward db must produce the IDENTICAL column array, order included,
+-- or preferenceEtlV79.migration.test.js's cross-check fails.
+--
+-- is_unattributed (v79, T285 slice G) marks a subject whose NAME this app does
+-- not know. A camper's own planner grid has no name column because it does not
+-- need one -- the identity comes from the SUBMISSION, not the page -- so such a
+-- sheet is ONE subject rather than zero, and its cells are stored rather than
+-- dropped. The flag exists so that subject is findable LATER WITHOUT RE-IMPORT:
+-- the import's residue says so at the time, but residue is not persisted, and
+-- "land it, then resolve it" is only true if the thing to resolve can be found.
+-- NULL means an ordinary named camper; 1 means the display_name is provisional
+-- (taken from the filename) and a human or an agent should name them.
+--
+-- division_label (v79, ADR 2026-09-27 section 12.2a) is PROVENANCE: the
+-- division exactly as written on an imported source file, never an entity
+-- reference. `group_id` answers "which camp group is this child in";
+-- division_label answers "what did their file say". Both exist because
+-- collapsing them is how an UNRESOLVED label becomes invisible — and a group is
+-- NEVER created from an imported file (T224), so an unmatched label lands here
+-- and in the import's residue, nowhere else. D8 above is satisfied
+-- deliberately, on the record: this is the camp's own grouping label, which
+-- group_id already implies, and adds no new category of personal information.
 CREATE TABLE IF NOT EXISTS campers (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   display_name TEXT NOT NULL,
   group_id TEXT,
   external_id TEXT,
-  is_active INTEGER NOT NULL DEFAULT 1
+  is_active INTEGER NOT NULL DEFAULT 1,
+  division_label TEXT,
+  is_unattributed INTEGER
 );
 
 -- elective_assignment_runs (v66). One director-initiated assignment attempt.
@@ -1470,13 +1498,40 @@ CREATE TABLE IF NOT EXISTS elective_choice_offerings (
 -- declared last there too): fresh-install and migrated-forward schemas must
 -- produce the IDENTICAL column array, order included, or
 -- electivePreferencesOccurrence.migration.test.js's cross-check fails.
+-- rank_kind (v79, ADR 2026-09-27 section 4.2) is declared LAST for the same
+-- ALTER-appends reason as occurrence_id: one of 'cell-choice',
+-- 'ordered-fallback' or 'unordered-set'. `rank` stays an integer; rank_kind
+-- says what COMPARING two of them means, which one integer column cannot carry
+-- across the three observed sheet kinds — a grid cell is CHOSEN (rank 1 by
+-- construction), a "next 5 choices" list is a ranked FALLBACK subordinate to
+-- the cells, and a packed multi-value cell is an unordered SET with no ranking
+-- at all.
+-- coordinate_day_label / coordinate_period_label (v79, T279 round 2, owner
+-- ruling) declared LAST for the same ALTER-appends reason, in ALTER order after
+-- rank_kind.
+--
+-- THE COORDINATE AND THE OCCURRENCE ARE FACTS ABOUT DIFFERENT THINGS, and
+-- storing only the second is what made this table lossy. The COORDINATE
+-- ("Monday", "Period 3") is what the CHILD asked for, as written on their sheet,
+-- and it is true the moment the sheet is read. The OCCURRENCE is a cell of ONE
+-- particular candidate schedule, and neither candidate route is canonical, so it
+-- does not exist until a template does. A sheet imported in spring therefore has
+-- occurrence_id NULL on every row -- and before v79 that meant two cells naming
+-- one activity collapsed onto one row, discarding a child's answer because the
+-- app could not yet express it. Both are nullable and both are kept: the
+-- coordinate round-trips intact and the caller resolves it to an occurrence at
+-- solve time. deriveElectivePreferenceId's 'at' arm keys on the coordinate, so
+-- the two cells are two rows with no template in sight.
 CREATE TABLE IF NOT EXISTS elective_preferences (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
   camper_id TEXT,
   choice_id TEXT,
   rank INTEGER,
-  occurrence_id TEXT
+  occurrence_id TEXT,
+  rank_kind TEXT,
+  coordinate_day_label TEXT,
+  coordinate_period_label TEXT
 );
 
 -- idx_elective_preferences_run_camper_occurrence is NOT declared here,
