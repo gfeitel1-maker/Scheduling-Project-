@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { shouldThrottle, LOGIN_MIN_INTERVAL_MS, PAIRING_RATE_MS } from './rateLimit.js'
+import { shouldThrottle, LOGIN_MIN_INTERVAL_MS, PAIRING_RATE_MS, SourceRateLimiter } from './rateLimit.js'
 
 // T26. The two rate limits on the unauthenticated surface both reduce to one
 // question — "has enough time passed since the last one?" — and that question
@@ -43,5 +43,56 @@ describe('shouldThrottle', () => {
   it('carries the intervals the server actually uses', () => {
     expect(LOGIN_MIN_INTERVAL_MS).toBe(300)
     expect(PAIRING_RATE_MS).toBe(5000)
+  })
+})
+
+// T288 round 3: the per-SOURCE throttle in authGate.js used to be keyed on
+// shouldThrottle (min-interval), which meant two genuinely distinct
+// identities sharing one source address (the loopback integration harness;
+// in production, two devices behind the same NAT/CGNAT) throttled each other
+// on their SECOND attempt within the window. SourceRateLimiter replaces that
+// with a count within a rolling fixed window: many distinct identities from
+// one source are fine up to maxAttempts, and only a flood beyond that is
+// throttled — which is what actually bounds an identity-churn brute force,
+// since the count is independent of how many different identities produced it.
+describe('SourceRateLimiter', () => {
+  it('allows up to maxAttempts distinct attempts from one source within the window', () => {
+    const limiter = new SourceRateLimiter({ maxAttempts: 5, windowMs: 1000 })
+    for (let i = 0; i < 5; i++) {
+      expect(limiter.attempt('src-a', i * 10)).toBe(false)
+    }
+  })
+
+  it('throttles attempts beyond maxAttempts within the window', () => {
+    const limiter = new SourceRateLimiter({ maxAttempts: 3, windowMs: 1000 })
+    expect(limiter.attempt('src-a', 0)).toBe(false)
+    expect(limiter.attempt('src-a', 10)).toBe(false)
+    expect(limiter.attempt('src-a', 20)).toBe(false)
+    expect(limiter.attempt('src-a', 30)).toBe(true)
+    expect(limiter.attempt('src-a', 40)).toBe(true)
+  })
+
+  it('resets the count once the window has fully elapsed', () => {
+    const limiter = new SourceRateLimiter({ maxAttempts: 2, windowMs: 1000 })
+    limiter.attempt('src-a', 0)
+    limiter.attempt('src-a', 10)
+    expect(limiter.attempt('src-a', 20)).toBe(true)
+    expect(limiter.attempt('src-a', 1010)).toBe(false)
+  })
+
+  it('tracks distinct source keys independently — one source at its limit does not throttle another', () => {
+    const limiter = new SourceRateLimiter({ maxAttempts: 1, windowMs: 1000 })
+    expect(limiter.attempt('src-a', 0)).toBe(false)
+    expect(limiter.attempt('src-a', 10)).toBe(true)
+    expect(limiter.attempt('src-b', 10)).toBe(false)
+  })
+
+  it('evicts expired source entries so the map does not grow unbounded', () => {
+    const limiter = new SourceRateLimiter({ maxAttempts: 5, windowMs: 1000 })
+    for (let i = 0; i < 200; i++) limiter.attempt(`src-${i}`, 0)
+    expect(limiter.size()).toBe(200)
+    // Well past every prior entry's window — each access sweeps expired keys.
+    limiter.attempt('src-tick', 5000)
+    expect(limiter.size()).toBeLessThan(10)
   })
 })

@@ -36,7 +36,18 @@
 // by then.
 import { peerIdFromString } from '@libp2p/peer-id'
 import { AUTH_PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
-import { shouldThrottle, PAIRING_RATE_MS, LOGIN_MIN_INTERVAL_MS } from '../rateLimit.js'
+import { shouldThrottle, PAIRING_RATE_MS, LOGIN_MIN_INTERVAL_MS, SourceRateLimiter } from '../rateLimit.js'
+
+// T288 round 3: per-source caps for the two count-based limiters below. A real camp runs maybe
+// 2-20 devices, so a single source host legitimately produces at most a small handful of
+// pairing/login attempts in any one minute (initial setup bursts, a director retyping a PIN a few
+// times). An online grind of the 50-bit join secret needs millions of attempts to have any
+// realistic odds — these caps are generous by orders of magnitude relative to real use and still
+// bound a grind hard.
+const PAIRING_MAX_ATTEMPTS_PER_SOURCE = 30
+const PAIRING_SOURCE_WINDOW_MS = 60_000
+const LOGIN_MAX_ATTEMPTS_PER_SOURCE = 60
+const LOGIN_SOURCE_WINDOW_MS = 60_000
 
 // HIGH finding, Stage 5d-2b re-review: syncServer.js's WS handling of
 // pairing_request/login is rate-limited (shouldThrottle/PAIRING_RATE_MS/
@@ -164,10 +175,14 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
   // time deterministically, exactly like syncServer.js's own `now` option.
   const lastPairingRequestAtByPeer = new Map()
   const lastPairingRequestAtByDevice = new Map()
-  const lastPairingRequestAtBySource = new Map()
   const lastLoginAttemptAtByPeer = new Map()
   const lastLoginAttemptAtByDevice = new Map()
-  const lastLoginAttemptAtBySource = new Map()
+  // Count-based, not min-interval (T288 round 3): see rateLimit.js's SourceRateLimiter doc
+  // comment for why a per-source THROTTLE was wrong — it throttled distinct co-located identities
+  // against each other, which is exactly what the loopback integration harness (and a real
+  // NAT/CGNAT) hits.
+  const pairingRequestsBySource = new SourceRateLimiter({ maxAttempts: PAIRING_MAX_ATTEMPTS_PER_SOURCE, windowMs: PAIRING_SOURCE_WINDOW_MS })
+  const loginAttemptsBySource = new SourceRateLimiter({ maxAttempts: LOGIN_MAX_ATTEMPTS_PER_SOURCE, windowMs: LOGIN_SOURCE_WINDOW_MS })
 
   node.addEventListener('peer:disconnect', (evt) => {
     authenticatedPeers.delete(evt.detail.toString())
@@ -244,14 +259,13 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
           shouldThrottle(lastPairingRequestAtByPeer.get(fromPeerId), at, PAIRING_RATE_MS) ||
           (typeof msg.device_id === 'string' &&
             shouldThrottle(lastPairingRequestAtByDevice.get(msg.device_id), at, PAIRING_RATE_MS)) ||
-          shouldThrottle(lastPairingRequestAtBySource.get(sourceKey), at, PAIRING_RATE_MS)
+          pairingRequestsBySource.attempt(sourceKey, at)
         if (throttled) {
           stream.abort(new Error('rate_limited'))
           return
         }
         lastPairingRequestAtByPeer.set(fromPeerId, at)
         if (typeof msg.device_id === 'string') lastPairingRequestAtByDevice.set(msg.device_id, at)
-        lastPairingRequestAtBySource.set(sourceKey, at)
 
         if (pendingPairingPeers.size >= MAX_PENDING_PAIRING) {
           stream.abort(new Error('pending_pairing_full'))
@@ -297,14 +311,13 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
           shouldThrottle(lastLoginAttemptAtByPeer.get(fromPeerId), at, LOGIN_MIN_INTERVAL_MS) ||
           (typeof msg.device_id === 'string' &&
             shouldThrottle(lastLoginAttemptAtByDevice.get(msg.device_id), at, LOGIN_MIN_INTERVAL_MS)) ||
-          shouldThrottle(lastLoginAttemptAtBySource.get(sourceKey), at, LOGIN_MIN_INTERVAL_MS)
+          loginAttemptsBySource.attempt(sourceKey, at)
         if (throttled) {
           stream.abort(new Error('rate_limited'))
           return
         }
         lastLoginAttemptAtByPeer.set(fromPeerId, at)
         if (typeof msg.device_id === 'string') lastLoginAttemptAtByDevice.set(msg.device_id, at)
-        lastLoginAttemptAtBySource.set(sourceKey, at)
 
         let result
         try {

@@ -44,3 +44,51 @@ export function shouldThrottle(lastAt, now, minIntervalMs) {
   if (elapsed < 0) return false
   return elapsed < minIntervalMs
 }
+
+// T288 round 3: a per-SOURCE-HOST counter, replacing the min-interval throttle that used to be
+// keyed on rateLimitKeyFor's source key (authGate.js). A min-interval on source throttles two
+// genuinely distinct identities (different peer id, different device_id) that merely share a
+// network source — real for two devices behind one NAT/CGNAT, and exactly what the loopback
+// integration harness hits (every scenario's peers share 127.0.0.1). A fixed-window COUNT is the
+// right shape instead: allow up to `maxAttempts` pairing/login attempts per source within
+// `windowMs`, and only throttle beyond that. The count is what actually bounds an identity-churn
+// flood (fromPeerId/device_id are free to mint; the source host is not), independent of how many
+// distinct identities produced the attempts.
+//
+// Fixed window, not sliding: simpler, and the boundary imprecision (a burst can land up to 2x
+// maxAttempts across a window edge) is an acceptable tradeoff for a counter whose job is bounding
+// a grind of millions of attempts, not policing exact fairness at the edge.
+export class SourceRateLimiter {
+  constructor({ maxAttempts, windowMs }) {
+    this.maxAttempts = maxAttempts
+    this.windowMs = windowMs
+    this.windows = new Map() // sourceKey -> { windowStart, count }
+  }
+
+  // Returns true if this attempt should be throttled. Always records the attempt (even when
+  // throttled) so a sustained flood keeps reporting throttled rather than oscillating.
+  attempt(sourceKey, now) {
+    this._evictExpired(now)
+
+    const entry = this.windows.get(sourceKey)
+    if (!entry || now - entry.windowStart >= this.windowMs) {
+      this.windows.set(sourceKey, { windowStart: now, count: 1 })
+      return false
+    }
+
+    entry.count += 1
+    return entry.count > this.maxAttempts
+  }
+
+  // Bounds map growth (Red Hat LOW, round 1): a churning source-key attacker cannot grow this map
+  // without bound, because every access sweeps out windows that have fully expired.
+  _evictExpired(now) {
+    for (const [key, entry] of this.windows) {
+      if (now - entry.windowStart >= this.windowMs) this.windows.delete(key)
+    }
+  }
+
+  size() {
+    return this.windows.size
+  }
+}
