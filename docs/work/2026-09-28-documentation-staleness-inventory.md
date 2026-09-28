@@ -109,7 +109,7 @@ Seven auditors swept the ENTIRE live doc corpus — every tracked `*.md` outside
 | `docs/governance/standards/DESIGN_STANDARD.md:210` | `ANCHOR_COLOR='#A63595'` listed pending; already `var(--anchor)` | LANDED PR-C |
 | `docs/governance/standards/WORK_RECORD_STANDARD.md:362` | says `check:governance` runs after lint/test; actually 2nd (cheapest-first) | LANDED PR-C |
 | `docs/governance/references/{tester-standing-brief,regression-script,director-persona}.md` | "purple" anchor cells → slate (`--anchor`); "edit modal" → inline click-to-write editor | LANDED PR-C |
-| **`docs/governance/standards/DESIGN_STANDARD.md:78-81,313-316` §3/§9** | doc asserts a 6-distinct-hue `ACTIVITY_COLORS` palette "live" + a hue-identity rationale; code (`src/components/schedule/slotCellConstants.js:62`) ships an all-navy monochrome lightness ladder | **OWNER DECISION** — three-way (standard rationale vs code vs the standard's own delegation clause :121-125); refresh §3/§9 to the shipped ladder, or treat code as unauthorized drift |
+| **`docs/governance/standards/DESIGN_STANDARD.md` §3/§9 (+ §1/§4)** | doc asserted a 6-distinct-hue `ACTIVITY_COLORS` palette "live" + a hue-identity rationale; code (`src/components/schedule/slotCellConstants.js:62`) ships an all-navy monochrome lightness ladder assigned by frequency rung | **RESOLVED — LANDED #596.** Owner ruled 2026-09-28 the shipped frequency-ladder is CORRECT; standard refreshed to match (no code change), §3 rewritten, §1/§4/§9 corrected, retired six-hue framing kept as `_Prior:`. Maker-drafted, Code-Reviewer + Designer verified |
 
 ## Agent layer (PR-D) — edit bindings, regenerate profiles
 
@@ -130,7 +130,7 @@ Seven auditors swept the ENTIRE live doc corpus — every tracked `*.md` outside
 | `docs/adr/2026-09-08-crdt-conflict-reconciliation.md` | in_progress → implemented (`reconcile.js` wired) | LANDED PR-E |
 | `docs/adr/2026-09-19-per-camp-genesis-identity.md` | not_started → implemented (`campDocument.js:325` genesisDoc) | LANDED PR-E |
 | `docs/adr/2026-09-26-schema-version-gate-before-merge.md` | not_started → in-progress/partial (handshake gate `syncNode.js:35` present; doc-embedded half pending) | LANDED PR-E |
-| `docs/adr/2026-09-17-wan-rendezvous-seam.md` | status proposed, but the 2026-09-27 ladder treats it as accepted | **DEFERRED — owner confirmation** (NOT reconciled; low-confidence status flip on a historical ADR — is the whole seam decision accepted, or only the ladder's D3? left as-is) |
+| `docs/adr/2026-09-17-wan-rendezvous-seam.md` | status proposed, but the 2026-09-27 ladder treats it as accepted | **OWNER-DEFERRED (2026-09-28 ruling: leave as-is, no change).** The owner chose not to flip the status now. Not open — closed by decision. |
 | `scripts/consolidation/README.md:10-38` | "launchd still runs the OLD copy" — false; T171 completed 2026-09-15, in-repo scripts are live, out-of-repo copies gone | LANDED PR-E |
 
 ## NOTED — corpus-consistency, deferred to the safeguards phase (not stale-vs-reality)
