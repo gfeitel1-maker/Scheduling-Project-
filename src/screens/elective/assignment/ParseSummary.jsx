@@ -52,6 +52,24 @@ export default function ParseSummary({ parsed, contradictoryRanks = false, onSol
   const choices = parsed?.choices?.length ?? 0
   const preferences = parsed?.preferences?.length ?? 0
   const skippedRows = parsed?.skippedRows ?? []
+  // THE LOUD HALF (ADR section 3.4), which had never been rendered anywhere in the
+  // product. The whole design rests on the director being told what we could not
+  // resolve; until this, they were told nothing — every residue item the ETL
+  // produced was computed and then dropped on the floor by the UI.
+  //
+  // Deliberately in the SAME disclosure idiom as `skippedRows` above rather than a
+  // banner: banners are the "SaaS nonsense" the standing rule rejects, and state
+  // that needs surfacing belongs in the vocabulary a director already reads. Grouped
+  // by kind because one unresolved label per row would otherwise bury the one
+  // sentence that matters — a 100-camper sheet naming one missing activity is ONE
+  // finding, not a hundred.
+  const residue = parsed?.residue ?? []
+  const residueByKind = []
+  for (const item of residue) {
+    const existing = residueByKind.find((g) => g.kind === item.kind)
+    if (existing) existing.items.push(item)
+    else residueByKind.push({ kind: item.kind, items: [item] })
+  }
 
   return (
     <div style={enter}>
@@ -68,6 +86,31 @@ export default function ParseSummary({ parsed, contradictoryRanks = false, onSol
               <li key={i}>Row {r.rowNumber} — {r.reason}</li>
             ))}
           </ul>
+        </details>
+      )}
+      {residueByKind.length > 0 && (
+        <details style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 12 }}>
+          <summary>
+            {residue.length} thing(s) this import could not resolve
+          </summary>
+          <div style={{ marginTop: 6 }}>
+            {residueByKind.map((group) => (
+              <div key={group.kind} style={{ marginBottom: 8 }}>
+                {/* The first item's sentence carries the explanation; the rest are
+                    listed as the specific cases it covers, so the reader gets one
+                    statement plus its instances rather than the same paragraph N
+                    times. */}
+                <div style={{ marginBottom: 2 }}>{group.items[0].message}</div>
+                {group.items.length > 1 && (
+                  <ul style={{ margin: '2px 0 0', paddingLeft: 20 }}>
+                    {group.items.slice(1).map((item, i) => (
+                      <li key={i}>{item.message}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
         </details>
       )}
       <button className="press-97" onClick={onSolve} style={S.btnPrimary}>Solve Assignments</button>

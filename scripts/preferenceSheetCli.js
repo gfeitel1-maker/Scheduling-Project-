@@ -31,6 +31,7 @@ import { openLocalDb } from '../electron/db/localDb.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from '../electron/ops/commitElectiveRun.js'
 import { deriveImportedElectiveRunId } from '../electron/ops/electiveDerivedIds.js'
 import { detectGridLayout, inferPreferenceLayout, parsePreferenceSheet } from '../src/ingest/preferenceSheet.js'
+import { submissionKeyFromRows } from '../src/ingest/preferenceImport.js'
 import { readWorkbookSafely, unescapeRow } from '../src/utils/exportSanitize.js'
 
 function baseResult({ file, dbPath, action }) {
@@ -290,7 +291,13 @@ export function runPreferenceSheetCli({
     // preferences are stored with their coordinates and a human or an agent names
     // the child later, without re-importing. Landing the data unattributed is
     // strictly better than dropping it.
-    const resolveSubject = () => {
+    // TAKES ITS ROWS EXPLICITLY rather than closing over `rows`, which is declared
+    // LATER in this function (`const rows = sheet.rows`, after the chosen-sheet
+    // branch). Closing over it threw `ReferenceError: Cannot access 'rows' before
+    // initialization` from the whole-sheet-grid branch, which runs BEFORE that
+    // declaration — caught by the corpus (P19 and P22 moved to THREW), not by any
+    // unit test, because only the grid branch reaches it early.
+    const resolveSubject = (subjectRows) => {
       // 1. THE CALLER KNOWS. The portal, the import screen's selection, or an agent
       //    driving the CLI/MCP. Attributed outright.
       if (camperName) return { displayName: camperName, source: 'caller', attributed: true }
@@ -320,7 +327,11 @@ export function runPreferenceSheetCli({
         // `sub-` prefixed so a row read in a SQLite shell is obviously not a camp
         // roster id, and truncated because 32 hex characters already make collision
         // a non-issue while keeping the id legible for diagnosis.
-        externalId: `sub-${submissionSha256.slice(0, 32)}`,
+        // ONE RULE, shared with the import screen (src/ingest/preferenceImport.js).
+        // A SHA-256 of the file bytes here and a WebCrypto digest there would be TWO
+        // rules, and two rules fork one child into two subjects depending on which
+        // door their sheet came through.
+        externalId: submissionKeyFromRows(subjectRows),
         source: stem ? 'filename' : 'none',
         attributed: false,
       }
@@ -359,7 +370,7 @@ export function runPreferenceSheetCli({
           mapping: { unmapped: [], unrecognisedColumns: [], rankColumns: [], headerIndex: 0 },
           catalog,
           grid: { layout, rows: gridSheet.sheet.rows.slice(1), headerIndex: 0 },
-          subject: resolveSubject(),
+          subject: resolveSubject(gridSheet.sheet.rows),
         })
         const unreadOther = sheets
           .filter((sh) => sh.name !== gridSheet.sheet.name)
@@ -444,7 +455,7 @@ export function runPreferenceSheetCli({
       //
       // The `pageName` branch this used to have was DEAD CODE — both call sites
       // passed null — so it is deleted rather than left looking like a feature.
-      subject: preambleGrid ? resolveSubject() : undefined,
+      subject: preambleGrid ? resolveSubject(rows) : undefined,
     })
 
     return finishRun({ parsed, mapping, extraResidue: unreadSheets })
