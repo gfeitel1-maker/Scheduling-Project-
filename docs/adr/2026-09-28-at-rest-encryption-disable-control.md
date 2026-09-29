@@ -19,7 +19,6 @@ affects:
   - electron/db/docCipher.js
   - electron/db/atRestEncryption.js
   - electron/preload.js
-  - src/screens (a new settings/security surface)
   - SECURITY.md
 ---
 
