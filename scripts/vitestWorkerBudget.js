@@ -1,4 +1,4 @@
-// T311 — bound total vitest parallelism across concurrent sessions.
+// T308 — bound total vitest parallelism across concurrent sessions.
 //
 // THE UNBOUNDED PRODUCT. `gateLock.js` serialises full gates, but it has exactly one caller
 // (`verify.js`). `npm run test` is a bare `vitest run` and an ad-hoc `npx vitest run <file>` takes no

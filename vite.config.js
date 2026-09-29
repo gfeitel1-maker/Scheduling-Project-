@@ -111,7 +111,7 @@ const sharedTest = {
     setupFiles: ['./vitest.setup.js'],
 }
 
-// T311 — BOUND TOTAL VITEST PARALLELISM ACROSS CONCURRENT SESSIONS.
+// T308 — BOUND TOTAL VITEST PARALLELISM ACROSS CONCURRENT SESSIONS.
 //
 // gateLock.js serialises full gates but has one caller, so `npm run test` and an ad-hoc
 // `npx vitest run <file>` take no lock: nothing bounded sessions x workers. Measured on this 4-core
@@ -146,7 +146,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     ...sharedTest,
-    // T311 — the fair share computed above, or vitest's own default when this run is alone.
+    // T308 — the fair share computed above, or vitest's own default when this run is alone.
     // Spread conditionally so the uncontended case sets NOTHING: CI and a solo developer must be
     // bit-for-bit unaffected by a mechanism that exists only for contention.
     ...(workerLease.budget === null ? {} : { maxWorkers: workerLease.budget, minWorkers: 1 }),
