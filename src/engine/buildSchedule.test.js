@@ -167,6 +167,11 @@ describe('week-bound anchors (schedule_week_id, Slice 2)', () => {
   // therefore in the export) by array order — last one written to
   // anchorLookup won, not "the one that actually applies to this week". The
   // week-scoped anchor is an override and must win regardless of input order.
+  // Load-bearing against last-write-wins (fail on main / a naive revert):
+  // "...BEFORE the all-weeks anchor..." and the head+tail span test below.
+  // Regression pins (already passed on main by luck of array order, kept so a
+  // future change can't flip them back): "...AFTER the all-weeks anchor..."
+  // and "...does not target".
   describe('week-scoped override beats an all-weeks anchor at the same cell (board 2026-09-29)', () => {
     const shabbatLunch = { id: 'shabbat-lunch', name: 'Shabbat Lunch', priority: 'high', max_per_week: 10, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     const allWeeks = { id: 'anc-all', activity_id: 'lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: null }
@@ -198,7 +203,7 @@ describe('week-bound anchors (schedule_week_id, Slice 2)', () => {
       const { slots } = buildSchedule(minimal({
         timeBlocks: [baseBlock, block2],
         activities: [lunch, shabbatLunch],
-        anchors: [allWeeksHead, allWeeksTail, spanningOverride],
+        anchors: [spanningOverride, allWeeksHead, allWeeksTail],
         weekId: 'week-A',
       }))
       const b1 = slots.filter(s => s.type === 'anchor' && s.blockId === 'b1')
