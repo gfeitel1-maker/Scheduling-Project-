@@ -1,7 +1,7 @@
 ---
 title: T219-multi-day-catalog-linkage
 document_type: ticket
-status: open
+status: parked
 created: 2026-09-18
 archive_when: multi-day/double-period offering linkage is modeled or explicitly rejected
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
@@ -118,3 +118,10 @@ in an *elective offering grid* into a span.
 **Reshaped exit condition.** An elective offering grid containing a multi-period offering imports
 as a span that renders across both time blocks, confirmed by the director at import, with the
 marker detection not tied to any single camp's notation.
+
+## Deferred indefinitely (2026-09-29)
+
+The owner's ruling, verbatim: "defer the sample sheet". Status is `parked`, not closed: the
+reshaped scope and exit condition above stand unchanged and nothing downstream reads
+`linkageMarkers` today, so deferring costs nothing; the ticket resumes only when the owner chooses
+to.

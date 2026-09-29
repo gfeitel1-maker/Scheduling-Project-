@@ -1,7 +1,7 @@
 ---
 title: T218-elective-export-third-party-adapter
 document_type: ticket
-status: closed
+status: wont-fix
 created: 2026-09-18
 archive_when: a third-party export adapter for elective offerings/preferences is designed or explicitly rejected
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
@@ -61,7 +61,8 @@ still where that gets learned. It is no longer a prerequisite for building.
 
 ## Closed (2026-09-26)
 
-Closed by owner ruling, not by completion. Status is `closed`, not `completed` — the
+Closed by owner ruling, not by completion. Status is `wont-fix` (set 2026-09-29; it was `closed`
+from 2026-09-26), not `completed` — the
 `archive_when` above ("a third-party export adapter ... is designed or explicitly rejected") is
 discharged by the **explicit rejection** half, not by a design being delivered. Nothing was built.
 
@@ -72,6 +73,8 @@ The owner's words:
 and, on source data shapes generally:
 
 > "it shouldn't matter. we keep going over this. we are reading someone's data. we are not choosing ho they import it. i don't know why we keep going round and round about this"
+
+**Owner ruling, 2026-09-29 (wont-fix):** "there isn't a need to name products outside of this one."
 
 **What that decides.** This ticket's premise was a per-third-party adapter — identify the product,
 learn its documented export contract, write a boundary that speaks it. The owner rejects
