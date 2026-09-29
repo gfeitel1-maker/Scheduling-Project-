@@ -59,7 +59,7 @@ Regenerate with `npm run index:work`.
 | [Slice A — attack-hardened join secret (ephemeral, scrypt-KDF, rate-limited, both-sides)](../../docs/work/tickets/T286-join-secret-hardening.md) | in-progress | — |
 | [Slice B — v2 encrypted rendezvous record (camp-shared key, AES-256-GCM address body)](../../docs/work/tickets/T287-v2-encrypted-record.md) | in-progress | — |
 | [Slice C — rendezvous client built fresh to the v2 encrypted-record shape](../../docs/work/tickets/T288-rendezvous-client-v2.md) | in-progress | [T287-v2-encrypted-record](../../docs/work/tickets/T287-v2-encrypted-record.md) · [T290-dcutr-holepunch](../../docs/work/tickets/T290-dcutr-holepunch.md) |
-| [A staff session can see what the import left unnamed, and an unread collection says so](../../docs/work/tickets/T304-a-staff-session-can-see-what-the-import-left-unnamed.md) | open | — |
+| [A staff session can see what the import left unnamed, and an unread collection says so](../../docs/work/tickets/T304-a-staff-session-can-see-what-the-import-left-unnamed.md) | open | [T308-a-load-artifact-in-an-ad-hoc-test-run-looks-exactly-like-a-defect](../../docs/work/tickets/T308-a-load-artifact-in-an-ad-hoc-test-run-looks-exactly-like-a-defect.md) |
 | [A camp can name an unnamed submission from inside the app](../../docs/work/tickets/T306-the-director-can-name-an-unnamed-submission.md) | open | — |
 
 ### test-infrastructure
@@ -71,6 +71,7 @@ Regenerate with `npm run index:work`.
 | [Stage 4 — a synthetic shape-parameterised import corpus and the two acceptance numbers](../../docs/work/tickets/T282-preference-import-corpus-and-acceptance-metrics.md) | open | — |
 | [A main-side gate that flags a merged ticket whose status never flipped](../../docs/work/tickets/T283-board-truth-audit-gate.md) | open | — |
 | [Nothing stops the next elective finding from printing a label key](../../docs/work/tickets/T302-nothing-stops-the-next-finding-printing-a-label-key.md) | open | — |
+| [A load artifact in an ad-hoc test run looks exactly like a defect](../../docs/work/tickets/T308-a-load-artifact-in-an-ad-hoc-test-run-looks-exactly-like-a-defect.md) | open | — |
 
 ### ui-ux-design
 
