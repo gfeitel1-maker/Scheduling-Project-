@@ -476,12 +476,25 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // list so admin: ['*'] is what grants it.
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     // HOST ONLY, both modes (T61). commitIngest appends every op straight to
-    // THIS device's SQLite; it never routes through syncClient.write, so an
-    // import run on a Client is invisible to the Host and every peer — under
-    // Replace that silently forks the whole camp while showing a success
-    // banner. Same gate as deleteRecordHandler and restoreEntityHandler, and
-    // for the same reason (electron/ops/deleteRecord.js): a Client cannot
-    // express a multi-op atomic transaction over submit_op. Refused outright
+    // THIS device's SQLite rather than routing through syncClient.write (the
+    // localWriteClient instance — the variable name predates Stage 6c and no
+    // longer refers to a WebSocket client).
+    //
+    // ⚠️ _Prior, and the stated RATIONALE is now doubtful rather than merely
+    // re-worded: the gate was justified because "an import run on a Client is
+    // invisible to the Host and every peer — under Replace that silently forks
+    // the whole camp while showing a success banner", and because "a Client
+    // cannot express a multi-op atomic transaction over submit_op". submit_op was
+    // deleted at the Stage 6c cutover. More importantly, the invisibility premise
+    // no longer holds: appendOp mirrors each write into the Automerge document,
+    // so an import committed on a join-mode device WOULD now replicate. The gate
+    // does still have an independent live justification — ingest reads and writes
+    // host-local tables that are deliberately never replicated (source_aliases,
+    // compound_cell_decisions, location_word_decisions, declined_two_row_splits)
+    // — but that is not the reason recorded here. Restating the gate's rationale,
+    // or deciding whether it should still be host-only at all, is a product
+    // judgement and NOT something a comment sweep should settle; T311 records it._
+    // Refused outright
     // rather than routed to the Host — a Client→Host requestReplace is a
     // separate decision, not something to invent here.
     if (mode === 'client') {
@@ -653,11 +666,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
   // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) — reverts the
   // field-update half of an import the director just committed. Same
-  // authority as ingestCommit (an undo is itself a set of writes to the
-  // camp's setup) and the SAME Host-only gate for the SAME reason: it writes
-  // straight to this device's SQLite via appendOp, never through
-  // syncClient.write, so on a Client it would be invisible to the Host and
-  // every peer.
+  // authority as ingestCommit (an undo is itself a set of writes to the camp's
+  // setup) and the SAME Host-only gate for the SAME reason: it writes straight to
+  // this device's SQLite via appendOp, never through syncClient.write. _Prior:
+  // "so on a Client it would be invisible to the Host and every peer" — see the
+  // ⚠️ note on ingestCommit above; that premise no longer holds under the CRDT
+  // path, and the gate's live justification is the host-local tables instead._
   function ingestUndoHandler({ token, invertibleOps, createdEntityIds, client_write_id } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
@@ -1151,8 +1165,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'devices.read' })
     // T85 Risk 3a (docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md):
-    // the op-log FK stub-seed (handleAuthenticate's self-registration path
-    // plus the op-apply FK backfill) creates real `devices` rows with
+    // the FK stub-seed (the self-registration path now in connectionAuth.js's
+    // evaluateAuthenticate — _prior: "handleAuthenticate's", in the syncServer.js
+    // deleted at Stage 6c — plus the op-apply FK backfill) creates real `devices` rows with
     // pairing_status='unknown' for every peer a device merely HEARS an op
     // from — never a device that actually paired with this one. These rows
     // are inert (never authorized, already excluded from
@@ -1612,10 +1627,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
     const result = restoreEntity(db, { entity, entity_id, author_user_id: userId, device_id: deviceId })
     if (result.error) return result
-    // The ops are not broadcast here, matching every other Host-local write:
-    // in host mode syncClient has no serverUrl, so an ordinary write() also
-    // reaches peers via sendMissedOps on their next authenticate rather than
-    // a live push. Restore must not invent a second convention.
+    // The ops are not announced here, matching every other local write.
+    // _Prior: the reason given was that "in host mode syncClient has no
+    // serverUrl, so an ordinary write() also reaches peers via sendMissedOps on
+    // their next authenticate rather than a live push." That mechanism is gone —
+    // sendMissedOps lived in syncServer.js, deleted at the Stage 6c cutover — and
+    // so is the premise. Peer replication is no longer tied to this decision at
+    // all: appendOp mirrors every local write into the Automerge document
+    // (liveDoc.recordLocalWrite), which reaches connected peers on its own. What
+    // is NOT announced here is the renderer-facing op notification._
     return { ok: true, restored_fields: result.restored_fields, deleted_children: result.deleted_children }
   }
 
@@ -1656,8 +1676,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       device_id: deviceId,
     })
     if (result.error) return result
-    // Ops are not broadcast here, matching every other Host-local write — peers
-    // pick them up via sendMissedOps on their next authenticate.
+    // Ops are not announced here, matching every other local write. _Prior:
+    // "peers pick them up via sendMissedOps on their next authenticate" —
+    // sendMissedOps was deleted with syncServer.js at the Stage 6c cutover; peers
+    // now receive these writes through the Automerge document. See
+    // restoreEntityHandler above for the full note._
     const { ops, ...reportable } = result
     return { ...reportable, ops_written: ops.length }
   }
@@ -1677,10 +1700,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     const { userId } = requireAuthorized(db, { token, action: 'locations.delete' })
     if (!isNonEmptyString(loser_id)) throw new Error('loser_id is required')
     if (!isNonEmptyString(winner_id)) throw new Error('winner_id is required')
-    // Same shape the WS path's validateMergeLocationRequestMsg enforces
-    // (syncServer.js) — the IPC caller is the trusted renderer, so this is
-    // not a security boundary, but the two entry points must not be able to
-    // drift on what they accept.
+    // Shape validation for the renderer's arguments. The IPC caller is the
+    // trusted renderer, so this is not a security boundary. _Prior: this was
+    // "same shape the WS path's validateMergeLocationRequestMsg enforces
+    // (syncServer.js) ... the two entry points must not be able to drift on what
+    // they accept." There is no WS path and no second entry point — syncServer.js
+    // was deleted at the Stage 6c cutover — so there is nothing left to drift
+    // against; the check is kept on its own merits._
     if (winner_capacity !== undefined && winner_capacity !== null && !Number.isInteger(winner_capacity)) {
       throw new Error('Invalid winner_capacity')
     }
@@ -1697,8 +1723,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       device_id: deviceId,
     })
     if (result.error) return result
-    // Ops are not broadcast here, matching deleteRecordHandler — peers pick
-    // them up via sendMissedOps on their next authenticate.
+    // Ops are not announced here, matching deleteRecordHandler. _Prior: "peers
+    // pick them up via sendMissedOps on their next authenticate" — see
+    // restoreEntityHandler above; that mechanism was deleted at Stage 6c._
     const { ops, ...reportable } = result
     return { ...reportable, ops_written: ops.length }
   }

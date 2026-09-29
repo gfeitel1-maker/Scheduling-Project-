@@ -1,17 +1,25 @@
-// Stage 5d-1 (docs/adr/2026-09-06-libp2p-membership-mapping.md §2/§3): the
-// transport-independent admission decision extracted out of syncServer.js's
-// `handleAuthenticate`, so a second transport (libp2p's auth-over-libp2p
-// handshake, electron/sync/automerge/authGate.js) can reuse the EXACT same
-// verify/reject-local/trust-check logic instead of forking it. Two copies of
-// this decision is the drift class the whole libp2p membership design exists
-// to avoid (see the ADR's §2 "why this matters for cannot drift").
+// The transport-independent admission decision: "should this peer be admitted at
+// all", with no transport lifecycle mixed in. Its live consumer is the libp2p
+// auth-over-libp2p handshake (electron/sync/automerge/authGate.js, called from
+// syncNode.js).
 //
-// Deliberately does NOT include handleAuthenticate's WS-only tail
-// (isReauthenticate bookkeeping, sendFullSyncIfFirstPairing/sendMissedOps
-// catchup) — those are long-lived-WS-connection lifecycle concerns, not part
-// of "should this peer be admitted at all," and libp2p's doc-sync catchup is
-// a separate, already-built mechanism (Stage 5c) that doesn't need re-firing
-// here.
+// _Prior (Stage 5d-1, docs/adr/2026-09-06-libp2p-membership-mapping.md §2/§3):
+// this was "extracted out of syncServer.js's `handleAuthenticate`, so a SECOND
+// transport ... can reuse the EXACT same verify/reject-local/trust-check logic
+// instead of forking it. Two copies of this decision is the drift class the whole
+// libp2p membership design exists to avoid." It also recorded what it left
+// behind: "handleAuthenticate's WS-only tail (isReauthenticate bookkeeping,
+// sendFullSyncIfFirstPairing/sendMissedOps catchup) — those are
+// long-lived-WS-connection lifecycle concerns."
+//
+// syncServer.js was deleted at the Stage 6c cutover, so the FIRST of those two
+// transports is gone and there is now exactly one caller. Read the "cannot drift"
+// rationale as history, not as a live constraint: there is no WS implementation
+// left to keep this in parity with, and none of the WS-only tail named above
+// exists anywhere. The extraction is kept because the separation it created is
+// still the right shape — admission is decided here, connection lifecycle lives
+// in the transport — and because authGate.js and its tests are written against
+// this boundary._
 import { timingSafeEqual } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { verifySessionToken, attemptLogin } from './localAuth.js'
@@ -26,12 +34,16 @@ function isNonEmptyString(v) {
 // Returns:
 //   { ok: true, verified }   — verified is verifySessionToken's own return shape
 //   { ok: false, code, reason }
-// `code` mirrors syncServer.js's existing WS close-code convention exactly
+// `code` values follow the close-code convention this module defines
 // (4401 invalid/tampered/expired token or device_id mismatch, 4402 a
 // structurally-valid `local` token rejected outright, 4403 device not
 // authorized, 4404 device revoked, 4405 peer_identity_mismatch — T162,
 // docs/adr/2026-09-14-device-identity-and-token-binding.md §3) so a caller on
-// any transport can report failures identically.
+// any transport can report failures identically. _Prior: these were described as
+// mirroring "syncServer.js's existing WS close-code convention"; that file is
+// deleted, so this module is now the origin of the convention rather than a copy
+// of it. electron/authRejectedSender.js is the other half that must agree — see
+// its own comment._
 //
 // `peerId` (T162, optional): the libp2p peer id that presented this token,
 // established by libp2p's own Noise handshake before this function is ever
@@ -50,9 +62,11 @@ export function evaluateAuthenticate(db, { token, device_id, peerId }) {
   // A 'local' token is this-device-only by design (HMAC'd with a device's
   // own device_secret_identifier — see localAuth.js's issueLocalToken /
   // verifySessionToken) and must never be accepted as proof of network
-  // trust, per docs/adr/2026-07-25-device-trust-revocation.md §3. This check
-  // is byte-for-byte the same as syncServer.js's WS rejection — there is no
-  // product reason to relax it for a different transport.
+  // trust, per docs/adr/2026-07-25-device-trust-revocation.md §3. _Prior: "this
+  // check is byte-for-byte the same as syncServer.js's WS rejection — there is no
+  // product reason to relax it for a different transport." The WS rejection it was
+  // matched against is deleted; the rule itself is unchanged and is now enforced
+  // only here._
   //
   // 'device' (Finding 2 fix, Stage 5d-2b re-review) IS accepted here: it is
   // the Host's own connection-admission-only token (issueDeviceToken,
@@ -107,16 +121,20 @@ export function evaluateAuthenticate(db, { token, device_id, peerId }) {
   return { ok: true, verified }
 }
 
-// Stage 5d-2b: the transport-independent DECISION half of syncServer.js's
-// `pairing_request` block — extracted so libp2p's auth-over-libp2p handler
-// (authGate.js) reuses it instead of forking it, the same reason
-// evaluateAuthenticate exists. Deliberately excludes the WS-only bookkeeping
-// that stays in syncServer.js/authGate.js: per-device rate limiting and the
-// MAX_PENDING_PAIRING cap operate on a transport's own live-connection map
-// (ws Map keyed by device_id vs. libp2p's PeerId-keyed map) and protect that
-// transport's own connection-handle exhaustion, not the admission decision
-// itself — there is nothing to drift between transports there because the
-// resource each protects is transport-specific.
+// The transport-independent DECISION half of pairing-request handling, called by
+// authGate.js. Deliberately excludes the bookkeeping that stays in authGate.js:
+// per-device rate limiting and the MAX_PENDING_PAIRING cap operate on the
+// transport's own live-connection map (libp2p's PeerId-keyed map) and protect
+// that transport's own connection-handle exhaustion, not the admission decision
+// itself.
+//
+// _Prior (Stage 5d-2b): described as "the transport-independent DECISION half of
+// syncServer.js's `pairing_request` block — extracted so libp2p's
+// auth-over-libp2p handler (authGate.js) reuses it instead of forking it", with
+// the excluded bookkeeping said to stay "in syncServer.js/authGate.js" and the
+// two maps contrasted as "ws Map keyed by device_id vs. libp2p's PeerId-keyed
+// map". syncServer.js is deleted, so only the libp2p side of each of those pairs
+// remains. See evaluateAuthenticate above for why the extraction is kept anyway._
 //
 // Returns:
 //   { ok: false, reason: 'invalid_request' }                                  — malformed input
@@ -150,14 +168,18 @@ export function evaluatePairingRequest(db, { device_id, device_name }) {
   return { ok: true, alreadyApproved: false }
 }
 
-// Stage 5d-2b: the transport-independent DECISION half of syncServer.js's
-// `handleLogin` — device-secret check (constant-time) + attemptLogin
-// (PIN/lockout), reused verbatim rather than forked, same rationale as
-// above. Deliberately excludes the WS-only per-connection throttle
-// (LOGIN_MIN_INTERVAL_MS via ws.lastLoginAttemptAt) — that guards a specific
-// long-lived WS connection's own attempt rate and has no equivalent state on
-// a short-lived libp2p auth stream; each transport's caller is responsible
-// for its own request-rate bookkeeping before calling this.
+// The transport-independent DECISION half of login handling — device-secret check
+// (constant-time) + attemptLogin (PIN/lockout). The caller is responsible for its
+// own request-rate bookkeeping before calling this.
+//
+// _Prior (Stage 5d-2b): described as "the transport-independent DECISION half of
+// syncServer.js's `handleLogin` ... reused verbatim rather than forked", excluding
+// "the WS-only per-connection throttle (LOGIN_MIN_INTERVAL_MS via
+// ws.lastLoginAttemptAt) — that guards a specific long-lived WS connection's own
+// attempt rate and has no equivalent state on a short-lived libp2p auth stream."
+// syncServer.js and that throttle are deleted. The rate-limiting responsibility
+// this note hands to the caller is real and now lands on authGate.js — see its
+// own rate-limit comment._
 //
 // Returns:
 //   { ok: false, reason: 'not_paired' }                                — device unknown/unauthorized/revoked
@@ -167,8 +189,9 @@ export function evaluatePairingRequest(db, { device_id, device_name }) {
 //   { ok: true, token, userId, role }                                  — attemptLogin succeeded
 //
 // The two rejection reasons before attemptLogin runs are intentionally
-// generic to the caller (mirrors syncServer.js's opaque `login_failed` with
-// no reason field for these two cases) — leaking which one failed would
+// generic to the caller (_prior: "mirrors syncServer.js's opaque `login_failed`
+// with no reason field for these two cases", a file deleted at Stage 6c; the
+// opacity is now this module's own rule) — leaking which one failed would
 // create a device-existence/authorization oracle (Security review finding
 // 4, carried over unchanged).
 export function evaluateLogin(db, { device_id, device_secret_identifier, name, pin, peerId }) {
@@ -223,9 +246,10 @@ export function evaluateLogin(db, { device_id, device_secret_identifier, name, p
   // `camp` (Stage 6 join flow, docs/adr/2026-09-08-libp2p-join-flow.md): the
   // identity a brand-new device needs and has no other way to obtain. Under the
   // op-log this rode along in syncServer.js's first-pairing `full_sync`
-  // snapshot, which the Client wrote with `INSERT OR REPLACE INTO camps`;
-  // projector.js's own comment names finding a libp2p-native equivalent as
-  // "Stage 6's problem", and this is it.
+  // snapshot, which the Client wrote with `INSERT OR REPLACE INTO camps` — both
+  // deleted at the Stage 6c cutover. projector.js's comment on the `camps` entity
+  // recorded finding a libp2p-native equivalent as "Stage 6's problem"; this is
+  // that equivalent, and that comment now points back here.
   //
   // `signing_public_key` specifically is what lets the joined device VERIFY the
   // Host's tokens from its next launch onward, and it is deliberately carried

@@ -1,9 +1,13 @@
-// Stage 5d-1 (docs/adr/2026-09-06-libp2p-membership-mapping.md §2): unit
-// tests for the extracted, transport-independent admission decision that
-// both syncServer.js's WS `handleAuthenticate` and the libp2p auth gate
-// (authGate.js, via syncNode.js) now share. These tests cover the ADR's
-// threat-model scenarios at the function level, independent of either
-// transport.
+// Stage 5d-1 (docs/adr/2026-09-06-libp2p-membership-mapping.md §2): unit tests for
+// the transport-independent admission decision used by the libp2p auth gate
+// (authGate.js, via syncNode.js). These tests cover the ADR's threat-model
+// scenarios at the function level, independent of the transport.
+//
+// _Prior: the decision was described as shared by "both syncServer.js's WS
+// `handleAuthenticate` and the libp2p auth gate". syncServer.js was deleted at the
+// Stage 6c cutover, so there is one consumer now — see connectionAuth.js's own
+// header for why the extraction is kept anyway. Testing at the function level
+// rather than through a transport is still the right level._
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import { randomUUID, randomBytes, createPrivateKey, sign as edSign, scryptSync } from 'node:crypto'

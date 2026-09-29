@@ -3,9 +3,18 @@
 // pending_restores comment in electron/db/schema.sql for why the table is
 // local-only and holds intent rather than data.
 //
-// Dumb SQL, deliberately — mirroring pendingWrites.js. Every decision about
-// WHEN to insert, when to retry, and what counts as success lives in the
-// drainer (syncClient.js), not here.
+// ⚠️ VESTIGIAL as of the Stage 6c cutover. _Prior: "Dumb SQL, deliberately —
+// mirroring pendingWrites.js. Every decision about WHEN to insert, when to
+// retry, and what counts as success lives in the drainer (syncClient.js), not
+// here." Both syncClient.js and pendingWrites.js were deleted at that cutover,
+// and the drainer with them. `insertPendingRestore` has no caller outside tests,
+// so nothing enqueues and nothing drains; electron/main.js imports only
+// `listPendingRestores`, a read that can now only ever return rows written by a
+// pre-cutover build. The queue existed so a Client could ask an unreachable Host
+// to restore a record from ITS op log; there is no Host to ask, and each device
+// restores from its own log (see electron/ops/restore.js). Whether the module and
+// its table should be removed is a code and schema change, not a comment fix;
+// T311 records it rather than acting on it._
 
 import { randomUUID } from 'node:crypto'
 import { lastKnownFields, nameFieldFor } from '../ops/restore.js'

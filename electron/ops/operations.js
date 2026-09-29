@@ -16,6 +16,33 @@ import {
 export { BULK_REPLACE_ENTITIES, MAX_BULK_REPLACE_ROWS, validateBulkReplaceRows } from './campScopedEntities.js'
 import { BULK_REPLACE_ENTITIES, validateBulkReplaceRows } from './campScopedEntities.js'
 
+// ─── Retired mechanism: the WebSocket Host's `submit_op` path (T311) ─────────
+//
+// Many comments in this file were written when `appendOp` had TWO top-level
+// entry points: this device's own `write()` path, and the WebSocket Host's
+// `submit_op` handler (`handleSubmitOp` in `electron/sync/syncServer.js`)
+// applying an op a remote Client had submitted.
+//
+// _Prior: that second caller is gone. `syncServer.js` and `syncClient.js` were
+// DELETED at the Stage 6c cutover, along with `handleSubmitOp`, `applyRemoteOp`,
+// the `submit_op`/`op_applied` wire exchange, and the first-pairing `full_sync`
+// snapshot. There is no Host process serving a socket and no `ws://`._
+//
+// What is true today: **appendOp is a local-write primitive only.** Every caller
+// is a first-party committer running on this device — `localWriteClient.js`'s
+// `write()` behind the IPC surface, plus the typed committers (`ingest.js`,
+// `deleteRecord.js`, `restore.js`, `duplicateWeek.js`, `promoteToAdmin.js`,
+// `migrationDomainState.js`, and the elective committers). A write arriving from
+// ANOTHER device never reaches appendOp at all: it arrives as a merged Automerge
+// document and is projected into SQLite by `electron/automerge/projector.js`,
+// which replays each field through `applyProjection` as a synthetic op. That
+// path therefore inherits applyProjection's guards and NOT appendOp's — the
+// distinction matters wherever a comment below calls appendOp a "choke point".
+//
+// Comments below refer back to this note instead of restating it. Where such a
+// comment's claim is now VOID rather than merely re-described, it says so.
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Sentinel field name for a row-delete op. Deliberately routed through the
 // SAME appendOp/detectConflict/appendOp-log path as every other field-level
 // write (per this project's hard rule that all writes to synced entities go
@@ -50,9 +77,11 @@ export const DELETE_FIELD = '__deleted__'
 // as "Failed to place activity" / "Could not save undo point".
 //
 // Coercing here rather than at each call site (or in the renderer's
-// writeFields helper) fixes every current and future caller at once, on both
-// the local no-serverUrl path and the Host's handleSubmitOp path for ops
-// arriving from a remote Client.
+// writeFields helper) fixes every current and future caller at once.
+// _Prior: "on both the local no-serverUrl path and the Host's handleSubmitOp
+// path for ops arriving from a remote Client" — see the retired-mechanism note
+// at the top of this file. Local first-party writes are now the only appendOp
+// callers, so "every caller" is the whole of it._
 //
 // Storage shapes are chosen to MATCH what appendBulkReplaceOp already
 // produces for the same columns, so a generated slot and a manually-edited
@@ -90,27 +119,46 @@ export function coerceOpValue(value) {
 // `source` (S2a) is the per-field provenance marker: 'import' (written by the
 // host-local reconciliation committer), 'human' (an interactive edit), or NULL
 // (decoded as human, §3). It defaults to null and is set STRUCTURALLY by each
-// writer from where the code is — never copied from a client-submitted op (that
-// would let a peer forge 'import'; handleSubmitOp forces 'human'). See the ADR
-// §2 writer census.
+// writer from where the code is — never copied from a submitted op (that would
+// let a peer forge 'import'). _Prior: "handleSubmitOp forces 'human'" named the
+// mechanism that enforced this — see the retired-mechanism note at the top of
+// this file. The rule still holds, and now holds structurally rather than by
+// that coercion: no remote path reaches appendOp, so `source` can only be set by
+// a local committer from where the code is._ See the ADR §2 writer census.
 // S1b: source_aliases is a host-local table with its own typed committer
 // (confirmAlias.js), never registered in PROJECTIONS and never replicated —
 // the same "typed committer only, never a raw field-op entity" treatment
 // bulk_replace gets above. Refused here rather than left to fall through as
 // a silent no-op (it has no projection to apply anyway, since it is
-// unregistered), so the boundary is a clear error, and this covers BOTH
-// write() (the no-serverUrl client above) and the Host's WS submit_op path
-// (syncServer.js's handleSubmitOp), which both call appendOp.
+// unregistered), so the boundary is a clear error, and it covers every appendOp
+// caller. _Prior: "this covers BOTH write() (the no-serverUrl client above) and
+// the Host's WS submit_op path (syncServer.js's handleSubmitOp), which both call
+// appendOp." That second top-level caller does not exist — see the
+// retired-mechanism note at the top of this file. This sentence is why the note
+// is there: anyone reading it for appendOp's CALLER CENSUS (T309 had to) was
+// told there are two entry points when there is one._
 // Per-field byte-length cap on operations.value (M6, D2,
 // docs/adr/2026-08-16-locations-optional-map.md). `operations.value` has no
 // application-level size limit anywhere else in this codebase — this is the
 // first one, scoped to exactly the one field that needs it (a camp map's
 // re-encoded JPEG, base64-capped client-side to ~1MB as the happy path). This
-// is the AUTHORITATIVE gate, not a convenience check: it runs in appendOp
-// itself, the single choke point both the local write() path and the Host's
-// handleSubmitOp (a remote Client's WS submission) go through, so a
-// compromised or buggy paired device cannot bypass it by skipping the
-// renderer-side downscale. Same shape as MAX_BULK_REPLACE_ROWS above — a
+// is the authoritative gate for a LOCAL write: it runs in appendOp itself, the
+// one choke point every local committer goes through, so the renderer cannot
+// bypass it by skipping the client-side downscale.
+//
+// ⚠️ _Prior, and VOID rather than merely re-described: this claimed to be "the
+// AUTHORITATIVE gate, not a convenience check" because appendOp was "the single
+// choke point both the local write() path and the Host's handleSubmitOp (a
+// remote Client's WS submission) go through, so a compromised or buggy paired
+// device cannot bypass it by skipping the renderer-side downscale." The remote
+// path no longer passes through appendOp (see the retired-mechanism note at the
+// top of this file), and MAX_FIELD_VALUE_LENGTH has no other reader — appendOp
+// below is the only place it is enforced. An oversized camp_maps.image_data
+// arriving inside a merged document is projected by
+// electron/automerge/projector.js without this check. Restoring a cap on the
+// document-replay path is a BEHAVIOUR change and is deliberately not done here;
+// T311 was a comment-only sweep and records the gap rather than closing it._
+// Same shape as MAX_BULK_REPLACE_ROWS above — a
 // registry of hard caps, not a generic limit applied to every field (every
 // other field this codebase writes is small by construction).
 // Re-exported so callers keep a single import site; defined in its own module
@@ -251,12 +299,14 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     const op = getStmt(db, 'SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
     // applyProjection returns false only for a rejected camp_id write (see
     // projections.js) — every other rejection (unregistered entity/field) is
-    // a legitimate silent no-op. appendOp is called both for genuinely local
-    // first-party writes AND by the Host's handleSubmitOp when applying an
-    // op a remote Client submitted (syncServer.js) — the latter must not
-    // throw here, since an uncaught exception mid-transaction would abort
-    // the Host's response to that Client's request rather than gracefully
-    // reporting rejection. So this stays a silent no-op at the appendOp
+    // a legitimate silent no-op. _Prior: the reason given was that appendOp is
+    // called "both for genuinely local first-party writes AND by the Host's
+    // handleSubmitOp when applying an op a remote Client submitted
+    // (syncServer.js)", the latter of which "must not throw here, since an
+    // uncaught exception mid-transaction would abort the Host's response to that
+    // Client's request rather than gracefully reporting rejection." That caller
+    // is gone (see the retired-mechanism note at the top of this file), so that
+    // particular justification is void._ It stays a silent no-op at the appendOp
     // level too, matching applyProjection's own non-throwing contract — the
     // return value is preserved for a future caller that wants to
     // distinguish success from a rejected camp_id write without forcing
@@ -298,11 +348,16 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
   return op
 }
 
-// Task 10 round-5 Fix 3: idempotency lookup used by handleSubmitOp before
+// Idempotency lookup: for a client_write_id that has already been applied,
+// returns the ORIGINAL op instead of letting the caller mint a second, distinct
+// op id for the same logical write.
+// _Prior (Task 10 round-5 Fix 3): "used by handleSubmitOp before
 // appendOp/detectConflict run, so a retried submit_op carrying the same
-// client_write_id as a previously-applied write returns the ORIGINAL op
-// instead of minting a second, distinct op id (which the server otherwise
-// always does, since op ids are server-assigned per submission).
+// client_write_id ... (which the server otherwise always does, since op ids are
+// server-assigned per submission)." There is no server and no submit_op — see
+// the retired-mechanism note at the top of this file. Its callers today are in
+// electron/ops/ingest.js, which uses it to make an interrupted import's row
+// writes replay-safe._
 export function findOpByClientWriteId(db, client_write_id) {
   if (typeof client_write_id !== 'string' || client_write_id.length === 0) return null
   return getStmt(db, 'SELECT * FROM operations WHERE client_write_id = ?').get(client_write_id) || null
@@ -375,7 +430,11 @@ export function isBulkReplaceOp(op) {
   return !!op && op.field === BULK_REPLACE_FIELD
 }
 
-// Host-side (and local/no-serverUrl) entry point: validates the payload
+// Entry point for a bulk_replace write. _Prior: "Host-side (and
+// local/no-serverUrl) entry point" — there is no Host side; see the
+// retired-mechanism note at the top of this file. Its callers are both local:
+// electron/sync/localWriteClient.js's writeBulkReplace (behind main.js's
+// bulkReplace IPC) and electron/ops/duplicateWeek.js._ Validates the payload
 // shape, then atomically (single SQLite transaction) deletes every current
 // row in scope, inserts the new row set, and appends the bulk_replace op to
 // the `operations` log - so it replicates and appears in history exactly
@@ -396,11 +455,15 @@ export function isBulkReplaceOp(op) {
 export function latestScopeOpSeq(db, entity, scope_id) {
   const config = BULK_REPLACE_ENTITIES[entity]
   if (!config) return 0
-  // COALESCE(host_seq, seq): host_seq carries the Host's canonical seq for
-  // ops received via applyRemoteOp on a Client db (see host_seq migration,
-  // version 18) — raw seq there is a locally-minted AUTOINCREMENT value in
-  // an unrelated numbering space. On the Host's own db this is a no-op
-  // (host_seq is always NULL there), so this degenerates to plain seq.
+  // COALESCE(host_seq, seq) — kept for the column's sake, a no-op in practice.
+  // _Prior: host_seq "carries the Host's canonical seq for ops received via
+  // applyRemoteOp on a Client db (see host_seq migration, version 18) — raw seq
+  // there is a locally-minted AUTOINCREMENT value in an unrelated numbering
+  // space." The column still exists (schema v18) but nothing writes a non-NULL
+  // value to it any more: applyRemoteOp was its only writer and went with
+  // syncClient.js at the Stage 6c cutover (see the retired-mechanism note at the
+  // top of this file). Every row is therefore host_seq IS NULL, so this
+  // degenerates to plain seq on every device, not just on a former Host's db._
   const row = getStmt(
     db,
     `SELECT MAX(COALESCE(host_seq, seq)) as maxSeq FROM operations
@@ -413,7 +476,15 @@ export function latestScopeOpSeq(db, entity, scope_id) {
 // Per-scope analogue of detectConflict: compares the submitter's claimed
 // `based_on_seq` (what they observed last) against the TRUE current
 // latestScopeOpSeq (authoritative, computed here against the DB doing the
-// detecting — the Host's DB when called from handleSubmitBulkReplaceOp).
+// detecting). _Prior: "— the Host's DB when called from
+// handleSubmitBulkReplaceOp". `handleSubmitBulkReplaceOp` never existed anywhere
+// else in this repo and does not exist now; it was part of the WS Host (see the
+// retired-mechanism note at the top of this file). This function has NO
+// production caller today — no live code passes `based_on_seq` at all, because
+// concurrent-edit arbitration moved to the CRDT reconciler
+// (electron/automerge/reconcile.js) — only operations.test.js exercises it.
+// Whether it should be deleted is a code change, not a comment fix; T311
+// records it rather than acting on it._
 // If something newer landed in the scope since the submitter's snapshot,
 // this is a genuine concurrent-write conflict per the design doc, and must
 // not be silently applied. `based_on_seq` is normalized to 0 when absent/
@@ -424,12 +495,15 @@ export function detectBulkReplaceConflict(db, { entity, scope_id, based_on_seq }
   const currentSeq = latestScopeOpSeq(db, entity, scope_id)
   const effectiveBasedOn = Number.isInteger(based_on_seq) && based_on_seq >= 0 ? based_on_seq : 0
   if (currentSeq > effectiveBasedOn) {
-    // This lookup only runs against the Host's own db (this function is
-    // only ever called from the Host side of a bulk_replace submission), so
-    // currentSeq here is a raw seq value, never a host_seq-adjusted one —
-    // host_seq is always NULL on the Host's own rows. Do not reuse this
-    // `WHERE seq = ?` pattern against a Client db; there currentSeq may be a
-    // Host-canonical value that only matches via host_seq, not seq.
+    // currentSeq here is a raw seq value, never a host_seq-adjusted one.
+    // _Prior: the stated reason was that "this lookup only runs against the
+    // Host's own db (this function is only ever called from the Host side of a
+    // bulk_replace submission)", with the warning "do not reuse this `WHERE seq
+    // = ?` pattern against a Client db; there currentSeq may be a Host-canonical
+    // value that only matches via host_seq, not seq." There is no Host/Client
+    // split now (see the retired-mechanism note at the top of this file), and
+    // host_seq is NULL on every row on every device, so the hazard the warning
+    // guarded against cannot arise — the pattern is safe on any db this app has._
     const existingOp = getStmt(db, 'SELECT * FROM operations WHERE seq = ?').get(currentSeq)
     return { conflict: true, existingOp }
   }
@@ -507,11 +581,21 @@ export function appendBulkReplaceOp(db, { entity, scope_id, rows, author_user_id
   return op
 }
 
-// Client-side (or any replaying reader's) application of an ALREADY-CANONICAL
-// bulk_replace op - i.e. one received via `op_applied` from the Host, whose
-// insert into this device's own `operations` log has already happened (see
-// applyRemoteOp in syncClient.js, mirroring how applyProjection is called
-// only after appendOp/the op-log insert succeeds). Re-derives the row set
+// Application of an ALREADY-CANONICAL bulk_replace op by a replaying reader:
+// re-project a scope's rows from an op whose own durable record already exists.
+// Its live caller is the document-replay path — electron/automerge/projector.js
+// synthesizes an op from the merged Automerge document and calls this — plus
+// electron/db/localDb.js's replay.
+// _Prior: "Client-side (or any replaying reader's) application ... i.e. one
+// received via `op_applied` from the Host, whose insert into this device's own
+// `operations` log has already happened (see applyRemoteOp in syncClient.js,
+// mirroring how applyProjection is called only after appendOp/the op-log insert
+// succeeds)." `op_applied` and `applyRemoteOp` went with syncClient.js at the
+// Stage 6c cutover — see the retired-mechanism note at the top of this file. The
+// function's contract is unchanged; only the description of who feeds it was
+// stale. Note that on the projector path there is no op-log insert at all, so
+// the "already happened" precondition is now about the DOCUMENT being
+// authoritative, not about an operations row existing first._ Re-derives the row set
 // from op.value and replays the same delete-all-then-reinsert, atomically.
 // Malformed op.value (shouldn't happen for a genuinely host-issued op, but
 // defense-in-depth against a corrupted/tampered message) is a silent no-op
@@ -552,8 +636,10 @@ export function applyBulkReplaceProjection(db, op) {
 // S4b §4: the op-log's current generation — the MAX op seq across the whole log.
 // Read-only. S4a's export stamps it as `base_generation` so a re-import can gate
 // import-over-import staleness (a field written after the export is stale). Uses
-// COALESCE(host_seq, seq) for the same reason latestScopeOpSeq does — a Client db
-// carries the Host's canonical seq in host_seq. Returns 0 for an empty log.
+// COALESCE(host_seq, seq) for the same reason latestScopeOpSeq does. _Prior: "a
+// Client db carries the Host's canonical seq in host_seq" — no longer true;
+// host_seq is NULL on every row on every device. See latestScopeOpSeq above._
+// Returns 0 for an empty log.
 export function latestOpSeq(db) {
   const row = getStmt(db, 'SELECT MAX(COALESCE(host_seq, seq)) AS maxSeq FROM operations').get()
   return row && Number.isInteger(row.maxSeq) ? row.maxSeq : 0
@@ -771,9 +857,18 @@ export function detectUniqueFieldCollision(db, op) {
 // restart — the live usePendingConflicts hook is fed exclusively by
 // in-memory broadcast events, so without this a pending (or even a
 // resolved-but-not-yet-dismissed) conflict would silently vanish on
-// relaunch. Called from both conflict-detection sites: syncServer's
+// relaunch.
+// ⚠️ _Prior, and VOID: "Called from both conflict-detection sites: syncServer's
 // handleSubmitOp (host-side detection) and syncClient's ws message handler
-// (client-side receipt of an op_conflict from the host).
+// (client-side receipt of an op_conflict from the host)." BOTH of those call
+// sites were deleted at the Stage 6c cutover (see the retired-mechanism note at
+// the top of this file), and NO production code calls this function today —
+// only operations.test.js does. The live equivalent is `recordConflicts`
+// (plural) in electron/automerge/conflictStore.js, written from
+// electron/automerge/reconcileForProjection.js off the merged document, which is
+// also what actually rehydrates the ConflictsScreen now. Whether this singular
+// version should be deleted is a code change, not a comment fix; T311 records it
+// rather than acting on it._
 export function recordConflict(db, { incomingOp, existingOp }) {
   const id = randomUUID()
   const created_at = new Date().toISOString()

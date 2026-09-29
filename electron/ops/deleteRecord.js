@@ -26,10 +26,15 @@ import { clearSlotOccupant } from './slotOccupants.js'
 // this module exists it means something useful: an FK violation on a parent
 // delete now means the clearing step missed rows, i.e. a bug.
 //
-// HOST ONLY, following restore.js. A Client cannot express a multi-op atomic
-// transaction over `submit_op`, and — unlike a restore — a Client's delete is
-// never queued for later: a queued delete would execute against a count the
-// director was shown hours earlier, which is precisely the drift the count
+// HOST ONLY, following restore.js. _Prior: the reason was that "a Client cannot
+// express a multi-op atomic transaction over `submit_op`" — submit_op was deleted
+// at the Stage 6c cutover, and electron/main.js's deleteRecordHandler now records
+// the resolution: the delete executes on whichever device the director is using,
+// because every device holds the whole document and the transaction is local.
+// Read the HOST-ONLY label here against that handler, not against this
+// sentence._ The second half still holds and is the load-bearing half: a delete is
+// never queued for later, because a queued delete would execute against a count
+// the director was shown hours earlier, which is precisely the drift the count
 // contract forbids.
 
 // Which entities this module deletes. Every other entity keeps the ordinary
@@ -459,8 +464,12 @@ function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to,
 // through the exact same primitive a plain location delete uses.
 // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md D1 (Open Q1: a
 // dedicated mergeLocation entry point, not a second deleteRecord-shaped
-// module — see electron/main.js's mergeLocationHandler and
-// electron/sync/syncServer.js's handleMergeLocationRequest).
+// module — see electron/main.js's mergeLocationHandler). _Prior: this also named
+// "electron/sync/syncServer.js's handleMergeLocationRequest" as the remote entry
+// point. That file was deleted at the Stage 6c cutover; there is no remote
+// request for a merge. mergeLocationHandler behind the IPC surface is now the
+// only entry point, and a merge reaches other devices as a document change like
+// any other write._
 export function mergeLocation(db, { loser_id, winner_id, winner_capacity, expected_ref_count, author_user_id, device_id }) {
   if (typeof loser_id !== 'string' || loser_id.length === 0) return { error: 'no-record' }
   if (!db.prepare('SELECT 1 FROM locations WHERE id = ?').get(loser_id)) return { error: 'no-record' }

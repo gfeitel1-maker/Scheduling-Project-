@@ -1279,8 +1279,13 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
 
   // Fixed-event reimport tombstone fix: slot keys of fixed_events whose
   // LATEST op is a DELETE_FIELD written with source==='human' — a director's
-  // deliberate rejection (local delete or a replicated peer delete, both
-  // forced 'human' by syncServer). Import teardown deletes write source=null
+  // deliberate rejection (local delete or a replicated peer delete, both of which
+  // carry source='human'). _Prior: "both forced 'human' by syncServer" — that
+  // file was deleted at the Stage 6c cutover and no longer coerces anything. A
+  // peer's delete now arrives as a document change carrying the source its own
+  // local committer stamped, so the 'human' marker is preserved end to end
+  // rather than re-forced on receipt; see electron/ops/fieldProvenance.js._
+  // Import teardown deletes write source=null
   // and are STRICTLY excluded by this === check, so replace-mode does not
   // tombstone its own re-creates. Reconstructs the dead row's identity from
   // its op history via restore.js's lastKnownFields (same mechanism the trash
@@ -1714,8 +1719,14 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // (in the re-resolution loop) has already confirmed this field is import-owned
   // or never-set, so it writes freely: value = delta.to, source = 'import', and
   // parent_op_id = the field's prior op id (null only when the field had no prior
-  // op). Direct appendOp — the same host-local committer path commitCreate uses;
-  // detectConflict runs only on the WS submit_op path, not here (ADR §2 R6).
+  // op). Direct appendOp — the same local committer path commitCreate uses.
+  // _Prior: "detectConflict runs only on the WS submit_op path, not here (ADR §2
+  // R6)." There is no WS submit_op path — it was deleted at the Stage 6c cutover
+  // — so detectConflict now runs on NO production path at all (it is exercised
+  // only by operations.test.js). The conclusion this comment was drawing still
+  // holds and is now structural: an import write is not conflict-checked here.
+  // Cross-device disagreement is settled by the CRDT reconciler
+  // (electron/automerge/reconcile.js) off the merged document instead._
   // S2c §4: `field`/`value` are already the STORED column and the
   // validated/resolved value (resolveFieldWrite), so this stays a thin writer.
   const commitUpdate = ({ item, field, value, parent_op_id }) => {

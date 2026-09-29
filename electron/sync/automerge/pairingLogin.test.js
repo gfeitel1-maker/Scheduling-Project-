@@ -150,9 +150,10 @@ describe('pairing_request + login over libp2p (Stage 5d-2b)', () => {
       "INSERT INTO devices (id, name, authorized_at, pairing_status, device_secret_identifier) VALUES (?, ?, ?, 'authorized', ?)"
     ).run('client-device', 'Client', new Date().toISOString(), secret)
 
-    // Stage 5d-2b re-review (HIGH finding fix): authGate.js now rate-limits
-    // 'login' frames on the same connection (LOGIN_MIN_INTERVAL_MS), exactly
-    // like syncServer.js's WS path already did. This test is specifically
+    // Stage 5d-2b re-review (HIGH finding fix): authGate.js rate-limits 'login'
+    // frames on the same connection (LOGIN_MIN_INTERVAL_MS). _Prior: "exactly like
+    // syncServer.js's WS path already did" — that path was deleted at the Stage 6c
+    // cutover, so authGate.js is the only implementation._ This test is specifically
     // about attemptLogin's OWN lockout (a distinct, longer-lived mechanism —
     // see localAuth.js's LOGIN_MAX_ATTEMPTS/LOGIN_LOCKOUT_MS), so it advances
     // an injected fake clock well past LOGIN_MIN_INTERVAL_MS between attempts

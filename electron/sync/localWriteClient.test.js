@@ -1,13 +1,15 @@
 // @vitest-environment node
 //
-// The device-local write path, tested directly rather than through the
-// WebSocket client that currently delegates to it.
+// The device-local write path, tested directly.
 //
-// This file exists because the module OUTLIVES its current caller. Stage 6c
-// deletes syncClient.js; the 73 tests in syncClient.test.js that presently
-// exercise this code through the `!serverUrl` branch go with it. What is pinned
-// here is what must still be true afterwards, when this is simply how every
-// device writes.
+// This file exists because the module OUTLIVED its caller. _Prior, written before
+// the cutover: "tested directly rather than through the WebSocket client that
+// currently delegates to it ... Stage 6c deletes syncClient.js; the 73 tests in
+// syncClient.test.js that presently exercise this code through the `!serverUrl`
+// branch go with it. What is pinned here is what must still be true afterwards."
+// That happened — syncClient.js and its 73 tests are gone, and this IS now simply
+// how every device writes, so what these tests pin is the live write path rather
+// than a future one._
 import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
@@ -214,10 +216,14 @@ describe('createLocalWriteClient', () => {
   })
 
   it('imports nothing from the WebSocket transport', async () => {
-    // The structural guarantee behind the whole extraction: this module must
-    // still load once syncServer.js/syncClient.js/pendingWrites.js are deleted.
-    // A test that only exercised behaviour would keep passing right up until
-    // the deletion and fail then, which is the wrong moment to find out.
+    // The structural guarantee behind the whole extraction: this module loads
+    // without the WebSocket transport. _Prior, written before the cutover: "this
+    // module must still load once syncServer.js/syncClient.js/pendingWrites.js
+    // are deleted. A test that only exercised behaviour would keep passing right
+    // up until the deletion and fail then, which is the wrong moment to find
+    // out." Those three files WERE deleted at Stage 6c, so this now asserts a
+    // completed fact rather than guarding a pending one — and it still earns its
+    // place by pinning the import list against a future re-entanglement._
     const src = fs.readFileSync(new URL('./localWriteClient.js', import.meta.url), 'utf8')
     const imports = [...src.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1])
     expect(imports).toEqual(['node:crypto', '../ops/operations.js'])

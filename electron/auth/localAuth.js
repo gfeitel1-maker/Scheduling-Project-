@@ -323,8 +323,11 @@ function campIdFor(db) {
 // token requires holding the Host's private key (this device IS the Host);
 // minting a 'local' token only requires this device's own
 // device_secret_identifier (set at pairing) and never grants network trust
-// — see verifySessionToken's type dispatch and syncServer.js's
-// handleAuthenticate, which rejects a 'local' token outright.
+// — see verifySessionToken's type dispatch, and connectionAuth.js's
+// evaluateAuthenticate, which rejects a 'local' token outright. _Prior: that
+// rejection was attributed to "syncServer.js's handleAuthenticate"; the rule moved
+// into connectionAuth.js when the admission decision was extracted, and
+// syncServer.js was deleted at the Stage 6c cutover._
 export function issueCampToken(db, userId, deviceId) {
   const hostKey = getHostSigningKey(db)
   if (!hostKey) {
@@ -520,12 +523,19 @@ function clearAttempts(db, name) {
   db.prepare('DELETE FROM login_attempts WHERE name = ?').run(name)
 }
 
-// Shared PIN-verification-and-lockout logic used both for local login (a
-// device checking its own local `users` table — main.js's IPC `login`
-// handler) and for a Host verifying a remote device's first-time login
-// attempt sent unauthenticated over the sync WebSocket (syncServer.js's
-// `login` message handler). Keeping this in one place means the two paths
-// can never drift out of sync on lockout thresholds or verification rules.
+// Shared PIN-verification-and-lockout logic used both for local login (a device
+// checking its own local `users` table — main.js's IPC `login` handler) and for a
+// device verifying a joining peer's first-time login attempt over the libp2p auth
+// stream (connectionAuth.js's evaluateLogin, called from authGate.js). Keeping
+// this in one place means the two paths can never drift out of sync on lockout
+// thresholds or verification rules — the invariant CLAUDE.md states as "every PIN
+// check funnels through attemptLogin".
+//
+// _Prior: the second path was "a Host verifying a remote device's first-time
+// login attempt sent unauthenticated over the sync WebSocket (syncServer.js's
+// `login` message handler)". That transport was deleted at the Stage 6c cutover
+// and replaced by the libp2p auth stream named above; the funnel-through-one-place
+// rule is unchanged._
 /**
  * `now` is injected for ONE reason, and it is not convenience (T160 follow-up).
  *

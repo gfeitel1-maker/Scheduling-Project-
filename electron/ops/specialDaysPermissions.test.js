@@ -1,13 +1,19 @@
 // @vitest-environment node
 //
 // T40 slice 1 (docs/work/specs/2026-08-20-special-days-data-shape-design.md):
-// "Permissions: staff can read/write, cannot delete/bulk_replace (IPC + WS
-// paths)." Both electron/main.js's write/bulkReplace handlers (IPC) and
-// electron/sync/syncServer.js's handleSubmitOp/handleBulkReplace (WS) route
-// through the SAME authorize()/deriveWriteAction/deriveBulkReplaceAction —
-// see syncServer.js's authorizeWs, which calls authorize() directly — so
-// exercising authorize() with the derived actions covers both entry points
-// structurally, mirroring electron/auth/authorize.test.js's own style.
+// "Permissions: staff can read/write, cannot delete/bulk_replace." electron/main.js's
+// write/bulkReplace handlers route through
+// authorize()/deriveWriteAction/deriveBulkReplaceAction, so exercising authorize()
+// with the derived actions covers that entry point structurally, mirroring
+// electron/auth/authorize.test.js's own style.
+//
+// _Prior: the spec line read "(IPC + WS paths)" and this note claimed the coverage
+// spanned "both entry points" — IPC plus "electron/sync/syncServer.js's
+// handleSubmitOp/handleBulkReplace (WS) ... see syncServer.js's authorizeWs, which
+// calls authorize() directly." The WS path and authorizeWs were deleted at the
+// Stage 6c cutover, so there is one entry point, and a remote device's writes are
+// no longer authorized per-op at all — they arrive as a merged document, gated at
+// the connection layer (electron/auth/connectionAuth.js) instead._
 import { describe, it, expect, afterEach, beforeEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import { randomBytes, randomUUID } from 'node:crypto'

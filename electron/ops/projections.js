@@ -20,10 +20,14 @@ import { parseDayOfWeek } from './dayId.js'
 // and insert the complete row only once both are known. The current op supplies
 // one field directly. For the op-log path, the sibling is read back from the
 // operations log, where appendOp has already durably inserted it — appendOp
-// writes the op row BEFORE calling applyProjection, and replay
-// (syncClient.applyRemoteOp) does the same in seq order, so the earlier
-// field's op is always present by the time the later field's op projects, on
-// both the writing device and every replica. Whichever field arrives SECOND
+// writes the op row BEFORE calling applyProjection, so the earlier field's op is
+// always present by the time the later field's op projects. _Prior: this also
+// credited replay "(syncClient.applyRemoteOp) doing the same in seq order ... on
+// both the writing device and every replica". syncClient.js was deleted at the
+// Stage 6c cutover; a replica no longer replays ops in seq order at all. It
+// projects the merged document, where the sibling field is supplied directly via
+// `knownRow` (see below) rather than read back from the log._
+// Whichever field arrives SECOND
 // creates the row; the first is a deliberate no-op. Order-independent and
 // replay-safe, with no new IPC/op primitive.
 //
@@ -68,11 +72,16 @@ function ensureWeekJoinRow(table, secondColumn) {
     // Both NOT NULL columns must be present; until then the row cannot exist.
     if (weekId == null || secondValue == null) return
     // T89: week_id is a real FK to schedule_weeks(id). Under an out-of-order
-    // replay (this exclusion op outrunning the week-level op that would have
-    // created schedule_weeks locally), that parent row may not exist yet —
-    // the INSERT below would throw SQLITE_CONSTRAINT_FOREIGNKEY, which the
-    // generic catch in syncClient.js swallows, leaving the op marked applied
-    // while the exclusion silently never materializes. Stub-seed the parent
+    // apply (this exclusion op running before the week-level op that would have
+    // created schedule_weeks locally), that parent row may not exist yet — the
+    // INSERT below would throw SQLITE_CONSTRAINT_FOREIGNKEY and the exclusion
+    // would silently never materialize. _Prior: the specific harm named was that
+    // "the generic catch in syncClient.js swallows [it], leaving the op marked
+    // applied". syncClient.js was deleted at the Stage 6c cutover, so that exact
+    // swallow is gone; the stub-seed is still required, because the projector
+    // applies entities in DOMAIN_SNAPSHOT_ORDER and a per-row throw there is
+    // contained and recorded rather than surfaced either (see the
+    // projection_failures note further down)._ Stub-seed the parent
     // first, mirroring T85's devices-row seeding: minimal valid shape
     // (matches PROJECTIONS.schedule_weeks.ensureExists exactly), INSERT OR
     // IGNORE so a real row already present (or arriving later) is never
@@ -684,17 +693,25 @@ export const PROJECTIONS = {
       // loudly instead.
       //
       // Consequences differ by path, and only one of them keeps the op:
-      //   - Client broadcast replay (syncClient.applyRemoteOp): the operations
-      //     row is inserted first and applyProjection runs inside tha
-      //     function's by-design catch, so the op STAYS DURABLE in the log and
-      //     repairMissingScheduleTemplates can rebuild at upgrade time.
       //   - appendOp (electron/ops/operations.js): the INSERT and
       //     applyProjection share ONE transaction, so this throw rolls the
-      //     op-log INSERT back — the op is DISCARDED, not stored. That also
-      //     applies on the Host's path for a Client-submitted op
+      //     op-log INSERT back — the op is DISCARDED, not stored.
+      //   - document replay (electron/automerge/projector.js): there is no
+      //     op-log INSERT to roll back, because the projector writes straight
+      //     to SQLite. The throw is contained per row and recorded in
+      //     projection_failures instead, so the DOCUMENT keeps the field and a
+      //     later rebuild can re-project it.
+      //     _Prior: the two paths listed here were "Client broadcast replay
+      //     (syncClient.applyRemoteOp): the operations row is inserted first
+      //     and applyProjection runs inside that function's by-design catch, so
+      //     the op STAYS DURABLE in the log and repairMissingScheduleTemplates
+      //     can rebuild at upgrade time", plus a note that the appendOp case
+      //     "also applies on the Host's path for a Client-submitted op
       //     (syncServer.handleSubmitOp), where the throw unwinds to the generic
-      //     message-handler catch and the Client gets an error reply, agains
-      //     appendOp's own stated non-throwing contract.
+      //     message-handler catch and the Client gets an error reply". Both
+      //     named files were deleted at the Stage 6c cutover; the
+      //     durable-op-survives case is now the projector's, by a different
+      //     mechanism._
       // That is accepted deliberately: discarding a write that cannot be
       // projected is better than the silent no-op that shipped a camp which
       // could not generate, and the renderer now reports the failure rather
@@ -1148,10 +1165,13 @@ export function applyProjection(db, op) {
       // see appendOp in operations.js) needs to distinguish from success:
       // silently swallowing it there would let a local write commit to the
       // op-log as if it succeeded while the row never actually changed. A
-      // rejected *remote* replay op (the case this guard was designed for)
-      // still degrades gracefully — its caller (applyRemoteOp in
-      // syncClient.js) doesn't inspect the return value, so this is a
-      // strictly additive signal, not a behavior change for that path.
+      // rejected *remote* op (the case this guard was designed for) still
+      // degrades gracefully — the document-replay caller
+      // (electron/automerge/projector.js) doesn't inspect the return value
+      // either, so this is a strictly additive signal, not a behavior change
+      // for that path. _Prior: that caller was named as "applyRemoteOp in
+      // syncClient.js", deleted at the Stage 6c cutover; the guard and its
+      // additive-signal property carried over to the projector unchanged._
       return false
     }
   }
@@ -1164,7 +1184,8 @@ export function applyProjection(db, op) {
   //
   // op.knownRow (electron/automerge/projector.js) is the doc-native row this op was synthesized
   // from — every field the document currently holds for this id, all at once. The op-log path
-  // (appendOp, syncClient replay) never sets it, so this is a no-op there; ensureExists
+  // (appendOp; _prior: "syncClient replay", deleted at Stage 6c) never sets it, so this is a
+  // no-op there; ensureExists
   // implementations that accept it fall back to reading `operations` exactly as before.
   projection.ensureExists?.(db, op.entity_id, op.field, op.value, op.knownRow)
 

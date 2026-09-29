@@ -5,8 +5,8 @@ import { shouldThrottle, LOGIN_MIN_INTERVAL_MS, PAIRING_RATE_MS, SourceRateLimit
 // question — "has enough time passed since the last one?" — and that question
 // is a pure function. Testing it as one means the boundary cases are settled
 // by arithmetic rather than by racing a real clock, which is what made the
-// burst test untestable in the first place (see T25 and the skipped test in
-// syncServer.test.js).
+// burst test untestable in the first place (see T25; the skipped test it refers
+// to lived in syncServer.test.js, deleted at the Stage 6c cutover).
 
 describe('shouldThrottle', () => {
   it('lets the first attempt through, because there is nothing to compare against', () => {

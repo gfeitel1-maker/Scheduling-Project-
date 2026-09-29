@@ -136,11 +136,15 @@ export function initSchema(db) {
     )
   }
 
-  // Task 10 round-4 Fix 3: per-device op-log watermark so a reconnecting
-  // device can be sent exactly the `operations` rows it missed while it was
-  // offline (see syncServer.js's sendMissedOps). Distinct from
+  // Task 10 round-4 Fix 3: per-device op-log watermark. _Prior: it existed "so a
+  // reconnecting device can be sent exactly the `operations` rows it missed while
+  // it was offline (see syncServer.js's sendMissedOps)", and was "distinct from
   // last_synced_at, which only gates the one-time first-pairing full_sync of
-  // users/camps and is never advanced afterward.
+  // users/camps". sendMissedOps and the full_sync snapshot were both deleted at
+  // the Stage 6c cutover: ops are no longer shipped to a reconnecting device at
+  // all, because Automerge syncs the document instead. Both columns are retained
+  // migration history — this block still has to run so an old db reaches the
+  // current schema — but nothing advances the watermark any more._
   if (getSchemaVersion(db) < 7) {
     const hasLastSyncedSeq = db
       .pragma('table_info(devices)')
@@ -746,6 +750,12 @@ export function initSchema(db) {
   // the wire in op_applied) instead of discarding it for a fresh local
   // number. NULL on Host-authored rows (Host's own seq is already
   // canonical). See docs/adr/2026-07-24-bulk-replace-seq-fix.md.
+  // _Prior mechanism, kept because this migration still has to run on an old db:
+  // `op_applied` was the wire message that carried the Host's seq, and it was
+  // deleted with syncClient.js at the Stage 6c cutover. Nothing writes a non-NULL
+  // host_seq any more, so the column is NULL on every row on every device — see
+  // latestScopeOpSeq in electron/ops/operations.js, where the COALESCE that reads
+  // it is now a no-op._
   if (getSchemaVersion(db) < 18) {
     db.transaction(() => {
       const addColumnIfMissing = (table, name, type) => {
@@ -1127,9 +1137,13 @@ export function initSchema(db) {
   // deletes rows it failed to preserve is worse than one that does nothing.
   //
   // LOCAL ONLY, as v24 is, and for a stronger reason than precedent: an orphan
-  // row has no parent, and sendFullSyncIfFirstPairing ships child rows joined
-  // THROUGH schedule_templates, so orphans have never been able to reach a
-  // peer. They are a per-device artefact; nothing here changes that. The
+  // row has no parent, and nothing that replicates can carry it — it was never
+  // written through appendOp, so it is not in the Automerge document and no peer
+  // can receive it. _Prior: the stated reason was that
+  // "sendFullSyncIfFirstPairing ships child rows joined THROUGH
+  // schedule_templates", a payload builder deleted at the Stage 6c cutover; the
+  // conclusion is unchanged and now rests on the document instead._
+  // They are a per-device artefact; nothing here changes that. The
   // recovered Version is written without an op too, so an ALREADY-PAIRED peer
   // never learns of it — deliberate, not an oversight. The week only ever
   // existed on this device, and emitting an op would make a local repair into a
@@ -1478,7 +1492,11 @@ export function initSchema(db) {
   // this migration is harmless (CREATE TABLE/INDEX IF NOT EXISTS).
   //
   // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
-  // DIRECT_CAMP_ENTITIES, full_sync) — see the ADR's "why this reverses the
+  // DIRECT_CAMP_ENTITIES, the Automerge document) — _prior: the third registry in
+  // this list, here and at the five other host-local tables below, was
+  // `full_sync`, syncServer.js's first-pairing payload, deleted at the Stage 6c
+  // cutover; being absent from the DOCUMENT is what keeps a table device-local
+  // now_ — see the ADR's "why this reverses the
   // prior two ADRs" section. Import (and alias confirmation) is host-only and
   // admin-only, so there is exactly one writer and one copy of this table.
   if (getSchemaVersion(db) >= 29 && getSchemaVersion(db) < 30) {
@@ -1499,7 +1517,7 @@ export function initSchema(db) {
   // reapplying this migration is harmless (CREATE TABLE/INDEX IF NOT EXISTS).
   //
   // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
-  // DIRECT_CAMP_ENTITIES, full_sync) — host-local, same as source_aliases.
+  // DIRECT_CAMP_ENTITIES, the Automerge document) — host-local, same as source_aliases.
   // docs/adr/2026-08-10-ingestion-evidence-persistence.md.
   if (getSchemaVersion(db) >= 30 && getSchemaVersion(db) < 31) {
     db.transaction(() => {
@@ -1897,7 +1915,7 @@ export function initSchema(db) {
   // — reapplying this migration is harmless (CREATE TABLE IF NOT EXISTS).
   //
   // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
-  // DIRECT_CAMP_ENTITIES, full_sync) — same reasoning as source_aliases:
+  // DIRECT_CAMP_ENTITIES, the Automerge document) — same reasoning as source_aliases:
   // exactly one writer (electron/ops/declinedSplits.js), host-only, admin-only.
   if (getSchemaVersion(db) >= 46 && getSchemaVersion(db) < 47) {
     db.transaction(() => {
@@ -2240,7 +2258,7 @@ export function initSchema(db) {
   // (CREATE TABLE IF NOT EXISTS).
   //
   // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
-  // DIRECT_CAMP_ENTITIES, full_sync) — same reasoning as source_aliases:
+  // DIRECT_CAMP_ENTITIES, the Automerge document) — same reasoning as source_aliases:
   // exactly one writer (electron/ops/confirmCompoundCellPattern.js),
   // host-only, admin-only.
   if (getSchemaVersion(db) >= 53 && getSchemaVersion(db) < 54) {
@@ -2260,9 +2278,11 @@ export function initSchema(db) {
   // unconditionally via schema.sql above (initSchema execs it on every
   // open), so a migrated db already has the table by the time this block
   // runs — this block only records that this device has passed v55.
-  // Deliberately NOT registered anywhere sync touches (DOMAIN_SNAPSHOT_TABLES,
-  // appendOp) — local diagnostic state, same category as
-  // devices.last_synced_seq, never synced.
+  // Deliberately NOT registered anywhere sync touches — not modeled in the
+  // Automerge document (campDocument.js), not written through appendOp — so it is
+  // local diagnostic state, same category as devices.last_synced_seq, never
+  // synced. _Prior: the registry named here was DOMAIN_SNAPSHOT_TABLES,
+  // syncClient.js's apply-side map, deleted at the Stage 6c cutover._
   if (getSchemaVersion(db) >= 54 && getSchemaVersion(db) < 55) {
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (55, ?)').run(
       new Date().toISOString()
@@ -2282,7 +2302,7 @@ export function initSchema(db) {
   // EXISTS).
   //
   // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
-  // DIRECT_CAMP_ENTITIES, full_sync) — same reasoning as
+  // DIRECT_CAMP_ENTITIES, the Automerge document) — same reasoning as
   // compound_cell_decisions: exactly one writer
   // (electron/ops/locationWordDecisions.js), host-only, admin-only.
   if (getSchemaVersion(db) >= 55 && getSchemaVersion(db) < 56) {
@@ -2516,7 +2536,7 @@ const DEVICE_HEALTH_EVENTS_DDL = `
   // reapplying this migration is harmless (CREATE TABLE IF NOT EXISTS).
   //
   // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
-  // DIRECT_CAMP_ENTITIES, full_sync) — same reasoning as compound_cell_
+  // DIRECT_CAMP_ENTITIES, the Automerge document) — same reasoning as compound_cell_
   // decisions: exactly one writer (electron/ops/decisionJournal.js),
   // host-only, never replicated.
   if (getSchemaVersion(db) >= 62 && getSchemaVersion(db) < 63) {
@@ -4328,9 +4348,13 @@ export const IMPORT_EVIDENCE_INDEX_DDL =
 
 // A peer still on <=v22 rejects the manual candidate's schedule_templates row
 // (its UNIQUE(camp_id) absorbs the INSERT OR IGNORE) and then FK-violates on
-// every child op. applyRemoteOp swallows projection failures by design and
-// sendFullSyncIfFirstPairing never re-syncs a device that has synced once, so
-// nothing else would ever repair that device. The op-log rows themselves are
+// every child op. _Historical mechanism, kept because this repair still runs
+// against databases that lived through it: "applyRemoteOp swallows projection
+// failures by design and sendFullSyncIfFirstPairing never re-syncs a device that
+// has synced once, so nothing else would ever repair that device." Both were
+// deleted at the Stage 6c cutover. The repair is still needed for a db that
+// reached this state back then; the no-longer-existing transport is why it
+// could._ The op-log rows themselves are
 // durable — they are inserted BEFORE projection is attempted — so the missing
 // tables can be rebuilt from the log at upgrade time.
 //
