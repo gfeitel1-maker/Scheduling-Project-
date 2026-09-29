@@ -201,3 +201,35 @@ defect. The facts for whoever takes it are already in this ticket's Mechanism §
 one caller, `npm run test` is a bare `vitest run`, and an ad-hoc run takes no lock, so N sessions × M
 workers has nothing bounding the product.
 
+### Considered and declined: a CPU/wall ratio instead of a machine-wide load average
+
+Raised in review by the session that measured the wall-clock problem. A genuinely slow test burns CPU
+roughly in proportion to its wall time; a **starved** one burns almost none. So `wall > threshold AND
+cpu/wall < ~0.3` would discriminate slow code from a swamped machine **per test**, without consulting
+a load average that is a property of the box rather than of the test. It is a sharper instrument in
+principle.
+
+Declined, for three reasons, the first of which is now settled rather than suspected:
+
+1. **Vitest's reporter API does not expose per-test CPU time.** Checked against the installed 4.1.7:
+   `test.diagnostic()` carries `slow, heap, duration, startTime, retryCount, repeatCount, flaky` —
+   wall duration and a heap figure, no CPU attribution. There is no ratio to compute without building
+   that measurement, which means instrumenting inside the test runtime rather than reading a reporter.
+2. `machineLoadVerdict`'s `load1 >= cores * 4` already separates the two cases in practice, and it is
+   the filter the gate itself uses.
+3. It would be a **second mechanism to keep honest**, which cuts directly against this change's own
+   organising principle: one definition of the judgement, imported rather than copied.
+
+Worth revisiting only if vitest gains per-test CPU accounting, or if the load-average filter is
+observed misclassifying in practice.
+
+**And the related caution, which belongs in the record because it nearly went the other way.** Wall
+clock on this machine is worthless for measuring *what code costs* — the same session withdrew a
+"super-linear import cost" finding after re-measuring with `process.cpuUsage()` and interleaving
+sizes; the trend reversed outright, and identical reps of one commit ranged **2.2s to 9.8s wall
+against ~0.9s CPU**. That is not an argument against wall clock *here*: starvation is defined in wall
+time, and a test that did 0.9s of work and took 9.8s is exactly what the advisory has to explain to
+whoever is staring at the red. Measuring a starved test in CPU time would report it as cheap, which is
+true and beside the point. The two uses of the clock are different questions and want different
+instruments.
+
