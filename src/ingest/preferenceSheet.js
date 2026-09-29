@@ -272,6 +272,57 @@ export function detectWholeSheetGrid(rows = [], mapping = null) {
 }
 
 /**
+ * WHAT A SET OF ROLE ASSIGNMENTS COVERS, and what it leaves out.
+ *
+ * ONE definition, called by `inferPreferenceMapping` (roles it proposed itself)
+ * and by `mappingWithDirectorOverride` (roles a director assigned by hand). These
+ * two halves of a mapping are DERIVED from the roles, never stated alongside them:
+ * `unrecognisedColumns` becomes a residue item saying a column went unread, and
+ * `unmapped` decides whether the sheet is readable at all. Carrying a director's
+ * edited roles while keeping the inferencer's derived halves publishes both
+ * statements about the wrong sheet — a column reported unread that they just
+ * mapped, and a refusal for want of ranks they just supplied.
+ *
+ * A BLANK header is never reported, because a trailing empty column is a
+ * spreadsheet artefact rather than a field the camp asked about.
+ */
+function describeCoverage(cells, roles) {
+  const {
+    nameIndex, externalIdIndex, divisionIndex, dayIndex, periodIndex, unorderedSetIndex,
+    splitName, longFormat, invertedMatrix, rankColumns = [], tiedColumns = [],
+  } = roles
+
+  const claimed = new Set(
+    [
+      nameIndex, externalIdIndex, divisionIndex, dayIndex, periodIndex, unorderedSetIndex,
+      splitName?.firstNameIndex ?? null, splitName?.lastNameIndex ?? null,
+      longFormat?.rankValueIndex ?? null, longFormat?.activityValueIndex ?? null,
+    ]
+      .filter((i) => i != null)
+      .concat(rankColumns.map((r) => r.index).filter((i) => i != null))
+      .concat(tiedColumns)
+      .concat((invertedMatrix ?? []).map((c) => c.index))
+  )
+  const unrecognisedColumns = cells
+    .map((header, index) => ({ header, index, column: columnLabel(index) }))
+    .filter((c) => c.header !== '' && !claimed.has(c.index))
+
+  const unmapped = []
+  if (nameIndex == null && splitName == null) unmapped.push('name')
+  if (
+    rankColumns.length === 0 &&
+    tiedColumns.length === 0 &&
+    unorderedSetIndex == null &&
+    longFormat == null &&
+    invertedMatrix == null
+  ) {
+    unmapped.push('ranks')
+  }
+
+  return { unrecognisedColumns, unmapped }
+}
+
+/**
  * Propose which column is which, from the header row.
  *
  * Every field is nullable and `unmapped` names what was not found — the caller
@@ -391,35 +442,10 @@ export function inferPreferenceMapping(header = [], { catalog } = {}) {
       : []
   const invertedMatrix = activityColumns.length >= 2 ? activityColumns : null
 
-  // Every column that got a role. Anything else with a non-empty header is
-  // unrecognised — and a BLANK header is not reported, because a trailing empty
-  // column is a spreadsheet artefact rather than a field the camp asked about.
-  const claimed = new Set(
-    [
-      nameIndex, externalIdIndex, divisionIndex, dayIndex, periodIndex, unorderedSetIndex,
-      splitName?.firstNameIndex ?? null, splitName?.lastNameIndex ?? null,
-      longFormat?.rankValueIndex ?? null, longFormat?.activityValueIndex ?? null,
-    ]
-      .filter((i) => i != null)
-      .concat(rankColumns.map((r) => r.index))
-      .concat(tiedColumns)
-      .concat((invertedMatrix ?? []).map((c) => c.index))
-  )
-  const unrecognisedColumns = cells
-    .map((header, index) => ({ header, index, column: columnLabel(index) }))
-    .filter((c) => c.header !== '' && !claimed.has(c.index))
-
-  const unmapped = []
-  if (nameIndex === null && splitName === null) unmapped.push('name')
-  if (
-    rankColumns.length === 0 &&
-    tiedColumns.length === 0 &&
-    unorderedSetIndex === null &&
-    longFormat === null &&
-    invertedMatrix === null
-  ) {
-    unmapped.push('ranks')
-  }
+  const { unrecognisedColumns, unmapped } = describeCoverage(cells, {
+    nameIndex, externalIdIndex, divisionIndex, dayIndex, periodIndex, unorderedSetIndex,
+    splitName, longFormat, invertedMatrix, rankColumns, tiedColumns,
+  })
 
   return {
     nameIndex,
@@ -461,6 +487,152 @@ export function inferPreferenceLayout(rows = [], { maxScan = 10, catalog } = {})
     if (candidate.unmapped.length === 0) return { ...candidate, headerIndex: i }
   }
   return inferPreferenceMapping(rows[0] ?? [], { catalog })
+}
+
+/**
+ * A DIRECTOR'S MAPPING, made into one the inferencer could itself have produced. T307.
+ *
+ * The import panel shows the located mapping in an editable corrector, and what the
+ * director hands back is that object with some ROLES changed — a different camper-name
+ * column, a rank column they added because their camp heads it `Pick A` rather than
+ * `#1`. Their answer wins over the inferencer's: this is the same precedence a settled
+ * label resolution gets in `makeLabelResolver`, one layer up. It is not evidence to be
+ * weighed, it is the answer.
+ *
+ * What it is NOT is a mapping ready to be used, and passing it through raw makes the
+ * transform say two false things.
+ *
+ * 1. The DERIVED halves still describe the inferencer's reading. `describeCoverage`
+ *    recomputes them from the roles actually assigned, so a column the director just
+ *    mapped stops being reported as unread, and the column it replaced starts being
+ *    reported — both true statements about the sheet as the director now describes it.
+ *
+ * 2. `parsePreferenceSheet` is ADDITIVE across shapes: `rankColumns`, `longFormat`,
+ *    `invertedMatrix`, `tiedColumns` and `unorderedSetIndex` each push cells, with no
+ *    precedence between them. `inferPreferenceMapping` keeps them from colliding by
+ *    GATING — an inverted matrix is proposed only when no ordinary rank columns were
+ *    found, a split name only when no single name column was. A director's edit walks
+ *    straight past those gates, and the sheet is then read BOTH ways at once. So the
+ *    same gates are re-applied here rather than trusted to hold.
+ *
+ * Idempotent on an un-edited mapping: the roles are unchanged, so the gates and the
+ * coverage produce what inference already produced. That is worth stating because it
+ * is what lets the panel send the mapping ALWAYS, rather than trying to detect whether
+ * the director touched anything — a comparison that would be wrong the first time a
+ * field was added to the object.
+ */
+function gatedRoles(override) {
+  // A rank the director added but never pointed at a column states nothing, and
+  // `cell(row, null)` would read column 0 for every one of them.
+  const rankColumns = (override.rankColumns ?? [])
+    .filter((r) => r.index != null)
+    .slice()
+    .sort((a, b) => a.rank - b.rank)
+  const hasOwnRanks = rankColumns.length > 0 || (override.tiedColumns ?? []).length > 0
+
+  return {
+    nameIndex: override.nameIndex ?? null,
+    externalIdIndex: override.externalIdIndex ?? null,
+    divisionIndex: override.divisionIndex ?? null,
+    dayIndex: override.dayIndex ?? null,
+    periodIndex: override.periodIndex ?? null,
+    unorderedSetIndex: override.unorderedSetIndex ?? null,
+    // The inference gates, re-applied to a hand-edited object. A split name is used
+    // ONLY when there is no single name column; an inverted matrix ONLY when nothing
+    // else already supplies ranks.
+    splitName: override.nameIndex == null ? override.splitName ?? null : null,
+    longFormat: hasOwnRanks ? null : override.longFormat ?? null,
+    invertedMatrix: hasOwnRanks || override.longFormat ? null : override.invertedMatrix ?? null,
+    rankColumns,
+    tiedColumns: override.tiedColumns ?? [],
+  }
+}
+
+export function mappingWithDirectorOverride(override, rows = []) {
+  if (!override) return null
+  const cells = (rows[override.headerIndex ?? 0] ?? []).map((h) => String(h ?? '').trim())
+  const roles = gatedRoles(override)
+
+  return {
+    ...roles,
+    // Carried, not recomputed: a tie is a fact about the FILE's header (two columns
+    // headed `#1`), and the corrector offers no way to state or withdraw one.
+    duplicatedRanks: override.duplicatedRanks ?? [],
+    headerIndex: override.headerIndex ?? 0,
+    ...describeCoverage(cells, roles),
+  }
+}
+
+/**
+ * IS THIS MAPPING READY TO USE, and if not, what is wrong with it? T307.
+ *
+ * The import panel's confirm gate. It exists as a function HERE, beside the rules it
+ * asks about, because the alternative is the panel re-stating them — and a re-statement
+ * that drifts from the transform is this seam's recurring defect, not a hypothetical.
+ * T305 found the confirm gate refusing exactly the sheets the transform could read; the
+ * first draft of THIS ticket then rebuilt the same fault one shape over, by keeping
+ * `rankColumns.length > 0` as the gate. An inverted-matrix sheet carries its ranks in
+ * its cells and has no rank columns at all, so that gate made a director add a dummy
+ * rank column to get past it — which, now that the mapping is honoured, is an edit that
+ * closes the inverted-matrix gate and destroys the read.
+ *
+ * `unmapped` is the transform's OWN readability test (`readPreferenceSheet` returns
+ * `parsed: null` when it is non-empty and no grid is found), so asking it here means
+ * the button enables exactly when the import will land.
+ *
+ * `collision` is the one failure the transform cannot state, because inference cannot
+ * produce it: a column carrying two roles. `parsePreferenceSheet` is additive, so it
+ * would read that column twice rather than refuse it. It is a half-finished edit rather
+ * than a bad file, so the corrector catches it while the sample rows are still on
+ * screen. Roles are collected from the GATED mapping — a pre-gate collision that
+ * normalisation is about to remove is not something to nag a director about.
+ */
+export function describeMappingReadiness(override) {
+  if (!override) return { unmapped: ['name', 'ranks'], collision: null }
+  const roles = gatedRoles(override)
+
+  // `fixable` marks a role the CORRECTOR gives the director a control for. It is the
+  // difference between a question and a dead end, and the distinction is load-bearing
+  // rather than tidy: inference can assign two roles to one column all by itself (a
+  // header like "Child's Bunk Name" matches both the name and the division pattern,
+  // and each is found by its own independent `findIndex`). Refusing THAT would hand a
+  // director a disabled button naming two roles, at least one of which they have no
+  // way to change — precisely the terminal state M2 exists to forbid. So a collision
+  // is reported only when at least one of its roles can be moved from this screen,
+  // which means the message always names something the director can act on.
+  const assigned = [
+    { role: 'Camper name', index: roles.nameIndex, fixable: true },
+    { role: 'Camper ID', index: roles.externalIdIndex, fixable: true },
+    { role: 'Division', index: roles.divisionIndex, fixable: true },
+    { role: 'Day', index: roles.dayIndex },
+    { role: 'Period', index: roles.periodIndex },
+    { role: 'Choices', index: roles.unorderedSetIndex },
+    { role: 'First name', index: roles.splitName?.firstNameIndex },
+    { role: 'Last name', index: roles.splitName?.lastNameIndex },
+    { role: 'Rank value', index: roles.longFormat?.rankValueIndex },
+    { role: 'Activity', index: roles.longFormat?.activityValueIndex },
+    ...roles.rankColumns.map((r) => ({ role: `Rank #${r.rank}`, index: r.index, fixable: true })),
+    ...roles.tiedColumns.map((i) => ({ role: 'a tied choice', index: i })),
+    ...(roles.invertedMatrix ?? []).map((c) => ({ role: `“${c.header}”`, index: c.index })),
+  ].filter((a) => a.index != null)
+
+  const doubled = assigned.find((a, i) => {
+    if (assigned.findIndex((b) => b.index === a.index) === i) return false
+    return assigned.some((b) => b.index === a.index && b.fixable)
+  })
+
+  return {
+    // `describeCoverage` needs the header cells only for `unrecognisedColumns`; the
+    // readability half is derived from the roles alone, so the caller need not hold
+    // the sheet to ask this.
+    unmapped: describeCoverage([], roles).unmapped,
+    collision: doubled
+      ? {
+          index: doubled.index,
+          roles: assigned.filter((a) => a.index === doubled.index).map((a) => a.role),
+        }
+      : null,
+  }
 }
 
 /**
