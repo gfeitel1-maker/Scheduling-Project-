@@ -49,9 +49,6 @@ function preV71Db(tag = 'v71-migrated') {
 const columns = (db, table) => db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name)
 
 describe('migration v71: recurrence_level removal', () => {
-  it('CURRENT_SCHEMA_VERSION is 71', () => {
-  })
-
   it('is present at v70, before the v71 migration runs (non-vacuity)', () => {
     const db = preV71Db()
     expect(columns(db, 'fixed_events')).toContain('recurrence_level')

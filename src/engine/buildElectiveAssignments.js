@@ -688,7 +688,17 @@ export function buildElectiveAssignments({
     // "structurally ineligible for a member occurrence" in the ADR's terms, so
     // both are case (b) rather than a fourth finding kind:
     //
-    //   b1  they do not attend every period the set covers;
+    //   b1  they do not attend every period the set covers. Split further by
+    //       HOW MUCH of it they miss (round-2 finding 1): attending SOME but
+    //       not all is genuinely half-eligible and keeps the finding below.
+    //       Attending NONE of it means the only reason they were a candidate
+    //       at all is D4's labelKey broadcast pairing them with a SIBLING
+    //       division's same-labelled choice (an unscoped preference folds
+    //       into every choice sharing the label, T301 ADR D4) — they never
+    //       asked for THIS choice, so accusing them of skipping one of its
+    //       periods is a false, if confident, finding. They still cannot be
+    //       given the choice (unchanged: both stay in `excluded`), but only
+    //       the "some but not all" half is worth telling a director about;
     //   b2  they already hold a pre-placement in one of those periods. A seat
     //       placed by hand and locked STANDS AND WINS — it is never re-decided
     //       here (T246). Without this, tier 1 placed the camper into the choice
@@ -710,10 +720,14 @@ export function buildElectiveAssignments({
       (prePlacedByOccurrence.get(occurrenceId) ?? []).some((e) => e.camperId === camperId)
 
     const excluded = new Map() // choiceId -> Set(camperId)
+    // `message == null` excludes silently — still refused from tier 1, but
+    // without accusing anyone of anything (round-2 finding 1's "attends
+    // none of it" case, below).
     const exclude = (id, camperIds_, message) => {
       if (camperIds_.length === 0) return
       if (!excluded.has(id)) excluded.set(id, new Set())
       for (const c of camperIds_) excluded.get(id).add(c)
+      if (message == null) return
       findings.push({
         kind: 'UNSUPPORTED_LINKED_CHOICE',
         choice_ids: [id],
@@ -725,8 +739,17 @@ export function buildElectiveAssignments({
       const occs = occurrencesOf(id)
       const wanted = camperIds.filter((c) => choiceRankMinOverMembers(c, id, occs) != null)
       const absent = wanted.filter((c) => !occs.every((o) => attends(c, o)))
-      exclude(id, absent,
-        `${absent.length} camper(s) asked for \u201c${labelOfChoice(id)}\u201d but do not attend ` +
+      // Round-2 finding 1: a wanted-but-absent camper who attends NONE of
+      // this choice's periods was never a real candidate for it — the label
+      // match was D4's broadcast pairing them with a sibling division's
+      // same-labelled choice. Exclude them same as anyone else, but say
+      // nothing; only "attends some but not all" is the genuine half-eligible
+      // case the finding exists for.
+      const attendsNone = absent.filter((c) => !occs.some((o) => attends(c, o)))
+      const attendsSome = absent.filter((c) => !attendsNone.includes(c))
+      exclude(id, attendsNone, null)
+      exclude(id, attendsSome,
+        `${attendsSome.length} camper(s) asked for \u201c${labelOfChoice(id)}\u201d but do not attend ` +
         'every period it covers. They were placed one period at a time instead of together.')
       const held = wanted.filter((c) => !absent.includes(c) && occs.some((o) => holdsSeatAt(c, o)))
       exclude(id, held,

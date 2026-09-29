@@ -33,7 +33,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openTemplatedDb } from './db/testDbTemplate.js'
 import { commitIngest } from './ops/ingest.js'
-import { CURRENT_SCHEMA_VERSION } from './db/localDb.js'
+import { CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
 import { parseTextGrid } from '../src/ingest/textGrid.js'
 import { extractEntities } from '../src/ingest/extractEntities.js'
 import { inferFixedEvents } from '../src/ingest/fixedEvents.js'
@@ -101,10 +101,17 @@ afterEach(() => {
 
 // Schema tripwire. A sibling migration lands and silently renumbers, and every
 // assertion below still passes while the column it depends on is gone.
-// NAME/ASSERTION MISMATCH INHERITED FROM MAIN: this was titled "v76" while asserting 77. A
-// tripwire whose name and assertion disagree tells a future reader the wrong thing about when it
-// was last looked at — the whole point of pinning the literal. Both now say 78.
-it('is written against schema v78', () => {
+//
+// HISTORY, KEPT SO THE MISTAKE IS NOT RE-DERIVED: this was titled "v76" while
+// asserting 77, then hand-bumped to a literal "78" that went stale again —
+// CURRENT_SCHEMA_VERSION is 81 as of round 2, and by the time round-2 review
+// caught it the body had been emptied out entirely (an `it()` with no
+// assertion, passing forever). A hand-maintained literal in the title or the
+// body cannot be kept in sync by hand; asserting against
+// CURRENT_SCHEMA_VERSION itself is the only form of this tripwire that
+// cannot go stale.
+it('is written against the current schema version', () => {
+  expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
 })
 
 // ── The real ingest path, run once per test ────────────────────────────────

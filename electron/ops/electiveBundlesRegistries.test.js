@@ -68,6 +68,28 @@ describe('v81 registry coverage — field lists', () => {
       parentKey: 'elective_set_id',
     })
   })
+
+  // ROUND-2 FINDING 5: the describe.each block above only checks these two are
+  // TRUTHY, so a wrong-but-existing column name (e.g. 'day_id' where
+  // 'bundle_id' belongs — they sit adjacent on the same elective_bundle_periods
+  // row) would not throw; it would silently return wrong or empty rows from
+  // the listByScope filter these values build (electron/ops/read.js,
+  // electron/main.js). Exact-value, matching the elective_bundles case above.
+  it('elective_bundle_periods is parent-scoped by bundle_id, under elective_bundles (soft pointer, D1)', () => {
+    expect(PARENT_SCOPED_ENTITIES.elective_bundle_periods).toEqual({
+      table: 'elective_bundle_periods',
+      parentTable: 'elective_bundles',
+      parentKey: 'bundle_id',
+    })
+  })
+
+  it('elective_bundle_tiers is parent-scoped by bundle_id, under elective_bundles (soft pointer, D1)', () => {
+    expect(PARENT_SCOPED_ENTITIES.elective_bundle_tiers).toEqual({
+      table: 'elective_bundle_tiers',
+      parentTable: 'elective_bundles',
+      parentKey: 'bundle_id',
+    })
+  })
 })
 
 describe('DOMAIN_SNAPSHOT_ORDER FK ordering', () => {

@@ -176,9 +176,6 @@ describe('migration v73: fresh vs migrated equivalence (load-bearing per the ADR
     migrated.close()
   }, 30000)
 
-  it('declares CURRENT_SCHEMA_VERSION as 73', () => {
-  })
-
   it('is idempotent — re-running v73 does not duplicate tables, indexes, or rows', () => {
     const db = preV73Db('v73-idempotent')
     db.prepare("INSERT INTO camps (id, name) VALUES ('camp1', 'Camp')").run()
