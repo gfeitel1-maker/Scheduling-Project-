@@ -3,7 +3,7 @@ task: T302: a new elective finding cannot reach a director naming an activity by
 document_type: run
 date: 2026-09-29
 round: 1
-status: in-progress
+status: pass
 task_class: test-infrastructure
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
 related_tickets: [docs/work/tickets/T302-nothing-stops-the-next-finding-printing-a-label-key.md]
@@ -43,15 +43,15 @@ omitted_agents:
     note: "no reviewer reports to consolidate, since none were dispatched. A score averaged over zero inputs would be decoration."
 deterministic_checks: [npm run verify]
 human_gates: []
-verdict: UNVERIFIED
+verdict: PASS
 completion_evidence:
   - commit 54e70af8
   - "targeted: 10 new tests green (findingLabelCoverage.test.js)"
   - "targeted: 12 files / 168 tests green across src/screens/elective/assignment/ + src/engine/buildElectiveAssignments.test.js, T300's render tests included"
   - "targeted: eslint clean on all three changed files"
   - "non-vacuity: three plants, each red on the intended assertion and restored — shapes recorded in the guard's header"
-  - "gate: NOT RUN LOCALLY — to be replaced with the CI verdict line, quoted from the run log, once CI completes"
-archive_when: "CI reports a green verify on this branch and its verdict line is quoted into completion_evidence, replacing the NOT RUN LOCALLY placeholder."
+  - "gate: CI run 36641714546 on 9af38977 — quoted from the run log: '✅ VERIFY PASSED — agents:check + check:governance + licenses:check + build + security + test:integration + lint + test all green' (Test Files 596/596; Tests 7939 passed | 6 skipped)"
+archive_when: "satisfied — CI run 36641714546 reported a green verify on 9af38977 and its verdict line is quoted in completion_evidence."
 ---
 
 # T302: a new elective finding cannot reach a director naming an activity by its label key (closes T302)
@@ -73,10 +73,21 @@ archive_when: "CI reports a green verify on this branch and its verdict line is 
   assertion and each restored. Shapes recorded in the guard's own header so they can be re-run.
   Plant 3 went red twice and both were correct: the divergence check named the new kind, and the
   renamed kind's own test failed because its fixture no longer emitted it.
-- **Not run: the full `npm run verify`.** Stated rather than implied. CI is this repo's gate of
-  record (CLAUDE.md, TESTING_STANDARD §1) and a local gate takes a machine-wide lock on a 4-core
-  machine that several sessions were already gating on. The verdict line goes here, quoted from the
-  CI run's own log, once it completes.
+- **The gate: CI run 36641714546, green**, on `9af38977`. Verdict line quoted from the run's own
+  log rather than inferred from a check bucket or an exit code:
+
+  > ✅ VERIFY PASSED — agents:check + check:governance + licenses:check + build + security + test:integration + lint + test all green
+
+  Test Files 596 passed (596); Tests 7939 passed | 6 skipped (7945). All eight gates named, so this
+  is not a partial verdict assembled from steps run separately.
+- **The full `npm run verify` was not run LOCALLY**, and that is deliberate rather than skipped: CI
+  is this repo's gate of record (CLAUDE.md, TESTING_STANDARD §1), and a local gate takes a
+  machine-wide lock on a 4-core machine several sessions were already gating on.
+- **WHICH TREE THAT VERDICT COVERS, stated because the distinction is the whole point of the rule.**
+  Run 36641714546 verified `9af38977` — the branch as it stood BEFORE this paragraph was written.
+  Quoting a verdict into the record necessarily changes the tip, so a record that claimed its own
+  commit was the verified one would be citing a run that never saw it. The commit adding these lines
+  touches only this file and gets its own CI run; the merge waits on that one being green too.
 
 ## Agents
 
@@ -97,9 +108,10 @@ per agent from the enum; the two worth reading here:
 
 ## Verifier verdict
 
-UNVERIFIED — no Verifier agent ran and the full gate has not been run locally. CI is the gate of
-record and had not completed when this record was filed. A green CI verdict line, quoted from the
-run log, is what closes this out; see `archive_when`.
+PASS — on deterministic evidence, not on an agent's opinion. No Verifier agent was dispatched, and
+this line rests entirely on CI run 36641714546's own verdict line quoted above, which names all eight
+gates. That is the distinction the record is obliged to keep: the gate passed, and nobody reviewed
+the work independently. See the Code Reviewer note under Agents for what that leaves open.
 
 ## Findings carried forward
 
