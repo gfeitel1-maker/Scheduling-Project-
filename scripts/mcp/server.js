@@ -22,6 +22,9 @@ import {
   preferenceSheetCommitTool,
   attributeSubjectTool,
   listUnattributedSubjectsTool,
+  camperPreferencesTool,
+  setCamperPreferenceTool,
+  removeCamperPreferenceTool,
   listEntitiesTool,
   setupSummaryTool,
   scheduleStateTool,
@@ -179,6 +182,52 @@ const TOOLS = [
       required: ['subject_id', 'camper_name'],
     },
     handler: attributeSubjectTool,
+  },
+  {
+    name: 'camper_preferences',
+    description:
+      "One camper's elective choices as this camp holds them, or every camper's. Each row carries the preference_id to pass to set_camper_preference or remove_camper_preference, the day and period it applies to (or none, for a whole-run ranked answer), and edited_by_hand — whether a person here set it rather than the imported sheet. Check edited_by_hand before changing anything: overwriting a director's own correction is the one thing this surface must not do quietly.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        camper_name: { type: 'string', description: "Optional. Limit to one camper, by the name the camp writes." },
+        run_id: { type: 'string', description: 'Optional. Limit to one assignment run.' },
+      },
+    },
+    handler: camperPreferencesTool,
+  },
+  {
+    name: 'set_camper_preference',
+    description:
+      "State what one camper asked for in one period, without re-importing a file. To CORRECT an existing answer pass its replaces_preference_id from camper_preferences — the correction then keeps that answer's scope, so a whole-run ranked list stays whole-run instead of being narrowed to a single period. Omit it to state a new preference for the named period. Solve the run again afterwards for the change to reach the placements. Requires --allow-write.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        run_id: { type: 'string', description: 'The assignment run, from camper_preferences.' },
+        camper_id: { type: 'string', description: 'The camper, from camper_preferences.' },
+        occurrence_id: { type: 'string', description: 'The period this is about, from camper_preferences.' },
+        choice_id: { type: 'string', description: 'What they asked for. Must be a choice this run already knows — see camper_preferences.' },
+        rank: { type: 'integer', description: 'Where this sits in their ordering. Pass the replaced row\u2019s rank when correcting one; 1 for a period they have chosen.' },
+        rank_kind: { type: 'string', description: "How to read that rank: 'cell-choice', 'ordered-fallback' or 'unordered-set'." },
+        replaces_preference_id: { type: 'string', description: 'Optional. The answer being corrected, from camper_preferences.' },
+      },
+      required: ['run_id', 'camper_id', 'occurrence_id', 'choice_id'],
+    },
+    handler: setCamperPreferenceTool,
+  },
+  {
+    name: 'remove_camper_preference',
+    description:
+      'Withdraw one preference a camper no longer wants. The removal is recorded as a person\u2019s decision, so importing the same sheet again will not put it back. Requires --allow-write.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        run_id: { type: 'string', description: 'The assignment run, from camper_preferences.' },
+        preference_id: { type: 'string', description: 'The preference to withdraw, from camper_preferences.' },
+      },
+      required: ['run_id', 'preference_id'],
+    },
+    handler: removeCamperPreferenceTool,
   },
   {
     name: 'list_entities',

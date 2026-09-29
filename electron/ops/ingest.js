@@ -18,7 +18,7 @@
 import { randomUUID, createHash } from 'node:crypto'
 import { appendOp, DELETE_FIELD, latestOp, findOpByClientWriteId, runAtomic } from './operations.js'
 import { latestOpForEntity, lastKnownFields, lastKnownFieldSources } from './restore.js'
-import { isHumanOwned } from './fieldProvenance.js'
+import { isHumanOwned, isHumanDeleted } from './fieldProvenance.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName, recognitionKey } from '../../src/ingest/preview.js'
 import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
@@ -1297,8 +1297,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       .all()
       .map((r) => r.entity_id)
     for (const entity_id of entityIds) {
-      const latest = latestOpForEntity(db, 'fixed_events', entity_id)
-      if (!latest || latest.field !== DELETE_FIELD || latest.source !== 'human') continue
+      // T297 moved this predicate into fieldProvenance.js's isHumanDeleted so
+      // commitElectiveRun's own held-preference gate uses the identical rule,
+      // including the `=== 'human'` the comment above explains.
+      if (!isHumanDeleted(db, 'fixed_events', entity_id)) continue
       const fields = lastKnownFields(db, 'fixed_events', entity_id)
       if (fields.get('camp_id') !== camp_id) continue
       const dayId = fields.get('day_id')

@@ -16,6 +16,8 @@ import { runIngestCli } from '../ingestCli.js'
 import { runPreferenceSheetCli } from '../preferenceSheetCli.js'
 import { resolutionMap, RESOLUTION } from '../../src/ingest/labelResolutions.js'
 import { attributeElectiveSubject } from '../../electron/ops/attributeElectiveSubject.js'
+import { setElectivePreference, removeElectivePreference } from '../../electron/ops/setElectivePreference.js'
+import { isHumanOwned } from '../../electron/ops/fieldProvenance.js'
 import { listEntities } from '../../electron/ops/read.js'
 import { assembleScheduleEngineInputs } from '../../electron/ops/scheduleEngineInputs.js'
 import { normalizeSlots } from '../../src/utils/normalizeSlots.js'
@@ -157,6 +159,125 @@ export function attributeSubjectTool(args, { dbPath, allowWrite, authorUserId, d
       subjectId: args.subject_id,
       displayName: args.camper_name,
       externalId: args.external_id ?? null,
+    })
+    return out.ok ? { ...out, exitCode: 0 } : { ...out, exitCode: 1 }
+  } finally {
+    db.close()
+  }
+}
+
+// T297 — ONE CAMPER'S PREFERENCES, AND WHETHER A HUMAN SET THEM.
+//
+// WHY THIS BELONGS ON THE MCP SURFACE. T298 drew the line at side effects: a tool
+// whose stated job is "read this sheet" must not change camp setup on the way
+// past. That line is about a write hiding inside a read, not about writes as
+// such — attribute_camper_subject is a targeted, explicitly-named write and sits
+// here for exactly the reason this one does: the same act is available to the
+// director on screen, and an agent working on their behalf must not be the one
+// party who has to re-import a file to change one child's answer.
+//
+// `edited_by_hand` is carried deliberately. The whole point of T297's provenance
+// is that a correction is distinguishable from an import, and a surface that
+// could not see the difference would be inviting an agent to overwrite a
+// director's decision without knowing it had.
+export function camperPreferencesTool(args, { dbPath, dbKey }) {
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
+  try {
+    // The filters are BOUND INTO THE SQL rather than applied afterwards: asking
+    // for one camper otherwise joins five tables across every preference row in
+    // the database and discards almost all of it.
+    const camperName = args?.camper_name ?? null
+    const runId = args?.run_id ?? null
+    const rows = db
+      .prepare(
+        `SELECT p.id AS preference_id, p.run_id, p.camper_id, p.choice_id, p.occurrence_id,
+                p.rank, p.rank_kind, p.coordinate_day_label, p.coordinate_period_label,
+                c.display_name AS camper_name, ch.label AS choice_label,
+                d.label AS day_label, t.name AS period_label
+           FROM elective_preferences p
+           LEFT JOIN campers c ON c.id = p.camper_id
+           LEFT JOIN elective_choices ch ON ch.id = p.choice_id
+           LEFT JOIN elective_occurrences o ON o.id = p.occurrence_id
+           LEFT JOIN days_of_operation d ON d.id = o.day_id
+           LEFT JOIN time_blocks t ON t.id = o.time_block_id
+          WHERE (:camperName IS NULL OR c.display_name = :camperName)
+            AND (:runId IS NULL OR p.run_id = :runId)
+          ORDER BY c.display_name, p.id`
+      )
+      .all({ camperName, runId })
+      .map((r) => ({
+        ...r,
+        // The cell as the CAMP names it when a template has bound one, and as the
+        // CHILD wrote it otherwise — a coordinate-keyed row is the ordinary shape
+        // for a planner sheet imported before any schedule existed.
+        day: r.day_label ?? r.coordinate_day_label,
+        period: r.period_label ?? r.coordinate_period_label,
+        edited_by_hand: isHumanOwned(db, 'elective_preferences', r.preference_id, 'choice_id'),
+      }))
+    return { ok: true, preferences: rows, exitCode: 0 }
+  } finally {
+    db.close()
+  }
+}
+
+// T297 — state one camper's preference for one cell, or correct an existing one.
+//
+// `replaces_preference_id` is how a CORRECTION is expressed, and passing it
+// matters: the new row inherits that row's scope, so a whole-run ranked answer
+// stays whole-run instead of being narrowed to one cell. Omitting it states a new
+// preference for the named cell. See electron/ops/setElectivePreference.js.
+export function setCamperPreferenceTool(args, { dbPath, allowWrite, authorUserId, dbKey }) {
+  if (!allowWrite) {
+    return {
+      ok: false,
+      error:
+        'this changes data — relaunch the server with --allow-write to enable set_camper_preference',
+      exitCode: 1,
+    }
+  }
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
+  try {
+    const device = db.prepare('SELECT id FROM devices LIMIT 1').get()
+    if (!device) return { ok: false, error: 'db has no device registered yet', exitCode: 1 }
+    const out = setElectivePreference(db, {
+      runId: args.run_id,
+      camperId: args.camper_id,
+      occurrenceId: args.occurrence_id,
+      choiceId: args.choice_id,
+      rank: args.rank ?? null,
+      rankKind: args.rank_kind ?? null,
+      replacesPreferenceId: args.replaces_preference_id ?? null,
+      authorUserId: authorUserId ?? null,
+      deviceId: device.id,
+    })
+    return out.ok ? { ...out, exitCode: 0 } : { ...out, exitCode: 1 }
+  } finally {
+    db.close()
+  }
+}
+
+// T297 — withdraw one preference. A separate verb rather than a null choice on
+// set_camper_preference: "remove" and "set to nothing" are different statements
+// and collapsing them would make a removal something an agent could do by
+// accident.
+export function removeCamperPreferenceTool(args, { dbPath, allowWrite, authorUserId, dbKey }) {
+  if (!allowWrite) {
+    return {
+      ok: false,
+      error:
+        'this changes data — relaunch the server with --allow-write to enable remove_camper_preference',
+      exitCode: 1,
+    }
+  }
+  const db = openLocalDb(dbPath, { key: dbKey ?? null })
+  try {
+    const device = db.prepare('SELECT id FROM devices LIMIT 1').get()
+    if (!device) return { ok: false, error: 'db has no device registered yet', exitCode: 1 }
+    const out = removeElectivePreference(db, {
+      runId: args.run_id,
+      preferenceId: args.preference_id,
+      authorUserId: authorUserId ?? null,
+      deviceId: device.id,
     })
     return out.ok ? { ...out, exitCode: 0 } : { ...out, exitCode: 1 }
   } finally {

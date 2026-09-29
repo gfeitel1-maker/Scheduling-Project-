@@ -22,6 +22,7 @@ import { SyncIcon } from '../../../components/icons/index.jsx'
 import { deriveOccurrences } from './deriveOccurrences.js'
 import { buildOfferings, findMismatches } from './buildOfferings.js'
 import { resolvePreferenceCoordinates } from './resolvePreferenceCoordinates.js'
+import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerivedIds.js'
 import { buildAttendance } from './buildAttendance.js'
 import { exportElectiveRunExcel, buildElectiveRunExport } from './exportElectiveRun.js'
 import MappingCorrector from './MappingCorrector.jsx'
@@ -492,7 +493,13 @@ export default function AssignmentPanel({
     solve(occs, [], chosenTemplateId)
   }
 
-  function solve(occs, lockedAssignments = [], chosenTemplateId = null) {
+  // T297 — `runPreferences`/`runChoices` re-solve from the run's OWN stored rows
+  // instead of the parsed sheet. Both null/empty on every other path, where
+  // `parsed.preferences` is the only truth there is (nothing is committed yet on
+  // a first solve). This is what makes an edit take effect: a director who
+  // corrects a preference and re-solves must not get a solve built from the file
+  // they did not re-import.
+  function solve(occs, lockedAssignments = [], chosenTemplateId = null, runPreferences = null, runChoices = []) {
     setPhase('solving')
     // Deliberately async-shaped so the busy phase actually paints before the
     // (synchronous, potentially heavy) solve runs.
@@ -514,7 +521,7 @@ export default function AssignmentPanel({
       // Nothing is written back: the stored rows keep their coordinates, and the
       // resolved occurrence lives only for this solve against this template.
       const resolvedPreferences = resolvePreferenceCoordinates({
-        preferences: parsed.preferences,
+        preferences: runPreferences ?? parsed.preferences,
         occurrences: occs,
         days,
         timeBlocks,
@@ -532,7 +539,32 @@ export default function AssignmentPanel({
         // Empty on a first solve; non-empty only on a regenerate, which is the
         // only path that has a persisted run to read locks from.
         lockedAssignments,
+        // T297 — THE RUN'S CHOICES, and only on a re-solve from stored rows.
+        //
+        // A stored preference names `choice_id` and nothing else; the engine's
+        // ranks and buildOfferings' offerings are both keyed by `labelKey`. The
+        // engine resolves a choice_id perfectly well — but ONLY when handed
+        // `choices` (its own note says nothing in production passes them yet).
+        // Without this, every stored row resolves to no choice and no labelKey,
+        // the preference loop records no rank at all, and the solve fills the
+        // week with fallbacks while reporting nothing wrong. A confident wrong
+        // answer, not a visible failure.
+        //
+        // `labelKey` is `electiveChoiceLabelKey(choice.label)` — the same
+        // function buildOfferings applies to the ACTIVITY name, so a choice and
+        // the offering it refers to meet. Left EMPTY on the parsed path, which
+        // needs no resolution (those preferences already carry labelKey) and
+        // where passing choices would newly feed the engine's dormant
+        // linked-choice tier.
+        choices: runChoices.map((c) => ({
+          id: c.id, labelKey: electiveChoiceLabelKey(c.label), is_linked: c.is_linked ?? 0,
+        })),
       })
+      // DELIBERATELY `parsed.preferences`, even on a re-solve from the database.
+      // findMismatches keys on `labelKey` and on `label` for its wording, and it
+      // reports about THE FILE ("was ranked by campers but does not match any
+      // offered activity") — a sentence about the sheet the director imported.
+      // It is not an oversight that the re-solve's own rows are not used here.
       const mismatchFindings = findMismatches({ offerings, preferences: parsed.preferences })
       // T232 — one finding PER unmatched division value, naming the value and
       // the division it probably meant. The previous version reported only a
@@ -655,9 +687,12 @@ export default function AssignmentPanel({
   // preview so they commit the new solve deliberately. Only offered when this
   // session still holds the parsed sheet (a run opened cold from the list has
   // no sheet in memory to re-solve from).
-  function regenerate({ lockedAssignments }) {
+  // T297 — `preferences`/`choices` are the RUN's own stored rows, passed up by
+  // DraftRunView after a preference edit. See solve()'s `choices` note for why
+  // both halves have to travel together.
+  function regenerate({ lockedAssignments, preferences: runPreferences = null, choices: runChoices = [] }) {
     setViewRun(null)
-    solve(occurrences, lockedAssignments)
+    solve(occurrences, lockedAssignments, null, runPreferences, runChoices)
   }
 
   // Q1/Q2: a finalized run is immutable and there is no reopen. With today's

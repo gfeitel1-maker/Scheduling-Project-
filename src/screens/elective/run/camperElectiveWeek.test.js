@@ -56,10 +56,14 @@ describe('buildCamperElectiveWeek', () => {
 
   it('carries the activity placed there and the ranked-or-fallback verdict per occurrence', () => {
     const week = buildCamperElectiveWeek({ camperId: 'cam-1', rows, ...catalogs })
+    // `preferenceId` joined the entry in T297 and stays an EXHAUSTIVE toEqual
+    // rather than being relaxed to toMatchObject: this assertion's value is that
+    // it pins the whole shape, so a future field has to be added here
+    // deliberately. These rows pass no `preferences`, so null is the answer.
     expect(week.entries).toEqual([
-      { assignmentId: 'a-mon-1', occurrenceId: 'occ-mon-1', dayName: 'Monday', blockName: 'First Period', activityName: 'Archery', rank: 1, isFallback: false },
-      { assignmentId: 'a-mon-2', occurrenceId: 'occ-mon-2', dayName: 'Monday', blockName: 'Second Period', activityName: 'Archery', rank: 2, isFallback: false },
-      { assignmentId: 'a-tue', occurrenceId: 'occ-tue-1', dayName: 'Tuesday', blockName: 'First Period', activityName: 'Pottery', rank: null, isFallback: true },
+      { assignmentId: 'a-mon-1', occurrenceId: 'occ-mon-1', dayName: 'Monday', blockName: 'First Period', activityName: 'Archery', rank: 1, isFallback: false, choiceId: null, preferenceId: null },
+      { assignmentId: 'a-mon-2', occurrenceId: 'occ-mon-2', dayName: 'Monday', blockName: 'Second Period', activityName: 'Archery', rank: 2, isFallback: false, choiceId: null, preferenceId: null },
+      { assignmentId: 'a-tue', occurrenceId: 'occ-tue-1', dayName: 'Tuesday', blockName: 'First Period', activityName: 'Pottery', rank: null, isFallback: true, choiceId: null, preferenceId: null },
     ])
   })
 

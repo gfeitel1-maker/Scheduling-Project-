@@ -141,6 +141,10 @@ contextBridge.exposeInMainWorld('shoresh', {
   // T245 — draft move/lock. Admin-only in the main process, same as the
   // commits above. Appended; do not reorder.
   setElectiveAssignment: (args) => ipcRenderer.invoke('shoresh:set-elective-assignment', args),
+  // T297 — editing what a camper ASKED for, as distinct from the placement
+  // they got above.
+  setElectivePreference: (args) => ipcRenderer.invoke('shoresh:set-elective-preference', args),
+  removeElectivePreference: (args) => ipcRenderer.invoke('shoresh:remove-elective-preference', args),
   // T248 — per-camper outer schedule read (final-run snapshot or draft-derive).
   getElectiveRunOuterSchedule: (args) => ipcRenderer.invoke('shoresh:get-elective-run-outer-schedule', args),
   // T249 — read-only device build posture (at-rest encryption on/off). No

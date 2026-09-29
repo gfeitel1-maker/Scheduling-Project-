@@ -31,6 +31,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { appendOp, runAtomic, DELETE_FIELD } from './operations.js'
+import { isHumanOwned } from './fieldProvenance.js'
 import { deriveCamperId, deriveElectivePreferenceId, deriveElectiveAssignmentId } from './electiveDerivedIds.js'
 
 /**
@@ -69,12 +70,13 @@ export function attributeElectiveSubject(db, {
 
   const camperId = deriveCamperId(campId, { externalId: externalId || null, displayName: name })
 
-  const write = (entity, entity_id, fields) => {
+  const write = (entity, entity_id, fields, { source = null } = {}) => {
     for (const [field, value] of Object.entries(fields)) {
       if (value === undefined) continue
       appendOp(db, {
         entity, entity_id, field, value,
         author_user_id: authorUserId, device_id: deviceId, client_write_id: randomUUID(),
+        source,
       })
     }
   }
@@ -92,6 +94,25 @@ export function attributeElectiveSubject(db, {
          FROM elective_preferences WHERE camper_id = ?`
     )
     .all(subjectId)
+    // T297 — CARRY THE PROVENANCE ACROSS THE REKEY.
+    //
+    // A rekey re-derives the preference id (the camper id is part of it), so the
+    // moved row is a NEW record with a fresh op history. Leaving `source` unset
+    // made every moved row read back as hand-edited, because appendOp defaults it
+    // to null and isHumanOwned decodes null as human. Harmless while nothing
+    // stamped these rows at all; wrong the moment commitElectiveRun began
+    // labelling its own writes 'import', because then naming one camper would
+    // silently relabel that child's whole imported sheet as the director's own
+    // corrections — and the next import of the same file would hold every one of
+    // them and report a PREFERENCE_EDIT_HELD finding per row. A flood of false
+    // "you edited this" claims, which is the same defect class as a silent
+    // overwrite wearing the opposite costume.
+    //
+    // So the moved row inherits exactly what was true of the row it came from.
+    .map((p) => ({
+      ...p,
+      source: isHumanOwned(db, 'elective_preferences', p.id, 'choice_id') ? 'human' : 'import',
+    }))
   const assignments = db
     .prepare(
       `SELECT id, run_id, occurrence_id, activity_id, choice_id, preference_rank, source, solver_generation, is_locked
@@ -151,7 +172,8 @@ export function attributeElectiveSubject(db, {
             rank_kind: p.rank_kind,
             coordinate_day_label: p.coordinate_day_label,
             coordinate_period_label: p.coordinate_period_label,
-          }
+          },
+          { source: p.source }
         )
         remove('elective_preferences', p.id)
       }
