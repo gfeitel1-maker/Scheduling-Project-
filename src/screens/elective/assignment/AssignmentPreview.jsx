@@ -4,6 +4,11 @@
 import { useState } from 'react'
 import { S, prefersReducedMotion } from '../../../styles/shared'
 import { ChevronIcon } from '../../../components/icons/index.jsx'
+import { findingDisplayMessage } from './findingDisplayMessage.js'
+
+// "1 occurrences" read as a bug in the data before it read as a typo. The
+// per-occurrence header below already got this right; the summary line did not.
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 const FLAG_COPY = {
   NOT_TOP_CHOICE: (rank) => `Not top choice (got #${rank})`,
@@ -79,7 +84,7 @@ function OccurrencePanel({ occurrence, day, timeBlock, tierName, assignments, ac
 
 export default function AssignmentPreview({
   assignments = [], findings = [], occurrences = [], days = [], timeBlocks = [], tiers = [],
-  activities = [], campers = [], role, onCommit, committing = false,
+  activities = [], campers = [], choices = [], role, onCommit, committing = false,
 }) {
   const [openOccurrenceId, setOpenOccurrenceId] = useState(null)
   const dayById = new Map(days.map((d) => [d.id, d]))
@@ -113,12 +118,14 @@ export default function AssignmentPreview({
   return (
     <div>
       <div style={{ marginBottom: 12, fontSize: 13 }}>
-        {camperCount} campers placed · {occurrences.length} occurrences · {findings.length} findings
+        {plural(camperCount, 'camper')} placed · {plural(occurrences.length, 'occurrence')} · {plural(findings.length, 'finding')}
       </div>
       {findings.length > 0 && (
         <ul style={{ margin: '0 0 14px', paddingLeft: 0, listStyle: 'none' }}>
           {findings.map((f, i) => (
-            <li key={i} style={S.findingsRailRow('var(--danger)')}>{f.message}</li>
+            <li key={i} style={S.findingsRailRow('var(--danger)')}>
+              {findingDisplayMessage(f, { activities, choices })}
+            </li>
           ))}
         </ul>
       )}
