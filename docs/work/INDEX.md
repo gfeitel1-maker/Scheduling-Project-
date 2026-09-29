@@ -76,7 +76,6 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [The linked-choice tier is unreachable in the product](../../docs/work/tickets/T301-linked-elective-choices-never-reach-the-solver.md) | open | [2026-09-29-linked-elective-bundles](../../docs/adr/2026-09-29-linked-elective-bundles.md) · [2026-09-29-t301-linked-elective-bundles-design](../../docs/work/specs/2026-09-29-t301-linked-elective-bundles-design.md) |
 | [A whole-sheet planner grid imports through the director's panel](../../docs/work/tickets/T305-a-whole-sheet-planner-grid-imports-through-the-panel.md) | open | [T306-the-director-can-name-an-unnamed-submission](../../docs/work/tickets/T306-the-director-can-name-an-unnamed-submission.md) · [T307-a-directors-column-correction-is-honoured](../../docs/work/tickets/T307-a-directors-column-correction-is-honoured.md) |
 
 ### unclassified

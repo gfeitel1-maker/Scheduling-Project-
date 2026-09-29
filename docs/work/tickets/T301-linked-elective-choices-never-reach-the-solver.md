@@ -1,7 +1,7 @@
 ---
 title: "The linked-choice tier is unreachable in the product"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -76,16 +76,57 @@ activity **may** carry more than one bundle, which a camper picks between; and a
 
 Two consequences worth carrying at the ticket level:
 
-- **T219 (multi-day catalog linkage) is the same feature, not a separate one.** `deriveOccurrences`
-  builds an occurrence per distinct `(day, time_block, tier)` cell, so Mon P3 + Mon P4 and Tue P2 +
-  Thu P2 are structurally identical. T219 should be closed by this work or explicitly re-scoped.
+- ~~**T219 (multi-day catalog linkage) is the same feature, not a separate one.**~~ **CORRECTED on
+  close, 2026-09-29 — this was too broad and T219 STAYS OPEN.** What is true: `deriveOccurrences`
+  builds an occurrence per distinct `(day, time_block, tier)` cell, so a double period and a
+  multi-day pair are structurally identical *as a bundle's membership*, and T301 needs no adjacency
+  rule to express either. What does not follow: that T301 closes T219. Reading T219's own
+  "Reshaped (2026-09-26)" section rather than its title shows it was narrowed to the **ingest
+  half** — consume `linkageMarkers` (produced by `src/ingest/parseGridSchedule.js`, consumed by
+  nothing) in the elective-grid commit path, so a camp's *imported offering sheet* yields linkage
+  without a director re-declaring it by hand. T301 built the **authoring** half. Both halves are
+  real and only one is done.
+- **A model tension for whoever takes T219, recorded not resolved.** T219's reshaped design says a
+  multi-span "occupies two real time blocks, rendered as one cell spanning both", via
+  `span_blocks`/`is_span_head` — the slot-span chain. T301 deliberately does NOT use that chain:
+  ADR D12 verified electives are excluded from spanning at four layers and chose the
+  choice/member model instead, and decision 5 (arbitrary, non-contiguous periods) means the chain
+  could not express a bundle even if that exclusion were lifted. So the two tickets currently
+  describe multi-period electives with two different mechanisms. That needs settling before T219's
+  ingest work picks one, and it is an ADR-level question, not an implementation detail.
 - **There is one unsettled architectural decision, and it is the ADR's job, not this ticket's.** A
   bundle serving several divisions must expand to one choice PER division, because tier 1 excludes a
   camper who does not attend every member occurrence — and `deriveElectiveChoiceId(runId, labelKey)`
   keys on label alone, so those choices collide on one id. Three options and a preference are in the
   spec.
 
-Do not start slice 1 before the ADR settles that.
+_Prior: ~~Do not start slice 1 before the ADR settles that.~~ Settled in
+`docs/adr/2026-09-29-linked-elective-bundles.md` and delivered._
+
+## Closed 2026-09-29 — all three slices on `main`
+
+- Slice 1 (schema v81, bundle storage, `deriveChoices`, the rank-collision fix) — PR #629, squash
+  `388631ee`.
+- Slices 2+3 (the authoring control and the solver wiring) — PR #646, squash `9e216c29`.
+
+A director can mark an activity as taken across a chosen set of an elective set's periods, name the
+bundle, create more than one bundle for the same activity, and a camper who ranks one is placed in
+every one of its periods or in none.
+
+Two things found on the way, both fixed in branch and neither caused by T301:
+
+- `buildAttendance` read `camper.division` while the parser has only ever produced
+  `division_label`, so division scoping had never worked on a real sheet import since T229. Its own
+  tests hid it by hand-building fixtures that matched the bug. Found only because the work was
+  driven through the real UI.
+- The engine changed twice, contrary to this ticket's first reading that it would not: a multimap
+  rank broadcast so per-division choices each receive a camper's ranks, and a fix for tier 1
+  falsely reporting that a cross-division camper "does not attend every period". Placement was
+  correct in the second case; the findings surface was lying to the director.
+
+CI caught three registry gaps that three reviewers and a verifier had all passed — each had run a
+chosen subset of tests, and the defect sat where nobody chose. Adding a table in this repo is a
+registration checklist, and the guards are the checklist.
 
 ## Slice 1 — LANDED (2026-09-29): storage, derivation, and the engine rank fix
 
