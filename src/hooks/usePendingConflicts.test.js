@@ -167,10 +167,16 @@ describe('usePendingConflicts (Fix 3, renderer-side): reconciles pending conflic
     })
     expect(result.current.conflicts).toHaveLength(1)
 
-    // Simulate the Host replaying a missed resolution op on reconnect
-    // (electron/sync/syncServer.js's sendMissedOps) — it arrives on this
-    // device as an op_applied event, and by the time it does, the conflict
-    // is no longer pending server-side.
+    // Simulate a resolution op reaching this device in a reconnect catch-up — it
+    // arrives as an op_applied event, and by the time it does, the conflict is no
+    // longer pending in the durable list. _Prior: this described "the Host
+    // replaying a missed resolution op on reconnect (electron/sync/syncServer.js's
+    // sendMissedOps)", and "pending server-side". sendMissedOps was deleted at the
+    // Stage 6c cutover and there is no server side; the catch-up is now a document
+    // merge, with the events derived by synthesizeOpEvents
+    // (electron/sync/automerge/docDiffEvents.js) — see the hook's own comment. The
+    // renderer-side gap this test covers is the same either way, which is why the
+    // test is unchanged._
     localClient.listPendingConflicts.mockResolvedValue([])
 
     await act(async () => {

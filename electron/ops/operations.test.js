@@ -396,11 +396,19 @@ describe('appendOp field allowlist + transaction', () => {
 })
 
 // M6 (D2, docs/adr/2026-08-16-locations-optional-map.md): the size guard on
-// operations.value. `appendOp` is the single choke point both the local
-// write() path and the Host's handleSubmitOp (a remote Client's WS
-// submission) go through — this is the AUTHORITATIVE gate, not a convenience
-// check, so the fail-first evidence here matters more than the happy path:
-// the write must be rejected BEFORE any row is written, on both paths.
+// operations.value. `appendOp` is the choke point every LOCAL write goes through,
+// so the fail-first evidence here matters more than the happy path: the write must
+// be rejected BEFORE any row is written.
+//
+// ⚠️ _Prior: "`appendOp` is the single choke point both the local write() path and
+// the Host's handleSubmitOp (a remote Client's WS submission) go through — this is
+// the AUTHORITATIVE gate, not a convenience check ... on both paths." There is no
+// second path: handleSubmitOp was deleted at the Stage 6c cutover. These tests
+// therefore cover the ONLY path that enforces the cap, which also means they do
+// not — and cannot, at this level — cover a remote write, because a remote write
+// arrives as a merged document and is projected without passing through appendOp.
+// See the matching note on MAX_FIELD_VALUE_LENGTH in operations.js; T311 recorded
+// the enforcement gap rather than closing it._
 describe('appendOp size guard (MAX_FIELD_VALUE_LENGTH, D2)', () => {
   it('registers exactly the one entity/field this codebase needs it for', () => {
     expect(MAX_FIELD_VALUE_LENGTH).toEqual({ camp_maps: { image_data: 1_400_000 } })

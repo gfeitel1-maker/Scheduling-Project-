@@ -7,13 +7,19 @@ import {
   assertDirectEntityParity,
 } from './campScopedEntities.js'
 
-// T88 review follow-up: two hand-maintained lists survived the ticket's
-// single-sourcing fix — syncServer.js's DIRECT_CAMP_ENTITIES iteration
-// (send side) vs DOMAIN_SNAPSHOT_ORDER's direct members (apply side), and
-// syncServer.js's DIRECT_CAMP_ENTITIES iteration. That module asserts parity
-// at import time; these tests prove the assertion (a) holds for the real,
-// current registries and (b) actually fires — not just exists as dead code —
-// on synthetic violating input for each direction of the drift.
+// The registry keeps the same entity set in two shapes — DIRECT_CAMP_ENTITIES (a
+// Set, for membership tests) and DOMAIN_SNAPSHOT_ORDER's direct members (an array,
+// for FK-safe apply order) — and asserts their parity at import time. These tests
+// prove the assertion (a) holds for the real, current registries and (b) actually
+// fires, rather than existing as dead code, on synthetic violating input for each
+// direction of the drift.
+//
+// _Prior (T88 review follow-up): the two drifting lists were named as
+// "syncServer.js's DIRECT_CAMP_ENTITIES iteration (send side) vs
+// DOMAIN_SNAPSHOT_ORDER's direct members (apply side)" — a sentence that had also
+// become garbled, naming syncServer.js's iteration twice. That file was deleted at
+// the Stage 6c cutover; the two shapes still exist and can still drift, but their
+// consumers are now main.js's read path and electron/automerge/._
 //
 // Stage 6c note: a third map, syncClient.js's DOMAIN_TABLE_COLUMNS, was checked
 // here too. It existed only to build the WebSocket first-pairing snapshot, and

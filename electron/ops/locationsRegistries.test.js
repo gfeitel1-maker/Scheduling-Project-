@@ -2,13 +2,20 @@
 //
 // Positive verification that the two v32 entities (`locations`,
 // `week_location_exclusions`) are registered in every place the ADR's registry
-// checklist names — especially the FOUR silent-failure registries, where an
-// omission produces no test failure of its own:
+// checklist names — especially the silent-failure registries, where an omission
+// produces no test failure of its own:
 //   1. PROJECTIONS            — omission => writes append to the op log and are
 //                               silently discarded
-//   3. DOMAIN_SNAPSHOT_TABLES — omission => first-pairing clients never receive
-//                               the (migration-created, op-less) rows
-//   4. permissions.ENTITIES   — omission => silently admin-only (INV-3)
+//   2. campDocument.js        — omission => the entity is not modeled in the
+//                               document, so no other device ever sees it
+//   3. permissions.ENTITIES   — omission => silently admin-only (INV-3)
+//
+// _Prior: the second entry was "DOMAIN_SNAPSHOT_TABLES — omission => first-pairing
+// clients never receive the (migration-created, op-less) rows", and the list was
+// numbered 1/3/4 with no 2. That map lived in syncClient.js and was deleted at the
+// Stage 6c cutover; being modeled in the document is what replaced it as the
+// "invisible to peers if you forget" registry. `npm run check:governance`'s
+// checkWritableEntitiesCanSync now enforces that one mechanically._
 // plus DIRECT_CAMP_ENTITIES / PARENT_SCOPED_ENTITIES, RESTORE_DECISIONS,
 // MOCK_WRITE_ALLOWLIST, and ENTITY_LABEL.
 import { describe, it, expect } from 'vitest'
@@ -37,7 +44,7 @@ describe('v32 registry coverage — locations', () => {
     )
   })
 
-  it('is a direct-camp-scoped entity (list() + first-pairing full_sync)', () => {
+  it('is a direct-camp-scoped entity (list() + the camp-scoped registry)', () => {
     expect(DIRECT_CAMP_ENTITIES.has('locations')).toBe(true)
   })
 
@@ -84,10 +91,14 @@ describe('v32 registry coverage — week_location_exclusions', () => {
     expect(MOCK_WRITE_ALLOWLIST.week_location_exclusions).toEqual(['week_id', 'location_id'])
   })
 
-  it('is shipped by the server first-pairing snapshot, like its v28 siblings', () => {
-    // syncServer.js imports DOMAIN_PARENT_SCOPED_ENTITIES from
-    // campScopedEntities.js (T88 single-sourcing) rather than declaring its
-    // own literal array — assert against the single source it consumes.
+  it('is registered in the camp-scoped registry, like its v28 siblings', () => {
+    // Assert against the single source consumers read rather than any consumer's
+    // own copy (T88 single-sourcing). _Prior: this asserted the table "is shipped
+    // by the server first-pairing snapshot", because syncServer.js imported
+    // DOMAIN_PARENT_SCOPED_ENTITIES from campScopedEntities.js rather than
+    // declaring its own literal array. That file and its snapshot were deleted at
+    // the Stage 6c cutover; the registry membership this asserts is still
+    // meaningful — electron/automerge/projector.js is the consumer now._
     expect(DOMAIN_SNAPSHOT_ORDER).toContain('week_location_exclusions')
     expect(PARENT_SCOPED_ENTITIES.week_location_exclusions).toBeTruthy()
   })

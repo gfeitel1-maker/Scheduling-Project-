@@ -488,14 +488,17 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     return result.ok ? { ok: true } : { ok: false, reason: result.reason }
   }
 
-  // Stage 5d-2b (ADR §1's "first pairing" flow). `onPairingRequest` is
-  // injected by the caller (main.js) — the SAME director-approval callback
-  // already wired to the WS transport's `onPairingRequest`
-  // (startSyncServer's option), since the approval decision itself
-  // (director looks at a name, clicks approve/deny) is transport-
-  // independent; only the decision function that runs FIRST
-  // (evaluatePairingRequest, shared with syncServer.js) is this module's own
-  // concern.
+  // Stage 5d-2b (ADR §1's "first pairing" flow). `onPairingRequest` is injected by
+  // the caller (main.js), since the approval decision itself (director looks at a
+  // name, clicks approve/deny) is transport-independent; the decision function
+  // that runs FIRST (evaluatePairingRequest, electron/auth/connectionAuth.js) is
+  // this module's own concern.
+  //
+  // _Prior: the callback was described as "the SAME director-approval callback
+  // already wired to the WS transport's `onPairingRequest` (startSyncServer's
+  // option)", and evaluatePairingRequest as "shared with syncServer.js". The WS
+  // transport and startSyncServer were deleted at the Stage 6c cutover, so this
+  // is now the only caller of either._
   async function onPairingRequestMsg(msg) {
     // Join-code proof (docs/adr/2026-09-08-libp2p-join-flow.md §5). A request
     // carrying a `join_nonce` is a first-join over the join-discovery tag, and
@@ -542,8 +545,10 @@ export async function startSyncNode({ deviceId, db, doc, onProjected, onProjecti
     return joinConfirm ? { ...result, joinConfirm } : result
   }
 
-  // Stage 5d-2b: device-secret + PIN/lockout, shared with syncServer.js's
-  // `login` handling via evaluateLogin (electron/auth/connectionAuth.js).
+  // Stage 5d-2b: device-secret + PIN/lockout via evaluateLogin
+  // (electron/auth/connectionAuth.js). _Prior: "shared with syncServer.js's
+  // `login` handling" — that file was deleted at the Stage 6c cutover, so this is
+  // evaluateLogin's only caller._
   async function onLogin(msg, { fromPeerId }) {
     // `hostDeviceId` is THIS node's own device id — the one it will present in
     // its `authenticate` frames — so a joining device can record it as trusted

@@ -236,11 +236,18 @@ describe('authGate — pairing_request/login mechanics (fake decision functions,
 })
 
 // HIGH finding, Stage 5d-2b re-review (ADR §6, docs/adr/2026-09-06-libp2p-membership-mapping.md):
-// syncServer.js's WS handling of pairing_request/login is rate-limited and
-// pending-capped; the libp2p path through authGate.js had NONE of that. These
-// tests use an injectable `now` (mirroring syncServer.js's own `now` option)
-// so the throttle boundary is proven by arithmetic, not by racing a real
-// clock — same rationale as rateLimit.test.js.
+// the libp2p path through authGate.js had no rate limiting or pending cap; these
+// tests pin the limits that closed that. They use an injectable `now` so the
+// throttle boundary is proven by arithmetic, not by racing a real clock — same
+// rationale as rateLimit.test.js.
+//
+// _Prior: the finding was framed as a gap against the WS transport —
+// "syncServer.js's WS handling of pairing_request/login is rate-limited and
+// pending-capped; the libp2p path through authGate.js had NONE of that" — and the
+// injectable clock as "mirroring syncServer.js's own `now` option". syncServer.js
+// was deleted at the Stage 6c cutover, so these limits are no longer parity with
+// anything; they are the only ones, which makes these tests the only thing
+// holding them._
 describe('authGate — rate limiting (HIGH finding fix, Stage 5d-2b re-review)', () => {
   it('a flood of pairing_request frames from one peer is throttled', async () => {
     let calls = 0

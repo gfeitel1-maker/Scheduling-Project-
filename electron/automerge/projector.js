@@ -80,10 +80,17 @@ function assertModeled(entity) {
 // exclusion is about the first-pairing full_sync WS payload, a completely different concern from
 // this projector's FK-safe apply order). schedule_snapshots.template_id IS a real NOT NULL FK to
 // schedule_templates(id) though, so THIS projector still needs a position for it — immediately
-// after schedule_templates, its only FK target. Do not "fix" this by adding schedule_snapshots to
-// DOMAIN_SNAPSHOT_ORDER itself — that array is shared with syncServer.js/syncClient.js's full_sync
-// payload and changing it would reintroduce the unbounded-growth problem that exclusion exists to
-// avoid.
+// after schedule_templates, its only FK target.
+//
+// Do not "fix" this by adding schedule_snapshots to DOMAIN_SNAPSHOT_ORDER itself. _Prior, and the
+// REASON has changed: the warning was that "that array is shared with syncServer.js/syncClient.js's
+// full_sync payload and changing it would reintroduce the unbounded-growth problem that exclusion
+// exists to avoid." Those two files were deleted at the Stage 6c cutover, so there is no full_sync
+// payload to bloat. The instruction still stands on a narrower basis: DOMAIN_SNAPSHOT_ORDER is
+// asserted against DIRECT_CAMP_ENTITIES at import time (assertDirectEntityParity in
+// campScopedEntities.js), and schedule_snapshots is parent-scoped, so adding it there would trip
+// that parity guard. Verify the current constraint before acting on this either way rather than
+// trusting the retired one._
 const DOMAIN_ORDER_WITH_SNAPSHOTS = (() => {
   const idx = DOMAIN_SNAPSHOT_ORDER.indexOf('schedule_templates')
   return [
@@ -94,9 +101,10 @@ const DOMAIN_ORDER_WITH_SNAPSHOTS = (() => {
 })()
 
 // `camps` and `users` (Stage 6 prep): same reasoning as campDocument.js's EXTRA_MODELED_ENTITIES —
-// neither is in DOMAIN_SNAPSHOT_ORDER (that array is shared with the WS full_sync payload, which
-// already has its own bespoke camps/users handling — see campDocument.js's comment), so this
-// projector needs its own position for them, not a change to the shared registry. `camps` first:
+// neither is in DOMAIN_SNAPSHOT_ORDER (_prior: "that array is shared with the WS full_sync payload,
+// which already has its own bespoke camps/users handling"; that payload was deleted at Stage 6c —
+// the array's exclusion of camps/users remains, see campDocument.js's comment), so this projector
+// needs its own position for them, not a change to the shared registry. `camps` first:
 // `users.camp_id` is a (nullable) FK to `camps.id`, so camps must exist first for any FK-checked
 // insert to succeed — though in practice `camps` never inserts a new row via this path at all (see
 // PROJECTIONS.camps.ensureExists: it only ever matches or refuses, never creates — the singleton
@@ -169,10 +177,13 @@ function deleteReconcileBulkReplaceEntity(db, doc, entity) {
 // hard gate ahead of every doc read/write (recordLocalWrite, recordLocalBulkReplace, the sync-node
 // startup path all `return` immediately when `SELECT id FROM camps LIMIT 1` is empty), so this
 // projection path structurally can never be how a device gets its FIRST camps row. That row comes
-// from bootstrapCamp (the Host) or the pairing/join flow (a Client receiving the Host's camp
-// identity by a mechanism outside this document — today the legacy WS full_sync's
-// `INSERT OR REPLACE INTO camps` in syncClient.js; a libp2p-native equivalent is Stage 6's problem,
-// not this slice's).
+// from bootstrapCamp (the Host) or the pairing/join flow (a joining device receiving the camp
+// identity by a mechanism outside this document — today the `camp` payload carried on the libp2p
+// join flow, see electron/auth/connectionAuth.js and
+// docs/adr/2026-09-08-libp2p-join-flow.md). _Prior: that mechanism was "the legacy WS full_sync's
+// `INSERT OR REPLACE INTO camps` in syncClient.js; a libp2p-native equivalent is Stage 6's
+// problem, not this slice's". Stage 6 shipped and connectionAuth.js's `camp` payload IS that
+// equivalent — its own comment points back at this sentence._
 //
 // So by the time doc-projection runs, `db`'s camps row already exists and its `id` already matches
 // what the rest of the camp's devices agree on — modeling `camps.name` here is about *subsequent*

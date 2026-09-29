@@ -49,6 +49,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [History rewrite: purge real camp identity and personal paths from public git history](../../docs/work/tickets/T120-history-rewrite-privacy-scrub.md) | open | — |
+| [Comments stop describing the deleted WebSocket Host as if it were the live write path](../../docs/work/tickets/T311-retired-ws-host-comment-sweep.md) | open | — |
 
 ### security-auth
 

@@ -274,8 +274,9 @@ const UNIQUE_KEYS = {
 // Mirrors electron/ops/operations.js's UNIQUE_FIELD_ENTITIES exactly (D2,
 // docs/adr/2026-08-15-locations-concurrent-create-collision.md): entity/field
 // pairs whose UNIQUE(camp_id, name) collision is rejected via a structured
-// {status:'rejected', reason:'unique_field', existing} result — matching
-// handleSubmitOp's op_rejected / the host-local direct-write path — rather than
+// {status:'rejected', reason:'unique_field', existing} result — matching the local
+// direct-write path (_prior: also "handleSubmitOp's op_rejected", deleted at the
+// Stage 6c cutover along with the op_rejected message) — rather than
 // a thrown SQLITE_CONSTRAINT_UNIQUE-shaped Error. Every OTHER UNIQUE_KEYS
 // entity above still throws raw, because it is not app-level pre-checked by
 // detectUniqueFieldCollision.

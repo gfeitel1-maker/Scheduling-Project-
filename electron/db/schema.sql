@@ -78,10 +78,10 @@ CREATE TABLE IF NOT EXISTS devices (
   last_synced_seq INTEGER,
   -- Device trust/pairing/revocation, per
   -- docs/adr/2026-07-25-device-trust-revocation.md. A device row existing no
-  -- longer implies it may log in — authorize() and handleAuthenticate both
-  -- require authorized_at NOT NULL AND revoked_at IS NULL, re-checked fresh
-  -- on every call (never cached). pairing_status defaults to 'pending' for a
-  -- freshly self-registered row (see syncServer.js's handleAuthenticate).
+  -- longer implies it may log in — authorize() and connectionAuth.js's
+  -- evaluateAuthenticate both require authorized_at NOT NULL AND revoked_at IS
+  -- NULL, re-checked fresh on every call (never cached). pairing_status defaults
+  -- to 'pending' for a freshly self-registered row (prior: syncServer.js, gone).
   authorized_at TEXT,
   authorized_by_user_id TEXT,
   revoked_at TEXT,
@@ -111,9 +111,9 @@ CREATE TABLE IF NOT EXISTS devices (
   libp2p_peer_id TEXT
 );
 
--- Host-only singleton. NEVER included in any full-sync SELECT/payload (see
--- syncServer.js's sendFullSyncIfFirstPairing — only users/camps are sent)
--- and never sent over the wire in any other message. Generated once, at
+-- Host-only singleton. Never replicated: absent from the Automerge document and
+-- from every sync registry (prior: also excluded from syncServer.js's deleted
+-- first-pairing full_sync payload). Never sent over the wire. Generated once, at
 -- bootstrapCamp(), only on the device that becomes Host — see
 -- localAuth.js's ensureHostSigningKey. private_key never leaves this device.
 CREATE TABLE IF NOT EXISTS host_signing_key (
@@ -342,12 +342,12 @@ CREATE TABLE IF NOT EXISTS operations (
   timestamp TEXT NOT NULL,
   parent_op_id TEXT REFERENCES operations(id),
   -- Client-generated idempotency key (Task 10 round-5 Fix 3). Set once by
-  -- the client when a write is first attempted and carried unchanged on any
-  -- retry (e.g. a flushQueue retry after a 'timeout'/'disconnected' result
-  -- whose submit_op may actually have been applied server-side already).
-  -- handleSubmitOp checks this before appendOp so a retried submission of
-  -- the same logical write returns the original op instead of minting a
-  -- second, distinct op id. NULL for ops that predate this fix or don't
+  -- the writer when a write is first attempted and carried unchanged on any
+  -- retry. Checked before appendOp (findOpByClientWriteId) so a retried write
+  -- returns the original op instead of minting a second, distinct one; the
+  -- caller doing so today is ingest.js. Prior: "a flushQueue retry after a
+  -- 'timeout'/'disconnected' result whose submit_op may have been applied
+  -- server-side", checked by handleSubmitOp — both gone. NULL for ops that don't
   -- carry a key; the partial unique index below only constrains non-NULL
   -- values so multiple NULLs are allowed.
   client_write_id TEXT
@@ -362,11 +362,11 @@ CREATE INDEX IF NOT EXISTS idx_operations_entity ON operations(entity, entity_id
 -- index is created in initSchema's version-8 migration block instead, right
 -- after the column is confirmed to exist.
 
--- Local-only diagnostic ledger, never synced: NEVER included in any
--- full-sync SELECT/payload, NEVER sent over the wire, NEVER added to
--- DOMAIN_SNAPSHOT_TABLES (syncClient.js) or written through appendOp — same
--- category as devices.last_synced_seq. Records a projection failure (the
--- op-log insert in applyRemoteOp succeeded, but applyProjection/
+-- Local-only diagnostic ledger, never synced: never replicated, never sent over
+-- the wire, never modeled in the Automerge document, never written through
+-- appendOp (prior: "NEVER added to DOMAIN_SNAPSHOT_TABLES (syncClient.js)", gone
+-- at Stage 6c) — same category as devices.last_synced_seq. Records a projection
+-- failure (the row's durable write succeeded, but applyProjection/
 -- applyBulkReplaceProjection then threw), so a device that is silently out
 -- of step in its projected tables becomes queryable instead of invisible.
 -- op_id is the primary key: re-encountering the same failure (e.g. a repair
@@ -433,9 +433,9 @@ CREATE TABLE IF NOT EXISTS projection_failures (
 CREATE INDEX IF NOT EXISTS idx_projection_failures_unresolved
   ON projection_failures(entity, entity_id) WHERE resolved_at IS NULL;
 
--- Durable record of every conflict ever detected (either locally, via
--- detectConflict in handleSubmitOp on the host, or received over the wire as
--- an op_conflict message on a client). This is what makes conflicts survive
+-- Durable record of every conflict ever detected. Written today by recordConflicts
+-- (electron/automerge/conflictStore.js) off the merged document; prior: by
+-- detectConflict in handleSubmitOp / an op_conflict message. Conflicts survive
 -- an app restart: the in-memory usePendingConflicts state is fed live events
 -- only, so without this table a pending conflict would silently vanish on
 -- relaunch. existing_op_id is the id of the op the LOSING write collided
@@ -611,15 +611,15 @@ CREATE TABLE IF NOT EXISTS device_identity (
   created_at TEXT NOT NULL
 );
 
--- Durable backing store for syncClient's write queue (Task 10 round-5 Fix
--- 1). Previously the queue lived only in an in-memory array, so a queued
--- write's resolution choice was lost with zero trace if the app closed or
--- crashed before flushQueue synced it — while the UI had already shown a
--- confident "Saved — will sync when connected". Every write queued while
--- offline is persisted here BEFORE it's acknowledged to the caller as
--- 'queued', reloaded into the in-memory queue on syncClient startup, and
--- only deleted once flushQueue genuinely confirms it applied (or it's
--- superseded/moot).
+-- ⚠️ VESTIGIAL as of the Stage 6c cutover: nothing reads or writes this table.
+-- Prior: "durable backing store for syncClient's write queue (Task 10 round-5
+-- Fix 1)" — every write queued while offline was persisted here BEFORE being
+-- acknowledged to the caller as 'queued', reloaded into the in-memory queue on
+-- syncClient startup, and deleted only once flushQueue confirmed it applied.
+-- syncClient.js and pendingWrites.js were both deleted at that cutover, and the
+-- queue with them: a write is never "queued pending connection" now, because it
+-- is never in flight (electron/sync/localWriteClient.js's header). Same position
+-- as pending_restores. Dropping the table is a schema change; T311 records it.
 CREATE TABLE IF NOT EXISTS pending_writes (
   pending_id TEXT PRIMARY KEY,
   client_write_id TEXT NOT NULL,

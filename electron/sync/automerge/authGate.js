@@ -14,12 +14,14 @@
 //
 // 5d-1 implemented the `authenticate` message only (an already-paired,
 // already-logged-in device reconnecting with a live token — the ADR's
-// "Order — reconnect" flow). Stage 5d-2b adds `pairing_request` and `login`
-// (the ADR's "Order — first pairing" flow), mirroring syncServer.js's WS
-// handling of the same two message types via the SAME shared decision
-// functions (electron/auth/connectionAuth.js's evaluatePairingRequest /
-// evaluateLogin) — see those functions' doc comments for what stays
-// transport-specific (rate limiting) vs. shared (the actual decision).
+// "Order — reconnect" flow). Stage 5d-2b added `pairing_request` and `login`
+// (the ADR's "Order — first pairing" flow), via the shared decision functions in
+// electron/auth/connectionAuth.js (evaluatePairingRequest / evaluateLogin) — see
+// those functions' doc comments for what stays transport-specific (rate limiting)
+// vs. shared (the actual decision). _Prior: those two handlers were described as
+// "mirroring syncServer.js's WS handling of the same two message types". That file
+// was deleted at the Stage 6c cutover, so this file is no longer mirroring
+// anything — it is the only implementation._
 //
 // `pairing_request` cannot be answered synchronously the way `authenticate`
 // is: approval is a human (the director) making a decision in the
@@ -30,10 +32,11 @@
 // stream, remembering the requesting peer's id in `pendingPairingPeers`
 // keyed by device_id. When the director's decision lands later (main.js
 // calling the returned `sendPairingApproved`/`sendPairingDenied`), a NEW
-// stream is dialed back to that remembered peer id — mirroring
-// syncServer.js's `pendingPairingConnections` map, just PeerId-addressed
-// instead of ws-object-addressed, because the original stream is long gone
-// by then.
+// stream is dialed back to that remembered peer id, because the original stream
+// is long gone by then. _Prior: this map was described as "mirroring
+// syncServer.js's `pendingPairingConnections` map, just PeerId-addressed instead
+// of ws-object-addressed"; that file and its map are deleted, so
+// `pendingPairingPeers` here is the only one._
 import { peerIdFromString } from '@libp2p/peer-id'
 import { AUTH_PROTO, sendFramed, receiveFramed } from './wireProtocol.js'
 import { shouldThrottle, PAIRING_RATE_MS, LOGIN_MIN_INTERVAL_MS, SourceRateLimiter } from '../rateLimit.js'
@@ -49,18 +52,23 @@ const PAIRING_SOURCE_WINDOW_MS = 60_000
 const LOGIN_MAX_ATTEMPTS_PER_SOURCE = 60
 const LOGIN_SOURCE_WINDOW_MS = 60_000
 
-// HIGH finding, Stage 5d-2b re-review: syncServer.js's WS handling of
-// pairing_request/login is rate-limited (shouldThrottle/PAIRING_RATE_MS/
-// LOGIN_MIN_INTERVAL_MS, plus a MAX_PENDING_PAIRING cap) — the libp2p path
-// through this file called straight into evaluatePairingRequest/onLogin with
-// NONE of that, despite the ADR's §6 explicitly claiming both transports
-// "carry these same caps forward unconditionally." This block is what
-// actually makes that claim true. MAX_PENDING_PAIRING is kept as a local
-// constant (not imported from syncServer.js, which doesn't export it) —
-// connectionAuth.js's own doc comments already establish that this cap
-// protects a transport's own connection/PeerId-dial-handle map, which has
-// nothing to drift against a different transport's identical-by-coincidence
-// number.
+// Rate limiting for pairing_request/login on this transport: shouldThrottle /
+// PAIRING_RATE_MS / LOGIN_MIN_INTERVAL_MS, plus the MAX_PENDING_PAIRING cap
+// below. MAX_PENDING_PAIRING is a local constant because the cap protects THIS
+// transport's own PeerId-dial-handle map — see connectionAuth.js's doc comments
+// for why that bookkeeping is deliberately not shared.
+//
+// _Prior (HIGH finding, Stage 5d-2b re-review): the finding was that
+// "syncServer.js's WS handling of pairing_request/login is rate-limited ... the
+// libp2p path through this file called straight into evaluatePairingRequest/onLogin
+// with NONE of that, despite the ADR's §6 explicitly claiming both transports
+// 'carry these same caps forward unconditionally.'" It also explained that
+// MAX_PENDING_PAIRING was "not imported from syncServer.js, which doesn't export
+// it." syncServer.js was deleted at the Stage 6c cutover, so there is no second
+// transport to carry caps forward to and nothing to import from. The limits stay
+// because they are load-bearing on their own merits, not to match a WS
+// counterpart — an unthrottled pairing/login path is a grind target regardless
+// (see the T288 per-source caps below)._
 const MAX_PENDING_PAIRING = 50
 
 // T288 forward-finding (b), GOVERNOR OVERRIDE of the ADR addendum's Slice-E deferral: the
@@ -172,7 +180,8 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
 
   // Rate-limit bookkeeping (see the module-level comment above for the
   // keying rationale). `now` is injectable so the throttle tests can drive
-  // time deterministically, exactly like syncServer.js's own `now` option.
+  // time deterministically. _Prior: "exactly like syncServer.js's own `now`
+  // option" — that file is deleted; the pattern is unchanged._
   const lastPairingRequestAtByPeer = new Map()
   const lastPairingRequestAtByDevice = new Map()
   const lastLoginAttemptAtByPeer = new Map()
@@ -237,8 +246,9 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
           }
           await stream.close().catch(() => {})
         } else {
-          // Mirrors the WS 4401/4402/4403/4404 close-code convention
-          // (syncServer.js's handleAuthenticate / connectionAuth.js) as a
+          // Carries the 4401/4402/4403/4404 code convention that
+          // connectionAuth.js defines (_prior: also attributed to
+          // "syncServer.js's handleAuthenticate", deleted at Stage 6c) as a
           // `reason` string on the frame, then hard-closes — libp2p streams
           // don't have numeric close codes, so the reason travels in-band
           // before the abort.
@@ -297,8 +307,9 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
           }
         } catch {
           // Peer went away before the reply landed — the caller's own
-          // reconnect-and-resend (mirroring syncClient.js's pattern) is the
-          // recovery path, same as the WS transport.
+          // reconnect-and-resend is the recovery path. _Prior: "(mirroring
+          // syncClient.js's pattern) ... same as the WS transport" — both deleted
+          // at Stage 6c; the pattern is unchanged and is now only here._
         }
         await stream.close().catch(() => {})
         return
@@ -354,9 +365,12 @@ export function registerAuthGate(node, { onAuthenticate, onPairingRequest, onLog
       // this branch existed, a Host that approved a device dialed back, wrote
       // its `pairing_approved` frame, and the joining device fell through to
       // the `unsupported_auth_message` abort below — the approval was
-      // delivered and thrown away. Under the op-log that did not matter,
-      // because syncClient.js received the same decision over WS; once the
-      // op-log is retired this is the ONLY way a device learns it was let in.
+      // delivered and thrown away. _Prior: "Under the op-log that did not matter,
+      // because syncClient.js received the same decision over WS; once the op-log
+      // is retired this is the ONLY way a device learns it was let in." The op-log
+      // IS retired as a sync mechanism and syncClient.js is deleted (Stage 6c), so
+      // the conditional has resolved:_ this is now the only way a device learns it
+      // was let in.
       //
       // Deliberately NOT rate-limited, unlike pairing_request/login above.
       // Those are unauthenticated requests an attacker floods a HOST with;

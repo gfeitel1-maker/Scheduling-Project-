@@ -201,8 +201,11 @@ describe('restoring rebuilds the record from its last-known field values', () =>
 
 // ---------------------------------------------------------------------------
 // 2b. T7 — Finding A (addendum, docs/adr/2026-08-15-locations-concurrent-
-// create-collision.md): restoreEntity is a third appendOp call site, guarded
-// the same way handleSubmitOp/the host-local write branch already are.
+// create-collision.md): restoreEntity is another appendOp call site, guarded the
+// same way the ordinary local write branch is. _Prior: "a THIRD appendOp call site,
+// guarded the same way handleSubmitOp/the host-local write branch already are."
+// handleSubmitOp was deleted at the Stage 6c cutover, so the count is wrong and
+// one of the two comparators is gone; the guard being tested is unchanged._
 // ---------------------------------------------------------------------------
 
 describe('restoreEntity refuses a colliding restore (T7 / Finding A)', () => {

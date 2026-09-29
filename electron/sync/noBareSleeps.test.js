@@ -23,11 +23,13 @@
 // electron/sync/syncServer.test.js, bulkReplace.sync.test.js, and
 // restore.sync.test.js that predate this ticket and are out of its scope to
 // fix — a repo-wide zero-tolerance rule would fail immediately on files this
-// ticket never touched. Those three are grandfathered below at their
-// CURRENT count (never allowed to grow) so the guard still stops new bare
-// sleeps from landing anywhere in this directory, without silently
-// re-authorizing existing ones as "fine" or requiring an unrelated cleanup
-// to land this ticket.
+// ticket never touched. Those three were grandfathered at their then-current
+// count (never allowed to grow) so the guard still stopped new bare sleeps from
+// landing anywhere in this directory, without silently re-authorizing existing
+// ones as "fine" or requiring an unrelated cleanup to land this ticket.
+// _All three of those files were deleted with the WebSocket layer at the Stage 6c
+// cutover, so GRANDFATHERED_MAX below is now empty and every sync test is held to
+// zero — see its own note._
 //
 // ANTI-VACUITY: a text scanner's only failure mode that matters is silently
 // matching nothing (a reformatted call site, a renamed helper, a broken
@@ -135,7 +137,8 @@ describe('no new bare setTimeout sleeps in electron/sync/*.test.js', () => {
 // guard above by its NAME alone — the guard above never checks that time is
 // genuinely under test at that call site, only that the literal text
 // `setTimeout(` is absent. That gap let a real arrival-wait
-// (syncClient.test.js:1659, waiting for a full_sync row to land) hide behind
+// (syncClient.test.js:1659 — that file was deleted at the Stage 6c cutover, so the
+// example is historical; the GAP it illustrates is not) hide behind
 // the marker and fail under load exactly like the bare sleeps T25 set out to
 // eliminate.
 //

@@ -227,11 +227,25 @@ function deletedChildrenOf(db, entity, entity_id) {
 // asks every device to rebuild the row from its own local history, and a
 // device that paired after the record was created does not have that history.
 //
-// HOST ONLY. This reads the op log, and only the Host is guaranteed to hold
-// it — a first-pairing Client receives materialized rows, not op history, and
-// its watermark starts at the then-current max. A Client sends a
-// restore_request over the existing WebSocket instead (syncServer.js) and
-// queues it when the Host is unreachable (pendingRestores.js).
+// DEVICE-LOCAL HISTORY ONLY. This reads the `operations` table, which is this
+// device's own history ledger — a device only holds ops for writes it made or
+// received while it had the record. A device that joined the camp after a record
+// was created and deleted has no history to restore it FROM, which is why the
+// function returns 'no-history' rather than guessing (main.js's
+// restoreEntityHandler surfaces that to the director).
+//
+// _Prior: this said "HOST ONLY ... only the Host is guaranteed to hold it — a
+// first-pairing Client receives materialized rows, not op history, and its
+// watermark starts at the then-current max. A Client sends a restore_request
+// over the existing WebSocket instead (syncServer.js) and queues it when the
+// Host is unreachable (pendingRestores.js)." There is no Host/Client split and no
+// WebSocket: both were deleted at the Stage 6c cutover, and with them the
+// restore_request message and the queue's drainer. The UNDERLYING constraint is
+// unchanged and is the reason this note still exists — op history is local, so
+// not every device can restore every record. What changed is that there is no
+// longer any way to ask another device to do it for you; every device now runs
+// this same function against its own log. The `pending_restores` table and
+// electron/sync/pendingRestores.js survive as a vestige with no live writer._
 //
 // Returns { ok, restored_fields, deleted_children, ops } or { error }. The ops
 // are returned rather than broadcast here so the caller can broadcast AFTER

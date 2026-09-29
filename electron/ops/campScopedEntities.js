@@ -1,12 +1,21 @@
-// Shared camp-scoped entity registry — extracted from electron/main.js so
-// that BOTH the renderer's read path (main.js's `list()` IPC handler) and
-// the first-pairing full_sync snapshot (electron/sync/syncServer.js's
-// sendFullSyncIfFirstPairing) are structurally guaranteed to cover the same
-// table set. Before this extraction, syncServer.js would have needed a
-// hand-written second copy of this list, which could silently drift from
-// main.js's copy — see
+// Shared camp-scoped entity registry — extracted from electron/main.js so that
+// the renderer's read path (main.js's `list()` IPC handler) and every other
+// consumer of "which tables belong to a camp" are structurally guaranteed to
+// cover the same table set rather than each keeping a hand-written copy that can
+// silently drift. See
 // docs/superpowers/specs/2026-07-28-first-pairing-domain-sync-and-template-identity-design.md
 // Part 1.
+//
+// _Prior: the second consumer named here was "the first-pairing full_sync
+// snapshot (electron/sync/syncServer.js's sendFullSyncIfFirstPairing)", and the
+// drift this extraction prevented was syncServer.js "needing a hand-written
+// second copy of this list". Both the file and the full_sync snapshot were
+// deleted at the Stage 6c cutover — there is no Host serving a socket and no
+// first-pairing payload. The registry is NOT obsolete: its consumers today are
+// main.js's read path and electron/automerge/ (campDocument.js for what the
+// document models, projector.js for FK-safe apply order via
+// DOMAIN_SNAPSHOT_ORDER), so single-sourcing still does the same job for a
+// different pair of readers._
 //
 // `template_slots` is deliberately in the parent-scoped group, not the
 // direct-camp_id group: per schema.sql it has only `template_id` (no
@@ -150,22 +159,31 @@ export const PARENT_SCOPED_ENTITIES = {
   },
 }
 
-// T88 (C2, sync/auth audit): the camp-scoped entity set + FK-safe apply
-// order for the first-pairing full_sync SNAPSHOT, single-sourced here so
-// electron/sync/syncServer.js (send side) and electron/sync/syncClient.js
-// (apply side) cannot drift the way they did before this ticket — the Host
-// shipped week_location_exclusions rows (via DOMAIN_PARENT_SCOPED_ENTITIES)
-// that a fresh Client silently dropped (its own hand-maintained
-// DOMAIN_SNAPSHOT_TABLES never listed the table). Both files now import this
-// array instead of re-declaring their own.
+// The camp-scoped entity set in FK-SAFE APPLY ORDER. Its live consumer is
+// electron/automerge/projector.js, which materializes the merged Automerge
+// document into SQLite table by table and must not insert a child row before its
+// parent exists.
+//
+// _Prior (T88, C2, sync/auth audit): this order existed "for the first-pairing
+// full_sync SNAPSHOT, single-sourced here so electron/sync/syncServer.js (send
+// side) and electron/sync/syncClient.js (apply side) cannot drift the way they
+// did before this ticket — the Host shipped week_location_exclusions rows (via
+// DOMAIN_PARENT_SCOPED_ENTITIES) that a fresh Client silently dropped (its own
+// hand-maintained DOMAIN_SNAPSHOT_TABLES never listed the table). Both files now
+// import this array instead of re-declaring their own." Those two files are
+// deleted (Stage 6c). The ARRAY still matters, for a different reason than the
+// one recorded here: the send/apply drift it was built to prevent cannot recur,
+// but the FK ordering is now load-bearing for the projector instead. Read the
+// per-entry FK comments below as constraints on the projector's apply order._
 //
 // Deliberately narrower than DIRECT_CAMP_ENTITIES ∪ PARENT_SCOPED_ENTITIES:
 // `schedule_snapshots` is excluded (design doc Consequences: unbounded
 // historical growth over a season).
 //
-// `schedule_weeks` WAS missing from an earlier draft of this list (it ships
-// in the live full_sync message via DIRECT_CAMP_ENTITIES, but the Client's
-// old hand-maintained manifest never applied it) — that turned out not to be
+// `schedule_weeks` WAS missing from an earlier draft of this list (_prior: "it
+// ships in the live full_sync message via DIRECT_CAMP_ENTITIES, but the Client's
+// old hand-maintained manifest never applied it" — that payload and manifest were
+// deleted at the Stage 6c cutover_) — that turned out not to be
 // a separate, ignorable gap: week_activity_exclusions/week_group_exclusions/
 // week_location_exclusions all carry a NOT NULL FK to schedule_weeks.id, so
 // under foreign_keys=ON a first-pairing Client cannot insert any of the three
@@ -217,7 +235,9 @@ export const DOMAIN_SNAPSHOT_ORDER = [
 
 // The subset of DOMAIN_SNAPSHOT_ORDER that is parent-scoped (joined through
 // PARENT_SCOPED_ENTITIES rather than a direct camp_id column), in the same
-// order — what syncServer.js iterates to build the send-side payload.
+// order. _Prior: "— what syncServer.js iterates to build the send-side payload."
+// That file is deleted (Stage 6c); this subset is now read by the projector and
+// by campDocument.js's parity assertions._
 export const DOMAIN_PARENT_SCOPED_ENTITIES = DOMAIN_SNAPSHOT_ORDER.filter(
   (entity) => entity in PARENT_SCOPED_ENTITIES
 )
@@ -334,12 +354,17 @@ export function validateBulkReplaceRows(entity, rows, scope_id) {
   return { valid: true, config }
 }
 
-// T88 review follow-up (Code Reviewer MEDIUM): syncServer.js's send side
-// still iterates DIRECT_CAMP_ENTITIES directly for the non-parent-scoped
-// half of full_sync, while DOMAIN_SNAPSHOT_ORDER re-types that same set as
-// plain array entries so it can carry FK-order comments. Nothing previously
-// enforced the two stayed equal — a table added to one and not the other
-// would silently drift exactly like the bug this ticket fixes. This
+// Parity guard between the two shapes of the same set: DIRECT_CAMP_ENTITIES is a
+// Set for membership tests, DOMAIN_SNAPSHOT_ORDER re-types that same set as plain
+// array entries so it can carry FK-order comments. Nothing else enforces that the
+// two stay equal — a table added to one and not the other would silently drift.
+//
+// _Prior (T88 review follow-up, Code Reviewer MEDIUM): the drift this guarded
+// was that "syncServer.js's send side still iterates DIRECT_CAMP_ENTITIES
+// directly for the non-parent-scoped half of full_sync". That send side is
+// deleted (Stage 6c). The guard is kept because the two shapes still both exist
+// and are now read by the projector and campDocument.js, so they can still
+// drift; only the downstream victim of a drift has changed._ This
 // assertion (exported so campScopedEntities.test.js can exercise the throw
 // path directly with synthetic input) makes that drift fail loudly at
 // import time, in every environment that loads this module, instead of
@@ -352,14 +377,14 @@ export function assertDirectEntityParity(directEntities, snapshotOrder, parentSc
   for (const entity of directEntities) {
     if (!snapshotDirectEntities.has(entity)) {
       throw new Error(
-        `campScopedEntities: DIRECT_CAMP_ENTITIES has '${entity}' but DOMAIN_SNAPSHOT_ORDER is missing it — a first-pairing Client would silently drop this table.`
+        `campScopedEntities: DIRECT_CAMP_ENTITIES has '${entity}' but DOMAIN_SNAPSHOT_ORDER is missing it — the projector has no apply position for this table and would skip it.`
       )
     }
   }
   for (const entity of snapshotDirectEntities) {
     if (!directEntities.has(entity)) {
       throw new Error(
-        `campScopedEntities: DOMAIN_SNAPSHOT_ORDER lists '${entity}' as a direct (non-parent-scoped) entity, but it is not in DIRECT_CAMP_ENTITIES — the send side (syncServer.js) would never ship it.`
+        `campScopedEntities: DOMAIN_SNAPSHOT_ORDER lists '${entity}' as a direct (non-parent-scoped) entity, but it is not in DIRECT_CAMP_ENTITIES — nothing that reads the registry by membership would ever see it.`
       )
     }
   }

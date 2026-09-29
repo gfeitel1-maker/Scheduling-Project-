@@ -1,13 +1,14 @@
 // @vitest-environment node
 //
 // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md):
-// "Permissions: staff r/w, admin-only delete/bulk_replace (IPC + WS)." Both
-// electron/main.js's write/bulkReplace handlers (IPC) and
-// electron/sync/syncServer.js's handleSubmitOp/handleBulkReplace (WS) route
-// through the SAME authorize()/deriveWriteAction/deriveBulkReplaceAction —
-// see syncServer.js's authorizeWs, which calls authorize() directly — so
-// exercising authorize() with the derived actions covers both entry points
-// structurally. Mirrors electron/ops/specialDaysPermissions.test.js.
+// "Permissions: staff r/w, admin-only delete/bulk_replace." electron/main.js's
+// write/bulkReplace handlers route through
+// authorize()/deriveWriteAction/deriveBulkReplaceAction, so exercising authorize()
+// with the derived actions covers that entry point structurally. Mirrors
+// electron/ops/specialDaysPermissions.test.js — including the _Prior:_ note in its
+// header about the retired WS path, which applied verbatim here ("(IPC + WS)",
+// handleSubmitOp/handleBulkReplace, authorizeWs), all deleted at the Stage 6c
+// cutover.
 import { describe, it, expect, afterEach, beforeEach, afterAll } from 'vitest'
 import fs from 'node:fs'
 import { randomBytes, randomUUID } from 'node:crypto'

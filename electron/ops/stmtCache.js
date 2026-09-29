@@ -3,8 +3,11 @@
 // reusable and re-preparing the same SQL text on every single op measured at
 // ~1.3ms per prepare, ~4 prepares per op — a 400-group camp with a full
 // five-day schedule (~2400 ops) took 37s of BLOCKED MAIN THREAD, stalling
-// every connected staff device (the main process also serves IPC and, in
-// Host mode, syncServer.js's whole message loop).
+// every connected staff device (the main process also serves IPC, and the libp2p
+// sync node's own event loop — electron/sync/automerge/syncNode.js). _Prior: the
+// second load named here was "in Host mode, syncServer.js's whole message loop";
+// that file and its Host mode were deleted at the Stage 6c cutover. The cost
+// argument is unchanged — the main thread still has other work to starve._
 //
 // Keyed on the db HANDLE, not a single module-level statement: each test in
 // this repo's suite opens its own in-memory/tmp-file db, and multiple real
