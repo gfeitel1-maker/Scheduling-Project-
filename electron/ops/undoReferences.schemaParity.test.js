@@ -218,6 +218,7 @@ const ACCEPTED_NON_REFERENCES = [
   //    synced, delete-to-close lifecycle, recomputed wholesale on each commit;
   //    same posture as source_aliases/import_evidence above --
   { table: 'open_reconciliation_decisions', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
+  { table: 'camp_seedlings', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity — mirrors open_reconciliation_decisions.camp_id' },
   { table: 'open_reconciliation_decisions', column: 'entity_id', reason: 'polymorphic (entity_type varies), schema.sql documents "not a FK" — mirrors source_aliases.entity_id' },
   { table: 'open_reconciliation_decisions', column: 'cohort_id', reason: 'host-local journal metadata (never synced); a stale pointer after undo makes a row not match on the next import, not a corrupted live record — mirrors source_aliases.cohort_id' },
   { table: 'open_reconciliation_decisions', column: 'import_run_id', reason: 'groups rows from one commitIngest call, not an entity pointer — mirrors import_evidence.import_run_id' },

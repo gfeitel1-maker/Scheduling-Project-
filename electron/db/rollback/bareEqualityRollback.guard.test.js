@@ -34,6 +34,12 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // which there are zero). Assert the count explicitly so a future rollback
     // file changes this number and forces a look, rather than silently
     // enlarging or shrinking what's covered.
+    // 41 as of v81_down.js (T312). Looked, as this tripwire demands, rather than
+    // just re-counting: v81_down.js deletes with `WHERE version >= 81`, so it
+    // satisfies the guard below on its own merits. It is also the first rollback
+    // whose entity REPLICATES, so it drops only this device's projection and says
+    // so in its own header — a peer still on v81 keeps its rows and re-sends them.
+    //
     // 38 as of v78_down.js (T265). Looked, as this tripwire demands, rather than
     // just re-counting: v78_down.js deletes with `WHERE version >= 78`, so it
     // satisfies the guard below on its own merits — and it REFUSES rather than
@@ -68,13 +74,18 @@ describe('rollback bare-equality schema_migrations guard', () => {
     // director set must be set again. The rollback says that rather than implying
     // reversibility.
     //
+    // 42 is v82_down.js (T312). Deletes with `WHERE version >= 82`, so it
+    // satisfies the guard below on its own merits. Its entity REPLICATES, so the
+    // drop removes only this device's projection and its header says so — a peer
+    // still on v82 keeps its rows and re-sends them.
+    //
     // 41 is v81_down.js (T301). Deletes with `WHERE version >= 81`, and drops the
     // three linked-elective-bundle tables outright (elective_bundles,
     // elective_bundle_periods, elective_bundle_tiers). There is no prior state to
     // restore — none of these tables existed before v81 — so every authored
     // bundle is discarded, and the rollback says so rather than implying
     // reversibility.
-    expect(files.length).toBe(41)
+    expect(files.length).toBe(42)
   })
 
   it('every rollback file uses `>= N`, never bare `= N`, to delete its schema_migrations row', () => {

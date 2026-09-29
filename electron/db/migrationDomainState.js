@@ -92,6 +92,12 @@ export const DOMAIN_STATE_MIGRATIONS = new Map([
  * mechanism. See migrationDomainState.test.js.
  */
 export const SCHEMA_ONLY_MIGRATIONS = new Set([
+  // v82 (T312) creates camp_seedlings, empty. Table shape only: it changes no
+  // domain row value of any table the document models, and an existing camp's
+  // data reads identically before and after. The entity it adds DOES replicate,
+  // but that is a property of the entity, not of this migration — nothing is
+  // written by the migration itself for a peer to disagree with.
+  82,
   1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 17, 18, 19, 20, 22, 25, 28, 29, 30,
   31, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
   51, 52, 53, 54, 55, 56, 57, 58, 59,

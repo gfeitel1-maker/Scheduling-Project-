@@ -112,6 +112,8 @@ export const RESTORE_DECISIONS = Object.freeze({
     'refused: re-derived from live template_slots on every generation (ADR D6), never restored',
   elective_choices: 'refused: rebuilt with its run, not on its own',
   elective_choice_offerings: 'refused: rebuilt with its choice, not on its own',
+  camp_seedlings:
+    "refused: a remembered column mapping is re-confirmed, not restored — a director changing one supersedes it, and resurrecting a superseded reading is the confirmed-wrong binding ADR 6.1 warns about, re-applied by a route nobody chose",
   elective_run_outer_snapshots:
     'refused: PII — a named child\'s frozen schedule export, same posture as elective_assignments. SECURITY BOUNDARY. No setup UI to restore into either way (T243).',
 })

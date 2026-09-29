@@ -14,6 +14,7 @@ import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow, IMPORT_LIMITS } from '../../../utils/exportSanitize.js'
 import { detectWholeSheetGrid, inferPreferenceLayout, hasContradictoryRanks } from '../../../ingest/preferenceSheet.js'
 import { residueIsDecision } from '../../../ingest/residueKinds.js'
+import { recallColumnMapping, bindingFromMapping } from '../../../ingest/mappingSeedling.js'
 import { proposeActivityMatch, resolutionMap, RESOLUTION } from '../../../ingest/labelResolutions.js'
 import { journalEntriesFor } from '../../../ingest/decisionJournal.js'
 import { buildPreferenceCatalog, readPreferenceSheet, submissionKeyFromRows } from '../../../ingest/preferenceImport.js'
@@ -255,6 +256,10 @@ export default function AssignmentPanel({
   const [phase, setPhase] = useState('empty')
   const [rows, setRows] = useState(null)
   const [mapping, setMapping] = useState(null)
+  // T312 — the id of the remembered binding this mapping came from, or null when
+  // the mapping was inferred. Drives the "remembered" line on the corrector; a
+  // director confirming a memory should know that is what they are confirming.
+  const [recalledFromId, setRecalledFromId] = useState(null)
   const [sourceLabel, setSourceLabel] = useState(null)
   const [submissionKey, setSubmissionKey] = useState(null)
   const [arrivalId, setArrivalId] = useState(null)
@@ -365,7 +370,28 @@ export default function AssignmentPanel({
       // on row 0 with no catalog was a different reading from the one that ran.
       const catalog = buildPreferenceCatalog({ activities, groups, tiers })
       const inferred = inferPreferenceLayout(fileRows, { catalog })
-      setMapping(inferred)
+
+      // T312 — a mapping this camp has confirmed before arrives PRE-FILLED, and
+      // the director still presses Confirm. It is re-proposed rather than
+      // auto-applied on purpose: ADR 6.1's worst failure is a confirmed-WRONG
+      // binding re-applying pre-confirmed with no residue and no unlearn path,
+      // and that cannot arise if the binding never lands without a human looking
+      // at it. The saving is real either way -- six dropdowns and two
+      // "+ Add Rank Column" presses become a glance and one press -- and the
+      // unlearn path is then free: the director changes what they see.
+      //
+      // A recall that fails for ANY reason is simply not offered. The list read
+      // is wrapped because an unavailable seedling table must not fail an import
+      // that is otherwise fine; the director maps by hand, as they did before.
+      let recalled = null
+      try {
+        const seedlings = await localClient.list('camp_seedlings')
+        recalled = recallColumnMapping(seedlings, fileRows[inferred.headerIndex] ?? [], inferred)
+      } catch {
+        recalled = null
+      }
+      setMapping(recalled ?? inferred)
+      setRecalledFromId(recalled?.recalledFromId ?? null)
       // T305 — A SHEET THAT IS NOTHING BUT A PLANNER GRID HAS NOTHING TO CORRECT, so it
       // is not asked about. A child's own planner has no camper-name column and no rank
       // columns BY DESIGN (ADR §14.1a: the identity comes from the submission, and the
@@ -465,6 +491,27 @@ export default function AssignmentPanel({
   // to avoid, one field over.
   // `sheet` defaults to the state values, and is passed explicitly by the direct-to-parse
   // path in onFileSelected, where no setter has landed yet (T305).
+  // T312 — remember what the director just confirmed, so the next sheet from
+  // this form arrives pre-filled. BEST-EFFORT BY DESIGN and not awaited: the
+  // import has already succeeded by the time this runs, and a camp that fails to
+  // remember is in exactly the state every camp was in before this shipped. It
+  // is deliberately NOT wired into describeWriteFailure for that reason -- a
+  // modal about a memo would be a worse outcome than the memo not being kept.
+  function rememberMapping() {
+    try {
+      const binding = bindingFromMapping(mapping, rows[mapping?.headerIndex ?? 0] ?? rows[0] ?? [])
+      if (!binding) return
+      // The CALL is inside the try, not just the promise: a synchronous throw
+      // here -- an absent IPC method on an older preload, say -- would otherwise
+      // escape a `.catch()` that only ever sees rejections, and take the
+      // director's Confirm press down with it.
+      Promise.resolve(localClient.rememberColumnMapping(binding)).catch(() => {})
+    } catch {
+      // Not remembered. That is the state every camp was in before this shipped,
+      // and it is not worth interrupting a completed import to say so.
+    }
+  }
+
   function confirmMapping(extraActivities = [], resolutionList = resolutions, sheet = {}) {
     const {
       rows: sheetRows = rows,
@@ -883,13 +930,14 @@ export default function AssignmentPanel({
         // would have broken a working read. Found by driving the real picker in
         // the browser, not by reading the code.
         <MappingCorrector
+          recalled={recalledFromId != null}
           header={rows[mapping?.headerIndex ?? 0] ?? rows[0]}
           sampleRows={rows.slice((mapping?.headerIndex ?? 0) + 1, (mapping?.headerIndex ?? 0) + 4)}
           mapping={mapping}
           onChange={setMapping}
           // Wrapped, NOT passed by reference: MappingCorrector's onConfirm is a click
           // handler, so a bare reference hands the click EVENT to `extraActivities`.
-          onConfirm={() => confirmMapping()}
+          onConfirm={() => { rememberMapping(); confirmMapping() }}
           onChooseDifferentFile={reset}
         />
       )}

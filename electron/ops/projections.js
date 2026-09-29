@@ -483,6 +483,23 @@ export const PROJECTIONS = {
   // Group-level electives (T41 slice 1, data shape + engine-skip only,
   // docs/work/specs/2026-08-20-group-electives-design.md). Camp-scoped
   // parent, same ensureExists shape as special_days above.
+  // T312 — a camp's remembered column mapping. PROJECTION ONLY: no ensureExists,
+  // because a seedling has no parent to stub. Its `camp_id` is a direct scope,
+  // not a soft reference to a row this projector might have to invent.
+  camp_seedlings: {
+    table: 'camp_seedlings',
+    key: 'id',
+    // `payload` is compact JSON holding header TEXT and rank numbers, never a
+    // cell value (ADR 6.0 — this table replicates, so a fingerprint over cells
+    // would cache children's names into it). `status` is what a recall filters
+    // on; there is no `superseded_by`, because the DERIVED id makes re-confirming
+    // one form a field update on the same row rather than a second row needing a
+    // pointer — the same property that yields a conflicts row on two devices.
+    fields: [
+      'camp_id', 'kind', 'match_key', 'payload',
+      'status', 'confirmed_by', 'confirmed_at',
+    ],
+  },
   elective_sets: {
     table: 'elective_sets',
     key: 'id',

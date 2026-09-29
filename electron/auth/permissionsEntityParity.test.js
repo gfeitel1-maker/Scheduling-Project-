@@ -48,6 +48,23 @@ import { PARTICIPANT_ENTITIES } from '../ops/participantEntities.js'
 // 'camp_maps.read' explicitly in the staff array (permissions.js) — the same
 // explicit-grant shape trash.read/conflicts.read already use.
 const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = {
+  // T312 — a camp's remembered column mapping for the elective preference
+  // import. ADMIN-ONLY, and for the same reason the participant domain below is:
+  // it is written and read ONLY inside the preference import, which is
+  // admin-only by D9. There is no staff surface that reads it.
+  //
+  // The positive case against a staff grant, rather than mere consistency: a
+  // seedling decides HOW a camp's preference sheets are read. Write access is
+  // the power to change which column a whole import treats as the camper's
+  // name, on every future import, silently — the binding pre-fills a screen
+  // rather than announcing itself as a setting. That is a setup-shaping power,
+  // and handing it to a role that holds no elective surface at all would grant
+  // the consequence without the context.
+  camp_seedlings: {
+    reason:
+      'T312: written and read only inside the elective preference import, which is admin-only (ADR docs/adr/2026-09-17-individual-elective-scheduling.md D9). A seedling decides how a camp\'s sheets are read on every future import, so write is a setup-shaping power; staff hold no elective surface that would give it context.',
+  },
+
   camp_maps: {
     reason:
       'M6 D6: staff hold camp_maps.read explicitly (permissions.js) but never camp_maps.write — replacing the whole camp background image is admin-only, unlike locations.write (which staff keep, including map_geometry).',
