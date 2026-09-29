@@ -148,6 +148,27 @@ describe('every referrer is re-pointed — including the ones with no foreign ke
     expect(db.prepare('SELECT weather_alternative_id FROM activities WHERE id = ?').get(winner).weather_alternative_id).toBeNull()
   })
 
+  it('elective_bundles.activity_id (NO foreign key) — a linked bundle resolved to the LOSER', () => {
+    // T301 (v81): the activity a bundle links periods of. Merging the loser
+    // away without re-pointing this would leave the bundle silently pointing
+    // at an activity id that no longer exists — the same failure mode as
+    // fixed_events.activity_id above, just for a bundle instead of a fixed
+    // event. Found by the mergeActivity referrer-parity guard just below
+    // (electron/main.test.js's whole-schema sweep found the SAME class of
+    // gap independently, in a different registry) — asserting only that this
+    // entity appears in ACTIVITY_REFERRERS would not have caught a
+    // registration that named the wrong field or silently no-opped, so this
+    // reads the actual row back, exactly like every other referrer here.
+    const setId = randomUUID()
+    db.prepare('INSERT INTO elective_sets (id, camp_id, name, is_reusable) VALUES (?, ?, ?, 0)')
+      .run(setId, campId, 'Afternoon Electives')
+    const id = randomUUID()
+    db.prepare('INSERT INTO elective_bundles (id, elective_set_id, activity_id, name) VALUES (?, ?, ?, ?)')
+      .run(id, setId, loser, 'Drama')
+    merge()
+    expect(db.prepare('SELECT activity_id FROM elective_bundles WHERE id = ?').get(id).activity_id).toBe(winner)
+  })
+
   it('elective_run_outer_snapshots (NO foreign key) — re-points activity_id but leaves the denormalized activity_name untouched', () => {
     // T243/ADR 2026-09-23: activity_name is deliberately denormalized so a
     // finalized export stays byte-stable even after the template activity is
@@ -272,6 +293,9 @@ describe('the referrer list cannot silently fall behind the schema', () => {
       // it resolves to. Re-pointed like any other soft referrer — see the
       // dedicated test below.
       'fixed_events.activity_id',
+      // T301 (v81): a linked bundle's soft link to the activity it names —
+      // see the dedicated test above.
+      'elective_bundles.activity_id',
     ])
     const unhandled = found.filter((f) => !handled.has(f))
     expect(unhandled, `unhandled activity referrer(s): ${unhandled.join(', ')} — add them to mergeActivity.js and give each its own test`).toEqual([])
