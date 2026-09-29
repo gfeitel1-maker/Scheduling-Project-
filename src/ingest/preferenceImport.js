@@ -106,9 +106,18 @@ export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [
  * @param {object}   [args.resolutions]   the director's settled label resolutions,
  *   from `resolutionMap` — `{ [rawLabel]: { action, activityName } }`. Absent means
  *   nothing has been settled, which is every FIRST read of a sheet.
- * @param {string}   [args.submissionKey] the identity of a provisional subject —
- *   an opaque per-submission string (a content hash). Two submissions can never
- *   collide; the same submission re-read converges.
+ * @param {string}   [args.submissionKey] WHAT a provisional subject submitted —
+ *   an opaque per-submission string (a content hash). Two different submissions
+ *   can never collide; the same submission re-read converges.
+ * @param {string}   [args.arrivalId]    WHICH IMPORT this submission arrived in,
+ *   and half of a provisional subject's identity (T299). The content key alone
+ *   cannot be that identity: two children who picked the same activities produce
+ *   byte-identical sheets, so a content-only key merged them into one camper.
+ *   Arrival is the fact that differs — two children handing in matching sheets
+ *   are two import actions, while one import action repeated is one arrival. The
+ *   caller states it because only the caller knows: the director's panel mints
+ *   one per file selection, the CLI passes the run id it derives from the file's
+ *   bytes (so an agent's retry stays idempotent).
  *
  * @returns {{mapping, parsed}|{mapping, parsed: null, unmapped: string[]}}
  *   `parsed: null` means no table here could be read as a preference sheet. That is
@@ -122,6 +131,7 @@ export function readPreferenceSheet({
   camperName = null,
   sourceLabel = null,
   submissionKey = null,
+  arrivalId = null,
   // T298 — what a director already settled about labels this catalog cannot
   // resolve, keyed on the raw label (src/ingest/labelResolutions.js). Forwarded
   // rather than interpreted: this module locates and delegates, and a resolution
@@ -156,7 +166,13 @@ export function readPreferenceSheet({
   // about whose week the grid describes.
   const subject = camperName
     ? { displayName: camperName, source: 'caller', attributed: true }
-    : { displayName: sourceLabel || null, externalId: submissionKey, source: sourceLabel ? 'label' : 'none', attributed: false }
+    : {
+        displayName: sourceLabel || null,
+        externalId: submissionKey,
+        arrivalId,
+        source: sourceLabel ? 'label' : 'none',
+        attributed: false,
+      }
 
   if (mapping.unmapped.length > 0 && !wholeSheetGrid) {
     return { mapping, parsed: null, unmapped: mapping.unmapped }

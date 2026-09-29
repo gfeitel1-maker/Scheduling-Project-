@@ -664,6 +664,69 @@ describe('deriveCamperId', () => {
     expect(() => deriveCamperId('camp-1', {})).toThrow(/external_id or display_name/i)
     expect(() => deriveCamperId('camp-1', { displayName: '   ' })).toThrow(/external_id or display_name/i)
   })
+
+  // T299 — the `sub` mode. A provisional subject from a planner grid with no name
+  // column, keyed on (submission, arrival) rather than on the submission alone.
+  describe('the provisional-subject (sub) mode', () => {
+    const SUB = 'sub-0ae5a692da689e80005faf6c4958e796'
+    const OTHER = 'sub-72790909c58062db46a28b372a1ad04d'
+
+    // THE DEFECT, as a test. Two children who both picked archery and swim produce
+    // byte-identical sheets and therefore the same submission key. They are two
+    // arrivals, and must be two campers.
+    it('separates two arrivals of the SAME submission', () => {
+      expect(deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: 'arrive-1' }))
+        .not.toBe(deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: 'arrive-2' }))
+    })
+
+    // AND THE BEHAVIOUR THAT MUST SURVIVE THE FIX. One import action repeated — an
+    // agent's retry after an ambiguous timeout, or the CLI re-run on unchanged bytes
+    // — is one arrival, and must converge rather than accumulate duplicates. A
+    // counter or a timestamp in the key would pass the case above and fail this one.
+    it('converges for the same submission arriving in the same import', () => {
+      expect(deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: 'arrive-1' }))
+        .toBe(deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: 'arrive-1' }))
+    })
+
+    it('separates two different submissions in the same import', () => {
+      expect(deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: 'arrive-1' }))
+        .not.toBe(deriveCamperId('camp-1', { submissionKey: OTHER, arrivalId: 'arrive-1' }))
+    })
+
+    it('separates the same submission and arrival in different camps', () => {
+      expect(deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: 'arrive-1' }))
+        .not.toBe(deriveCamperId('camp-2', { submissionKey: SUB, arrivalId: 'arrive-1' }))
+    })
+
+    // The mode tag's job, probed the way the ext/name case above is: values chosen so
+    // that WITHOUT the tag the component sequences would encode identically.
+    it('cannot collide with the ext or name modes', () => {
+      expect(deriveCamperId('camp-1', { submissionKey: 'ext', arrivalId: 'arigreen' }))
+        .not.toBe(deriveCamperId('camp-1', { externalId: 'ext' }))
+      expect(deriveCamperId('camp-1', { submissionKey: 'name', arrivalId: 'arigreen' }))
+        .not.toBe(deriveCamperId('camp-1', { displayName: 'Ari Green' }))
+    })
+
+    // A submission key wins over the filename label the subject also carries —
+    // otherwise two children whose planners both exported as `planner.csv` would key
+    // on that filename, which is the collision T285 removed.
+    it('prefers the submission key over a display name', () => {
+      expect(deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: 'a1', displayName: 'planner' }))
+        .toBe(deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: 'a1', displayName: 'other' }))
+    })
+
+    // REQUIRED, not defaulted. A default would silently restore the content-only key
+    // for any caller that forgot to say which import it was performing — the same
+    // defect wearing a different costume.
+    it('refuses a submission key with no arrival rather than keying on content alone', () => {
+      expect(() => deriveCamperId('camp-1', { submissionKey: SUB })).toThrow(/arrivalId/)
+      expect(() => deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: '  ' })).toThrow(/arrivalId/)
+    })
+
+    it('holds the arrival to the same opaque alphabet as every other component', () => {
+      expect(() => deriveCamperId('camp-1', { submissionKey: SUB, arrivalId: 'run 1' })).toThrow(/opaque/i)
+    })
+  })
 })
 
 // T226 round 2 — the IMPORT path's run id. The renderer's solve path still

@@ -175,6 +175,14 @@ export function runPreferenceSheetCli({
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) return errorResult(base, 'db has no camp bootstrapped yet')
 
+    // THIS IMPORT, identified. Derived from the file's bytes rather than minted, so
+    // re-sending the same sheet is an idempotent retry — which is what an agent
+    // recovering from an ambiguous MCP timeout needs. Derived ONCE and used for both
+    // the run id and a provisional subject's arrival (T299), because those two are
+    // the same fact: the import this data arrived in. Two derivations would be two
+    // chances for the subject to claim an arrival the run does not have.
+    const importedRunId = deriveImportedElectiveRunId(camp.id, submissionSha256)
+
     // THE CAMP'S OWN ENTITIES, read here and passed in as plain arrays so the
     // transform stays pure. This is what RESOLVE resolves AGAINST (ADR section
     // 12.0): a choice label against the activity catalog, a division label
@@ -282,7 +290,7 @@ export function runPreferenceSheetCli({
           // sheet is different bytes and so a new run. Only this caller can make
           // that choice: the renderer's solve path has no document to key on and
           // must keep minting its own.
-          runId: deriveImportedElectiveRunId(camp.id, sourceSha256),
+          runId: importedRunId,
           name: runName ?? path.basename(file),
           sourceFilename: path.basename(file),
           sourceSha256,
@@ -331,13 +339,16 @@ export function runPreferenceSheetCli({
       //    across two. That is the "merge two real children" case the ADR names as
       //    the ONLY legitimate refusal, happening silently on the default path.
       //
-      //    The content hash keys it instead, through `deriveCamperId`'s `ext` arm:
-      //    two different submissions can never collide, and the SAME bytes re-sent
-      //    converge onto one subject rather than duplicating — the same idempotency
-      //    the run id already gets from `deriveImportedElectiveRunId`. The filename
-      //    stays as the human-readable LABEL so a director recognises which
-      //    submission it is; it is no longer the key, so renaming a file no longer
-      //    forks the child either.
+      //    The content hash keys it instead — as of T299 through `deriveCamperId`'s
+      //    `sub` arm, PAIRED WITH AN ARRIVAL rather than alone (the `ext` arm this
+      //    used to borrow keyed on content only, and two children who picked the same
+      //    activities collapsed onto one camper). Two different submissions can never
+      //    collide, and the SAME bytes re-sent converge onto one subject rather than
+      //    duplicating — the same idempotency the run id already gets from
+      //    `deriveImportedElectiveRunId`, and on this path the same value provides
+      //    both. The filename stays as the human-readable LABEL so a director
+      //    recognises which submission it is; it is no longer the key, so renaming a
+      //    file no longer forks the child either.
       const stem = path.basename(file).replace(/\.[^.]+$/, '')
       return {
         displayName: stem || null,
@@ -349,6 +360,20 @@ export function runPreferenceSheetCli({
         // rules, and two rules fork one child into two subjects depending on which
         // door their sheet came through.
         externalId: submissionKeyFromRows(subjectRows),
+        // T299 — WHICH IMPORT this submission arrived in, the other half of the
+        // identity. The content key alone cannot be it: two children who picked the
+        // same activities produce byte-identical sheets, and keying on content alone
+        // merged them onto one camper row holding both children's answers.
+        //
+        // THIS PATH'S ARRIVAL IS THE FILE'S BYTES, deliberately, and it is the one
+        // place where that is the right answer. An agent driving this CLI retries,
+        // and `deriveImportedElectiveRunId`'s whole purpose is that re-sending the
+        // same bytes is one import rather than two. So on this path identical bytes
+        // ARE one submission arriving once, by this caller's own declaration — the
+        // consequence being that two children's byte-identical files reach the same
+        // subject here, while on the director's panel (which mints an arrival per
+        // file selection) they reach two.
+        arrivalId: importedRunId,
         source: stem ? 'filename' : 'none',
         attributed: false,
       }

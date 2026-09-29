@@ -1402,6 +1402,22 @@ CREATE TABLE IF NOT EXISTS event_slots (
 -- constraint, so a future column here is an ADR-level change, not a field
 -- addition. external_id is an opaque string from the camp's OWN roster system
 -- — it matches the *_id glob only by spelling and references no Shoresh entity.
+--
+-- external_id CARRIES A SECOND MEANING on an unattributed row (is_unattributed =
+-- 1), and it is recorded here because this is where a reader checks. For a
+-- provisional subject there is no roster id — the sheet had no name column — and
+-- the column holds the SUBMISSION KEY instead: a `sub-`-prefixed hash of the
+-- sheet's own rows (src/ingest/preferenceImport.js `submissionKeyFromRows`). Two
+-- subjects that answered identically therefore SHARE this value while having
+-- different ids, which is how buildStructureIssues (src/ingest/attentionList.js)
+-- can tell a director that two unnamed sheets are indistinguishable by content
+-- (T299). The row's id is NOT derivable from this column: an unattributed
+-- subject is keyed on (submission, arrival), and the arrival is not stored.
+--
+-- KNOWN GAP, stated rather than discovered: attributeElectiveSubject writes the
+-- CALLER's external_id onto the canonical row, so naming a subject drops the
+-- submission key and the link back to the sheet it came from is not preserved.
+-- Recording which sheet a named camper arrived on would need a column of its own.
 -- COLUMN ORDER: division_label is declared LAST (added v79), matching where
 -- `ALTER TABLE campers ADD COLUMN division_label` places it on a migrated
 -- pre-v79 db — SQLite always appends an ADD COLUMN. Same convention as

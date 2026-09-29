@@ -257,6 +257,7 @@ export default function AssignmentPanel({
   const [mapping, setMapping] = useState(null)
   const [sourceLabel, setSourceLabel] = useState(null)
   const [submissionKey, setSubmissionKey] = useState(null)
+  const [arrivalId, setArrivalId] = useState(null)
   const [parsed, setParsed] = useState(null)
   const [templateId, setTemplateId] = useState(null)
   const [occurrences, setOccurrences] = useState([])
@@ -344,6 +345,17 @@ export default function AssignmentPanel({
       // the key is the content.
       setSourceLabel(file.name.replace(/\.[^.]+$/, ''))
       setSubmissionKey(submissionKeyFromRows(fileRows))
+      // T299 — WHICH IMPORT this is, the other half of a provisional subject's
+      // identity. Minted once per file SELECTION rather than per parse, because
+      // confirmMapping runs again each time the director settles a label and every
+      // one of those re-parses must land on the same subject.
+      //
+      // A fresh id per selection is the point: two children handing in matching
+      // planners are two selections and so two subjects, which is what stops one
+      // camper row holding both their answers. The director is told they are
+      // indistinguishable by content (the attention surface) and merges them by
+      // naming both, if it turns out to be one child.
+      setArrivalId(crypto.randomUUID())
       // The mapping shown to the director is LOCATED, not assumed to be row 1, and
       // is resolved against the camp's own entities — so what they are asked to
       // confirm is what the transform will actually do. `inferPreferenceMapping`
@@ -442,7 +454,7 @@ export default function AssignmentPanel({
       // 'mapping' with no explanation, which is the silent failure the
       // describeWriteFailure rule exists to prevent.
       result = readPreferenceSheet({
-        rows, campId, catalog, sourceLabel, submissionKey,
+        rows, campId, catalog, sourceLabel, submissionKey, arrivalId,
         resolutions: resolutionMap(resolutionList),
       }).parsed
     } catch (err) {

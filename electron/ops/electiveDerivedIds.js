@@ -210,21 +210,22 @@ export function electiveChoiceLabelKey(label) {
   return whitespaceInsensitiveName(label)
 }
 
-// Key: (camp_id, external_id) or (camp_id, name key). Owner-approved
-// 2026-09-18 (T226).
+// Key: (camp_id, submission + arrival), (camp_id, external_id) or
+// (camp_id, name key). Owner-approved 2026-09-18 (T226).
 //
 // Keyed on the CAMP, not a run: a camper persists across assignment runs, and
 // re-importing next week's sheet must land on the same child.
 //
-// TWO KEY MODES, and the mode is part of the key. `external_id` is correct
+// THREE KEY MODES, and the mode is part of the key. `external_id` is correct
 // whenever the sheet carries one — a camp-management export does, a paper form
 // does not — and it survives a spelling correction to the name, which a
 // name-keyed id cannot. Without one we fall back to the normalized display
-// name, which is the only thing always present.
+// name, which is the only thing always present. A PROVISIONAL SUBJECT has
+// neither: see the `sub` mode below.
 //
-// The mode tag ('ext' / 'name') is not decoration: without it a camper whose
-// external_id is the literal string 'Ari Green' would derive the same id as a
-// camper named Ari Green, and one child would silently become the other.
+// The mode tag ('sub' / 'ext' / 'name') is not decoration: without it a camper
+// whose external_id is the literal string 'Ari Green' would derive the same id
+// as a camper named Ari Green, and one child would silently become the other.
 //
 // WHAT THIS DELIBERATELY DOES NOT SOLVE. Two real children with the same name
 // and no external id collapse onto ONE id. That is not a bug to be fixed here
@@ -233,7 +234,76 @@ export function electiveChoiceLabelKey(label) {
 // importer surfaces same-name campers to the director as an explicit decision
 // instead (T226). Convergence is preserved either way: both devices derive the
 // same id from the same sheet, which is what the merge machinery needs.
-export function deriveCamperId(campId, { externalId = null, displayName = null } = {}) {
+//
+// THE `sub` MODE (T299) — a PROVISIONAL SUBJECT, from a planner grid with no
+// name column, keyed on (submission, arrival).
+//
+// It used to borrow the `ext` arm, passing the submission's content hash where
+// a camp roster id belongs. That made a provisional subject's identity a pure
+// function of the sheet's CONTENT, and two children who picked the same
+// activities — archery and swim, at a camp offering eight things — collapsed
+// onto ONE camper row holding both children's answers. Confirmed by execution,
+// not inference: `submissionKeyFromRows` returns the same key for two
+// byte-identical row sets, so `deriveCamperId` returned the same id.
+//
+// The fix is NOT entropy in the key. Three different truths produce identical
+// bytes — two children who agree, one child's sheet sent twice, a copy-paste
+// error in the source — and the SECOND is the behaviour the content key exists
+// to produce: re-importing the same submission must converge rather than
+// accumulate duplicates. An ordinal or a timestamp here would separate the two
+// children and ALSO fork a retry, which is exactly the trade this module's
+// comment above warns about.
+//
+// So the key carries the one fact that genuinely differs, and it is not a
+// property of the bytes at all: WHICH IMPORT THIS SUBMISSION ARRIVED IN. Two
+// children handing in matching sheets are two import actions; one import action
+// repeated is one arrival. The caller states it, because only the caller knows
+// — the director's panel mints one per file selection, and the CLI passes the
+// run id it derives from the file's bytes, which is what keeps an agent's retry
+// after an ambiguous timeout idempotent (deriveImportedElectiveRunId).
+//
+// ORDERING WITHIN ONE IMPORT IS NOT THE SAME FACT and is not used here. A
+// position — row ordinal, sheet index — describes how the file happened to be
+// sorted, not whose sheet it is, and re-sorting the file would re-key the child.
+// Arrival is a fact about the submission; ordering is a fact about the page.
+//
+// `arrivalId` is REQUIRED with a submission key rather than defaulting to
+// content-only, and it throws in the style of `deriveElectivePreferenceId`'s
+// coordinate guard. A default would silently restore the collision for any
+// caller that forgot to say which import it was performing — writing a value we
+// could not resolve without saying so, which is this ticket's own defect class
+// reappearing at our own API boundary.
+//
+// A `sub`-mode id can never equal an `ext`- or `name`-mode id: the mode tags are
+// distinct length-prefixed literals and the component counts differ. So naming a
+// subject (electron/ops/attributeElectiveSubject.js) is always a rekey onto a
+// canonical id, and naming TWO subjects the same child merges them there — which
+// is why this ticket adds no second merge mechanism.
+export function deriveCamperId(
+  campId,
+  { submissionKey = null, arrivalId = null, externalId = null, displayName = null } = {}
+) {
+  // Checked FIRST because it is the most specific mode: a provisional subject
+  // carries a filename as its `displayName` and no roster id at all, so falling
+  // through to `name` would key one child on another's filename.
+  const submission = String(submissionKey ?? '').trim()
+  const arrival = String(arrivalId ?? '').trim()
+  if (submission.length > 0) {
+    if (arrival.length === 0) {
+      throw new Error(
+        'electiveDerivedIds: a provisional subject keyed on a submission needs an arrivalId — the ' +
+          'import it arrived in. Without one, two children whose sheets happen to match collapse ' +
+          'onto one camper (T299).'
+      )
+    }
+    return `camper${V}:${join([
+      opaque('camp_id', campId),
+      'sub',
+      opaque('submission_key', submission),
+      opaque('arrival_id', arrival),
+    ])}`
+  }
+
   const external = String(externalId ?? '').trim()
   if (external.length > 0) {
     return `camper${V}:${join([opaque('camp_id', campId), 'ext', opaque('external_id', external)])}`

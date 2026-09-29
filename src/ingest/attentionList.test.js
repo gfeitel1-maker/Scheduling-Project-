@@ -151,3 +151,91 @@ describe('buildStructureIssues', () => {
     }
   })
 })
+
+// T299 — a director cannot be asked "one child or two" unless they are told the
+// two sheets are indistinguishable. Both sheets LAND as their own subject (the
+// app does not decide which case it is); this is the telling half.
+describe('buildStructureIssues — submissions indistinguishable by content (T299)', () => {
+  // external_id holds the SUBMISSION key, so two subjects carrying identical
+  // answers share it while having different ids. Both exported as `planner`, which
+  // is why the display name cannot carry this distinction either.
+  const sub = (id, external_id, display_name = 'planner') => ({
+    id,
+    display_name,
+    external_id,
+    is_unattributed: 1,
+  })
+
+  it('tells the director when two unattributed sheets carry identical answers', () => {
+    const issues = buildStructureIssues({
+      campers: [sub('camper1:sub-a:arrive-1', 'sub-ffff'), sub('camper1:sub-a:arrive-2', 'sub-ffff')],
+    })
+    const rows = issues.filter((i) => i.sourceKind === 'unattributed-camper')
+
+    // TWO rows, one per subject — each is separately nameable, which is what makes
+    // the merge possible at all. Collapsing them into one row would hide a child.
+    expect(rows).toHaveLength(2)
+    expect(new Set(rows.map((r) => r.id)).size).toBe(2)
+    // Both are told, not just the second to arrive: neither is "the duplicate".
+    for (const row of rows) {
+      expect(row.why).toMatch(/same answers/i)
+      expect(row.why).toMatch(/one camper.s sheet imported twice|two campers/i)
+    }
+  })
+
+  it('does NOT claim a collision when two unattributed sheets carry different answers', () => {
+    const issues = buildStructureIssues({
+      campers: [sub('camper1:sub-a:arrive-1', 'sub-aaaa'), sub('camper1:sub-b:arrive-2', 'sub-bbbb')],
+    })
+    const rows = issues.filter((i) => i.sourceKind === 'unattributed-camper')
+    expect(rows).toHaveLength(2)
+    // The ordinary ask, unchanged. A guard that fires on every pair would prove
+    // nothing, so this is the case that has to stay quiet.
+    for (const row of rows) {
+      expect(row.why).not.toMatch(/same answers/i)
+      expect(row.why).toMatch(/not their name/i)
+    }
+  })
+
+  it('a single unattributed sheet is never called indistinguishable from itself', () => {
+    const issues = buildStructureIssues({ campers: [sub('camper1:sub-a:arrive-1', 'sub-aaaa')] })
+    const rows = issues.filter((i) => i.sourceKind === 'unattributed-camper')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].why).not.toMatch(/same answers/i)
+  })
+
+  it('an already-named camper sharing a submission key is not counted as a colliding sheet', () => {
+    // The named row is what a subject becomes once a director attributes it. It
+    // must not keep the remaining subject flagged as colliding with something —
+    // that would leave a question on screen that has already been answered.
+    //
+    // THE FIXTURE IS DEFENSIVE, NOT OBSERVED, and saying so is the point.
+    // `attributeElectiveSubject` writes the CALLER's external_id onto the canonical
+    // row, so today a named camper carries null rather than the `sub-` key and this
+    // state does not arise. What the case pins is the rule — count UNNAMED sheets
+    // only — which is what would be silently wrong if the submission key were ever
+    // carried across the rekey (see the KNOWN GAP note on campers.external_id in
+    // electron/db/schema.sql). Without it, "count the unnamed ones" and "count the
+    // ones with this key" are indistinguishable.
+    const issues = buildStructureIssues({
+      campers: [
+        sub('camper1:sub-a:arrive-1', 'sub-ffff'),
+        { id: 'camper1:name:arigreen', display_name: 'Ari Green', external_id: 'sub-ffff', is_unattributed: null },
+      ],
+    })
+    const rows = issues.filter((i) => i.sourceKind === 'unattributed-camper')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].why).not.toMatch(/same answers/i)
+  })
+
+  it('does not treat two subjects with no submission key at all as identical', () => {
+    // A grid read with no submission key leaves external_id null. Two nulls are not
+    // evidence of anything, and reading them as a match would invent a collision.
+    const issues = buildStructureIssues({
+      campers: [sub('camper1:x', null, 'ari-planner'), sub('camper1:y', null, 'noa-planner')],
+    })
+    const rows = issues.filter((i) => i.sourceKind === 'unattributed-camper')
+    expect(rows).toHaveLength(2)
+    for (const row of rows) expect(row.why).not.toMatch(/same answers/i)
+  })
+})
