@@ -119,6 +119,56 @@ describe('deriveElectiveRunOuterRows — v76 inheritance and camper universe', (
     db.close()
   })
 
+  // Board finding, 2026-09-29 — Red Hat's export pin: resolveTemplateSlot
+  // resolves an anchor cell by the template slot's own anchor_id, looked up
+  // directly in fixed_events — it can never itself pick the wrong anchor. The
+  // real defect (a week-scoped override anchor losing to an all-weeks anchor
+  // for the same cell, fixed in src/engine/buildSchedule.js) lives upstream,
+  // in which anchor_id the engine writes onto the slot. This test pins the
+  // export's half of the contract: given a slot whose anchor_id already names
+  // the week-scoped row, the export must carry THAT row's activity, not the
+  // all-weeks row that happens to share the cell.
+  it('resolves the week-scoped anchor named by anchor_id, not an unrelated all-weeks anchor at the same cell', () => {
+    const db = freshDb()
+    const fx = baseFixture(db)
+    const weekId = 'week-A'
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, 0, 0)')
+      .run(weekId, fx.campId, 'Week A')
+    const camperId = randomUUID()
+    db.prepare('INSERT INTO campers (id, camp_id, display_name, group_id, is_active) VALUES (?, ?, ?, ?, 1)')
+      .run(camperId, fx.campId, 'Camper A', fx.groupId)
+    addPreference(db, fx.run.id, camperId)
+
+    const allWeeksActivityId = randomUUID()
+    db.prepare('INSERT INTO activities (id, camp_id, name, location_id, span_blocks, catalog_role) VALUES (?, ?, ?, ?, 1, ?)')
+      .run(allWeeksActivityId, fx.campId, 'Lunch', fx.locationId, 'pinned_event')
+    const allWeeksAnchorId = randomUUID()
+    db.prepare('INSERT INTO fixed_events (id, camp_id, name, kind, activity_id, schedule_week_id) VALUES (?, ?, ?, ?, ?, NULL)')
+      .run(allWeeksAnchorId, fx.campId, 'Lunch', 'fixed', allWeeksActivityId)
+
+    const weekScopedActivityId = randomUUID()
+    db.prepare('INSERT INTO activities (id, camp_id, name, location_id, span_blocks, catalog_role) VALUES (?, ?, ?, ?, 1, ?)')
+      .run(weekScopedActivityId, fx.campId, 'Shabbat Lunch', fx.locationId, 'pinned_event')
+    const weekScopedAnchorId = randomUUID()
+    db.prepare('INSERT INTO fixed_events (id, camp_id, name, kind, activity_id, schedule_week_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(weekScopedAnchorId, fx.campId, 'Shabbat Lunch', 'fixed', weekScopedActivityId, weekId)
+
+    // The template slot names the week-scoped anchor — this is what the
+    // engine fix guarantees for the week the override targets.
+    db.prepare(
+      'INSERT INTO template_slots (id, template_id, group_id, is_anchor, anchor_id, day_id, time_block_id) VALUES (?, ?, ?, 1, ?, ?, ?)'
+    ).run(randomUUID(), fx.templateId, fx.groupId, weekScopedAnchorId, fx.dayId, fx.tb[0])
+
+    const { rows } = deriveElectiveRunOuterRows(db, fx.run)
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      cell_kind: 'inherited', activity_id: weekScopedActivityId, activity_name: 'Shabbat Lunch',
+    })
+
+    db.close()
+  })
+
   it('collapses three contiguous identical-activity template_slots rows into one span-headed row (span_blocks: 3)', () => {
     const db = freshDb()
     const fx = baseFixture(db)
