@@ -18,6 +18,8 @@
 // "every action", so only the staff array needs a deliberate per-action
 // decision when a new entity/action is added.
 
+import { STAFF_READABLE_PARTICIPANT_ENTITIES } from '../ops/participantEntities.js'
+
 export const ENTITIES = [
   'groups',
   'tiers',
@@ -137,6 +139,25 @@ export const PERMISSIONS = {
     // ingestCommit (electron/main.js) is UNCHANGED — this loosens only the
     // role check, not the data-integrity guard.
     'groups.import',
+    // T304 — the participant domain's ONE staff-readable exception, owner
+    // ruling 2026-09-29 amending ADR D9: "administrative staff are the staff in
+    // question... you would be saying that a camp's staff cannot read a child's
+    // name? even though they are with the child irl?" The concrete need is that
+    // an elective import's unresolved residue — a submission whose camper has
+    // no name yet — is raised on the Roots home, a staff-reachable screen.
+    //
+    // Same mechanism as 'camp_maps.read' above, for the same reason: `campers`
+    // is deliberately ABSENT from ENTITIES, so staffReadWrite never derives
+    // `campers.write`, and an explicit single grant is the only way to have
+    // read without write. Staff get no write, no delete, no restore, no
+    // bulk_replace and no import on campers, and the other seven participant
+    // entities are untouched.
+    //
+    // DERIVED, not typed: the set lives in electron/ops/participantEntities.js
+    // beside PARTICIPANT_ENTITIES itself, and participantEntitiesAdminOnly.test.js
+    // derives its skip from that same constant. A literal here would be the
+    // hand-kept second copy that module exists to abolish.
+    ...[...STAFF_READABLE_PARTICIPANT_ENTITIES].map((entity) => `${entity}.read`),
   ],
   // devices.approve and devices.revoke are admin-only (via admin: ['*'])
   // devices.dev_authorize has been removed — superseded by devices.approve

@@ -71,7 +71,13 @@ const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = {
   // electron/auth/participantEntitiesAdminOnly.test.js.
   campers: {
     reason:
-      'ADR D9: the whole participant domain is admin-only. campers is PII (a child\'s name and group); staff consume the exported artifact, not the entity. No staff read and no staff write.',
+      'ADR D9 as amended by T304 (owner ruling 2026-09-29): STAFF READ, NO STAFF WRITE. The ' +
+      'staff role here means administrative staff, and a child\'s name is not a secret from the ' +
+      'people who are with that child, so an elective import\'s unnamed submissions are raised ' +
+      'on the staff-reachable Roots home. campers stays OUT of ENTITIES precisely so that read ' +
+      'can be granted without write — the same mechanism as camp_maps.read. The grant itself is ' +
+      'STAFF_READABLE_PARTICIPANT_ENTITIES in electron/ops/participantEntities.js; the rest of ' +
+      'the participant domain is unchanged and fully admin-only.',
   },
   elective_assignment_runs: {
     reason:

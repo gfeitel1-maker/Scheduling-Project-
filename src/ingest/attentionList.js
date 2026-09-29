@@ -52,11 +52,33 @@ const REQUIRED_EMPTY_AREAS = [
   { key: 'activities', label: 'Activities', domainTag: 'Scheduling' },
 ]
 
-export function buildStructureIssues(collections) {
+const NOTHING_UNREAD = new Set()
+
+// T304 — `unread` names the collections this device COULD NOT READ (the `failed`
+// set from useCurrentStructureCounts). An emptiness check over one of them is not
+// a finding: the collection arrives as `[]` whether the camp has none or the read
+// was denied, and every check below would otherwise report the second as the first.
+//
+// Caught by running the screen, not by reading it: with `activities` failing, the
+// rail said "Activities — No activities set up yet." for a camp with five. The
+// bento's em dash and the rail's "may be incomplete" notice were already right;
+// this row was a confident false claim sitting between two honest ones.
+//
+// Optional, and defaulting to "everything was read", so every existing caller is
+// unchanged and one that forgets it gets the old behaviour rather than a crash.
+//
+// The two checks below this loop need no such guard, and it is worth saying why
+// rather than leaving it to be re-derived: the group-eligibility loop is already
+// gated on `activities.length > 0`, so an unread `activities` skips it, and an
+// unread `groups` makes it iterate nothing. Both fail to SILENCE, not to a false
+// claim. The unattributed-subject loop is the same shape — an unread `campers`
+// yields no rows, which is why the screen must show its notice regardless.
+export function buildStructureIssues(collections, unread = NOTHING_UNREAD) {
   if (!collections) return []
   const issues = []
 
   for (const area of REQUIRED_EMPTY_AREAS) {
+    if (unread.has(area.key)) continue
     if ((collections[area.key] ?? []).length === 0) {
       issues.push({
         id: `empty:${area.key}`,
