@@ -1,7 +1,7 @@
 ---
 title: "A branch created from another session's branch pushes into their PR"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: documentation-governance
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/WORKING_COPY_STANDARD.md]
@@ -92,3 +92,24 @@ This rule was deliberately kept out of [T307](T307-a-directors-column-correction
 pull request even though that is where the incident happened. A standard outranks the code it
 governs, so a standards edit riding inside a feature diff gets reviewed as part of the feature and
 usually is not reviewed at all. It earns its own diff and its own argument.
+
+## What shipped
+
+R8 landed in `docs/governance/standards/WORKING_COPY_STANDARD.md` §2, in the house form, with the
+2026-09-29 T307 incident as its **Why** and both the create case and the re-point case named.
+
+Two departures from the draft above, neither substantive:
+
+- The heading reads "A branch's upstream **is** the branch it will be pushed to, or nothing" rather
+  than "must be" — the other seven rules are written as statements of fact, not obligations.
+- The rule opens by affirming that branching from another session's branch stays correct. The draft
+  carried that only as a non-goal, where a reader following the rule would never see it.
+
+A check was added to §5 rather than a gate, matching this ticket's non-goals:
+`git rev-parse --abbrev-ref --symbolic-full-name @{u}` must **error** in a session's own branch
+before its first push.
+
+`last_reviewed` in the frontmatter was deliberately **not** bumped. Across all five standards that
+field has only ever been set at creation and never moved on amendment — `TESTING_STANDARD.md` still
+reads `2026-07-28` after four later edits — so it records the last full review, and bumping it for a
+single added rule would assert a review that did not happen.
