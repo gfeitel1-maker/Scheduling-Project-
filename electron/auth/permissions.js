@@ -18,7 +18,10 @@
 // "every action", so only the staff array needs a deliberate per-action
 // decision when a new entity/action is added.
 
-import { STAFF_READABLE_PARTICIPANT_ENTITIES } from '../ops/participantEntities.js'
+import {
+  STAFF_ATTRIBUTABLE_PARTICIPANT_ENTITIES,
+  STAFF_READABLE_PARTICIPANT_ENTITIES,
+} from '../ops/participantEntities.js'
 
 export const ENTITIES = [
   'groups',
@@ -158,6 +161,12 @@ export const PERMISSIONS = {
     // derives its skip from that same constant. A literal here would be the
     // hand-kept second copy that module exists to abolish.
     ...[...STAFF_READABLE_PARTICIPANT_ENTITIES].map((entity) => `${entity}.read`),
+    // T306 — the one MUTATION staff hold on a participant entity, and deliberately
+    // its own verb rather than `.write`. The reasoning, and why a wide grant would
+    // bypass attributeElectiveSubject's own is_unattributed guard, is recorded beside
+    // the set in electron/ops/participantEntities.js. DERIVED from that set for the
+    // same reason the read grant above is.
+    ...[...STAFF_ATTRIBUTABLE_PARTICIPANT_ENTITIES].map((entity) => `${entity}.attribute`),
   ],
   // devices.approve and devices.revoke are admin-only (via admin: ['*'])
   // devices.dev_authorize has been removed — superseded by devices.approve

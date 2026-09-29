@@ -145,6 +145,11 @@ contextBridge.exposeInMainWorld('shoresh', {
   // they got above.
   setElectivePreference: (args) => ipcRenderer.invoke('shoresh:set-elective-preference', args),
   removeElectivePreference: (args) => ipcRenderer.invoke('shoresh:remove-elective-preference', args),
+  // T306 — names an unnamed subject the import landed. Authorized as
+  // 'campers.attribute' (staff-reachable per the owner ruling of 2026-09-29),
+  // deliberately NOT 'campers.write'. RESOLVES to {ok:false,error} on refusal
+  // rather than rejecting, so a caller must check `ok`.
+  attributeSubject: (args) => ipcRenderer.invoke('shoresh:attribute-subject', args),
   // T248 — per-camper outer schedule read (final-run snapshot or draft-derive).
   getElectiveRunOuterSchedule: (args) => ipcRenderer.invoke('shoresh:get-elective-run-outer-schedule', args),
   // T249 — read-only device build posture (at-rest encryption on/off). No
