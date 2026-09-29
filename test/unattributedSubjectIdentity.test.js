@@ -141,30 +141,39 @@ describe('an unattributed subject is keyed per SUBMISSION, not per filename', ()
     expect(withDb((db) => db.prepare('SELECT COUNT(*) c FROM elective_preferences').get().c)).toBe(4)
   })
 
-  // T299 — THE LIMIT OF THIS PATH, pinned so it cannot drift silently in either
-  // direction. Two DIFFERENT children whose planners happen to be byte-identical
-  // (both picked archery and swim) still land as ONE subject here, and that is not
-  // an oversight: this CLI derives its run id — and so its arrival — from the file's
-  // bytes, precisely so an agent retrying after an ambiguous MCP timeout converges
-  // rather than duplicating. Under that declaration identical bytes ARE one
-  // submission arriving once, and no second fact on this path can separate them.
+  // T303 — WAS A KNOWN LIMIT, NOW THE DOCUMENTED DEFAULT. Deliberately changed, and
+  // the change is in the SECOND assertion rather than the first.
   //
-  // The director's panel makes no such declaration (it mints an arrival per file
-  // selection) and does produce two subjects — that case is covered in
-  // src/screens/elective/assignment/AssignmentPanel.test.jsx and
-  // electron/ops/commitElectiveRun.identicalSubmissions.test.js.
+  // What T299 pinned here: two DIFFERENT children whose planners happen to be
+  // byte-identical (both picked archery and swim) land as ONE subject on this path,
+  // because the CLI derives its arrival from the file's bytes so an agent retrying
+  // after an ambiguous MCP timeout converges rather than duplicating. That row count
+  // is UNCHANGED and must stay unchanged: never say no at the machine interface, so a
+  // caller that declares nothing is not refused and its behaviour does not move.
   //
-  // Closing this needs an owner decision, most likely an explicit idempotency token
-  // the caller supplies so a retry can SAY it is a retry instead of being inferred
-  // from content. Until then this case documents the behaviour rather than blessing
-  // it: if someone gives the CLI a per-invocation arrival, this goes red and they
-  // have to confront the retry it forks.
-  it('KNOWN LIMIT: two children with byte-identical planners are ONE subject on this path', () => {
+  // What T303 changed: the merge is no longer SILENT. The caller is told the two
+  // submissions could not be told apart, and told how to say they are two — which is
+  // the whole difference between a limit and a default. An agent that can see the
+  // collision re-calls with explicit arrivals; an agent that cannot has lost a
+  // child's answers and will never know.
+  //
+  // A caller that DOES declare gets two subjects, and the retry stays idempotent.
+  // Both halves are asserted on camper rows in test/callerDeclaredArrival.test.js
+  // through the CLI core and the MCP tools alike; this file keeps the no-declaration
+  // case, where it has always lived.
+  it('two children with byte-identical planners are ONE subject when nothing declares otherwise', () => {
     const a = importAs('ari.csv', AVIVA)
     const b = importAs('noa.csv', AVIVA)
     expect(a.ok).toBe(true)
     expect(b.ok).toBe(true)
     expect(campers()).toHaveLength(1)
+
+    // AND THE SECOND SUBMISSION IS TOLD, which the first cannot be — there was
+    // nothing to collide with yet. That asymmetry is what makes this non-vacuous.
+    const kinds = (r) => (r.residue ?? []).filter((x) => x.kind === 'INDISTINGUISHABLE_SUBMISSION')
+    expect(kinds(a)).toEqual([])
+    expect(kinds(b)).toHaveLength(1)
+    expect(kinds(b)[0].message).toMatch(/arrival_id/)
   })
 
   it('a renamed file is still ONE subject — the filename is a LABEL, not the key', () => {

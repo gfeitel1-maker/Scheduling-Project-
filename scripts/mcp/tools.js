@@ -101,6 +101,12 @@ export function preferenceSheetPreviewTool(args, { dbPath, dbKey }) {
     // with no argv parser and no tool passing it, which is not a feature.
     camperName: args.camper_name ?? null,
     resolutions: machineResolutions(args.label_resolutions),
+    // T303 — WHICH ARRIVAL THIS IS. Accepted on the READ tool as well as the write
+    // one, and that is not a T298 violation: an arrival token is a statement about
+    // WHICH SUBMISSION this is, it mints nothing, and a preview that ignored it would
+    // report a collision the matching commit would not have — the preview and the
+    // commit have to be reading the same import.
+    arrivalId: args.arrival_id ?? null,
     dbKey,
   })
 }
@@ -121,6 +127,7 @@ export function preferenceSheetCommitTool(args, { dbPath, allowWrite, authorUser
     runName: args.run_name ?? null,
     camperName: args.camper_name ?? null,
     resolutions: machineResolutions(args.label_resolutions),
+    arrivalId: args.arrival_id ?? null,
     authorUserId: authorUserId ?? null,
     dbKey,
   })
