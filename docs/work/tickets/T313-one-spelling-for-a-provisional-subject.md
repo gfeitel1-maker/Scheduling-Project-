@@ -89,16 +89,39 @@ Two things stay at the CLI, and the reasoning is load-bearing rather than stylis
 
 1. `resolveSubject` no longer exists; `readPreferenceSheet` is the only place a provisional subject
    is constructed, and the CLI calls it the way the panel does.
-2. `readPreferenceSheet` gains no new parameters. `submissionKey` becomes optional, defaulting to
-   `submissionKeyFromRows(rows)` — deriving the key from the rows the module was handed is the one
-   rule, not path policy, and it removes the last way two doors could key on different row sets.
+2. `submissionKey` becomes optional, defaulting to `submissionKeyFromRows(rows)` — deriving the key
+   from the rows the module was handed is the one rule, not path policy, and it removes the last way
+   two doors could key on different row sets.
+
+   **AMENDED mid-flight, and the amendment is the interesting part.** The original predicate said
+   `readPreferenceSheet` gains NO new parameters, and that held until #644 landed on main while this
+   was in flight. #644 added a step **1a** to the CLI's `resolveSubject`: a db probe asking whether
+   this submission has already been imported and NAMED, returning that camper so a re-import lands
+   on her instead of forking a second row. That step **cannot** move into the shared module —
+   `readPreferenceSheet` is pure by contract, and a fact about what this camp has already stored is
+   the CLI's to find, exactly as `INDISTINGUISHABLE_SUBMISSION` is.
+
+   So the CLI keeps step 1a as `locateNamedCamper` (#644's probe, carried verbatim) and the shared
+   module gains `camperId` and `externalId`: a camper the caller has already LOCATED, set alongside
+   `camperName`. That is step 1 of the identity order expressed as an id rather than a name — the
+   same kind of parameter as `camperName`, not policy. #644's own argument is why it must be an id:
+   `deriveCamperId`'s `ext`/`name` arms read `external_id` and `display_name`, both ordinary
+   admin-writable columns, so re-deriving an id for a row that already exists mints a second one the
+   day an admin fixes a typo.
+
+   The alternative — letting the CLI build the subject object for that one case, bypassing the shared
+   module — was rejected: it reintroduces exactly the fork this ticket closes, for the case #644 just
+   made subtle.
 3. One reader for the bytes: `readWorkbookRows` in `src/utils/exportSanitize.js`, used by the CLI,
    the panel, and the panel's test.
 4. A whole-sheet grid reports NO skipped rows through either door.
 5. Both doors, given one submission and one arrival, land on ONE camper row — asserted on camper
    rows in the database, with a non-vacuity control showing two arrivals still give two rows.
 6. `test/panelImportPath.test.js`, `test/callerDeclaredArrival.test.js` and
-   `test/unattributedSubjectIdentity.test.js` stay green (42 tests, green before this work).
+   `test/unattributedSubjectIdentity.test.js` stay green. The middle one grew from 18 tests to 35 on
+   main while this was in flight (#644), and all 35 pass through the delegation — including the three
+   that fork her if `camperId`/`externalId` are threaded wrong: a roster id attached after naming, a
+   corrected spelling, and a roster id cleared after naming.
 7. `npm run verify` green.
 
 ## Non-goals
