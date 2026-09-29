@@ -9,8 +9,14 @@ import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from './commitElectiveRun.js'
 import { setElectiveAssignment } from './setElectiveAssignment.js'
-import { deriveElectiveAssignmentId, electiveChoiceLabelKey } from './electiveDerivedIds.js'
+import {
+  deriveElectiveAssignmentId,
+  deriveElectiveOccurrenceId,
+  deriveLinkedElectiveChoiceId,
+  electiveChoiceLabelKey,
+} from './electiveDerivedIds.js'
 import { buildElectiveAssignments } from '../../src/engine/buildElectiveAssignments.js'
+import { deriveChoices } from '../../src/screens/elective/assignment/deriveChoices.js'
 import {
   electiveGenerationVisibleFragment,
   electiveGenerationStaleSolverFragment,
@@ -674,6 +680,253 @@ describe('whole-run fallback preferences survive the real write path (T265 round
     expect(byOcc['occ-2'].preference_rank).toBe(1)
     expect(byOcc['occ-1'].flags).toEqual([])
     expect(byOcc['occ-2'].flags).toEqual([])
+
+    db.close()
+  })
+})
+
+// T301 slice 3 (docs/adr/2026-09-29-linked-elective-bundles.md D6) — a
+// director-authored bundle supersedes a plain sheet choice sharing its label:
+// a camper's preference for that label must resolve to the bundle's own
+// per-tier choice for the CAMPER'S OWN tier, never a separately-minted plain
+// elective_choices row. Mechanism chosen: bundles are read from the db and
+// re-derived fresh via deriveChoices (same module solve-time uses, per ADR
+// D10 — never trust a stale definition), right here in commitElectiveRun,
+// before the transaction opens.
+function seedBundleFixture(db, campId, { scopeMode = 'all', bundleTiers = [] } = {}) {
+  const tierId = 'tier-jr'
+  db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run(tierId, campId, 'Juniors')
+  db.prepare('INSERT INTO groups (id, camp_id, name, tier_id) VALUES (?, ?, ?, ?)').run('grp-1', campId, 'Bunk 1', tierId)
+  db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run('set-1', campId, 'Afternoon Electives')
+  db.prepare(
+    'INSERT INTO elective_bundles (id, elective_set_id, activity_id, name, scope_mode) VALUES (?, ?, ?, ?, ?)'
+  ).run('bundle-1', 'set-1', 'act-archery', 'Archery', scopeMode)
+  db.prepare('INSERT INTO elective_bundle_periods (id, bundle_id, day_id, time_block_id) VALUES (?, ?, ?, ?)')
+    .run('bp-1', 'bundle-1', 'day-1', 'tb-1')
+  db.prepare('INSERT INTO elective_bundle_periods (id, bundle_id, day_id, time_block_id) VALUES (?, ?, ?, ?)')
+    .run('bp-2', 'bundle-1', 'day-1', 'tb-2')
+  for (const t of bundleTiers) {
+    db.prepare('INSERT INTO elective_bundle_tiers (id, bundle_id, tier_id) VALUES (?, ?, ?)').run(randomUUID(), 'bundle-1', t)
+  }
+  return { tierId }
+}
+
+// The occurrence ids MUST be the real derived ones, not convenient literals:
+// deriveChoices computes each choiceOffering's occurrence_id via
+// deriveElectiveOccurrenceId internally, so a hand-picked 'occ-1' would not
+// match it and would trip tier 1's case (a) ("lists a period that is not
+// part of this run") as a false positive in the FIXTURE, not a real defect.
+// A function of runId, not a module-level constant, because the id is
+// keyed on it.
+function bundleOccurrences(runId) {
+  return [
+    {
+      id: deriveElectiveOccurrenceId(runId, 'set-1', 'day-1', 'tb-1', 'tier-jr'),
+      elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-1', tier_id: 'tier-jr',
+    },
+    {
+      id: deriveElectiveOccurrenceId(runId, 'set-1', 'day-1', 'tb-2', 'tier-jr'),
+      elective_set_id: 'set-1', day_id: 'day-1', time_block_id: 'tb-2', tier_id: 'tier-jr',
+    },
+  ]
+}
+
+describe("T301 slice 3 (ADR D6) — a bundle's label supersedes a plain sheet choice", () => {
+  it("routes a camper's preference for the bundle's label to the bundle's own per-tier choice, mints no plain choice for that label, and persists the bundle's member offerings", () => {
+    const { db, campId } = freshDb()
+    seedBundleFixture(db, campId)
+    const runId = randomUUID()
+    const parsed = {
+      campers: [{ id: 'cam-1', display_name: 'Ari Green', external_id: null, group_id: 'grp-1' }],
+      choices: [{ label: 'Archery', labelKey: 'archery' }],
+      preferences: [{ camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 }],
+      sameNameCampers: [],
+      skippedRows: [],
+    }
+
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed, assignments: [], occurrences: bundleOccurrences(runId),
+    })
+    expect(out.ok).toBe(true)
+
+    // D6: exactly ONE choice for this label — the bundle's, not a plain one.
+    const choiceRows = db.prepare('SELECT * FROM elective_choices WHERE run_id = ?').all(out.runId)
+    expect(choiceRows).toHaveLength(1)
+    const expectedChoiceId = deriveLinkedElectiveChoiceId(out.runId, 'bundle-1', 'tier-jr')
+    expect(choiceRows[0].id).toBe(expectedChoiceId)
+    expect(choiceRows[0].is_linked).toBe(1)
+
+    // The bundle's two member periods were persisted as real offerings —
+    // slice 1 left this table's only writer a no-op parent stub (the ticket's
+    // finding #3); this is the write path that finally exercises it.
+    const offeringRows = db.prepare('SELECT * FROM elective_choice_offerings WHERE choice_id = ?').all(expectedChoiceId)
+    expect(offeringRows).toHaveLength(2)
+    expect(offeringRows.map((o) => o.activity_id)).toEqual(['act-archery', 'act-archery'])
+
+    // The camper's preference resolved to the BUNDLE's choice.
+    const prefRow = db.prepare('SELECT * FROM elective_preferences WHERE run_id = ?').get(out.runId)
+    expect(prefRow.choice_id).toBe(expectedChoiceId)
+  })
+
+  it("skips (never throws) a camper whose tier the bundle's scope does not cover, so one mismatch cannot fail the whole commit", () => {
+    const { db, campId } = freshDb()
+    // scope_mode 'all' still only resolves to tiers PRESENT in this run's
+    // occurrences (ADR D2) — both fixture occurrences are Juniors-only, so an
+    // UNTIERED camper (no group at all) matches no tier, the same real-world
+    // shape as a camper the roster never assigned a bunk.
+    seedBundleFixture(db, campId)
+    const runId = randomUUID()
+    const parsed = {
+      campers: [
+        { id: 'cam-1', display_name: 'Ari Green', external_id: null, group_id: 'grp-1' },
+        { id: 'cam-2', display_name: 'Bo Katz', external_id: null, group_id: null },
+      ],
+      choices: [{ label: 'Archery', labelKey: 'archery' }],
+      preferences: [
+        { camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 },
+        { camper_id: 'cam-2', label: 'Archery', labelKey: 'archery', rank: 1 },
+      ],
+      sameNameCampers: [],
+      skippedRows: [],
+    }
+
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed, assignments: [], occurrences: bundleOccurrences(runId),
+    })
+    expect(out.ok).toBe(true)
+    const prefRows = db.prepare('SELECT * FROM elective_preferences WHERE run_id = ?').all(out.runId)
+    expect(prefRows).toHaveLength(1)
+    expect(prefRows[0].camper_id).toBe('cam-1')
+
+    // Review round 2 — the skip is not silent: named per camper, like
+    // PREFERENCE_EDIT_HELD above it, not summarized as a count.
+    const mismatch = out.findings.find((f) => f.kind === 'BUNDLE_TIER_NOT_COVERED')
+    expect(mismatch).toBeTruthy()
+    expect(mismatch.camper_id).toBe('cam-2')
+    expect(mismatch.message).toContain('Bo Katz')
+    expect(mismatch.message).toContain('Archery')
+  })
+
+  it('a label no bundle claims still mints an ordinary plain choice, unaffected', () => {
+    const { db, campId } = freshDb()
+    seedBundleFixture(db, campId)
+    const runId = randomUUID()
+    const occurrences = bundleOccurrences(runId)
+    const parsed = {
+      campers: [{ id: 'cam-1', display_name: 'Ari Green', external_id: null, group_id: 'grp-1' }],
+      choices: [{ label: 'Archery', labelKey: 'archery' }, { label: 'Gaga', labelKey: 'gaga' }],
+      preferences: [{ camper_id: 'cam-1', occurrence_id: occurrences[0].id, label: 'Gaga', labelKey: 'gaga', rank: 1 }],
+      sameNameCampers: [],
+      skippedRows: [],
+    }
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed, assignments: [], occurrences,
+    })
+    expect(out.ok).toBe(true)
+    const gagaChoice = db.prepare('SELECT * FROM elective_choices WHERE label = ?').get('Gaga')
+    expect(gagaChoice).toBeTruthy()
+    expect(gagaChoice.is_linked).toBe(0)
+  })
+})
+
+// T301 slice 3 — the invariant the ticket exists to prove: a bundle must
+// place identically whether the solve runs on the freshly-parsed path or on
+// a re-solve from stored rows (AssignmentPanel.jsx's `solve()`, both call
+// sites). Exercises the same two engine-call SHAPES AssignmentPanel.jsx
+// builds — deriveChoices called fresh plus each path's own choices source —
+// against the REAL write/read-back path in between, so this is not only an
+// engine fixture claim but a claim about what actually round-trips through
+// SQLite.
+describe('T301 slice 3 — a bundle places identically on the parsed-first-solve path and the re-solve-from-stored-rows path', () => {
+  it('produces the same elective_assignments both ways', () => {
+    const { db, campId } = freshDb()
+    seedBundleFixture(db, campId)
+    const runId = randomUUID()
+    const bundleTables = {
+      bundles: [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-archery', name: 'Archery', scope_mode: 'all' }],
+      bundlePeriods: [
+        { bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-1' },
+        { bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-2' },
+      ],
+      bundleTiers: [],
+    }
+    const occurrences = bundleOccurrences(runId)
+    const offerings = [
+      { occurrence_id: occurrences[0].id, labelKey: 'archery', activity_id: 'act-archery', capacity: 5 },
+      { occurrence_id: occurrences[1].id, labelKey: 'archery', activity_id: 'act-archery', capacity: 5 },
+    ]
+    const parsed = {
+      campers: [{ id: 'cam-1', display_name: 'Ari Green', external_id: null, group_id: 'grp-1' }],
+      choices: [{ label: 'Archery', labelKey: 'archery' }],
+      preferences: [{ camper_id: 'cam-1', label: 'Archery', labelKey: 'archery', rank: 1 }],
+      sameNameCampers: [],
+      skippedRows: [],
+    }
+
+    // ---- PATH 1: parsed-first-solve shape. deriveChoices called fresh,
+    // unioned with nothing (no runChoices exist yet — first solve). ----
+    const firstDerivation = deriveChoices({ ...bundleTables, occurrences, runId })
+    const firstSolve = buildElectiveAssignments({
+      campers: parsed.campers,
+      occurrences,
+      offerings,
+      preferences: parsed.preferences,
+      choices: firstDerivation.choices,
+      choiceOfferings: firstDerivation.choiceOfferings,
+    })
+    expect(firstSolve.findings).toEqual([])
+    // All-or-nothing (ADR success predicate): both member periods, one camper.
+    expect(firstSolve.assignments).toHaveLength(2)
+    expect(firstSolve.assignments.every((a) => a.camper_id === 'cam-1' && a.activity_id === 'act-archery')).toBe(true)
+
+    // ---- COMMIT: the real write path, including the D6 mechanism under test. ----
+    const out = commitElectiveRun(db, {
+      campId, deviceId: 'dev-1', name: 'Week 1', runId,
+      parsed, assignments: firstSolve.assignments, occurrences,
+    })
+    expect(out.ok).toBe(true)
+
+    // A NO-CONTENTION fixture (one camper, no competing rank) cannot tell
+    // "routed to the bundle's tier-1 choice" apart from "fell through to
+    // tier 2 and got placed anyway" by assignments alone — both land the
+    // same camper in both periods either way. This is the assertion that
+    // actually distinguishes them: the persisted preference's choice_id must
+    // be the BUNDLE's, not a plain fallback's, independent of what the
+    // solver did with it.
+    const persistedChoiceId = db.prepare('SELECT choice_id FROM elective_preferences WHERE run_id = ?').get(runId).choice_id
+    expect(persistedChoiceId).toBe(deriveLinkedElectiveChoiceId(runId, 'bundle-1', 'tier-jr'))
+
+    // ---- PATH 2: re-solve-from-stored-rows shape. deriveChoices called
+    // fresh AGAIN (D10 — never read a bundle's definition back from storage),
+    // unioned with the run's OWN persisted choices, against preferences read
+    // back exactly as getElectiveRunHandler/AssignmentPanel's regenerate do. ----
+    const secondDerivation = deriveChoices({ ...bundleTables, occurrences, runId })
+    const runChoiceRows = db.prepare('SELECT id, label, is_linked FROM elective_choices WHERE run_id = ?').all(runId)
+    const runPreferenceRows = db
+      .prepare('SELECT camper_id, choice_id, occurrence_id, rank FROM elective_preferences WHERE run_id = ?')
+      .all(runId)
+
+    const secondSolve = buildElectiveAssignments({
+      campers: parsed.campers,
+      occurrences,
+      offerings,
+      preferences: runPreferenceRows,
+      choices: [
+        ...secondDerivation.choices,
+        ...runChoiceRows.map((c) => ({ id: c.id, labelKey: electiveChoiceLabelKey(c.label), is_linked: c.is_linked ?? 0 })),
+      ],
+      choiceOfferings: secondDerivation.choiceOfferings,
+    })
+    expect(secondSolve.findings).toEqual([])
+
+    const norm = (list) =>
+      [...list]
+        .map((a) => ({ camper_id: a.camper_id, occurrence_id: a.occurrence_id, activity_id: a.activity_id, preference_rank: a.preference_rank }))
+        .sort((a, b) => (a.occurrence_id < b.occurrence_id ? -1 : a.occurrence_id > b.occurrence_id ? 1 : 0))
+    expect(norm(secondSolve.assignments)).toEqual(norm(firstSolve.assignments))
 
     db.close()
   })

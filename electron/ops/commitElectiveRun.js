@@ -24,6 +24,16 @@ import {
   opaque,
 } from './electiveDerivedIds.js'
 import { hasContradictoryRanks } from '../../src/ingest/preferenceSheet.js'
+// T301 slice 3 (docs/adr/2026-09-29-linked-elective-bundles.md D6/D10) — the
+// SAME derivation solve-time uses, reused here rather than re-implemented:
+// bundles are re-derived fresh at commit time too, never trusted from a
+// stale write (D5's own reasoning, one seam over — a second hand-rolled
+// scope-resolution would drift from the tested one). electron/ importing a
+// pure module from src/ is already established in this exact file family
+// (electiveDerivedIds.js, one line above, imports src/ingest/preview.js) —
+// not a packaging-boundary exception, since src/ ships in electron-builder's
+// `files` list.
+import { deriveChoices } from '../../src/screens/elective/assignment/deriveChoices.js'
 
 const SOLVER_VERSION = 'buildElectiveAssignments@1'
 
@@ -168,6 +178,45 @@ export function commitElectiveRun(db, {
   const camperIds = new Set((parsed?.campers ?? []).map((c) => c.id))
   const occurrenceIds = new Set(occurrences.map((o) => o.id))
   const choiceIdByKey = new Map()
+  const camperById = new Map((parsed?.campers ?? []).map((c) => [c.id, c]))
+
+  // T301 slice 3 (ADR D6) — authored bundles for this run's own elective
+  // set(s), re-derived fresh via deriveChoices exactly as AssignmentPanel.jsx
+  // does at solve time (D10: never trust a stale definition). Read-only, so
+  // it happens before the transaction like existingRun/lockedRows/findings
+  // above. `occurrences` carries elective_set_id per row (deriveOccurrences.js's
+  // own shape); a commit is always for one elective set's run in practice, but
+  // this reads whichever set(s) are actually present rather than assuming one.
+  const electiveSetIds = [...new Set(occurrences.map((o) => o.elective_set_id).filter((id) => id != null))]
+  const bundleRows = electiveSetIds.length === 0 ? [] : db
+    .prepare(`SELECT * FROM elective_bundles WHERE elective_set_id IN (${electiveSetIds.map(() => '?').join(',')})`)
+    .all(...electiveSetIds)
+  const bundleIds = bundleRows.map((b) => b.id)
+  const bundlePeriodRows = bundleIds.length === 0 ? [] : db
+    .prepare(`SELECT * FROM elective_bundle_periods WHERE bundle_id IN (${bundleIds.map(() => '?').join(',')})`)
+    .all(...bundleIds)
+  const bundleTierRows = bundleIds.length === 0 ? [] : db
+    .prepare(`SELECT * FROM elective_bundle_tiers WHERE bundle_id IN (${bundleIds.map(() => '?').join(',')})`)
+    .all(...bundleIds)
+  const { choices: bundleChoices, choiceOfferings: bundleChoiceOfferings } = deriveChoices({
+    bundles: bundleRows, bundlePeriods: bundlePeriodRows, bundleTiers: bundleTierRows, occurrences, runId,
+  })
+
+  // D6 — labelKey -> tierId -> bundle choice id. A label at least one bundle
+  // claims (for at least one tier) mints NO plain elective_choices row below;
+  // a camper's sheet preference for that label resolves to the entry for
+  // THEIR OWN tier instead. Two bundles transiently sharing both a label AND
+  // a tier (D7 names this as possible pre-disambiguation) tie-break to the
+  // lowest choice id — the same rule the engine's own choiceByLabelKey uses.
+  const bundleChoiceByLabelTier = new Map()
+  for (const c of [...bundleChoices].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    if (!bundleChoiceByLabelTier.has(c.labelKey)) bundleChoiceByLabelTier.set(c.labelKey, new Map())
+    const byTier = bundleChoiceByLabelTier.get(c.labelKey)
+    if (!byTier.has(c.tier_id)) byTier.set(c.tier_id, c.id)
+  }
+  // A camper's own tier (D6: campers.group_id -> groups.tier_id, both already
+  // stored). Read once, not per-camper — groups is camp-wide and small.
+  const tierIdByGroupId = new Map(db.prepare('SELECT id, tier_id FROM groups').all().map((g) => [g.id, g.tier_id]))
 
   // The single distinct tier among occurrences, or null when the set's
   // occurrences span more than one tier (or there are none) — T229.
@@ -294,6 +343,11 @@ export function commitElectiveRun(db, {
   //   EXPLICIT source==='human' delete suppresses a re-create — an import
   //   teardown's null-source delete is excluded by the `===`.
   const preferencesHeld = []
+  // D6 (review round 2) — a camper whose tier a claiming bundle's scope does
+  // not cover, collected here rather than left silent: `preferencesHeld`'s own
+  // words apply just as well one function up — a camper simply absent from
+  // the result "answers a different question than the one they're asking".
+  const bundleTierMismatches = []
   // The rows that already exist, read ONCE. The inline per-row existence check
   // this replaces compiled a statement per parsed preference inside the
   // transaction, thousands of times on a real sheet.
@@ -391,14 +445,58 @@ export function commitElectiveRun(db, {
         })
       }
 
+      // T301 slice 3 (ADR D6) — the bundle's own choices/offerings are
+      // written FIRST, unconditionally, whether or not any preference this
+      // commit carries names their label — a bundle is authored independent
+      // of any one run, and a re-solve later in the season must find it here
+      // even if this particular sheet had nobody rank it. `is_linked` is now
+      // genuinely truthful for the case it names (D6's own note: cosmetic,
+      // since tier 1 derives "linked" from member count regardless).
+      for (const c of bundleChoices) {
+        write('elective_choices', c.id, { run_id: runId, label: c.label, is_linked: c.is_linked })
+      }
+      for (const co of bundleChoiceOfferings) {
+        write('elective_choice_offerings', co.id, {
+          choice_id: co.choice_id, occurrence_id: co.occurrence_id, activity_id: co.activity_id,
+        })
+      }
+
       for (const ch of parsed.choices ?? []) {
+        // D6 — a label a bundle claims (for at least one tier) mints NO
+        // separate plain choice; every preference naming it resolves to the
+        // bundle's own per-tier choice below instead.
+        if (bundleChoiceByLabelTier.has(ch.labelKey)) continue
         const id = deriveElectiveChoiceId(runId, ch.labelKey)
         choiceIdByKey.set(ch.labelKey, id)
         write('elective_choices', id, { run_id: runId, label: ch.label, is_linked: 0 })
       }
 
       for (const p of parsed.preferences ?? []) {
-        const choiceId = choiceIdByKey.get(p.labelKey)
+        const bundleByTier = bundleChoiceByLabelTier.get(p.labelKey)
+        let choiceId
+        if (bundleByTier) {
+          // D6 — resolve to the CAMPER'S OWN tier's choice, never a flat one.
+          // A camper whose tier the bundle's scope does not cover (untiered,
+          // or a tier a scope_mode 'only'/'except' bundle excludes) has no
+          // choice this preference can name — skipped rather than thrown, so
+          // one camper's mismatch cannot fail every other good row in the
+          // sheet (the same posture `preferencesHeld` above already takes for
+          // a hand-edited row). Recorded in `bundleTierMismatches` rather than
+          // left silent (review round 2): the ADR left the exact COPY open,
+          // not whether a director is told at all, and a camper simply
+          // missing from the result is the confident-wrong-answer shape this
+          // ticket exists to eliminate.
+          const camperTierId = camperById.get(p.camper_id)?.group_id != null
+            ? tierIdByGroupId.get(camperById.get(p.camper_id).group_id) ?? null
+            : null
+          choiceId = camperTierId != null ? bundleByTier.get(camperTierId) : undefined
+          if (!choiceId) {
+            bundleTierMismatches.push({ camperId: p.camper_id, label: p.label ?? p.labelKey })
+            continue
+          }
+        } else {
+          choiceId = choiceIdByKey.get(p.labelKey)
+        }
         if (!choiceId) throw new Error(`preference names a choice the sheet did not list: ${p.labelKey}`)
         // Backstop for describeElectiveRunRefusal's "malformed" check above:
         // this also catches an occurrence_id that names a real string but not
@@ -536,6 +634,18 @@ export function commitElectiveRun(db, {
               'Your removal stands — nothing on the sheet changed it.'
             : 'You edited this preference by hand and the file disagrees, so the file’s version ' +
               'was not applied. Your edit stands — nothing was overwritten.',
+      })),
+      // D6 (review round 2) — named per camper, not summarized as a count,
+      // for the same T232 reason PREFERENCE_EDIT_HELD is above: a director
+      // needs to know WHICH child this happened to, not how many.
+      ...bundleTierMismatches.map((m) => ({
+        kind: 'BUNDLE_TIER_NOT_COVERED',
+        camper_id: m.camperId,
+        label: m.label,
+        message:
+          `${camperById.get(m.camperId)?.display_name ?? 'A camper'} ranked “${m.label}”, which a bundle ` +
+          'claims for specific divisions only, and this camper’s own division is not one of them — that ' +
+          'preference could not be placed. Nothing else on the sheet was affected.',
       })),
     ],
   }

@@ -59,6 +59,22 @@ describe('deriveChoices', () => {
     })
   })
 
+  // T301 slice 3 (ADR D6) — commitElectiveRun needs to resolve "which of this
+  // bundle's per-tier choices does THIS camper's tier map to" without
+  // re-deriving the scope-resolution rule a second time (the exact duplicated-
+  // logic trap D5 already warned against, one seam over). Carrying `tier_id`
+  // on each choice is what lets it build a (labelKey, tierId) -> choiceId
+  // lookup from this module's own output instead.
+  it('carries tier_id on each derived choice, so a consumer can resolve by (labelKey, tier) without re-deriving scope', () => {
+    const bundles = [bundle()]
+    const bundlePeriods = [{ bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-1' }]
+    const occurrences = [occ('tier-1')]
+
+    const { choices } = deriveChoices({ bundles, bundlePeriods, occurrences, runId: RUN_ID })
+
+    expect(choices[0].tier_id).toBe('tier-1')
+  })
+
   // ADR test plan item 2, case 2: multi-tier — same label, DISTINCT choice
   // ids (D3's whole reason for being: this is the collision D4/D3 exist to
   // avoid, at the derivation layer rather than the engine layer).

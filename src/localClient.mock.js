@@ -143,7 +143,13 @@ function seedDemoCamp() {
   const CAMP = 'demo-camp'
   const TEMPLATE = `schedule-template:${CAMP}`
   const camp = { id: CAMP, name: 'Demo Camp (sample)' }
-  const users = [{ id: 'demo-admin', name: 'Director', pin: '1234', role: 'admin' }]
+  const users = [
+    { id: 'demo-admin', name: 'Director', pin: '1234', role: 'admin' },
+    // T301 — a non-admin login so the bundle editor's role-gated Delete
+    // button (admin-only; everything else stays editable regardless of
+    // role) is demonstrable in the mock, not just in a unit test.
+    { id: 'demo-staff', name: 'Counselor', pin: '1234', role: 'staff' },
+  ]
   const cohorts = [{ id: 'main', camp_id: CAMP, name: 'Main' }]
   const tiers = [
     { id: 'tier-jr', camp_id: CAMP, cohort_id: 'main', name: 'Juniors', sort_order: 0 },
@@ -156,7 +162,12 @@ function seedDemoCamp() {
   ]
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
   const days = dayNames.map((label, i) => ({ id: `day-${i}`, camp_id: CAMP, label, day_of_week: i + 1, sort_order: i + 1 }))
-  const blockNames = ['First Period', 'Second Period', 'Third Period', 'Fourth Period']
+  // "Period 5" (not "Fifth Period"): T301 visual verification needs a block
+  // name a per-cell preference sheet's coordinate header can resolve against
+  // (preferenceCoordinateKeys.js's periodAliases only bridges a bare number to
+  // "Period N"/"Block N", not to an ordinal-word block name like "Second
+  // Period") — see the elective-bundle contention fixture below.
+  const blockNames = ['First Period', 'Second Period', 'Third Period', 'Fourth Period', 'Period 5']
   const hh = (h) => String(h).padStart(2, '0')
   const time_blocks = blockNames.map((name, i) => ({
     id: `blk-${i}`, camp_id: CAMP, cohort_id: 'main', name, sort_order: i + 1,
@@ -171,19 +182,42 @@ function seedDemoCamp() {
   // engine "couldn't fill" — those carry the UNFILLABLE flag with a reason, so
   // the Unfillable box shows a real count and the highlight has cells to light.
   const unfillable = new Set(['grp-3|day-4|blk-3', 'grp-3|day-1|blk-0', 'grp-2|day-2|blk-2'])
+  // T301 slice 2/3 — three cells of the week are an ELECTIVE placement
+  // instead of a fixed activity, so __seedDemo() lands on something the
+  // bundle-authoring control can actually demonstrate (without this, the set
+  // exists but "isn't on a schedule yet" and every "+ Add bundle" trigger is
+  // disabled — the feature would be invisible). Two divisions (grp-1 Juniors
+  // and grp-3 Seniors both at Monday/Second Period) and two periods for
+  // Juniors (Monday + Wednesday/Second Period), enough to author a real
+  // cross-division, multi-period bundle.
+  //
+  // Thursday/Friday at Period 5 (grp-1 only) are a SEPARATE pair of cells,
+  // additive to the three above, existing only so a from-scratch verification
+  // script can author its OWN atomic-placement contention fixture (a bundle
+  // spanning them, capacity-limited, two campers each ranking one of the two
+  // cells) without disturbing the Monday/Wednesday cells or their block's
+  // ordinal-word name, which an already-delivered capture script's own aria-
+  // label assertions still reference verbatim.
+  const ELECTIVE_SET_ID = 'eset-1'
+  const electiveCells = new Set([
+    'grp-1|day-0|blk-1', 'grp-3|day-0|blk-1', 'grp-1|day-2|blk-1',
+    'grp-1|day-3|blk-4', 'grp-1|day-4|blk-4',
+  ])
   const template_slots = []
   groups.forEach((g, gi) => {
     days.forEach((d, di) => {
       time_blocks.forEach((b, bi) => {
         const key = `${g.id}|${d.id}|${b.id}`
         const isUnfillable = unfillable.has(key)
+        const isElective = electiveCells.has(key)
         template_slots.push({
           id: `slot-${key}`,
           template_id: TEMPLATE,
           group_id: g.id,
           day_id: d.id,
           time_block_id: b.id,
-          activity_id: isUnfillable ? null : `act-${(gi + di + bi) % activityNames.length}`,
+          activity_id: isElective || isUnfillable ? null : `act-${(gi + di + bi) % activityNames.length}`,
+          elective_set_id: isElective ? ELECTIVE_SET_ID : null,
           anchor_id: null,
           is_anchor: 0,
           is_span_head: 1,
@@ -211,6 +245,25 @@ function seedDemoCamp() {
     schedule_templates: [{ id: TEMPLATE, camp_id: CAMP, name: 'Generated', kind: 'generated', week_id: WEEK }],
     template_slots,
     schedule_snapshots: [],
+    // T301 — a demonstrable elective set: placed on the schedule (see
+    // electiveCells above), with a few offerings a director can build a
+    // bundle on top of. capacity_mode/status/min_mode spelled out explicitly
+    // even though SCHEMA_DEFAULTS would backfill them on a WRITE — this array
+    // is returned directly as seeded state, never passed through write().
+    elective_sets: [{ id: ELECTIVE_SET_ID, camp_id: CAMP, name: 'Afternoon Electives (sample)', sort_order: 0, is_reusable: 1 }],
+    elective_set_activities: [
+      // Drama is capacity-LIMITED to 1 (the other two offerings stay
+      // uncapped) — a real, plausible value on its own, and load-bearing for
+      // the T301 visual-verification contention fixture: it is what forces
+      // the solver's tier 1 to CHOOSE between two campers for one bundle
+      // rather than seating both.
+      { id: 'esa-1', elective_set_id: ELECTIVE_SET_ID, activity_id: 'act-3', capacity_mode: 'limited', capacity_limit: 1, status: 'confirmed', min_mode: 'none', min_to_run: null },
+      { id: 'esa-2', elective_set_id: ELECTIVE_SET_ID, activity_id: 'act-4', capacity_mode: 'unlimited', capacity_limit: null, status: 'confirmed', min_mode: 'none', min_to_run: null },
+      { id: 'esa-3', elective_set_id: ELECTIVE_SET_ID, activity_id: 'act-1', capacity_mode: 'unlimited', capacity_limit: null, status: 'confirmed', min_mode: 'none', min_to_run: null },
+    ],
+    elective_bundles: [],
+    elective_bundle_periods: [],
+    elective_bundle_tiers: [],
   }
 }
 

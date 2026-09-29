@@ -540,6 +540,159 @@ describe('ElectiveSetDetail — Remove offering clears permission-tier (owner pr
   })
 })
 
+// T301 slice 2 — the linked-elective bundle authoring control. A camp holds
+// up to two candidate schedules (manual/generated); a bundle's picker grid
+// shows the union of both. Fixture below places the set on a MANUAL template
+// only, which is enough to prove the wiring without needing both routes —
+// deriveBundlePickerCells' own tests already cover the union/sub-label logic.
+const SCHEDULE_FIXTURE = {
+  groups: [{ id: 'grp-1', tier_id: 'tier-jr' }],
+  tiers: [{ id: 'tier-jr', name: 'Juniors' }],
+  days: [{ id: 'day-1', label: 'Mon' }],
+  timeBlocks: [{ id: 'tb-1', name: 'First Period' }],
+  scheduleTemplates: [{ id: 'tpl-1', camp_id: CAMP_ID, week_id: null, name: 'Manual', kind: 'manual' }],
+  templateSlots: [
+    { id: 's1', template_id: 'tpl-1', elective_set_id: 'set-1', group_id: 'grp-1', day_id: 'day-1', time_block_id: 'tb-1' },
+  ],
+}
+
+describe('ElectiveSetDetail — T301 slice 2: bundle authoring trigger', () => {
+  it("shows a quiet, DISABLED '+ Add bundle' trigger when this set is not on any schedule yet", async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
+    renderDetail({ activities: [activity()] })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    const trigger = screen.getByRole('button', { name: '+ Add bundle' })
+    expect(trigger.disabled).toBe(true)
+    expect(trigger.title).toMatch(/Place this set on a schedule first/)
+  })
+
+  it('an enabled trigger opens a draft editor; picking its first period mints the bundle and its first period', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
+    renderDetail({ activities: [activity()], ...SCHEDULE_FIXTURE })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    const trigger = screen.getByRole('button', { name: '+ Add bundle' })
+    expect(trigger.disabled).toBe(false)
+    fireEvent.click(trigger)
+
+    const nameInput = await screen.findByLabelText(/Bundle name/i)
+    expect(nameInput.getAttribute('placeholder')).toBe('Pick a period below to name this bundle')
+
+    // Review round 2 — a draft (0 persisted bundles, disclosure just opened)
+    // must never render as "0 bundles": that reads as a count of something
+    // that exists, not an invitation to create the first one. The trigger
+    // legitimately STAYS "+ Add bundle" here — the original spec's own
+    // "nothing else about the [zero-bundle] row changes" — since there is
+    // still, correctly, no persisted bundle yet.
+    expect(screen.queryByText(/^0 bundles?$/)).toBeNull()
+    expect(screen.getByRole('button', { name: '+ Add bundle' })).toBeTruthy()
+
+    fireEvent.click(screen.getByLabelText('Mon, First Period — click to include'))
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_bundles', 'new-id', 'name', 'Pottery')
+    )
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_bundles', 'new-id', 'elective_set_id', 'set-1')
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_bundles', 'new-id', 'activity_id', 'act-1')
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_bundle_periods', 'new-id', 'bundle_id', 'new-id')
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'elective_bundle_periods', 'new-id', 'day_id', 'day-1')
+  })
+
+  it('a populated activity shows the collapsed bundle count with a chevron, not the quiet trigger', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_set_activities: [offering()],
+      elective_bundles: [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-1', name: 'Pottery', scope_mode: 'all' }],
+    }))
+    renderDetail({ activities: [activity()], ...SCHEDULE_FIXTURE })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    expect(screen.getByText('1 bundle')).toBeTruthy()
+    expect(screen.queryByText('+ Add bundle')).toBeNull()
+  })
+})
+
+describe('ElectiveSetDetail — T301 slice 2: orphan cleanup', () => {
+  it('deleting an offering also deletes its bundles, their periods, and their tier-scope rows', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_set_activities: [offering()],
+      elective_bundles: [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-1', name: 'Pottery', scope_mode: 'only' }],
+      elective_bundle_periods: [{ id: 'bp-1', bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-1' }],
+      elective_bundle_tiers: [{ id: 'bt-1', bundle_id: 'bundle-1', tier_id: 'tier-jr' }],
+    }))
+    renderDetail({ activities: [activity()], ...SCHEDULE_FIXTURE })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Remove'))
+    await waitFor(() => expect(screen.queryByText(/Remove Pottery\?/)).not.toBeNull())
+    fireEvent.click(screen.getByText('Remove Offering'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'elective_bundles', 'bundle-1'))
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'elective_bundle_periods', 'bp-1')
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'elective_bundle_tiers', 'bt-1')
+  })
+
+  it('clearing all offerings also deletes every bundle (and its periods/tiers) for the removed activities', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_set_activities: [offering()],
+      elective_bundles: [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-1', name: 'Pottery', scope_mode: 'all' }],
+      elective_bundle_periods: [{ id: 'bp-1', bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-1' }],
+    }))
+    renderDetail({ activities: [activity()], ...SCHEDULE_FIXTURE })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Clear offerings'))
+    await waitFor(() => expect(screen.queryByText(/Clear all offerings from this set/)).not.toBeNull())
+    fireEvent.click(screen.getByText('Clear Offerings'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'elective_bundles', 'bundle-1'))
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'elective_bundle_periods', 'bp-1')
+  })
+})
+
+// T301 slice 3 — the seam AssignmentPanel.test.jsx's own wiring test cannot
+// see: that test renders <AssignmentPanel bundles={...} .../> DIRECTLY, so it
+// proves "if AssignmentPanel receives bundles, it wires them to the solver"
+// but never proves ElectiveSetDetail actually PASSES them down. Found by
+// execution during T301 visual verification: ElectiveSetDetail rendered
+// <AssignmentPanel> with no bundles/bundlePeriods/bundleTiers props at all,
+// so every real solve in the shipped app fed the engine zero bundles —
+// invisible to every unit test in this feature, because every one of them
+// either renders AssignmentPanel standalone or renders ElectiveSetDetail
+// without ever driving a solve far enough to notice the engine received
+// nothing. This test renders the REAL parent-to-child wiring and drives a
+// real solve, using the same only-tier-1-can-produce-this signal
+// (UNSUPPORTED_LINKED_CHOICE) as the AssignmentPanel-level test, for the same
+// reason stated there: a "camper placed" assertion would pass even with the
+// wiring completely absent.
+describe('ElectiveSetDetail — T301 slice 3: a bundle authored on this screen reaches the solver', () => {
+  it('surfaces UNSUPPORTED_LINKED_CHOICE naming the bundle, proving ElectiveSetDetail passes bundles/bundlePeriods/bundleTiers down to AssignmentPanel', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_set_activities: [offering()],
+      elective_bundles: [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-1', name: 'Pottery', scope_mode: 'all' }],
+      elective_bundle_periods: [
+        { id: 'bp-1', bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-1' },
+        // Never placed on SCHEDULE_FIXTURE's own template_slots — ADR D5 case
+        // (a), unreachable unless the engine actually received this bundle.
+        { id: 'bp-2', bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-2' },
+      ],
+    }))
+    renderDetail({ activities: [activity()], ...SCHEDULE_FIXTURE })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('1 bundle')).not.toBeNull())
+
+    const fileInput = [...document.querySelectorAll('input[type="file"]')].find((i) => i.accept?.includes('csv'))
+    const sheetFile = new File(['Name\t#1\nAri\tPottery'], 'sheet.txt', { type: 'text/plain' })
+    fireEvent.change(fileInput, { target: { files: [sheetFile] } })
+    await waitFor(() => expect(screen.getByText(/Confirm Mapping/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Solve/i))
+
+    await waitFor(() => expect(screen.getByText(/“Pottery” is meant to be taken as a set/)).toBeTruthy())
+  })
+})
+
 describe('ElectiveSetDetail — Back', () => {
   it('calls onBack when "← Back to Elective Sets" is clicked', async () => {
     localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))

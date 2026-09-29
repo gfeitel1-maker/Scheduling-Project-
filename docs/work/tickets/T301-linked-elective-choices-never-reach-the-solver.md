@@ -111,6 +111,52 @@ pass bundle-derived choices to the solver (slice 3, which also owes the D6 coexi
 in `commitElectiveRun.js`). A director cannot yet create or use a bundle from the app — this ticket
 stays `open` until slice 3 lands.
 
+## Slices 2+3 — LANDED (2026-09-29): the authoring control and the solver wiring
+
+Landed together, deliberately: slice 2 alone would ship a control that writes rows nothing reads
+(this project's standing rule against an inert control).
+
+**Slice 2 — authoring.** `src/screens/elective/ElectiveSetDetail.jsx`'s `OfferingRow` grows an inline
+disclosure (the app's existing idiom — `AssignmentPreview.jsx`'s `OccurrencePanel`,
+`ActivitiesScreen.jsx`'s "More options") holding zero or more `src/screens/elective/BundleEditor.jsx`
+instances plus a trailing "+ Add another bundle". The picker grid's cells come from
+`src/screens/elective/assignment/deriveBundlePickerCells.js` (new, beside `deriveOccurrences.js`) — the
+union of both candidate schedule routes' placed periods, since neither route is canonical, sub-labelled
+where they disagree. `src/screens/elective/bundleOverlap.js` (new) resolves a bundle's effective
+divisions and warns — a bronze caution, never blocking — when two bundles of one activity would collide
+at the solver's tier 1. Deleting a bundle, or the offering it belongs to, cleans up its
+`elective_bundle_periods`/`elective_bundle_tiers` rows (no FK cascade exists for this soft-pointer
+storage, D1) — required by both cleanup paths, called out independently by two reviewers during design.
+Only Delete is admin-gated; periods/scope/name stay editable for every role, matching capacity/minimum's
+existing posture. `src/localClient.mock.js`'s `seedDemoCamp()` now seeds an elective set placed on the
+schedule across two periods and two divisions, with three offerings, so the feature is demonstrable in
+`npm run dev` without Electron.
+
+**Slice 3 — wiring.** `AssignmentPanel.jsx`'s `solve()` calls `deriveChoices` fresh on every solve — both
+the first-solve and the re-solve-from-stored-rows paths — and passes `choices`/`choiceOfferings` to
+`buildElectiveAssignments`; tier 1 is reachable from the app for the first time. `commitElectiveRun.js`
+re-derives the run's bundles at commit time (ADR D6): it persists a bundle's per-tier choice/offering
+rows for the first time (the table's only prior writer was a no-op parent stub) and routes a camper's
+sheet-derived preference for a label a bundle claims to that bundle's own choice for the camper's OWN
+tier — never a separately-minted plain choice. **Mechanism chosen for the D6 coexistence policy:**
+bundles are read from the db and re-derived via `deriveChoices` inside `commitElectiveRun.js` itself
+(mirroring exactly what `AssignmentPanel.jsx` does at solve time), building a
+`(labelKey, tierId) -> choiceId` lookup the preference-writing loop consults before falling back to the
+plain-choice path. A camper whose own tier the claiming bundle's scope does not cover is **skipped, not
+thrown** — the same posture this file already takes for a hand-edited preference (`preferencesHeld`) —
+so one mismatch cannot fail the rest of a sheet's import; this is a deliberate, disclosed product-copy
+gap the ADR left open (no finding is raised for it).
+
+The invariant the ticket exists to prove — a bundle places identically whether the solve runs on the
+freshly-parsed path or on a re-solve from stored rows — is pinned by a test in
+`electron/ops/commitElectiveRun.test.js` that solves one bundle fixture both ways against the real
+write/read-back path and asserts identical `elective_assignments`.
+
+**This ticket's `archive_when` condition is now met**: a director can author a multi-period bundle from
+the real screen, a camper who ranks it is placed in every one of its periods or none, and a run driven
+from the real UI reaches the solver correctly. Left `open` for Governor to close after review rather than
+self-archived here.
+
 ## Non-goals
 
 - Not a change to tier 2, the per-occurrence pass every real run uses today.

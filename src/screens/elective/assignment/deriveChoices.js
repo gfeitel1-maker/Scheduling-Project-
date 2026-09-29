@@ -116,6 +116,13 @@ export function deriveChoices({
         label: bundle.name,
         labelKey,
         is_linked: isLinked,
+        // T301 slice 3 (ADR D6) — not read by the engine (a strict superset
+        // it ignores, per this module's own header), but the commit-time
+        // coexistence mechanism needs "which tier does this choice belong
+        // to" to route a camper's preference to THEIR tier's choice, and
+        // must not re-derive the scope resolution above a second time to
+        // get it.
+        tier_id: tierId,
       })
       for (const { day_id, time_block_id } of memberPeriods) {
         const occurrenceId = deriveElectiveOccurrenceId(

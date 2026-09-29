@@ -21,6 +21,7 @@ import { buildPreferenceCatalog, readPreferenceSheet, submissionKeyFromRows } fr
 import { buildElectiveAssignments } from '../../../engine/buildElectiveAssignments.js'
 import { SyncIcon } from '../../../components/icons/index.jsx'
 import { deriveOccurrences } from './deriveOccurrences.js'
+import { deriveChoices } from './deriveChoices.js'
 import { buildOfferings, findMismatches } from './buildOfferings.js'
 import { resolvePreferenceCoordinates } from './resolvePreferenceCoordinates.js'
 import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerivedIds.js'
@@ -252,6 +253,11 @@ export default function AssignmentPanel({
   // uses, so a residue-resolved activity is indistinguishable from any other.
   onAddActivity,
   templateSlots, scheduleTemplates, scheduleWeeks, role, onError, onNavigate,
+  // T301 slice 3 — this elective set's authored bundles (ElectiveSetDetail
+  // loads them, same as templateSlots/scheduleTemplates above). Re-derived
+  // fresh into run-scoped choices on EVERY solve via deriveChoices, below —
+  // never read back from a stored run (ADR D10).
+  bundles = [], bundlePeriods = [], bundleTiers = [],
 }) {
   const [phase, setPhase] = useState('empty')
   const [rows, setRows] = useState(null)
@@ -593,8 +599,11 @@ export default function AssignmentPanel({
     setOccurrences(occs)
     // The chosen id is passed EXPLICITLY rather than read from state: setTemplateId
     // above has not applied by the time solve's timeout runs, so resolution would
-    // otherwise name the PREVIOUS template in its residue.
-    solve(occs, [], chosenTemplateId)
+    // otherwise name the PREVIOUS template in its residue. `newRunId` for the
+    // same reason — `setRunId` above has not applied either, and deriveChoices
+    // inside solve() must key its choice ids off the SAME runId the occurrence
+    // ids above were just derived against.
+    solve(occs, [], chosenTemplateId, null, [], newRunId)
   }
 
   // T297 — `runPreferences`/`runChoices` re-solve from the run's OWN stored rows
@@ -603,12 +612,32 @@ export default function AssignmentPanel({
   // a first solve). This is what makes an edit take effect: a director who
   // corrects a preference and re-solves must not get a solve built from the file
   // they did not re-import.
-  function solve(occs, lockedAssignments = [], chosenTemplateId = null, runPreferences = null, runChoices = []) {
+  //
+  // `solveRunId` defaults to the `runId` state value, which is current for
+  // regenerate() (called on a later render, after setRunId has long since
+  // applied) but NOT for chooseTemplateAndSolve()'s first solve — that call
+  // site passes its own `newRunId` explicitly, for the same reason it already
+  // passes `chosenTemplateId` explicitly rather than trusting state (see its
+  // own comment): the occurrence ids `occs` were just derived against that
+  // exact runId, and deriveChoices below must key its choice ids off the
+  // same one or a re-solve would silently mint different bundle choice ids
+  // than the ones this run already committed.
+  function solve(occs, lockedAssignments = [], chosenTemplateId = null, runPreferences = null, runChoices = [], solveRunId = runId) {
     setPhase('solving')
     // Deliberately async-shaped so the busy phase actually paints before the
     // (synchronous, potentially heavy) solve runs.
     setTimeout(() => {
       const offerings = buildOfferings({ occurrences: occs, setActivities, activities })
+      // T301 slice 3 (ADR D10) — a director's authored bundles, expanded into
+      // THIS run's per-tier linked choices, called fresh on EVERY solve
+      // (first or re-solve) — never read back from a stored run, because a
+      // bundle's CURRENT definition must govern, not a stale snapshot from
+      // whenever it was last solved. Independent of the sheet-derived
+      // `choices` below, which only ever come from a re-solve's own stored
+      // rows; a bundle exists at the elective-set level, outside any one run.
+      const bundleDerivation = deriveChoices({
+        bundles, bundlePeriods, bundleTiers, occurrences: occs, runId: solveRunId,
+      })
       // RESOLVER 5's SECOND HALF, and THIS IS THE SEAM IT BELONGS AT (ADR §13.2:
       // resolution is solve-time and template-scoped, because the coordinate set
       // is per-template and the two candidate routes may bind one coordinate
@@ -656,13 +685,25 @@ export default function AssignmentPanel({
         //
         // `labelKey` is `electiveChoiceLabelKey(choice.label)` — the same
         // function buildOfferings applies to the ACTIVITY name, so a choice and
-        // the offering it refers to meet. Left EMPTY on the parsed path, which
-        // needs no resolution (those preferences already carry labelKey) and
-        // where passing choices would newly feed the engine's dormant
-        // linked-choice tier.
-        choices: runChoices.map((c) => ({
-          id: c.id, labelKey: electiveChoiceLabelKey(c.label), is_linked: c.is_linked ?? 0,
-        })),
+        // the offering it refers to meet. Empty on the parsed path (those
+        // preferences already carry labelKey and there is no persisted run yet
+        // to read a sheet-derived choice back from).
+        //
+        // T301 slice 3 — UNIONED with `bundleDerivation.choices`, which is
+        // populated on BOTH paths (feeding the engine's linked-choice tier is
+        // now the whole point — a bundle exists independent of any run, so it
+        // has nothing to do with which path this solve is). `choiceOfferings`
+        // comes ONLY from the fresh derivation: nothing persists a sheet-
+        // derived choice's member occurrences (there are none — a plain
+        // choice is never linked), and getElectiveRunHandler does not read
+        // elective_choice_offerings back at all.
+        choices: [
+          ...bundleDerivation.choices,
+          ...runChoices.map((c) => ({
+            id: c.id, labelKey: electiveChoiceLabelKey(c.label), is_linked: c.is_linked ?? 0,
+          })),
+        ],
+        choiceOfferings: bundleDerivation.choiceOfferings,
       })
       // DELIBERATELY `parsed.preferences`, even on a re-solve from the database.
       // findMismatches keys on `labelKey` and on `label` for its wording, and it
@@ -710,6 +751,11 @@ export default function AssignmentPanel({
           ...findings, ...mismatchFindings, ...attendanceFindings, ...ambiguousFindings,
           ...coordinateFindings,
         ],
+        // T301 slice 3 — so AssignmentPreview can name a bundle by its real
+        // name in an UNSUPPORTED_LINKED_CHOICE finding (T300's
+        // findingDisplayMessage) instead of the raw labelKey the engine's own
+        // message quotes.
+        choices: bundleDerivation.choices,
       })
       setPhase('preview')
       setAnnouncement(
@@ -982,6 +1028,7 @@ export default function AssignmentPanel({
         <AssignmentPreview
           assignments={result.assignments}
           findings={result.findings}
+          choices={result.choices}
           occurrences={occurrences}
           days={days}
           timeBlocks={timeBlocks}

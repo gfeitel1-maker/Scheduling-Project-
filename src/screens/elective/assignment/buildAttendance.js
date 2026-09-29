@@ -7,18 +7,31 @@
 // occurrences holding the SAME campers in each -- a Juniors set-detail run
 // visibly seating Seniors kids.
 //
-// The sheet's division column (parsePreferenceSheet -> campers[].division) is
-// matched against tiers[].name using electiveChoiceLabelKey, the same
+// The sheet's division column (parsePreferenceSheet -> campers[].division_label)
+// is matched against tiers[].name using electiveChoiceLabelKey, the same
 // whitespace/case canonicalizer the rest of this feature already keys
 // choices and camper names on -- a director transcribing "Older Campers" and
 // "OlderCampers" means the same division.
+//
+// FIELD NAME CORRECTED 2026-09-29 (found while building a T301 visual
+// verification fixture, unrelated to T301 itself). This read `camper.division`
+// from T229 round 2 until now; `parsePreferenceSheet` has only ever produced
+// `division_label` (confirmed by calling it directly with the production
+// catalog shape). So for every REAL sheet import, this field was always
+// undefined, every camper always took the "cannot match" branch below, and a
+// set spanning two divisions has never actually scoped attendance in the
+// shipped app -- the exact bug this module's own header says it exists to
+// fix. This file's own test suite never caught it because its fixtures
+// hand-built `{ division: ... }` objects matching this code's assumption
+// rather than the parser's actual output -- see buildAttendance.test.js's new
+// non-vacuity test, which drives the real parser instead.
 import { suggestDivisionMatch } from './suggestDivisionMatch.js'
 import { electiveChoiceLabelKey } from '../../../../electron/ops/electiveDerivedIds.js'
 import { mapWithCollisions } from '../../../ingest/mapWithCollisions.js'
 
 /**
  * @param {object} input
- * @param {{id: string, division?: string|null}[]} input.campers
+ * @param {{id: string, division_label?: string|null}[]} input.campers
  * @param {{id: string, tier_id: string|null}[]} input.occurrences
  * @param {{id: string, name: string}[]} input.tiers
  * @returns {{attendance: Record<string, string[]>|null, unmatchedCount: number, unmatched: object[], ambiguous: object[]}}
@@ -63,10 +76,10 @@ export function buildAttendance({ campers = [], occurrences = [], tiers = [] } =
   // cause a wrong placement — only a slightly less useful hint.
   const tierNames = tiers.map((t) => t?.name).filter(Boolean)
   for (const camper of campers) {
-    const divisionKey = camper.division ? electiveChoiceLabelKey(camper.division) : ''
+    const divisionKey = camper.division_label ? electiveChoiceLabelKey(camper.division_label) : ''
     if (divisionKey && ambiguousTierNameKeys.has(divisionKey)) {
       attendance[camper.id] = allOccurrenceIds
-      const raw = String(camper.division ?? '').trim()
+      const raw = String(camper.division_label ?? '').trim()
       if (!ambiguousByValue.has(raw)) ambiguousByValue.set(raw, { division: raw, camperCount: 0 })
       ambiguousByValue.get(raw).camperCount += 1
       continue
@@ -78,7 +91,7 @@ export function buildAttendance({ campers = [], occurrences = [], tiers = [] } =
       // than dropped, and the caller surfaces how many that affected.
       attendance[camper.id] = allOccurrenceIds
       unmatchedCount += 1
-      const raw = String(camper.division ?? '').trim()
+      const raw = String(camper.division_label ?? '').trim()
       if (!unmatchedByValue.has(raw)) {
         unmatchedByValue.set(raw, {
           division: raw,

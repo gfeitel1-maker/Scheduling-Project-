@@ -4,7 +4,7 @@
 // ElectivesScreen (pre-extraction behavior, now reached via a link) and the
 // new Schedule-side ScheduleElectivesScreen. Same file-organization
 // convention as SpecialDayGridEditor/EventGridEditor's own subfolders.
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import * as XLSX from 'xlsx'
 import { localClient } from '../../localClient'
 import { createSetupCrudRepository } from '../../data/setupCrudRepository'
@@ -13,6 +13,7 @@ import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { S, prefersReducedMotion } from '../../styles/shared'
 import ConfirmDangerDialog from '../../components/ConfirmDangerDialog'
 import ActivityPicker from '../../components/ActivityPicker'
+import { ChevronIcon } from '../../components/icons/index.jsx'
 import { parseTextGrid } from '../../ingest/textGrid'
 import { workbookToPages } from '../../ingest/sheetGrid'
 import { parseGridSchedule } from '../../ingest/parseGridSchedule'
@@ -24,6 +25,8 @@ import { createActivity } from '../schedule/createActivityHelper'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow } from '../../utils/exportSanitize.js'
 import { useLatestTimeout } from '../../hooks/useLatestTimeout'
 import AssignmentPanel from './assignment/AssignmentPanel.jsx'
+import BundleEditor from './BundleEditor.jsx'
+import { deriveBundlePickerCells } from './assignment/deriveBundlePickerCells.js'
 
 const repository = createSetupCrudRepository({ localClient })
 // createActivityHelper.js's createActivity (and populateElectiveSet, which
@@ -72,7 +75,12 @@ function eligibilitySummary(activity, tiers, groups) {
   return 'Everyone'
 }
 
-function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapacity, onSaveMinimum, onDelete, role }) {
+function OfferingRow({
+  offering, activity, locations, tiers, groups, onSaveCapacity, onSaveMinimum, onDelete, role,
+  // T301 slice 2 — linked-elective bundles for this offering's activity.
+  days, timeBlocks, occurrenceCells, bundles, bundlePeriods, bundleTiers,
+  onToggleBundlePeriod, onSetBundleScopeMode, onToggleBundleTier, onSaveBundleName, onDeleteBundle,
+}) {
   // v66 (T194): capacity is a two-part value — capacity_mode is the AUTHORITY,
   // and capacity_limit is ignored entirely when the mode is 'unlimited'. This
   // control's behaviour is unchanged from v39 IN ONE RESPECT ONLY — empty box =
@@ -160,9 +168,88 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
     }
   }
 
+  // T301 slice 2 — linked-elective bundles for THIS offering's activity,
+  // assembled from the three flat tables ElectiveSetDetail loaded (one
+  // pass, not memoized per row: bundle counts per activity are small, and
+  // this mirrors the existing per-row `activities.find(...)` lookups above).
+  const activityBundles = (bundles ?? [])
+    .filter((b) => b.activity_id === offering.activity_id)
+    .map((b) => ({
+      id: b.id,
+      elective_set_id: b.elective_set_id,
+      activity_id: b.activity_id,
+      name: b.name,
+      scope_mode: b.scope_mode,
+      periods: (bundlePeriods ?? [])
+        .filter((p) => p.bundle_id === b.id)
+        .map((p) => ({ day_id: p.day_id, time_block_id: p.time_block_id })),
+      tierIds: (bundleTiers ?? []).filter((t) => t.bundle_id === b.id).map((t) => t.tier_id),
+    }))
+  const [bundlesExpanded, setBundlesExpanded] = useState(false)
+  const [draftActive, setDraftActive] = useState(false)
+  const hasSchedule = (occurrenceCells ?? []).length > 0
+  const reducedBundles = prefersReducedMotion()
+
+  // A draft has no id — the FIRST period click is what mints the real
+  // elective_bundles row (see ElectiveSetDetail's onToggleBundlePeriod). Once
+  // that happens this editor instance's `bundle` prop stops being the draft
+  // (the next reload's `activityBundles` includes the new row instead), so
+  // the draft placeholder itself is retired here.
+  async function handleBundleTogglePeriod(bundle, cell, isSelected) {
+    const wasDraft = bundle.id == null
+    await onToggleBundlePeriod(activity, bundle, cell, isSelected)
+    if (wasDraft) setDraftActive(false)
+  }
+
+  const draftBundle = {
+    id: null, elective_set_id: offering.elective_set_id, activity_id: offering.activity_id,
+    name: '', scope_mode: 'all', periods: [], tierIds: [],
+  }
+  const bundleEditorProps = {
+    activity, tiers, days, timeBlocks, occurrenceCells, role,
+    onSetScopeMode: onSetBundleScopeMode, onToggleTier: onToggleBundleTier,
+    onSaveName: onSaveBundleName, onDelete: onDeleteBundle,
+    onTogglePeriod: handleBundleTogglePeriod,
+  }
+
   return (
-    <tr style={{ borderBottom: '1px solid var(--border)' }}>
-      <td style={{ ...S.td, fontWeight: 500 }}>{activity?.name ?? '(deleted activity)'}</td>
+    <>
+    <tr style={{ borderBottom: activityBundles.length === 0 && !draftActive ? '1px solid var(--border)' : 'none' }}>
+      <td style={{ ...S.td, fontWeight: 500 }}>
+        {activity?.name ?? '(deleted activity)'}{' '}
+        {activityBundles.length === 0 ? (
+          <button
+            type="button"
+            className="press-97"
+            onClick={() => { setBundlesExpanded(true); setDraftActive(true) }}
+            disabled={!hasSchedule}
+            title={!hasSchedule ? 'Place this set on a schedule first — bundles are built from its placed periods.' : undefined}
+            style={{
+              fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)',
+              border: 'none', background: 'none', padding: 0, marginLeft: 8, fontFamily: 'inherit',
+              cursor: hasSchedule ? 'pointer' : 'not-allowed', opacity: hasSchedule ? 1 : 0.5,
+            }}
+          >
+            + Add bundle
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="press-97"
+            onClick={() => setBundlesExpanded((v) => !v)}
+            aria-expanded={bundlesExpanded}
+            aria-controls={`bundles-${offering.id}`}
+            style={{
+              fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)',
+              border: 'none', background: 'none', padding: 0, marginLeft: 8, fontFamily: 'inherit',
+              display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+            }}
+          >
+            {activityBundles.length} bundle{activityBundles.length === 1 ? '' : 's'}
+            <ChevronIcon expanded={bundlesExpanded} />
+          </button>
+        )}
+      </td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{location?.name ?? '—'}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>
         {activity ? eligibilitySummary(activity, tiers, groups) : '—'}
@@ -224,6 +311,40 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
         </button>
       </td>
     </tr>
+    <tr>
+      <td colSpan={6} style={{ padding: 0, border: activityBundles.length > 0 || draftActive ? '1px solid var(--border)' : 'none', borderTop: 'none' }}>
+        <div
+          id={`bundles-${offering.id}`}
+          style={{
+            overflow: 'hidden',
+            maxHeight: bundlesExpanded ? 4000 : 0,
+            opacity: bundlesExpanded ? 1 : 0,
+            transition: reducedBundles ? 'none' : 'max-height var(--motion-base) var(--ease-out), opacity var(--motion-base) var(--ease-out)',
+          }}
+        >
+          <div style={{ padding: '10px 14px 14px', background: 'var(--bg)' }}>
+            {activityBundles.map((b) => (
+              <BundleEditor
+                key={b.id}
+                bundle={b}
+                isDraft={false}
+                siblingBundles={activityBundles.filter((x) => x.id !== b.id)}
+                {...bundleEditorProps}
+              />
+            ))}
+            {draftActive && (
+              <BundleEditor bundle={draftBundle} isDraft={true} siblingBundles={activityBundles} {...bundleEditorProps} />
+            )}
+            {activityBundles.length > 0 && !draftActive && (
+              <button type="button" className="press-97" onClick={() => setDraftActive(true)} style={{ ...S.btnUtility, fontSize: 12, padding: '6px 0' }}>
+                + Add another bundle
+              </button>
+            )}
+          </div>
+        </div>
+      </td>
+    </tr>
+    </>
   )
 }
 
@@ -251,6 +372,166 @@ export default function ElectiveSetDetail({
   const [confirmClear, setConfirmClear] = useState(false)
   const [clearing, setClearing] = useState(false)
   const fileInputRef = useRef(null)
+
+  // T301 slice 2 — this set's authored bundles. Three flat tables, loaded
+  // plainly (not via useCrudScreen, which is shaped around ONE entity with
+  // its own error state; bundle writes route through THIS screen's existing
+  // `error` banner instead, the same way saveCapacity/saveMinimum already
+  // do). elective_bundle_periods/elective_bundle_tiers carry no
+  // elective_set_id of their own (ADR D1 — parent-scoped by bundle_id only),
+  // so they are loaded campwide and filtered here by this set's own bundle
+  // ids, mirroring offeringScopeFilter's own list-then-filter shape.
+  const [bundles, setBundles] = useState([])
+  const [bundlePeriods, setBundlePeriods] = useState([])
+  const [bundleTiers, setBundleTiers] = useState([])
+  const [pendingDeleteBundle, setPendingDeleteBundle] = useState(null)
+  const [deletingBundle, setDeletingBundle] = useState(false)
+
+  const reloadBundles = useCallback(async () => {
+    const [allBundles, allPeriods, allTiers] = await Promise.all([
+      localClient.list('elective_bundles'),
+      localClient.list('elective_bundle_periods'),
+      localClient.list('elective_bundle_tiers'),
+    ])
+    const setBundlesRows = (allBundles || []).filter((b) => b.elective_set_id === set.id)
+    const bundleIds = new Set(setBundlesRows.map((b) => b.id))
+    setBundles(setBundlesRows)
+    setBundlePeriods((allPeriods || []).filter((p) => bundleIds.has(p.bundle_id)))
+    setBundleTiers((allTiers || []).filter((t) => bundleIds.has(t.bundle_id)))
+  }, [set.id])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    reloadBundles()
+  }, [reloadBundles])
+
+  // The picker grid's cells — the union of both candidate routes' placed
+  // periods for this set (CLAUDE.md: neither route is canonical). Recomputed
+  // only when the inputs that could change it change, since it is read by
+  // EVERY bundle editor on this screen and a whole-camp slot scan is a real
+  // cost at up to 480 cells (mirrors AssignmentPanel.jsx's own H2 memo).
+  const occurrenceCells = useMemo(
+    () => deriveBundlePickerCells({ templateSlots, scheduleTemplates, groups, days, timeBlocks, electiveSetId: set.id }),
+    [templateSlots, scheduleTemplates, groups, days, timeBlocks, set.id]
+  )
+
+  // Deletes every elective_bundle_periods/elective_bundle_tiers row for the
+  // given bundle ids, then the elective_bundles rows themselves — the shared
+  // cleanup both a single bundle delete and an offering/clear-offerings
+  // removal need (ADR's own note: both paths leave orphans with no FK
+  // cascade). Silent no-op for an empty list, matching this file's own
+  // `if (bundleIdsToRemove.length === 0) return` posture elsewhere.
+  async function deleteBundleRows(bundleIds) {
+    if (bundleIds.length === 0) return
+    const idSet = new Set(bundleIds)
+    const periodIds = bundlePeriods.filter((p) => idSet.has(p.bundle_id)).map((p) => p.id)
+    const tierIds = bundleTiers.filter((t) => idSet.has(t.bundle_id)).map((t) => t.id)
+    // The two child tables are independent of each other — only the parent
+    // bundle row needs to go last.
+    await Promise.all([
+      repository.deleteAllRecords('elective_bundle_periods', periodIds),
+      repository.deleteAllRecords('elective_bundle_tiers', tierIds),
+    ])
+    await repository.deleteAllRecords('elective_bundles', bundleIds)
+  }
+
+  // D7 — the proposed name for a bundle's first period. Computed ONCE, here,
+  // at the moment a draft's first cell is picked (the only caller of the
+  // bundle.id == null branch below); never recomputed after, because the
+  // name is then the director's to edit.
+  function proposeBundleName(forActivity, cell) {
+    const existing = bundles.filter((b) => b.activity_id === forActivity.id)
+    if (existing.length === 0) return forActivity.name
+    const day = days.find((d) => d.id === cell.day_id)
+    const block = timeBlocks.find((b) => b.id === cell.time_block_id)
+    const dayLabel = day?.label ?? day?.name ?? cell.day_id
+    const blockName = block?.name ?? cell.time_block_id
+    return `${forActivity.name} — ${dayLabel}, ${blockName}`
+  }
+
+  async function onToggleBundlePeriod(forActivity, bundle, cell, isSelected) {
+    try {
+      if (bundle.id == null) {
+        // A draft has no row yet — the first period click mints both the
+        // bundle and its first period in one gesture.
+        const newBundleId = crypto.randomUUID()
+        await repository.createRecord('elective_bundles', newBundleId, {
+          elective_set_id: set.id,
+          activity_id: forActivity.id,
+          name: proposeBundleName(forActivity, cell),
+          scope_mode: 'all',
+        })
+        await repository.createRecord('elective_bundle_periods', crypto.randomUUID(), {
+          bundle_id: newBundleId, day_id: cell.day_id, time_block_id: cell.time_block_id,
+        })
+      } else if (isSelected) {
+        const toRemove = bundlePeriods
+          .filter((p) => p.bundle_id === bundle.id && p.day_id === cell.day_id && p.time_block_id === cell.time_block_id)
+          .map((p) => p.id)
+        await repository.deleteAllRecords('elective_bundle_periods', toRemove)
+      } else {
+        await repository.createRecord('elective_bundle_periods', crypto.randomUUID(), {
+          bundle_id: bundle.id, day_id: cell.day_id, time_block_id: cell.time_block_id,
+        })
+      }
+      await reloadBundles()
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That period could not be saved.'))
+      throw err
+    }
+  }
+
+  // 'all' leaves any pre-existing elective_bundle_tiers rows alone — they are
+  // inert under 'all' (ADR D2), and preserving them means a director toggling
+  // between Only/All while deciding does not lose their picks.
+  async function onSetBundleScopeMode(bundle, mode) {
+    try {
+      await repository.writeFields('elective_bundles', bundle.id, { scope_mode: mode })
+      await reloadBundles()
+    } catch (err) {
+      setError(describeWriteFailure(err, "That bundle's scope could not be saved."))
+      throw err
+    }
+  }
+
+  async function onToggleBundleTier(bundle, tierId, isSelected) {
+    try {
+      if (isSelected) {
+        const toRemove = bundleTiers.filter((t) => t.bundle_id === bundle.id && t.tier_id === tierId).map((t) => t.id)
+        await repository.deleteAllRecords('elective_bundle_tiers', toRemove)
+      } else {
+        await repository.createRecord('elective_bundle_tiers', crypto.randomUUID(), { bundle_id: bundle.id, tier_id: tierId })
+      }
+      await reloadBundles()
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That division could not be saved.'))
+      throw err
+    }
+  }
+
+  async function onSaveBundleName(bundle, name) {
+    try {
+      await repository.writeFields('elective_bundles', bundle.id, { name })
+      await reloadBundles()
+    } catch (err) {
+      setError(describeWriteFailure(err, "That bundle's name could not be saved."))
+      throw err
+    }
+  }
+
+  async function confirmDeleteBundle() {
+    if (!pendingDeleteBundle) return
+    setDeletingBundle(true)
+    try {
+      await deleteBundleRows([pendingDeleteBundle.id])
+      await reloadBundles()
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That bundle could not be deleted.'))
+    } finally {
+      setDeletingBundle(false)
+      setPendingDeleteBundle(null)
+    }
+  }
 
   const offeredActivityIds = new Set(offerings.map((o) => o.activity_id))
   // T266 (site 5 of 7) — an elective offering is a free choice a camper picks, so
@@ -411,7 +692,12 @@ export default function ElectiveSetDetail({
           repo: activityRepo, allMemberships, removedMembershipIds: ids, activityId, currentStatus,
         })
       }
-      await reload()
+      // T301 slice 2 — a bundle has no FK cascade (ADR D1): removing the
+      // offering it belongs to must take its periods/tiers/bundle row with
+      // it, or they orphan silently.
+      const distinctActivityIdSet = new Set(distinctActivityIds)
+      await deleteBundleRows(bundles.filter((b) => distinctActivityIdSet.has(b.activity_id)).map((b) => b.id))
+      await Promise.all([reload(), reloadBundles()])
     } catch (err) {
       setError(describeWriteFailure(err, "Could not clear this set's offerings."))
     } finally {
@@ -437,7 +723,9 @@ export default function ElectiveSetDetail({
         activityId: pendingDelete.activity_id,
         currentStatus,
       })
-      await reload()
+      // T301 slice 2 — same orphan-cleanup obligation as clearOfferings above.
+      await deleteBundleRows(bundles.filter((b) => b.activity_id === pendingDelete.activity_id).map((b) => b.id))
+      await Promise.all([reload(), reloadBundles()])
     } catch (err) {
       setError(describeWriteFailure(err, 'That offering could not be removed.'))
     } finally {
@@ -507,6 +795,17 @@ export default function ElectiveSetDetail({
                   onSaveCapacity={saveCapacity}
                   onSaveMinimum={saveMinimum}
                   onDelete={setPendingDelete}
+                  days={days}
+                  timeBlocks={timeBlocks}
+                  occurrenceCells={occurrenceCells}
+                  bundles={bundles}
+                  bundlePeriods={bundlePeriods}
+                  bundleTiers={bundleTiers}
+                  onToggleBundlePeriod={onToggleBundlePeriod}
+                  onSetBundleScopeMode={onSetBundleScopeMode}
+                  onToggleBundleTier={onToggleBundleTier}
+                  onSaveBundleName={onSaveBundleName}
+                  onDeleteBundle={setPendingDeleteBundle}
                 />
               ))}
             </tbody>
@@ -547,6 +846,17 @@ export default function ElectiveSetDetail({
         />
       )}
 
+      {pendingDeleteBundle && (
+        <ConfirmDangerDialog
+          title={`Delete "${pendingDeleteBundle.name || 'this bundle'}"?`}
+          recovery="Its periods and division scope go with it, and this can't be undone."
+          confirmLabel="Delete Bundle"
+          busy={deletingBundle}
+          onConfirm={confirmDeleteBundle}
+          onCancel={() => setPendingDeleteBundle(null)}
+        />
+      )}
+
       <AssignmentPanel
         electiveSetId={set.id}
         campId={set.camp_id}
@@ -563,6 +873,9 @@ export default function ElectiveSetDetail({
         onAddActivity={createAndAddOffering}
         onError={setError}
         onNavigate={onNavigate}
+        bundles={bundles}
+        bundlePeriods={bundlePeriods}
+        bundleTiers={bundleTiers}
       />
     </div>
   )
