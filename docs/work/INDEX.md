@@ -44,7 +44,6 @@ Regenerate with `npm run index:work`.
 | [A camper's elective preferences can be changed without re-importing a file](../../docs/work/tickets/T297-edit-a-campers-elective-preferences.md) | open | [T296-per-camper-elective-schedule-view](../../docs/work/tickets/T296-per-camper-elective-schedule-view.md) |
 | [Two campers who answered identically are two campers](../../docs/work/tickets/T299-identical-submissions-are-not-one-camper.md) | open | [T303-caller-declared-arrival-on-the-machine-path](../../docs/work/tickets/T303-caller-declared-arrival-on-the-machine-path.md) · [T304-a-staff-session-can-see-what-the-import-left-unnamed](../../docs/work/tickets/T304-a-staff-session-can-see-what-the-import-left-unnamed.md) · [T305-a-whole-sheet-planner-grid-imports-through-the-panel](../../docs/work/tickets/T305-a-whole-sheet-planner-grid-imports-through-the-panel.md) · [T306-the-director-can-name-an-unnamed-submission](../../docs/work/tickets/T306-the-director-can-name-an-unnamed-submission.md) · [T307-a-directors-column-correction-is-honoured](../../docs/work/tickets/T307-a-directors-column-correction-is-honoured.md) · [T313-one-spelling-for-a-provisional-subject](../../docs/work/tickets/T313-one-spelling-for-a-provisional-subject.md) |
 | [A camp's column mapping is remembered and re-proposed](../../docs/work/tickets/T312-a-camps-column-mapping-is-remembered-and-re-proposed.md) | open | — |
-| [One spelling for a provisional subject, and one reader for the bytes](../../docs/work/tickets/T313-one-spelling-for-a-provisional-subject.md) | open | — |
 
 ### documentation-governance
 
@@ -243,6 +242,7 @@ They are different facts and a run can carry a bad one of each.
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
 | 2026-09-29 | [docs(T311): closes T311 — the sweep landed; findings go to the board, not to tickets](../../docs/work/runs/2026-09-29-docs-t311-closes-t311-the-sweep-landed-findings-go-to-the-bo.md) | documentation-governance | pass | pass |
+| 2026-09-29 | [docs(T313): closes T313 — status was left open at merge](../../docs/work/runs/2026-09-29-docs-t313-closes-t313-status-was-left-open-at-merge.md) | database-sync | pass | pass |
 | 2026-09-29 | [T302: a new elective finding cannot reach a director naming an activity by its label key (closes T302)](../../docs/work/runs/2026-09-29-t302-a-new-elective-finding-cannot-reach-a-director-naming-a.md) | test-infrastructure | pass | PASS |
 | 2026-09-28 | [T267 PR2 — cut fixed/recurring event resolution over to activity_id; delete name-matching fallback](../../docs/work/runs/2026-09-28-t267-pr2-id-cutover.md) | database-sync | in-progress | _no verdict yet_ |
 | 2026-09-28 | [T267 PR3 — cosmetic rename cleanup (discharge T293 findings B, G, H); no behavior change](../../docs/work/runs/2026-09-28-t267-pr3-cosmetic-cleanup.md) | documentation-governance | in-progress | _no verdict yet_ |
