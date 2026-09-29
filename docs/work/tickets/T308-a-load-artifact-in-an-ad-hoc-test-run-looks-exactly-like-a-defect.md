@@ -1,7 +1,7 @@
 ---
 title: "A load artifact in an ad-hoc test run looks exactly like a defect"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: test-infrastructure
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -192,14 +192,55 @@ fast failure present, load one under 4× cores, a duration one ms under `MIN_LOA
 (asserted against the imported constant so raising it there cannot silently widen this), an untimed
 failure, and an unusable core count.
 
-## Still open after this: the parallelism bound
+## The second half, shipped: the parallelism bound
 
-The second half of the success predicate — *"total vitest parallelism across concurrent sessions is
-either bounded, or the decision to leave it unbounded is written down with its reasoning"* — is **not
-addressed**. Nothing here stops load 518 recurring; it only stops a session mistaking it for a
-defect. The facts for whoever takes it are already in this ticket's Mechanism §2: `gateLock.js` has
-one caller, `npm run test` is a bare `vitest run`, and an ad-hoc run takes no lock, so N sessions × M
-workers has nothing bounding the product.
+`scripts/vitestWorkerBudget.js`. Every vitest run registers a lease in a per-repository directory and
+counts the live ones; `vite.config.js` turns that count into `maxWorkers`. N runs now use about
+`cores` workers in total instead of N × `cores`.
+
+**It never touches the uncontended case.** `workerBudget` returns null for a single run, meaning "use
+vitest's own default", and the config spreads nothing when it is null. CI runs one suite on a clean
+runner and is bit-for-bit unaffected; so is a developer alone on their machine. The mechanism only
+ever subtracts when a second run actually exists — the sole condition under which the product was a
+problem.
+
+**A lease count, not the load average.** Load average is the symptom and a poor controller: a
+1-minute lagging figure that counts the editor and the app, is inflated by the run's own workers, and
+so would make a run throttle itself for its own load and keep throttling after the cause had gone.
+The lease count is the actual term in the product, is current rather than averaged, and attributes
+correctly.
+
+**Measured, on this machine:**
+
+| | peak worker processes |
+|---|---|
+| an 8-file run alone | 3 (vitest's default on 4 cores) |
+| a holder plus that same run, **combined** | **3** — the run was capped at 2 |
+
+Unbounded those two would have been 3 + 3 = 6 workers on 4 cores. Counted by walking the ppid chain
+from the vitest process, after a first attempt that grepped for `tinypool` and was silently counting
+its own shell command lines — recorded because the wrong number looked entirely plausible.
+
+**Stale leases self-heal**, on gateLock's principle: a lease whose pid is gone is reaped by whoever
+next counts, so a crashed or killed run cannot permanently shrink everyone else's budget. Verified,
+along with a lease directory that empties once both runs finish.
+
+`SHORESH_NO_WORKER_BUDGET=1` opts a run out, matching `SHORESH_VERIFY_NO_LOCK`'s idiom. An opted-out
+run writes **no** lease, so it does not shrink anyone else either — deliberate, and asserted. That
+property also invalidated the first contended measurement, because the holder had been started with
+the opt-out and therefore registered nothing.
+
+Two guards decide whether to take a lease at all: `VITEST === 'true'` (this config also serves
+`npm run dev`, and a dev server must not hold a test lease) and `!VITEST_POOL_ID` (set only inside
+workers — without it every worker would claim its own lease and each run would inflate its own peer
+count). Both confirmed by execution at config time.
+
+### What is still not bounded
+
+Only *vitest* runs count each other. A gate's `build`, `test:integration` and `lint` steps, the
+Electron dev servers, and the MCP servers are all outside this accounting, so the machine can still
+be loaded by work this does not see. Bounding vitest against vitest is the term that was multiplying
+per session; it is not a machine-wide scheduler and should not be mistaken for one.
 
 ### Considered and declined: a CPU/wall ratio instead of a machine-wide load average
 
