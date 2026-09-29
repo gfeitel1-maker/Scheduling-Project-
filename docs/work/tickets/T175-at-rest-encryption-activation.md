@@ -5,7 +5,7 @@ status: in-progress
 created: 2026-09-15
 task_class: security-auth
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-09-15-at-rest-encryption-scoping.md, docs/work/security/2026-09-15-at-rest-encryption-activation-assessment.md, docs/current/KEY_RECOVERY_STORY.md]
-archive_when: both the document and SQLite files are encrypted at rest on a real device, all five review gaps are closed and test-covered, SECURITY.md states the narrowed boundary, and the change has been real-app verified
+archive_when: both the document and SQLite files are encrypted at rest on a real device, all five review gaps are closed and test-covered, SECURITY.md states the narrowed boundary, the change has been real-app verified, and (owner requirement 2026-09-28) disabling encryption once on is a deliberate, host/director-gated act — not an ambient env-var/config flip — with the design recorded and the guard test-covered
 ---
 
 # T175 — At-rest encryption activation
@@ -144,6 +144,41 @@ Default stays `'off'`. When the owner is ready, the flip is this known small seq
 4. Owner-side: install a packaged build, launch with encryption on against the real Test Camp, confirm it
    migrates once + reads back + persists across a relaunch (the real-app smoke that "must not be skipped").
 Only after step 4 is T175 done; this DE-RISK pass does not close it.
+
+## 2026-09-28 — OWNER REQUIREMENT: once on, encryption must be HARD to turn off (Architect design item)
+
+The owner raised this after reading the "gate vs decoration" language in
+`src/screens/elective/assignment/AssignmentPanel.jsx` (that language is about the fail-closed
+*disclosure row*, not the on/off switch — it is correct as-is). The real concern is the **control**:
+
+> "once we turn encryption on, it would have to be hard to turn off / only turned off by a director or
+> host who knows what they are doing."
+
+**Current reality (why this is a gap, not a defect):** encryption on/off is controlled ENTIRELY by the
+`SHORESH_AT_REST_ENCRYPTION` env var read once at import (`electron/db/atRestEncryption.js:20-23`),
+plus the eventual one-line default flip. That is an appropriate *pre-activation staging* mechanism, but
+there is **no director/host-facing control at all**, and therefore nothing that makes disabling
+deliberate or guarded. Note the live hazard: after a device migrates to SQLCipher on disk, flipping the
+flag back to off does not gracefully decrypt — the keyed open fail-closes and the device can no longer
+read its own camp DB. So a careless disable is not "data goes plaintext," it is "device bricks its own
+data access" — exactly the foot-gun to prevent.
+
+**Requirement to design + build as part of activation (routed to Architect 2026-09-28):**
+1. **Disabling encryption once it is on is a deliberate host/director act**, gated through
+   `authorize()` (role + device-trust re-checked, per the app's auth invariant), never an ambient
+   env-var/config edit or a non-privileged path.
+2. **It requires explicit, informed confirmation** that states the consequence in plain language
+   (exposes camper data as plaintext on disk / requires a re-migration; possible data-access loss if
+   done wrong), consistent with the "no silent toggle / surface every consequence" house rules.
+3. **Fail-closed stays:** an unknown/unreadable encryption state must never read as "safe to disable."
+4. **Design the actual disable path**, which does not safely exist today: what "off after on" should
+   mean (a real, verified decrypt-migration back to plaintext vs. simply refusing), and whether enable
+   should likewise become a director action rather than only the default flip.
+
+Architect deliverable: a short design (ADR or design note under docs/adr or the ticket) covering the
+enable/disable control model, the guard, the disable-migration semantics, and the test that pins
+"disable is host/director-gated + confirmed + fail-closed." This is a **flip precondition** — folded
+into the archive_when above. It does not change the current staged-OFF default.
 
 ## Order is load-bearing (assessment finding 1, HIGH)
 The crackable PIN hashes live in the **SQLite** file, not the document. So:
