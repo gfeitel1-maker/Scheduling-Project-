@@ -249,6 +249,29 @@ export function detectGridLayout(rows = [], headerIndex = 0) {
 }
 
 /**
+ * IS THIS SHEET NOTHING BUT A PLANNER GRID? (T305)
+ *
+ * ONE definition, called by both `readPreferenceSheet` (which switches the
+ * transform into its grid path) and the director's import panel (which skips the
+ * mapping screen). They were the same expression written twice: the panel's
+ * confirm gate — `nameIndex != null && rankColumns.length > 0` — is the exact
+ * complement of the transform's grid branch, so the panel disabled its button on
+ * precisely the sheets the transform knew how to read, and asked the director a
+ * question that had already been answered. Two copies of one rule drift the moment
+ * either moves; this is the choke point.
+ *
+ * `unmapped` being non-empty is what makes the grid reading RELEVANT, not what
+ * makes it true — `detectGridLayout` still has to recognise the shape, and it
+ * abstains unless two or more columns are named for days AND some body row's first
+ * cell names a period. A sheet that is merely unreadable gets null here and is
+ * still asked about, which is the case the mapping screen legitimately exists for.
+ */
+export function detectWholeSheetGrid(rows = [], mapping = null) {
+  if (!mapping || (mapping.unmapped ?? []).length === 0) return null
+  return detectGridLayout(rows, 0)
+}
+
+/**
  * Propose which column is which, from the header row.
  *
  * Every field is nullable and `unmapped` names what was not found — the caller

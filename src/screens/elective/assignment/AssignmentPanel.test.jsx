@@ -282,26 +282,68 @@ describe("AssignmentPanel — a planner grid's subject is scoped to the import i
     expect(second.id).not.toBe(first.id)
   })
 
-  // A WHOLE-SHEET planner (no ranked block at all) CANNOT be imported here, and
-  // that is a pre-existing defect this ticket found rather than caused. The confirm
-  // gate is `mapping.nameIndex != null && rankColumns.length > 0`
-  // (MappingCorrector.jsx), and a child's own planner has neither by design — the
-  // identity comes from the submission, and the cells ARE the ranks. So the button
-  // never enables and the director cannot get past the mapping screen.
-  //
-  // Confirmed by execution: driving a whole-sheet grid through this same flow leaves
-  // the panel on the mapping screen with onError never called, because nothing was
-  // ever clicked. It is not covered by test/panelImportPath.test.js either — that
-  // file's `importThroughPanelPath` calls readPreferenceSheet directly and so never
-  // renders this gate, which is exactly why the gap survived.
-  //
-  // Left unfixed deliberately: what the mapping screen should show for a sheet with
-  // no name and no rank columns is a product question, not a wiring one.
-  it('leaves a whole-sheet planner stuck at the mapping gate (documented gap, not a fix)', async () => {
+  // T305 replaces the guard that used to sit here. It asserted the Confirm button
+  // stayed DISABLED for a whole-sheet planner and was correct at the time: the gap
+  // was real and deliberately left unfixed pending an owner decision. That decision
+  // (2026-09-29) is "land it and say what was read", so the assertion is inverted
+  // rather than deleted -- the T305 describe below is its replacement.
+})
+
+describe('T305 -- a sheet that is nothing but a planner grid imports', () => {
+  const PROPS = { activities: [{ id: 'act-1', name: 'Archery' }, { id: 'act-2', name: 'Swim' }] }
+
+  // No camper-name column and no rank columns, BY DESIGN (ADR 14.1a): this is one
+  // child's own sheet, the identity comes from the submission, and the cells ARE the
+  // ranks. Exactly the file the old gate refused.
+  const PLANNER = [
+    '\tMonday\tTuesday',
+    'Period 1\tArchery\tSwim',
+    'Period 2\tSwim\tArchery',
+  ].join('\n')
+
+  function upload(sheet, fileName = 'planner.txt') {
     render(<AssignmentPanel {...baseProps(PROPS)} />)
     const input = document.querySelector('input[type="file"]')
-    const grid = '\tMonday\tTuesday\nPeriod 1\tArchery\tSwim\nPeriod 2\tSwim\tArchery'
-    fireEvent.change(input, { target: { files: [new File([grid], 'planner.txt', { type: 'text/plain' })] } })
+    fireEvent.change(input, { target: { files: [new File([sheet], fileName, { type: 'text/plain' })] } })
+  }
+
+  it('reaches the parsed phase with NO mapping screen', async () => {
+    upload(PLANNER)
+    // The transform already knows how to read this, so there is nothing to ask.
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    expect(screen.queryByText(/Confirm Mapping/)).toBeNull()
+  })
+
+  it('lands ONE unattributed subject carrying its per-cell preferences', async () => {
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'r', counts: { campers: 1 } })
+    upload(PLANNER)
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Solve/i))
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(localClient.commitElectiveRun).toHaveBeenCalled())
+
+    const { parsed } = localClient.commitElectiveRun.mock.calls.at(-1)[0]
+    const subjects = parsed.campers.filter((c) => c.is_unattributed === 1)
+    expect(subjects).toHaveLength(1)
+    // The DATA, not just the row: four filled cells across two days x two periods.
+    // Asserting the row alone would pass for a subject that landed carrying nothing.
+    expect(parsed.preferences.length).toBe(4)
+    // And the app SAYS so, which is the half of the owner's ruling that is not the
+    // unblocking -- "land it and say what was read".
+    expect(parsed.residue.some((r) => r.kind === 'UNATTRIBUTED_SUBJECT')).toBe(true)
+  })
+
+  // THE CASES THAT PROVE THE GATE WAS NARROWED, NOT REMOVED. Without these, a patch
+  // that simply deletes the confirm gate passes every other test in this file.
+  // detectGridLayout requires TWO day-named columns AND a period-labelled body row;
+  // each fixture below fails exactly one of those and must still be asked about.
+  it.each([
+    ['no name, no ranks, no grid at all', 'Alpha\tBeta\nx\ty'],
+    ['only one day column', '\tMonday\nPeriod 1\tArchery'],
+    ['day columns but no period labels', '\tMonday\tTuesday\nx\tArchery\tSwim'],
+  ])('still shows the mapping screen for a sheet with %s', async (_label, sheet) => {
+    upload(sheet, 'not-a-planner.txt')
     const confirm = await screen.findByRole('button', { name: /Confirm Mapping/ })
     expect(confirm.disabled).toBe(true)
   })

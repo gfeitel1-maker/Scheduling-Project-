@@ -31,7 +31,7 @@
 // PURE. No db, no IPC, no file reading — callers pass the rows and the camp's own
 // entities as plain arrays, exactly as `parsePreferenceSheet` requires.
 
-import { detectGridLayout, inferPreferenceLayout, parsePreferenceSheet } from './preferenceSheet.js'
+import { detectGridLayout, detectWholeSheetGrid, inferPreferenceLayout, parsePreferenceSheet } from './preferenceSheet.js'
 
 /**
  * The identity of a SUBMISSION, derived from the table it contains.
@@ -149,7 +149,7 @@ export function readPreferenceSheet({
   // whole sheet and as a second table ABOVE the header — the page carrying a planner
   // AND a ranked block is the owner's own sheet, and reading only the block was this
   // program's own defect.
-  const wholeSheetGrid = mapping.unmapped.length > 0 ? detectGridLayout(rows, 0) : null
+  const wholeSheetGrid = detectWholeSheetGrid(rows, mapping)
   const preambleGrid = mapping.unmapped.length === 0 && mapping.headerIndex > 0
     ? detectGridLayout(rows, 0)
     : null

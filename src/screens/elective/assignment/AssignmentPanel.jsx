@@ -12,7 +12,7 @@ import { localClient } from '../../../localClient'
 import { S, prefersReducedMotion, useEnterTransition } from '../../../styles/shared'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
 import { assertImportFileSize, readWorkbookSafely, unescapeRow, IMPORT_LIMITS } from '../../../utils/exportSanitize.js'
-import { inferPreferenceLayout, hasContradictoryRanks } from '../../../ingest/preferenceSheet.js'
+import { detectWholeSheetGrid, inferPreferenceLayout, hasContradictoryRanks } from '../../../ingest/preferenceSheet.js'
 import { residueIsDecision } from '../../../ingest/residueKinds.js'
 import { proposeActivityMatch, resolutionMap, RESOLUTION } from '../../../ingest/labelResolutions.js'
 import { journalEntriesFor } from '../../../ingest/decisionJournal.js'
@@ -343,8 +343,10 @@ export default function AssignmentPanel({
       // Keying on the name merged two real children whose planners were both
       // exported as `planner.csv`. The label is kept for the director to recognise;
       // the key is the content.
-      setSourceLabel(file.name.replace(/\.[^.]+$/, ''))
-      setSubmissionKey(submissionKeyFromRows(fileRows))
+      const label = file.name.replace(/\.[^.]+$/, '')
+      setSourceLabel(label)
+      const key = submissionKeyFromRows(fileRows)
+      setSubmissionKey(key)
       // T299 — WHICH IMPORT this is, the other half of a provisional subject's
       // identity. Minted once per file SELECTION rather than per parse, because
       // confirmMapping runs again each time the director settles a label and every
@@ -355,13 +357,34 @@ export default function AssignmentPanel({
       // camper row holding both their answers. The director is told they are
       // indistinguishable by content (the attention surface) and merges them by
       // naming both, if it turns out to be one child.
-      setArrivalId(crypto.randomUUID())
+      const arrival = crypto.randomUUID()
+      setArrivalId(arrival)
       // The mapping shown to the director is LOCATED, not assumed to be row 1, and
       // is resolved against the camp's own entities — so what they are asked to
       // confirm is what the transform will actually do. `inferPreferenceMapping`
       // on row 0 with no catalog was a different reading from the one that ran.
       const catalog = buildPreferenceCatalog({ activities, groups, tiers })
-      setMapping(inferPreferenceLayout(fileRows, { catalog }))
+      const inferred = inferPreferenceLayout(fileRows, { catalog })
+      setMapping(inferred)
+      // T305 — A SHEET THAT IS NOTHING BUT A PLANNER GRID HAS NOTHING TO CORRECT, so it
+      // is not asked about. A child's own planner has no camper-name column and no rank
+      // columns BY DESIGN (ADR §14.1a: the identity comes from the submission, and the
+      // cells ARE the ranks), which is exactly the shape MappingCorrector's confirm gate
+      // refuses — so the director met a permanently disabled button under advice ("add a
+      // rank column") that would have broken the read. A refusal at the UI seam, which
+      // §14.1a forbids: land the data and report the uncertainty.
+      //
+      // The four values are passed EXPLICITLY rather than read from state, for the same
+      // reason `extraActivities` and `resolutionList` are below: none of the setters
+      // above have landed in this render, so confirmMapping reading state here would
+      // re-parse the PREVIOUS sheet — an empty one on the first import, which would look
+      // like a clean no-op rather than a failure.
+      if (detectWholeSheetGrid(fileRows, inferred)) {
+        confirmMapping([], resolutions, {
+          rows: fileRows, sourceLabel: label, submissionKey: key, arrivalId: arrival,
+        })
+        return
+      }
       setPhase('mapping')
     } catch (err) {
       onError?.(describeWriteFailure(err, 'Could not read that file.'))
@@ -437,7 +460,15 @@ export default function AssignmentPanel({
   // state there would re-parse against the resolutions as they were BEFORE the
   // director's press, which is the same stale-catalog trap `extraActivities` exists
   // to avoid, one field over.
-  function confirmMapping(extraActivities = [], resolutionList = resolutions) {
+  // `sheet` defaults to the state values, and is passed explicitly by the direct-to-parse
+  // path in onFileSelected, where no setter has landed yet (T305).
+  function confirmMapping(extraActivities = [], resolutionList = resolutions, sheet = {}) {
+    const {
+      rows: sheetRows = rows,
+      sourceLabel: sheetLabel = sourceLabel,
+      submissionKey: sheetKey = submissionKey,
+      arrivalId: sheetArrival = arrivalId,
+    } = sheet
     // THE SAME CALL SHAPE THE CLI AND THE MCP TOOLS USE. This used to be
     // `parsePreferenceSheet(rows, { campId, mapping })` — no catalog, no grid, no
     // subject — so in the director's own import path the header locator never ran,
@@ -454,7 +485,12 @@ export default function AssignmentPanel({
       // 'mapping' with no explanation, which is the silent failure the
       // describeWriteFailure rule exists to prevent.
       result = readPreferenceSheet({
-        rows, campId, catalog, sourceLabel, submissionKey, arrivalId,
+        rows: sheetRows,
+        campId,
+        catalog,
+        sourceLabel: sheetLabel,
+        submissionKey: sheetKey,
+        arrivalId: sheetArrival,
         resolutions: resolutionMap(resolutionList),
       }).parsed
     } catch (err) {
