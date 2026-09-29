@@ -5,12 +5,12 @@
 // ("Verbatim copy"), except the satisfaction summary, whose copy T250 owns and
 // which the spec deliberately leaves alone.
 
-// Q5 (director-facing terminology) is STILL OPEN with the owner. The spec's
-// Designer recommendation is "Start a new version" — "revision" implies editing
-// the same thing, which is the opposite of what Q1/Q2 ruled (immutable run, no
-// reopen, a fresh run). Until the owner says yes, the existing wording ships.
-// It lives here, once, so that answer is a one-line change.
-export const START_REVISION_LABEL = 'Start a revision'
+// Q5 (director-facing terminology) was ruled by the owner 2026-09-29: "start a
+// new version". "Revision" implies editing the same run, which contradicts
+// the Q1/Q2 ruling that a finalized run is immutable and starting over
+// produces a new run, not an edit of the old one. The constant name is kept
+// as START_REVISION_LABEL so every caller stays untouched by this change.
+export const START_REVISION_LABEL = 'Start a new version'
 
 export const RELEASE_LOCK_LABEL = 'Release lock'
 
