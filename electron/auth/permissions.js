@@ -59,6 +59,16 @@ export const ENTITIES = [
   // admin-only via default-deny.
   'elective_sets',
   'elective_set_activities',
+  // T301 (docs/adr/2026-09-29-linked-elective-bundles.md, Consequences):
+  // ordinary camp-scoped entities, same posture as elective_set_activities
+  // above — staff read/write, delete/bulk_replace admin-only via
+  // default-deny. These three carry NO camper/PII data (pure catalog/setup
+  // structure), so they are NOT one of D9's five admin-only participant
+  // entities and do not belong in permissionsEntityParity.test.js's
+  // PERMISSIONS_ADMIN_ONLY_EXCEPTIONS.
+  'elective_bundles',
+  'elective_bundle_periods',
+  'elective_bundle_tiers',
   // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-
   // shape.md D1): ordinary camp-scoped entity, staff read/write; delete
   // stays admin-only via default-deny (no explicit staff grant below),

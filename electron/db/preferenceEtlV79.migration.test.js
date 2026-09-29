@@ -100,10 +100,17 @@ function preV79Db(tag = 'v79-migrated') {
 
 describe('migration v79 — campers.division_label and elective_preferences.rank_kind', () => {
   it('is the current schema version', () => {
-    // Tripwire, per this repo's convention: a peer session taking 79 for
-    // something else makes this fail rather than letting two migrations share
-    // a number.
-    expect(CURRENT_SCHEMA_VERSION).toBe(80)
+    // Tripwire, per this repo's convention: a fresh database must fully
+    // migrate to the CURRENT schema version, not a hardcoded 79 — a literal
+    // here would go stale (and silently keep passing) the moment a later
+    // migration lands, the same class of drift v80_down.test.js's rollback
+    // fixture fixed on sight.
+    const db = openLocalDb(tmpFile('v79-version'))
+    try {
+      expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
+    } finally {
+      db.close()
+    }
   })
 
   it('a fresh database has both columns, each declared LAST on its table', () => {

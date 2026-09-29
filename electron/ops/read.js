@@ -5,7 +5,7 @@
 // stays a hard whitelist against the same frozen registries in
 // campScopedEntities.js, never caller-built SQL. This module never touches
 // `token` — auth stays in electron/main.js.
-import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
+import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES, resolveParentJoinChain } from './campScopedEntities.js'
 
 export function listEntities(db, entity) {
   // main.js's list() re-checks this too before it ever calls in here, so for
@@ -27,8 +27,9 @@ export function listEntities(db, entity) {
     return db.prepare(`SELECT * FROM ${entity} WHERE camp_id = ?`).all(camp.id)
   }
 
-  const { table, parentTable, parentKey } = PARENT_SCOPED_ENTITIES[entity]
+  const { table } = PARENT_SCOPED_ENTITIES[entity]
+  const { joinSql, campAlias } = resolveParentJoinChain(entity)
   return db
-    .prepare(`SELECT t.* FROM ${table} t JOIN ${parentTable} p ON p.id = t.${parentKey} WHERE p.camp_id = ?`)
+    .prepare(`SELECT t.* FROM ${table} t ${joinSql} WHERE ${campAlias}.camp_id = ?`)
     .all(camp.id)
 }

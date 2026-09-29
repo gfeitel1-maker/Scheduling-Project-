@@ -247,6 +247,14 @@ export const SCHEMA_ONLY_MIGRATIONS = new Set([
   // and an existing offering's placement is unchanged. What the camp MEANS changes
   // only when a director sets a minimum, and that write is an ordinary op.
   80,
+  // v81 (T301, docs/adr/2026-09-29-linked-elective-bundles.md) creates three wholly
+  // new tables — elective_bundles, elective_bundle_periods, elective_bundle_tiers —
+  // no ALTER of any existing table, no backfill, no appendOp. There is no pre-v81
+  // row of any of these three tables to reinterpret: what an EXISTING camp means is
+  // unchanged by this migration, by construction (nothing existed before it for the
+  // migration to touch). What the camp means changes only once a director authors a
+  // bundle, which is an ordinary op like any other.
+  81,
 ])
 
 /** True if applying `version` can change what the camp means. */

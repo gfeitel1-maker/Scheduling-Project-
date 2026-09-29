@@ -5,6 +5,7 @@ import {
   DOMAIN_SNAPSHOT_ORDER,
   DOMAIN_PARENT_SCOPED_ENTITIES,
   assertDirectEntityParity,
+  resolveParentJoinChain,
 } from './campScopedEntities.js'
 
 // The registry keeps the same entity set in two shapes — DIRECT_CAMP_ENTITIES (a
@@ -52,4 +53,40 @@ describe('campScopedEntities manifest parity', () => {
     )
   })
 
+})
+
+// T301 (v81): elective_bundle_periods/elective_bundle_tiers are the first
+// PARENT_SCOPED_ENTITIES members whose own parent (elective_bundles) is
+// ALSO only parent-scoped, not camp-direct — a hardcoded single JOIN
+// (`JOIN parentTable p ON ... WHERE p.camp_id = ?`) produced "no such
+// column: p.camp_id" for both, caught by electron/main.test.js's whole-
+// schema sweep. resolveParentJoinChain replaced that hardcoded single hop
+// with a walk, so these tests pin the walk's shape directly rather than
+// relying only on the slow, indirect DB-backed sweep to notice a regression.
+describe('resolveParentJoinChain', () => {
+  it('a one-hop entity (unchanged shape): exactly one JOIN, straight to its camp-direct parent', () => {
+    const { joinSql, campAlias } = resolveParentJoinChain('template_slots')
+    expect(joinSql).toBe('JOIN schedule_templates p0 ON p0.id = t.template_id')
+    expect(campAlias).toBe('p0')
+  })
+
+  it('a two-hop entity: walks through the intermediate parent-scoped table to reach the camp-direct one', () => {
+    const { joinSql, campAlias } = resolveParentJoinChain('elective_bundle_periods')
+    expect(joinSql).toBe(
+      'JOIN elective_bundles p0 ON p0.id = t.bundle_id JOIN elective_sets p1 ON p1.id = p0.elective_set_id'
+    )
+    expect(campAlias).toBe('p1')
+  })
+
+  it('its sibling child (elective_bundle_tiers) gets the identical two-hop treatment — not a fix special-cased to one table', () => {
+    const { joinSql, campAlias } = resolveParentJoinChain('elective_bundle_tiers')
+    expect(joinSql).toBe(
+      'JOIN elective_bundles p0 ON p0.id = t.bundle_id JOIN elective_sets p1 ON p1.id = p0.elective_set_id'
+    )
+    expect(campAlias).toBe('p1')
+  })
+
+  it('throws for an entity that is not parent-scoped at all', () => {
+    expect(() => resolveParentJoinChain('not_a_real_entity')).toThrow(/not_a_real_entity.*not parent-scoped/)
+  })
 })

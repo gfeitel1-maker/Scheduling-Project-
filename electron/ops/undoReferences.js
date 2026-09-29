@@ -111,6 +111,25 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // schema-parity scanner (undoReferences.schemaParity.test.js), not an entry
   // here; deleteElectiveSet.js's own cascade handles its lifecycle directly.
   { fromTable: 'elective_set_activities', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
+  // T301 (v81) — linked elective bundles. Four incoming edges into U2-deletable
+  // entities, all soft (no REFERENCES clause in schema.sql, so enforced:false
+  // and an unchecked delete SILENTLY orphans rather than throwing).
+  //
+  // These are registered rather than accepted because every one of them points
+  // at something a director can genuinely delete or undo an import of, and a
+  // bundle left pointing at a deleted activity/day/period/division is a bundle
+  // that can never be solved again while still rendering as authored. The
+  // posture is `elective_set_activities.activity_id`'s exactly, one line up:
+  // the bundle is a second, independent thing hanging off the same activity.
+  //
+  // The three remaining *_id columns on these tables are NOT here and are
+  // accepted in the scanner instead: elective_bundles.elective_set_id points at
+  // elective_sets, and both bundle_id columns point at elective_bundles —
+  // none of the three is a U2-deletable entity.
+  { fromTable: 'elective_bundles', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
+  { fromTable: 'elective_bundle_periods', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
+  { fromTable: 'elective_bundle_periods', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
+  { fromTable: 'elective_bundle_tiers', fromColumn: 'tier_id', toEntity: 'tiers', kind: 'scalar', enforced: false },
   // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
   // internal-subschedule.md §3): event_slots.event_group_id/activity_id/
   // location_id point at U2-deletable entities the same soft way

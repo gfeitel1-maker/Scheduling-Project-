@@ -184,6 +184,17 @@ export function buildElectiveAssignments({
   for (const c of [...choices].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
     if (!choiceByLabelKey.has(c.labelKey)) choiceByLabelKey.set(c.labelKey, c)
   }
+  // T301 (docs/adr/2026-09-29-linked-elective-bundles.md D4) — ALL choices
+  // sharing a label, not just the lowest-id one. A bundle serving more than
+  // one tier expands into one elective_choices row PER TIER (D3), and every
+  // tier's row deliberately shares the bundle's one name (D6), so a
+  // labelKey-only preference must reach every one of them — see the
+  // preference loop below, which is the only reader of this map.
+  const choicesByLabelKey = new Map()
+  for (const c of choices) {
+    if (!choicesByLabelKey.has(c.labelKey)) choicesByLabelKey.set(c.labelKey, [])
+    choicesByLabelKey.get(c.labelKey).push(c)
+  }
   const labelOfChoice = (id) => choiceById.get(id)?.labelKey ?? id
 
   // PREFERENCE -> CHOICE RESOLUTION, both ways, for a compatibility reason.
@@ -271,8 +282,31 @@ export function buildElectiveAssignments({
     if (labelKey != null) {
       record(entryFor(rankOf, p.camper_id, labelKey), p.occurrence_id ?? null, p.rank)
     }
-    if (ch) {
+    // T301 ADR D4 — an explicit choice_id preference still resolves to
+    // exactly one choice, unambiguous by construction. A labelKey-only
+    // preference instead broadcasts to EVERY choice sharing that label, so
+    // choiceRankMinOverMembers (tier 1) finds it regardless of which tier's
+    // expansion it is asked about — see choicesByLabelKey's own comment
+    // above for why one label can name more than one choice.
+    //
+    // GATED ON choiceById.has(p.choice_id), NOT on `ch`'s truthiness (found
+    // while implementing D4, beyond the ADR's own stated caveat). `ch` also
+    // goes true when choice_id is present but STALE — resolves to nothing in
+    // THIS run's choices, which a re-solve after choices were re-derived can
+    // produce — and falls through to the labelKey match instead. Checking
+    // `ch` there cannot tell "resolved DIRECTLY by choice_id" apart from
+    // "fell through to labelKey while a stale choice_id rode along", and
+    // would take the single-choice branch instead of broadcasting — the
+    // exact collision this fix exists to close, reappearing behind one more
+    // precondition. An explicit, VALID (but semantically wrong) choice_id is
+    // still untouched, exactly as the ADR intends: that path resolves via
+    // this same `.has()` check and stays exactly-one-match.
+    if (p.choice_id != null && choiceById.has(p.choice_id)) {
       record(entryFor(rankByChoice, p.camper_id, ch.id), p.occurrence_id ?? null, p.rank)
+    } else if (p.labelKey != null) {
+      for (const c of choicesByLabelKey.get(p.labelKey) ?? []) {
+        record(entryFor(rankByChoice, p.camper_id, c.id), p.occurrence_id ?? null, p.rank)
+      }
     }
   }
   const attends = (camperId, occurrenceId) =>
@@ -654,7 +688,17 @@ export function buildElectiveAssignments({
     // "structurally ineligible for a member occurrence" in the ADR's terms, so
     // both are case (b) rather than a fourth finding kind:
     //
-    //   b1  they do not attend every period the set covers;
+    //   b1  they do not attend every period the set covers. Split further by
+    //       HOW MUCH of it they miss (round-2 finding 1): attending SOME but
+    //       not all is genuinely half-eligible and keeps the finding below.
+    //       Attending NONE of it means the only reason they were a candidate
+    //       at all is D4's labelKey broadcast pairing them with a SIBLING
+    //       division's same-labelled choice (an unscoped preference folds
+    //       into every choice sharing the label, T301 ADR D4) — they never
+    //       asked for THIS choice, so accusing them of skipping one of its
+    //       periods is a false, if confident, finding. They still cannot be
+    //       given the choice (unchanged: both stay in `excluded`), but only
+    //       the "some but not all" half is worth telling a director about;
     //   b2  they already hold a pre-placement in one of those periods. A seat
     //       placed by hand and locked STANDS AND WINS — it is never re-decided
     //       here (T246). Without this, tier 1 placed the camper into the choice
@@ -676,10 +720,14 @@ export function buildElectiveAssignments({
       (prePlacedByOccurrence.get(occurrenceId) ?? []).some((e) => e.camperId === camperId)
 
     const excluded = new Map() // choiceId -> Set(camperId)
+    // `message == null` excludes silently — still refused from tier 1, but
+    // without accusing anyone of anything (round-2 finding 1's "attends
+    // none of it" case, below).
     const exclude = (id, camperIds_, message) => {
       if (camperIds_.length === 0) return
       if (!excluded.has(id)) excluded.set(id, new Set())
       for (const c of camperIds_) excluded.get(id).add(c)
+      if (message == null) return
       findings.push({
         kind: 'UNSUPPORTED_LINKED_CHOICE',
         choice_ids: [id],
@@ -691,8 +739,17 @@ export function buildElectiveAssignments({
       const occs = occurrencesOf(id)
       const wanted = camperIds.filter((c) => choiceRankMinOverMembers(c, id, occs) != null)
       const absent = wanted.filter((c) => !occs.every((o) => attends(c, o)))
-      exclude(id, absent,
-        `${absent.length} camper(s) asked for \u201c${labelOfChoice(id)}\u201d but do not attend ` +
+      // Round-2 finding 1: a wanted-but-absent camper who attends NONE of
+      // this choice's periods was never a real candidate for it — the label
+      // match was D4's broadcast pairing them with a sibling division's
+      // same-labelled choice. Exclude them same as anyone else, but say
+      // nothing; only "attends some but not all" is the genuine half-eligible
+      // case the finding exists for.
+      const attendsNone = absent.filter((c) => !occs.some((o) => attends(c, o)))
+      const attendsSome = absent.filter((c) => !attendsNone.includes(c))
+      exclude(id, attendsNone, null)
+      exclude(id, attendsSome,
+        `${attendsSome.length} camper(s) asked for \u201c${labelOfChoice(id)}\u201d but do not attend ` +
         'every period it covers. They were placed one period at a time instead of together.')
       const held = wanted.filter((c) => !absent.includes(c) && occs.some((o) => holdsSeatAt(c, o)))
       exclude(id, held,

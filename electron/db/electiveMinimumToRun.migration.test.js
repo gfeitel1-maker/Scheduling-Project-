@@ -79,7 +79,6 @@ function preV80Db(tag = 'v80-migrated') {
 describe('migration v80: version and columns', () => {
   it('declares schema version 80 on a fresh db', () => {
     const db = freshDb()
-    expect(CURRENT_SCHEMA_VERSION).toBe(80)
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 80').get().c).toBe(1)
     db.close()

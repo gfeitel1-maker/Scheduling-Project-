@@ -39,7 +39,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // campers.division_label/is_unattributed and elective_preferences.rank_kind/
 // coordinate_day_label/coordinate_period_label) all land in this file; 79 is the
 // current version.
-export const CURRENT_SCHEMA_VERSION = 80
+export const CURRENT_SCHEMA_VERSION = 81
 
 export function initSchema(db) {
   // template_overlays was retired in v53 (docs/adr/2026-08-30-retire-overlay-
@@ -3863,6 +3863,49 @@ const DEVICE_HEALTH_EVENTS_DDL = `
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (80, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v81 (T301, docs/adr/2026-09-29-linked-elective-bundles.md) -- linked
+  // elective bundle authoring: elective_bundles, elective_bundle_periods,
+  // elective_bundle_tiers. Three wholly new tables, so no ALTER and no
+  // column-order migrated-vs-fresh hazard (that hazard is specific to adding a
+  // column to an EXISTING table, which CREATE TABLE IF NOT EXISTS does not
+  // reconcile on its own -- see this block's sibling comments for v78/v79/v80).
+  if (getSchemaVersion(db) >= 80 && getSchemaVersion(db) < 81) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS elective_bundles (
+          id TEXT PRIMARY KEY,
+          elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
+          activity_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          scope_mode TEXT NOT NULL DEFAULT 'all'
+            CHECK (scope_mode IN ('all', 'only', 'except')),
+          sort_order INTEGER
+        )
+      `)
+      db.exec('CREATE INDEX IF NOT EXISTS idx_elective_bundles_set ON elective_bundles(elective_set_id)')
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS elective_bundle_periods (
+          id TEXT PRIMARY KEY,
+          bundle_id TEXT NOT NULL,
+          day_id TEXT NOT NULL,
+          time_block_id TEXT NOT NULL
+        )
+      `)
+      db.exec('CREATE INDEX IF NOT EXISTS idx_elective_bundle_periods_bundle ON elective_bundle_periods(bundle_id)')
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS elective_bundle_tiers (
+          id TEXT PRIMARY KEY,
+          bundle_id TEXT NOT NULL,
+          tier_id TEXT NOT NULL
+        )
+      `)
+      db.exec('CREATE INDEX IF NOT EXISTS idx_elective_bundle_tiers_bundle ON elective_bundle_tiers(bundle_id)')
+    })()
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (81, ?)').run(
       new Date().toISOString()
     )
   }

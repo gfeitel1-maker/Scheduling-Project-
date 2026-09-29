@@ -56,6 +56,26 @@ function ensureRunStub(db, runId) {
   ).run(runId, camp?.id ?? null)
 }
 
+// T301 — the reconstruct-a-prior-field-from-the-op-log lookup that appears
+// inside several ensureExists closures in this file (elective_set_activities
+// above, elective_bundles/elective_bundle_periods/elective_bundle_tiers
+// below): the current op's own field/value if it matches, else the doc-native
+// knownRow if it has it, else the last op-log value for that (entity, id,
+// field). Factored here rather than left as a THIRD fresh copy in this diff
+// alone — this file's own `ensureWeekJoinRow` above is the same call: extract
+// once a repeated closure would otherwise multiply again.
+function makeReadField(db, table, id, field, value, knownRow) {
+  return (wanted) => {
+    if (field === wanted) return value
+    if (knownRow && wanted in knownRow) return knownRow[wanted]
+    const prior = getStmt(
+      db,
+      'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
+    ).get(table, id, wanted)
+    return prior ? prior.value : null
+  }
+}
+
 function ensureWeekJoinRow(table, secondColumn) {
   return (db, id, field, value, knownRow) => {
     const readField = (wanted) => {
@@ -551,6 +571,81 @@ export const PROJECTIONS = {
         db,
         'INSERT OR IGNORE INTO elective_set_activities (id, elective_set_id, activity_id) VALUES (?, ?, ?)'
       ).run(id, electiveSetId, activityId)
+    },
+  },
+  // elective_bundles (schema v81, T301, ADR docs/adr/2026-09-29-linked-
+  // elective-bundles.md D1). Sibling to elective_set_activities above, NOT
+  // run-scoped. Three NOT NULL, no-default columns (elective_set_id,
+  // activity_id, name) — the same reconstruct-all-then-insert-once shape
+  // elective_set_activities' own entry uses for its two, extended by one
+  // field (scope_mode has a DB DEFAULT so needs no reconstruction;
+  // sort_order is nullable). elective_set_id is a real FK, so its parent is
+  // stub-seeded first, exactly like elective_set_activities does for
+  // elective_sets.
+  elective_bundles: {
+    table: 'elective_bundles',
+    key: 'id',
+    fields: ['elective_set_id', 'activity_id', 'name', 'scope_mode', 'sort_order'],
+    ensureExists: (db, id, field, value, knownRow) => {
+      const table = 'elective_bundles'
+      const readField = makeReadField(db, table, id, field, value, knownRow)
+      const electiveSetId = readField('elective_set_id')
+      const activityId = readField('activity_id')
+      const name = readField('name')
+      if (electiveSetId == null || activityId == null || name == null) return
+
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO elective_sets (id, camp_id, name) VALUES (?, ?, '')"
+      ).run(electiveSetId, camp?.id ?? null)
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO elective_bundles (id, elective_set_id, activity_id, name) VALUES (?, ?, ?, ?)'
+      ).run(id, electiveSetId, activityId, name)
+    },
+  },
+  // elective_bundle_periods (schema v81, T301, ADR D1). Parent-scoped by
+  // bundle_id, which has NO SQL REFERENCES (soft pointer) — same posture as
+  // elective_choice_offerings.choice_id, so NO parent stub-seed. Unlike
+  // elective_choice_offerings (one NOT NULL column), all three of this
+  // table's columns are NOT NULL with no default, so this needs the
+  // reconstruct-all-then-insert-once shape elective_bundles uses above,
+  // minus the parent stub only because there is no hard FK to satisfy here.
+  elective_bundle_periods: {
+    table: 'elective_bundle_periods',
+    key: 'id',
+    fields: ['bundle_id', 'day_id', 'time_block_id'],
+    ensureExists: (db, id, field, value, knownRow) => {
+      const table = 'elective_bundle_periods'
+      const readField = makeReadField(db, table, id, field, value, knownRow)
+      const bundleId = readField('bundle_id')
+      const dayId = readField('day_id')
+      const timeBlockId = readField('time_block_id')
+      if (bundleId == null || dayId == null || timeBlockId == null) return
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO elective_bundle_periods (id, bundle_id, day_id, time_block_id) VALUES (?, ?, ?, ?)'
+      ).run(id, bundleId, dayId, timeBlockId)
+    },
+  },
+  // elective_bundle_tiers (schema v81, T301, ADR D1). Same posture as
+  // elective_bundle_periods above: no REFERENCES, both columns NOT NULL with
+  // no default, reconstruct-both-then-insert-once, no parent stub.
+  elective_bundle_tiers: {
+    table: 'elective_bundle_tiers',
+    key: 'id',
+    fields: ['bundle_id', 'tier_id'],
+    ensureExists: (db, id, field, value, knownRow) => {
+      const table = 'elective_bundle_tiers'
+      const readField = makeReadField(db, table, id, field, value, knownRow)
+      const bundleId = readField('bundle_id')
+      const tierId = readField('tier_id')
+      if (bundleId == null || tierId == null) return
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO elective_bundle_tiers (id, bundle_id, tier_id) VALUES (?, ?, ?)'
+      ).run(id, bundleId, tierId)
     },
   },
   // events (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
