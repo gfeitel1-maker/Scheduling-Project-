@@ -1,7 +1,7 @@
 ---
 title: "One spelling for a provisional subject, and one reader for the bytes"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/TESTING_STANDARD.md]
@@ -131,3 +131,40 @@ Two things stay at the CLI, and the reasoning is load-bearing rather than stylis
   `UNREAD_SHEET` residue stay in the CLI, which is the only door that sees more than one sheet.
 - Moving `INDISTINGUISHABLE_SUBMISSION` out of the CLI: it is a fact about the DATABASE, which the
   pure module cannot read.
+
+## Closed
+
+Landed as [#651](https://github.com/gfeitel1-maker/Scheduling-Project-/pull/651), squashed to
+`3f438f1c`. CI `verify` green on the merged head; the merge was audited BY CONTENT rather than by
+ancestry, because a squash merge cannot be checked with `--is-ancestor`: `readWorkbookRows` is present
+in all three of `src/utils/exportSanitize.js`, `scripts/preferenceSheetCli.js` and
+`src/screens/elective/assignment/AssignmentPanel.jsx`, `locateNamedCamper` and `camperId` are on main,
+and #644's `SUBMISSION_ALREADY_NAMED` survives at four occurrences in the CLI — the check that matters,
+since this change deleted the function #644 had just extended.
+
+Every predicate above is met. Evidence, all from execution:
+
+- 197 tests green across the eight affected suites, including the 57-file corpus suite.
+- The three named regression suites green, and `test/callerDeclaredArrival.test.js` at **35** tests
+  rather than the 18 it had when this ticket was written — #644 grew it mid-flight, and all 35 pass
+  through the delegation, including the three that fork a child if `camperId`/`externalId` are threaded
+  wrong (a roster id attached after naming, a corrected spelling, a roster id cleared after naming).
+- Each of the three fixes red-then-green: reverting the shared reader turns the quoted-cell tests red
+  (two camper rows for one child, and no packed-cell decision offered); reverting the positional-rows
+  fix turns the skipped-rows test red on both doors at once, which is itself the evidence the fix now
+  lives in one place.
+- The structural guard was confirmed to FIRE on the deleted hand-split line and not on a legitimate
+  newline split, before being trusted green.
+
+## What this cost, recorded because the next refactor across these files will pay it again
+
+Five rebases. `main` gained eight commits during the work, four of them inside this change's own files
+(#644, #646, #648 T312, #652). The near-miss worth naming: #644 added ~130 lines INSIDE the function
+this ticket deletes. Resolving that conflict "in favour of mine" would have silently reverted a
+shipped fix for a child appearing twice in the database. What avoided it was taking #644's version of
+the file as the BASE and re-applying this change on top, rather than merging their work into this one —
+and then running their tests, not just these.
+
+Not done, deliberately: the panel still reads only the FIRST sheet of a workbook, so a director whose
+preference table sits on tab 2 imports nothing while the CLI would classify every tab. Recorded in
+Non-goals above; it is a separate director-facing defect, not part of this unification.
