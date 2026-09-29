@@ -2,8 +2,8 @@
 title: "A per-op savepoint inside an atomic boundary — who owns rollback for one op"
 document_type: adr
 authority: normative
-status: proposed
-implementation_state: in_progress
+status: accepted
+implementation_state: implemented
 date: 2026-09-29
 program: op-log
 related_adrs:
@@ -20,9 +20,10 @@ affects:
 
 ## Status
 
-Proposed, 2026-09-29. Touches `appendOp`, which `graphify god-nodes` ranks third in the repository
-(105 edges) and which `CLAUDE.md` names as the choke point for every mutation in the app. Mandatory
-Red Hat review on op-log and Trash/Restore/undo semantics before it ships.
+Accepted and implemented 2026-09-29, landed in `c4144454` (#630). Touches `appendOp`, which `graphify god-nodes` ranks third in the repository
+(105 edges) and which `CLAUDE.md` names as the choke point for every mutation in the app. Red Hat review on op-log and
+Trash/Restore/undo semantics was mandatory and was done before it shipped; it found two blind spots
+in this decision's own structural guard, both fixed (see below).
 
 ## Context
 
