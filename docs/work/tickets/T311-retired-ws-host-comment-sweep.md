@@ -1,12 +1,12 @@
 ---
 title: "Comments stop describing the deleted WebSocket Host as if it were the live write path"
 document_type: ticket
-status: open
+status: completed
 created: 2026-09-29
 task_class: documentation-governance
 governing_docs: [docs/governance/constitution/CONSTITUTION.md]
 related_tickets: [docs/work/tickets/T309-op-log-import-write-cost.md]
-archive_when: "no comment in electron/ or src/ names syncServer.js, syncClient.js, handleSubmitOp or the submit_op/op_applied/full_sync/sendMissedOps vocabulary as a LIVE mechanism, and each of the four follow-ups recorded in this ticket is either closed or has its own ticket"
+archive_when: "no comment in electron/ or src/ names syncServer.js, syncClient.js, handleSubmitOp or the submit_op/op_applied/full_sync/sendMissedOps vocabulary as a LIVE mechanism, and the findings this sweep surfaced are recorded on the board for the owner to choose from"
 ---
 
 # T311 — Comments stop describing the deleted WebSocket Host as if it were the live write path
@@ -52,7 +52,12 @@ Where a claim is simply **void** now, the comment says so rather than dropping t
 `operations.js` carries one canonical retired-mechanism note after its imports; its other sites
 refer back to it instead of repeating the explanation nine times.
 
-## Found on the way — NOT fixed here
+## Found on the way — NOT fixed here, and NOT ticketed
+
+**These are recorded as ONE board item, `h-t311-followups`, owner-gated.** Per the owner's standing
+scope-discipline rule (board item `i-standing-scope-discipline`, 2026-09-25), a finding discovered
+mid-ticket is recorded for the owner to choose from, never dispatched as its own stream. They are
+listed below because the comments that used to hide them now name them — not as a work queue.
 
 Each of these is a code, schema or product change, deliberately kept off a comment sweep. They are
 recorded because the comments that used to hide them now name them.
