@@ -15,7 +15,11 @@ import { localClient } from '../../../localClient'
 
 const GROUPS = [{ id: 'grp-1', tier_id: 'tier-juniors' }, { id: 'grp-2', tier_id: 'tier-seniors' }]
 const DAYS = [{ id: 'day-1', name: 'Monday' }]
-const TIME_BLOCKS = [{ id: 'tb-1', name: 'First Period' }]
+// tb-2 is in the camp's catalog but never placed on the fixture schedule
+// below (TEMPLATE_SLOTS has only one slot, at tb-1) — deliberate, so a T301
+// bundle naming it as a member period is a legal "not part of this run" case
+// (ADR D5), not a malformed fixture.
+const TIME_BLOCKS = [{ id: 'tb-1', name: 'First Period' }, { id: 'tb-2', name: 'Second Period' }]
 const ACTIVITIES = [{ id: 'act-1', name: 'Archery' }]
 const SET_ACTIVITIES = [{ id: 'osa-1', elective_set_id: 'set-1', activity_id: 'act-1', status: 'confirmed', capacity_mode: 'unlimited', capacity_limit: null }]
 const TEMPLATE_SLOTS = [
@@ -62,8 +66,8 @@ describe('AssignmentPanel — M1 empty state offers a real route, not a dead end
   })
 })
 
-async function driveToPreview({ file } = {}) {
-  const props = baseProps()
+async function driveToPreview({ file, extraProps = {} } = {}) {
+  const props = baseProps(extraProps)
   render(<AssignmentPanel {...props} />)
   const input = document.querySelector('input[type="file"]')
   const sheetFile = file ?? new File(['Name\t#1\nAri\tArchery'], 'sheet.txt', { type: 'text/plain' })
@@ -480,5 +484,33 @@ describe("T307 -- the director's column correction is what gets imported", () =>
     fireEvent.click(screen.getByText(/Add Rank Column/))
     fireEvent.change(screen.getByLabelText('Rank #1'), { target: { value: '0' } })
     expect(confirm.disabled).toBe(true)
+// T301 slice 3 — deriveChoices' output must actually reach
+// buildElectiveAssignments (`choices` + `choiceOfferings`, neither passed by
+// anything in production before this). A fixture where the bundle simply
+// places a camper is NOT a reliable proof: with no capacity contention,
+// tier 2 alone (the pre-existing, unlinked pass) would place the same camper
+// in the same periods anyway, since repeats are normal in this engine — so a
+// "camper landed in both periods" assertion would pass identically whether
+// or not this wiring exists. The reliable signal is one only tier 1 can
+// produce: UNSUPPORTED_LINKED_CHOICE, emitted when a bundle's own member
+// period fails to resolve to an occurrence this run derived (ADR D5, case
+// (a)) — unreachable at all unless choiceOfferings reached the engine, and
+// its rendered text unreachable in the REAL name unless the derived choices
+// also reached AssignmentPreview's `choices` prop (T300's
+// findingDisplayMessage). One assertion, both halves of the wiring.
+describe('AssignmentPanel — T301 slice 3: bundle choices reach the solver', () => {
+  it('surfaces UNSUPPORTED_LINKED_CHOICE naming the bundle by its director-given name', async () => {
+    await driveToPreview({
+      extraProps: {
+        bundles: [{ id: 'bundle-1', elective_set_id: 'set-1', activity_id: 'act-1', name: 'Archery', scope_mode: 'all' }],
+        bundlePeriods: [
+          { bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-1' },
+          // Never placed on TEMPLATE_SLOTS — see TIME_BLOCKS' own comment.
+          { bundle_id: 'bundle-1', day_id: 'day-1', time_block_id: 'tb-2' },
+        ],
+        bundleTiers: [],
+      },
+    })
+    expect(screen.getByText(/“Archery” is meant to be taken as a set/)).toBeTruthy()
   })
 })
