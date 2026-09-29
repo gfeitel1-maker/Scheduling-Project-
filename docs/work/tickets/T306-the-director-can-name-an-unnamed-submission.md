@@ -100,6 +100,24 @@ in `electron/auth/permissions.js` already contains narrow verbs beside read/writ
 `devices.approve`, `devices.revoke`, `groups.import`, `declined_two_row_splits.record`. `admin: ['*']`
 means admins hold it automatically.
 
+**And the real argument is not tidiness — a wide grant would BYPASS AN EXISTING GUARD.** Raised by
+the T304 session and verified here in both files:
+
+- `electron/ops/attributeElectiveSubject.js` refuses outright to attribute a camper who already has a
+  name: `if (subject.is_unattributed !== 1) return { ok: false, error: ... }`, because renaming an
+  identified child "would give them a new identity and disconnect them from their other records."
+  The fork hazard is therefore **already closed at the op**.
+- That guard lives in the op and **not** in the generic write path. `electron/main.js`'s `write()`
+  derives its action via `deriveWriteAction({ entity, field })`
+  (`electron/auth/deriveWriteAction.js`), which returns `campers.write` for any ordinary field and
+  authorizes exactly that. It never routes through `attributeElectiveSubject`.
+
+So granting staff `campers.write` would hand them a path that writes `display_name` onto **any**
+camper row, including an already-named one, with the `is_unattributed` check nowhere in it. That is
+not over-delivery on the owner's ruling; it is the precise fork-and-merge hazard that made me
+recommend directors-only in the first place, reintroduced through a door the op cannot see. A narrow
+attribution action keeps every caller on the guarded path. **This is the argument for the ADR.**
+
 ### 2. The control lives on the attention surface
 
 Not a new screen. The codebase already ruled on this, in `scripts/mcp/tools.js`:
@@ -131,6 +149,11 @@ is where the rekey semantics for that already live.
 - **No re-import.** Naming a subject never requires re-reading the sheet.
 - **`forbidden` still has no second channel** (T304's finding): a denied attribution must surface as
   a visible failure, not a swallowed one. Every mutation surfaces its failure.
+- **The op signals refusal by RETURN VALUE, not by throwing.** `attributeElectiveSubject` returns
+  `{ ok: false, error }` for the already-named guard above. A handler that only catches thrown errors
+  will convert that refusal into a silent success across the IPC boundary — the exact shape of the
+  swallowed-failure class this repo keeps writing rules against. Check `ok`, not just the absence of
+  a throw.
 
 ## Dependencies
 
