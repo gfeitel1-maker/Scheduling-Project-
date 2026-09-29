@@ -221,11 +221,14 @@ describe('campDocument — Stage 1 Automerge doc for days_of_operation', () => {
     // TENTH REGENERATION (T301, docs/adr/2026-09-29-linked-elective-bundles.md): `elective_bundles`,
     // `elective_bundle_periods` and `elective_bundle_tiers` added to MODELED_ENTITIES/
     // GENESIS_ENTITIES — see campDocument.js's GENESIS_B64 comment. Same acceptance as every
+    // ELEVENTH REGENERATION (T312): `camp_seedlings` added to DIRECT_CAMP_ENTITIES and so,
+    // automatically, to MODELED_ENTITIES — which forced it into GENESIS_ENTITIES and forced this
+    // regeneration. An APPEND: no existing key changes meaning. Same acceptance as every
     // regeneration above.
     it('createEmptyDoc always clones the same frozen genesis root', () => {
       const doc = createEmptyDoc()
       expect(A.getHeads(doc)).toEqual([
-        'a1a2ea0899d3cea22a1ecb4a1272610917ec9bff65938e28ba02338b9d9a3ef9',
+        'f6f96b0831040c98b24c4a55f7afe084b2f939c2a05817210a6fde85bdb4c12b',
       ])
       // Two independent calls must produce the SAME head every time — a genesis that varied per
       // call (e.g. one deriving fresh randomness or doing a runtime top-up) would defeat the whole

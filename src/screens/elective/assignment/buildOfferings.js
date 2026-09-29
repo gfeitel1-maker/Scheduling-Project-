@@ -59,6 +59,13 @@ export function buildOfferings({ occurrences = [], setActivities = [], activitie
 
 // Informational findings for the preview: a ranked label that matches no
 // offered activity, and a confirmed offering nobody ranked. Never blocking.
+//
+// ADDING A KIND HERE? QUOTE THE LABEL — these reach a director through
+// ./findingDisplayMessage.js, whose substitution is anchored on the quotes, so an
+// unquoted label key reaches the screen as `arts&crafts`. A new `kind:` literal in
+// this file fails ./findingLabelCoverage.test.js until it has a fixture there; that
+// guard's header says what it cannot see. T302, and see the longer note at
+// `const findings = []` in src/engine/buildElectiveAssignments.js.
 export function findMismatches({ offerings = [], preferences = [] } = {}) {
   const offeredLabelKeys = new Set(offerings.map((o) => o.labelKey))
   const rankedLabelKeys = new Set(preferences.map((p) => p.labelKey))

@@ -7,7 +7,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 
 vi.mock('../../../localClient', () => ({
-  localClient: { commitElectiveRun: vi.fn(), getSecurityStatus: vi.fn() },
+  localClient: {
+    commitElectiveRun: vi.fn(), getSecurityStatus: vi.fn(),
+    // T312 — the recall read and the remember write. Both are best-effort in the
+    // panel, so the pre-existing suites leave them at their defaults: `list`
+    // resolving empty is a camp that has remembered nothing, which is what every
+    // one of those tests means to exercise.
+    list: vi.fn(), rememberColumnMapping: vi.fn(),
+  },
 }))
 
 import AssignmentPanel from './AssignmentPanel.jsx'
@@ -50,6 +57,10 @@ beforeEach(() => {
   vi.stubGlobal('crypto', { randomUUID: vi.fn(() => `run-${crypto.randomUUID.mock?.calls?.length ?? 0}`) })
   localClient.commitElectiveRun.mockReset()
   localClient.getSecurityStatus.mockReset()
+  localClient.list.mockReset()
+  localClient.list.mockResolvedValue([])
+  localClient.rememberColumnMapping.mockReset()
+  localClient.rememberColumnMapping.mockResolvedValue({ ok: true, id: 'seed-1' })
   // Default for the pre-existing suites: encryption OFF, which is the real
   // default today (SHORESH_AT_REST_ENCRYPTION is unset). T249's own suite sets
   // this per test.
@@ -515,5 +526,114 @@ describe('AssignmentPanel — T301 slice 3: bundle choices reach the solver', ()
       },
     })
     expect(screen.getByText(/“Archery” is meant to be taken as a set/)).toBeTruthy()
+  })
+})
+
+describe('T312 -- a mapping this camp confirmed before comes back filled in', () => {
+  const PROPS = { activities: [{ id: 'act-1', name: 'Archery' }, { id: 'act-2', name: 'Swim' }] }
+  // The sheet from T307: headers no inferencer recognises as ranks.
+  const SHEET = ['Camper\tBunk\tPick A\tPick B', 'Ari Katz\tAleph\tArchery\tSwim'].join('\n')
+
+  // What the camp confirmed last week, as it is stored: header TEXT, no indices.
+  const REMEMBERED = {
+    id: 'seed-1', kind: 'preference_column_roles', status: 'active',
+    match_key: 'hdr-whatever',
+    payload: JSON.stringify({
+      name: 'Camper', externalId: null, division: 'Bunk',
+      ranks: [{ rank: 1, header: 'Pick A' }, { rank: 2, header: 'Pick B' }],
+    }),
+  }
+
+  function upload(sheet = SHEET) {
+    render(<AssignmentPanel {...baseProps(PROPS)} />)
+    fireEvent.change(document.querySelector('input[type="file"]'), {
+      target: { files: [new File([sheet], 'prefs.txt', { type: 'text/plain' })] },
+    })
+  }
+
+  it('fills the corrector in and says where it came from', async () => {
+    localClient.list.mockResolvedValue([REMEMBERED])
+    upload()
+    const confirm = await screen.findByRole('button', { name: /Confirm Mapping/ })
+    // THE WHOLE POINT: readable on arrival, with no dropdown touched.
+    expect(confirm.disabled).toBe(false)
+    expect(screen.getByLabelText('Rank #1').value).toBe('2')
+    expect(screen.getByLabelText('Rank #2').value).toBe('3')
+    expect(screen.getByText(/Filled in from the last time you imported this form/)).toBeTruthy()
+  })
+
+  it('imports what the remembered mapping says', async () => {
+    localClient.list.mockResolvedValue([REMEMBERED])
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'r', counts: { campers: 1 } })
+    upload()
+    await screen.findByRole('button', { name: /Confirm Mapping/ })
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Solve/i))
+    await waitFor(() => expect(screen.getByText(/Commit Assignments/)).toBeTruthy())
+    fireEvent.click(screen.getByText(/Commit Assignments/))
+    await waitFor(() => expect(localClient.commitElectiveRun).toHaveBeenCalled())
+
+    const { parsed } = localClient.commitElectiveRun.mock.calls.at(-1)[0]
+    expect(parsed.campers.map((c) => c.display_name)).toEqual(['Ari Katz'])
+    expect(parsed.preferences.map((p) => [p.label, p.rank])).toEqual([['Archery', 1], ['Swim', 2]])
+  })
+
+  // DRIFT. The camp renamed one column between imports, which is P38's exact
+  // shape -- and a binding that applied its surviving half would drop rank 2 for
+  // every camper with ok=true. It must not pre-fill at all.
+  // `Backup`, not `Second Choice`: the latter IS a header the inferencer reads as
+  // a rank, so that sheet is legitimately confirmable and would have passed this
+  // test for a reason that has nothing to do with the recall. Found by the test
+  // failing and the fixture being wrong rather than the code.
+  it('does not fill in a sheet that renamed a remembered column', async () => {
+    localClient.list.mockResolvedValue([REMEMBERED])
+    upload(['Camper\tBunk\tPick A\tBackup', 'Ari Katz\tAleph\tArchery\tSwim'].join('\n'))
+    const confirm = await screen.findByRole('button', { name: /Confirm Mapping/ })
+    // Nothing was recalled, so this is the un-remembered state: no ranks, no note.
+    expect(confirm.disabled).toBe(true)
+    expect(screen.queryByText(/Filled in from the last time/)).toBeNull()
+    expect(screen.queryByLabelText('Rank #1')).toBeNull()
+  })
+
+  it('remembers a hand-built mapping on confirm, by header text', async () => {
+    localClient.list.mockResolvedValue([])
+    upload()
+    await screen.findByRole('button', { name: /Confirm Mapping/ })
+    fireEvent.click(screen.getByText(/Add Rank Column/))
+    fireEvent.change(screen.getByLabelText('Rank #1'), { target: { value: '2' } })
+    fireEvent.click(screen.getByText(/Add Rank Column/))
+    fireEvent.change(screen.getByLabelText('Rank #2'), { target: { value: '3' } })
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+
+    await waitFor(() => expect(localClient.rememberColumnMapping).toHaveBeenCalled())
+    const { matchKey, payload } = localClient.rememberColumnMapping.mock.calls.at(-1)[0]
+    expect(matchKey).toMatch(/^hdr-/)
+    expect(payload.ranks).toEqual([{ rank: 1, header: 'Pick A' }, { rank: 2, header: 'Pick B' }])
+    // No cell value reaches the store (ADR 6.0) -- this table replicates.
+    expect(JSON.stringify(payload)).not.toMatch(/Ari|Aleph|Archery|Swim/)
+  })
+
+  // A memo must never be able to fail an import that already succeeded.
+  it('still imports when remembering throws', async () => {
+    localClient.list.mockResolvedValue([])
+    localClient.rememberColumnMapping.mockImplementation(() => { throw new Error('no such channel') })
+    localClient.commitElectiveRun.mockResolvedValue({ ok: true, runId: 'r', counts: { campers: 1 } })
+    upload()
+    await screen.findByRole('button', { name: /Confirm Mapping/ })
+    fireEvent.click(screen.getByText(/Add Rank Column/))
+    fireEvent.change(screen.getByLabelText('Rank #1'), { target: { value: '2' } })
+    fireEvent.click(screen.getByText(/Confirm Mapping/))
+    await waitFor(() => expect(screen.getByText(/Solve/i)).toBeTruthy())
+  })
+
+  // A recall read that fails is a camp that has remembered nothing, not a
+  // broken import.
+  it('still imports when the recall read throws', async () => {
+    localClient.list.mockRejectedValue(new Error('db unavailable'))
+    upload()
+    const confirm = await screen.findByRole('button', { name: /Confirm Mapping/ })
+    expect(confirm.disabled).toBe(true)
+    expect(screen.queryByText(/Filled in from the last time/)).toBeNull()
   })
 })

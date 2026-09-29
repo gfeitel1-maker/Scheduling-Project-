@@ -1802,3 +1802,50 @@ CREATE TABLE IF NOT EXISTS elective_run_outer_snapshots (
   is_linked_choice INTEGER NOT NULL DEFAULT 0,
   choice_label TEXT
 );
+
+-- T312 — A CAMP'S REMEMBERED COLUMN MAPPING for the elective preference import.
+--
+-- REPLICATED, against the host-local precedent of the five decision caches
+-- (source_aliases and friends). Owner ruling 2026-09-29, ADR §6.3's own
+-- recommendation: the mapping is a fact about the camp's FORM, no more
+-- device-specific than the camp's period names, so a second device should not
+-- re-ask a question the first one already answered.
+--
+-- `id` is DERIVED from (camp_id, kind, match_key) — deriveCampSeedlingId in
+-- electron/ops/electiveDerivedIds.js — and that is load-bearing rather than
+-- stylistic. Conflict detection is keyed per (entity, entity_id, field), so a
+-- per-confirmation randomUUID would give two rows, NO conflict row, and an
+-- arbitrary winner. Derived, two directors confirming different readings of one
+-- form surface a conflicts row a human resolves.
+--
+-- `match_key` IS DERIVED FROM HEADER TEXT ONLY, NEVER FROM CELL CONTENTS
+-- (headerMatchKey, src/ingest/mappingSeedling.js). ADR §6.0 rules this as a
+-- PRIVACY constraint rather than a design preference: a fingerprint computed
+-- over cells would cache children's names into this replicated table, turning a
+-- layout memo into a covert roster. The same reason governs `payload`, which
+-- holds header TEXT and rank numbers and nothing a camper ever wrote.
+--
+-- `kind` is carried from the start so T281's day/period axis half lands here
+-- rather than in a second table.
+--
+-- NO `superseded_by`, and the absence is a consequence of the derived id rather
+-- than an omission. Because the id IS (camp_id, kind, match_key), re-confirming
+-- the same form with a different reading writes the SAME row — a field update,
+-- not a second row needing a supersede pointer. That is the same property that
+-- produces the conflicts row on two devices, so the chain would be dead weight.
+-- Two DIFFERENT forms are two different match_keys and both stay active, which
+-- is correct: a camp may run more than one sheet. `status` survives because a
+-- recall filters on it and a future revoke act needs somewhere to write.
+CREATE TABLE IF NOT EXISTS camp_seedlings (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  kind TEXT NOT NULL,
+  match_key TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'superseded')),
+  confirmed_by TEXT,
+  confirmed_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_camp_seedlings_lookup
+  ON camp_seedlings (camp_id, kind, status);

@@ -39,7 +39,7 @@ function FieldSelect({ id, label, value, header, onChange, flagged, required }) 
   )
 }
 
-export default function MappingCorrector({ header, sampleRows, mapping, onChange, onConfirm, onChooseDifferentFile }) {
+export default function MappingCorrector({ header, sampleRows, mapping, recalled = false, onChange, onConfirm, onChooseDifferentFile }) {
   const rankColumns = mapping?.rankColumns ?? []
 
   function setRankIndex(rank, index) {
@@ -83,6 +83,16 @@ export default function MappingCorrector({ header, sampleRows, mapping, onChange
 
   return (
     <div style={{ marginBottom: 16 }}>
+      {/* T312 — a director confirming a MEMORY should know that is what they are
+          confirming. The binding is re-proposed, never auto-applied (ADR 6.1), so
+          this line is the difference between a screen that filled itself in and one
+          that quietly decided for them. Neutral, not a caution: nothing is wrong. */}
+      {recalled && (
+        <div role="note" style={{ ...S.emptyStateBody, marginBottom: 12 }}>
+          Filled in from the last time you imported this form. Change anything that looks wrong —
+          what you confirm is what gets imported, and what gets remembered.
+        </div>
+      )}
       <FieldSelect
         id="mapping-name" label="Camper name" required
         value={mapping?.nameIndex} header={header}

@@ -589,6 +589,7 @@ export const MOCK_WRITE_ALLOWLIST = {
     'finalized_at', 'finalized_by',
   ],
   elective_occurrences: ['run_id', 'elective_set_id', 'day_id', 'time_block_id', 'tier_id'],
+  camp_seedlings: ['camp_id', 'kind', 'match_key', 'payload', 'status', 'confirmed_by', 'confirmed_at'],
   elective_choices: ['run_id', 'label', 'is_linked'],
   elective_choice_offerings: ['choice_id', 'occurrence_id', 'activity_id'],
   // occurrence_id added v78 (T265) — a preference is per (day, period) cell.
@@ -1746,6 +1747,32 @@ export const mockShoresh = {
   // yet, so the mock only proves the call is wired, not real persistence.
   async recordImportDecisions() {
     return { ok: true }
+  },
+  // T312 — mock stand-in for rememberColumnMapping
+  // (electron/ops/rememberColumnMapping.js). Unlike recordImportDecisions above,
+  // this one PERSISTS: the browser-dev path is where the import panel is
+  // actually exercised, and a mock that returned ok without storing would make
+  // the recall look broken on the only surface it can be demonstrated on --
+  // which is the mock-stub trap this file's own header warns about.
+  async rememberColumnMapping({ matchKey, payload } = {}) {
+    if (!matchKey || !payload) return { ok: false, error: 'MISSING_ARGUMENT' }
+    const state = loadState()
+    const camp = (state.camps || [])[0]
+    if (!camp) return { ok: false, error: 'NO_CAMP' }
+    const id = `seed1:mock.${matchKey}`
+    state.camp_seedlings = (state.camp_seedlings || []).filter((s) => s.id !== id)
+    state.camp_seedlings.push({
+      id,
+      camp_id: camp.id,
+      kind: 'preference_column_roles',
+      match_key: matchKey,
+      payload: JSON.stringify(payload),
+      status: 'active',
+      confirmed_by: null,
+      confirmed_at: new Date().toISOString(),
+    })
+    saveState(state)
+    return { ok: true, id }
   },
   // T118 slice 4 — mock stand-in for listCompoundCellDecisions
   // (electron/ops/ingest.js), returning entries in the same [pattern, value]
