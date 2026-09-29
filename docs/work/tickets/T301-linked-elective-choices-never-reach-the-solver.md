@@ -59,18 +59,33 @@ routes. The engine's workaround for (2) is defeated by (3).
 - **Dead code that looks live is a standing hazard.** T300 spent real effort fixing a finding a
   director cannot see, and the next reader will too.
 
-## The decision this ticket needs first
+## The decision this ticket needed first — SETTLED
 
-**Is the linked-choice feature wanted?** This is an owner question, not an engineering one, and
-answering it first avoids building an authoring surface for something that should be retired.
+**Owner ruling 2026-09-29: yes, linked choices are wanted.** The retirement branch below is closed;
+the work is an authoring surface, a writer, and the wiring from `AssignmentPanel` into the solver.
+Designer before Architect before Maker, as this ticket already said.
 
-- **If yes** — the work is an authoring surface (how does a director say "this elective spans
-  Monday and Wednesday"?), a writer that sets `is_linked`/member rows, and the wiring from
-  `AssignmentPanel` into the solver. Designer before Architect before Maker.
-- **If no** — retire tier 1, the two tables, the finding kind, and the `choices` prop T300 added to
-  `AssignmentPreview`, and say so in `PLATFORM_STATE.md`.
+_Prior: this section asked whether the feature was wanted at all, and said not to start
+implementation before it was settled. It is settled._
 
-Do not start implementation before this is settled.
+Four further decisions were taken during design the same day and are recorded, with what each one
+forces, in [the design spec](../specs/2026-09-29-t301-linked-elective-bundles-design.md): the unit of
+a bundle is the **offering** (director picks the periods); division scoping is **fully general**; an
+activity **may** carry more than one bundle, which a camper picks between; and a bundle's name is
+**proposed and editable**, because that name is what a camper's sheet must match.
+
+Two consequences worth carrying at the ticket level:
+
+- **T219 (multi-day catalog linkage) is the same feature, not a separate one.** `deriveOccurrences`
+  builds an occurrence per distinct `(day, time_block, tier)` cell, so Mon P3 + Mon P4 and Tue P2 +
+  Thu P2 are structurally identical. T219 should be closed by this work or explicitly re-scoped.
+- **There is one unsettled architectural decision, and it is the ADR's job, not this ticket's.** A
+  bundle serving several divisions must expand to one choice PER division, because tier 1 excludes a
+  camper who does not attend every member occurrence — and `deriveElectiveChoiceId(runId, labelKey)`
+  keys on label alone, so those choices collide on one id. Three options and a preference are in the
+  spec.
+
+Do not start slice 1 before the ADR settles that.
 
 ## Non-goals
 

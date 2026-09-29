@@ -73,7 +73,7 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [The linked-choice tier is unreachable in the product](../../docs/work/tickets/T301-linked-elective-choices-never-reach-the-solver.md) | open | — |
+| [The linked-choice tier is unreachable in the product](../../docs/work/tickets/T301-linked-elective-choices-never-reach-the-solver.md) | open | [2026-09-29-t301-linked-elective-bundles-design](../../docs/work/specs/2026-09-29-t301-linked-elective-bundles-design.md) |
 
 ### unclassified
 
@@ -81,7 +81,7 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [T198-machine-access-adapters](../../docs/work/tickets/T198-machine-access-adapters.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) |
 | [T199-individual-electives-end-to-end](../../docs/work/tickets/T199-individual-electives-end-to-end.md) | open | [2026-09-17-individual-elective-scheduling](../../docs/adr/2026-09-17-individual-elective-scheduling.md) · [2026-09-23-elective-run-lifecycle-and-remaining-slices](../../docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) · [2026-09-17-individual-elective-scheduling-implementation](../../docs/work/specs/2026-09-17-individual-elective-scheduling-implementation.md) · [T251-t199-acceptance-fixture](../../docs/work/tickets/T251-t199-acceptance-fixture.md) |
-| [T219-multi-day-catalog-linkage](../../docs/work/tickets/T219-multi-day-catalog-linkage.md) | open | [2026-09-23-elective-run-lifecycle-and-remaining-slices](../../docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) · [2026-09-18-elective-followups-t218-t219-handoff](../../docs/work/handoffs/2026-09-18-elective-followups-t218-t219-handoff.md) · [2026-09-26-docs-closes-t218-closes-t222-on-owner-ruling-reshape-t219-to](../../docs/work/runs/2026-09-26-docs-closes-t218-closes-t222-on-owner-ruling-reshape-t219-to.md) · [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) |
+| [T219-multi-day-catalog-linkage](../../docs/work/tickets/T219-multi-day-catalog-linkage.md) | open | [2026-09-23-elective-run-lifecycle-and-remaining-slices](../../docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) · [2026-09-18-elective-followups-t218-t219-handoff](../../docs/work/handoffs/2026-09-18-elective-followups-t218-t219-handoff.md) · [2026-09-26-docs-closes-t218-closes-t222-on-owner-ruling-reshape-t219-to](../../docs/work/runs/2026-09-26-docs-closes-t218-closes-t222-on-owner-ruling-reshape-t219-to.md) · [2026-09-18-t195-adr-amendment-draft](../../docs/work/specs/2026-09-18-t195-adr-amendment-draft.md) · [2026-09-29-t301-linked-elective-bundles-design](../../docs/work/specs/2026-09-29-t301-linked-elective-bundles-design.md) |
 | [T237-attention-rows-open-the-reconciliation-flow](../../docs/work/tickets/T237-attention-rows-open-the-reconciliation-flow.md) | open | [T240-collapse-duplicate-ingest-layer](../../docs/work/tickets/T240-collapse-duplicate-ingest-layer.md) |
 | [T251-t199-acceptance-fixture](../../docs/work/tickets/T251-t199-acceptance-fixture.md) | open | [2026-09-23-elective-run-lifecycle-and-remaining-slices](../../docs/adr/2026-09-23-elective-run-lifecycle-and-remaining-slices.md) · [2026-09-26-ingest-category-exclusivity-and-anchor-identity](../../docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md) |
 
