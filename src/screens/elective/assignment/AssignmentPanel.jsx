@@ -382,6 +382,9 @@ export default function AssignmentPanel({
       if (detectWholeSheetGrid(fileRows, inferred)) {
         confirmMapping([], resolutions, {
           rows: fileRows, sourceLabel: label, submissionKey: key, arrivalId: arrival,
+          // No corrector was shown, so there is no director's answer to send — and
+          // `mapping` state here is the PREVIOUS sheet's (T307).
+          mapping: null,
         })
         return
       }
@@ -468,6 +471,11 @@ export default function AssignmentPanel({
       sourceLabel: sheetLabel = sourceLabel,
       submissionKey: sheetKey = submissionKey,
       arrivalId: sheetArrival = arrivalId,
+      // T307 — the mapping the director is looking at, which from here on is the one
+      // the transform uses. The grid path below passes null deliberately: it never
+      // showed a corrector, so there is no director's answer to honour and the
+      // transform locates the layout itself.
+      mapping: sheetMapping = mapping,
     } = sheet
     // THE SAME CALL SHAPE THE CLI AND THE MCP TOOLS USE. This used to be
     // `parsePreferenceSheet(rows, { campId, mapping })` — no catalog, no grid, no
@@ -488,6 +496,7 @@ export default function AssignmentPanel({
         rows: sheetRows,
         campId,
         catalog,
+        mapping: sheetMapping,
         sourceLabel: sheetLabel,
         submissionKey: sheetKey,
         arrivalId: sheetArrival,
