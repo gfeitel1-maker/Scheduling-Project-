@@ -116,6 +116,13 @@ export default defineConfig({
   plugins: [react()],
   test: {
     ...sharedTest,
+    // T308 — carries the gate's own load judgement to an ad-hoc `npx vitest run <file>`.
+    // 'default' is listed explicitly because naming any reporter REPLACES the default
+    // list rather than adding to it. The reporter only ever ADDS a diagnostic line
+    // beside an already-red run; it changes no exit code, so the gate's `test` step and
+    // CI are unaffected. See scripts/loadArtifactAdvisory.js for why that restraint is
+    // the whole design.
+    reporters: ['default', './scripts/loadArtifactReporter.js'],
     projects: [
       {
         // Everything else — unchanged behaviour, full per-file isolation.

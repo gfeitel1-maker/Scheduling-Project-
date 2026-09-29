@@ -147,3 +147,89 @@ finds an answer instead of a surprise.
   _(Framing contributed by the session that lost an afternoon to this, reviewing the merged ticket.)_
 - Bounding parallelism and improving the signal are separable. The signal is the one that cost two
   sessions time today; the bound is what stops load 518 recurring. Either is shippable alone.
+
+---
+
+## What shipped, 2026-09-29 — the SIGNAL slice
+
+Implemented by a different session from the one that filed this. The parallelism bound is
+**deliberately not in it** — this ticket's own last note says the two are separable, and the signal
+is the half that cost the time.
+
+**Nothing was widened.** The INCONCLUSIVE verdict path in `scripts/verify.js` is untouched: no
+refactor, no extraction, no new caller of `verdict()` that can change an exit code. `verify.js`
+already exported `verdict`, `machineLoadVerdict`, `LOAD_SENSITIVE_STEPS` and `MIN_LOAD_TIMEOUT_MS`,
+and is side-effect-free on import by design (the `import.meta` guard), so the new code **imports the
+existing judgement** rather than reproducing it. There is still exactly one definition of the two
+filters.
+
+**What it does instead of downgrading.** A vitest reporter (`scripts/loadArtifactReporter.js`) prints
+an advisory beside a run that is already red and stays red. No exit code changes anywhere — verified
+by execution: a slow failure and a fast failure under the same load both still exit 1. So the failure
+mode this ticket warned about hardest — *a defect dressed as load* — is not reachable by
+construction, because nothing is ever relabelled. The cost accepted in exchange is that the ad-hoc
+path reports the reading as **text rather than as exit 2**.
+
+**One deliberate divergence from the gate, in the strict direction.** `verify.js` sees a single
+duration (how long the whole `test` step ran), which under load is always long. A one-file run can
+see each failure separately, so `loadArtifactAdvisory` keys on the **fastest** failing test: if even
+the fastest is slow, every failure is slow. One fast failure means a real defect is present, and a
+real defect alongside genuine load is exactly the case that must not be described as
+probably-the-machine. **Consequence: this can stay silent where the gate would say INCONCLUSIVE.**
+That is the safe direction per this ticket's own framing.
+
+**Proven in both directions on a real 60×-oversubscribed machine** (load 239 on 4 cores), not only in
+unit tests:
+
+| Probe | Result |
+|---|---|
+| a failure taking 11s | advisory printed, naming the measured load and duration |
+| a failure taking 300ms | **no advisory** — the anti-laundering filter held |
+| both | exit code still 1 |
+
+17 unit tests cover the decision, most of them cases where it must stay silent: quiet machine, any
+fast failure present, load one under 4× cores, a duration one ms under `MIN_LOAD_TIMEOUT_MS`
+(asserted against the imported constant so raising it there cannot silently widen this), an untimed
+failure, and an unusable core count.
+
+## Still open after this: the parallelism bound
+
+The second half of the success predicate — *"total vitest parallelism across concurrent sessions is
+either bounded, or the decision to leave it unbounded is written down with its reasoning"* — is **not
+addressed**. Nothing here stops load 518 recurring; it only stops a session mistaking it for a
+defect. The facts for whoever takes it are already in this ticket's Mechanism §2: `gateLock.js` has
+one caller, `npm run test` is a bare `vitest run`, and an ad-hoc run takes no lock, so N sessions × M
+workers has nothing bounding the product.
+
+### Considered and declined: a CPU/wall ratio instead of a machine-wide load average
+
+Raised in review by the session that measured the wall-clock problem. A genuinely slow test burns CPU
+roughly in proportion to its wall time; a **starved** one burns almost none. So `wall > threshold AND
+cpu/wall < ~0.3` would discriminate slow code from a swamped machine **per test**, without consulting
+a load average that is a property of the box rather than of the test. It is a sharper instrument in
+principle.
+
+Declined, for three reasons, the first of which is now settled rather than suspected:
+
+1. **Vitest's reporter API does not expose per-test CPU time.** Checked against the installed 4.1.7:
+   `test.diagnostic()` carries `slow, heap, duration, startTime, retryCount, repeatCount, flaky` —
+   wall duration and a heap figure, no CPU attribution. There is no ratio to compute without building
+   that measurement, which means instrumenting inside the test runtime rather than reading a reporter.
+2. `machineLoadVerdict`'s `load1 >= cores * 4` already separates the two cases in practice, and it is
+   the filter the gate itself uses.
+3. It would be a **second mechanism to keep honest**, which cuts directly against this change's own
+   organising principle: one definition of the judgement, imported rather than copied.
+
+Worth revisiting only if vitest gains per-test CPU accounting, or if the load-average filter is
+observed misclassifying in practice.
+
+**And the related caution, which belongs in the record because it nearly went the other way.** Wall
+clock on this machine is worthless for measuring *what code costs* — the same session withdrew a
+"super-linear import cost" finding after re-measuring with `process.cpuUsage()` and interleaving
+sizes; the trend reversed outright, and identical reps of one commit ranged **2.2s to 9.8s wall
+against ~0.9s CPU**. That is not an argument against wall clock *here*: starvation is defined in wall
+time, and a test that did 0.9s of work and took 9.8s is exactly what the advisory has to explain to
+whoever is staring at the red. Measuring a starved test in CPU time would report it as cheap, which is
+true and beside the point. The two uses of the clock are different questions and want different
+instruments.
+
