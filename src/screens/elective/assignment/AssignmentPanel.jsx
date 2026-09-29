@@ -7,11 +7,10 @@
 // says so); the only IPC is localClient.commitElectiveRun. Never
 // window.shoresh directly.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import * as XLSX from 'xlsx'
 import { localClient } from '../../../localClient'
 import { S, prefersReducedMotion, useEnterTransition } from '../../../styles/shared'
 import { describeWriteFailure } from '../../../utils/writeErrorMessage'
-import { assertImportFileSize, readWorkbookSafely, unescapeRow, IMPORT_LIMITS } from '../../../utils/exportSanitize.js'
+import { readWorkbookRows } from '../../../utils/exportSanitize.js'
 import { detectWholeSheetGrid, inferPreferenceLayout, hasContradictoryRanks } from '../../../ingest/preferenceSheet.js'
 import { residueIsDecision } from '../../../ingest/residueKinds.js'
 import { recallColumnMapping, bindingFromMapping } from '../../../ingest/mappingSeedling.js'
@@ -223,27 +222,33 @@ function answersFor(decisions, resolutions) {
 // flat table (name/id/division/rank columns), not a day x time-block grid, so
 // this deliberately does NOT reuse workbookToPages/parseGridSchedule (the
 // host's runImport pipeline) — those parse SCHEDULE grids and would not fit a
-// camper roster. readWorkbookSafely/assertImportFileSize/unescapeRow ARE
-// reused, exactly as the host does.
+// camper roster.
+//
+// ONE READER, shared with the CLI (T313). There used to be a second branch here
+// that hand-split CSV and TSV on `/\t|,/` after a `.trim()`, and it was reading
+// real files wrong: over the 32-file probe corpus SEVEN read differently from the
+// CLI's, including the packed cell `"Archery, Ceramics, Woodworking"` that P09 and
+// P10 exist to exercise — through this door it became THREE columns with literal
+// quote characters in the activity labels, so the director was never offered the
+// `split_packed` resolution. A hand-rolled delimited reader cannot do RFC4180
+// quoting, and a preference sheet is exactly the document where a comma inside a
+// cell carries meaning. It forked IDENTITY too: a provisional subject is keyed on
+// the rows, so two readers of one file are two camper ids depending on the door.
+// SheetJS sniffs CSV and TSV from the same buffer, so there is nothing the removed
+// branch could read that this cannot.
+//
+// The size and row-count caps still apply, and now from ONE place: `readWorkbookRows`
+// goes through `readWorkbookSafely`, which asserts the byte cap before the parser
+// runs and the per-sheet row cap before any cell is walked — the same
+// `maxRowsPerSheet` limit and the same message the hand-rolled check raised (M3).
+//
+// FIRST SHEET ONLY, which is this door's own rule rather than a shortcut: the
+// director picked one file in a picker and is shown one mapping to confirm. The CLI
+// classifies every tab and reports the ones it did not read, because a machine
+// caller cannot see what it was not told.
 async function readSheetRows(file) {
-  if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
-    const wb = readWorkbookSafely(await file.arrayBuffer(), { type: 'array', byteLength: file.size })
-    const firstSheet = wb.Sheets[wb.SheetNames[0]]
-    return XLSX.utils.sheet_to_json(firstSheet, { header: 1, blankrows: false, defval: '', raw: false }).map(unescapeRow)
-  }
-  assertImportFileSize(file.size)
-  const text = await file.text()
-  const rows = text.split(/\r?\n/).filter((l) => l.length > 0).map((line) => line.split(/\t|,/).map((c) => c.trim()))
-  // M3 — the xlsx branch gets both size AND row-count guards via
-  // readWorkbookSafely; this branch had only the byte cap, so a 10MB file of
-  // millions of short lines passed the size check and then held an unbounded
-  // array in the renderer. Same limit the xlsx path already enforces.
-  if (rows.length > IMPORT_LIMITS.maxRowsPerSheet) {
-    throw new Error(
-      `A sheet in that file has too many rows (over ${IMPORT_LIMITS.maxRowsPerSheet}) to import safely. Nothing was imported.`
-    )
-  }
-  return rows
+  const sheets = readWorkbookRows(await file.arrayBuffer(), { type: 'array', byteLength: file.size })
+  return sheets[0]?.rows ?? []
 }
 
 export default function AssignmentPanel({
@@ -906,11 +911,12 @@ export default function AssignmentPanel({
       <input
         ref={fileInputRef}
         type="file"
-        // `.csv` and `.tsv` were MISSING while `readSheetRows` has always had a
-        // delimited branch for them and the CLI reads them happily — so a camp
-        // exporting CSV, which the probe corpus says is the common case, could not
-        // select their own file in the app at all. Found by driving the real picker
-        // rather than by reading the code.
+        // `.csv` and `.tsv` were MISSING while `readSheetRows` could always read
+        // them and the CLI reads them happily — so a camp exporting CSV, which the
+        // probe corpus says is the common case, could not select their own file in
+        // the app at all. Found by driving the real picker rather than by reading
+        // the code. _Prior: readSheetRows had a separate ~~delimited branch~~ for
+        // these; T313 removed it, and SheetJS sniffs both from the same buffer._
         accept=".xlsx,.xlsm,.xls,.csv,.tsv,.txt"
         style={{ display: 'none' }}
         onChange={(e) => onFileSelected(e.target.files?.[0])}

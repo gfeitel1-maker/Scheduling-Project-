@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url'
 import { openLocalDb } from '../electron/db/localDb.js'
 import { commitElectiveRun } from '../electron/ops/commitElectiveRun.js'
 import { buildPreferenceCatalog, readPreferenceSheet } from '../src/ingest/preferenceImport.js'
+import { readWorkbookRows } from '../src/utils/exportSanitize.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PROBES = path.join(ROOT, 'test/fixtures/preference-corpus/probes')
@@ -89,18 +90,19 @@ function collections() {
 /**
  * FILE BYTES -> the panel's read -> commit -> database.
  *
- * `readRows` mirrors AssignmentPanel's own CSV branch (split on newline, then tab or
- * comma) rather than the CLI's SheetJS path, so this exercises the panel's reading
- * as well as its call shape.
+ * The rows come from `readWorkbookRows`, which is what AssignmentPanel's
+ * `readSheetRows` now calls — so this exercises the panel's reading as well as its
+ * call shape. It used to REPLICATE the panel's own hand-split on `/\t|,/`, and that
+ * is precisely why these tests could not see that reader mis-reading seven of the
+ * 32 corpus probes (T313): a test that copies the reader under test cannot catch the
+ * reader being wrong. Mirroring the shared function instead means this helper drifts
+ * from the panel only if someone changes the panel's ONE line.
  */
 function importThroughPanelPath(bytes, { camperName = null, label = 'sheet', withCatalog = true } = {}) {
   const file = path.join(dir, `${label}.csv`)
   fs.writeFileSync(file, bytes)
-  const rows = fs
-    .readFileSync(file, 'utf8')
-    .split(/\r?\n/)
-    .filter((l) => l.length > 0)
-    .map((line) => line.split(/\t|,/).map((c) => c.trim()))
+  const buf = fs.readFileSync(file)
+  const rows = readWorkbookRows(buf, { type: 'buffer', byteLength: buf.length })[0]?.rows ?? []
 
   const catalog = withCatalog ? buildPreferenceCatalog(collections()) : buildPreferenceCatalog({})
   const { mapping, parsed } = readPreferenceSheet({

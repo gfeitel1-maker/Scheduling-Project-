@@ -90,6 +90,43 @@ export function readWorkbookSafely(data, { type, byteLength, limits = IMPORT_LIM
   return workbook
 }
 
+// ONE READER FOR THE BYTES, one layer above `readWorkbookSafely` (T313): every
+// sheet of a workbook as row arrays, cells unescaped, in the shape the preference
+// and ingest transforms take. `readWorkbookSafely` owns the READ; this owns the
+// read plus the `sheet_to_json` + `unescapeRow` pair that every caller of it was
+// repeating, because those options are part of the rule and not a detail.
+//
+// WHY THIS EXISTS, stated plainly because it was mis-reading real files. The CLI
+// sent CSV through here; the import panel hand-split it on `/\t|,/` after a
+// `.trim()`. Over the 32-file probe corpus SEVEN files read differently, and they
+// were the headline probes rather than curiosities: the packed cell
+// `"Archery, Ceramics, Woodworking"` — the entire point of P09 and P10 — became
+// THREE columns with literal quote characters inside the activity labels, so the
+// director was never offered the `split_packed` resolution; and P17, a probe
+// specifically about padded rank headers (`"# 1"`, `"#2 "`), had the padding
+// trimmed away before the code under test could see it. A hand-rolled delimited
+// reader cannot do RFC4180 quoting, and a preference sheet is exactly the document
+// where a comma inside a cell carries meaning.
+//
+// It also forked IDENTITY, which is the reason this is one function rather than
+// two tidy ones: a provisional subject is keyed on `submissionKeyFromRows`, so two
+// readers of one file are two keys and one child becomes two campers depending on
+// which door their sheet came through (T299/T303). Sharing the digest is not
+// enough when the ROWS it digests are produced twice.
+//
+// Cells are NOT trimmed here. `cell()` in src/ingest/preferenceSheet.js trims
+// every value it reads and the layout detectors trim every header, so trimming
+// again would be a second rule that changes only the submission key.
+export function readWorkbookRows(data, { type, byteLength, limits = IMPORT_LIMITS } = {}) {
+  const workbook = readWorkbookSafely(data, { type, byteLength, limits })
+  return (workbook.SheetNames ?? []).map((name) => ({
+    name,
+    rows: XLSX.utils
+      .sheet_to_json(workbook.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false })
+      .map(unescapeRow),
+  }))
+}
+
 // Fail closed AFTER parse but BEFORE reading any cell — bound sheet and per-sheet
 // row counts so a decompressed bomb cannot be walked. Throws; imports nothing.
 export function assertWorkbookComplexity(workbook, limits = IMPORT_LIMITS) {

@@ -11,6 +11,7 @@ import {
   assertImportFileSize,
   assertWorkbookComplexity,
   readWorkbookSafely,
+  readWorkbookRows,
 } from './exportSanitize.js'
 
 const TRIGGERS = ['=', '+', '-', '@', '\t', '\r', '\n']
@@ -298,6 +299,114 @@ describe('grep gate — import read paths route through readWorkbookSafely', () 
     for (const rel of IMPORT_READ_FILES) {
       const src = readFileSync(join(repoRoot, rel), 'utf8')
       expect(src, `${rel} dropped unescapeRow`).toMatch(/unescapeRow/)
+    }
+  })
+})
+
+// T313 — the ROW boundary, one layer above the read boundary. These matter because
+// the elective import panel's own CSV branch was removed in favour of this: if the
+// caps stopped applying here, they would have stopped applying to that door, and the
+// hand-rolled row-count guard it used to carry is gone.
+describe('readWorkbookRows — one reader for every door (T313)', () => {
+  const bytesOf = (text) => {
+    const buf = Buffer.from(text, 'utf8')
+    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+  }
+
+  it('reads EVERY sheet as row arrays, not just the first', () => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['name'], ['Swim']]), 'One')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['name'], ['Archery']]), 'Two')
+    const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
+
+    const sheets = readWorkbookRows(bytes, { type: 'array', byteLength: bytes.byteLength })
+    expect(sheets.map((s) => s.name)).toEqual(['One', 'Two'])
+    expect(sheets[0].rows).toEqual([['name'], ['Swim']])
+    expect(sheets[1].rows).toEqual([['name'], ['Archery']])
+  })
+
+  it('parses a QUOTED CSV cell as one cell — the hand-split it replaced could not', () => {
+    // The defect this function exists to end: a comma inside a quoted cell is
+    // ordinary in a spreadsheet export and load-bearing in a preference sheet, and a
+    // `split(/\t|,/)` reader cut it in two, shifting every later cell in the row.
+    const sheets = readWorkbookRows(bytesOf('Period,Monday,Tuesday\nPeriod 1,"Archery, Ceramics",Swim\n'), {
+      type: 'array',
+    })
+    expect(sheets[0].rows[1]).toEqual(['Period 1', 'Archery, Ceramics', 'Swim'])
+  })
+
+  it('reads TSV from the same buffer, so the removed delimited branch lost nothing', () => {
+    const sheets = readWorkbookRows(bytesOf('Period\tMonday\nPeriod 1\tArchery\n'), { type: 'array' })
+    expect(sheets[0].rows).toEqual([['Period', 'Monday'], ['Period 1', 'Archery']])
+  })
+
+  it('does NOT trim cells — trimming here would be a second rule', () => {
+    // `cell()` in src/ingest/preferenceSheet.js trims every value it reads and the
+    // layout detectors trim every header, so a trim here would change nothing except
+    // the submission key a provisional camper is identified by.
+    const sheets = readWorkbookRows(bytesOf('Period, Monday \nPeriod 1, Archery \n'), { type: 'array' })
+    expect(sheets[0].rows[0]).toEqual(['Period', ' Monday '])
+  })
+
+  it('still applies unescapeRow, so an escaped export round-trips clean', () => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["'=SUM(A1)"]]), 'S')
+    const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
+    expect(readWorkbookRows(bytes, { type: 'array' })[0].rows[0]).toEqual(['=SUM(A1)'])
+  })
+
+  it('STILL applies the size cap, before the parser runs', () => {
+    const oversize = new Uint8Array(IMPORT_LIMITS.maxBytes + 1)
+    expect(() => readWorkbookRows(oversize, { type: 'array' })).toThrow(/too large/i)
+  })
+
+  it('STILL applies the per-sheet row cap — the guard the panel used to hand-roll', () => {
+    const csv = `h\n${'x\n'.repeat(IMPORT_LIMITS.maxRowsPerSheet + 1)}`
+    expect(() => readWorkbookRows(bytesOf(csv), { type: 'array' })).toThrow(/too many rows/i)
+  })
+})
+
+// Structural gate (T313). The two camper-preference import doors read an UPLOADED
+// workbook and must do it through `readWorkbookRows`, not a hand-rolled delimited
+// reader. This is a guard on the CLASS, not on the instance that was fixed: the panel
+// had a `split(/\t|,/)` branch that mis-read seven of the 32 corpus probes and forked
+// a child's identity between the two doors, and nothing structural stopped it or
+// would stop it coming back. The existing readWorkbookSafely gate above cannot cover
+// these files, because reading through readWorkbookRows means they no longer name it.
+describe('grep gate — the preference import doors share ONE row reader (T313)', () => {
+  const repoRoot = process.cwd()
+  const PREFERENCE_READ_FILES = [
+    'src/screens/elective/assignment/AssignmentPanel.jsx',
+    'scripts/preferenceSheetCli.js',
+    // The panel's own test USED to replicate the panel's hand-split, which is exactly
+    // why it could not see the reader being wrong. It is held to the same rule.
+    'test/panelImportPath.test.js',
+  ]
+
+  it('each door reads workbooks via readWorkbookRows', () => {
+    for (const rel of PREFERENCE_READ_FILES) {
+      const src = readFileSync(join(repoRoot, rel), 'utf8')
+      expect(src, `${rel} does not use readWorkbookRows`).toMatch(/readWorkbookRows/)
+    }
+  })
+
+  it('no door calls raw XLSX.read, bypassing the caps', () => {
+    for (const rel of PREFERENCE_READ_FILES) {
+      const src = readFileSync(join(repoRoot, rel), 'utf8')
+      expect(src, `${rel} calls raw XLSX.read — route it through readWorkbookRows`)
+        .not.toMatch(/XLSX\.read\s*\(/)
+    }
+  })
+
+  it('no door splits a line on a comma or tab to make cells', () => {
+    // The signature of a hand-rolled delimited reader. Narrow on purpose: it matches
+    // a split whose separator is a comma or tab, which is how you cut a CSV row by
+    // hand, and not the many legitimate splits on newlines, slashes or spaces.
+    const HAND_SPLIT = /\.split\(\s*\/[^/]*(?:\\t\|,|,\|\\t|\[,\\t\]|\[\\t,\])[^/]*\/[a-z]*\s*\)|\.split\(\s*['"][,\t]['"]\s*\)/
+    for (const rel of PREFERENCE_READ_FILES) {
+      const src = readFileSync(join(repoRoot, rel), 'utf8')
+      expect(src, `${rel} hand-splits a row on a delimiter — use readWorkbookRows`)
+        .not.toMatch(HAND_SPLIT)
     }
   })
 })

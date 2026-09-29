@@ -25,19 +25,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import * as XLSX from 'xlsx'
 
 import { openLocalDb } from '../electron/db/localDb.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from '../electron/ops/commitElectiveRun.js'
 import { deriveImportedElectiveRunId, opaque } from '../electron/ops/electiveDerivedIds.js'
-import {
-  detectGridLayout,
-  inferPreferenceLayout,
-  parsePreferenceSheet,
-  residueParts,
-} from '../src/ingest/preferenceSheet.js'
-import { submissionKeyFromRows } from '../src/ingest/preferenceImport.js'
-import { readWorkbookSafely, unescapeRow } from '../src/utils/exportSanitize.js'
+import { detectGridLayout, inferPreferenceLayout, residueParts } from '../src/ingest/preferenceSheet.js'
+import { readPreferenceSheet } from '../src/ingest/preferenceImport.js'
+import { readWorkbookRows } from '../src/utils/exportSanitize.js'
 
 function baseResult({ file, dbPath, action }) {
   return {
@@ -78,14 +72,14 @@ const errorResult = (base, message) => ({ ...base, ok: false, error: message, ex
 // concatenated, so two submissions still cannot merge — while a workbook whose
 // preferences are not on tab 1 stops being "not a camper preference sheet",
 // which is what ADR §14.1 rules is not a reason to refuse.
+// The read itself is `readWorkbookRows` (src/utils/exportSanitize.js), shared with
+// the import panel as of T313 — the panel hand-split CSV on `/\t|,/` and so read
+// seven of the 32 corpus probes differently from this door, including the packed
+// cell P09 and P10 exist to exercise. The rule above — per-sheet classification,
+// exactly one chosen, every other reported — stays here, because this is the only
+// door that ever sees more than one tab.
 function readSheets(buf) {
-  const workbook = readWorkbookSafely(buf, { type: 'buffer', byteLength: buf.length })
-  return workbook.SheetNames.map((name) => ({
-    name,
-    rows: XLSX.utils
-      .sheet_to_json(workbook.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false })
-      .map(unescapeRow),
-  }))
+  return readWorkbookRows(buf, { type: 'buffer', byteLength: buf.length })
 }
 
 /**
@@ -385,27 +379,28 @@ export function runPreferenceSheetCli({
       return { ...report, ok: true, runId: outcome.runId, exitCode: 0 }
     }
 
-    // THE SUBJECT OF A GRID, resolved in the owner's order, and NEVER blocking the
-    // data from landing (T285 slice G):
-    //   1. a camper the caller supplied     -> attributed
-    //   2. a camper named on the page       -> attributed
-    //   3. the filename                     -> provisional, flagged
-    //   4. nothing                          -> provisional, flagged
-    // An unattributed subject is a first-class outcome, not a failure: the
-    // preferences are stored with their coordinates and a human or an agent names
-    // the child later, without re-importing. Landing the data unattributed is
-    // strictly better than dropping it.
-    // TAKES ITS ROWS EXPLICITLY rather than closing over `rows`, which is declared
-    // LATER in this function (`const rows = sheet.rows`, after the chosen-sheet
-    // branch). Closing over it threw `ReferenceError: Cannot access 'rows' before
-    // initialization` from the whole-sheet-grid branch, which runs BEFORE that
-    // declaration — caught by the corpus (P19 and P22 moved to THREW), not by any
-    // unit test, because only the grid branch reaches it early.
-    const resolveSubject = (subjectRows) => {
-      // 1. THE CALLER KNOWS. The portal, the import screen's selection, or an agent
-      //    driving the CLI/MCP. Attributed outright.
-      if (camperName) return { displayName: camperName, source: 'caller', attributed: true }
-
+    // WHO THIS SHEET BELONGS TO, for the two steps of the identity order only THIS
+    // door can answer. Steps 2 and 3 — the provisional subject keyed on the
+    // submission and labelled with the filename — are `readPreferenceSheet`'s, shared
+    // with the import panel, and this file no longer spells them (T313). The comment
+    // a few lines further down already stated the cost for the submission KEY: "two
+    // rules fork one child into two subjects depending on which door their sheet came
+    // through". That was as true of the arrival, and of the object around it.
+    //
+    // WHAT CANNOT MOVE INTO THE SHARED MODULE, and it is not a matter of taste:
+    // step 1a below READS THE DATABASE. `readPreferenceSheet` is pure by contract —
+    // no db, no IPC, no file reading — for the same reason `INDISTINGUISHABLE_SUBMISSION`
+    // is assembled here rather than there. A fact about what this camp has already
+    // stored is this door's to find.
+    //
+    // RETURNS null when nothing is located, which is the ordinary case: the subject is
+    // then provisional and the shared module builds it.
+    //
+    // CALLED ONLY WHERE A GRID EXISTS, and each call site says so rather than this
+    // guessing. The probe costs a query and can PUSH RESIDUE, and a row-per-camper
+    // sheet has no grid subject at all — running it there would tell a director their
+    // answers were "already stored under ..." about a subject nothing created.
+    const locateNamedCamper = () => {
       // 1a. THIS SUBMISSION HAS ALREADY BEEN IMPORTED AND NAMED.
       //
       // T303 left this open as a design decision and it forked a real child. Import
@@ -511,12 +506,13 @@ export function runPreferenceSheetCli({
         // overwrite of her own rows rather than a second set — and a preference she has
         // since hand-edited stays held by commitElectiveRun's own provenance check
         // (T297), not quietly overwritten.
+        // `source`/`attributed` are NOT set here: `readPreferenceSheet` owns the
+        // subject's shape, and a located camper reaches it the same way a
+        // caller-supplied name does. Only the three FACTS travel.
         return {
           camperId: named.id,
           displayName: named.display_name,
           externalId: named.external_id || null,
-          source: 'already-named',
-          attributed: true,
         }
       }
 
@@ -534,63 +530,74 @@ export function runPreferenceSheetCli({
         })
       }
 
-      // 2/3. Nothing named the child, so the subject is PROVISIONAL — and its
-      //    IDENTITY IS THE SUBMISSION, not the filename.
-      //
-      //    KEYING ON THE FILENAME MERGED TWO REAL CHILDREN, reproduced by
-      //    execution: two campers whose portal exported each planner as the ordinary
-      //    basename `planner.csv` collapsed onto ONE camper row holding both
-      //    children's answers, with two contradictory rank-1 cell choices at every
-      //    coordinate — ok=true, no refusal, no residue. `hasContradictoryRanks` and
-      //    the parse-level collision pass run PER IMPORT and structurally cannot see
-      //    across two. That is the "merge two real children" case the ADR names as
-      //    the ONLY legitimate refusal, happening silently on the default path.
-      //
-      //    The content hash keys it instead — as of T299 through `deriveCamperId`'s
-      //    `sub` arm, PAIRED WITH AN ARRIVAL rather than alone (the `ext` arm this
-      //    used to borrow keyed on content only, and two children who picked the same
-      //    activities collapsed onto one camper). Two different submissions can never
-      //    collide, and the SAME bytes re-sent converge onto one subject rather than
-      //    duplicating — the same idempotency the run id already gets from
-      //    `deriveImportedElectiveRunId`, and on this path the same value provides
-      //    both. The filename stays as the human-readable LABEL so a director
-      //    recognises which submission it is; it is no longer the key, so renaming a
-      //    file no longer forks the child either.
-      const stem = path.basename(file).replace(/\.[^.]+$/, '')
-      return {
-        displayName: stem || null,
-        // `sub-` prefixed so a row read in a SQLite shell is obviously not a camp
-        // roster id, and truncated because 32 hex characters already make collision
-        // a non-issue while keeping the id legible for diagnosis.
-        // ONE RULE, shared with the import screen (src/ingest/preferenceImport.js).
-        // A SHA-256 of the file bytes here and a WebCrypto digest there would be TWO
-        // rules, and two rules fork one child into two subjects depending on which
-        // door their sheet came through.
-        externalId: submissionKeyFromRows(subjectRows),
-        // T299 — WHICH IMPORT this submission arrived in, the other half of the
-        // identity. The content key alone cannot be it: two children who picked the
-        // same activities produce byte-identical sheets, and keying on content alone
-        // merged them onto one camper row holding both children's answers.
-        //
-        // T303 — THE CALLER'S OWN DECLARATION FIRST, the file's bytes as the default.
-        //
-        // The default is not a guess dressed up as one: `deriveImportedElectiveRunId`
-        // exists so that re-sending the same bytes is one import rather than two, and
-        // an agent that cannot safely retry a failed call cannot be trusted to drive
-        // this software at all. So absent any declaration, identical bytes stay one
-        // submission arriving once — with the consequence, said out loud rather than
-        // left silent, that two children's byte-identical files reach ONE subject.
-        //
-        // What the default CANNOT do is separate two children who chose the same
-        // activities, because there is no second fact in the bytes to separate them
-        // with. `arrivalId` is that second fact, and only the caller holds it: two
-        // submissions get two tokens, a retry reuses one. Minting one per invocation
-        // here instead would buy the two children by forking every retry, which is
-        // the trade T299 identified and refused.
+      return null
+    }
+
+    // ONE CALL SHAPE for reading a sheet, shared with the import panel
+    // (src/ingest/preferenceImport.js) — the whole of it, not just the transform
+    // underneath. ADR §3.2: a second set of ARGUMENTS is a second T224 even when the
+    // transform is shared, because the arguments are where the behaviour lives.
+    //
+    // WHAT STAYS THIS DOOR'S OWN, because it is genuinely path policy:
+    //
+    //   * `arrivalId`. The content-derived DEFAULT is resolved HERE and the answer
+    //     passed down, so `readPreferenceSheet` has no `defaultArrivalId` parameter
+    //     and no `??` of its own. Only this door has file bytes to content-address;
+    //     the panel deliberately mints one arrival per file selection.
+    //
+    //     Why the default is what it is: `deriveImportedElectiveRunId` exists so that
+    //     re-sending the same bytes is one import rather than two, which is what an
+    //     agent recovering from an ambiguous MCP timeout needs. So absent any
+    //     declaration, identical bytes stay one submission arriving once — with the
+    //     consequence, said out loud rather than left silent, that two children's
+    //     byte-identical files reach ONE subject. What the default CANNOT do is
+    //     separate two children who chose the same activities, because there is no
+    //     second fact in the bytes to separate them with. `arrivalId` is that second
+    //     fact and only the caller holds it: two submissions get two tokens, a retry
+    //     reuses one. Minting one per invocation here would buy the two children by
+    //     forking every retry — the trade T299 identified and refused.
+    //
+    //   * The REFUSAL of a malformed one, at the top of this function, because
+    //     `runPreferenceSheetCli`'s contract is that it never throws past it.
+    //
+    //   * `sourceLabel`. The filename stem is a LABEL and never the key: keying on it
+    //     merged two real children whose planners were both exported as the ordinary
+    //     basename `planner.csv`, onto ONE camper row holding both children's answers
+    //     with two contradictory rank-1 choices at every coordinate — ok=true, no
+    //     refusal, no residue. The content key replaced it; the stem stays so a
+    //     director recognises which submission it is, and renaming a file no longer
+    //     forks the child.
+    //
+    // The submission key is NOT passed: `readPreferenceSheet` derives it from the rows
+    // it was handed, which is the value this door used to compute and one fewer chance
+    // for the two to key one submission on two different row sets.
+    //
+    // TAKES ITS ROWS EXPLICITLY rather than closing over `rows`, which is declared
+    // LATER in this function (`const rows = sheet.rows`, after the chosen-sheet
+    // branch). Closing over it threw `ReferenceError: Cannot access 'rows' before
+    // initialization` from the whole-sheet-grid branch, which runs BEFORE that
+    // declaration — caught by the corpus (P19 and P22 moved to THREW), not by any
+    // unit test, because only the grid branch reaches it early.
+    const readSheet = (subjectRows, { hasSubject = false } = {}) => {
+      // Step 1 first: a caller who named the child has answered the question, so the
+      // probe neither runs nor reports — a name is a fact about the child, and
+      // `SUBMISSION_ALREADY_NAMED` would be telling them something they just stated.
+      const located = hasSubject && !camperName ? locateNamedCamper() : null
+      return readPreferenceSheet({
+        rows: subjectRows,
+        campId: camp.id,
+        catalog,
+        // Step 1 of the identity order, and the normal case through the portal or an
+        // agent: the caller knows whose submission this is.
+        camperName: camperName ?? located?.displayName ?? null,
+        // A subject we have already LOCATED carries its id rather than a recipe for
+        // one (#644). Absent, `readPreferenceSheet` derives as before.
+        camperId: located?.camperId ?? null,
+        externalId: located?.externalId ?? null,
+        sourceLabel: path.basename(file).replace(/\.[^.]+$/, '') || null,
         arrivalId: declaredArrival ?? importedRunId,
-        source: stem ? 'filename' : 'none',
-        attributed: false,
-      }
+        resolutions,
+      })
     }
 
     if (!chosen) {
@@ -620,15 +627,14 @@ export function runPreferenceSheetCli({
       // and read it as one subject if so.
       const gridSheet = candidates.find((c) => detectGridLayout(c.sheet.rows, 0) != null)
       if (gridSheet) {
-        const layout = detectGridLayout(gridSheet.sheet.rows, 0)
-        const parsedGrid = parsePreferenceSheet([], {
-          campId: camp.id,
-          mapping: { unmapped: [], unrecognisedColumns: [], rankColumns: [], headerIndex: 0 },
-          catalog,
-          grid: { layout, rows: gridSheet.sheet.rows.slice(1), headerIndex: 0 },
-          subject: resolveSubject(gridSheet.sheet.rows),
-          resolutions,
-        })
+        // The grid, the empty mapping it needs and the subject are all
+        // `readPreferenceSheet`'s business: `detectWholeSheetGrid` is the same
+        // `detectGridLayout(rows, 0)` gated on a mapping with something unmapped,
+        // which holds for every candidate that can reach here (a sheet that mapped
+        // cleanly with two or more rows would have been `chosen`, and a grid needs a
+        // header plus a body row). `hasSubject` because this branch exists only when
+        // a grid was found, so the subject is real and the named-camper probe applies.
+        const { parsed: parsedGrid } = readSheet(gridSheet.sheet.rows, { hasSubject: true })
         const unreadOther = sheets
           .filter((sh) => sh.name !== gridSheet.sheet.name)
           .map((sh) => ({
@@ -706,22 +712,17 @@ export function runPreferenceSheetCli({
     // camper's own sheet and its cells are that child's answers. Both halves land.
     const preambleGrid = mapping.headerIndex > 0 ? detectGridLayout(rows, 0) : null
 
-    const parsed = parsePreferenceSheet(rows, {
-      campId: camp.id,
-      mapping,
-      catalog,
-      resolutions,
-      grid: preambleGrid
-        ? { layout: preambleGrid, rows: rows.slice(1, mapping.headerIndex), headerIndex: 0 }
-        : undefined,
-      // The grid's subject is resolved WITHOUT looking at the named campers in the
-      // table below it: this page names four of them, so picking one would be a
-      // guess about whose week the grid describes.
-      //
-      // The `pageName` branch this used to have was DEAD CODE — both call sites
-      // passed null — so it is deleted rather than left looking like a feature.
-      subject: preambleGrid ? resolveSubject(rows) : undefined,
-    })
+    // Located inside `readPreferenceSheet` now, on the same two conditions this door
+    // used: a header below row 1 and a mapping with nothing unmapped, which `chosen`
+    // guarantees. Its subject is resolved WITHOUT looking at the named campers in the
+    // table below it — this page names four of them, so picking one would be a guess
+    // about whose week the grid describes.
+    //
+    // `hasSubject` is the PREAMBLE GRID's existence, computed here rather than asked
+    // of the shared module, because the named-camper probe costs a query and can push
+    // residue: an ordinary row-per-camper sheet has no grid subject, and probing there
+    // would report "already stored under ..." about a subject nothing created.
+    const { parsed } = readSheet(rows, { hasSubject: preambleGrid != null })
 
     return finishRun({ parsed, mapping, extraResidue: unreadSheets })
   } finally {
