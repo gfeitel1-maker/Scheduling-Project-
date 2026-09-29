@@ -19,6 +19,8 @@ related_tickets:
   - docs/work/tickets/T251-t199-acceptance-fixture.md
   - docs/work/tickets/T234-ingest-recurring-event-catalog-exclusivity.md
   - docs/work/tickets/T266-ingest-pass-exclusivity.md
+supersedes:
+  - docs/adr/2026-08-09-ingest-fixed-event-routing-and-reviewable-units.md
 ---
 
 # Ingest category exclusivity and anchor identity

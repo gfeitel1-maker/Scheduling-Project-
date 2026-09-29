@@ -2,7 +2,8 @@
 title: "Fixed-event catalog routing and reviewable, provenance-protected units"
 document_type: adr
 authority: normative
-status: accepted
+status: superseded
+superseded_by: docs/adr/2026-09-26-ingest-category-exclusivity-and-anchor-identity.md
 date: 2026-08-09
 supersedes: []
 implementation_state: implemented
@@ -26,7 +27,9 @@ related_adrs:
 
 # Fixed-event catalog routing and reviewable, provenance-protected units
 
-**Status: PROPOSED.** Two product-owner decisions (2026-08-09), both resolved here into a design a
+**Status: SUPERSEDED (2026-09-29) by [`2026-09-26-ingest-category-exclusivity-and-anchor-identity.md`](./2026-09-26-ingest-category-exclusivity-and-anchor-identity.md)** — Decision 1's exclusivity guard was only ever built as a demotion (T234 seeds `pinOnlyActivityNames`, which `buildPlan` turns into `tier: 'low'`, not an exclusion — see the 2026-09-26 ADR's "What is actually happening" section), so the 2026-09-26 ADR now governs category exclusivity and anchor identity; Decision 2 (reviewable units, provenance) is unaffected in substance but is carried by that ADR's related set from here on.
+
+_Prior status line:_ **Status: PROPOSED.** Two product-owner decisions (2026-08-09), both resolved here into a design a
 Maker can execute without further architectural judgment calls:
 
 1. A fixed event pinned to a period must **not** also create a free-choice catalog activity, unless
