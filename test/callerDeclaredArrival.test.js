@@ -30,6 +30,23 @@
 //   2. one declared arrival, repeated -> ONE camper
 //   3. nothing declared -> today's content-derived behaviour, AND the caller is TOLD
 //
+// CASE 4 WAS ADDED LATER, closing the second limit T303 recorded at its own close:
+// re-importing the same bytes AFTER a director names the subject forked one child
+// into two camper rows holding her week twice, and the case-3 residue could not fire
+// because it probes for a provisional row the rekey has deleted. The rule restored
+// here is not a new one — absent a declaration, identical bytes are ALREADY one
+// submission arriving once, and attribution silently stopped that applying. The link
+// it converges on was already stored: `attributeElectiveSubject` carries `run_id`
+// onto the moved preference rows and that run id is derived from the file's bytes,
+// so the lookup is exact rather than a similarity match.
+//
+//   4. nothing declared, and this submission was already imported AND NAMED
+//      -> the answers go to THAT camper, not to a second row, and the caller is TOLD
+//
+// The declared half of case 4 is deliberately NOT fixed and is asserted as it
+// actually behaves: a retry of arrival A and a second child declared as B are
+// indistinguishable from content, so it reports instead of guessing. Owner's call.
+//
 // FIXTURES ARE DELIBERATELY ANTI-SORTED. The arrival tokens and the filenames both
 // sort OPPOSITE to the order they are imported in, because an ordering assertion on
 // this feature was once vacuous when fixture ids happened to sort correctly. Nothing
@@ -42,7 +59,10 @@ import { randomUUID } from 'node:crypto'
 
 import { openLocalDb } from '../electron/db/localDb.js'
 import { runPreferenceSheetCli } from '../scripts/preferenceSheetCli.js'
-import { preferenceSheetCommitTool, preferenceSheetPreviewTool } from '../scripts/mcp/tools.js'
+import { attributeSubjectTool, preferenceSheetCommitTool, preferenceSheetPreviewTool } from '../scripts/mcp/tools.js'
+import { attributeElectiveSubject } from '../electron/ops/attributeElectiveSubject.js'
+import { removeElectivePreference } from '../electron/ops/setElectivePreference.js'
+import { appendOp } from '../electron/ops/operations.js'
 
 const ACTIVITIES = ['Swim', 'Archery', 'Ceramics', 'Nature', 'Gaga', 'Drama']
 
@@ -58,14 +78,16 @@ const OTHER = 'Period,Monday,Tuesday\nPeriod 1,Gaga,Drama\nPeriod 2,Archery,Swim
 let dir
 let dbPath
 let campId
+let deviceId
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-arrival-'))
   dbPath = path.join(dir, 'shoresh.sqlite')
   const db = openLocalDb(dbPath)
   campId = randomUUID()
+  deviceId = randomUUID()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp', 'a'.repeat(64))
-  db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(randomUUID(), 'Host')
+  db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Host')
   const insert = db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)')
   for (const name of ACTIVITIES) insert.run(randomUUID(), campId, name)
   db.close()
@@ -123,6 +145,55 @@ const prefCount = () => withDb((db) => db.prepare('SELECT COUNT(*) c FROM electi
 
 const indistinguishable = (result) =>
   (result.residue ?? []).filter((r) => r.kind === 'INDISTINGUISHABLE_SUBMISSION')
+
+const alreadyNamed = (result) =>
+  (result.residue ?? []).filter((r) => r.kind === 'SUBMISSION_ALREADY_NAMED')
+
+const unresolved = (result) =>
+  (result.residue ?? []).filter((r) => r.kind === 'SUBMISSION_ALREADY_NAMED_UNRESOLVED')
+
+/** The one unattributed subject currently awaiting a name. */
+const subjectAwaitingName = () =>
+  withDb((db) => db.prepare('SELECT id FROM campers WHERE is_unattributed = 1').get())
+
+/** THE DIRECTOR NAMES THE CHILD — the act that used to drop the submission key. */
+const nameSubject = (displayName, externalId = null) =>
+  withDb((db) =>
+    attributeElectiveSubject(db, {
+      campId,
+      deviceId,
+      subjectId: subjectAwaitingName().id,
+      displayName,
+      externalId,
+    })
+  )
+
+/**
+ * AN ORDINARY ADMIN EDIT to a camper field — NOT through attributeElectiveSubject,
+ * which refuses an already-named camper. `campers` is a plain camp-scoped entity
+ * (`electron/ops/campScopedEntities.js`) and the generic `write()` IPC handler has no
+ * field guard on it, so correcting a child's name or attaching her roster id later is
+ * an everyday action that lands here.
+ */
+const adminEdit = (camperId, field, value) =>
+  withDb((db) =>
+    appendOp(db, {
+      entity: 'campers',
+      entity_id: camperId,
+      field,
+      value,
+      author_user_id: null,
+      device_id: deviceId,
+      client_write_id: randomUUID(),
+    })
+  )
+
+/** The same act through the REAL MCP handler, so the whole chain is machine-driven. */
+const nameSubjectViaMcp = (displayName) =>
+  attributeSubjectTool(
+    { subject_id: subjectAwaitingName().id, camper_name: displayName },
+    { dbPath, allowWrite: true, authorUserId: null, dbKey: null }
+  )
 
 /**
  * Every child's whole week landed, and no coordinate holds two answers.
@@ -333,5 +404,300 @@ describe('T303 — a malformed arrival is refused, never silently dropped', () =
     const result = viaCli('planner.csv', SAME, { arrivalId: '' })
     expect(result.ok).toBe(true)
     expect(campers()).toHaveLength(1)
+  })
+})
+
+describe('T303 case 4 — re-importing a NAMED submission lands on that camper, not a second row', () => {
+  // EVERY ASSERTION HERE IS ON ROWS. The defect this closes returned ok=true with a
+  // residue list that looked ordinary, so a test reading messages would have passed
+  // over it: what was wrong was two camper rows and eight preference rows where
+  // there should have been one and four.
+  const nameHer = 'Aviva Feldspar'
+
+  it('CLI: the same bytes after naming go to her, not to a new subject', () => {
+    viaCli('ari.csv', SAME)
+    expect(nameSubject(nameHer)).toMatchObject({ ok: true, rekeyed: true })
+
+    const again = viaCli('ari.csv', SAME)
+    expect(again.ok).toBe(true)
+
+    const rows = campers()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].display_name).toBe(nameHer)
+    // Still named, not dragged back to provisional by the second import.
+    expect(rows[0].is_unattributed).toBeNull()
+    // Her week is stored ONCE. Eight rows here was the defect.
+    expectWholeWeekEach(rows)
+    expect(alreadyNamed(again)).toHaveLength(1)
+    expect(alreadyNamed(again)[0]).toMatchObject({ camper_id: rows[0].id, camper_name: nameHer })
+  })
+
+  it('CLI: a THIRD import of the same bytes still converges — this is idempotent, not one-shot', () => {
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer)
+    viaCli('ari.csv', SAME)
+    viaCli('ari.csv', SAME)
+
+    expect(campers()).toHaveLength(1)
+    expect(prefCount()).toBe(4)
+  })
+
+  it('MCP: preference_sheet_commit converges the same way', () => {
+    viaMcp('ari.csv', SAME)
+    nameSubject(nameHer)
+
+    const again = viaMcp('ari.csv', SAME)
+    expect(again.ok).toBe(true)
+    const rows = campers()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].display_name).toBe(nameHer)
+    expectWholeWeekEach(rows)
+  })
+
+  it('MCP: naming through the real attribute tool, then re-importing, converges end to end', () => {
+    // The whole chain machine-driven — no direct call into the ops layer anywhere.
+    viaMcp('ari.csv', SAME)
+    expect(nameSubjectViaMcp(nameHer)).toMatchObject({ ok: true, rekeyed: true })
+
+    expect(viaMcp('ari.csv', SAME).ok).toBe(true)
+    expect(campers()).toHaveLength(1)
+    expect(prefCount()).toBe(4)
+  })
+
+  it('MCP: a preview SAYS so before anything is written', () => {
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer)
+
+    const preview = previewViaMcp('ari.csv', SAME)
+    expect(preview.ok).toBe(true)
+    expect(alreadyNamed(preview)).toHaveLength(1)
+    // A preview is a read. Nothing moved.
+    expect(campers()).toHaveLength(1)
+    expect(prefCount()).toBe(4)
+  })
+
+  it('carries her ROSTER id across, so a camper named with an external_id converges too', () => {
+    // NON-VACUITY ON THE ID ARM. A named camper's id comes from deriveCamperId's
+    // `ext` arm when she has a roster id and its `name` arm when she does not.
+    // Converging re-derives that id, so passing her name WITHOUT her external_id
+    // would derive a DIFFERENT id and fork her — silently, and only for campers who
+    // have a roster id, which is the half a name-only test never reaches.
+    viaCli('ari.csv', SAME)
+    expect(nameSubject(nameHer, 'roster-4417')).toMatchObject({ ok: true })
+
+    expect(viaCli('ari.csv', SAME).ok).toBe(true)
+    const rows = campers()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].display_name).toBe(nameHer)
+    expectWholeWeekEach(rows)
+  })
+
+  it('a director EDIT survives the convergence — her correction is not overwritten', () => {
+    // Converging writes into a camper who already has rows, which is exactly where a
+    // hand-edit could be silently undone by an import reporting success.
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer)
+    const her = campers()[0]
+
+    const runId = withDb((db) => db.prepare('SELECT id FROM elective_assignment_runs').get().id)
+    const one = withDb((db) =>
+      db.prepare('SELECT id FROM elective_preferences WHERE camper_id = ? LIMIT 1').get(her.id)
+    )
+    expect(
+      withDb((db) => removeElectivePreference(db, { runId, preferenceId: one.id, deviceId }))
+    ).toEqual({ ok: true })
+    expect(prefCount()).toBe(3)
+
+    expect(viaCli('ari.csv', SAME).ok).toBe(true)
+
+    // THREE, not four: the removed row stays removed. Four would mean the import
+    // restored a choice the director had deliberately taken away.
+    expect(campers()).toHaveLength(1)
+    expect(prefCount()).toBe(3)
+  })
+
+  it('a genuinely DIFFERENT child after naming is still her own camper', () => {
+    // NON-VACUITY: the probe must key on THIS submission's bytes, not fire for every
+    // import that happens after somebody was named.
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer)
+
+    const other = viaCli('noa.csv', OTHER)
+    expect(other.ok).toBe(true)
+    expect(alreadyNamed(other)).toEqual([])
+    const rows = campers()
+    expect(rows).toHaveLength(2)
+    expectWholeWeekEach(rows)
+  })
+
+  it('an UNNAMED match is still T303 case 3, untouched', () => {
+    // The two residues must not collide. While the subject is unattributed the old
+    // INDISTINGUISHABLE_SUBMISSION owns the case; only a NAMED subject is case 4.
+    viaCli('ari.csv', SAME)
+    const again = viaCli('noa.csv', SAME)
+
+    expect(indistinguishable(again)).toHaveLength(1)
+    expect(alreadyNamed(again)).toEqual([])
+    expect(campers()).toHaveLength(1)
+    expect(prefCount()).toBe(4)
+  })
+
+  it('never reports on a FIRST import of bytes nobody has sent before', () => {
+    const first = viaCli('ari.csv', SAME)
+    expect(alreadyNamed(first)).toEqual([])
+    expect(unresolved(first)).toEqual([])
+  })
+})
+
+describe('T303 case 4 — her id is CARRIED, so an ordinary admin edit cannot fork her', () => {
+  // RED HAT FOUND THIS, and it is worse than the defect case 4 fixes. The first cut
+  // re-DERIVED her id from `display_name` and `external_id`. Both are ordinary
+  // admin-writable columns, and `deriveCamperId` branches on whether `external_id`
+  // is set — so an everyday edit moved her between its `name` and `ext` arms, the
+  // recipe returned an id she does not have, and the import minted a SECOND fully
+  // named row holding her week twice. Neither row flagged `is_unattributed`, both
+  // reading the same name, while the residue claimed the answers had reached her.
+  // A confidently wrong success message, not silence.
+  const nameHer = 'Aviva Feldspar'
+
+  it('a roster id attached AFTER naming does not fork her, and is not cleared', () => {
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer)
+    const her = campers()[0]
+    // She was named in `name` mode; this moves the recipe to `ext` mode.
+    adminEdit(her.id, 'external_id', 'roster-9999')
+
+    expect(viaCli('ari.csv', SAME).ok).toBe(true)
+
+    const rows = campers()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe(her.id)
+    expectWholeWeekEach(rows)
+    // The import writes external_id onto the record, so dropping it from the
+    // converged subject would CLEAR a real roster id rather than fork her — the
+    // opposite failure, and equally silent.
+    expect(withDb((db) => db.prepare('SELECT external_id FROM campers WHERE id = ?').get(her.id)))
+      .toEqual({ external_id: 'roster-9999' })
+  })
+
+  it('a corrected spelling of her name does not fork her, and the correction stands', () => {
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer)
+    const her = campers()[0]
+    adminEdit(her.id, 'display_name', 'Aviva R. Feldspar')
+
+    expect(viaCli('ari.csv', SAME).ok).toBe(true)
+
+    const rows = campers()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe(her.id)
+    // The import must not write the OLD spelling back over the director's fix.
+    expect(rows[0].display_name).toBe('Aviva R. Feldspar')
+    expectWholeWeekEach(rows)
+  })
+
+  it('a roster id CLEARED after naming does not fork her either', () => {
+    // The reverse flip, ext -> name, which the two above do not cover.
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer, 'roster-9999')
+    const her = campers()[0]
+    adminEdit(her.id, 'external_id', null)
+
+    expect(viaCli('ari.csv', SAME).ok).toBe(true)
+
+    const rows = campers()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe(her.id)
+    expectWholeWeekEach(rows)
+  })
+
+  it('the residue never claims her when the answers did not reach her', () => {
+    // NON-VACUITY ON THE MESSAGE, which is the part that made the first cut
+    // dangerous: it reported SUBMISSION_ALREADY_NAMED while forking. If the
+    // convergence ever misses again, the camper_id it names must not exist as a
+    // camper holding nothing.
+    viaCli('ari.csv', SAME)
+    nameSubject(nameHer)
+    adminEdit(campers()[0].id, 'external_id', 'roster-9999')
+
+    const again = viaCli('ari.csv', SAME)
+    const told = alreadyNamed(again)
+    expect(told).toHaveLength(1)
+
+    // THE CLAIM, CHECKED AS THE CLAIM: "these answers went to THAT camper rather
+    // than to a new subject" is true only if the camper it names is the ONLY holder
+    // of this submission's rows. Counting rows under her id alone is NOT enough and
+    // was vacuous when first written — under the planted defect her own four rows
+    // are still there beside the fork's four, so the count passed while the message
+    // was false. The distinguishing fact is how many campers hold the run.
+    const holders = withDb((db) =>
+      db
+        .prepare('SELECT DISTINCT camper_id FROM elective_preferences WHERE run_id = ?')
+        .all(again.runId)
+        .map((r) => r.camper_id)
+    )
+    expect(holders).toEqual([told[0].camper_id])
+  })
+})
+
+describe('T303 case 4 — the two cases content cannot settle are REPORTED, not guessed', () => {
+  it('a declared retry after naming still forks — the stated limit, and it says so', () => {
+    // NOT FIXED, ASSERTED AS IT BEHAVES. A retry of arrival A and a second child
+    // declared as B produce identical bytes, an identical run id and an identical
+    // probe result. Converging would merge two real children; separating them needs
+    // the arrival stored, which is a schema version the owner chose not to spend.
+    // So this test pins the LIMIT, and pins that it is no longer silent.
+    viaCli('ari.csv', SAME, { arrivalId: 'A' })
+    nameSubject('Aviva Feldspar')
+
+    const retry = viaCli('ari.csv', SAME, { arrivalId: 'A' })
+    expect(retry.ok).toBe(true)
+    expect(campers()).toHaveLength(2)
+    expect(prefCount()).toBe(8)
+    // The whole point of recording it: before this change the fork was silent.
+    expect(unresolved(retry)).toHaveLength(1)
+    expect(unresolved(retry)[0]).toMatchObject({ arrival_id: 'A' })
+    expect(alreadyNamed(retry)).toEqual([])
+  })
+
+  it('a SECOND CHILD declared apart is never merged onto the first, even after naming', () => {
+    // THE REASON THE DECLARED PATH DOES NOT CONVERGE, stated as a child rather than
+    // as a guard. Two children pick the same activities; the first is named; the
+    // second's sheet is byte-identical and the caller declares it apart. Converging
+    // on the content probe here would put the second child's week onto the first
+    // child's record and delete her from the camp — the one refusal the ADR names,
+    // happening silently with ok=true.
+    viaCli('ari.csv', SAME, { arrivalId: 'zz-first' })
+    nameSubject('Aviva Feldspar')
+
+    const second = viaCli('noa.csv', SAME, { arrivalId: 'aa-second' })
+    expect(second.ok).toBe(true)
+
+    // TWO children, each with her own whole week. One row here is a merge.
+    const rows = campers()
+    expect(rows).toHaveLength(2)
+    expectWholeWeekEach(rows)
+    expect(rows.map((r) => r.display_name).sort()).toEqual(['Aviva Feldspar', 'noa'])
+    expect(alreadyNamed(second)).toEqual([])
+  })
+
+  it('two named campers holding one submission is ambiguous, so nothing is guessed', () => {
+    // Arrival tokens anti-sorted: 'zz' imports FIRST, 'aa' second, so nothing below
+    // can pass by a lucky alphabetical order.
+    viaCli('ari.csv', SAME, { arrivalId: 'zz-first' })
+    nameSubject('Aviva Feldspar')
+    viaCli('noa.csv', SAME, { arrivalId: 'aa-second' })
+    nameSubject('Ben Quartzite')
+    expect(campers()).toHaveLength(2)
+
+    const undeclared = viaCli('ari.csv', SAME)
+    expect(undeclared.ok).toBe(true)
+    // It did NOT pick one of them.
+    expect(alreadyNamed(undeclared)).toEqual([])
+    expect(unresolved(undeclared)).toHaveLength(1)
+    expect(unresolved(undeclared)[0].camper_ids).toHaveLength(2)
+    const rows = campers()
+    expect(rows).toHaveLength(3)
+    expect(rows.filter((r) => r.is_unattributed === 1)).toHaveLength(1)
   })
 })

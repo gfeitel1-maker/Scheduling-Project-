@@ -165,6 +165,93 @@ attributed rows too), and that requires deciding what a named camper's submissio
 a child who legitimately submits a second, different sheet should collide with her own first one. Not
 a question this ticket's "one path, one parameter" scope should answer.
 
+> **CLOSED 2026-09-29, in a follow-on change. The limit above is kept as written
+> because it was true at close.** The owner dispatched it directly ("re-importing the
+> SAME file after a director has named its subject forks one child into two
+> identities ... Decide first, then implement") and made the two decisions it needed.
+>
+> **Neither shape this section proposed was necessary, because the link was never
+> actually dropped.** `attributeElectiveSubject` carries `run_id` onto the preference
+> rows it moves, and that run id is derived from the file's bytes — so
+> `elective_preferences.run_id` reaches the named camper exactly, by content address
+> rather than by similarity. Confirmed by execution before anything was designed.
+> Carrying the submission key onto the canonical row was rejected on the evidence:
+> `campers.external_id` holds the roster id that `deriveCamperId`'s `ext` arm keys on,
+> it is single-valued so a second sheet evicts the first, and it keys on the
+> SUBMISSION rather than the ARRIVAL — so it could not separate the one case that
+> actually needs separating. A host-local decision table in the `source_aliases` mould
+> was rejected too: it is excluded from sync, so the fork would have returned on the
+> second device, while `elective_preferences` is in `PROJECTIONS` and travels.
+>
+> **The rule restored is this ticket's own, not a new one.** Absent a declaration,
+> identical bytes are already one submission arriving once; attribution silently
+> stopped that applying past the rekey. So an undeclared re-import whose submission is
+> held by exactly one NAMED camper now lands on her — an idempotent overwrite of her
+> own rows, with a hand-edited preference still held by `commitElectiveRun`'s
+> provenance check — and says so as `SUBMISSION_ALREADY_NAMED`.
+>
+> **The owner's second question, answered by the code rather than by storage.** A
+> named camper does not retain a submission key, so her legitimate SECOND, different
+> sheet cannot collide with her first: different bytes derive a different provisional
+> subject, and naming it converges on her name-derived id the way attribution already
+> did.
+>
+> **WHAT IS STILL NOT FIXED, and is now told instead of silent.** A DECLARED arrival
+> retried after naming still forks, so this ticket's headline promise — same declared
+> arrival, any number of times, one camper — remains void once a subject is named.
+> Found by execution during the follow-on, and worse than this section recorded. It is
+> not fixable by any content-keyed probe: a retry of arrival A and a second child
+> declared as B produce identical bytes, an identical run id and an identical probe
+> result, so converging would merge two real children — the one refusal the ADR names.
+> Separating them means storing which arrival produced which camper, which is a schema
+> version the owner chose not to spend (2026-09-29). That case, and the case where two
+> named campers hold one submission, both report
+> `SUBMISSION_ALREADY_NAMED_UNRESOLVED` and land as today.
+>
+> One further limit, stated rather than guarded: if exactly one named camper holds the
+> run WITHOUT having been its subject — a preference hand-added under a one-child
+> planner run — the import converges onto her. Low likelihood, and visible, because
+> `preference_sheet_preview` names her before anything is written.
+>
+> **A REVIEW ROUND CAUGHT A WORSE FORK IN THE FIRST CUT, and it is the reason this
+> section is worth reading past the summary.** The first implementation RE-DERIVED her
+> id from `display_name` and `external_id` and relied on that reproducing the id
+> `attributeElectiveSubject` had minted. Both are ordinary admin-writable columns on a
+> plain camp-scoped entity, and `deriveCamperId` branches on whether `external_id` is
+> set — so an admin fixing a typo in a child's name, or attaching her roster id after
+> the fact, moved her between the `name` and `ext` arms, the recipe returned an id she
+> does not have, and the import minted a SECOND fully-named row holding her week
+> twice. **Strictly worse than the fork this change fixes:** the old fork left one row
+> flagged `is_unattributed`, so the attention surface showed it, while this one left
+> two unflagged rows reading the same name — and `SUBMISSION_ALREADY_NAMED` reported
+> that the answers had reached her. A confidently wrong success message rather than
+> silence. Confirmed by execution in both directions of the flip, and in the reverse
+> (a roster id CLEARED after naming).
+>
+> The fix is that a subject we have already LOCATED carries its id rather than a
+> recipe for one: `resolveSubject` passes `camperId` and `parsePreferenceSheet` derives
+> nothing. Deriving an id is how you MINT a subject and is the wrong instrument for one
+> that already exists — the same "two rules fork one child" principle the CLI's own
+> `resolveSubject` comment states, applied to identity rather than to hashing.
+> `display_name` and `external_id` still travel because the parser writes them onto the
+> record and they are read fresh off her row; dropping `externalId` would CLEAR a real
+> roster id, which is the opposite failure and equally silent.
+>
+> Four regression tests cover it, including the reverse flip. One of them was VACUOUS
+> when first written — it counted rows under her own id, which still passes under the
+> defect because her original four rows survive beside the fork's four. It now asserts
+> that exactly one camper holds the run, and fails on the plant. Worth recording
+> because a test that cannot fail is a false assurance, not a weak one.
+>
+> Evidence: `test/callerDeclaredArrival.test.js` case 4, driving the real CLI core and
+> the real `preference_sheet_commit` / `preference_sheet_preview` /
+> `attribute_camper_subject` handlers, asserting camper rows and
+> `elective_preferences` counts rather than messages. Four planted defects, each red
+> on the data: the fix disabled (7 red, 6 of them camper-row counts reading 2 where 1
+> is correct); the declared guard removed (3 red, two real children merged onto one
+> row); the probe widened to unattributed rows (5 red, including this ticket's own
+> case 3); and the residue fired without a real match (1 red on non-vacuity).
+
 **Two follow-ups the same review named, neither in this ticket's `archive_when`:**
 
 - A CLI merge leaves no PERSISTENT director-facing trace. `INDISTINGUISHABLE_SUBMISSION` is an

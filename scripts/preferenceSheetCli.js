@@ -211,6 +211,15 @@ export function runPreferenceSheetCli({
     // chances for the subject to claim an arrival the run does not have.
     const importedRunId = deriveImportedElectiveRunId(camp.id, submissionSha256)
 
+    // WHAT SUBJECT RESOLUTION FOUND OUT, carried to the ONE completion path rather
+    // than returned. `resolveSubject` has to answer "whose sheet is this" before the
+    // parse, but what it learns on the way — that this submission has already been
+    // imported and NAMED — belongs in the residue beside everything else the caller
+    // is told. Pushing it here keeps finishRun the single place residue is assembled
+    // (a second assembly point is how the two branches drifted before), and both
+    // grid call sites are mutually exclusive so this holds at most one item.
+    const subjectResidue = []
+
     // THE CAMP'S OWN ENTITIES, read here and passed in as plain arrays so the
     // transform stays pure. This is what RESOLVE resolves AGAINST (ADR section
     // 12.0): a choice label against the activity catalog, a division label
@@ -310,7 +319,7 @@ export function runPreferenceSheetCli({
         // takes one table, so it cannot know a second tab existed. The arrival
         // collision is the CLI's own for the same reason in reverse — it is a fact
         // about the DATABASE, which the pure parser cannot read.
-        residue: [...arrivalResidue, ...extraResidue, ...parsed.residue],
+        residue: [...subjectResidue, ...arrivalResidue, ...extraResidue, ...parsed.residue],
         coverage: parsed.coverage,
       }
 
@@ -396,6 +405,134 @@ export function runPreferenceSheetCli({
       // 1. THE CALLER KNOWS. The portal, the import screen's selection, or an agent
       //    driving the CLI/MCP. Attributed outright.
       if (camperName) return { displayName: camperName, source: 'caller', attributed: true }
+
+      // 1a. THIS SUBMISSION HAS ALREADY BEEN IMPORTED AND NAMED.
+      //
+      // T303 left this open as a design decision and it forked a real child. Import
+      // a planner, let the director name the subject, re-send the SAME bytes:
+      // `attributeElectiveSubject` rekeys the provisional row onto a name-derived id
+      // and drops the submission key, so the row T303's INDISTINGUISHABLE_SUBMISSION
+      // probes for is gone, a fresh provisional subject is derived, and one child
+      // ends up as two camper rows holding her week twice. Confirmed by execution
+      // before this was written: 2 campers, 8 elective_preferences rows, and the
+      // only residue was the ordinary UNATTRIBUTED_SUBJECT. Worse on the DECLARED
+      // path, where the same fork voids T303's own promise that the same declared
+      // arrival any number of times is one camper.
+      //
+      // THIS IS NOT A NEW RULE — IT IS THE EXISTING ONE, HELD. Absent a declaration,
+      // identical bytes are already one submission arriving once; that is what
+      // `deriveImportedElectiveRunId` is for and what T303 deliberately preserved.
+      // Attribution silently stopped it applying. So the fix restores the rule past
+      // the rekey rather than deciding anything new about what a submission means.
+      //
+      // WHY NO STORED KEY, and why the two shapes the ticket proposed were not
+      // needed. The link is ALREADY stored and already replicated: the rekey carries
+      // `run_id` onto the moved preference rows, and that run id is derived from the
+      // file's bytes, so this is an EXACT content-addressed lookup rather than
+      // similarity matching (explicitly a non-goal). `elective_preferences` is in
+      // PROJECTIONS, so it reaches every device — a host-local decision table in the
+      // `source_aliases` mould would not, and the fork would come back on the second
+      // device. Writing the submission key to `campers.external_id` instead would
+      // collide with the roster id that column holds and that `deriveCamperId`'s
+      // `ext` arm keys on, is single-valued so a second sheet evicts the first, and
+      // still could not separate the two cases below.
+      //
+      // ONLY AN ATTRIBUTED ROW, and only when there is exactly ONE. An unattributed
+      // match is T303's own case and is left to its residue untouched. Several
+      // matches means two arrivals were declared for these bytes and since named; no
+      // probe keyed on content can say which child this is, so it reports instead of
+      // guessing.
+      //
+      // ONLY WHEN THE CALLER DECLARED NOTHING. A declared arrival is a claim that
+      // this is a distinct submission, and the run id is the same for arrival A and
+      // arrival B — so converging here would merge a second real child onto the
+      // first whenever a caller declares them apart. That is the one refusal the ADR
+      // names, so the declared path is told and left alone. Owner's call, 2026-09-29.
+      // Probed unconditionally, because a DECLARED caller is told about it even
+      // though it does not change where the answers land.
+      const alreadyNamed = db
+        .prepare(
+          `SELECT DISTINCT c.id, c.display_name, c.external_id
+             FROM elective_preferences p
+             JOIN campers c ON c.id = p.camper_id
+            WHERE p.run_id = ? AND c.camp_id = ? AND c.is_unattributed IS NOT 1`
+        )
+        .all(importedRunId, camp.id)
+
+      if (declaredArrival != null && alreadyNamed.length > 0) {
+        // THE DECLARED PATH IS TOLD, NOT FIXED — a stated limit, not an oversight.
+        // A retry of arrival A and a second child declared as B produce the same
+        // bytes, the same run id and the same probe result, so nothing here can tell
+        // them apart; separating them means storing which arrival produced which
+        // camper, which is a schema version the owner chose not to spend. Silence
+        // was the defect T303 named, so the caller hears about it either way.
+        subjectResidue.push({
+          kind: 'SUBMISSION_ALREADY_NAMED_UNRESOLVED',
+          camper_ids: alreadyNamed.map((c) => c.id),
+          arrival_id: declaredArrival,
+          ...residueParts(
+            `Already stored under ${alreadyNamed.map((c) => `“${c.display_name}”`).join(', ')}`,
+            'These exact answers are already held by a named camper, and this import declared its ' +
+              'own arrival, so it landed as a new unnamed subject. If this was a RETRY of the ' +
+              'import that became that camper, nothing more is needed and this subject should be ' +
+              'discarded — a declared arrival cannot converge onto a camper who has since been ' +
+              'named. If it is a different child, name this subject.'
+          ),
+        })
+      } else if (alreadyNamed.length === 1) {
+        const named = alreadyNamed[0]
+        subjectResidue.push({
+          kind: 'SUBMISSION_ALREADY_NAMED',
+          camper_id: named.id,
+          camper_name: named.display_name,
+          ...residueParts(
+            `Stored as “${named.display_name}”`,
+            'This sheet was imported before and its subject has since been named, so these answers ' +
+              'went to that camper rather than to a new unnamed subject. If this is a DIFFERENT ' +
+              'child who chose the same activities, import again declaring a distinct arrival_id.'
+          ),
+        })
+        // HER ID IS CARRIED, NOT RE-DERIVED, and that is load-bearing rather than an
+        // optimisation. We just READ this row, so we hold its id; re-deriving one from
+        // her `display_name` and `external_id` would be a second rule for a fact
+        // already settled, and those two fields are ordinary admin-writable columns.
+        // An admin correcting a typo in a child's name, or attaching her roster id
+        // after the fact, would move her between `deriveCamperId`'s `name` and `ext`
+        // arms and the recipe would return an id she does not have — minting a SECOND
+        // fully-named row holding her week twice, neither row flagged, while this
+        // residue claimed the answers had reached her. Confirmed by execution.
+        //
+        // `display_name` and `external_id` still go along because the parser writes
+        // them onto the record: they are read fresh off her row a few lines above, so
+        // they write back what is already there. Dropping `externalId` here would
+        // CLEAR a real roster id.
+        //
+        // The preference ids derive from the camper id, so the commit is an idempotent
+        // overwrite of her own rows rather than a second set — and a preference she has
+        // since hand-edited stays held by commitElectiveRun's own provenance check
+        // (T297), not quietly overwritten.
+        return {
+          camperId: named.id,
+          displayName: named.display_name,
+          externalId: named.external_id || null,
+          source: 'already-named',
+          attributed: true,
+        }
+      }
+
+      if (declaredArrival == null && alreadyNamed.length > 1) {
+        subjectResidue.push({
+          kind: 'SUBMISSION_ALREADY_NAMED_UNRESOLVED',
+          camper_ids: alreadyNamed.map((c) => c.id),
+          ...residueParts(
+            `Already stored under ${alreadyNamed.length} named campers`,
+            'These exact answers are already held by more than one named camper, so which child ' +
+              'this sheet belongs to cannot be read from its content. It landed as a new unnamed ' +
+              'subject. Name it, or import again declaring the arrival_id that identifies this ' +
+              'submission.'
+          ),
+        })
+      }
 
       // 2/3. Nothing named the child, so the subject is PROVISIONAL — and its
       //    IDENTITY IS THE SUBMISSION, not the filename.
