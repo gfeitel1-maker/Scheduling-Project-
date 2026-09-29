@@ -29,7 +29,7 @@ import * as XLSX from 'xlsx'
 
 import { openLocalDb } from '../electron/db/localDb.js'
 import { commitElectiveRun, describeElectiveRunRefusal } from '../electron/ops/commitElectiveRun.js'
-import { deriveImportedElectiveRunId } from '../electron/ops/electiveDerivedIds.js'
+import { deriveImportedElectiveRunId, opaque } from '../electron/ops/electiveDerivedIds.js'
 import {
   detectGridLayout,
   inferPreferenceLayout,
@@ -118,8 +118,36 @@ export function runPreferenceSheetCli({
   // activity, which is a mutation of the camp's own setup rather than a reading
   // of the file, and an agent that wants one should create it as an activity.
   resolutions = null,
+  // T303 — WHICH ARRIVAL THIS IS, stated by the caller rather than inferred. Why the
+  // caller is the only one who can state it, and what happens when they do not, is at
+  // the `arrivalId:` line in resolveSubject below — the one place a reader needs it.
+  arrivalId = null,
 }) {
   const base = baseResult({ file, dbPath, action })
+
+  // VALIDATED AT THE BOUNDARY, because this becomes a component of a derived camper
+  // id and `opaque()` throws on anything outside [A-Za-z0-9_.:-]. Two other outcomes
+  // were available and both are worse: letting the throw escape breaks this
+  // function's contract that it never throws past this boundary, and IGNORING a
+  // malformed declaration merges the two children the caller was declaring apart —
+  // this ticket's own defect class, reappearing at our own API boundary.
+  //
+  // An EMPTY string is declaring nothing, not declaring badly, so it is not refused.
+  // `opaque` only VALIDATES — it returns its input unchanged — so there is nothing to
+  // assign and the token is the trimmed string either way. Same refuse-on-throw shape
+  // commitElectiveRun uses for its caller-supplied run id.
+  const declaredArrival = String(arrivalId ?? '').trim() || null
+  if (declaredArrival != null) {
+    try {
+      opaque('arrival_id', declaredArrival)
+    } catch {
+      return errorResult(
+        base,
+        'arrival_id must be an opaque token matching [A-Za-z0-9_.:-] — a UUID is the usual choice. ' +
+          'It is the name of THIS arrival, so two submissions get two of them and a retry reuses one.'
+      )
+    }
+  }
 
   // Read once: the same bytes are parsed below and hashed on commit, and
   // re-reading could hash a different file than the one that was parsed.
@@ -223,6 +251,46 @@ export function runPreferenceSheetCli({
     // refusal check, the author check and the derived run id cannot drift between
     // them — a second completion path is how T224 happened.
     const finishRun = ({ parsed, mapping, extraResidue = [] }) => {
+      // T303 — TWO SUBMISSIONS THIS PATH COULD NOT TELL APART, said out loud.
+      //
+      // The merge is not the defect; the SILENCE is. A caller that declared nothing
+      // gets the content-derived arrival, and under that declaration a retry and a
+      // second child who chose the same activities are the same event. An agent that
+      // can SEE that re-calls with explicit arrivals; an agent that cannot has lost a
+      // child's answers and will never know.
+      //
+      // Read off the id `parsePreferenceSheet` ALREADY derived rather than derived a
+      // second time here: a second derivation is a second rule, and two rules decide
+      // differently the day one of them is edited. Asking whether that exact row
+      // already exists is also the only honest form of the question — "another sheet
+      // somewhere has these answers" would be true in cases where this import did not
+      // converge onto it.
+      //
+      // Computed BEFORE the commit below, because after it the row always exists.
+      // Suppressed when the caller declared: they have already answered it. Suppressed
+      // for an attributed subject too — a name is a fact about the child, so two
+      // identical sheets under one name are one child by declaration, not by guess.
+      const alreadyThere = db.prepare('SELECT 1 FROM campers WHERE id = ?')
+      const arrivalResidue = declaredArrival != null
+        ? []
+        : parsed.campers
+            .filter((c) => c.is_unattributed === 1 && alreadyThere.get(c.id) != null)
+            .map((c) => ({
+              kind: 'INDISTINGUISHABLE_SUBMISSION',
+              camper_id: c.id,
+              submission_key: c.external_id,
+              ...residueParts(
+                `Stored as “${c.display_name || 'unnamed'}”`,
+                // THE REMEDY IS IN THE TELLING. An agent that never read the tool
+                // schema meets this parameter at the moment it needs it, which is the
+                // only moment it could act on it.
+                'These answers are identical to a sheet already imported, so they landed on the SAME ' +
+                  'camper — a retry and a second child who chose the same activities cannot be ' +
+                  'told apart from content. If this is a different child, import again declaring a ' +
+                  'distinct arrival_id for each submission.'
+              ),
+            }))
+
       const report = {
         ...base,
         mapping,
@@ -239,8 +307,10 @@ export function runPreferenceSheetCli({
         sameNameCampers: parsed.sameNameCampers,
         skippedRows: parsed.skippedRows,
         // The workbook-level residue is the CLI's own: the parser is pure and
-        // takes one table, so it cannot know a second tab existed.
-        residue: [...extraResidue, ...parsed.residue],
+        // takes one table, so it cannot know a second tab existed. The arrival
+        // collision is the CLI's own for the same reason in reverse — it is a fact
+        // about the DATABASE, which the pure parser cannot read.
+        residue: [...arrivalResidue, ...extraResidue, ...parsed.residue],
         coverage: parsed.coverage,
       }
 
@@ -365,15 +435,22 @@ export function runPreferenceSheetCli({
         // same activities produce byte-identical sheets, and keying on content alone
         // merged them onto one camper row holding both children's answers.
         //
-        // THIS PATH'S ARRIVAL IS THE FILE'S BYTES, deliberately, and it is the one
-        // place where that is the right answer. An agent driving this CLI retries,
-        // and `deriveImportedElectiveRunId`'s whole purpose is that re-sending the
-        // same bytes is one import rather than two. So on this path identical bytes
-        // ARE one submission arriving once, by this caller's own declaration — the
-        // consequence being that two children's byte-identical files reach the same
-        // subject here, while on the director's panel (which mints an arrival per
-        // file selection) they reach two.
-        arrivalId: importedRunId,
+        // T303 — THE CALLER'S OWN DECLARATION FIRST, the file's bytes as the default.
+        //
+        // The default is not a guess dressed up as one: `deriveImportedElectiveRunId`
+        // exists so that re-sending the same bytes is one import rather than two, and
+        // an agent that cannot safely retry a failed call cannot be trusted to drive
+        // this software at all. So absent any declaration, identical bytes stay one
+        // submission arriving once — with the consequence, said out loud rather than
+        // left silent, that two children's byte-identical files reach ONE subject.
+        //
+        // What the default CANNOT do is separate two children who chose the same
+        // activities, because there is no second fact in the bytes to separate them
+        // with. `arrivalId` is that second fact, and only the caller holds it: two
+        // submissions get two tokens, a retry reuses one. Minting one per invocation
+        // here instead would buy the two children by forking every retry, which is
+        // the trade T299 identified and refused.
+        arrivalId: declaredArrival ?? importedRunId,
         source: stem ? 'filename' : 'none',
         attributed: false,
       }

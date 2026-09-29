@@ -258,9 +258,17 @@ export function electiveChoiceLabelKey(label) {
 // property of the bytes at all: WHICH IMPORT THIS SUBMISSION ARRIVED IN. Two
 // children handing in matching sheets are two import actions; one import action
 // repeated is one arrival. The caller states it, because only the caller knows
-// — the director's panel mints one per file selection, and the CLI passes the
-// run id it derives from the file's bytes, which is what keeps an agent's retry
-// after an ambiguous timeout idempotent (deriveImportedElectiveRunId).
+// — the director's panel mints one per file selection, and on the machine path
+// an agent declares one per submission (T303: `arrival_id` on
+// preference_sheet_preview/commit, `arrivalId` on runPreferenceSheetCli).
+//
+// A MACHINE CALLER THAT DECLARES NOTHING falls back to the run id derived from
+// the file's bytes, which is what keeps an agent's retry after an ambiguous
+// timeout idempotent (deriveImportedElectiveRunId). That fallback cannot
+// separate two children who chose the same activities — under it, identical
+// bytes ARE one submission arriving once — so the import reports
+// INDISTINGUISHABLE_SUBMISSION when it lands on a submission already imported
+// rather than merging in silence. The fallback is a stated default, not a guess.
 //
 // ORDERING WITHIN ONE IMPORT IS NOT THE SAME FACT and is not used here. A
 // position — row ordinal, sheet index — describes how the file happened to be

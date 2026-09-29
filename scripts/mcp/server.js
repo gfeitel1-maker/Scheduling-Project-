@@ -103,6 +103,11 @@ const TOOLS = [
           description:
             "Optional. WHOSE sheet this is. A filled-in planner grid has no camper-name column — it is one camper's own sheet and the identity comes from the submission, not the page — so pass the camper's name here when you know it. Without it the sheet is still imported in full, against a provisional subject you can name later with attribute_camper_subject.",
         },
+        arrival_id: {
+          type: 'string',
+          description:
+            "Optional. WHICH ARRIVAL this is: your own name for this submission, e.g. a UUID. Two children can hand in byte-identical sheets (both picked archery and swim), and nothing in the content can tell them apart — so give each submission its own arrival_id and they land as two campers. REUSE one arrival_id to retry: the same arrival_id any number of times is one camper, which is how you safely repeat a call that timed out. Without it the arrival is taken from the file's bytes, so identical sheets converge onto one camper and the result's residue says so. Must match [A-Za-z0-9_.:-].",
+        },
         label_resolutions: {
           type: 'array',
           description:
@@ -135,6 +140,11 @@ const TOOLS = [
           type: 'string',
           description:
             "Optional. WHOSE sheet this is, for a planner grid that names no camper. Without it the choices are still stored in full against a provisional subject, which list_unattributed_subjects will show and attribute_camper_subject can name later without re-importing.",
+        },
+        arrival_id: {
+          type: 'string',
+          description:
+            "Optional. WHICH ARRIVAL this is: your own name for this submission, e.g. a UUID. Two children can hand in byte-identical sheets (both picked archery and swim), and nothing in the content can tell them apart — so give each submission its own arrival_id and they land as two campers. REUSE one arrival_id to retry: the same arrival_id any number of times is one camper, which is how you safely repeat a call that timed out. Without it the arrival is taken from the file's bytes, so identical sheets converge onto one camper and the result's residue says so. Must match [A-Za-z0-9_.:-].",
         },
         label_resolutions: {
           type: 'array',

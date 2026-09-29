@@ -105,18 +105,31 @@ choke point: `attentionList.test.js` builds its collections from the real load l
 
 ## Known limit at close
 
-Two limits, both confirmed by execution, and together they are why this stays open.
+Two limits were recorded here at close. **The first is now closed by T303; the second is not, and it
+is why this ticket stays open.**
 
-**1. The CLI/MCP path still merges two byte-identical files into one subject.** Not an oversight but
-an unresolved product question. `deriveImportedElectiveRunId` keys a CLI import on the file's bytes
-precisely so that re-sending the same bytes is an idempotent retry; under that declaration two
-identical files ARE one submission arriving once, and there is no second fact on that path to
-separate them. Giving the CLI a per-invocation arrival would split the two children and
-simultaneously fork every retry. Pinned as a test rather than left implicit, in
-`test/unattributedSubjectIdentity.test.js` ("KNOWN LIMIT"), so it cannot drift either way unnoticed.
+**1. ~~The CLI/MCP path still merges two byte-identical files into one subject.~~ CLOSED by T303**
+(`docs/work/tickets/T303-caller-declared-arrival-on-the-machine-path.md`), which took exactly the
+route this section named below: an explicit token supplied by the caller, so a retry SAYS it is a
+retry instead of being inferred from content. `runPreferenceSheetCli` and both MCP preference-sheet
+tools now take an arrival the caller declares — two declared arrivals are two campers even on
+byte-identical bytes, and one declared arrival repeated is one camper.
 
-Closing it needs an owner decision — most likely an explicit idempotency token supplied by the
-caller, so a retry can say it is a retry instead of being inferred from content.
+Stated precisely, because half of what this limit described is intended behaviour rather than a gap:
+a caller that declares NOTHING still gets the content-derived arrival, so two byte-identical files
+still land as one subject on that path. That is the standing "never say no at the machine interface"
+ruling, not a residual defect — and it is no longer silent. The import now reports an
+`INDISTINGUISHABLE_SUBMISSION` residue item naming the parameter that separates them, so an agent
+that could not previously have known now can. The pinning test in
+`test/unattributedSubjectIdentity.test.js` was renamed off "KNOWN LIMIT" and given that second
+assertion.
+
+_Prior reasoning, kept because it is why T303 added a parameter rather than minting an arrival per
+call:_ `deriveImportedElectiveRunId` keys a CLI import on the file's bytes precisely so that
+re-sending the same bytes is an idempotent retry; under that declaration two identical files ARE one
+submission arriving once. Giving the CLI a per-invocation arrival would split the two children and
+simultaneously fork every retry. That trap was planted as a test under T303 and confirmed to fork the
+retry — the red landed on the camper row count.
 
 **2. A WHOLE-SHEET planner grid cannot be imported through the director's panel at all.** Pre-existing,
 found while verifying this ticket, and it bounds the first `archive_when` clause more than the
