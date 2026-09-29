@@ -120,7 +120,12 @@ export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [
  *   leaves stale and re-applies the shape gates a hand edit can walk past.
  * @param {string}   [args.submissionKey] WHAT a provisional subject submitted —
  *   an opaque per-submission string (a content hash). Two different submissions
- *   can never collide; the same submission re-read converges.
+ *   can never collide; the same submission re-read converges. OMITTING IT IS THE
+ *   NORMAL CASE and derives it from `rows` (T313): the key must be over exactly the
+ *   rows that were read, and letting each caller pass its own was the last way two
+ *   doors could key one submission on two different row sets. The panel still passes
+ *   its own because it holds the key in state across the re-parses a settled label
+ *   triggers, and that value is this same derivation.
  * @param {string}   [args.arrivalId]    WHICH IMPORT this submission arrived in,
  *   and half of a provisional subject's identity (T299). The content key alone
  *   cannot be that identity: two children who picked the same activities produce
@@ -134,6 +139,12 @@ export function buildPreferenceCatalog({ activities = [], groups = [], tiers = [
  *   idempotent; that fallback cannot separate two children who chose the same
  *   activities, and the import says so rather than merging in silence.
  *
+ *   THAT FALLBACK IS THE CALLER'S RULE, NOT THIS MODULE'S, and it is why there is no
+ *   `defaultArrivalId` parameter here (T313). Only the CLI has file bytes to
+ *   content-address, and the panel deliberately mints one arrival per file selection;
+ *   a default living here would be a third policy neither door wants. The CLI resolves
+ *   `declaredArrival ?? importedRunId` before the call and passes the answer.
+ *
  * @returns {{mapping, parsed}|{mapping, parsed: null, unmapped: string[]}}
  *   `parsed: null` means no table here could be read as a preference sheet. That is
  *   NOT a refusal (ADR §14.1 — the machine seam never refuses a readable file); the
@@ -144,6 +155,13 @@ export function readPreferenceSheet({
   campId,
   catalog,
   camperName = null,
+  // T313 / #644 — a camper the caller has already LOCATED, by id. Set with
+  // `camperName`, never instead of it: the name is what gets WRITTEN onto the row and
+  // the id is what the row IS. Absent, an attributed subject's id is derived as before.
+  camperId = null,
+  // The located camper's roster id, carried through rather than dropped: the parser
+  // writes it back onto the record, and omitting it would CLEAR a real roster id.
+  externalId = null,
   sourceLabel = null,
   submissionKey = null,
   arrivalId = null,
@@ -190,11 +208,34 @@ export function readPreferenceSheet({
   // Deliberately NOT derived from the campers named elsewhere on the page: a page
   // carrying a grid AND a ranked list names several, so picking one would be a guess
   // about whose week the grid describes.
+  // THE ONLY PLACE A PROVISIONAL SUBJECT IS BUILT (T313). The CLI kept its own
+  // `resolveSubject` spelling this same object, and the halves drifted exactly where a
+  // second spelling always does: T303 taught the CLI's copy a caller-declared arrival
+  // and left this one forwarding a bare `arrivalId`, so the machine door and the
+  // director's door disagreed about the second half of a child's identity. The CLI
+  // file's own comment had named the cost for the submission KEY — "two rules fork one
+  // child into two subjects depending on which door their sheet came through" — and
+  // nothing was checking it for the arrival, or for the object around it.
+  //
+  // WHAT THE CALLER STILL DECIDES, because only a caller can: whether it has already
+  // LOCATED this camper. `camperId` is that answer, and it is a FACT rather than a
+  // recipe — `deriveCamperId`'s `ext`/`name` arms read `external_id` and `display_name`,
+  // both ordinary admin-writable columns, so re-deriving an id for a row that already
+  // exists mints a second one the day an admin fixes a typo (#644, confirmed by
+  // execution). A door that looked the camper up passes the id; nothing is derived.
   const subject = camperName
-    ? { displayName: camperName, source: 'caller', attributed: true }
+    ? {
+        camperId: camperId || null,
+        displayName: camperName,
+        externalId: externalId || null,
+        source: camperId ? 'located' : 'caller',
+        attributed: true,
+      }
     : {
         displayName: sourceLabel || null,
-        externalId: submissionKey,
+        // Derived here when the caller did not state it, so the key is always over
+        // the rows that were actually read.
+        externalId: submissionKey ?? submissionKeyFromRows(rows),
         arrivalId,
         source: sourceLabel ? 'label' : 'none',
         attributed: false,
@@ -204,11 +245,21 @@ export function readPreferenceSheet({
     return { mapping, parsed: null, unmapped: mapping.unmapped }
   }
 
-  const parsed = parsePreferenceSheet(rows, {
+  const parsed = parsePreferenceSheet(
+    // A whole-sheet grid has NO row-per-camper table, so there is no table body to hand
+    // the transform — the grid's own rows go in under `grid.rows` below. Passing them
+    // positionally as well made `parsePreferenceSheet` walk each one looking for a
+    // camper name, find none, and report every row of the planner as
+    // `skippedRows: 'no camper name'` — which ParseSummary showed the director as
+    // "N row(s) skipped" on an import where all N rows landed. A residue item that is
+    // false is worse than one that is missing, and the CLI door always passed `[]`
+    // here (T313).
+    wholeSheetGrid ? [] : rows,
+    {
     campId,
-    // A whole-sheet grid has no row-per-camper table, so the mapping it carries
-    // describes nothing; give the transform an empty one rather than a mapping whose
-    // `unmapped` would be read as a finding about a sheet that was in fact read.
+    // The mapping a whole-sheet grid carries describes nothing; give the transform an
+    // empty one rather than a mapping whose `unmapped` would be read as a finding
+    // about a sheet that was in fact read.
     mapping: wholeSheetGrid
       ? { unmapped: [], unrecognisedColumns: [], rankColumns: [], headerIndex: 0 }
       : mapping,
@@ -223,8 +274,9 @@ export function readPreferenceSheet({
           headerIndex: 0,
         }
       : undefined,
-    subject: grid ? subject : undefined,
-  })
+      subject: grid ? subject : undefined,
+    }
+  )
 
   return { mapping, parsed }
 }
